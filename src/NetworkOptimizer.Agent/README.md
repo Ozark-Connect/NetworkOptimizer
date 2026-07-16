@@ -14,6 +14,54 @@ gRPC tunnel travel through that one host; the reverse proxy fans them out to the
 right port (see [Reverse proxy](#reverse-proxy)). The agent only ever speaks
 HTTPS, and never accepts inbound connections - it dials out.
 
+## When you need an agent
+
+The on-site agent is the recommended way to bring a site online: one outbound
+HTTPS tunnel, no VPN and no port-forwarding, works behind CGNAT, nothing new to
+deploy between sites. It proxies that site's **UniFi Console, SNMP, and device
+SSH**, hosts the site's own probes and speed tests, and unlocks the full feature
+set.
+
+If you already reach a site over a site-to-site VPN (or a public address), you
+can onboard it with no agent and still get a solid floor - management, auditing,
+and SNMP work directly. The agent adds the site's own monitoring and performance
+layer on top. What works each way:
+
+| Capability | Without an agent (site reachable over VPN) |
+|---|---|
+| Security Audit | Yes - UniFi Console API + gateway SSH |
+| Wi-Fi Optimizer | Yes - Console API |
+| Config Optimizer / Performance Tweaks | Yes - gateway SSH |
+| Threat Intelligence | Yes - Console API + threat feeds |
+| WAN Steering | Yes - gateway SSH |
+| Adaptive SQM | Yes - gateway SSH |
+| SNMP device health (CPU/mem/temp, interfaces, SFP) | Yes - the server polls SNMP directly |
+| Latency / packet-loss probing | Needs agent - probes from *inside* the site; a server-side probe measures the wrong path |
+| ISP Health + Upstream Path Discovery | Needs agent - path discovery and latency targets run from the site |
+| LAN / WAN / Client speed tests | Needs agent - tests must originate inside the site |
+| Cable Modem / ONT / Cellular / Starlink status | Only if the management IP is VPN-routable (often `192.168.100.x` and not); otherwise needs the agent |
+
+Bottom line: the agent gets you everything with zero new inter-site
+infrastructure, and it's the only path for a site you can't already reach. A
+site-to-site VPN gets you the management/audit/SNMP floor without an agent; ISP
+Health, path discovery, site-vantage latency/loss, and speed tests are the
+agent's to add.
+
+## Where to run it
+
+The agent is light. It's a self-contained binary - a Docker image or a
+bare-metal systemd service, no database and no .NET runtime to install - and
+management, SNMP, and probing barely register. A low-power arm64 or amd64 box, a
+Raspberry Pi-class SBC, or a spare VM/LXC on a hypervisor or server you already
+run is plenty. Both arm64 and amd64 builds are published.
+
+The only part that scales with hardware is **LAN speed testing**, and even that
+is forgiving: to measure multi-gig you need a NIC and link that can carry it,
+but nginx serves the transfer legs with `sendfile`, so pretty limited hardware
+handles 2.5 GbE fine and most multi-core hardware from the last decade saturates
+10 GbE without breaking a sweat. Match the box to the LAN speed you actually
+want to test.
+
 ## Install
 
 On the site's agent box, install with Docker or bare-metal (systemd) - pick one.
@@ -264,6 +312,22 @@ A compromised central server is game-over for the gateways it manages, and that
 is inherent to centralized gateway management, not a flaw of the tunnel - no
 protocol trick changes it, which is exactly why protecting the server is the
 whole ballgame.
+
+**Segment the agent box (recommended).** Put the agent on a management VLAN and
+firewall it to need-only reach. Outbound (WAN): HTTPS (443) to the central
+server for the tunnel, ICMP for latency/loss probing and path discovery, and
+HTTP 80/8080 plus 443 if you run WAN speed tests - any other outbound can be
+locked down. On the LAN: only the targets the features you turned on actually
+touch - UniFi Console, gateway/device SSH, any modem/ONT/cellular/Starlink
+status pages, and your probe/speed-test targets. This is the network-side
+complement to `proxyAllowedCidrs` below: that pins what the server can reach
+*through* the agent; this caps what the agent box can reach *on your network* if
+it is ever compromised.
+
+Coming soon: the Security Audit will review the agent's own firewall placement,
+and Network Optimizer will be able to deploy a recommended least-privilege
+firewall configuration automatically, based on the agent's detected VLAN and
+infrastructure.
 
 ### What the agent enforces on its own
 

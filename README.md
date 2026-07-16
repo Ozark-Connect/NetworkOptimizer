@@ -5,7 +5,7 @@
 # Network Optimizer for UniFi
 
 [![GitHub Release](https://img.shields.io/github/v/release/Ozark-Connect/NetworkOptimizer)](https://github.com/Ozark-Connect/NetworkOptimizer/releases)
-[![Docker Pulls](https://img.shields.io/badge/docker_pulls-402k-blue?logo=docker)](https://github.com/orgs/Ozark-Connect/packages?repo_name=NetworkOptimizer)
+[![Docker Pulls](https://img.shields.io/badge/docker_pulls-412k-blue?logo=docker)](https://github.com/orgs/Ozark-Connect/packages?repo_name=NetworkOptimizer)
 [![Windows Downloads](https://img.shields.io/github/downloads/Ozark-Connect/NetworkOptimizer/total?label=windows%20downloads)](https://github.com/Ozark-Connect/NetworkOptimizer/releases)
 [![GitHub last commit](https://img.shields.io/github/last-commit/Ozark-Connect/NetworkOptimizer)](https://github.com/Ozark-Connect/NetworkOptimizer/commits)
 [![GitHub Stars](https://img.shields.io/github/stars/Ozark-Connect/NetworkOptimizer)](https://github.com/Ozark-Connect/NetworkOptimizer/stargazers)
@@ -19,9 +19,19 @@ Genuinely, thank you so much to everybody for taking the time to use Network Opt
 
 ## Multi-Site Support
 
-Whether you run an MSP with a book of client networks, a few business locations, or your own place plus a handful you keep an eye on, you can now manage all of them from one Network Optimizer. Each site runs a lightweight on-site agent that dials home over a single outbound HTTPS tunnel: no inbound access to the site, nothing to port-forward, works fine behind CGNAT. Every site gets the full treatment from the central dashboard: ISP Health scoring and path analysis, security audits, Wi-Fi and channel optimization, Adaptive SQM, performance tweaks, and LAN, WAN, and client speed tests, with the agent proxying that site's probing, SNMP, UniFi Console, and device SSH over the tunnel and each site's data kept its own. The [agent guide](src/NetworkOptimizer.Agent/README.md) walks through installing an agent.
+Whether you run an MSP with a book of client networks, a few business locations, or your own place plus a handful you keep an eye on, you can now manage all of them from one Network Optimizer. The recommended way to bring a site online is a [lightweight on-site agent](src/NetworkOptimizer.Agent/README.md) that dials home to your self-hosted server over a single outbound HTTPS tunnel: no inbound access to the site, nothing to port-forward, works fine behind CGNAT, and nothing new to stand up between your locations. It delivers the full feature set - ISP Health scoring and path analysis, security audits, Wi-Fi and channel optimization, Adaptive SQM, performance tweaks, and LAN, WAN, and client speed tests - proxying that site's probing, SNMP, UniFi Console, and device SSH over the tunnel, with each site's data kept its own.
+
+Already run a site-to-site VPN to a location? Onboard it with no agent at all and still get a solid floor: security audits, Wi-Fi and channel optimization, performance tweaks, Adaptive SQM, WAN steering, and SNMP device health, straight over the VPN. Deploy the agent when you also want that site's monitoring and performance layer - ISP Health, path discovery, latency and loss, and speed tests - or for any site the VPN doesn't reach. The [agent guide](src/NetworkOptimizer.Agent/README.md) walks through installing one.
 
 **Licensing and firewalls:** Personal, non-commercial use on up to 3 sites is free - no key, nothing phones home. Commercial use or more than 3 sites requires a license key (Settings > Application > Licensing); for licensing or a trial key, contact tj@ozarkconnect.net. Activating a key makes an outbound HTTPS request to `licensing.ozarkconnect.net`, so allow HTTPS (443) to that hostname if you run strict egress rules. A license server outage never disables your sites - entitlements are cached and verified locally.
+
+## New: Starlink Monitoring
+
+Native health monitoring for Starlink dishes, built on what only the dish itself can tell you. Starlink's terminal exposes a local gRPC API (192.168.100.1:9200) that needs no authentication from the LAN side, so Network Optimizer polls it directly - no Starlink account, nothing in the cloud. Latency and throughput are deliberately left out, since Monitoring already measures RTT and WAN speed with better fidelity; this tracks the signals only the dish knows.
+
+A live dashboard card and a dedicated Monitoring tab both center on an obstruction sky map rendered from the dish's own 123x123 SNR grid, so blockages show up exactly where they sit in the sky. Alongside it: sky-obstruction percentage, dish-side packet loss, power draw, negotiated Ethernet speed, uptime, GPS fix, last outage, and any active dish alerts - all charted as time-series with the same InfluxDB history as the rest of your monitoring, and it handles multiple dishes. Set a WAN's access technology to Satellite and ISP Health scores it on sky obstruction, dish-to-ground packet loss, and outage burden, with caps for thermal shutdown, tilt, water intrusion, and persistently low SNR. Like the rest of Monitoring, it works at external sites over the on-site agent tunnel.
+
+![Starlink Stats card with obstruction sky map and dish health readings](docs/images/starlink-stats.png)
 
 ## New: ISP Health
 
@@ -100,9 +110,6 @@ Set up automated speed tests and security audits on a schedule, and get notified
 Alert rules watch for the things that matter: audit score drops, WAN speed degradation, LAN speed regression against recent baselines, IPS attack chains reaching active exploitation, and scheduled task failures. Each rule has configurable severity thresholds and cooldown periods so you're not drowning in noise. Threshold-based rules (like "alert me when WAN speed drops 40% below the recent average") let you tune sensitivity to your environment.
 
 Delivery channels support email (SMTP with STARTTLS), Discord, Slack, Microsoft Teams, and generic webhooks. Low-priority alerts can be set to digest-only mode so they get bundled into a daily summary instead of pinging you every time your neighbor microwaves lunch and your 2.4 GHz channel gets congested.
-## New: Client Performance
-
-A per-device analytics dashboard for any client on your network. Pick a device and get live signal monitoring, speed test history with download/upload trends, latency and jitter charts, network path visualization showing every hop and bottleneck link, and a connection timeline tracking AP roams and disconnects. Walk around with the page open on your phone (over HTTPS) and it builds a GPS-based signal heatmap of your actual coverage. Three tabs - Speed, Signal, and Connection - give you everything you need to troubleshoot why a device is slow or unstable.
 
 ---
 
@@ -117,6 +124,8 @@ Network Optimizer answers those questions. It connects to your UniFi controller,
 Site health scoring, RF environment analysis, client stats, roaming tracking, band steering, and airtime fairness across twelve analysis tabs. The Channel Recommendation engine models pairwise AP interference using signal propagation, live RF scan data, and triangulated neighbor networks, then factors in historical channel stress (utilization, interference, TX retries) to find the lowest-interference channel assignment across your entire network. It respects mesh uplink constraints, DFS preferences, and regulatory channel availability, and validates every recommended move against improvement thresholds so it won’t suggest changes that aren’t worth the disruption.
 
 On the client side, you get a sortable, searchable table view with online/offline filtering, per-client signal and roaming history, and band-segmented Wi-Fi generation breakdowns showing exactly where your airtime is going. Environmental correlation heatmaps surface interference patterns by time of day and day of week, and every recommendation includes the specific UniFi Network UI navigation path to apply the change.
+
+Drill into any single client with the Client Performance dashboard: live signal monitoring, speed test history with download/upload trends, latency and jitter charts, a network path visualization showing every hop and bottleneck link, and a connection timeline tracking AP roams and disconnects, split across Speed, Signal, and Connection tabs. Walk around with the page open on your phone (over HTTPS) and it builds a GPS-based signal heatmap of your actual coverage.
 
 Signal Map lets you draw your building layout, place APs, and see a real-time RF propagation heatmap. Supports wall materials (drywall, concrete, glass, etc.), multi-floor buildings with cross-floor signal propagation, and per-AP antenna patterns pulled from your controller. Simulate TX power and antenna mode changes to see how they’d affect coverage before touching your actual config. Add planned APs to simulate coverage before buying or mounting hardware.
 

@@ -250,7 +250,7 @@ For the initial admin password, check the add-on's **Log** tab instead of using 
 
 ### 6. Multi-Site On-Site Agent
 
-For multi-site deployments, each remote site runs a lightweight on-site agent that dials home to this central server over a single outbound HTTPS tunnel - no inbound access to the site is required. The agent handles that site's latency/loss probing, SNMP monitoring, UniFi Console proxying, and LAN speed testing.
+For multi-site deployments, the recommended way to bring a remote site online is a lightweight on-site agent that dials home to your central server over a single outbound HTTPS tunnel - no inbound access, no VPN, no port-forwarding, works behind CGNAT, nothing new to deploy between sites. It proxies that site's UniFi Console, SNMP, and device SSH, hosts its probes and speed tests, and delivers the full feature set. If you already reach a site over a site-to-site VPN, you can onboard it with no agent and still get a solid floor - security audit, Wi-Fi, config, Adaptive SQM, WAN steering, and SNMP - directly; add the agent when you also want that site's monitoring and performance layer (ISP Health, path discovery, latency/loss, and speed tests).
 
 Install it with Docker or as a bare-metal systemd service. Per-site one-liners are generated in the web UI under **Settings > Multi-Site > (site) > Agents > Set up agent**. See the [Agent Deployment Guide](../src/NetworkOptimizer.Agent/README.md) for the full walkthrough, all options, and reverse-proxy configuration.
 
