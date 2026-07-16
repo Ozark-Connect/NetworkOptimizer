@@ -513,6 +513,17 @@ h1:focus {
     gap: 0.5rem;
 }
 
+.settings-title-link {
+    display: inline-flex;
+    align-items: center;
+    color: var(--text-muted);
+    transition: color 0.15s ease;
+}
+
+.settings-title-link:hover {
+    color: var(--primary-color);
+}
+
 .card-header-right {
     display: flex;
     align-items: center;

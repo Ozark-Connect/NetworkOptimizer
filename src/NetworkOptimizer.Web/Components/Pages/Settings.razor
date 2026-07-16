@@ -952,7 +952,15 @@
     <!-- 6. Cellular Modem -->
     <div class="card settings-tab-monitoring" id="cellular-modem">
         <div class="card-header">
-            <h2 class="card-title">Cellular Modem (5G/LTE)</h2>
+            <div class="card-header-left">
+                <h2 class="card-title">Cellular Modem (5G/LTE)</h2>
+                @if (_monitoringSettings?.ShowCellularTab == true)
+                {
+                    <a href="/monitoring?tab=cellular" class="settings-title-link" data-tooltip="Open Cellular Stats">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"></path><path d="M10 14 21 3"></path><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path></svg>
+                    </a>
+                }
+            </div>
             <span class="status-badge status-@modemStatus.ToLower()">@modemStatus</span>
         </div>
         <div class="card-body">
@@ -1263,7 +1271,15 @@
     <!-- Cable Modem Monitoring -->
     <div class="card settings-tab-monitoring" id="cable-modem">
         <div class="card-header">
-            <h2 class="card-title">Cable Modem Monitoring</h2>
+            <div class="card-header-left">
+                <h2 class="card-title">Cable Modem Monitoring</h2>
+                @if (_monitoringSettings?.ShowCmTab == true)
+                {
+                    <a href="/monitoring?tab=cm" class="settings-title-link" data-tooltip="Open CM Stats">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"></path><path d="M10 14 21 3"></path><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path></svg>
+                    </a>
+                }
+            </div>
             <span class="status-badge status-@_cmStatus.ToLower()">@_cmStatus</span>
         </div>
         <div class="card-body">
@@ -1446,7 +1462,15 @@
     <!-- ONT Device Monitoring -->
     <div class="card settings-tab-monitoring" id="ont-monitoring">
         <div class="card-header">
-            <h2 class="card-title">ONT Device Monitoring</h2>
+            <div class="card-header-left">
+                <h2 class="card-title">ONT Device Monitoring</h2>
+                @if (_monitoringSettings?.ShowOntTab == true)
+                {
+                    <a href="/monitoring?tab=ont" class="settings-title-link" data-tooltip="Open ONT Stats">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"></path><path d="M10 14 21 3"></path><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path></svg>
+                    </a>
+                }
+            </div>
             <span class="status-badge status-@_ontStatus.ToLower()">@_ontStatus</span>
         </div>
         <div class="card-body">
@@ -1633,7 +1657,15 @@
     <!-- Starlink Monitoring -->
     <div class="card settings-tab-monitoring" id="starlink">
         <div class="card-header">
-            <h2 class="card-title">Starlink Monitoring</h2>
+            <div class="card-header-left">
+                <h2 class="card-title">Starlink Monitoring</h2>
+                @if (_monitoringSettings?.ShowStarlinkTab == true)
+                {
+                    <a href="/monitoring?tab=starlink" class="settings-title-link" data-tooltip="Open Starlink Stats">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"></path><path d="M10 14 21 3"></path><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path></svg>
+                    </a>
+                }
+            </div>
             <span class="status-badge status-@_starlinkStatus.ToLower()">@_starlinkStatus</span>
         </div>
         <div class="card-body">
