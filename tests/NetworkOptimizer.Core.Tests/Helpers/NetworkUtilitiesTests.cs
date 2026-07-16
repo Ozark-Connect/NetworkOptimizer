@@ -441,6 +441,42 @@ public class NetworkUtilitiesTests
 
     #endregion
 
+    #region ExtractHostFromUrl Tests
+
+    [Theory]
+    [InlineData(null, "")]
+    [InlineData("", "")]
+    [InlineData("   ", "")]
+    public void ExtractHostFromUrl_NullOrWhitespace_ReturnsEmptyish(string? input, string expected)
+    {
+        NetworkUtilities.ExtractHostFromUrl(input).Should().Be(input ?? expected);
+    }
+
+    [Theory]
+    [InlineData("192.168.100.1", "192.168.100.1")]
+    [InlineData("  192.168.100.1  ", "192.168.100.1")]
+    [InlineData("modem.local", "modem.local")]
+    [InlineData("192.168.100.1:8080", "192.168.100.1:8080")]
+    public void ExtractHostFromUrl_BareHostOrHostPort_PassesThrough(string input, string expected)
+    {
+        NetworkUtilities.ExtractHostFromUrl(input).Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("http://192.168.100.1", "192.168.100.1")]
+    [InlineData("http://192.168.100.1/", "192.168.100.1")]
+    [InlineData("https://192.168.100.1/status.html", "192.168.100.1")]
+    [InlineData("HTTP://192.168.100.1/cgi-bin/status?page=1", "192.168.100.1")]
+    [InlineData("https://192.168.100.1:8443/login", "192.168.100.1")]
+    [InlineData("http://modem.local/#/dashboard", "modem.local")]
+    [InlineData("192.168.100.1/status.html", "192.168.100.1")]
+    public void ExtractHostFromUrl_UrlShapedInput_ReturnsBareHost(string input, string expected)
+    {
+        NetworkUtilities.ExtractHostFromUrl(input).Should().Be(expected);
+    }
+
+    #endregion
+
     #region NormalizeControllerUrl Tests
 
     [Theory]

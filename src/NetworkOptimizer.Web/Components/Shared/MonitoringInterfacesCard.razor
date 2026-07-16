@@ -23,19 +23,17 @@
         <div class="expand-content">
             <div class="card-body">
         <p class="section-description">
-            Having trouble reaching your ONT or modem for polling? When a modem or ONT management
-            page sits behind your WAN, the gateway can't route to it and monitoring (and your
-            browser) can't reach it. A monitoring interface adds a small, reboot-safe route on the
-            gateway so that device becomes reachable from the LAN.
+            Can't reach your modem or ONT behind the WAN? A monitoring interface adds a small,
+            reboot-safe route on the gateway so the device is reachable from the LAN. Two WAN
+            devices sharing the same management IP? Give one an Alias IP and monitor both.
         </p>
 
         <div class="mi-tip">
-            <strong>Try this first - a native static route may be all you need.</strong>
-            In UniFi Network, go to <strong>Settings → Policy Engine → Policy Table</strong> and add a
-            <strong>Static Route</strong> for the device's IP (for example <code>192.168.100.1/32</code>)
-            out the WAN interface it sits behind. No scripts and nothing to maintain. If the device
-            still isn't reachable afterward - common for modems and ONTs that only answer when the
-            gateway has an on-link address on their subnet - add a monitoring interface below.
+            <strong>Try a native static route first.</strong>
+            In UniFi Network, add a <strong>Static Route</strong> (<strong>Settings → Policy Engine →
+            Policy Table</strong>) for the device's IP (e.g. <code>192.168.100.1/32</code>) out the WAN
+            interface it sits behind - no scripts, nothing to maintain. If it's still unreachable, or
+            two WAN devices share the IP, add a monitoring interface below.
         </div>
 
         @if (_interfaces.Count == 0)

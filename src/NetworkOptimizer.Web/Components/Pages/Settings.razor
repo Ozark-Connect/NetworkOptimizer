@@ -5147,6 +5147,9 @@
             return;
         }
 
+        // People paste the modem's management page URL here - strip it down to the host.
+        editingModem.Host = NetworkUtilities.ExtractHostFromUrl(editingModem.Host);
+
         if (string.IsNullOrWhiteSpace(editingModem.Name) || string.IsNullOrWhiteSpace(editingModem.Host))
         {
             modemMessage = "Name and Host are required";
@@ -5238,6 +5241,9 @@
 
     private async Task TestModemConnection(ModemConfiguration modem)
     {
+        // Testing from the edit form can carry a pasted URL - probe the bare host the
+        // save path would keep.
+        modem.Host = NetworkUtilities.ExtractHostFromUrl(modem.Host);
         _modemTestedHost = modem.Host;
         modemMessage = $"Polling {modem.Name}...";
         modemMessageClass = "info";
@@ -5291,6 +5297,9 @@
 
     private async Task SaveCm()
     {
+        // People paste the modem's management page URL here - strip it down to the host.
+        _editingCm.Host = NetworkUtilities.ExtractHostFromUrl(_editingCm.Host);
+
         if (string.IsNullOrWhiteSpace(_editingCm.Name) || string.IsNullOrWhiteSpace(_editingCm.Host))
         {
             _cmTestResult = "Name and Host are required.";
@@ -5347,6 +5356,9 @@
 
     private async Task TestCm(CmConfiguration config)
     {
+        // Testing from the edit form can carry a pasted URL - probe the bare host the
+        // save path would keep.
+        config.Host = NetworkUtilities.ExtractHostFromUrl(config.Host);
         _cmTestingId = config.Id;
         _cmTestedHost = config.Host;
         _cmTestResult = $"Testing {config.Name}...";
@@ -5450,6 +5462,9 @@
 
     private async Task SaveOnt()
     {
+        // People paste the ONT's management page URL here - strip it down to the host.
+        _editingOnt.Host = NetworkUtilities.ExtractHostFromUrl(_editingOnt.Host);
+
         if (string.IsNullOrWhiteSpace(_editingOnt.Name) || string.IsNullOrWhiteSpace(_editingOnt.Host))
         {
             _ontTestResult = "Name and Host are required.";
@@ -5506,6 +5521,9 @@
 
     private async Task TestOnt(OntConfiguration config)
     {
+        // Testing from the edit form can carry a pasted URL - probe the bare host the
+        // save path would keep.
+        config.Host = NetworkUtilities.ExtractHostFromUrl(config.Host);
         _ontTestingId = config.Id;
         _ontTestedHost = config.Host;
         _ontTestResult = $"Testing {config.Name}...";
