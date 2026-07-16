@@ -49,6 +49,89 @@ public class ChannelRecommendationServiceTests
         }
         };
 
+    [Fact]
+    public void Optimize_LargeSite_GuardHoldsAtScaleWithoutBlockingLegitimateSpread()
+    {
+        // A 25-AP 2.4 GHz site is past the exhaustive-search cap (3^25), so this exercises the greedy
+        // path with the measured-worse guard applied to its result. It confirms, at scale: the optimizer
+        // completes quickly and emits only valid 1/6/11 assignments; a genuine co-channel collision is
+        // still spread apart (the guard doesn't blanket-suppress and the plan isn't globally reverted);
+        // and isolated APs in a measured-worse trap are held off the loud channel the proxy prefers.
+        //
+        // The site is kept UNcrowded (most APs quiet and content) so the 2.4 GHz whole-site guardrails
+        // (crowding friction, the 8% band-improvement bar) stay out of the way and each behaviour is
+        // observable on its own rather than masked by a blanket revert.
+        var reg = StdUsRegulatory();
+        var options = new RecommendationOptions { DfsPreference = DfsPreference.IncludeWithPenalty };
+        const int n = 25;
+        var cluster = new[] { 0, 1, 2 };       // co-channel on ch1, mutually heard -> must spread
+        var trapped = new[] { 9, 12, 16 };     // isolated, measured-worse trap on ch11 -> must hold (none start on ch11)
+
+        var aps = new List<AccessPointSnapshot>();
+        for (int i = 0; i < n; i++)
+        {
+            var ch = cluster.Contains(i) ? 1 : new[] { 1, 6, 11 }[i % 3];
+            aps.Add(CreateAp($"aa:bb:cc:00:00:{i:x2}", $"AP-{i}", RadioBand.Band2_4GHz, ch, width: 20));
+        }
+        var graph = _service.BuildInterferenceGraph(aps, RadioBand.Band2_4GHz, null, null, reg, options);
+
+        // Baseline: every AP quiet on every channel and isolated (BuildInterferenceGraph seeds a default
+        // weight for every pair, so zero the whole matrix first). Nobody has a reason to move.
+        for (int a = 0; a < n; a++)
+        {
+            for (int b = 0; b < n; b++)
+            {
+                graph.InternalWeights[a, b] = 0;
+                graph.DirectionalWeights[a, b] = 0;
+            }
+            graph.ExternalLoad[a] = new() { { 1, 1.0 }, { 6, 1.0 }, { 11, 1.0 } };
+            graph.DirectlyObservedChannels[a] = new() { 1, 6, 11 };
+        }
+
+        // The cluster: three APs that all hear each other on ch1. Splitting them across 1/6/11 is a big
+        // internal win that dominates the (otherwise quiet) site, so it clears the 8% bar on its own -
+        // the guard holding the trapped APs can't sink it.
+        foreach (var a in cluster)
+            foreach (var b in cluster)
+                if (a != b) { graph.InternalWeights[a, b] = 1.0; graph.DirectionalWeights[a, b] = 1.0; }
+
+        // The trap: isolated APs whose proxy makes ch11 look cleanest, but whose own spectrum scan shows
+        // a -37 dBm interferer there. With no own-AP co-channel relief to gain, the guard's
+        // internal-benefit escape can't fire, so it must hold each on its current channel. (When such
+        // relief IS available the guard yields by design - covered by the 2-AP tests, not this one.)
+        foreach (var t in trapped)
+        {
+            graph.ExternalLoad[t] = new() { { 1, 3.0 }, { 6, 3.0 }, { 11, 0.5 } }; // ch11 looks best
+            graph.ScanChannelData[t] = new()
+            {
+                { (graph.Nodes[t].CurrentChannel, 20), (25, (int?)(-58)) },
+                { (11, 20), (25, (int?)(-37)) }
+            };
+        }
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var plan = _service.Optimize(graph, RadioBand.Band2_4GHz, reg, options);
+        sw.Stop();
+
+        plan.Recommendations.Should().HaveCount(n);
+        plan.Recommendations.Should().OnlyContain(r => r.RecommendedChannel == 1 || r.RecommendedChannel == 6 || r.RecommendedChannel == 11,
+            "every 2.4 GHz recommendation must land on a non-overlapping channel");
+
+        sw.ElapsedMilliseconds.Should().BeLessThan(5000,
+            "a 25-AP greedy optimization (guard included) must stay well within interactive time");
+
+        // Legitimate moves still surface: the co-channel cluster is spread across >1 channel, which also
+        // proves the plan wasn't globally reverted - so the trapped holds below are the guard's doing.
+        cluster.Select(i => plan.Recommendations[i].RecommendedChannel).Distinct().Count()
+            .Should().BeGreaterThan(1, "clustered APs must still be spread despite the guard");
+
+        // Trapped APs must NOT be moved onto the measured-loud ch11.
+        trapped.Count(t =>
+            plan.Recommendations[t].RecommendedChannel == 11 &&
+            graph.Nodes[t].CurrentChannel != 11)
+            .Should().Be(0, "the guard must hold every trapped AP off the -37 dBm ch11 at scale too");
+    }
+
     // --- Graph Building ---
 
     [Fact]
