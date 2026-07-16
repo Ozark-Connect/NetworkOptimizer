@@ -1,3 +1,5 @@
+using NetworkOptimizer.Core.Helpers;
+
 namespace NetworkOptimizer.Web.Endpoints;
 
 /// <summary>
@@ -7,6 +9,8 @@ public static class EndpointHelpers
 {
     /// <summary>
     /// Extracts client IP from request, handling X-Forwarded-For for proxied requests.
+    /// An IPv4 client on a dual-stack socket arrives as ::ffff:a.b.c.d; it's normalized to
+    /// plain IPv4 so it matches the UniFi client list and stores/displays cleanly.
     /// </summary>
     public static string GetClientIp(HttpContext context)
     {
@@ -16,6 +20,6 @@ public static class EndpointHelpers
         {
             clientIp = forwardedFor.Split(',')[0].Trim();
         }
-        return clientIp;
+        return NetworkUtilities.NormalizeToIPv4String(clientIp) ?? "unknown";
     }
 }

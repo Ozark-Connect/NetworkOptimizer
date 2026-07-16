@@ -1,4 +1,5 @@
 using System.Text.Json;
+using NetworkOptimizer.Core.Helpers;
 
 namespace NetworkOptimizer.Web.Services;
 
@@ -45,7 +46,7 @@ public static class Iperf3ClientResultRecorder
             {
                 var firstConn = connected[0];
                 if (firstConn.TryGetProperty("remote_host", out var remoteHost))
-                    clientIp = remoteHost.GetString();
+                    clientIp = NetworkUtilities.NormalizeToIPv4String(remoteHost.GetString());
                 if (firstConn.TryGetProperty("local_host", out var localHost))
                     serverLocalIp = localHost.GetString();
             }

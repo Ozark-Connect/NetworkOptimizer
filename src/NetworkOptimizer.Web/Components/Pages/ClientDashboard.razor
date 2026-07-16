@@ -1172,10 +1172,11 @@
 
     private async Task<ClientIdentity?> GetClientIdentityAsync()
     {
-        // Use ?ip= query param if provided (for testing/linking to specific clients)
+        // Use ?ip= query param if provided (for testing/linking to specific clients).
+        // A stale ::ffff: deep-link is normalized so it still resolves against the client list.
         if (string.IsNullOrEmpty(_clientIp) && !_isOwnDevice)
         {
-            _clientIp = IpParam;
+            _clientIp = NetworkUtilities.NormalizeToIPv4String(IpParam);
         }
 
         // On a managed (non-default) site this circuit arrives over the WAN, so the
@@ -1201,7 +1202,9 @@
                 {
                     clientIp = forwardedFor.Split(',')[0].Trim();
                 }
-                _clientIp = clientIp;
+                // An IPv4 client on a dual-stack socket arrives as ::ffff:a.b.c.d; unwrap it
+                // so it matches the UniFi client list and shows as a real IP.
+                _clientIp = NetworkUtilities.NormalizeToIPv4String(clientIp);
             }
         }
 
@@ -1274,7 +1277,9 @@
         if (string.IsNullOrEmpty(ip) || !System.Net.IPAddress.TryParse(ip, out _))
             return false;
 
-        _clientIp = ip;
+        // The agent's nginx whoami returns $remote_addr, which can be ::ffff:a.b.c.d on a
+        // dual-stack listener; unwrap so it matches the console client list.
+        _clientIp = NetworkUtilities.NormalizeToIPv4String(ip);
         await IdentifyAndLoadAsync();
         if (_client != null)
         {

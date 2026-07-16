@@ -1083,6 +1083,10 @@
     /// </summary>
     private static bool IsPrivateIp(string ipAddress)
     {
+        // An IPv4 client captured on a dual-stack socket can be stored as ::ffff:a.b.c.d;
+        // unwrap so the prefix checks below apply and a LAN client isn't mislabeled WAN.
+        ipAddress = NetworkUtilities.NormalizeToIPv4String(ipAddress) ?? ipAddress;
+
         // 10.0.0.0/8
         if (ipAddress.StartsWith("10."))
             return true;

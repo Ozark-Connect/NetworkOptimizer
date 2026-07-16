@@ -609,4 +609,50 @@ public class NetworkUtilitiesTests
     }
 
     #endregion
+
+    #region NormalizeToIPv4String Tests
+
+    [Theory]
+    [InlineData("::ffff:10.20.30.40", "10.20.30.40")]
+    [InlineData("::ffff:192.168.1.100", "192.168.1.100")]
+    [InlineData("::ffff:100.64.0.1", "100.64.0.1")]
+    [InlineData("::ffff:8.8.8.8", "8.8.8.8")]
+    public void NormalizeToIPv4String_UnwrapsMappedAddresses(string input, string expected)
+    {
+        NetworkUtilities.NormalizeToIPv4String(input).Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("10.20.30.40")]          // plain IPv4 - unchanged
+    [InlineData("192.168.1.1")]
+    [InlineData("2001:db8:abcd::1")]    // real IPv6 (RFC 3849 doc range) - must NOT be altered
+    [InlineData("fd00::1")]             // real IPv6 ULA
+    [InlineData("fe80::1")]             // real IPv6 link-local
+    [InlineData("2001:db8::ffff:1")]    // real IPv6 that merely contains 'ffff'
+    [InlineData("::1")]                 // IPv6 loopback
+    [InlineData("unknown")]             // sentinel string
+    [InlineData("not-an-ip")]           // unparseable
+    [InlineData("")]                    // empty
+    public void NormalizeToIPv4String_LeavesNonMappedUnchanged(string input)
+    {
+        NetworkUtilities.NormalizeToIPv4String(input).Should().Be(input);
+    }
+
+    [Fact]
+    public void NormalizeToIPv4String_NullReturnsNull()
+    {
+        NetworkUtilities.NormalizeToIPv4String(null).Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData("::ffff:10.20.30.40", true)]     // mapped RFC1918 must classify as private
+    [InlineData("::ffff:192.168.1.5", true)]
+    [InlineData("::ffff:100.64.0.1", true)]     // mapped CGNAT
+    [InlineData("::ffff:8.8.8.8", false)]       // mapped public stays public
+    public void IsPrivateIpAddress_UnwrapsMappedIPv4(string ip, bool expected)
+    {
+        NetworkUtilities.IsPrivateIpAddress(ip).Should().Be(expected);
+    }
+
+    #endregion
 }

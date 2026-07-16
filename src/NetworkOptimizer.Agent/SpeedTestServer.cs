@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
+using NetworkOptimizer.Core.Helpers;
 
 namespace NetworkOptimizer.Agent;
 
@@ -180,8 +181,9 @@ public sealed class SpeedTestServer : IAsyncDisposable
             // carry it across. nginx put the real client in X-Forwarded-For for us here
             // (the direct hop to this relay is always loopback); fall back to the
             // connection IP. The central endpoint reads client_ip for slug-tagged posts.
-            var clientIp = context.Request.Headers["X-Forwarded-For"].FirstOrDefault()
-                ?? context.Connection.RemoteIpAddress?.ToString();
+            var clientIp = NetworkUtilities.NormalizeToIPv4String(
+                context.Request.Headers["X-Forwarded-For"].FirstOrDefault()
+                ?? context.Connection.RemoteIpAddress?.ToString());
             var query = context.Request.QueryString.Add("site", siteSlug);
             if (!string.IsNullOrEmpty(clientIp))
                 query = query.Add("client_ip", clientIp);
