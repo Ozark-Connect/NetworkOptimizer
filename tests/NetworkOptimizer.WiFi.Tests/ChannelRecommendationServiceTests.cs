@@ -1215,7 +1215,7 @@ public class ChannelRecommendationServiceTests
     {
         // The reported ch6->ch11 nonsense (Mac site). The neighbor scan counts fewer beaconing BSSIDs
         // on ch11 (proxy 15) than ch6 (proxy 30), so the optimizer wants to move Downstairs onto ch11 -
-        // but ch11 carries a -37 dBm noise floor (two strong HUMAX boxes) vs ch6's -58 dBm. The AP's own
+        // but ch11 carries a -37 dBm noise floor (two strong neighbor APs) vs ch6's -58 dBm. The AP's own
         // spectrum scan is ground truth the proxy ignores; the measured-worse guard must hold it on ch6.
         var reg = StdUsRegulatory();
         var options = new RecommendationOptions { DfsPreference = DfsPreference.IncludeWithPenalty };

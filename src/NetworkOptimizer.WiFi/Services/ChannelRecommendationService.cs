@@ -3297,6 +3297,16 @@ public class ChannelRecommendationService
                 continue;
             }
 
+            // A mesh child's channel is dictated by its leader, and the stale-target service excludes
+            // it (it can't be re-scanned without dropping its uplink), so the decisive/re-scan analysis
+            // doesn't apply - and its per-channel trials get reset by ApplyMeshConstraints anyway, which
+            // would make the "decisive" verdict meaningless. Skip it.
+            if (node.MeshGroupLeader >= 0 && node.MeshGroupLeader != i)
+            {
+                sb?.AppendLine($"  {node.Name} (scan {age}): mesh child, follows leader");
+                continue;
+            }
+
             // General case: only stale APs can be prompt-material, so skip the decisive check's cost
             // for fresh scans unless debug wants the full breakdown.
             if (!stale && !debug) continue;
