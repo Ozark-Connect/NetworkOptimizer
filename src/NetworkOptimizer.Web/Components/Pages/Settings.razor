@@ -1454,6 +1454,10 @@
                 Monitor ONT devices (fiber optic terminals) for signal levels, temperature, and link state.
             </p>
 
+            <div class="alert alert-info">
+                Using an SFP ONT with DDM support? Its optical levels are read from the gateway port automatically and appear on the <a href="/monitoring?tab=sfp">SFP Stats</a> tab. The external polling below is only for standalone ONTs that aren't plugged into a UniFi port.
+            </div>
+
             @if (_monitoringSettings != null)
             {
                 <div class="form-group">
