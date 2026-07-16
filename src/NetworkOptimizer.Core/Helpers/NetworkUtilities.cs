@@ -715,6 +715,31 @@ public static class NetworkUtilities
     }
 
     /// <summary>
+    /// Reduce a user-entered device host field to a bare host: when the input is URL-shaped
+    /// (has a scheme or a path), extract just the hostname/IP. People paste the device's
+    /// management page URL ("http://192.168.100.1/status") into fields that expect an IP or
+    /// hostname. Plain hostnames/IPs pass through unchanged apart from trimming, including
+    /// "host:port" values - only URL-shaped input is stripped (a URL's port is dropped with
+    /// the rest of the URL; monitoring providers pick their own ports).
+    /// </summary>
+    public static string ExtractHostFromUrl(string? input)
+    {
+        if (string.IsNullOrWhiteSpace(input))
+            return input ?? "";
+
+        var value = input.Trim();
+        var hasScheme = value.Contains("://", StringComparison.Ordinal);
+        if (!hasScheme && !value.Contains('/'))
+            return value;
+
+        var candidate = hasScheme ? value : $"http://{value}";
+        if (Uri.TryCreate(candidate, UriKind.Absolute, out var uri) && !string.IsNullOrEmpty(uri.Host))
+            return uri.Host;
+
+        return value.TrimEnd('/');
+    }
+
+    /// <summary>
     /// Normalize a controller URL: prepend https:// if needed, strip any path/query/fragment.
     /// E.g., "unifi.example.com/network/default/" becomes "https://unifi.example.com"
     /// </summary>
