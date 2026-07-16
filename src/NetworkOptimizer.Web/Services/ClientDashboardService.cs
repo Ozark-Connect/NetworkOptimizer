@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
+using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.UniFi;
 using NetworkOptimizer.UniFi.Models;
@@ -117,6 +118,11 @@ public class ClientDashboardService
     {
         if (!_connectionService.IsConnected || _connectionService.Client == null)
             return null;
+
+        // Guard the direct-call path: an IPv4 client on a dual-stack socket is ::ffff:a.b.c.d,
+        // which never equals the console's plain-IPv4 BestIp. Sources normalize already; this
+        // keeps the match correct for any caller. Real IPv6 is left untouched.
+        clientIp = NetworkUtilities.NormalizeToIPv4String(clientIp) ?? clientIp;
 
         try
         {

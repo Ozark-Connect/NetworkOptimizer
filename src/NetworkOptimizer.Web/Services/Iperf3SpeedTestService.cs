@@ -799,7 +799,8 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
         {
             _logger.LogDebug("Resolved DeviceHost {Hostname} to {Ip} from iperf3 connection",
                 result.DeviceHost, parsed.RemoteIp);
-            result.DeviceHost = parsed.RemoteIp;
+            // iperf3 on a dual-stack listener can report the peer as ::ffff:a.b.c.d; store plain IPv4.
+            result.DeviceHost = NetworkUtilities.NormalizeToIPv4String(parsed.RemoteIp) ?? parsed.RemoteIp;
         }
 
         // Handle errors

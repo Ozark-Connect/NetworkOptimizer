@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Alerts.Events;
 using NetworkOptimizer.Core.Enums;
+using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.UniFi;
 using NetworkOptimizer.UniFi.Models;
@@ -126,6 +127,11 @@ public class ClientSpeedTestService
         string? externalServerId = null)
     {
         EnsureLicenseOperational();
+
+        // An IPv4 client on a dual-stack socket arrives as ::ffff:a.b.c.d. Normalize before it
+        // becomes DeviceHost so client-info enrichment matches the console list (populating
+        // ClientMac, the stable correlation key) and the result stores/displays as a real IP.
+        clientIp = NetworkUtilities.NormalizeToIPv4String(clientIp) ?? clientIp;
 
         // Determine direction based on whether this came from an external server
         var isWan = !string.IsNullOrWhiteSpace(externalServerId);

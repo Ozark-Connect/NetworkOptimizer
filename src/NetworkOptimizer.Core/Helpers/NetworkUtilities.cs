@@ -316,6 +316,12 @@ public static class NetworkUtilities
     /// <returns>True if the IP is private/non-routable, false if public</returns>
     public static bool IsPrivateIpAddress(IPAddress ip)
     {
+        // An IPv4 client accepted on a dual-stack socket arrives as ::ffff:a.b.c.d. Unwrap it
+        // so the RFC1918/CGNAT/etc. byte checks below apply - otherwise it falls through the
+        // IPv6 branch and a private LAN address is misreported as public. Real IPv6 is untouched.
+        if (ip.IsIPv4MappedToIPv6)
+            ip = ip.MapToIPv4();
+
         // IPv6 loopback and link-local
         if (ip.IsIPv6LinkLocal || IPAddress.IsLoopback(ip))
             return true;
@@ -355,6 +361,25 @@ public static class NetworkUtilities
             return true;
 
         return false;
+    }
+
+    /// <summary>
+    /// Collapses an IPv4-mapped IPv6 address (<c>::ffff:a.b.c.d</c>) - produced when Kestrel
+    /// accepts an IPv4 client on a dual-stack socket - back to its plain IPv4 form. Any other
+    /// value (a real IPv6 address, a plain IPv4 address, null/empty, "unknown", or an
+    /// unparseable string) is returned unchanged, so genuine IPv6 client identity is never
+    /// altered. Apply at the point a client address is captured so downstream lookups,
+    /// comparisons, storage, and display all see the same canonical form.
+    /// </summary>
+    /// <param name="ipAddress">Raw client IP string (may be null).</param>
+    /// <returns>The plain IPv4 string if the input was IPv4-mapped; otherwise the input unchanged.</returns>
+    public static string? NormalizeToIPv4String(string? ipAddress)
+    {
+        if (string.IsNullOrEmpty(ipAddress))
+            return ipAddress;
+        if (!IPAddress.TryParse(ipAddress, out var ip))
+            return ipAddress;
+        return ip.IsIPv4MappedToIPv6 ? ip.MapToIPv4().ToString() : ipAddress;
     }
 
     /// <summary>
