@@ -505,11 +505,15 @@
         if (stats.SoftwareUpdateState is not null and not "Idle" and not "SoftwareUpdateStateUnknown" and not "Unknown")
             notices.Add($"Software update: {HumanizeToken(stats.SoftwareUpdateState)}");
 
-        // Restriction reasons are noisy: PolicyLimit/LowSpeedPolicyLimit is ordinary
-        // plan shaping on virtually every Starlink plan. Only an overage cap is
-        // actionable, so that's the only one surfaced.
+        // Restriction reasons, filtered for signal: plain PolicyLimit is ordinary
+        // shaping on virtually every plan (silent). OverageLimit means the data
+        // allowance ran out; LowSpeedPolicyLimit means the plan itself is a
+        // reduced-speed tier (Standby and similar) - both explain a slow speed
+        // test without pointing at the network.
         if (stats.DownlinkRestrictedReason == "OverageLimit" || stats.UplinkRestrictedReason == "OverageLimit")
             notices.Add("Speeds reduced: the plan's data allowance has been used up");
+        else if (stats.DownlinkRestrictedReason == "LowSpeedPolicyLimit" || stats.UplinkRestrictedReason == "LowSpeedPolicyLimit")
+            notices.Add("Speeds are capped by a reduced-speed plan tier (such as Standby)");
 
         // Hardware self-test is deliberately NOT surfaced: healthy dishes routinely
         // report FAILED with codes like DBF_NUM_FEMS (a few dead front-end modules
