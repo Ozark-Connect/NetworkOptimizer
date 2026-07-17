@@ -19,18 +19,6 @@
     <div class="expand-wrapper @(!_collapsed && _stateLoaded ? "expanded" : "")" style="@(!_stateLoaded ? "display:none" : "")">
         <div class="expand-content">
     <div class="card-body">
-        @if (!_ontHintDismissed)
-        {
-            <div class="info-tip">
-                <strong>Not all SFP modules expose DDM stats.</strong>
-                If a module's RX / TX / Temp columns below stay empty, the gateway or switch can't
-                read DDM from it. If it's an ONT, monitor it directly over its web interface instead -
-                <a href="/settings#ont-monitoring">set up an ONT monitoring provider</a>.
-                <div class="info-tip-actions">
-                    <button class="btn btn-sm btn-primary" @onclick="DismissOntHint">Dismiss</button>
-                </div>
-            </div>
-        }
         <p class="section-description">
             SFP modules detected on switch / gateway ports. PON modules (GPON / XGS-PON)
             are auto-promoted to monitoring. Active Ethernet (P2P) modules can be promoted
@@ -156,6 +144,18 @@
                 <button class="btn btn-sm btn-secondary" disabled="@(_page == 0)" @onclick="() => { _page--; StateHasChanged(); }">Prev</button>
                 <span class="text-muted" style="font-size: 0.85rem;">@(_page + 1) / @TotalPages()</span>
                 <button class="btn btn-sm btn-secondary" disabled="@(_page >= TotalPages() - 1)" @onclick="() => { _page++; StateHasChanged(); }">Next</button>
+            </div>
+        }
+        @if (!_ontHintDismissed)
+        {
+            <div class="info-tip" style="margin-bottom: 0.25rem;">
+                <strong>Not all SFP modules expose DDM stats.</strong>
+                If a module's RX / TX / Temp columns are empty, the gateway or switch can't read DDM
+                from it. If it's an ONT, monitor it directly over its web interface instead -
+                <a href="/settings#ont-monitoring">set up an ONT monitoring provider</a>.
+                <div class="info-tip-actions">
+                    <button class="btn btn-sm btn-primary" @onclick="DismissOntHint">Dismiss</button>
+                </div>
             </div>
         }
     </div>

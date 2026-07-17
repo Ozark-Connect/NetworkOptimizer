@@ -2053,7 +2053,7 @@ a.stat-card-link:active {
 }
 
 .data-table tr:not(.history-details-row):hover {
-    background: var(--bg-hover);
+    background: var(--bg-hover-subtle);
 }
 
 .data-table code {
@@ -8952,6 +8952,11 @@ a.path-hop.hop-clickable:hover {
     background: var(--bg-elevated);
 }
 
+.card .card .data-table .btn-secondary,
+.card .card .data-table .btn-ghost {
+    background: var(--bg-tertiary);
+}
+
 .pill-btn,
 .time-btn {
     padding: 0.35rem 0.75rem;
@@ -11254,7 +11259,7 @@ a.path-hop.hop-clickable:hover {
 }
 
 .info-tip-actions {
-    margin-top: 0.75rem;
+    text-align: right;
 }
 
 /* Score coloring */
@@ -17934,10 +17939,6 @@ body.kiosk-mode .status-indicators {
     align-items: center;
     gap: 0.5rem;
     padding: 0.35rem 0;
-}
-
-.settings-table tr:not(.history-details-row):hover {
-    background: var(--bg-hover-subtle);
 }
 
 .site-name-cell {
