@@ -379,6 +379,14 @@ The duplicate-reachable-IP case shipped: `AliasIp` on `MonitoringInterface` with
   through the marker DTOs and color markers yellow (provisioning) / red (error) instead of the
   binary bool. The status-dot/badge/card spots already do this - only the JS map markers remain.
 
+### Nokia ONT: confirm coverage across other models
+
+`NokiaXs010xOntProvider` was built and verified against one XGS-PON **XS-010X-Q** (owner-confirmed). The `GponForm` web API (`Login_GetConfig` nonce/salt SHA-256 login -> `getUpdateinfo`) appears common to Nokia's box ONTs, but this is unconfirmed on any other unit, and the provider hardcodes both the model string and `PonType = "XGS-PON"` because the device reports neither its own model nor a line rate.
+
+- [ ] Confirm whether the same flow works on Nokia's **GPON box siblings** (e.g. G-010G-Q). If yes, either relax the hardcoded XGS-PON label or split into a GPON variant - a GPON unit on this provider would currently be mislabeled XGS-PON.
+- [ ] Confirm whether it works on Nokia's **SFP-form ONTs** (the SFP stick modules), which may expose a different web/telnet interface entirely.
+- [ ] If coverage is broader than one model, revisit the dropdown label ("Nokia XS-010X-Q (HTTP)") and the hardcoded `DeviceModel` so multi-model units aren't misreported.
+
 ## Multi-Tenant / Multi-Site Support
 
 ### Multi-Tenant Architecture

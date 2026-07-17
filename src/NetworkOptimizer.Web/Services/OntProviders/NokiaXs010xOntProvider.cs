@@ -9,7 +9,10 @@ namespace NetworkOptimizer.Web.Services.OntProviders;
 
 /// <summary>
 /// ONT provider for the Nokia (Alcatel-Lucent, vendor ID "ALCL") XS-010X-Q XGS-PON
-/// ONT and its GponForm web siblings. The device serves a plain-HTTP nginx
+/// ONT. The GponForm web API is shared across Nokia's box ONTs, so the reported model
+/// and XGS-PON type are hardcoded to the XS-010X-Q (the device reports neither its own
+/// model nor a line rate); a GPON sibling like the G-010G-Q would need those adjusted.
+/// The device serves a plain-HTTP nginx
 /// UI whose only data-bearing page is moreinfo.html, backed by a small JSON API:
 ///
 ///   1. POST /GponForm/Login_GetConfig (token=token) -> {"nonce":..,"saltval":..}
