@@ -9,8 +9,10 @@
 @using NetworkOptimizer.Core.Helpers
 @using NetworkOptimizer.Storage.Models
 @using System.Text.Json
+@using Microsoft.EntityFrameworkCore
 @using NetworkOptimizer.Web.Services.Ssh
 @inject IAlertRepository AlertRepository
+@inject NetworkOptimizer.Storage.Services.SiteDbContextFactory SiteDb
 @inject IScheduleRepository ScheduleRepository
 @inject ScheduleService ScheduleService
 @inject SiteContextService SiteContext
@@ -911,7 +913,15 @@
                                                     <span class="toggle-slider"></span>
                                                 </label>
                                             </td>
-                                            <td>@rule.Name</td>
+                                            <td>
+                                                @rule.Name
+                                                @if (ThresholdLink(rule.EventTypePattern) is { } tl)
+                                                {
+                                                    <a href="@($"/monitoring?tab={tl.Tab}&expand={tl.Expand}")" class="settings-title-link" style="margin-left: 0.4rem;" data-tooltip="Configure thresholds">
+                                                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"></path><path d="M10 14 21 3"></path><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path></svg>
+                                                    </a>
+                                                }
+                                            </td>
                                             <td><code>@rule.EventTypePattern</code></td>
                                             <td class="hide-mobile">@(rule.Source ?? "All")</td>
                                             <td class="hide-mobile">
@@ -1925,10 +1935,37 @@
         };
     }
 
+    private bool _showOntTab = true;
+
+    /// <summary>
+    /// Maps an alert rule to the Monitoring tab + threshold card that configures it, for the
+    /// deep-link icon shown next to the rule name. Returns null for rules with no separate
+    /// threshold card. ONT rules only map when this site shows the ONT Stats tab.
+    /// </summary>
+    private (string Tab, string Expand)? ThresholdLink(string eventTypePattern) => eventTypePattern switch
+    {
+        "monitoring.sfp_temperature" => ("sfp", "sfp-thresholds"),
+        "device.high_temperature" => ("devices", "device-temp-thresholds"),
+        "ont.rx_power_low" when _showOntTab => ("ont", "ont-thresholds"),
+        "ont.high_temperature" when _showOntTab => ("ont", "ont-thresholds"),
+        _ => null,
+    };
+
     protected override async Task OnInitializedAsync()
     {
         _activeTab = ResolveTab(TabParam);
         _lastTabParam = TabParam;
+
+        // Whether this site shows the ONT Stats tab - gates the ONT rules' threshold
+        // deep-link icon so we never link to a tab the site has hidden. (SFP Stats and
+        // Device Stats are always visible, so those rules' icons need no gate.)
+        try
+        {
+            await using var settingsDb = SiteDb.CreateForSite(SiteContext.Slug, SiteContext.IsDefault);
+            _showOntTab = (await settingsDb.MonitoringSettings.AsNoTracking().FirstOrDefaultAsync())?.ShowOntTab ?? true;
+        }
+        catch { }
+
         PtrState.RefreshCallback = async () =>
         {
             switch (_activeTab)

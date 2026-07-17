@@ -597,7 +597,7 @@ else
             </div>
         </div>
 
-        <div class="card" style="margin-top: 1rem;">
+        <div class="card" style="margin-top: 1rem;" id="device-temp-thresholds-card">
             <div class="card-header card-header-collapsible" @onclick="() => _deviceTempCollapsed = !_deviceTempCollapsed">
                 <h2 class="card-title">Temperature Alert Thresholds</h2>
                 <span class="issue-type-chevron">@(_deviceTempCollapsed ? "▼" : "▲")</span>
@@ -724,7 +724,7 @@ else
             </div>
         </div>
 
-        <div class="card" style="margin-top: 1.5rem;">
+        <div class="card" style="margin-top: 1.5rem;" id="sfp-thresholds-card">
             <div class="card-header card-header-collapsible" @onclick="() => _sfpThresholdsCollapsed = !_sfpThresholdsCollapsed">
                 <h2 class="card-title">SFP Alert Thresholds</h2>
                 <span class="issue-type-chevron">@(_sfpThresholdsCollapsed ? "▼" : "▲")</span>
@@ -1007,7 +1007,7 @@ else
         }
         }
 
-        <div class="card" style="margin-top: 1.5rem;">
+        <div class="card" style="margin-top: 1.5rem;" id="ont-thresholds-card">
             <div class="card-header card-header-collapsible" @onclick="() => _ontThresholdsCollapsed = !_ontThresholdsCollapsed">
                 <h2 class="card-title">ONT Alert Thresholds</h2>
                 <span class="issue-type-chevron">@(_ontThresholdsCollapsed ? "▼" : "▲")</span>
@@ -1730,6 +1730,10 @@ else
     private bool _scrollToDiscoveryPending;
     private bool _scrollToSfpChartsPending;
     private bool _scrollToFlakyPending;
+    private bool _scrollToSfpThresholdsPending;
+    private bool _scrollToOntThresholdsPending;
+    private bool _scrollToDeviceTempPending;
+    private bool _thresholdExpandApplied;
     private bool _forceExpandFlaky;
     private string? _soloSfpModuleId;
     private string? _soloDeviceMac;
@@ -1771,6 +1775,30 @@ else
         {
             _soloSfpModuleId = SfpParam;
             _scrollToSfpChartsPending = true;
+        }
+
+        // Deep link from an Alert Rule's threshold icon: expand the matching thresholds card
+        // and scroll to it. Applied once so a later manual collapse isn't fought by re-renders.
+        if (!_thresholdExpandApplied && !string.IsNullOrEmpty(ExpandParam))
+        {
+            if (_activeTab == "sfp" && ExpandParam == "sfp-thresholds")
+            {
+                _sfpThresholdsCollapsed = false;
+                _scrollToSfpThresholdsPending = true;
+                _thresholdExpandApplied = true;
+            }
+            else if (_activeTab == "ont" && ExpandParam == "ont-thresholds")
+            {
+                _ontThresholdsCollapsed = false;
+                _scrollToOntThresholdsPending = true;
+                _thresholdExpandApplied = true;
+            }
+            else if (_activeTab == "devices" && ExpandParam == "device-temp-thresholds")
+            {
+                _deviceTempCollapsed = false;
+                _scrollToDeviceTempPending = true;
+                _thresholdExpandApplied = true;
+            }
         }
 
         if (!string.IsNullOrEmpty(ModemParam) && _activeTab == "cellular")
@@ -2645,6 +2673,20 @@ else
                     el.scrollIntoView({ behavior: 'smooth', block: 'start' });
                 }
             })();");
+    }
+
+    /// <summary>
+    /// Scrolls the element with the given id into view once the expand animation has settled.
+    /// Used by the Alert Rule threshold deep-links; a missing element is a harmless no-op.
+    /// </summary>
+    private async Task ScrollToElementAsync(string elementId)
+    {
+        await Task.Delay(300);
+        await JS.InvokeVoidAsync("eval", $@"
+            (function() {{
+                var el = document.getElementById('{elementId}');
+                if (el) {{ el.scrollIntoView({{ behavior: 'smooth', block: 'start' }}); }}
+            }})();");
     }
 
     private async Task OnBeforeInternalNavigation(LocationChangingContext context)
@@ -3705,6 +3747,22 @@ else
             _scrollToSfpChartsPending = false;
             _soloSfpModuleId = null;
             await ScrollToSfpChartsAsync();
+        }
+
+        if (_scrollToSfpThresholdsPending && _activeTab == "sfp")
+        {
+            _scrollToSfpThresholdsPending = false;
+            await ScrollToElementAsync("sfp-thresholds-card");
+        }
+        if (_scrollToOntThresholdsPending && _activeTab == "ont")
+        {
+            _scrollToOntThresholdsPending = false;
+            await ScrollToElementAsync("ont-thresholds-card");
+        }
+        if (_scrollToDeviceTempPending && _activeTab == "devices")
+        {
+            _scrollToDeviceTempPending = false;
+            await ScrollToElementAsync("device-temp-thresholds-card");
         }
 
         // Cellular charts - Cellular tab only (wait for InfluxDB like SFP waits for module data)
