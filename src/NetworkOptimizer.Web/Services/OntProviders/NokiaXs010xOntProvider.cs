@@ -57,23 +57,43 @@ public sealed class NokiaXs010xOntProvider : IOntProvider
             using var client = CreateClient();
             var baseUrl = BuildBaseUrl(context);
 
-            var cookieId = await LoginAsync(client, baseUrl, context, cancellationToken);
-            if (cookieId is null)
+            OntStats? stats = null;
+            const int maxAttempts = 3;
+            for (var attempt = 1; attempt <= maxAttempts; attempt++)
+            {
+                var cookieId = await LoginAsync(client, baseUrl, context, cancellationToken);
+                if (cookieId is not null)
+                {
+                    var infoJson = await GetUpdateInfoAsync(client, baseUrl, cookieId, context.Name, cancellationToken);
+                    stats = new OntStats
+                    {
+                        Timestamp = DateTime.UtcNow,
+                        DeviceHost = context.ConfiguredHost ?? context.Host,
+                        DeviceName = context.Name,
+                        DeviceModel = "Nokia XS-010X-Q",
+                    };
+                    ApplyUpdateInfo(infoJson, stats);
+                    if (stats.RxPowerDbm is not null)
+                        break;
+                }
+
+                // The device sometimes returns an unauthenticated/empty response when the login
+                // and data request race on the same client - the browser flow and the working
+                // curl script both hit fresh connections with pauses between steps. A fresh login
+                // on a fresh connection (ConnectionClose in CreateClient) usually settles it.
+                if (attempt < maxAttempts)
+                {
+                    _logger.LogDebug("Nokia XS-010X-Q ONT {Name}: no RX power on attempt {Attempt}/{Max}, retrying",
+                        context.Name, attempt, maxAttempts);
+                    await Task.Delay(TimeSpan.FromMilliseconds(600), cancellationToken);
+                }
+            }
+
+            if (stats is null)
             {
                 _logger.LogWarning("Nokia XS-010X-Q ONT {Name}: login failed", context.Name);
                 return null;
             }
-
-            var infoJson = await GetUpdateInfoAsync(client, baseUrl, cookieId, cancellationToken);
-
-            var stats = new OntStats
-            {
-                Timestamp = DateTime.UtcNow,
-                DeviceHost = context.ConfiguredHost ?? context.Host,
-                DeviceName = context.Name,
-                DeviceModel = "Nokia XS-010X-Q",
-            };
-            ApplyUpdateInfo(infoJson, stats);
 
             _logger.LogDebug(
                 "Nokia XS-010X-Q ONT {Name} polled: Rx={Rx} dBm, SN={Sn}, Link={Link}",
@@ -106,7 +126,7 @@ public sealed class NokiaXs010xOntProvider : IOntProvider
             if (cookieId is null)
                 return (false, "Login failed - check username/password (default is admin/1234)");
 
-            var infoJson = await GetUpdateInfoAsync(client, baseUrl, cookieId, cancellationToken);
+            var infoJson = await GetUpdateInfoAsync(client, baseUrl, cookieId, context.Name, cancellationToken);
 
             var stats = new OntStats();
             ApplyUpdateInfo(infoJson, stats);
@@ -135,11 +155,17 @@ public sealed class NokiaXs010xOntProvider : IOntProvider
         var password = context.Password ?? "";
 
         string configJson;
+        int configStatus;
         using (var content = new StringContent("token=token", Encoding.UTF8, FormContentType))
         using (var response = await client.PostAsync($"{baseUrl}{LoginConfigPath}", content, ct))
+        {
+            configStatus = (int)response.StatusCode;
             configJson = await response.Content.ReadAsStringAsync(ct);
+        }
 
         var (nonce, saltval) = ParseLoginConfig(configJson);
+        _logger.LogDebug("Nokia XS-010X-Q ONT {Name}: Login_GetConfig HTTP {Status}, nonce={HasNonce}, saltval='{Salt}', body={Body}",
+            context.Name, configStatus, !string.IsNullOrEmpty(nonce), saltval ?? "", Preview(configJson));
         if (string.IsNullOrEmpty(nonce))
             return null;
 
@@ -147,15 +173,22 @@ public sealed class NokiaXs010xOntProvider : IOntProvider
         var body = $"cmt={cmt}&nonce={Uri.EscapeDataString(nonce)}";
 
         string loginJson;
+        int loginStatus;
         using (var content = new StringContent(body, Encoding.UTF8, FormContentType))
         using (var response = await client.PostAsync($"{baseUrl}{LoginPath}", content, ct))
+        {
+            loginStatus = (int)response.StatusCode;
             loginJson = await response.Content.ReadAsStringAsync(ct);
+        }
 
-        return ParseCookieId(loginJson);
+        var cookieId = ParseCookieId(loginJson);
+        _logger.LogDebug("Nokia XS-010X-Q ONT {Name}: LoginForm HTTP {Status}, gotCookie={HasCookie}, body={Body}",
+            context.Name, loginStatus, cookieId != null, Preview(loginJson));
+        return cookieId;
     }
 
-    private static async Task<string> GetUpdateInfoAsync(
-        HttpClient client, string baseUrl, string cookieId, CancellationToken ct)
+    private async Task<string> GetUpdateInfoAsync(
+        HttpClient client, string baseUrl, string cookieId, string deviceName, CancellationToken ct)
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}{UpdateInfoPath}")
         {
@@ -164,8 +197,15 @@ public sealed class NokiaXs010xOntProvider : IOntProvider
         request.Headers.TryAddWithoutValidation("Cookie", $"sessionid={cookieId}");
 
         using var response = await client.SendAsync(request, ct);
-        return await response.Content.ReadAsStringAsync(ct);
+        var body = await response.Content.ReadAsStringAsync(ct);
+        _logger.LogDebug("Nokia XS-010X-Q ONT {Name}: getUpdateinfo HTTP {Status}, body={Body}",
+            deviceName, (int)response.StatusCode, Preview(body));
+        return body;
     }
+
+    /// <summary>Trims a raw device response for diagnostic logging.</summary>
+    private static string Preview(string s) =>
+        string.IsNullOrEmpty(s) ? "(empty)" : (s.Length > 800 ? s[..800] + "...(truncated)" : s);
 
     /// <summary>
     /// cmt = sha256(username + saltval + password) as lowercase hex. Verified against a live
@@ -269,8 +309,15 @@ public sealed class NokiaXs010xOntProvider : IOntProvider
     private static double? ParseDouble(string? text) =>
         double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var val) ? val : null;
 
-    internal static HttpClient CreateClient() =>
-        new() { Timeout = TimeSpan.FromSeconds(TimeoutSeconds) };
+    internal static HttpClient CreateClient()
+    {
+        var client = new HttpClient { Timeout = TimeSpan.FromSeconds(TimeoutSeconds) };
+        // Mirror the working curl flow: a fresh TCP connection per request. These GponForm
+        // boxes can tie the login session to the connection, so keep-alive reuse across the
+        // login -> getUpdateinfo steps can return an empty/unauthenticated response.
+        client.DefaultRequestHeaders.ConnectionClose = true;
+        return client;
+    }
 
     private static string BuildBaseUrl(OntPollContext context)
     {
