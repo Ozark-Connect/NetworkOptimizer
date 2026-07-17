@@ -28,7 +28,7 @@
             devices sharing the same management IP? Give one an Alias IP and monitor both.
         </p>
 
-        <div class="mi-tip">
+        <div class="info-tip">
             <strong>Try a native static route first.</strong>
             In UniFi Network, add a <strong>Static Route</strong> (<strong>Settings → Policy Engine →
             Policy Table</strong>) for the device's IP (e.g. <code>192.168.100.1/32</code>) out the WAN
@@ -168,7 +168,7 @@
 
                     @if (ShowStarlinkAdvisory)
                     {
-                        <div class="mi-tip">
+                        <div class="info-tip">
                             <strong>@SelectedWanDisplayName is a Starlink connection - no Monitoring Interface needed for the dish.</strong>
                             Network Optimizer monitors it natively on the
                             <a href="/monitoring?tab=starlink">Starlink Stats</a> tab (set up in
@@ -296,31 +296,6 @@
         margin: 0 0 1rem 0;
         font-size: 1rem;
         color: var(--text-primary);
-    }
-
-    .mi-tip {
-        background: rgba(71, 151, 255, 0.1);
-        border: 1px solid var(--info-color);
-        border-left: 4px solid var(--info-color);
-        border-radius: var(--border-radius);
-        padding: 1rem;
-        margin-top: 1rem;
-        margin-bottom: 1rem;
-        font-size: 0.875rem;
-        color: var(--text-primary);
-    }
-
-    .mi-tip strong {
-        color: var(--info-color);
-    }
-
-    .mi-tip ul {
-        margin: 0.5rem 0 0;
-        padding-left: 1.25rem;
-    }
-
-    .mi-tip li {
-        margin-top: 0.25rem;
     }
 
     .mi-advanced {
