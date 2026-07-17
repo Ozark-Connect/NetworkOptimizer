@@ -955,24 +955,24 @@
                     </div>
                     <div class="card-body">
                         <div class="form-group">
-                            <label>Name</label>
+                            <label class="form-label">Name</label>
                             <input type="text" class="form-control" @bind="_ruleName" placeholder="e.g., Device Offline Alert" />
                         </div>
                         <div class="form-row">
                             <div class="form-group">
-                                <label>Event Type Pattern</label>
+                                <label class="form-label">Event Type Pattern</label>
                                 <input type="text" class="form-control" @bind="_ruleEventPattern" placeholder="e.g., audit.* or wan.speed_degradation" />
                                 <small class="form-text">Use <code>category.*</code> for wildcards (e.g., <code>audit.*</code> matches all audit events) - <a href="#" @onclick="() => _showEventTypeKey = true" @onclick:preventDefault style="color: var(--info-color);">View all event types</a></small>
                             </div>
                             <div class="form-group">
-                                <label>Threshold % <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Only applies to percent-based rules like Gateway CPU/Memory or speed degradation. Optical and temperature thresholds (SFP, ONT, Device temperature) are set on their Monitoring card instead - use the link icon next to the rule name in the table above.">?</span></label>
+                                <label class="form-label">Threshold % <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Only applies to percent-based rules like Gateway CPU/Memory or speed degradation. Optical and temperature thresholds (SFP, ONT, Device temperature) are set on their Monitoring card instead - use the link icon next to the rule name in the table above.">?</span></label>
                                 <input type="number" class="form-control" @bind="_ruleThresholdPercent" min="0" max="100" step="1" placeholder="Optional" />
                                 <small class="form-text">For degradation/regression rules: minimum % drop to trigger</small>
                             </div>
                         </div>
                         <div class="form-row">
                             <div class="form-group">
-                                <label>Source</label>
+                                <label class="form-label">Source</label>
                                 <select class="form-control" @bind="_ruleSource">
                                     <option value="">All Sources</option>
                                     <option value="audit">Audit</option>
@@ -985,7 +985,7 @@
                                 </select>
                             </div>
                             <div class="form-group">
-                                <label>Min Severity</label>
+                                <label class="form-label">Min Severity</label>
                                 <select class="form-control" @bind="_ruleMinSeverity">
                                     <option value="Info">Info</option>
                                     <option value="Warning">Warning</option>
@@ -996,12 +996,12 @@
                         </div>
                         <div class="form-row">
                             <div class="form-group">
-                                <label>Cooldown (seconds)</label>
+                                <label class="form-label">Cooldown (seconds)</label>
                                 <input type="number" class="form-control" @bind="_ruleCooldown" min="0" />
                                 <small class="form-text">Minimum seconds between alerts for the same rule+device</small>
                             </div>
                             <div class="form-group">
-                                <label>Escalation (minutes)</label>
+                                <label class="form-label">Escalation (minutes)</label>
                                 <input type="number" class="form-control" @bind="_ruleEscalationMinutes" min="0" />
                                 <small class="form-text">0 = no escalation. If set, unacknowledged alerts escalate after this time.</small>
                             </div>
@@ -1013,7 +1013,7 @@
                             </label>
                         </div>
                         <div class="form-group">
-                            <label>Target Devices (optional)</label>
+                            <label class="form-label">Target Devices (optional)</label>
                             <input type="text" class="form-control" @bind="_ruleTargetDevices" placeholder="Comma-separated IPs or MACs, empty = all" />
                         </div>
                         <div class="form-actions">
@@ -2529,7 +2529,7 @@
             "document.getElementById('rule-form')?.scrollIntoView({ behavior: 'smooth', block: 'start' })");
     }
 
-    private void StartEditRule(AlertRule rule)
+    private async Task StartEditRule(AlertRule rule)
     {
         _editingRuleId = rule.Id;
         _ruleName = rule.Name;
@@ -2543,6 +2543,10 @@
         _ruleTargetDevices = rule.TargetDevices ?? "";
         _ruleError = null;
         _showRuleForm = true;
+        await InvokeAsync(StateHasChanged);
+        await Task.Delay(50);
+        await JS.InvokeVoidAsync("eval",
+            "document.getElementById('rule-form')?.scrollIntoView({ behavior: 'smooth', block: 'start' })");
     }
 
     private void CancelRuleForm()
