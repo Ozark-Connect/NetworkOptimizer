@@ -25,6 +25,14 @@ public class AdminSettings
     /// <summary>When this configuration was last updated</summary>
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
+    /// <summary>
+    /// When the user dismissed the "no DDM? check ONT monitoring" advisory on the
+    /// Optical (SFP / ONT) card. Global (this is the app-wide settings row, not a
+    /// per-site value) so the hint stays dismissed across sites and browsers. Null =
+    /// never dismissed, so the advisory still shows.
+    /// </summary>
+    public DateTime? SfpOntHintDismissedAt { get; set; }
+
     /// <summary>Check if password is configured (non-empty after decryption)</summary>
     public bool HasPassword => !string.IsNullOrEmpty(Password);
 }

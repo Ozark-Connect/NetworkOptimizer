@@ -7,14 +7,16 @@ namespace NetworkOptimizer.Web.Services.Monitoring;
 
 /// <summary>
 /// Evaluates external ONT (Optical Network Terminal) readings and publishes alert
-/// events on state transitions. Covers RX power degradation, PON link loss, and
-/// FEC error spikes - the same failure modes as in-gateway SFP DDM but sourced
-/// from the ISP-side device.
+/// events on state transitions. Covers RX power degradation, PON link loss, FEC
+/// error spikes, and high temperature - the same failure modes as in-gateway SFP
+/// DDM but sourced from the ISP-side device. RX-power and temperature thresholds
+/// are the caller-supplied effective values (the shared PON settings SFP uses),
+/// defaulting to the built-in <see cref="PonThresholds"/> constants.
 /// </summary>
 public class OntAlertEvaluator
 {
-    private const double RxPowerLowDbm = PonThresholds.PonRxPowerLowDbm;
     private const double RxPowerHysteresisDbm = PonThresholds.PowerHysteresisDbm;
+    private const double TempHysteresisC = PonThresholds.TempHysteresisC;
     private const long FecErrorDeltaThreshold = PonThresholds.PonFecErrorSpikePerPoll;
 
     private readonly IAlertEventBus _eventBus;
@@ -42,13 +44,16 @@ public class OntAlertEvaluator
         double? rxPowerDbm,
         PonLinkState ponLinkStatus,
         long? fecErrors,
+        double? temperatureC = null,
+        double rxPowerLowDbm = PonThresholds.PonRxPowerLowDbm,
+        double tempHighC = PonThresholds.PonTempHighC,
         CancellationToken ct = default)
     {
         var state = _states.GetOrAdd(ontId, _ => new OntAlertState());
 
         if (rxPowerDbm.HasValue)
         {
-            await CheckRxPower(state, ontId, ontName, rxPowerDbm.Value, ct);
+            await CheckRxPower(state, ontId, ontName, rxPowerDbm.Value, rxPowerLowDbm, ct);
         }
 
         await CheckPonLink(state, ontId, ontName, ponLinkStatus, ct);
@@ -57,16 +62,21 @@ public class OntAlertEvaluator
         {
             await CheckFecErrors(state, ontId, ontName, fecErrors.Value, ct);
         }
+
+        if (temperatureC.HasValue)
+        {
+            await CheckTemperature(state, ontId, ontName, temperatureC.Value, tempHighC, ct);
+        }
     }
 
     private async ValueTask CheckRxPower(
-        OntAlertState state, int ontId, string ontName, double rxPower, CancellationToken ct)
+        OntAlertState state, int ontId, string ontName, double rxPower, double rxPowerLowDbm, CancellationToken ct)
     {
-        if (rxPower < RxPowerLowDbm && !state.RxPowerBreached)
+        if (rxPower < rxPowerLowDbm && !state.RxPowerBreached)
         {
             state.RxPowerBreached = true;
             _logger.LogDebug("ONT {Name} RX power {Power} dBm below threshold {Threshold} dBm",
-                ontName, rxPower, RxPowerLowDbm);
+                ontName, rxPower, rxPowerLowDbm);
 
             await _eventBus.PublishAsync(new AlertEvent
             {
@@ -74,10 +84,10 @@ public class OntAlertEvaluator
                 Source = "ont",
                 Severity = AlertSeverity.Warning,
                 Title = $"{ontName} RX power low{_siteSuffix}",
-                Message = $"ONT {ontName} optical RX power {rxPower:0.##} dBm is below {RxPowerLowDbm} dBm threshold.",
+                Message = $"ONT {ontName} optical RX power {rxPower:0.##} dBm is below {rxPowerLowDbm:0.##} dBm threshold.",
                 DeviceName = ontName,
                 MetricValue = rxPower,
-                ThresholdValue = RxPowerLowDbm,
+                ThresholdValue = rxPowerLowDbm,
                 SourceUrl = "/monitoring?tab=ont",
                 Tags = ["ont", "rx_power"],
                 Context = new Dictionary<string, string>
@@ -87,9 +97,49 @@ public class OntAlertEvaluator
                 }
             }, ct);
         }
-        else if (rxPower >= RxPowerLowDbm + RxPowerHysteresisDbm && state.RxPowerBreached)
+        else if (rxPower >= rxPowerLowDbm + RxPowerHysteresisDbm && state.RxPowerBreached)
         {
             state.RxPowerBreached = false;
+        }
+    }
+
+    /// <summary>
+    /// Flags a sustained high transceiver temperature. Only ONTs that expose a DDM
+    /// temperature reading (typically SFP-module ONTs) reach here; the poll passes a
+    /// null reading otherwise and no alert is possible. Clears with hysteresis so a
+    /// reading hovering at the threshold doesn't flap.
+    /// </summary>
+    private async ValueTask CheckTemperature(
+        OntAlertState state, int ontId, string ontName, double tempC, double tempHighC, CancellationToken ct)
+    {
+        if (tempC > tempHighC && !state.TempBreached)
+        {
+            state.TempBreached = true;
+            _logger.LogDebug("ONT {Name} temperature {Temp} C above threshold {Threshold} C",
+                ontName, tempC, tempHighC);
+
+            await _eventBus.PublishAsync(new AlertEvent
+            {
+                EventType = "ont.high_temperature",
+                Source = "ont",
+                Severity = AlertSeverity.Warning,
+                Title = $"{ontName} temperature high{_siteSuffix}",
+                Message = $"ONT {ontName} temperature {tempC:0.#} C is above {tempHighC:0} C threshold.",
+                DeviceName = ontName,
+                MetricValue = tempC,
+                ThresholdValue = tempHighC,
+                SourceUrl = "/monitoring?tab=ont",
+                Tags = ["ont", "temperature"],
+                Context = new Dictionary<string, string>
+                {
+                    ["ont_id"] = ontId.ToString(),
+                    ["metric"] = "temperature"
+                }
+            }, ct);
+        }
+        else if (tempC <= tempHighC - TempHysteresisC && state.TempBreached)
+        {
+            state.TempBreached = false;
         }
     }
 
@@ -167,6 +217,7 @@ public class OntAlertEvaluator
     {
         public bool RxPowerBreached;
         public bool PonLinkDown;
+        public bool TempBreached;
         public long? PreviousFecErrors;
     }
 }

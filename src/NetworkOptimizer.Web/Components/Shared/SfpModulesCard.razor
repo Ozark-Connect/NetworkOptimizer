@@ -4,6 +4,7 @@
 @inject NetworkOptimizer.Storage.Services.SiteDbContextFactory SiteDb
 @inject SiteContextService SiteCtx
 @inject Microsoft.JSInterop.IJSRuntime JS
+@inject IDbContextFactory<NetworkOptimizerDbContext> MainDb
 
 @if (AllSfps.Count > 0)
 {
@@ -18,6 +19,20 @@
     <div class="expand-wrapper @(!_collapsed && _stateLoaded ? "expanded" : "")" style="@(!_stateLoaded ? "display:none" : "")">
         <div class="expand-content">
     <div class="card-body">
+        @if (!_ontHintDismissed)
+        {
+            <div class="alert alert-info" style="margin-bottom: 1rem;">
+                <div>
+                    <strong>Not all SFP modules expose DDM stats.</strong>
+                    If the RX / TX / Temp columns below stay empty, the module isn't reporting DDM to
+                    the gateway. You can still monitor a standalone ONT - or a DDM-capable SFP ONT -
+                    directly by <a href="/settings#ont-monitoring">setting up an ONT monitoring provider</a>.
+                </div>
+                <div style="margin-top: 0.5rem;">
+                    <button class="btn btn-sm btn-secondary" @onclick="DismissOntHint">Dismiss</button>
+                </div>
+            </div>
+        }
         <p class="section-description">
             SFP modules detected on switch / gateway ports. PON modules (GPON / XGS-PON)
             are auto-promoted to monitoring. Active Ethernet (P2P) modules can be promoted
@@ -182,6 +197,7 @@ else
     private bool _collapsed = false;
     private bool _stateLoaded = false;
     private bool _forceExpandApplied = false;
+    private bool _ontHintDismissed = false;
     private int _page = 0;
     private const int PageSize = 10;
     private const string CollapseKey = "sfp-modules-collapsed";
@@ -210,6 +226,18 @@ else
                 }
                 catch { }
             }
+
+            // The advisory dismissal is a global (app-wide) setting, so read it from the
+            // main DB regardless of the active site. Resolve it before revealing the body
+            // (gated on _stateLoaded) so the hint never flashes for a user who dismissed it.
+            try
+            {
+                await using var db = await MainDb.CreateDbContextAsync();
+                var admin = await db.AdminSettings.AsNoTracking().FirstOrDefaultAsync();
+                _ontHintDismissed = admin?.SfpOntHintDismissedAt != null;
+            }
+            catch { }
+
             _stateLoaded = true;
             StateHasChanged();
         }
@@ -219,6 +247,29 @@ else
     {
         _collapsed = !_collapsed;
         try { await JS.InvokeVoidAsync("localStorage.setItem", CollapseKey, _collapsed ? "true" : "false"); }
+        catch { }
+    }
+
+    /// <summary>
+    /// Dismisses the "no DDM? check ONT monitoring" advisory app-wide by stamping the
+    /// main-DB AdminSettings row (created if it doesn't exist yet). Global, not per-site.
+    /// </summary>
+    private async Task DismissOntHint()
+    {
+        _ontHintDismissed = true;
+        try
+        {
+            await using var db = await MainDb.CreateDbContextAsync();
+            var admin = await db.AdminSettings.FirstOrDefaultAsync();
+            if (admin == null)
+            {
+                admin = new AdminSettings();
+                db.AdminSettings.Add(admin);
+            }
+            admin.SfpOntHintDismissedAt = DateTime.UtcNow;
+            admin.UpdatedAt = DateTime.UtcNow;
+            await db.SaveChangesAsync();
+        }
         catch { }
     }
 
