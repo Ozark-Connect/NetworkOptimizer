@@ -11228,6 +11228,59 @@ a.path-hop.hop-clickable:hover {
     color: var(--text-primary);
 }
 
+.ddm-hint {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    margin-bottom: 1rem;
+    background: rgba(71, 151, 255, 0.08);
+    border: 1px solid rgba(71, 151, 255, 0.25);
+    border-radius: var(--border-radius);
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    line-height: 1.5;
+}
+
+.ddm-hint-content {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    flex: 1;
+}
+
+.ddm-hint-icon {
+    flex-shrink: 0;
+    color: var(--info-color);
+    margin-top: 2px;
+}
+
+.ddm-hint-link {
+    color: var(--primary-color);
+    text-decoration: underline;
+}
+
+.ddm-hint-link:hover {
+    color: var(--primary-hover);
+}
+
+.ddm-hint-dismiss {
+    flex-shrink: 0;
+    white-space: nowrap;
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    border: none;
+    padding: 0.35rem 0.75rem;
+    font-size: 0.8rem;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+
+.ddm-hint-dismiss:hover {
+    color: var(--text-primary);
+}
+
 /* Score coloring */
 .score-excellent { color: #22c55e; }
 .score-good { color: #3b82f6; }

@@ -21,16 +21,19 @@
     <div class="card-body">
         @if (!_ontHintDismissed)
         {
-            <div class="alert alert-info" style="margin-bottom: 1rem;">
-                <div>
-                    <strong>Not all SFP modules expose DDM stats.</strong>
-                    If the RX / TX / Temp columns below stay empty, the module isn't reporting DDM to
-                    the gateway. You can still monitor a standalone ONT - or a DDM-capable SFP ONT -
-                    directly by <a href="/settings#ont-monitoring">setting up an ONT monitoring provider</a>.
+            <div class="ddm-hint">
+                <div class="ddm-hint-content">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="ddm-hint-icon">
+                        <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+                    </svg>
+                    <span>
+                        <strong>Not all SFP modules expose DDM stats.</strong>
+                        If a module's RX / TX / Temp columns below stay empty, the gateway or switch
+                        can't read DDM from it. If it's an ONT, monitor it directly over its web interface
+                        instead - <a href="/settings#ont-monitoring" class="ddm-hint-link">set up an ONT monitoring provider</a>.
+                    </span>
                 </div>
-                <div style="margin-top: 0.5rem;">
-                    <button class="btn btn-sm btn-secondary" @onclick="DismissOntHint">Dismiss</button>
-                </div>
+                <button class="ddm-hint-dismiss" @onclick="DismissOntHint">Dismiss</button>
             </div>
         }
         <p class="section-description">
