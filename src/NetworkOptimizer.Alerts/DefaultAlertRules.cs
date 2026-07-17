@@ -233,7 +233,7 @@ public static class DefaultAlertRules
         // --- SFP / PON threshold alerts (enabled - auto-managed for detected modules) ---
         new AlertRule
         {
-            Name = "SFP: PON RX Power Low",
+            Name = "SFP: RX Power Low",
             IsEnabled = true,
             EventTypePattern = "monitoring.sfp_rx_power",
             Source = "monitoring",
@@ -242,7 +242,7 @@ public static class DefaultAlertRules
         },
         new AlertRule
         {
-            Name = "SFP: PON TX Power High",
+            Name = "SFP: TX Power High",
             IsEnabled = true,
             EventTypePattern = "monitoring.sfp_tx_power",
             Source = "monitoring",
@@ -362,6 +362,16 @@ public static class DefaultAlertRules
             Name = "ONT: FEC Error Spike",
             IsEnabled = false,
             EventTypePattern = "ont.fec_errors",
+            Source = "ont",
+            MinSeverity = AlertSeverity.Warning,
+            CooldownSeconds = 1800 // 30 minutes
+        },
+        new AlertRule
+        {
+            // Only ONTs that report a DDM temperature (typically SFP-module ONTs) can trip this.
+            Name = "ONT: Temperature High",
+            IsEnabled = false,
+            EventTypePattern = "ont.high_temperature",
             Source = "ont",
             MinSeverity = AlertSeverity.Warning,
             CooldownSeconds = 1800 // 30 minutes

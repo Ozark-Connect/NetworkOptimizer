@@ -2053,7 +2053,7 @@ a.stat-card-link:active {
 }
 
 .data-table tr:not(.history-details-row):hover {
-    background: var(--bg-hover);
+    background: var(--bg-hover-subtle);
 }
 
 .data-table code {
@@ -8952,6 +8952,11 @@ a.path-hop.hop-clickable:hover {
     background: var(--bg-elevated);
 }
 
+.card .card .data-table .btn-secondary,
+.card .card .data-table .btn-ghost {
+    background: var(--bg-tertiary);
+}
+
 .pill-btn,
 .time-btn {
     padding: 0.35rem 0.75rem;
@@ -11226,6 +11231,35 @@ a.path-hop.hop-clickable:hover {
 .channel-disclaimer .disclaimer-dismiss-btn:hover {
     background: var(--bg-secondary);
     color: var(--text-primary);
+}
+
+.info-tip {
+    background: rgba(71, 151, 255, 0.1);
+    border: 1px solid var(--info-color);
+    border-left: 4px solid var(--info-color);
+    border-radius: var(--border-radius);
+    padding: 1rem;
+    margin-top: 1rem;
+    margin-bottom: 1rem;
+    font-size: 0.875rem;
+    color: var(--text-primary);
+}
+
+.info-tip strong {
+    color: var(--info-color);
+}
+
+.info-tip ul {
+    margin: 0.5rem 0 0;
+    padding-left: 1.25rem;
+}
+
+.info-tip li {
+    margin-top: 0.25rem;
+}
+
+.info-tip-actions {
+    text-align: right;
 }
 
 /* Score coloring */
@@ -17905,10 +17939,6 @@ body.kiosk-mode .status-indicators {
     align-items: center;
     gap: 0.5rem;
     padding: 0.35rem 0;
-}
-
-.settings-table tr:not(.history-details-row):hover {
-    background: var(--bg-hover-subtle);
 }
 
 .site-name-cell {

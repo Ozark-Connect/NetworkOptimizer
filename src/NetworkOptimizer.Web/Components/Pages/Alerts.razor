@@ -9,8 +9,10 @@
 @using NetworkOptimizer.Core.Helpers
 @using NetworkOptimizer.Storage.Models
 @using System.Text.Json
+@using Microsoft.EntityFrameworkCore
 @using NetworkOptimizer.Web.Services.Ssh
 @inject IAlertRepository AlertRepository
+@inject NetworkOptimizer.Storage.Services.SiteDbContextFactory SiteDb
 @inject IScheduleRepository ScheduleRepository
 @inject ScheduleService ScheduleService
 @inject SiteContextService SiteContext
@@ -911,7 +913,15 @@
                                                     <span class="toggle-slider"></span>
                                                 </label>
                                             </td>
-                                            <td>@rule.Name</td>
+                                            <td>
+                                                @rule.Name
+                                                @if (ThresholdLink(rule.EventTypePattern) is { } tl)
+                                                {
+                                                    <a href="@($"/monitoring?tab={tl.Tab}&expand={tl.Expand}")" class="settings-title-link" style="margin-left: 0.4rem;" data-tooltip="Configure thresholds">
+                                                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"></path><path d="M10 14 21 3"></path><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path></svg>
+                                                    </a>
+                                                }
+                                            </td>
                                             <td><code>@rule.EventTypePattern</code></td>
                                             <td class="hide-mobile">@(rule.Source ?? "All")</td>
                                             <td class="hide-mobile">
@@ -945,24 +955,24 @@
                     </div>
                     <div class="card-body">
                         <div class="form-group">
-                            <label>Name</label>
+                            <label class="form-label">Name</label>
                             <input type="text" class="form-control" @bind="_ruleName" placeholder="e.g., Device Offline Alert" />
                         </div>
                         <div class="form-row">
                             <div class="form-group">
-                                <label>Event Type Pattern</label>
+                                <label class="form-label">Event Type Pattern</label>
                                 <input type="text" class="form-control" @bind="_ruleEventPattern" placeholder="e.g., audit.* or wan.speed_degradation" />
                                 <small class="form-text">Use <code>category.*</code> for wildcards (e.g., <code>audit.*</code> matches all audit events) - <a href="#" @onclick="() => _showEventTypeKey = true" @onclick:preventDefault style="color: var(--info-color);">View all event types</a></small>
                             </div>
                             <div class="form-group">
-                                <label>Threshold %</label>
+                                <label class="form-label">Threshold % <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Only applies to percent-based rules like Gateway CPU/Memory or speed degradation. Optical and temperature thresholds (SFP, ONT, Device temperature) are set on their Monitoring card instead - use the link icon next to the rule name in the table above.">?</span></label>
                                 <input type="number" class="form-control" @bind="_ruleThresholdPercent" min="0" max="100" step="1" placeholder="Optional" />
                                 <small class="form-text">For degradation/regression rules: minimum % drop to trigger</small>
                             </div>
                         </div>
                         <div class="form-row">
                             <div class="form-group">
-                                <label>Source</label>
+                                <label class="form-label">Source</label>
                                 <select class="form-control" @bind="_ruleSource">
                                     <option value="">All Sources</option>
                                     <option value="audit">Audit</option>
@@ -975,7 +985,7 @@
                                 </select>
                             </div>
                             <div class="form-group">
-                                <label>Min Severity</label>
+                                <label class="form-label">Min Severity</label>
                                 <select class="form-control" @bind="_ruleMinSeverity">
                                     <option value="Info">Info</option>
                                     <option value="Warning">Warning</option>
@@ -986,12 +996,12 @@
                         </div>
                         <div class="form-row">
                             <div class="form-group">
-                                <label>Cooldown (seconds)</label>
+                                <label class="form-label">Cooldown (seconds)</label>
                                 <input type="number" class="form-control" @bind="_ruleCooldown" min="0" />
                                 <small class="form-text">Minimum seconds between alerts for the same rule+device</small>
                             </div>
                             <div class="form-group">
-                                <label>Escalation (minutes)</label>
+                                <label class="form-label">Escalation (minutes)</label>
                                 <input type="number" class="form-control" @bind="_ruleEscalationMinutes" min="0" />
                                 <small class="form-text">0 = no escalation. If set, unacknowledged alerts escalate after this time.</small>
                             </div>
@@ -1003,7 +1013,7 @@
                             </label>
                         </div>
                         <div class="form-group">
-                            <label>Target Devices (optional)</label>
+                            <label class="form-label">Target Devices (optional)</label>
                             <input type="text" class="form-control" @bind="_ruleTargetDevices" placeholder="Comma-separated IPs or MACs, empty = all" />
                         </div>
                         <div class="form-actions">
@@ -1643,6 +1653,7 @@
                         <div @onclick='() => SelectEventType("ont.rx_power_low")'><code>ont.rx_power_low</code> <span>Optical RX power below threshold</span></div>
                         <div @onclick='() => SelectEventType("ont.pon_link_down")'><code>ont.pon_link_down</code> <span>PON link lost</span></div>
                         <div @onclick='() => SelectEventType("ont.fec_errors")'><code>ont.fec_errors</code> <span>FEC error rate spike</span></div>
+                        <div @onclick='() => SelectEventType("ont.high_temperature")'><code>ont.high_temperature</code> <span>Temperature above threshold</span></div>
                         <div @onclick='() => SelectEventType("ont.*")'><code>ont.*</code> <span>All ONT events</span></div>
                     </div>
                 </div>
@@ -1924,10 +1935,39 @@
         };
     }
 
+    private bool _showOntTab = true;
+
+    /// <summary>
+    /// Maps an alert rule to the Monitoring tab + threshold card that configures it, for the
+    /// deep-link icon shown next to the rule name. Returns null for rules with no separate
+    /// threshold card. ONT rules only map when this site shows the ONT Stats tab.
+    /// </summary>
+    private (string Tab, string Expand)? ThresholdLink(string eventTypePattern) => eventTypePattern switch
+    {
+        "monitoring.sfp_temperature" => ("sfp", "sfp-thresholds"),
+        "monitoring.sfp_rx_power" => ("sfp", "sfp-thresholds"),
+        "monitoring.sfp_tx_power" => ("sfp", "sfp-thresholds"),
+        "device.high_temperature" => ("devices", "device-temp-thresholds"),
+        "ont.rx_power_low" when _showOntTab => ("ont", "ont-thresholds"),
+        "ont.high_temperature" when _showOntTab => ("ont", "ont-thresholds"),
+        _ => null,
+    };
+
     protected override async Task OnInitializedAsync()
     {
         _activeTab = ResolveTab(TabParam);
         _lastTabParam = TabParam;
+
+        // Whether this site shows the ONT Stats tab - gates the ONT rules' threshold
+        // deep-link icon so we never link to a tab the site has hidden. (SFP Stats and
+        // Device Stats are always visible, so those rules' icons need no gate.)
+        try
+        {
+            await using var settingsDb = SiteDb.CreateForSite(SiteContext.Slug, SiteContext.IsDefault);
+            _showOntTab = (await settingsDb.MonitoringSettings.AsNoTracking().FirstOrDefaultAsync())?.ShowOntTab ?? true;
+        }
+        catch { }
+
         PtrState.RefreshCallback = async () =>
         {
             switch (_activeTab)
@@ -2489,7 +2529,7 @@
             "document.getElementById('rule-form')?.scrollIntoView({ behavior: 'smooth', block: 'start' })");
     }
 
-    private void StartEditRule(AlertRule rule)
+    private async Task StartEditRule(AlertRule rule)
     {
         _editingRuleId = rule.Id;
         _ruleName = rule.Name;
@@ -2503,6 +2543,10 @@
         _ruleTargetDevices = rule.TargetDevices ?? "";
         _ruleError = null;
         _showRuleForm = true;
+        await InvokeAsync(StateHasChanged);
+        await Task.Delay(50);
+        await JS.InvokeVoidAsync("eval",
+            "document.getElementById('rule-form')?.scrollIntoView({ behavior: 'smooth', block: 'start' })");
     }
 
     private void CancelRuleForm()

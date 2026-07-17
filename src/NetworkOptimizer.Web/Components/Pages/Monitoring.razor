@@ -597,7 +597,7 @@ else
             </div>
         </div>
 
-        <div class="card" style="margin-top: 1rem;">
+        <div class="card" style="margin-top: 1rem;" id="device-temp-thresholds-card">
             <div class="card-header card-header-collapsible" @onclick="() => _deviceTempCollapsed = !_deviceTempCollapsed">
                 <h2 class="card-title">Temperature Alert Thresholds</h2>
                 <span class="issue-type-chevron">@(_deviceTempCollapsed ? "▼" : "▲")</span>
@@ -724,7 +724,7 @@ else
             </div>
         </div>
 
-        <div class="card" style="margin-top: 1.5rem;">
+        <div class="card" style="margin-top: 1.5rem;" id="sfp-thresholds-card">
             <div class="card-header card-header-collapsible" @onclick="() => _sfpThresholdsCollapsed = !_sfpThresholdsCollapsed">
                 <h2 class="card-title">SFP Alert Thresholds</h2>
                 <span class="issue-type-chevron">@(_sfpThresholdsCollapsed ? "▼" : "▲")</span>
@@ -1006,6 +1006,53 @@ else
         </div>
         }
         }
+
+        <div class="card" style="margin-top: 1.5rem;" id="ont-thresholds-card">
+            <div class="card-header card-header-collapsible" @onclick="() => _ontThresholdsCollapsed = !_ontThresholdsCollapsed">
+                <h2 class="card-title">ONT Alert Thresholds</h2>
+                <span class="issue-type-chevron">@(_ontThresholdsCollapsed ? "▼" : "▲")</span>
+            </div>
+            <div class="expand-wrapper @(!_ontThresholdsCollapsed ? "expanded" : "")">
+            <div class="expand-content">
+            <div class="card-body">
+                <p class="page-description">
+                    Thresholds for the <a href="/alerts?tab=rules">ONT temperature and RX power</a> alerts.
+                    Leave a field blank to use the built-in default. External ONTs share the PON optical
+                    thresholds with the gateway's SFP DDM monitoring, so a change here also updates the PON
+                    values under SFP Alert Thresholds.
+                </p>
+
+                <div class="threshold-fields">
+                    <div class="form-group">
+                        <label class="form-label">Temperature high (&deg;C)</label>
+                        <input type="number" class="form-control" min="40" max="120" step="1"
+                               placeholder="@PhPonTemp" @bind="_sfpPonTemp" @bind:after="ResetThresholdSavedFlags" />
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">RX power low (dBm)</label>
+                        <input type="number" class="form-control" min="-40" max="0" step="0.1"
+                               placeholder="@PhPonRx" @bind="_sfpPonRx" @bind:after="ResetThresholdSavedFlags" />
+                    </div>
+                </div>
+                <p class="form-help">
+                    Not all ONTs report temperature - typically only ONTs that are (or contain) an SFP
+                    module expose a DDM temperature reading. The temperature alert simply never fires for
+                    ONTs that don't report it.
+                </p>
+
+                <div class="input-with-button" style="margin-top: 1rem;">
+                    <button class="btn btn-primary btn-sm" @onclick="SaveOntThresholdsAsync" disabled="@_savingOntThresholds">
+                        @(_savingOntThresholds ? "Saving..." : "Save thresholds")
+                    </button>
+                    @if (_ontThresholdsSaved)
+                    {
+                        <span class="form-help signal-good" style="align-self: center;">Saved</span>
+                    }
+                </div>
+            </div>
+            </div>
+            </div>
+        </div>
     }
 
     @* ──────────────── Tab: Cellular Stats ──────────────── *@
@@ -1683,6 +1730,10 @@ else
     private bool _scrollToDiscoveryPending;
     private bool _scrollToSfpChartsPending;
     private bool _scrollToFlakyPending;
+    private bool _scrollToSfpThresholdsPending;
+    private bool _scrollToOntThresholdsPending;
+    private bool _scrollToDeviceTempPending;
+    private bool _thresholdExpandApplied;
     private bool _forceExpandFlaky;
     private string? _soloSfpModuleId;
     private string? _soloDeviceMac;
@@ -1724,6 +1775,30 @@ else
         {
             _soloSfpModuleId = SfpParam;
             _scrollToSfpChartsPending = true;
+        }
+
+        // Deep link from an Alert Rule's threshold icon: expand the matching thresholds card
+        // and scroll to it. Applied once so a later manual collapse isn't fought by re-renders.
+        if (!_thresholdExpandApplied && !string.IsNullOrEmpty(ExpandParam))
+        {
+            if (_activeTab == "sfp" && ExpandParam == "sfp-thresholds")
+            {
+                _sfpThresholdsCollapsed = false;
+                _scrollToSfpThresholdsPending = true;
+                _thresholdExpandApplied = true;
+            }
+            else if (_activeTab == "ont" && ExpandParam == "ont-thresholds")
+            {
+                _ontThresholdsCollapsed = false;
+                _scrollToOntThresholdsPending = true;
+                _thresholdExpandApplied = true;
+            }
+            else if (_activeTab == "devices" && ExpandParam == "device-temp-thresholds")
+            {
+                _deviceTempCollapsed = false;
+                _scrollToDeviceTempPending = true;
+                _thresholdExpandApplied = true;
+            }
         }
 
         if (!string.IsNullOrEmpty(ModemParam) && _activeTab == "cellular")
@@ -1962,6 +2037,7 @@ else
     {
         _tempThresholdsSaved = false;
         _sfpThresholdsSaved = false;
+        _ontThresholdsSaved = false;
     }
 
     private static string DefaultTempPlaceholder =>
@@ -2004,6 +2080,13 @@ else
     private double? _sfpGenericTemp;
     private bool _savingSfpThresholds;
     private bool _sfpThresholdsSaved;
+
+    // ONT Alert Thresholds card (bottom of the ONT tab). External ONTs share the PON
+    // optical thresholds with the SFP DDM path, so this edits the same PON settings and
+    // reuses the _sfpPonTemp / _sfpPonRx inputs.
+    private bool _ontThresholdsCollapsed = true;
+    private bool _savingOntThresholds;
+    private bool _ontThresholdsSaved;
 
     private string PhPonTemp => _sfpDefaults.PonTempHighC.ToString("0");
     private string PhPonRx => _sfpDefaults.PonRxPowerLowDbm.ToString("0.#");
@@ -2052,6 +2135,37 @@ else
         finally
         {
             _savingSfpThresholds = false;
+            StateHasChanged();
+        }
+    }
+
+    /// <summary>
+    /// Persists the ONT alert thresholds. These are the shared PON optical thresholds
+    /// (temperature high, RX power low), so saving here also drives the PON row under
+    /// SFP Alert Thresholds and the gateway SFP DDM alerts.
+    /// </summary>
+    private async Task SaveOntThresholdsAsync()
+    {
+        _savingOntThresholds = true;
+        _ontThresholdsSaved = false;
+        StateHasChanged();
+        try
+        {
+            await using var db = SiteDb.CreateForSite(SiteCtx.Slug, SiteCtx.IsDefault);
+            var settings = await db.MonitoringSettings.FirstOrDefaultAsync()
+                ?? new MonitoringSettings();
+            if (settings.Id == 0) db.MonitoringSettings.Add(settings);
+            // Temperature must be positive; a blank RX field (null) means "use default".
+            settings.PonTempHighC = NormalizeTempThreshold(_sfpPonTemp);
+            settings.PonRxPowerLowDbm = _sfpPonRx;
+            settings.UpdatedAt = DateTime.UtcNow;
+            await db.SaveChangesAsync();
+            LoadSfpThresholdInputs(settings);
+            _ontThresholdsSaved = true;
+        }
+        finally
+        {
+            _savingOntThresholds = false;
             StateHasChanged();
         }
     }
@@ -2559,6 +2673,29 @@ else
                     el.scrollIntoView({ behavior: 'smooth', block: 'start' });
                 }
             })();");
+    }
+
+    /// <summary>
+    /// Scrolls the element with the given id into view once the expand animation has settled
+    /// and flashes a brief highlight outline. Used by the Alert Rule threshold deep-links;
+    /// mirrors ScrollToSnmpDevicesAsync / ScrollToMonitoringInterfacesAsync. A missing element
+    /// is a harmless no-op.
+    /// </summary>
+    private async Task ScrollToElementAsync(string elementId)
+    {
+        await Task.Delay(400);
+        await JS.InvokeVoidAsync("eval", $@"
+            (function() {{
+                var el = document.getElementById('{elementId}');
+                if (el) {{
+                    el.scrollIntoView({{ behavior: 'smooth', block: 'start' }});
+                    el.style.transition = 'outline-color 0.3s';
+                    el.style.outline = '2px solid rgba(59, 130, 246, 0.5)';
+                    el.style.outlineOffset = '4px';
+                    el.style.borderRadius = '12px';
+                    setTimeout(function() {{ el.style.outline = ''; el.style.outlineOffset = ''; }}, 2000);
+                }}
+            }})();");
     }
 
     private async Task OnBeforeInternalNavigation(LocationChangingContext context)
@@ -3619,6 +3756,22 @@ else
             _scrollToSfpChartsPending = false;
             _soloSfpModuleId = null;
             await ScrollToSfpChartsAsync();
+        }
+
+        if (_scrollToSfpThresholdsPending && _activeTab == "sfp")
+        {
+            _scrollToSfpThresholdsPending = false;
+            await ScrollToElementAsync("sfp-thresholds-card");
+        }
+        if (_scrollToOntThresholdsPending && _activeTab == "ont")
+        {
+            _scrollToOntThresholdsPending = false;
+            await ScrollToElementAsync("ont-thresholds-card");
+        }
+        if (_scrollToDeviceTempPending && _activeTab == "devices")
+        {
+            _scrollToDeviceTempPending = false;
+            await ScrollToElementAsync("device-temp-thresholds-card");
         }
 
         // Cellular charts - Cellular tab only (wait for InfluxDB like SFP waits for module data)

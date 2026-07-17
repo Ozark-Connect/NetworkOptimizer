@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Monitoring.Models;
@@ -6,6 +7,7 @@ using NetworkOptimizer.Monitoring.Providers;
 using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Services;
+using NetworkOptimizer.Web.Services.Monitoring;
 
 namespace NetworkOptimizer.Web.Services;
 
@@ -117,7 +119,19 @@ public class OntMonitorService : IDisposable
             return null;
         }
 
-        return await PollSingleAsync(config, repository);
+        return await PollSingleAsync(config, repository, await ResolveThresholdsAsync(scope));
+    }
+
+    /// <summary>
+    /// Resolves the effective PON optical thresholds from this site's MonitoringSettings,
+    /// falling back to the built-in defaults. External ONTs share the PON thresholds with
+    /// the gateway's SFP DDM path, so the same user overrides drive both.
+    /// </summary>
+    private static async Task<SfpDdmThresholds> ResolveThresholdsAsync(IServiceScope scope)
+    {
+        var db = scope.ServiceProvider.GetRequiredService<NetworkOptimizerDbContext>();
+        var settings = await db.MonitoringSettings.AsNoTracking().FirstOrDefaultAsync();
+        return settings != null ? SfpDdmThresholds.FromSettings(settings) : SfpDdmThresholds.Defaults;
     }
 
     /// <summary>
@@ -191,6 +205,8 @@ public class OntMonitorService : IDisposable
             var configs = await repository.GetEnabledOntConfigurationsAsync();
             _logger.LogDebug("ONT PollAllAsync found {Count} enabled configs", configs.Count);
 
+            var thresholds = await ResolveThresholdsAsync(scope);
+
             foreach (var config in configs)
             {
                 if (!forceAll && config.LastPolled.HasValue)
@@ -200,7 +216,7 @@ public class OntMonitorService : IDisposable
                         continue;
                 }
 
-                await PollSingleAsync(config, repository);
+                await PollSingleAsync(config, repository, thresholds);
             }
 
             _hasPrimedOnce = true;
@@ -215,7 +231,8 @@ public class OntMonitorService : IDisposable
         }
     }
 
-    private async Task<OntStats?> PollSingleAsync(OntConfiguration config, IOntRepository repository)
+    private async Task<OntStats?> PollSingleAsync(
+        OntConfiguration config, IOntRepository repository, SfpDdmThresholds thresholds)
     {
         var provider = ResolveProvider(config.Provider);
         if (provider == null)
@@ -245,7 +262,8 @@ public class OntMonitorService : IDisposable
 
                 _ = _alertEvaluator.EvaluateAsync(
                     config.Id, config.Name,
-                    stats.RxPowerDbm, stats.PonLinkStatus, stats.FecErrors);
+                    stats.RxPowerDbm, stats.PonLinkStatus, stats.FecErrors,
+                    stats.TemperatureC, thresholds.PonRxPowerLowDbm, thresholds.PonTempHighC);
 
                 _logger.LogDebug("ONT {Name} polled successfully: Rx={Rx} dBm", config.Name, stats.RxPowerDbm);
                 return stats;

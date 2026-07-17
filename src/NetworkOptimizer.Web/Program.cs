@@ -887,6 +887,14 @@ using (var scope = app.Services.CreateScope())
                 siteDb.AlertRules.AddRange(siteMissingRules);
                 siteDb.SaveChanges();
                 app.Logger.LogInformation("Seeded {Count} alert rule(s) for site {Slug}", siteMissingRules.Count, site.Slug);
+
+                // Enable any freshly seeded modem/ONT rules for a secondary site that already
+                // has the matching monitoring configured (mirrors the main-site seed below,
+                // which secondary sites otherwise never got - a new ONT rule landed disabled).
+                var siteSeededPatterns = siteMissingRules.Select(m => m.EventTypePattern).ToHashSet();
+                AlertRuleAutoEnable.EnableFreshlySeeded(siteDb, "cable_modem", siteSeededPatterns, () => siteDb.CmConfigurations.Any());
+                AlertRuleAutoEnable.EnableFreshlySeeded(siteDb, "ont", siteSeededPatterns, () => siteDb.OntConfigurations.Any());
+                AlertRuleAutoEnable.EnableFreshlySeeded(siteDb, "cellular", siteSeededPatterns, () => siteDb.ModemConfigurations.Any());
             }
 
             if (NetworkOptimizer.Core.FeatureFlags.SchedulingEnabled && !siteDb.ScheduledTasks.Any())
@@ -960,27 +968,9 @@ using (var scope = app.Services.CreateScope())
         if (missing.Count > 0)
         {
             var seededPatterns = missing.Select(m => m.EventTypePattern).ToHashSet();
-            EnableFreshlySeeded(db, "cable_modem", seededPatterns, () => db.CmConfigurations.Any());
-            EnableFreshlySeeded(db, "ont", seededPatterns, () => db.OntConfigurations.Any());
-            EnableFreshlySeeded(db, "cellular", seededPatterns, () => db.ModemConfigurations.Any());
-        }
-
-        static void EnableFreshlySeeded(
-            NetworkOptimizer.Storage.Models.NetworkOptimizerDbContext db,
-            string source,
-            HashSet<string> seededPatterns,
-            Func<bool> hasConfigs)
-        {
-            var freshlySeeded = db.AlertRules
-                .Where(r => r.Source == source && !r.IsEnabled)
-                .ToList()
-                .Where(r => seededPatterns.Contains(r.EventTypePattern))
-                .ToList();
-            if (freshlySeeded.Count > 0 && hasConfigs())
-            {
-                foreach (var rule in freshlySeeded) rule.IsEnabled = true;
-                db.SaveChanges();
-            }
+            AlertRuleAutoEnable.EnableFreshlySeeded(db, "cable_modem", seededPatterns, () => db.CmConfigurations.Any());
+            AlertRuleAutoEnable.EnableFreshlySeeded(db, "ont", seededPatterns, () => db.OntConfigurations.Any());
+            AlertRuleAutoEnable.EnableFreshlySeeded(db, "cellular", seededPatterns, () => db.ModemConfigurations.Any());
         }
     }
 
