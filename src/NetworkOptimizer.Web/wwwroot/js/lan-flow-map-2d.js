@@ -977,7 +977,10 @@ class LanFlowMap2D {
         // Rates: fabric devices use badge, clients use link rates
         const isFab=d.kind===NK.Gateway||d.kind===NK.Switch||d.kind===NK.AP;
         let inBps=0,outBps=0,any=false;
-        if(isFab&&b){
+        if(d.kind===NK.VirtualHub){
+            // Hub throughput is its upstream port link, not the summed members.
+            const hr=this._virtualHubRates(d.id);inBps=hr.down;outBps=hr.up;any=hr.any;
+        }else if(isFab&&b){
             if(b.fabricIngressBps!=null||b.fabricEgressBps!=null){
                 inBps=b.fabricIngressBps||0;outBps=b.fabricEgressBps||0;any=true;
             }else if(b.aggregateInBps!=null||b.aggregateOutBps!=null){
@@ -1893,6 +1896,27 @@ class LanFlowMap2D {
             ctx.textAlign='center'; ctx.textBaseline='top';
             ctx.fillText(dn,x,y+r+3);
         }
+    }
+
+    // A VirtualHub groups several wired clients sharing one physical switch port
+    // (a server's VLAN sub-interfaces, etc.). Its own throughput is the parent
+    // switch -> hub port link (direction-correct), not the summed member leaf links.
+    // Prefer that upstream link; fall back to summing members only when it has no
+    // rate. down=downstream / up=upstream on every WiredClient link, so no flip.
+    _virtualHubRates(nodeId){
+        let upDown=0,upUp=0,upHas=false,sumDown=0,sumUp=0,sumHas=false;
+        for(const e of this._edges){
+            const lk=e.lk;
+            if(lk.toNodeId!==nodeId&&lk.fromNodeId!==nodeId)continue;
+            const r=this._liveRates[lk.portKey]||this._liveRates[lk.id];
+            if(!r)continue;
+            const dn=r.downstreamBps||0,up=r.upstreamBps||0;
+            if(lk.toNodeId===nodeId){upDown+=dn;upUp+=up;upHas=true;}
+            else{sumDown+=dn;sumUp+=up;sumHas=true;}
+        }
+        if(upHas)return{down:upDown,up:upUp,any:upDown>0||upUp>0};
+        if(sumHas)return{down:sumDown,up:sumUp,any:sumDown>0||sumUp>0};
+        return{down:0,up:0,any:false};
     }
 
     // ---- Rate labels on links + nodes ----

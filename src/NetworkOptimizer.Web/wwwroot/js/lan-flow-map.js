@@ -2935,6 +2935,31 @@ export class LanFlowMap {
         }
     }
 
+    // Resolve a VirtualHub's own throughput. The hub groups several wired clients
+    // that share one physical switch port (a server's VLAN sub-interfaces, etc.);
+    // the parent switch -> hub link carries the real, direction-correct port rate
+    // while the hub -> member leaf links carry per-client rates. The hub's boundary
+    // throughput IS its upstream port link, so prefer it and only fall back to
+    // summing the members when that port link has no rate (e.g. an SNMP-free parent
+    // port). On every WiredClient link downstreamBps is the toward-leaf (download)
+    // value and upstreamBps the toward-gateway (upload) value, so both the port link
+    // and the member links map down=downstream / up=upstream with no end-based flip.
+    _virtualHubRates(nodeId) {
+        let upDown = 0, upUp = 0, upHas = false;
+        let sumDown = 0, sumUp = 0, sumHas = false;
+        for (const [linkId, lm] of this._linkMeshes) {
+            const lk = lm.link;
+            const r = this._currentRates?.[linkId];
+            if (!r) continue;
+            const dn = r.downstreamBps || 0, up = r.upstreamBps || 0;
+            if (lk.toNodeId === nodeId) { upDown += dn; upUp += up; upHas = true; }
+            else if (lk.fromNodeId === nodeId) { sumDown += dn; sumUp += up; sumHas = true; }
+        }
+        if (upHas) return { down: upDown, up: upUp, any: (upDown > 0 || upUp > 0) };
+        if (sumHas) return { down: sumDown, up: sumUp, any: (sumDown > 0 || sumUp > 0) };
+        return { down: 0, up: 0, any: false };
+    }
+
     _refreshDeviceLabelRates() {
         // Floating labels render only on infrastructure (gateway / switch / AP).
         // Aggregate across adjacent links using internet-centric direction:
@@ -2948,6 +2973,7 @@ export class LanFlowMap {
             let downBps = 0;
             let upBps = 0;
             let anyData = false;
+            const node = this._nodeMeshes.get(nodeId)?.userData?.node;
             // Prefer the per-device aggregate badge if the server published one.
             // For switches the server emits fabric ingress/egress (sum across
             // every port_table entry) so multi-trunk switches don't under-
@@ -2957,7 +2983,17 @@ export class LanFlowMap {
             const badge = this._currentBadges?.[nodeId];
             const hasFabric = badge && (badge.fabricIngressBps != null || badge.fabricEgressBps != null);
             const hasAggregate = badge && (badge.aggregateInBps != null || badge.aggregateOutBps != null);
-            if (hasFabric) {
+            if (node?.kind === NODE_KIND.VirtualHub) {
+                // A VirtualHub's own throughput is the rate on its single upstream
+                // port link (parent switch -> hub), which carries direction-correct
+                // port stats. Summing the member leaf links here would double-count
+                // and read the members with the wrong orientation, so use the port
+                // link and only fall back to the members when it has no rate.
+                const hr = this._virtualHubRates(nodeId);
+                downBps = hr.down;
+                upBps = hr.up;
+                anyData = hr.any;
+            } else if (hasFabric) {
                 downBps = badge.fabricIngressBps || 0;
                 upBps = badge.fabricEgressBps || 0;
                 anyData = (downBps > 0 || upBps > 0);
@@ -2971,7 +3007,6 @@ export class LanFlowMap {
                 // label is gateway-relative though - blue down arrow is
                 // always data flowing FROM the gateway - so for APs the
                 // mapping has to swap.
-                const node = this._nodeMeshes.get(nodeId)?.userData?.node;
                 if (node?.kind === NODE_KIND.AccessPoint) {
                     downBps = badge.aggregateOutBps || 0;
                     upBps = badge.aggregateInBps || 0;
@@ -3147,7 +3182,15 @@ export class LanFlowMap {
             || node.kind === NODE_KIND.Switch
             || node.kind === NODE_KIND.AccessPoint;
         let ingressBps = 0, egressBps = 0, anyData = false;
-        if (isFabric) {
+        if (node.kind === NODE_KIND.VirtualHub) {
+            // Hub throughput is its upstream port link, direction-correct; only fall
+            // back to the members when that link has no rate. down = download-to-hub
+            // (ingress), up = upload-from-hub (egress), so no end-based flip.
+            const hr = this._virtualHubRates(node.id);
+            ingressBps = hr.down;
+            egressBps = hr.up;
+            anyData = hr.any;
+        } else if (isFabric) {
             const badge = this._currentBadges?.[node.id];
             if (badge && (badge.fabricIngressBps != null || badge.fabricEgressBps != null)) {
                 ingressBps = badge.fabricIngressBps || 0;
