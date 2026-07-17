@@ -233,7 +233,7 @@ public static class DefaultAlertRules
         // --- SFP / PON threshold alerts (enabled - auto-managed for detected modules) ---
         new AlertRule
         {
-            Name = "SFP: PON RX Power Low",
+            Name = "SFP: RX Power Low",
             IsEnabled = true,
             EventTypePattern = "monitoring.sfp_rx_power",
             Source = "monitoring",
@@ -242,7 +242,7 @@ public static class DefaultAlertRules
         },
         new AlertRule
         {
-            Name = "SFP: PON TX Power High",
+            Name = "SFP: TX Power High",
             IsEnabled = true,
             EventTypePattern = "monitoring.sfp_tx_power",
             Source = "monitoring",
