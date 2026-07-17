@@ -1392,7 +1392,7 @@ public class ChannelRecommendationServiceTests
     }
 
     /// <summary>
-    /// Builds the reported ch6-vs-ch1 topology (ATL site): Living Room resident on ch1, Downstairs on
+    /// Builds the reported ch6-vs-ch1 topology (dense-neighborhood site): Living Room resident on ch1, Downstairs on
     /// ch6, the two at moderate mutual audibility (0.6 - at full audibility the saturated scale makes
     /// a co-channel stack unjustifiable at the search stage, so the guard would never be reached). The
     /// neighbor-scan proxy carries far more remembered-BSSID weight on ch6/ch11 than ch1 at Downstairs,
@@ -1429,7 +1429,7 @@ public class ChannelRecommendationServiceTests
     [Fact]
     public void Optimize_MoveOntoSiblingsMeasuredBusyChannel_KeepsApOnCurrentChannel()
     {
-        // The reported ch6->ch1 nonsense (ATL site). Living Room LIVES on ch1 right now and measures
+        // The reported ch6->ch1 nonsense (dense-neighborhood site). Living Room LIVES on ch1 right now and measures
         // 50% external airtime there (30% proximity-scaled at Downstairs) - fresher, worse ground
         // truth than Downstairs' stale ch1 outcome memory (25%). The guard must weigh the resident
         // sibling's live measurement over the stale own-record and hold Downstairs on ch6 instead of
@@ -1616,7 +1616,7 @@ public class ChannelRecommendationServiceTests
     [Fact]
     public void Optimize_ReportedDenseProxyTopology_KeepsBothApsPut()
     {
-        // End-to-end repro of the reported ch6->ch1 incident with the live site's numbers: two APs at
+        // End-to-end repro of the reported ch6->ch1 incident with representative dense-site numbers: two APs at
         // full mutual audibility in a dense environment (proxy 13-26 per channel), the sibling parked
         // on ch1 measuring it busiest, Downstairs comfortable on ch6. On the raw proxy scale the
         // ch6-vs-ch1 gap (12 points) dwarfed the co-channel penalty and every measured signal, and the

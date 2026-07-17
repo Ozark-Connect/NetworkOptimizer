@@ -21,7 +21,7 @@ before/after on the NAS + Mac sites (and ideally a fleet sample), not a blind ed
   restores the absolute gates and measured floor the unbounded proxy had deadened, compresses
   neighbor-memory drift, and puts displayed scores on a meaningful 0-6-per-term scale.
 
-**Next improvements (see `research/wifi-optimizer/channel-scoring-improvements-plan.md`):**
+**Next improvements:**
 
 - [ ] **Spectrum data as a time series, not a snapshot.** Raw RF utilization/noise-floor is the
   strongest ground truth we have, yet it's a single sweep that ages for days while being load-bearing
