@@ -197,6 +197,26 @@ public class ChannelRecommendationService
     private const double MeasurablyWorseInterferencePct = 5.0;
 
     /// <summary>
+    /// Measured-worse guard: minimum percentage-point margin by which a candidate channel's
+    /// spectrum-scan utilization must exceed the current channel's clean reading before the channel
+    /// counts as measurably worse on the scan-utilization signal. Scan utilization is one sweep's
+    /// snapshot - noisier than the 1d/7d interference averages the interference arm reads - so the
+    /// margin is deliberately wider than <see cref="MeasurablyWorseInterferencePct"/>. Tunable.
+    /// </summary>
+    private const double MeasurablyWorseScanUtilizationPct = 10.0;
+
+    /// <summary>
+    /// Measured-worse guard: a candidate channel's spectrum-scan utilization only counts as "worse"
+    /// when the channel is at least this busy in absolute terms - the same "genuinely not usable
+    /// territory" role <see cref="ComfortableInterferencePct"/> plays for the interference arm.
+    /// 40% airtime is where the measured-congestion scale
+    /// (<see cref="MeasuredCongestionToLoadScale"/>) already places a channel at the
+    /// worth-acting-on score (<see cref="MinApScoreToMove"/>), so the two stay anchored to the same
+    /// notion of "busy". Keeps the arm inert between two lightly-used channels. Tunable.
+    /// </summary>
+    private const double BusyScanUtilizationPct = 40.0;
+
+    /// <summary>
     /// Scan-materiality diagnostics: minimum pooled external-neighbor weight on a channel for its
     /// elevated noise floor to count as "corroborated" by the (fresher) neighbor scan. Below this, a
     /// loud floor with no Wi-Fi neighbors to explain it is EITHER a stale spectrum reading OR genuine
@@ -1273,11 +1293,13 @@ public class ChannelRecommendationService
 
         // Measured "don't move onto a worse channel" guard. The external neighbor-scan proxy dominates
         // the score (~15-30) over every measured signal (~1-2), so it can steer an AP onto a channel
-        // the AP's OWN radio measures as worse: fewer beaconing BSSIDs there, yet a louder noise floor
-        // and/or more external-network airtime (the exact ch6->ch11 case where a -37 dBm interferer sat
-        // on the "quieter" channel). Reject such a move when it buys no co-channel relief for our own
-        // APs. Ground-truth only, at the AP's own vantage - spectrum-scan noise floor (ambient RF, not
-        // the AP's own traffic) and time-averaged external interference - and only ever HOLDS an AP
+        // the AP's OWN radio measures as worse: fewer beaconing BSSIDs there, yet a louder noise floor,
+        // more measured airtime, and/or more external-network interference (the ch6->ch11 case where a
+        // -37 dBm interferer sat on the "quieter" channel, and the ch6->ch1 case where the sibling
+        // living on ch1 measured it at 40%+ external airtime). Reject such a move when it buys no
+        // co-channel relief for our own APs. Ground-truth only - spectrum-scan noise floor and
+        // utilization (ambient RF, not the AP's own traffic) and time-averaged external interference,
+        // from the AP's own vantage or a resident sibling's live one - and only ever HOLDS an AP
         // put, so it can never create new churn. It complements the comfort anchor above: that fires
         // only when the CURRENT channel is already quiet (< ComfortableInterferencePct); this fires
         // whenever the DESTINATION measures worse, even from a middling current channel. Absolute
@@ -1669,24 +1691,39 @@ public class ChannelRecommendationService
 
     /// <summary>
     /// Whether a proposed channel measures WORSE than the AP's current channel at the AP's own
-    /// location, on ground-truth signals the dominant neighbor-scan proxy ignores. Two independent
-    /// arms, either of which trips the guard:
+    /// location, on ground-truth signals the dominant neighbor-scan proxy ignores. Three independent
+    /// arms, any of which trips the guard:
     /// <list type="bullet">
     /// <item>Spectrum-scan noise floor: the candidate's floor is at least
     /// <see cref="MeasurablyWorseNoiseFloorMarginDb"/> dB louder than the current channel's AND itself
     /// above <see cref="ElevatedNoiseFloorDbm"/> (a real interferer present, not two quiet floors).
     /// Noise floor is ambient RF, not the AP's own traffic, so the AP's own read of BOTH channels is
     /// directly comparable.</item>
-    /// <item>Measured external interference (time-averaged, from measured history or, failing that, the
-    /// neighbor-propagated estimate the scorer already uses): the candidate exceeds the current channel
+    /// <item>Measured external interference (time-averaged): the candidate exceeds the current channel
     /// by at least <see cref="MeasurablyWorseInterferencePct"/> points AND is itself at or above
-    /// <see cref="ComfortableInterferencePct"/> (the destination is genuinely not comfortable).</item>
+    /// <see cref="ComfortableInterferencePct"/> (the destination is genuinely not comfortable).
+    /// Evidence for the CANDIDATE is the worst of the AP's own record (measured history or the
+    /// neighbor-propagated estimate the scorer already uses) and a resident sibling's live measurement
+    /// (see <see cref="SiblingResidentMeasuredInterference"/>): an AP's own record of a channel it left
+    /// long ago is stale outcome memory, while a sibling SITTING on that channel is measuring it right
+    /// now - the fresher, proximity-scaled reading must not be trumped by the stale one (the exact
+    /// ch6-&gt;ch1 case, where old own-memory said ch1 was fine and the sibling living there measured
+    /// 40%+ external airtime). The CURRENT channel stays on the AP's own record - the AP sits there,
+    /// so its own measurement is authoritative.</item>
+    /// <item>Spectrum-scan utilization: the candidate's measured airtime is at least
+    /// <see cref="MeasurablyWorseScanUtilizationPct"/> points above the current channel's AND itself at
+    /// or above <see cref="BusyScanUtilizationPct"/> (genuinely busy, not two quiet channels apart by
+    /// noise). The AP's own scan of a CANDIDATE is clean - it wasn't serving traffic there - while its
+    /// scan of its CURRENT channel contains its own load, so the current side uses the clean sibling
+    /// view via <see cref="ScanReadingForScoring"/> (own-read fallback only INFLATES the current
+    /// reading, biasing this arm toward NOT tripping - conservative).</item>
     /// </list>
     /// The absolute gates keep the guard from blocking a move between two clean channels - the common
-    /// 5/6 GHz case, where floors sit far below the elevated threshold and interference in the low
-    /// single digits. Returns null when neither arm trips (nothing measurably worse - let the move
-    /// stand); otherwise a <see cref="MeasuredWorseReason"/> naming the arm(s) and the compared values,
-    /// so the caller can both act on it and log why (feeding the scan-materiality diagnostics).
+    /// 5/6 GHz case, where floors sit far below the elevated threshold, interference in the low
+    /// single digits, and airtime nowhere near busy. Returns null when no arm trips (nothing
+    /// measurably worse - let the move stand); otherwise a <see cref="MeasuredWorseReason"/> naming
+    /// the arm(s) and the compared values, so the caller can both act on it and log why (feeding the
+    /// scan-materiality diagnostics).
     /// </summary>
     private MeasuredWorseReason? EvaluateMeasuredWorse(
         InterferenceGraph graph, RadioBand band, int apIndex, int recChannel, int recWidth)
@@ -1701,29 +1738,84 @@ public class ChannelRecommendationService
             rnf >= ElevatedNoiseFloorDbm &&
             rnf - cnf >= MeasurablyWorseNoiseFloorMarginDb;
 
-        // Interference arm: measured external-network airtime, current vs candidate.
+        // Interference arm: measured external-network airtime, current vs candidate. The candidate
+        // takes the WORST of the AP's own (possibly stale) record and a resident sibling's live,
+        // proximity-scaled measurement; the current channel is the AP's own live record.
         double? curInt = TryGetMeasuredInterference(node, band, node.CurrentChannel, out var ci) ? ci : null;
         double? recInt = TryGetMeasuredInterference(node, band, recChannel, out var ri) ? ri : null;
+        var siblingInt = SiblingResidentMeasuredInterference(graph, band, apIndex, recChannel, recWidth);
+        var siblingEvidence = siblingInt is double sv && (recInt is not double own || sv > own);
+        if (siblingInt is double sib)
+            recInt = recInt is double r0 ? Math.Max(r0, sib) : sib;
         var interferenceArm = curInt is double c && recInt is double r &&
             r >= ComfortableInterferencePct &&
             r - c >= MeasurablyWorseInterferencePct;
 
-        if (!noiseFloorArm && !interferenceArm) return null;
-        return new MeasuredWorseReason(noiseFloorArm, interferenceArm, curNf, recNf, curInt, recInt);
+        // Scan-utilization arm: candidate from the AP's own (clean) scan; current channel from the
+        // clean sibling view where one exists.
+        var recScanUtil = ScanOverSpan(graph, band, apIndex, recChannel, recWidth)?.Utilization;
+        var curScanUtil = ScanReadingForScoring(graph, band, apIndex, node.CurrentChannel, node.CurrentWidth)?.Utilization;
+        var scanUtilizationArm = curScanUtil is int cu && recScanUtil is int ru &&
+            ru >= BusyScanUtilizationPct &&
+            ru - cu >= MeasurablyWorseScanUtilizationPct;
+
+        if (!noiseFloorArm && !interferenceArm && !scanUtilizationArm) return null;
+        return new MeasuredWorseReason(
+            noiseFloorArm, interferenceArm, scanUtilizationArm,
+            curNf, recNf, curInt, recInt, interferenceArm && siblingEvidence,
+            curScanUtil, recScanUtil);
     }
 
     /// <summary>
     /// Why the measured-worse guard considers a candidate channel worse than the AP's current one:
     /// which arm(s) tripped, and the values compared. Carried out of <see cref="EvaluateMeasuredWorse"/>
     /// so the hold can be logged with its rationale (scan-materiality diagnostics).
+    /// <see cref="SiblingMeasured"/> marks an interference-arm trip whose candidate reading came from a
+    /// resident sibling's live measurement rather than the AP's own record - the materiality pass uses
+    /// the arm split to decide re-scannability, and the log label names the evidence source.
     /// </summary>
     private readonly record struct MeasuredWorseReason(
         bool NoiseFloorArm,
         bool InterferenceArm,
+        bool ScanUtilizationArm,
         int? CurrentNoiseFloor,
         int? RecommendedNoiseFloor,
         double? CurrentInterferencePct,
-        double? RecommendedInterferencePct);
+        double? RecommendedInterferencePct,
+        bool SiblingMeasured,
+        int? CurrentScanUtilization,
+        int? RecommendedScanUtilization);
+
+    /// <summary>
+    /// A resident sibling's live measurement of a channel: the worst time-averaged EXTERNAL
+    /// interference reported by any of OUR OWN APs currently sitting on a channel overlapping the
+    /// given span, scaled by how strongly the subject AP hears that sibling (a distant sibling's
+    /// local noise isn't our experience - same proximity scaling as the measured-congestion floor,
+    /// which shares this helper). A sibling occupying the channel measures it fresh (1d/7d), and its
+    /// interference metric EXCLUDES its own transmissions, so this is exactly the external load the
+    /// subject AP would inherit by joining it there. Reads only real (measured)
+    /// <see cref="ApNode.HistoricalStress"/>, never propagated estimates. Returns null when no
+    /// audible sibling resides on the span.
+    /// </summary>
+    private static double? SiblingResidentMeasuredInterference(
+        InterferenceGraph graph, RadioBand band, int apIndex, int channel, int width)
+    {
+        var span = ChannelSpanHelper.GetChannelSpan(band, channel, width);
+        double? worst = null;
+        var n = graph.Nodes.Count;
+        for (int j = 0; j < n; j++)
+        {
+            if (j == apIndex) continue;
+            var sibling = graph.Nodes[j];
+            if (sibling.HistoricalStress == null) continue;
+            var siblingSpan = ChannelSpanHelper.GetChannelSpan(band, sibling.CurrentChannel, sibling.CurrentWidth);
+            if (!ChannelSpanHelper.SpansOverlap(span, siblingSpan)) continue;
+            if (!sibling.HistoricalStress.TryGetValue(sibling.CurrentChannel, out var stress)) continue;
+            var scaled = stress.Interference * graph.InternalWeights[apIndex, j];
+            if (worst is not double w || scaled > w) worst = scaled;
+        }
+        return worst;
+    }
 
     /// <summary>
     /// Measured external interference (%) for a channel at this AP, preferring ground-truth measured
@@ -1888,7 +1980,6 @@ public class ChannelRecommendationService
     {
         var node = graph.Nodes[apIndex];
         var assignedChannel = assignment[apIndex].Channel;
-        var apSpan = ChannelSpanHelper.GetChannelSpan(band, assignedChannel, assignment[apIndex].Width);
         double measuredPct = -1;
 
         // The AP's own spectrum-scan utilization - only for a CANDIDATE channel. On its CURRENT
@@ -1902,17 +1993,8 @@ public class ChannelRecommendationService
         // A sibling AP's time-averaged external interference for a channel it currently sits on,
         // scaled by how strongly THIS AP hears that sibling (proximity) - a distant sibling's local
         // noise isn't our experience. Reads only real (measured) HistoricalStress, never propagated.
-        var n = graph.Nodes.Count;
-        for (int j = 0; j < n; j++)
-        {
-            if (j == apIndex) continue;
-            var sibling = graph.Nodes[j];
-            if (sibling.HistoricalStress == null) continue;
-            var siblingSpan = ChannelSpanHelper.GetChannelSpan(band, sibling.CurrentChannel, sibling.CurrentWidth);
-            if (!ChannelSpanHelper.SpansOverlap(apSpan, siblingSpan)) continue;
-            if (sibling.HistoricalStress.TryGetValue(sibling.CurrentChannel, out var stress))
-                measuredPct = Math.Max(measuredPct, stress.Interference * graph.InternalWeights[apIndex, j]);
-        }
+        if (SiblingResidentMeasuredInterference(graph, band, apIndex, assignedChannel, assignment[apIndex].Width) is double siblingPct)
+            measuredPct = Math.Max(measuredPct, siblingPct);
 
         return measuredPct < 0 ? -1 : measuredPct * MeasuredCongestionToLoadScale;
     }
@@ -3242,7 +3324,8 @@ public class ChannelRecommendationService
     /// <summary>
     /// Records per-AP scan staleness/materiality onto the plan and, when debug is on, logs the full
     /// breakdown. For each AP: how old its spectrum scan is; whether that age is load-bearing (the
-    /// measured-worse guard held it on its noise-floor arm, or the scan term was decisive in the pick);
+    /// measured-worse guard held it on a scan-based arm - noise floor or scan utilization - or the
+    /// scan term was decisive in the pick);
     /// and whether the fresher neighbor scan still corroborates the reading. Sets
     /// <see cref="ApChannelRecommendation.ScanRescanRecommended"/> when the scan is stale AND material
     /// AND uncorroborated - the only case where a re-scan could change the answer. The expensive
@@ -3279,10 +3362,11 @@ public class ChannelRecommendationService
                 var ext = ExternalNeighborWeightOn(graph, band, i, rejectedCh, node.CurrentWidth);
                 var corroborated = ext >= CorroborationMinExternalWeight;
 
-                // A re-scan can only change a NOISE-FLOOR-arm hold on a STALE, UNCORROBORATED channel:
-                // an interference-arm hold reads measured history (a spectrum re-scan won't refresh it),
-                // and a corroborated floor is confirmed by the fresher neighbor scan.
-                if (reason.NoiseFloorArm && stale && !corroborated)
+                // A re-scan can only change a hold that RESTS ON THE SCAN - the noise-floor and
+                // scan-utilization arms - and only on a STALE, UNCORROBORATED channel: an
+                // interference-arm hold reads measured history (a spectrum re-scan won't refresh it),
+                // and a corroborated reading is confirmed by the fresher neighbor scan.
+                if ((reason.NoiseFloorArm || reason.ScanUtilizationArm) && stale && !corroborated)
                 {
                     rec.ScanRescanRecommended = true;
                     rec.ScanRescanReason =
@@ -3363,11 +3447,14 @@ public class ChannelRecommendationService
     /// <summary>Short human label for which measured-worse arm(s) tripped, with the compared values.</summary>
     private static string DescribeMeasuredWorseArms(MeasuredWorseReason r)
     {
-        var parts = new List<string>(2);
+        var parts = new List<string>(3);
         if (r.NoiseFloorArm)
             parts.Add($"noise-floor {r.RecommendedNoiseFloor}dBm vs {r.CurrentNoiseFloor}dBm");
         if (r.InterferenceArm)
-            parts.Add($"interference {r.RecommendedInterferencePct:F0}% vs {r.CurrentInterferencePct:F0}%");
+            parts.Add($"interference {r.RecommendedInterferencePct:F0}% vs {r.CurrentInterferencePct:F0}%" +
+                (r.SiblingMeasured ? " (sibling-measured)" : ""));
+        if (r.ScanUtilizationArm)
+            parts.Add($"scan-utilization {r.RecommendedScanUtilization}% vs {r.CurrentScanUtilization}%");
         return parts.Count > 0 ? string.Join("; ", parts) : "no arm";
     }
 
