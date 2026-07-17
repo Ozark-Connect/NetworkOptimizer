@@ -217,6 +217,22 @@ public class ChannelRecommendationService
     private const double BusyScanUtilizationPct = 40.0;
 
     /// <summary>
+    /// Half-saturation constant for the external neighbor proxy: a channel's pooled neighbor weight
+    /// w enters the score as w / (1 + w / this). The pooled weight is an unbounded sum of sighting
+    /// weights, but it stands in for channel airtime, which saturates at 100% - the fortieth
+    /// overlapping BSSID does not make a channel linearly worse. The curve squashes it onto the
+    /// measured-airtime scale every absolute gate was designed around (40% airtime ~ 2.0 =
+    /// <see cref="MinApScoreToMove"/>, 80% ~ 4.0 = <see cref="CatastrophicAbsoluteScore"/>, see
+    /// <see cref="MeasuredCongestionToLoadScale"/>): pooled weight 6 (roughly six strong always-on
+    /// neighbors) reads 3.0 ~ 60% airtime, a dense-urban 30 reads ~5.0, asymptote 6.0. Without this,
+    /// a crowded 2.4 GHz proxy of 15-30 drowned every measured signal (~1-3), deadened the absolute
+    /// gates and the measured-congestion floor, and made scores drift with neighbor-memory growth.
+    /// Near-linear below ~2 so quiet 5/6 GHz channels are barely affected, and strictly monotonic so
+    /// relative ranking is preserved everywhere. Tunable.
+    /// </summary>
+    private const double ExternalLoadSaturationWeight = 6.0;
+
+    /// <summary>
     /// Scan-materiality diagnostics: minimum pooled external-neighbor weight on a channel for its
     /// elevated noise floor to count as "corroborated" by the (fresher) neighbor scan. Below this, a
     /// loud floor with no Wi-Fi neighbors to explain it is EITHER a stale spectrum reading OR genuine
@@ -1435,6 +1451,14 @@ public class ChannelRecommendationService
     }
 
     /// <summary>
+    /// Squashes a channel's pooled external-neighbor weight onto the measured-airtime score scale:
+    /// w / (1 + w / <see cref="ExternalLoadSaturationWeight"/>). Strictly monotonic (ranking
+    /// preserved), near-linear for small w, asymptote 6.0. See the constant for the rationale.
+    /// </summary>
+    private static double SaturateExternalLoad(double pooledWeight) =>
+        pooledWeight <= 0 ? 0 : pooledWeight / (1.0 + pooledWeight / ExternalLoadSaturationWeight);
+
+    /// <summary>
     /// Score a specific channel assignment. Lower is better.
     /// </summary>
     public double ScoreAssignment(
@@ -1463,7 +1487,8 @@ public class ChannelRecommendationService
             }
         }
 
-        // External interference (neighbor networks), floored by measured congestion (#2): the scan
+        // External interference (neighbor networks), saturated onto the measured-airtime scale
+        // (see ExternalLoadSaturationWeight) and floored by measured congestion (#2): the scan
         // can UNDER-state a channel (non-beaconing/hidden airtime the rogue scan never sees), so
         // raise it to what the radio measured. It is a floor only - never lower the proxy, because
         // the BSSIDs the scan DID detect are real and will transmit even if idle this instant.
@@ -1476,8 +1501,9 @@ public class ChannelRecommendationService
                 if (ChannelSpanHelper.SpansOverlap(apSpan, extSpan))
                     externalLoad += extWeight;
             }
+            var externalScore = SaturateExternalLoad(externalLoad);
             var measured = MeasuredCongestionLoad(graph, band, i, assignment);
-            score += measured > externalLoad ? measured : externalLoad;
+            score += measured > externalScore ? measured : externalScore;
         }
 
         // Channel scan data (utilization/interference from RF environment scan)
@@ -1542,8 +1568,9 @@ public class ChannelRecommendationService
             score += graph.DirectionalWeights[j, apIndex] * overlapFactor * InternalCoChannelMultiplier;
         }
 
-        // External interference, floored by measured congestion (#2): raise a channel the rogue scan
-        // under-states up to what the radio measured, but never lower it - detected BSSIDs are real.
+        // External interference, saturated onto the measured-airtime scale and floored by measured
+        // congestion (#2): raise a channel the rogue scan under-states up to what the radio
+        // measured, but never lower it - detected BSSIDs are real.
         var apSpan = ChannelSpanHelper.GetChannelSpan(band, assignment[apIndex].Channel, assignment[apIndex].Width);
         double externalLoad = 0;
         foreach (var (extSpan, extWeight) in ExternalContributors(graph, band, apIndex))
@@ -1551,8 +1578,9 @@ public class ChannelRecommendationService
             if (ChannelSpanHelper.SpansOverlap(apSpan, extSpan))
                 externalLoad += extWeight;
         }
+        var externalScore = SaturateExternalLoad(externalLoad);
         var measuredLoad = MeasuredCongestionLoad(graph, band, apIndex, assignment);
-        score += measuredLoad > externalLoad ? measuredLoad : externalLoad;
+        score += measuredLoad > externalScore ? measuredLoad : externalScore;
 
         // Channel scan data (scaled by band stress multiplier), aggregated over the channel's span.
         var bandStress = GetBandStressMultiplier(band);
@@ -1641,7 +1669,9 @@ public class ChannelRecommendationService
             estimatedLoad = minKnownLoad == double.MaxValue ? 0 : minKnownLoad;
         }
 
-        var basePenalty = estimatedLoad * GetUnobservedMultiplier(band);
+        // The estimated load is on the raw pooled-weight scale; saturate it exactly like the
+        // external term so the uncertainty premium stays proportionate to the score it shadows.
+        var basePenalty = SaturateExternalLoad(estimatedLoad) * GetUnobservedMultiplier(band);
         return (1.0 - confidence) * basePenalty;
     }
 
@@ -2259,13 +2289,17 @@ public class ChannelRecommendationService
         if (proposedInternalLoad >= currentInternalLoad)
             return 1.0;
 
-        // Compute external load on this channel span to set a floor
+        // Compute external load on this channel span to set a floor, saturated onto the same scale
+        // as the internal load above so the external fraction below is a meaningful share - the raw
+        // unbounded proxy would peg the floor near 1.0 on any dense band and void the credit for
+        // resolving a co-channel pair.
         double externalLoad = 0;
         foreach (var (extSpan, extWeight) in ExternalContributors(graph, band, apIndex))
         {
             if (ChannelSpanHelper.SpansOverlap(currentSpan, extSpan))
                 externalLoad += extWeight;
         }
+        externalLoad = SaturateExternalLoad(externalLoad);
 
         // Internal resolution scale: fraction of internal load remaining
         double internalScale = proposedInternalLoad / currentInternalLoad;
@@ -3264,6 +3298,7 @@ public class ChannelRecommendationService
                     if (ChannelSpanHelper.SpansOverlap(apSpan, extSpan))
                         externalScore += extW;
                 }
+                externalScore = SaturateExternalLoad(externalScore);
 
                 // #2 measured floor: a candidate channel's congestion is raised to what the radio
                 // measured where that exceeds the neighbor-scan proxy (matches ScoreAp).
