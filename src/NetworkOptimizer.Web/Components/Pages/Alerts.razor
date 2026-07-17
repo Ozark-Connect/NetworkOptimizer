@@ -965,7 +965,7 @@
                                 <small class="form-text">Use <code>category.*</code> for wildcards (e.g., <code>audit.*</code> matches all audit events) - <a href="#" @onclick="() => _showEventTypeKey = true" @onclick:preventDefault style="color: var(--info-color);">View all event types</a></small>
                             </div>
                             <div class="form-group">
-                                <label>Threshold %</label>
+                                <label>Threshold % <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Only applies to percent-based rules like Gateway CPU/Memory or speed degradation. Optical and temperature thresholds (SFP, ONT, Device temperature) are set on their Monitoring card instead - use the link icon next to the rule name in the table above.">?</span></label>
                                 <input type="number" class="form-control" @bind="_ruleThresholdPercent" min="0" max="100" step="1" placeholder="Optional" />
                                 <small class="form-text">For degradation/regression rules: minimum % drop to trigger</small>
                             </div>
@@ -1945,6 +1945,8 @@
     private (string Tab, string Expand)? ThresholdLink(string eventTypePattern) => eventTypePattern switch
     {
         "monitoring.sfp_temperature" => ("sfp", "sfp-thresholds"),
+        "monitoring.sfp_rx_power" => ("sfp", "sfp-thresholds"),
+        "monitoring.sfp_tx_power" => ("sfp", "sfp-thresholds"),
         "device.high_temperature" => ("devices", "device-temp-thresholds"),
         "ont.rx_power_low" when _showOntTab => ("ont", "ont-thresholds"),
         "ont.high_temperature" when _showOntTab => ("ont", "ont-thresholds"),
