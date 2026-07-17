@@ -352,6 +352,7 @@ builder.Services.AddSingleton<IOntProvider, Lantiq8311OntProvider>();
 builder.Services.AddSingleton<IOntProvider, QuantumQ1000kOntProvider>();
 builder.Services.AddSingleton<IOntProvider, GenericHttpOntProvider>();
 builder.Services.AddSingleton<IOntProvider, TelekomModem2OntProvider>();
+builder.Services.AddSingleton<IOntProvider, NokiaXs010xOntProvider>();
 builder.Services.AddScoped(sp => sp.GetRequiredService<ModemMonitorRegistry>()
     .GetFor(sp.GetRequiredService<SiteContextService>().Slug).Ont);
 
