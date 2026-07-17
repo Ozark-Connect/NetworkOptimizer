@@ -1,25 +1,54 @@
 # Network Optimizer - TODO / Future Enhancements
 
-## Channel Recommendation: Engine-Review Follow-ups (recalibration-sensitive)
+## Channel Recommendation: Engine Follow-ups (recalibration-sensitive)
 
-**PICK UP HERE next session.** Branch `bugfix/channelrec-altruism`. Everything below is TABLED for the
-current release - none are release-critical (the only finding that produced an actual invalid output,
-#4's net-worse recommendation, is fixed + guardrailed). These remaining items shift the recommendation
+Everything below is TABLED - none are release-critical. These items shift the recommendation
 DISTRIBUTION and the gate thresholds are calibrated to current behavior, so each needs a live
 before/after on the NAS + Mac sites (and ideally a fleet sample), not a blind edit.
 
-**Already shipped on this branch (baseline, deployed to NAS + Mac):**
+**Shipped baseline (through `feature/channel-guard-sibling-arms`, soaking on both test sites):**
 - Measured floor #2 (candidate-only, proximity-weighted sibling, gate-scaled); propagated stress split
   from measured `HistoricalStress`; DFS penalty span-aware; per-AP fallback baseline fix.
 - Spectrum-scan noise floor wired into scoring (mean-util / worst-noise, verified vs UniFi BW160);
   scans run at the radio's live BW; `ScanChannelData` keyed by (channel, width) with span aggregation.
 - Cross-vantage: an AP's CURRENT channel is scored from the closest off-channel sibling, not its own
   self-contaminated read (mesh/camera traffic that follows the AP).
-- Net-worse guardrail + fallback net-benefit on `ScoreAssignment` (finding #4, largely done).
-- Win 1: gap-aware quick-scan prompt (value-first copy, mesh APs excluded, warning tailored by
-  `HasDedicatedScanRadio` + mesh role); disclaimer auto-hides when no scan gaps.
+- Net-worse guardrail + fallback net-benefit on `ScoreAssignment`; gap-aware quick-scan prompt.
+- Measured-worse guard (hold-only reconciliation): noise-floor arm, measured-interference arm with
+  resident-sibling live evidence (proximity-scaled, outranks stale own outcome memory), and
+  scan-utilization arm; scan-based holds feed the stale-scan re-scan prompt.
+- External neighbor proxy saturated onto the measured-airtime scale (`w / (1 + w/6)`, asymptote 6.0):
+  restores the absolute gates and measured floor the unbounded proxy had deadened, compresses
+  neighbor-memory drift, and puts displayed scores on a meaningful 0-6-per-term scale.
 
-**Remaining engine findings (tabled):**
+**Next improvements:**
+
+- [ ] **Spectrum data as a time series, not a snapshot.** Raw RF utilization/noise-floor is the
+  strongest ground truth we have, yet it's a single sweep that ages for days while being load-bearing
+  (a 13h-old reading decided a guard hold; snapshot variance forced the scan-util guard margin to a
+  blunt 10 pts). Scan-radio APs produce this continuously - ingest periodically into channel memory
+  as rolling per-channel averages (like the console interference metrics), then tighten the guard
+  margins and retire most of the 72h staleness machinery on scan-radio sites. This also subsumes the
+  older "threshold-cliff churn / smooth the external input" finding for the scan-driven terms.
+- [ ] **Per-site duty-cycle calibration of the neighbor proxy.** The pooled neighbor weight measures
+  audibility (propagation-grounded); the airtime it implies assumes a duty cycle. Fit the
+  weight-to-measured-airtime ratio per site/band from channels that have BOTH pooled weight and
+  spectrum data; keep the fixed `w/(1+w/6)` curve as the prior for blind spots. SOAK-GATED: only
+  build if the fixed curve shows under/over-reaction on live sites.
+- [ ] **Recompute churn + sighting-pool variance.** The Channels page recomputed recommendations 3x
+  within 2 minutes, and the remembered-neighbor pool jumped 486 -> 626 sightings between two runs a
+  minute apart (pre-saturation, that flipped a plan run-to-run). Coalesce/cache the recompute and
+  find out why the pool varies between adjacent runs (ingestion timing?).
+- [ ] **Degradation cap shape.** `MaxApScoreDegradation` is ratio-based (1.5x), so a pristine victim
+  (score 1.0) absorbs only +0.5 of new interference while an already-suffering one (6.0) absorbs +3 -
+  inverted from intent, and it silently diverted two synthetic test topologies. Now that scores sit on
+  a bounded scale, use an absolute cap or ratio-with-absolute-floor (pairs with
+  `CatastrophicAbsoluteScore`).
+- [ ] **Score legibility in the UI.** Scores are now airtime-shaped (0-6 per term) but shown as a bare
+  number. Add a qualitative mapping (or approximate-airtime hint) next to the score. Cosmetic; batch
+  with other Channels UI work.
+
+**Remaining engine findings (tabled, from the earlier engine review):**
 
 - [~] **Inconsistent objective (sum-of-ScoreAp vs ScoreAssignment).** The search minimizes
   `ScoreAssignment` (each internal pair counted once, symmetric). The auxiliary passes sum `ScoreAp`
@@ -38,15 +67,18 @@ before/after on the NAS + Mac sites (and ideally a fleet sample), not a blind ed
   threshold the plan reverts to current, but the per-AP fallback and altruistic passes then run on the
   reverted plan and can still introduce moves. Decide intent: should "network not worth touching" be a
   hard stop on all per-AP moves too? (Design call - confirm desired behavior before changing.)
-- [ ] **Threshold-cliff churn.** All the gates are hard cliffs evaluated against scores driven by the
+- [~] **Threshold-cliff churn.** All the gates are hard cliffs evaluated against scores driven by the
   rogue scan (a few dB of snapshot variance can flip a recommendation on/off between runs). Determinism
-  protects against algorithmic randomness, not input variance. Fix: hysteresis / a dead-band on the
-  move decision, or smoothing the external input over multiple snapshots. (Feature-sized.)
+  protects against algorithmic randomness, not input variance. **Largely addressed:** proxy saturation
+  compressed the dominant variance source (neighbor-memory drift now moves a dense channel's score by
+  <0.35 instead of linearly). Residual: smoothing the scan-driven terms - covered by the "spectrum data
+  as a time series" item above. True hysteresis/dead-band remains an option if soak still shows flips.
 - [ ] **Width double-discount.** In `BuildExternalLoad` a narrow neighbor inside a wider victim is
   scaled by the width ratio (0.25x for 20-in-80) AND stored only on its narrow sub-channel - but in
   OFDM a 20 MHz interferer makes the whole 80 MHz block CCA-busy. The common case is under-weighted.
   Fix: a narrower-than-victim interferer should count against the full overlapping span without the
-  width-ratio discount. Shifts external magnitudes - re-validate.
+  width-ratio discount. Shifts external magnitudes - re-validate on the saturated scale (pooled
+  weights now enter the score through `w/(1+w/6)`, so the impact is smaller than it was raw).
 
 ## LAN Speed Test
 

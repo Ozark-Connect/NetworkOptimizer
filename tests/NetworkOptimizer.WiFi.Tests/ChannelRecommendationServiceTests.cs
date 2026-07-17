@@ -414,9 +414,10 @@ public class ChannelRecommendationServiceTests
 
         scoreWithHistory.Should().BeLessThan(scoreNoHistory);
         // History keeps only 15% of the cliff, so the gap is 0.85 of the full penalty. ch149 has a
-        // triangulated sighting (0.5), which is trusted as-is (no floor) and carries the band
-        // uncertainty multiplier (x2.0 on 5 GHz), so the base penalty is 1.0 and the gap is 0.85.
-        (scoreNoHistory - scoreWithHistory).Should().BeApproximately(0.85, 0.05);
+        // triangulated sighting (0.5, saturated to ~0.46), which is trusted as-is (no floor) and
+        // carries the band uncertainty multiplier (x2.0 on 5 GHz), so the base penalty is ~0.92 and
+        // the gap is ~0.78.
+        (scoreNoHistory - scoreWithHistory).Should().BeApproximately(0.785, 0.05);
     }
 
     [Fact]
@@ -750,7 +751,7 @@ public class ChannelRecommendationServiceTests
         var reg = StdUsRegulatory();
         var options = new RecommendationOptions { DfsPreference = DfsPreference.IncludeWithPenalty };
         var graph = SingleApGraph(52,
-            externalLoad: new() { { 52, 2.5 }, { 36, 0.0 } }, // current DFS busy, ch36 scanned clean
+            externalLoad: new() { { 52, 5.0 }, { 36, 0.0 } }, // current DFS busy, ch36 scanned clean
             directlyObserved: new() { 52, 36 },
             reg, options);
 
@@ -795,7 +796,7 @@ public class ChannelRecommendationServiceTests
         var reg = StdUsRegulatory();
         var options = new RecommendationOptions { DfsPreference = DfsPreference.IncludeWithPenalty };
         var graph = SingleApGraph(52,
-            externalLoad: new() { { 52, 2.5 }, { 36, 0.2 } }, // ch52 directly heard busy; ch36 triangulated clean
+            externalLoad: new() { { 52, 5.0 }, { 36, 0.2 } }, // ch52 directly heard busy; ch36 triangulated clean
             directlyObserved: new() { 52 },                   // ch36 NOT directly observed by this AP
             reg, options);
 
@@ -994,15 +995,15 @@ public class ChannelRecommendationServiceTests
 
         ch6Wide.Should().BeGreaterThan(ch6Narrow,
             "a 40 MHz neighbor on ch11 steps on ch6, so it raises ch6's score; a 20 MHz one does not");
-        (ch6Wide - ch6Narrow).Should().BeApproximately(1.0, 0.01,
-            "only the wide neighbor's weight reaches ch6 once spectral width is accounted for");
+        (ch6Wide - ch6Narrow).Should().BeApproximately(6.0 / 7.0, 0.01,
+            "only the wide neighbor's weight (1.0, saturated to ~0.86) reaches ch6 once spectral width is accounted for");
 
         // The fix for the over-spill: a pile of 20 MHz neighbors on ch11 plus ONE 40 MHz neighbor
         // there must spill only the 40 MHz neighbor's weight into ch6 - the 20 MHz weight stays put.
         var ch6Mixed = _service.ScoreAssignment(
             Build((11, 20, 5.0), (11, 40, 1.0)), new[] { (6, 20) }, RadioBand.Band2_4GHz);
-        (ch6Mixed - ch6Narrow).Should().BeApproximately(1.0, 0.01,
-            "only the 40 MHz neighbor (1.0) spills to ch6; the 5.0 of 20 MHz neighbors on ch11 do not");
+        (ch6Mixed - ch6Narrow).Should().BeApproximately(6.0 / 7.0, 0.01,
+            "only the 40 MHz neighbor (1.0, saturated to ~0.86) spills to ch6; the 5.0 of 20 MHz neighbors on ch11 do not");
     }
 
     [Fact]
@@ -1028,8 +1029,8 @@ public class ChannelRecommendationServiceTests
 
         understated.Should().BeGreaterThan(2.0,
             "an under-stated candidate is floored up to the measured 50% airtime (~2.5 at the 0.05 scale), not left at the 0.5 proxy");
-        knownButIdle.Should().BeGreaterThan(7.0,
-            "the 8.0 of known BSSIDs is kept - a one-shot idle scan never discounts detected APs");
+        knownButIdle.Should().BeGreaterThan(3.4,
+            "the 8.0 of known BSSIDs (saturated to ~3.43) is kept - a one-shot idle scan never discounts detected APs");
     }
 
     [Fact]
@@ -1203,9 +1204,11 @@ public class ChannelRecommendationServiceTests
         graph.InternalWeights[0, 1] = graph.InternalWeights[1, 0] = 1.0;
         graph.DirectionalWeights[0, 1] = graph.DirectionalWeights[1, 0] = 1.0;
         // Neighbor-scan proxy: Living Room best on ch1; Downstairs sees ch6 busiest, ch11 cleanest.
+        // The ch6-vs-ch11 contrast must survive saturation onto the measured-airtime scale, so the
+        // trap channel is near-empty in the proxy while ch6 is deep in the saturated region.
         graph.ExternalLoad[0] = new() { { 1, 5.0 }, { 6, 30.0 }, { 11, 20.0 } };
         graph.DirectlyObservedChannels[0] = new() { 1, 6, 11 };
-        graph.ExternalLoad[1] = new() { { 1, 18.0 }, { 6, 30.0 }, { 11, 15.0 } };
+        graph.ExternalLoad[1] = new() { { 1, 18.0 }, { 6, 100.0 }, { 11, 4.0 } };
         graph.DirectlyObservedChannels[1] = new() { 1, 6, 11 };
         return graph;
     }
@@ -1360,11 +1363,11 @@ public class ChannelRecommendationServiceTests
     [Fact]
     public void Optimize_StaleButCorroboratedNoiseFloorHold_DoesNotFlagRescan()
     {
-        // Same stale floor, but ch11 carries heavy neighbor weight (ext 15) - the fresher neighbor scan
-        // confirms it's really loud, so a re-scan wouldn't change the answer. No prompt.
+        // Same stale floor, but ch11 carries real neighbor weight (ext 2) - the fresher neighbor scan
+        // confirms it's really occupied, so a re-scan wouldn't change the answer. No prompt.
         var reg = StdUsRegulatory();
         var options = new RecommendationOptions { DfsPreference = DfsPreference.IncludeWithPenalty };
-        var graph = BuildNoiseFloorHoldGraph(15.0, DateTimeOffset.UtcNow.AddDays(-5), reg, options);
+        var graph = BuildNoiseFloorHoldGraph(2.0, DateTimeOffset.UtcNow.AddDays(-5), reg, options);
 
         var plan = _service.Optimize(graph, RadioBand.Band2_4GHz, reg, options);
 
@@ -1386,6 +1389,325 @@ public class ChannelRecommendationServiceTests
         var downstairs = plan.Recommendations.First(r => r.ApMac == "aa:bb:cc:dd:ee:02");
         downstairs.RecommendedChannel.Should().Be(6);
         downstairs.ScanRescanRecommended.Should().BeFalse("a 1h-old scan is not stale, so no re-scan is suggested");
+    }
+
+    /// <summary>
+    /// Builds the reported ch6-vs-ch1 topology (dense-neighborhood site): Living Room resident on ch1, Downstairs on
+    /// ch6, the two at moderate mutual audibility (0.6 - at full audibility the saturated scale makes
+    /// a co-channel stack unjustifiable at the search stage, so the guard would never be reached). The
+    /// neighbor-scan proxy carries far more remembered-BSSID weight on ch6/ch11 than ch1 at Downstairs,
+    /// so the optimizer wants to move it onto the sibling's ch1 even though every measurement says ch1
+    /// is the busiest channel in the environment. Downstairs' own record of ch1 is stale outcome memory
+    /// from an old stint there that says it was fine (25%). Callers layer the sibling's live measurement
+    /// revealing what ch1 is actually like.
+    /// </summary>
+    private InterferenceGraph BuildCh6VsCh1Graph(RegulatoryChannelData reg, RecommendationOptions options)
+    {
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:01", "Living Room", RadioBand.Band2_4GHz, 1, width: 20),
+            CreateAp("aa:bb:cc:dd:ee:02", "Downstairs", RadioBand.Band2_4GHz, 6, width: 20)
+        };
+        var graph = _service.BuildInterferenceGraph(aps, RadioBand.Band2_4GHz, null, null, reg, options);
+        graph.InternalWeights[0, 1] = graph.InternalWeights[1, 0] = 0.6;
+        graph.DirectionalWeights[0, 1] = graph.DirectionalWeights[1, 0] = 0.6;
+        // Living Room's ch1 load sits high enough that a co-channel joiner stays inside the per-AP
+        // degradation cap - the trap must reach the measured-worse guard, not die at an earlier gate.
+        graph.ExternalLoad[0] = new() { { 1, 20.0 }, { 6, 70.0 }, { 11, 65.0 } }; // Living Room stays ch1
+        graph.DirectlyObservedChannels[0] = new() { 1, 6, 11 };
+        graph.ExternalLoad[1] = new() { { 1, 0.5 }, { 6, 100.0 }, { 11, 90.0 } }; // proxy adores ch1
+        graph.DirectlyObservedChannels[1] = new() { 1, 6, 11 };
+        graph.Nodes[1].HistoricalStress = new Dictionary<int, (double Utilization, double Interference, double TxRetryPct)>
+        {
+            { 6, (30.0, 22.0, 10.0) },  // lived-on now: middling but workable
+            { 1, (32.0, 25.0, 23.7) },  // stale outcome memory: ch1 looked fine back then
+            { 11, (41.0, 34.0, 21.6) }  // ch11 measured worse than ch6, so ch1 is the escape of choice
+        };
+        return graph;
+    }
+
+    [Fact]
+    public void Optimize_MoveOntoSiblingsMeasuredBusyChannel_KeepsApOnCurrentChannel()
+    {
+        // The reported ch6->ch1 nonsense (dense-neighborhood site). Living Room LIVES on ch1 right now and measures
+        // 50% external airtime there (30% proximity-scaled at Downstairs) - fresher, worse ground
+        // truth than Downstairs' stale ch1 outcome memory (25%). The guard must weigh the resident
+        // sibling's live measurement over the stale own-record and hold Downstairs on ch6 instead of
+        // joining it on the measured-busiest channel for a proxy win.
+        var reg = StdUsRegulatory();
+        var options = new RecommendationOptions { DfsPreference = DfsPreference.IncludeWithPenalty };
+        var graph = BuildCh6VsCh1Graph(reg, options);
+        graph.Nodes[0].HistoricalStress = new Dictionary<int, (double Utilization, double Interference, double TxRetryPct)>
+        {
+            { 1, (57.0, 50.0, 18.0) } // Living Room's live 1d/7d record of the channel it sits on
+        };
+
+        var plan = _service.Optimize(graph, RadioBand.Band2_4GHz, reg, options);
+
+        plan.Recommendations.First(r => r.ApMac == "aa:bb:cc:dd:ee:02").RecommendedChannel.Should().Be(6,
+            "the sibling living on ch1 measures 50% external airtime - stale own-memory of ch1 must not outrank it");
+        plan.Recommendations.First(r => r.ApMac == "aa:bb:cc:dd:ee:01").RecommendedChannel.Should().Be(1);
+    }
+
+    [Fact]
+    public void Optimize_SiblingMeasuresDestinationQuiet_MoveProceeds()
+    {
+        // Control: identical proxy trap, but Living Room's live record says ch1 genuinely IS quiet
+        // (12% external). No ground-truth signal contradicts the proxy, so the escape from the
+        // heavy ch6 must go through - proving the sibling arm suppresses only measurably-worse moves.
+        var reg = StdUsRegulatory();
+        var options = new RecommendationOptions { DfsPreference = DfsPreference.IncludeWithPenalty };
+        var graph = BuildCh6VsCh1Graph(reg, options);
+        graph.Nodes[0].HistoricalStress = new Dictionary<int, (double Utilization, double Interference, double TxRetryPct)>
+        {
+            { 1, (20.0, 12.0, 8.0) }
+        };
+
+        var plan = _service.Optimize(graph, RadioBand.Band2_4GHz, reg, options);
+
+        plan.Recommendations.First(r => r.ApMac == "aa:bb:cc:dd:ee:02").RecommendedChannel.Should().Be(1,
+            "every measurement agrees ch1 is fine, so the guard must stay out of the escape's way");
+    }
+
+    [Fact]
+    public void Optimize_DistantSiblingMeasuresBusy_EvidenceScaledByProximity()
+    {
+        // A barely-audible sibling's local noise isn't our experience: same 50% reading on ch1, but the
+        // APs hear each other at weight 0.3, so the evidence scales to 15% - below the comfortable
+        // bar - and must not veto the move (mirroring the proximity scaling the congestion floor uses).
+        var reg = StdUsRegulatory();
+        var options = new RecommendationOptions { DfsPreference = DfsPreference.IncludeWithPenalty };
+        var graph = BuildCh6VsCh1Graph(reg, options);
+        graph.InternalWeights[0, 1] = graph.InternalWeights[1, 0] = 0.3;
+        graph.DirectionalWeights[0, 1] = graph.DirectionalWeights[1, 0] = 0.3;
+        graph.Nodes[0].HistoricalStress = new Dictionary<int, (double Utilization, double Interference, double TxRetryPct)>
+        {
+            { 1, (57.0, 50.0, 18.0) }
+        };
+
+        var plan = _service.Optimize(graph, RadioBand.Band2_4GHz, reg, options);
+
+        plan.Recommendations.First(r => r.ApMac == "aa:bb:cc:dd:ee:02").RecommendedChannel.Should().Be(1,
+            "a distant sibling's 50% local reading scales to 15% here - not evidence the destination is bad for this AP");
+    }
+
+    [Fact]
+    public void Optimize_SiblingHoldLogged_NamesSiblingEvidenceAndDoesNotSuggestRescan()
+    {
+        // The materiality log must name the evidence source so a live-site log reads unambiguously,
+        // and an interference-arm hold must never prompt a re-scan - a spectrum re-scan can't refresh
+        // the sibling's measured history it rests on.
+        var logger = new ListLogger<ChannelRecommendationService>();
+        var loader = new AntennaPatternLoader(NullLogger<AntennaPatternLoader>.Instance);
+        var prop = new PropagationService(loader, NullLogger<PropagationService>.Instance);
+        var svc = new ChannelRecommendationService(prop, logger);
+
+        var reg = StdUsRegulatory();
+        var options = new RecommendationOptions { DfsPreference = DfsPreference.IncludeWithPenalty };
+        var graph = BuildCh6VsCh1Graph(reg, options);
+        graph.Nodes[0].HistoricalStress = new Dictionary<int, (double Utilization, double Interference, double TxRetryPct)>
+        {
+            { 1, (57.0, 50.0, 18.0) }
+        };
+        graph.Nodes[1].SpectrumScanTime = DateTimeOffset.UtcNow.AddDays(-5); // stale, but not what the hold rests on
+
+        var plan = svc.Optimize(graph, RadioBand.Band2_4GHz, reg, options);
+
+        var downstairs = plan.Recommendations.First(r => r.ApMac == "aa:bb:cc:dd:ee:02");
+        downstairs.RecommendedChannel.Should().Be(6);
+        downstairs.ScanRescanRecommended.Should().BeFalse(
+            "the hold rests on the sibling's measured interference, which a spectrum re-scan cannot refresh");
+        var materiality = logger.Messages.FirstOrDefault(m => m.Contains("SCAN MATERIALITY"));
+        materiality.Should().NotBeNull();
+        materiality.Should().Contain("HELD off ch1").And.Contain("(sibling-measured)");
+    }
+
+    /// <summary>
+    /// Single-AP scan-utilization trap: the proxy says ch1 is near-empty (few beaconing BSSIDs), but
+    /// the AP's own spectrum scan measured real airtime there. Noise floors are kept quiet so only the
+    /// utilization signal is in play. <paramref name="ch1ScanUtil"/> varies the destination's measured
+    /// airtime; <paramref name="ch1Ext"/> varies its corroborating neighbor weight for re-scan tests.
+    /// </summary>
+    private InterferenceGraph BuildScanUtilizationTrapGraph(
+        int ch1ScanUtil, double ch1Ext, RegulatoryChannelData reg, RecommendationOptions options)
+    {
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:02", "Downstairs", RadioBand.Band2_4GHz, 6, width: 20)
+        };
+        var graph = _service.BuildInterferenceGraph(aps, RadioBand.Band2_4GHz, null, null, reg, options);
+        graph.ExternalLoad[0] = new() { { 1, ch1Ext }, { 6, 25.0 }, { 11, 24.0 } }; // proxy wants ch1
+        graph.DirectlyObservedChannels[0] = new() { 1, 6, 11 };
+        graph.ScanChannelData[0] = new()
+        {
+            { (1, 20), (ch1ScanUtil, (int?)(-85)) },
+            { (6, 20), (26, (int?)(-85)) },
+            { (11, 20), (25, (int?)(-85)) }
+        };
+        return graph;
+    }
+
+    [Fact]
+    public void Optimize_MoveOntoScanMeasuredBusierChannel_KeepsApOnCurrentChannel()
+    {
+        // No sibling lives on ch1 and no measured interference history exists - but the AP's own scan
+        // read ch1 at 45% airtime vs its home ch6 at 26%. Non-beaconing/hidden load the BSSID proxy
+        // can't see; the scan-utilization arm must hold the AP on ch6.
+        var reg = StdUsRegulatory();
+        var options = new RecommendationOptions { DfsPreference = DfsPreference.IncludeWithPenalty };
+        var graph = BuildScanUtilizationTrapGraph(45, 10.0, reg, options);
+
+        var plan = _service.Optimize(graph, RadioBand.Band2_4GHz, reg, options);
+
+        plan.Recommendations.Single().RecommendedChannel.Should().Be(6,
+            "the radio measured ch1 at 45% airtime vs ch6's 26% - the proxy's BSSID count must not send it there");
+    }
+
+    [Fact]
+    public void Optimize_MoveOntoScanQuieterChannel_MoveProceeds()
+    {
+        // Control: ch1 measures 35% - under the genuinely-busy bar - so the arm stays inert and the
+        // escape from the heavy ch6 goes through.
+        var reg = StdUsRegulatory();
+        var options = new RecommendationOptions { DfsPreference = DfsPreference.IncludeWithPenalty };
+        var graph = BuildScanUtilizationTrapGraph(35, 10.0, reg, options);
+
+        var plan = _service.Optimize(graph, RadioBand.Band2_4GHz, reg, options);
+
+        plan.Recommendations.Single().RecommendedChannel.Should().Be(1,
+            "35% measured airtime is below the busy bar, so the utilization arm must not block the escape");
+    }
+
+    [Fact]
+    public void Optimize_StaleUncorroboratedScanUtilizationHold_FlagsRescanRecommended()
+    {
+        // A scan-utilization hold rests on the spectrum scan just like a noise-floor hold, so a stale
+        // reading the neighbor scan no longer corroborates (ch1 ext 0.5) must prompt a re-scan.
+        var reg = StdUsRegulatory();
+        var options = new RecommendationOptions { DfsPreference = DfsPreference.IncludeWithPenalty };
+        var graph = BuildScanUtilizationTrapGraph(45, 0.5, reg, options);
+        graph.Nodes[0].SpectrumScanTime = DateTimeOffset.UtcNow.AddDays(-5);
+
+        var plan = _service.Optimize(graph, RadioBand.Band2_4GHz, reg, options);
+
+        var rec = plan.Recommendations.Single();
+        rec.RecommendedChannel.Should().Be(6, "the guard still holds it off the measured-busy ch1");
+        rec.ScanRescanRecommended.Should().BeTrue(
+            "the hold rests on a 5-day-old utilization reading the neighbor scan no longer corroborates");
+    }
+
+    [Fact]
+    public void Optimize_StaleButCorroboratedScanUtilizationHold_DoesNotFlagRescan()
+    {
+        // Same stale reading, but ch1 carries real neighbor weight (ext 10) - the fresher neighbor
+        // scan agrees the channel is occupied, so a re-scan wouldn't change the answer. No prompt.
+        var reg = StdUsRegulatory();
+        var options = new RecommendationOptions { DfsPreference = DfsPreference.IncludeWithPenalty };
+        var graph = BuildScanUtilizationTrapGraph(45, 10.0, reg, options);
+        graph.Nodes[0].SpectrumScanTime = DateTimeOffset.UtcNow.AddDays(-5);
+
+        var plan = _service.Optimize(graph, RadioBand.Band2_4GHz, reg, options);
+
+        var rec = plan.Recommendations.Single();
+        rec.RecommendedChannel.Should().Be(6);
+        rec.ScanRescanRecommended.Should().BeFalse("neighbors corroborate the busy reading, so a re-scan can't change it");
+    }
+
+    [Fact]
+    public void Optimize_ReportedDenseProxyTopology_KeepsBothApsPut()
+    {
+        // End-to-end repro of the reported ch6->ch1 incident with representative dense-site numbers: two APs at
+        // full mutual audibility in a dense environment (proxy 13-26 per channel), the sibling parked
+        // on ch1 measuring it busiest, Downstairs comfortable on ch6. On the raw proxy scale the
+        // ch6-vs-ch1 gap (12 points) dwarfed the co-channel penalty and every measured signal, and the
+        // optimizer stacked both APs on ch1. On the saturated scale the gap compresses to under a
+        // point, so no move survives the gates - the plan must be keep/keep without the guard even
+        // having to fire.
+        var reg = StdUsRegulatory();
+        var options = new RecommendationOptions { DfsPreference = DfsPreference.IncludeWithPenalty };
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:01", "Living Room", RadioBand.Band2_4GHz, 1, width: 20),
+            CreateAp("aa:bb:cc:dd:ee:02", "Downstairs", RadioBand.Band2_4GHz, 6, width: 20)
+        };
+        var graph = _service.BuildInterferenceGraph(aps, RadioBand.Band2_4GHz, null, null, reg, options);
+        graph.InternalWeights[0, 1] = graph.InternalWeights[1, 0] = 1.0;
+        graph.DirectionalWeights[0, 1] = graph.DirectionalWeights[1, 0] = 1.0;
+        graph.ExternalLoad[0] = new() { { 1, 13.3 }, { 6, 25.8 }, { 11, 15.5 } };
+        graph.DirectlyObservedChannels[0] = new() { 1, 6, 11 };
+        graph.ExternalLoad[1] = new() { { 1, 14.0 }, { 6, 26.3 }, { 11, 14.7 } };
+        graph.DirectlyObservedChannels[1] = new() { 1, 6, 11 };
+        graph.Nodes[0].HistoricalStress = new Dictionary<int, (double Utilization, double Interference, double TxRetryPct)>
+        {
+            { 1, (58.0, 43.0, 18.0) }, { 6, (61.0, 48.0, 30.4) }, { 11, (52.0, 40.0, 21.2) }
+        };
+        graph.Nodes[1].HistoricalStress = new Dictionary<int, (double Utilization, double Interference, double TxRetryPct)>
+        {
+            { 1, (32.0, 25.0, 23.7) }, { 6, (39.0, 31.0, 15.3) }, { 11, (41.0, 34.0, 21.6) }
+        };
+        graph.ScanChannelData[0] = new()
+        {
+            { (1, 20), (56, (int?)(-61)) }, { (6, 20), (34, (int?)(-55)) }, { (11, 20), (37, (int?)(-59)) }
+        };
+        graph.ScanChannelData[1] = new()
+        {
+            { (1, 20), (42, (int?)(-55)) }, { (6, 20), (26, (int?)(-58)) }, { (11, 20), (25, (int?)(-37)) }
+        };
+
+        var plan = _service.Optimize(graph, RadioBand.Band2_4GHz, reg, options);
+
+        plan.Recommendations.First(r => r.ApMac == "aa:bb:cc:dd:ee:02").RecommendedChannel.Should().Be(6,
+            "no measured signal favors leaving ch6, so the compressed proxy gap must not justify any move");
+        plan.Recommendations.First(r => r.ApMac == "aa:bb:cc:dd:ee:01").RecommendedChannel.Should().Be(1);
+    }
+
+    [Fact]
+    public void ScoreAssignment_ExternalProxy_SaturatesOntoMeasuredAirtimeScale()
+    {
+        // The pooled neighbor weight stands in for channel airtime, which is bounded - so its score
+        // contribution must saturate onto the same 0-6 scale the absolute gates and the measured
+        // floor use, stay monotonic, and stop drifting linearly with neighbor-memory growth.
+        var reg = StdUsRegulatory();
+        var options = new RecommendationOptions();
+
+        double Score(double pooledWeight)
+        {
+            var g = SingleApGraph(6, externalLoad: new() { { 6, pooledWeight } }, directlyObserved: new() { 6 }, reg, options);
+            return _service.ScoreAssignment(g, new[] { (6, 20) }, RadioBand.Band2_4GHz);
+        }
+
+        Score(6.0).Should().BeApproximately(3.0, 0.01, "the half-saturation point maps six strong neighbors to ~60% airtime");
+        Score(30.0).Should().BeApproximately(5.0, 0.01, "a dense-urban proxy lands near the top of the airtime scale, not at 30");
+        Score(30.0).Should().BeGreaterThan(Score(15.0), "saturation is monotonic - ranking is preserved");
+        (Score(45.0) - Score(30.0)).Should().BeLessThan(0.35,
+            "a 15-point neighbor-memory swing must nudge a dense channel's score, not shove it like the raw scale did");
+        Score(1.0).Should().BeApproximately(6.0 / 7.0, 0.01, "small weights stay near-linear so quiet bands are unaffected");
+    }
+
+    [Fact]
+    public void ScoreAssignment_MeasuredFloor_CanExceedSaturatedProxy()
+    {
+        // On the raw scale a modest proxy (4.0) already sat above the floor's ceiling (100% airtime
+        // = 5.0 at the 0.05 scale) minus headroom, so a 60% measured reading could never raise it.
+        // Saturated (4.0 -> 2.4), the measured 60% (3.0) must win - the floor is alive again.
+        var reg = StdUsRegulatory();
+        var options = new RecommendationOptions();
+
+        InterferenceGraph Build(int scanUtil)
+        {
+            var g = SingleApGraph(36, externalLoad: new() { { 40, 4.0 } }, directlyObserved: new(), reg, options);
+            g.ScanChannelData[0] = new Dictionary<(int Channel, int Width), (int Utilization, int? NoiseFloor)> { { (40, 80), (scanUtil, (int?)null) } };
+            return g;
+        }
+
+        var floored = _service.ScoreAssignment(Build(60), new[] { (40, 80) }, RadioBand.Band5GHz);
+        var unfloored = _service.ScoreAssignment(Build(5), new[] { (40, 80) }, RadioBand.Band5GHz);
+
+        // 0.77 of the gap is the scan-utilization term itself ((60-5) x 0.02 x 0.7); the remaining
+        // 0.6 is the floor replacing the saturated proxy (3.0 vs 2.4) - the part that was
+        // unreachable on the raw scale, where the proxy already sat at 4.0.
+        (floored - unfloored).Should().BeApproximately(1.37, 0.02,
+            "the 60% measured reading must both score as airtime and floor the congestion above the saturated proxy");
     }
 
     /// <summary>Captures formatted log messages and reports debug as enabled, for asserting diagnostics.</summary>
