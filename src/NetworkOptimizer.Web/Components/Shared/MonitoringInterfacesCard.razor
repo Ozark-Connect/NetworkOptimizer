@@ -166,18 +166,17 @@
                         </div>
                     </div>
 
-                    @if (ShowNativeWanAdvisory)
+                    @if (ShowStarlinkAdvisory)
                     {
-                        <div class="mi-tip mi-tip-warning">
-                            <strong>@SelectedWanName is monitored natively by UniFi.</strong>
-                            Its dashboard widget depends on reaching the device's IP through the
-                            gateway's main routing table. A plain monitoring interface here would
-                            claim that route and can silently break the native widget. Use an
-                            alias IP instead - the LAN polls the alias and the shared IP stays
-                            untouched.
-                            <button type="button" class="btn btn-sm btn-secondary mi-tip-action" @onclick="UseAliasInstead">
-                                Use alias instead
-                            </button>
+                        <div class="mi-tip">
+                            <strong>@SelectedWanDisplayName is a Starlink connection.</strong>
+                            You don't need a Monitoring Interface for the dish - Network Optimizer
+                            monitors Starlink natively on the
+                            <a href="/monitoring?tab=starlink">Starlink Stats</a> tab (add your
+                            terminal in <a href="/settings#starlink">Settings - Starlink Monitoring</a>).
+                            Create Monitoring Interfaces for your other WAN links instead - and if
+                            one of those devices shares the dish's IP (192.168.100.1 is a common
+                            default), give it an alias IP so the dish's address stays with Starlink.
                         </div>
                     }
 
@@ -306,21 +305,6 @@
 
     .mi-tip strong {
         color: var(--info-color);
-    }
-
-    .mi-tip-warning {
-        background: rgba(245, 158, 11, 0.1);
-        border-color: var(--warning-color);
-        border-left-color: var(--warning-color);
-    }
-
-    .mi-tip-warning strong {
-        color: var(--warning-color);
-    }
-
-    .mi-tip-action {
-        display: block;
-        margin-top: 0.5rem;
     }
 
     .mi-advanced {
@@ -619,37 +603,21 @@
         _editing.WanKey = w != null && w.WanIndex > 0 ? $"wan{w.WanIndex}" : null;
     }
 
-    // Advisory (non-blocking): the selected WAN's device is monitored natively by UniFi
-    // through ambient reachability (Starlink), so a plain (non-aliased) interface here
-    // would claim the shared IP's main-table route and silently break the native widget.
-    // Live purely off current form state so it appears/disappears as the user edits.
+    // Advisory (non-blocking): the selected WAN is a Starlink connection, which Network
+    // Optimizer already monitors natively via the dish's API - a Monitoring Interface for
+    // the dish adds nothing and just complicates the WAN's routing. Live purely off current
+    // form state so it appears/disappears as the user edits.
     private WanInterfaceInfo? SelectedWan =>
         _wans.FirstOrDefault(x => x.PhysicalIfName == _editing.WanIfName);
 
     private string? SelectedWanName => SelectedWan?.Name;
 
-    private bool ShowNativeWanAdvisory =>
-        !string.IsNullOrEmpty(_editing.WanIfName)
-        && string.IsNullOrWhiteSpace(_editing.AliasIp)
-        && NativeMonitoredWanDetector.IsUniFiNativeMonitored(SelectedWanName, SelectedWan?.IspName);
+    private string SelectedWanDisplayName =>
+        string.IsNullOrWhiteSpace(SelectedWanName) ? "This WAN" : SelectedWanName;
 
-    private void UseAliasInstead()
-    {
-        if (string.IsNullOrWhiteSpace(_editing.AliasIp))
-        {
-            var suggestion = SuggestAliasIp(_editing.TargetIp);
-            if (!string.IsNullOrEmpty(suggestion))
-                _editing.AliasIp = suggestion;
-        }
-        // Only arm the suppression when the details element will actually change state.
-        // Arming it while Advanced is already open leaves the flag set (no toggle fires to
-        // consume it), which then swallows the user's next genuine close.
-        if (!_advancedOpen)
-        {
-            _suppressNextAdvancedToggle = true;
-            _advancedOpen = true;
-        }
-    }
+    private bool ShowStarlinkAdvisory =>
+        !string.IsNullOrEmpty(_editing.WanIfName)
+        && StarlinkWanDetector.IsStarlinkWan(SelectedWanName, SelectedWan?.IspName);
 
     private async Task SaveOnly()
     {

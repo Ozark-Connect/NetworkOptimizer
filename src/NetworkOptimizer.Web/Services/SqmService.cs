@@ -346,8 +346,8 @@ public class SqmService : ISqmService
 
                 // Build networkgroup -> geo-IP ISP lookup from last_geo_info (keyed by WAN group,
                 // e.g. "WAN", "WAN2"). This is UniFi's own ISP classification - the same value its
-                // native UI shows in the ISP column - used to flag natively-monitored WANs (Starlink)
-                // independently of the user-chosen name. Prefer isp_name, fall back to isp.
+                // native UI shows in the ISP column - used to flag Starlink WANs independently
+                // of the user-chosen name. Prefer isp_name, fall back to isp.
                 var networkGroupToIsp = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
                 if (device.TryGetProperty("last_geo_info", out var lastGeoInfo) &&
                     lastGeoInfo.ValueKind == System.Text.Json.JsonValueKind.Object)
