@@ -1882,6 +1882,34 @@ public class ChannelRecommendationServiceTests
     }
 
     [Fact]
+    public void Optimize_6GHz_CoChannelPair_RecommendsSeparation()
+    {
+        // Companion to the 5 GHz separation tests, on the band where the external-proxy saturation is
+        // a near-no-op (6 GHz neighbor weights are tiny, deep in the curve's linear region): a
+        // beneficial reconfiguration must still fire, proving the saturation rebalance didn't make the
+        // engine passive. Two APs stacked on one 160 MHz group that hear each other strongly carry
+        // internal co-channel pain past MinApScoreToMove (1 x 1.0 x 3.0 = 3.0) - and internal
+        // co-channel interference is NOT saturated, only the external neighbor proxy is - so with a
+        // clean, non-overlapping 160 MHz group available (ch37 vs ch5), the optimizer must move one AP
+        // off the shared channel.
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:01", "AP-1", RadioBand.Band6GHz, 5, width: 160),
+            CreateAp("aa:bb:cc:dd:ee:02", "AP-2", RadioBand.Band6GHz, 5, width: 160)
+        };
+        var graph = _service.BuildInterferenceGraph(aps, RadioBand.Band6GHz, null, null, null);
+        graph.InternalWeights[0, 1] = graph.InternalWeights[1, 0] = 1.0;
+        graph.DirectionalWeights[0, 1] = graph.DirectionalWeights[1, 0] = 1.0;
+
+        var plan = _service.Optimize(graph, RadioBand.Band6GHz, null);
+
+        plan.RecommendedNetworkScore.Should().BeLessThan(plan.CurrentNetworkScore,
+            "separating two co-channel 6 GHz APs onto clean 160 MHz groups is a clear net improvement");
+        plan.Recommendations.Select(r => r.RecommendedChannel).Distinct().Count()
+            .Should().Be(2, "the optimizer must break the co-channel stack on 6 GHz, not leave both APs stacked");
+    }
+
+    [Fact]
     public void Optimize_2_4GHz_AlwaysUsesOnly_1_6_11()
     {
         // Even with regulatory data that includes other channels, should only use 1/6/11
