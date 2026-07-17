@@ -151,8 +151,8 @@
             <div class="info-tip" style="margin-bottom: 0.25rem;">
                 <strong>Not all SFP modules expose DDM stats.</strong>
                 If a module's RX / TX / Temp columns are empty, the gateway or switch can't read DDM
-                from it. If it's an ONT, monitor it directly over its web interface instead -
-                <a href="/settings#ont-monitoring">set up an ONT monitoring provider</a>.
+                from it. If it's an ONT lacking SFP data, monitor it directly over its web interface
+                instead - <a href="/settings#ont-monitoring">set up an ONT monitoring provider</a>.
                 <div class="info-tip-actions">
                     <button class="btn btn-sm btn-primary" @onclick="DismissOntHint">Dismiss</button>
                 </div>
