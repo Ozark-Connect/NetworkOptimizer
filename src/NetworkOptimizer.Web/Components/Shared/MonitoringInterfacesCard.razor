@@ -166,6 +166,20 @@
                         </div>
                     </div>
 
+                    @if (ShowStarlinkAdvisory)
+                    {
+                        <div class="mi-tip">
+                            <strong>@SelectedWanDisplayName is a Starlink connection.</strong>
+                            You don't need a Monitoring Interface for the dish - Network Optimizer
+                            monitors Starlink natively on the
+                            <a href="/monitoring?tab=starlink">Starlink Stats</a> tab (add your
+                            terminal in <a href="/settings#starlink">Settings - Starlink Monitoring</a>).
+                            Create Monitoring Interfaces for your other WAN links instead - and if
+                            one of those devices shares the dish's IP (192.168.100.1 is a common
+                            default), give it an alias IP so the dish's address stays with Starlink.
+                        </div>
+                    }
+
                     <details class="setup-guide mi-advanced" open="@_advancedOpen" @ontoggle="@(() => { if (_suppressNextAdvancedToggle) { _suppressNextAdvancedToggle = false; } else { _advancedOpen = !_advancedOpen; } })">
                         <summary>Advanced</summary>
                         <div class="setup-guide-content">
@@ -588,6 +602,22 @@
         var w = _wans.FirstOrDefault(x => x.PhysicalIfName == _editing.WanIfName);
         _editing.WanKey = w != null && w.WanIndex > 0 ? $"wan{w.WanIndex}" : null;
     }
+
+    // Advisory (non-blocking): the selected WAN is a Starlink connection, which Network
+    // Optimizer already monitors natively via the dish's API - a Monitoring Interface for
+    // the dish adds nothing and just complicates the WAN's routing. Live purely off current
+    // form state so it appears/disappears as the user edits.
+    private WanInterfaceInfo? SelectedWan =>
+        _wans.FirstOrDefault(x => x.PhysicalIfName == _editing.WanIfName);
+
+    private string? SelectedWanName => SelectedWan?.Name;
+
+    private string SelectedWanDisplayName =>
+        string.IsNullOrWhiteSpace(SelectedWanName) ? "This WAN" : SelectedWanName;
+
+    private bool ShowStarlinkAdvisory =>
+        !string.IsNullOrEmpty(_editing.WanIfName)
+        && StarlinkWanDetector.IsStarlinkWan(SelectedWanName, SelectedWan?.IspName);
 
     private async Task SaveOnly()
     {
