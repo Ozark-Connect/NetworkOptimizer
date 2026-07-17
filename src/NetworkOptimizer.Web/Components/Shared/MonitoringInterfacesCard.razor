@@ -169,17 +169,21 @@
                     @if (ShowStarlinkAdvisory)
                     {
                         <div class="mi-tip">
-                            <strong>@SelectedWanDisplayName is a Starlink connection.</strong>
-                            You don't need a Monitoring Interface for the dish - Network Optimizer
-                            monitors Starlink natively on the
-                            <a href="/monitoring?tab=starlink">Starlink Stats</a> tab (add your
-                            terminal in <a href="/settings#starlink">Settings - Starlink Monitoring</a>).
-                            With more than one WAN, add a UniFi Network <strong>Static Route</strong>
-                            for the dish's IP out the Starlink WAN (see the static route tip above)
-                            so monitoring routes correctly from your LAN through the gateway.
-                            Create Monitoring Interfaces for your other WAN links instead - and if
-                            one of those devices shares the dish's IP (192.168.100.1 is a common
-                            default), give it an alias IP so the dish's address stays with Starlink.
+                            <strong>@SelectedWanDisplayName is a Starlink connection - no Monitoring Interface needed for the dish.</strong>
+                            Network Optimizer monitors it natively on the
+                            <a href="/monitoring?tab=starlink">Starlink Stats</a> tab (set up in
+                            <a href="/settings#starlink">Settings - Starlink Monitoring</a>).
+                            <ul>
+                                <li>
+                                    With more than one WAN, add a UniFi Network <strong>Static Route</strong>
+                                    for the dish's IP out the Starlink WAN (see the static route tip above)
+                                    so polling routes correctly from your LAN through the gateway.
+                                </li>
+                                <li>
+                                    Use Monitoring Interfaces for your other WAN devices instead; alias
+                                    any that share the dish's IP (192.168.100.1 is a common default).
+                                </li>
+                            </ul>
                         </div>
                     }
 
@@ -308,6 +312,15 @@
 
     .mi-tip strong {
         color: var(--info-color);
+    }
+
+    .mi-tip ul {
+        margin: 0.5rem 0 0;
+        padding-left: 1.25rem;
+    }
+
+    .mi-tip li {
+        margin-top: 0.25rem;
     }
 
     .mi-advanced {
