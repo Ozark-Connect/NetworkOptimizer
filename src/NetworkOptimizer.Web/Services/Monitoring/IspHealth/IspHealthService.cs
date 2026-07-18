@@ -596,28 +596,47 @@ public class IspHealthService
         var aggregate = TimeSpan.FromSeconds(Math.Max(
             _options.LoadWindowSeconds, (windowEnd - windowStart).TotalSeconds / 25000.0));
 
+        // Outage detection reaches back a bounded lead-in BEFORE the window start so an outage already
+        // in progress when the window opens is detected from its true onset instead of being clipped to
+        // a mislabeled tail (a 47-min LAN/Gateway power outage whose window-start-clipped tail lost its
+        // gateway-dark evidence and read as a path-wide ISP blip). The access-ISP, internet, and gateway
+        // series are queried over this extended window; the score/congestion/loss-pool consumers below
+        // are given the series trimmed back to [windowStart, windowEnd], so everything except outage
+        // detection is byte-for-byte unchanged. Transit stays on the exact window - it only shapes the
+        // waterfall and never decides the Local (gateway-dark) scope, so extending it buys nothing.
+        var outageQueryStart = windowStart.AddHours(-_options.OutageDetectionLeadInHours);
+
         // All target types read at the fine window. Coarsening transit/internet RTT bought a modest
         // 48h deserialize win but shifted congestion localization (the bottleneck walk keys on RTT
         // bursts, which a coarse mean blunts), so it diverged from the fine-resolution attribution on
         // transit-heavy paths. Kept fine everywhere; the compute-time wins now come from the in-memory
         // detector/scorer paths, not from coarsening the input.
-        var ispSeriesTask = _influx.QueryLatencyDetailByTargetTypeAsync(MonitoringTargetType.AccessIsp, windowStart, windowEnd, aggregate, ct);
+        var ispSeriesTask = _influx.QueryLatencyDetailByTargetTypeAsync(MonitoringTargetType.AccessIsp, outageQueryStart, windowEnd, aggregate, ct);
         var transitSeriesTask = _influx.QueryLatencyDetailByTargetTypeAsync(MonitoringTargetType.Transit, windowStart, windowEnd, aggregate, ct);
-        var internetSeriesTask = _influx.QueryLatencyDetailByTargetTypeAsync(MonitoringTargetType.InternetService, windowStart, windowEnd, aggregate, ct);
+        var internetSeriesTask = _influx.QueryLatencyDetailByTargetTypeAsync(MonitoringTargetType.InternetService, outageQueryStart, windowEnd, aggregate, ct);
         var ratesTask = QueryWanRatesAsync(windowStart, windowEnd, aggregate, ct);
         var speedsTask = ResolveExpectedSpeedsAsync(ct);
         var speedTestsTask = LoadWanSpeedTestsAsync(windowStart, windowEnd, ct);
         var gatewaySeriesTask = gatewayTarget == null
             ? Task.FromResult(new List<MonitoringInfluxClient.LatencySeriesPoint>())
-            : _influx.QueryLatencyDetailByTargetIdAsync(gatewayTarget.TargetId, windowStart, windowEnd, aggregate, ct);
+            : _influx.QueryLatencyDetailByTargetIdAsync(gatewayTarget.TargetId, outageQueryStart, windowEnd, aggregate, ct);
         await Task.WhenAll(ispSeriesTask, transitSeriesTask, internetSeriesTask, ratesTask, speedsTask, speedTestsTask, gatewaySeriesTask);
 
-        var ispSeries = ToSamples(await ispSeriesTask);
+        // Extended (lead-in) series: used only to build the outage detector's trigger and hops below.
+        var ispSeriesExt = ToSamples(await ispSeriesTask);
+        var internetSeriesExt = ToSamples(await internetSeriesTask);
+        // Window-trimmed series for every other consumer (scoring, congestion, loss pool, charts),
+        // identical to what a plain [windowStart, windowEnd] query returned before the reach-back.
+        static Dictionary<string, List<LatencySample>> TrimFrom(Dictionary<string, List<LatencySample>> src, DateTime from) =>
+            src.ToDictionary(kv => kv.Key, kv => kv.Value.Where(s => s.Time >= from).ToList());
+        var ispSeries = TrimFrom(ispSeriesExt, windowStart);
         var transitSeries = ToSamples(await transitSeriesTask);
-        var internetSeries = ToSamples(await internetSeriesTask);
+        var internetSeries = TrimFrom(internetSeriesExt, windowStart);
         var wanRates = await ratesTask;
         var (expectedDown, expectedUp, expectedSource, smartQueuesEnabled) = await speedsTask;
         var wanSpeedTests = await speedTestsTask;
+        // Gateway samples feed only the outage waterfall's gateway hop, so they carry the full extended
+        // window (the detector clips each hop's series to the detected event span anyway).
         var gatewaySamples = (await gatewaySeriesTask)
             .Select(p => new LatencySample(p.Time, p.RttAvgMs, p.RttMaxMs, p.JitterMs, p.LossPercent)).ToList();
 
@@ -823,10 +842,13 @@ public class IspHealthService
         // carried (ordered nearest-first by the hop map, RTT tiebreaker) to shape it and
         // attribute the break. A monitoring gap has no samples and so is never flagged. The
         // trigger keeps ALL internet targets (robust detection); only the waterfall's internet
-        // rows are trimmed to the two canonical resolvers below.
+        // rows are trimmed to the two canonical resolvers below. The trigger reads the extended
+        // (lead-in) internet series so an outage straddling the window start is triggered from its
+        // true onset - the reach-back that keeps a clipped LAN/Gateway outage from surfacing as a
+        // path-wide ISP blip. Post-detection the events are filtered back to the window.
         var internetTriggerTargets = targets
-            .Where(t => t.TargetType == MonitoringTargetType.InternetService && internetSeries.ContainsKey(t.TargetId))
-            .Select(t => (IReadOnlyList<LatencySample>)internetSeries[t.TargetId])
+            .Where(t => t.TargetType == MonitoringTargetType.InternetService && internetSeriesExt.ContainsKey(t.TargetId))
+            .Select(t => (IReadOnlyList<LatencySample>)internetSeriesExt[t.TargetId])
             .ToList();
         int ClusterHopNumber(AsnSeries s) => s.TargetIds
             .Select(tid => hopNumberByTargetId.TryGetValue(tid, out var hn) ? hn : int.MaxValue)
@@ -835,10 +857,23 @@ public class IspHealthService
             s.Samples.Where(x => x.RttAvgMs.HasValue).Select(x => x.RttAvgMs!.Value).ToList()) ?? double.MaxValue;
         // The two internet rows for the waterfall: prefer Cloudflare/Google, but if the user
         // doesn't monitor them, fall back to the two nearest other internet targets so the
-        // waterfall still shows an internet-reachability row.
-        var displayInternet = internetTargetSeries
+        // waterfall still shows an internet-reachability row. Built on the extended (lead-in)
+        // internet series - like the trigger, gateway, and access rows - so a straddling outage's
+        // waterfall spans its true onset rather than just the in-window tail.
+        var internetDisplaySources = targets
+            .Where(t => t.TargetType == MonitoringTargetType.InternetService && internetSeriesExt.ContainsKey(t.TargetId))
+            .Select(t => new AsnSeries
+            {
+                AsnNumber = t.AsnNumber ?? 0,
+                AsnName = t.Name,
+                TargetIds = { t.TargetId },
+                Samples = internetSeriesExt[t.TargetId],
+                HopIps = { t.Address }
+            })
+            .ToList();
+        var displayInternet = internetDisplaySources
             .Where(s => s.HopIps.Any(ip => OutageInternetIps.Contains(ip)))
-            .Concat(internetTargetSeries
+            .Concat(internetDisplaySources
                 .Where(s => !s.HopIps.Any(ip => OutageInternetIps.Contains(ip)))
                 .OrderBy(MedianRtt))
             .Take(2)
@@ -868,13 +903,13 @@ public class IspHealthService
         //  - Transit kept as the per-ASN RTT clusters (the Per-Network RTT grouping), untouched.
         //  - Internet trimmed to two rows (displayInternet).
         var outageSources = ispTargets
-            .Where(t => ispSeries.ContainsKey(t.TargetId))
+            .Where(t => ispSeriesExt.ContainsKey(t.TargetId))
             .Select(t => (Series: new AsnSeries
             {
                 AsnNumber = t.AsnNumber ?? 0,
                 AsnName = t.Name,
                 TargetIds = { t.TargetId },
-                Samples = ispSeries[t.TargetId],
+                Samples = ispSeriesExt[t.TargetId],
                 HopIps = { t.Address }
             }, Groupable: true, AsnLabel: AsnNameCleanup.Clean(t.AsnName) ?? accessAsnName, IsInternet: false))
             .Concat(transitChart.Select(s => (Series: s, Groupable: false, AsnLabel: (string?)TransitLabel(s), IsInternet: false)))
@@ -916,6 +951,12 @@ public class IspHealthService
         var partialDisruptions = OutageDetector.DetectPartial(
             outageHops, outages.Select(o => (o.Start, o.End)).ToList(), _options);
         outages = outages.Concat(partialDisruptions).OrderBy(o => o.Start).ToList();
+        // Drop events that ended at or before the window start: the lead-in reach-back only exists to
+        // capture an outage that STRADDLES the window start (its recovery is in-window), so an event
+        // sitting entirely in the pre-window lead-in is outside this report and must not surface.
+        // Straddling events keep their true onset (Start may precede windowStart) so ack-matching and
+        // the LAN/Gateway attribution both read off the full shape, exactly as the 7-day view does.
+        outages = outages.Where(o => o.End > windowStart).ToList();
 
         // Surface the transit-unreachable windows as path events, merged per ASN - unless the
         // span mostly sat inside a blackout outage, where the whole path was dark and the

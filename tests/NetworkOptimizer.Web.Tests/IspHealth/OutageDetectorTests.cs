@@ -46,6 +46,28 @@ public class OutageDetectorTests
 
     private static readonly (DateTime Start, DateTime End)[] NoDarkWindows = System.Array.Empty<(DateTime, DateTime)>();
 
+    /// <summary>
+    /// An onset dark run, then a stretch with NO samples at all (a monitoring gap - the Monitoring
+    /// Agent stopped collecting), then a brief dark recovery tail and a clean return. Models an outage
+    /// that knocked the collector offline mid-event (e.g. a site power loss) as the detector sees it
+    /// when fed the full onset-through-recovery span.
+    /// </summary>
+    private static List<LatencySample> GappedDarkWithTail(
+        DateTime onsetStart, DateTime onsetEnd, DateTime tailStart, DateTime tailDarkEnd, DateTime cleanEnd)
+    {
+        var s = new List<LatencySample>();
+        void Fill(DateTime from, DateTime to, double loss)
+        {
+            for (var t = from; t < to; t += TimeSpan.FromSeconds(5))
+                s.Add(new LatencySample(t, 20, 20.5, 0.5, loss));
+        }
+        Fill(onsetStart, onsetEnd, 100);   // onset dark run (sampled)
+        // [onsetEnd, tailStart): monitoring gap - no samples emitted at all
+        Fill(tailStart, tailDarkEnd, 100); // recovery-tail dark run (sampled)
+        Fill(tailDarkEnd, cleanEnd, 0);    // recovered
+        return s;
+    }
+
     [Fact]
     public void Detects_upstream_outage_and_attributes_break_beyond_olt()
     {
@@ -376,6 +398,39 @@ public class OutageDetectorTests
 
         events.Should().ContainSingle();
         events[0].Scope.Should().Be(OutageScope.Local);
+    }
+
+    [Fact]
+    public void Outage_straddling_the_window_start_stitches_onset_gap_and_tail_into_one_local_event()
+    {
+        // The real 2026-07-15 NAS power outage: a gateway-dark onset run, a long monitoring gap (the
+        // agent went down with the site power), then a brief recovery tail. Fed the FULL span - the
+        // lead-in reach-back the service supplies when the report window opens mid-outage - the
+        // detector coalesces across the gap into one 20+ min LAN/Gateway outage. Seeing only the
+        // clipped recovery tail (what a window whose start slid past the onset would otherwise get)
+        // loses the gateway-dark onset and misreads it as a seconds-long path-wide ISP blip.
+        var onsetStart = TestSeries.Start.AddMinutes(2);
+        var onsetEnd = TestSeries.Start.AddMinutes(6);
+        var tailStart = TestSeries.Start.AddMinutes(24);
+        var tailDarkEnd = TestSeries.Start.AddMinutes(25);
+        var cleanEnd = TestSeries.Start.AddMinutes(27);
+
+        var internet1 = GappedDarkWithTail(onsetStart, onsetEnd, tailStart, tailDarkEnd, cleanEnd);
+        var internet2 = GappedDarkWithTail(onsetStart, onsetEnd, tailStart, tailDarkEnd, cleanEnd);
+        var gateway = GappedDarkWithTail(onsetStart, onsetEnd, tailStart, tailDarkEnd, cleanEnd); // dark whenever sampled
+
+        var hops = new[]
+        {
+            new OutageDetector.Hop("Gateway", 0, gateway, IsGateway: true),
+            new OutageDetector.Hop("Cloudflare", 1, internet1),
+        };
+
+        var events = OutageDetector.Detect(Triggers(internet1, internet2), hops, Options);
+
+        events.Should().ContainSingle();
+        events[0].Scope.Should().Be(OutageScope.Local);
+        events[0].Start.Should().BeCloseTo(onsetStart, TimeSpan.FromSeconds(30));
+        events[0].Duration.Should().BeGreaterThan(TimeSpan.FromMinutes(20));
     }
 
     [Fact]

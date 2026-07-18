@@ -418,6 +418,20 @@ public class IspHealthOptions
     public int OutageAckMatchToleranceSeconds { get; set; } = 120;
 
     /// <summary>
+    /// How far BEFORE the report window's start outage detection reaches back when querying its
+    /// trigger/hop/gateway series. A window whose start lands mid-outage (e.g. a trailing 48 h view
+    /// that has slid past a power outage's onset) would otherwise see only the recovery tail: the
+    /// clipped tail loses the gateway-dark evidence that sat at onset and a LAN/Gateway outage reads
+    /// as a path-wide ISP blip, with its duration collapsed to seconds. The lead-in lets the detector
+    /// stitch the full onset-plus-gap-plus-tail event and classify it correctly; events ending before
+    /// the window start are then dropped, and straddling events keep their true onset. Bounded so a
+    /// trailing window never pulls in unbounded history (and caps any pre-window over-count for a
+    /// straddling event). Only outage detection reads the extended series - scoring, congestion, and
+    /// the loss pool stay on the exact window.
+    /// </summary>
+    public int OutageDetectionLeadInHours { get; set; } = 2;
+
+    /// <summary>
     /// Bucket size in seconds for the partial-loss (degradation) pass. Wider than the blackout
     /// bucket because partial loss is route-specific: independent targets degrade at slightly
     /// different instants across the event, so a 15 s bucket holds only a couple at once. A 30 s
