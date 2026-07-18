@@ -1527,6 +1527,136 @@ public class FirewallRuleAnalyzerTests
     }
 
     [Fact]
+    public void DetectShadowedRules_MacScopedAllowBeforeZoneWideDeny_ReturnsExceptionPattern()
+    {
+        // Issue #1011: a one-MAC allow (newer "MAC"/"macs" JSON shape) preceding a zone-wide
+        // ANY deny is an intentional narrow exception (FW-EXCEPTION-001), not FW-SUBVERT-001
+        var allowJson = System.Text.Json.JsonDocument.Parse(@"{
+            ""_id"": ""allow-failover"",
+            ""name"": ""Allow Failover Device to External"",
+            ""action"": ""ALLOW"",
+            ""enabled"": true,
+            ""index"": 10000,
+            ""protocol"": ""all"",
+            ""source"": {
+                ""matching_target"": ""MAC"",
+                ""macs"": [""aa:bb:cc:dd:ee:ff""],
+                ""zone_id"": ""mgmt-zone""
+            },
+            ""destination"": {
+                ""matching_target"": ""ANY"",
+                ""zone_id"": ""external-zone""
+            }
+        }").RootElement;
+        var denyJson = System.Text.Json.JsonDocument.Parse(@"{
+            ""_id"": ""block-mgmt-external"",
+            ""name"": ""Block Management to External"",
+            ""action"": ""BLOCK"",
+            ""enabled"": true,
+            ""index"": 10008,
+            ""protocol"": ""all"",
+            ""source"": {
+                ""matching_target"": ""ANY"",
+                ""zone_id"": ""mgmt-zone""
+            },
+            ""destination"": {
+                ""matching_target"": ""ANY"",
+                ""zone_id"": ""external-zone""
+            }
+        }").RootElement;
+
+        var rules = new List<FirewallRule>
+        {
+            _analyzer.ParseFirewallPolicy(allowJson)!,
+            _analyzer.ParseFirewallPolicy(denyJson)!
+        };
+
+        var issues = _analyzer.DetectShadowedRules(rules, networkConfigs: null, externalZoneId: "external-zone");
+
+        issues.Should().NotContain(i => i.Type == "ALLOW_SUBVERTS_DENY");
+        var issue = issues.FirstOrDefault(i => i.Type == "ALLOW_EXCEPTION_PATTERN");
+        issue.Should().NotBeNull();
+        issue!.Severity.Should().Be(AuditSeverity.Informational);
+        issue.RuleId.Should().Be("FW-EXCEPTION-001");
+        issue.Description.Should().Be("External Access");
+    }
+
+    [Fact]
+    public void DetectShadowedRules_MacScopedDenyBeforeMacScopedAllow_SameDevice_ReturnsShadowedIssue()
+    {
+        // Two MAC-scoped rules for the SAME device previously never overlapped
+        // (CLIENT vs CLIENT fell through to no-overlap), hiding real shadowing
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "deny-device",
+                Name = "Block Device",
+                Action = "block",
+                Enabled = true,
+                Index = 1,
+                Protocol = "all",
+                SourceMatchingTarget = "CLIENT",
+                SourceClientMacs = new List<string> { "aa:bb:cc:dd:ee:ff" },
+                DestinationMatchingTarget = "ANY"
+            },
+            new FirewallRule
+            {
+                Id = "allow-device",
+                Name = "Allow Device",
+                Action = "allow",
+                Enabled = true,
+                Index = 2,
+                Protocol = "all",
+                SourceMatchingTarget = "CLIENT",
+                SourceClientMacs = new List<string> { "aa:bb:cc:dd:ee:ff" },
+                DestinationMatchingTarget = "ANY"
+            }
+        };
+
+        var issues = _analyzer.DetectShadowedRules(rules);
+
+        issues.Should().ContainSingle();
+        issues.First().Type.Should().Be("DENY_SHADOWS_ALLOW");
+    }
+
+    [Fact]
+    public void DetectShadowedRules_MacScopedRulesForDifferentDevices_ReturnsNoIssues()
+    {
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "deny-device-a",
+                Name = "Block Device A",
+                Action = "block",
+                Enabled = true,
+                Index = 1,
+                Protocol = "all",
+                SourceMatchingTarget = "CLIENT",
+                SourceClientMacs = new List<string> { "aa:bb:cc:dd:ee:01" },
+                DestinationMatchingTarget = "ANY"
+            },
+            new FirewallRule
+            {
+                Id = "allow-device-b",
+                Name = "Allow Device B",
+                Action = "allow",
+                Enabled = true,
+                Index = 2,
+                Protocol = "all",
+                SourceMatchingTarget = "CLIENT",
+                SourceClientMacs = new List<string> { "aa:bb:cc:dd:ee:02" },
+                DestinationMatchingTarget = "ANY"
+            }
+        };
+
+        var issues = _analyzer.DetectShadowedRules(rules);
+
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
     public void DetectShadowedRules_BroadBlockToNetworkBeforeNarrowAllowToIp_ReturnsShadowedIssue()
     {
         // This tests the scenario where a broad BLOCK rule to NETWORKs eclipses
@@ -2601,6 +2731,33 @@ public class FirewallRuleAnalyzerTests
         var issues = _analyzer.DetectPermissiveRules(rules);
 
         // Not flagged because specific source IPs make the rule restrictive
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void DetectPermissiveRules_MacScopedSourceWithAnyDestination_NotFlagged()
+    {
+        // A MAC-scoped source (newer "MAC"/"macs" shape) restricts the rule to specific
+        // devices, so ANY destination is not broad. Parse from JSON to prove the shape
+        // normalizes to CLIENT and hits the IsSourceMacBased guard.
+        var json = System.Text.Json.JsonDocument.Parse(@"{
+            ""_id"": ""mac-any-dest"",
+            ""name"": ""Allow Failover Device to External"",
+            ""action"": ""ALLOW"",
+            ""enabled"": true,
+            ""protocol"": ""all"",
+            ""source"": {
+                ""matching_target"": ""MAC"",
+                ""macs"": [""aa:bb:cc:dd:ee:ff""]
+            },
+            ""destination"": {
+                ""matching_target"": ""ANY""
+            }
+        }").RootElement;
+        var rules = new List<FirewallRule> { _analyzer.ParseFirewallPolicy(json)! };
+
+        var issues = _analyzer.DetectPermissiveRules(rules);
+
         issues.Should().BeEmpty();
     }
 
