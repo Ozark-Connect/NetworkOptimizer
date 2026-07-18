@@ -2941,7 +2941,27 @@ export class LanFlowMap {
             el.appendChild(nameEl);
             el.appendChild(rateEl);
             this._labelsLayer.appendChild(el);
-            this._floatingLabels.set(node.id, { el, nameEl, rateEl });
+            this._floatingLabels.set(node.id, { el, nameEl, rateEl, crowdScale: 1 });
+        }
+
+        // Local-density label shrink: infra devices clustered together (rack
+        // areas) get proportionally smaller labels so they don't pile up.
+        // Computed once per layout in world space - stable across camera moves,
+        // unlike per-frame screen-space overlap testing which jitters.
+        const CROWD_RADIUS = 8;
+        const labelIds = Array.from(this._floatingLabels.keys());
+        for (const id of labelIds) {
+            const p = this._positions.get(id);
+            if (!p) continue;
+            let neighbors = 0;
+            for (const otherId of labelIds) {
+                if (otherId === id) continue;
+                const q = this._positions.get(otherId);
+                if (!q) continue;
+                const dx = p.x - q.x, dy = p.y - q.y, dz = p.z - q.z;
+                if (dx * dx + dy * dy + dz * dz < CROWD_RADIUS * CROWD_RADIUS) neighbors += 1;
+            }
+            this._floatingLabels.get(id).crowdScale = Math.max(0.6, 1 - 0.12 * neighbors);
         }
 
         // WAN speed test pills: one per access-ISP cloud, anchored to the cloud mesh.
@@ -3008,7 +3028,7 @@ export class LanFlowMap {
         const minScale = MIN_SCALE * this._deviceScale;
         const maxScale = MAX_SCALE * Math.sqrt(this._deviceScale);
 
-        for (const [nodeId, { el }] of this._floatingLabels) {
+        for (const [nodeId, { el, crowdScale }] of this._floatingLabels) {
             const group = this._nodeMeshes.get(nodeId);
             if (!group) { el.classList.remove('is-visible'); continue; }
             if (!group.visible) { el.classList.remove('is-visible'); continue; }
@@ -3026,7 +3046,7 @@ export class LanFlowMap {
             el.style.opacity = fade.toFixed(3);
             const x = (tmp.x * halfW) + halfW;
             const y = -(tmp.y * halfH) + halfH;
-            const scale = Math.max(minScale, Math.min(maxScale, REF_DIST / Math.max(dist, 1)));
+            const scale = Math.max(minScale, Math.min(maxScale, REF_DIST / Math.max(dist, 1))) * (crowdScale ?? 1);
             el.style.transform = `translate(-50%, -100%) scale(${scale.toFixed(3)})`;
             el.style.transformOrigin = 'center bottom';
             el.style.left = `${x}px`;
