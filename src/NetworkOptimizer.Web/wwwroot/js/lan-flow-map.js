@@ -87,6 +87,27 @@ const NODE_RADIUS = {
     virtualHub: 0.55,
 };
 
+// NODE_RADIUS was tuned against a single-home property, whose meters->scene
+// factor works out to about REF_WORLD_SCALE. Larger properties squeeze more
+// meters into the same ~30-unit scene, so fixed scene-unit devices end up
+// towering over the shrunken buildings. Devices therefore keep a fixed
+// physical size: their radii shrink with the same meters->scene factor the
+// buildings use, capped at 1.0 (small sites render exactly as before) and
+// floored so devices stay readable on very large campuses. WAN globes float
+// outside the structures, so they only breathe a little around design size.
+const REF_WORLD_SCALE = 2.25;
+const DEVICE_SCALE_MIN = 0.35;
+const CLOUD_SCALE_MIN = 0.75;
+const CLOUD_SCALE_MAX = 1.1;
+
+// Camera-distance compensation for device meshes (labels have their own DOM
+// equivalent and are untouched): neutral at the fly-in viewing distance,
+// growing toward a ceiling as you zoom out (visibility at property level)
+// and shrinking toward a floor as you zoom in (no room-filling routers).
+const DEVICE_ZOOM_REF_DIST = 60;
+const DEVICE_ZOOM_MIN = 0.6;
+const DEVICE_ZOOM_MAX = 1.6;
+
 const LINK_KIND = {
     Uplink: 0,
     WiredClient: 1,
@@ -150,6 +171,8 @@ export class LanFlowMap {
         this._signalHintEnabled = options.signalHint ?? true;
 
         this._snapshot = null;
+        this._deviceScale = 1;          // property-size factor for device radii (set in _layoutNodes)
+        this._cloudScale = 1;           // gentler property-size factor for WAN globes
         this._nodesByLink = new Map();
         this._nodeMeshes = new Map();   // nodeId -> THREE.Group
         this._linkMeshes = new Map();   // linkId -> { pipe, particlesDown, particlesUp }
@@ -608,6 +631,13 @@ export class LanFlowMap {
         const boundsR = Number.isFinite(bounds.radius) ? bounds.radius : 1.0;
         const scale = (sceneRadius / Math.max(boundsR, 1.0)) * ANCHOR_SPREAD_FACTOR;
 
+        // Pin devices to a fixed physical size relative to the buildings (which
+        // are built in meters * this same factor). Unanchored sites have a tiny
+        // default bounds radius, so the ratio clamps to 1.0 and nothing changes.
+        const sizeRatio = scale / REF_WORLD_SCALE;
+        this._deviceScale = Math.max(DEVICE_SCALE_MIN, Math.min(1.0, sizeRatio));
+        this._cloudScale = Math.max(CLOUD_SCALE_MIN, Math.min(CLOUD_SCALE_MAX, sizeRatio));
+
         const positions = new Map();
         const anchors = new Map();
 
@@ -887,7 +917,7 @@ export class LanFlowMap {
             let effA = a, effB = b;
             const isWan = link.kind === LINK_KIND.Wan || link.kind === LINK_KIND.Transit;
             if (isWan) {
-                const r = NODE_RADIUS.cloud;
+                const r = this._cloudRadius();
                 const cloudEnd = this._cloudMeshes.has(link.toNodeId) ? 'b'
                     : this._cloudMeshes.has(link.fromNodeId) ? 'a' : null;
                 if (cloudEnd) {
@@ -1036,7 +1066,7 @@ export class LanFlowMap {
             // Wireframe globe - no solid sphere, just the lat/lng grid lines.
             // LineBasicMaterial.linewidth doesn't work on WebGL, so we use
             // thin tube geometry for each line to get visible thickness.
-            const r = NODE_RADIUS.cloud;
+            const r = this._cloudRadius();
             const gridColor = tier === CLOUD_TIER.Unresolved ? 0x3a4455 : 0x3385d6;
             const tubeMat = new THREE.MeshBasicMaterial({
                 color: gridColor,
@@ -1086,7 +1116,7 @@ export class LanFlowMap {
             const labelText = cloud.name || (cloud.asn ? `AS${cloud.asn}` : 'Cloud');
             const subText = this._buildCloudSubLabel(cloud, tier);
             const label = this._makeLabelSprite(labelText, subText);
-            label.position.set(0, NODE_RADIUS.cloud + 1.2, 0);
+            label.position.set(0, this._cloudRadius() + 1.2, 0);
             group.add(label);
 
             group.position.set(pos.x, pos.y, pos.z);
@@ -1147,15 +1177,22 @@ export class LanFlowMap {
     }
 
     _nodeRadius(kind) {
-        switch (kind) {
-            case NODE_KIND.Gateway: return NODE_RADIUS.gateway;
-            case NODE_KIND.Switch: return NODE_RADIUS.switch;
-            case NODE_KIND.AccessPoint: return NODE_RADIUS.ap;
-            case NODE_KIND.WiredClient: return NODE_RADIUS.wiredClient;
-            case NODE_KIND.WifiClient: return NODE_RADIUS.wifiClient;
-            case NODE_KIND.VirtualHub: return NODE_RADIUS.virtualHub;
-            default: return 0.6;
-        }
+        const base = (() => {
+            switch (kind) {
+                case NODE_KIND.Gateway: return NODE_RADIUS.gateway;
+                case NODE_KIND.Switch: return NODE_RADIUS.switch;
+                case NODE_KIND.AccessPoint: return NODE_RADIUS.ap;
+                case NODE_KIND.WiredClient: return NODE_RADIUS.wiredClient;
+                case NODE_KIND.WifiClient: return NODE_RADIUS.wifiClient;
+                case NODE_KIND.VirtualHub: return NODE_RADIUS.virtualHub;
+                default: return 0.6;
+            }
+        })();
+        return base * this._deviceScale;
+    }
+
+    _cloudRadius() {
+        return NODE_RADIUS.cloud * this._cloudScale;
     }
 
     _nodeColor(kind) {
@@ -1611,6 +1648,9 @@ export class LanFlowMap {
             // scenes still feel alive.
             this._pulseNodes(now);
 
+            // Camera-distance size compensation for device meshes.
+            this._scaleNodesForZoom();
+
             // Render through the composer so bloom + tone mapping apply.
             this.composer.render();
             // After the render we have up-to-date matrixWorld for every node group;
@@ -1639,6 +1679,22 @@ export class LanFlowMap {
                 core.material.opacity = Math.max(0.15, t);
                 if (t >= 1) this._roamFade3D.delete(id);
             }
+        }
+    }
+
+    // Scale device cores/halos with camera distance: up toward a ceiling when
+    // zoomed out so devices stay visible at property level, down toward a floor
+    // when zoomed in so they don't fill a room. Only the core and halo scale -
+    // sprite labels are siblings in the same group and keep today's behavior.
+    _scaleNodesForZoom() {
+        const camPos = this.camera.position;
+        for (const group of this._nodeMeshes.values()) {
+            const { core, halo } = group.userData ?? {};
+            if (!core) continue;
+            const dist = camPos.distanceTo(group.position);
+            const z = Math.max(DEVICE_ZOOM_MIN, Math.min(DEVICE_ZOOM_MAX, dist / DEVICE_ZOOM_REF_DIST));
+            core.scale.setScalar(z);
+            if (halo) halo.scale.setScalar(z);
         }
     }
 
@@ -1732,7 +1788,7 @@ export class LanFlowMap {
             core.material.transparent = true;
             halo.material.opacity = 0.05;
         }
-        group.userData = { node, core, baseEmissive };
+        group.userData = { node, core, halo, baseEmissive };
         this.nodeGroup.add(group);
         this._nodeMeshes.set(node.id, group);
         if (node.name) {
@@ -2836,7 +2892,7 @@ export class LanFlowMap {
             const group = this._cloudMeshes.get(`cloud-access-${wanIface}`);
             if (!group) { pill.classList.remove('is-visible'); continue; }
             tmp.setFromMatrixPosition(group.matrixWorld);
-            tmp.y -= NODE_RADIUS.cloud + 0.5;
+            tmp.y -= this._cloudRadius() + 0.5;
             const dist = tmp.distanceTo(camPos);
             tmp.project(this.camera);
             if (tmp.z > 1) { pill.classList.remove('is-visible'); continue; }
@@ -2857,7 +2913,7 @@ export class LanFlowMap {
                 const group = this._cloudMeshes.get(cloudId);
                 if (!group) { lbl.classList.remove('is-visible'); continue; }
                 tmp.setFromMatrixPosition(group.matrixWorld);
-                tmp.y -= NODE_RADIUS.cloud + 0.5;
+                tmp.y -= this._cloudRadius() + 0.5;
                 const dist = tmp.distanceTo(camPos);
                 tmp.project(this.camera);
                 if (tmp.z > 1) { lbl.classList.remove('is-visible'); continue; }
