@@ -133,6 +133,10 @@ const ZOOM_EFFECTIVE_CEIL = 1.0;
 // collapse entirely. Beyond REF they behave exactly as today.
 const LABEL_ZOOM_REF_DIST = 60;
 const LABEL_ZOOM_MIN = 0.25;
+// Distant device labels fade out entirely - past these camera distances
+// they'd be illegible smudges, so ramp opacity down and hide.
+const LABEL_FADE_START_DIST = 110;
+const LABEL_FADE_END_DIST = 170;
 
 const LINK_KIND = {
     Uplink: 0,
@@ -1780,6 +1784,10 @@ export class LanFlowMap {
             const kind = group.userData?.node?.kind;
             const z = Math.max(DEVICE_ZOOM_MIN, Math.min(devMax, dist / DEVICE_ZOOM_REF_DIST));
             sprite.position.y = this._nodeTopHalfHeight(kind) * z + 0.35 * this._deviceScale;
+            const fade = 1 - Math.min(1, Math.max(0,
+                (dist - LABEL_FADE_START_DIST) / (LABEL_FADE_END_DIST - LABEL_FADE_START_DIST)));
+            sprite.material.opacity = fade;
+            sprite.visible = fade > 0.01;
         }
     }
 
@@ -2958,7 +2966,7 @@ export class LanFlowMap {
         // Reference distance: roughly the fly-in camera target distance (~60u).
         // At this distance labels render at 100%. Farther = smaller, closer = larger.
         const REF_DIST = 60;
-        const MIN_SCALE = 0.4;
+        const MIN_SCALE = 0.32;
         const MAX_SCALE = 1.2;
         // On large properties the shrink floor scales down with the devices,
         // so labels keep receding when zoomed out instead of flooring early
@@ -2980,6 +2988,10 @@ export class LanFlowMap {
             tmp.y += this._nodeTopHalfHeight(group.userData?.node?.kind) * zDev + 0.35 * this._deviceScale;
             tmp.project(this.camera);
             if (tmp.z > 1) { el.classList.remove('is-visible'); continue; }
+            const fade = 1 - Math.min(1, Math.max(0,
+                (dist - LABEL_FADE_START_DIST) / (LABEL_FADE_END_DIST - LABEL_FADE_START_DIST)));
+            if (fade <= 0.01) { el.classList.remove('is-visible'); continue; }
+            el.style.opacity = fade.toFixed(3);
             const x = (tmp.x * halfW) + halfW;
             const y = -(tmp.y * halfH) + halfH;
             const scale = Math.max(minScale, Math.min(maxScale, REF_DIST / Math.max(dist, 1)));
