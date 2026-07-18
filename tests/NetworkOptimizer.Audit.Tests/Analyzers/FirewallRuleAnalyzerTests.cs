@@ -1582,6 +1582,65 @@ public class FirewallRuleAnalyzerTests
     }
 
     [Fact]
+    public void DetectShadowedRules_MacScopedAllowWithInterleavedServiceBlocks_NoSubvertIssues()
+    {
+        // Full policy order from issue #1011: the MAC-scoped allow at 10000 is followed by
+        // DNS, DoT/DoQ, and NTP block rules BEFORE the zone-wide deny at 10008. The allow
+        // overlaps every one of those denies; none of the pairs may degrade to FW-SUBVERT-001.
+        FirewallRule MakeBlock(string id, string name, int index, string? protocol, string? port) => new FirewallRule
+        {
+            Id = id,
+            Name = name,
+            Action = "BLOCK",
+            Enabled = true,
+            Index = index,
+            Protocol = protocol,
+            DestinationPort = port,
+            SourceMatchingTarget = "ANY",
+            SourceZoneId = "mgmt-zone",
+            DestinationMatchingTarget = "ANY",
+            DestinationZoneId = "external-zone"
+        };
+
+        var macAllowJson = System.Text.Json.JsonDocument.Parse(@"{
+            ""_id"": ""allow-failover"",
+            ""name"": ""Allow Failover Device to External"",
+            ""action"": ""ALLOW"",
+            ""enabled"": true,
+            ""index"": 10000,
+            ""protocol"": ""all"",
+            ""source"": {
+                ""matching_target"": ""MAC"",
+                ""matching_target_type"": ""SPECIFIC"",
+                ""macs"": [""aa:bb:cc:dd:ee:ff""],
+                ""zone_id"": ""mgmt-zone""
+            },
+            ""destination"": {
+                ""matching_target"": ""ANY"",
+                ""zone_id"": ""external-zone""
+            }
+        }").RootElement;
+
+        var rules = new List<FirewallRule>
+        {
+            _analyzer.ParseFirewallPolicy(macAllowJson)!,
+            MakeBlock("block-dns", "Block Management DNS to External", 10002, "tcp_udp", "53"),
+            MakeBlock("block-dot", "Block Management DoT/DoQ to External", 10004, "tcp_udp", "853"),
+            MakeBlock("block-ntp", "Block Management NTP to External", 10006, "udp", "123"),
+            MakeBlock("block-all", "Block Management to External", 10008, "all", null)
+        };
+
+        var issues = _analyzer.DetectShadowedRules(rules, networkConfigs: null, externalZoneId: "external-zone");
+
+        issues.Should().NotContain(i => i.Type == "ALLOW_SUBVERTS_DENY");
+        issues.Should().NotContain(i => i.Type == "DENY_SHADOWS_ALLOW");
+        issues.Should().OnlyContain(i => i.Type == "ALLOW_EXCEPTION_PATTERN");
+        issues.Should().OnlyContain(i => i.Severity == AuditSeverity.Informational);
+        // The allow overlaps each of the four deny rules - all classified as exceptions
+        issues.Should().HaveCount(4);
+    }
+
+    [Fact]
     public void DetectShadowedRules_MacScopedDenyBeforeMacScopedAllow_SameDevice_ReturnsShadowedIssue()
     {
         // Two MAC-scoped rules for the SAME device previously never overlapped
