@@ -1297,6 +1297,157 @@ public class FirewallRuleAnalyzerTests
     }
 
     [Fact]
+    public void AnalyzeManagementNetworkFirewallAccess_CrossZoneBroadBlock_DoesNotEclipse5GAllow()
+    {
+        // A zone-wide ANY block in a DIFFERENT source zone must not eclipse the 5G allow:
+        // ANY source is scoped to its zone, not global. Live repro: an unrelated
+        // work-zone -> external block falsely triggered FW-MGMT-003 for Management.
+        var mgmtNetworkId = "mgmt-network-123";
+        var externalZoneId = "external-zone-123";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, id: mgmtNetworkId,
+                networkIsolationEnabled: true, internetAccessEnabled: false, firewallZoneId: "internal-zone")
+        };
+        var rules = new List<FirewallRule>
+        {
+            // Broad block scoped to a completely different source zone
+            new FirewallRule
+            {
+                Id = "block-work-internet",
+                Name = "Block Work Internet",
+                Action = "BLOCK",
+                Enabled = true,
+                Index = 100,
+                Protocol = "all",
+                SourceMatchingTarget = "ANY",
+                SourceZoneId = "work-zone",
+                DestinationMatchingTarget = "ANY",
+                DestinationZoneId = externalZoneId
+            },
+            CreateFirewallRule("UniFi Cloud", action: "allow", index: 200,
+                sourceNetworkIds: new List<string> { mgmtNetworkId },
+                webDomains: new List<string> { "ui.com" }),
+            CreateFirewallRule("AFC Traffic", action: "allow", index: 201,
+                sourceNetworkIds: new List<string> { mgmtNetworkId },
+                webDomains: new List<string> { "afcapi.qcs.qualcomm.com" }),
+            CreateFirewallRule("NTP", action: "allow", index: 202,
+                sourceNetworkIds: new List<string> { mgmtNetworkId },
+                destinationPort: "123", protocol: "udp"),
+            new FirewallRule
+            {
+                Id = "allow-5g",
+                Name = "5G Modem Registration",
+                Action = "ALLOW",
+                Enabled = true,
+                Index = 300,
+                SourceMatchingTarget = "IP",
+                SourceIps = new List<string> { "192.168.99.5" },
+                SourceZoneId = "internal-zone",
+                WebDomains = new List<string> { "t-mobile.com" },
+                Protocol = "tcp"
+            }
+        };
+
+        var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks, has5GDevice: true, externalZoneId: externalZoneId);
+
+        issues.Should().NotContain(i => i.Type == "MGMT_MISSING_5G_ACCESS");
+    }
+
+    [Fact]
+    public void AnalyzeManagementNetworkFirewallAccess_SameZoneBroadBlock_StillEclipses5GAllow()
+    {
+        // Regression guard for the zone check: a broad ANY block in the SAME source zone
+        // as the 5G allow must still eclipse it and report FW-MGMT-003
+        var mgmtNetworkId = "mgmt-network-123";
+        var externalZoneId = "external-zone-123";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, id: mgmtNetworkId,
+                networkIsolationEnabled: true, internetAccessEnabled: false, firewallZoneId: "internal-zone")
+        };
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "block-internal-internet",
+                Name = "Block Internal Internet",
+                Action = "BLOCK",
+                Enabled = true,
+                Index = 100,
+                Protocol = "all",
+                SourceMatchingTarget = "ANY",
+                SourceZoneId = "internal-zone",
+                DestinationMatchingTarget = "ANY",
+                DestinationZoneId = externalZoneId
+            },
+            new FirewallRule
+            {
+                Id = "allow-5g",
+                Name = "5G Modem Registration",
+                Action = "ALLOW",
+                Enabled = true,
+                Index = 300,
+                SourceMatchingTarget = "IP",
+                SourceIps = new List<string> { "192.168.99.5" },
+                SourceZoneId = "internal-zone",
+                WebDomains = new List<string> { "t-mobile.com" },
+                Protocol = "tcp"
+            }
+        };
+
+        var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks, has5GDevice: true, externalZoneId: externalZoneId);
+
+        issues.Should().Contain(i => i.Type == "MGMT_MISSING_5G_ACCESS");
+    }
+
+    [Fact]
+    public void AnalyzeManagementNetworkFirewallAccess_ZonelessLegacyRules_BroadBlockStillEclipses()
+    {
+        // Regression guard for legacy rules: zone IDs are a v2 concept. Legacy rules with
+        // unmapped rulesets have no source zone at all, so the zone check must not apply
+        // and the conservative eclipse behavior is preserved.
+        var mgmtNetworkId = "mgmt-network-123";
+        var externalZoneId = "external-zone-123";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, id: mgmtNetworkId,
+                networkIsolationEnabled: true, internetAccessEnabled: false)
+        };
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "block-internet",
+                Name = "Block Internet",
+                Action = "BLOCK",
+                Enabled = true,
+                Index = 100,
+                Protocol = "all",
+                SourceMatchingTarget = "ANY",
+                DestinationMatchingTarget = "ANY",
+                DestinationZoneId = externalZoneId
+            },
+            new FirewallRule
+            {
+                Id = "allow-5g",
+                Name = "5G Modem Registration",
+                Action = "ALLOW",
+                Enabled = true,
+                Index = 300,
+                SourceMatchingTarget = "IP",
+                SourceIps = new List<string> { "192.168.99.5" },
+                WebDomains = new List<string> { "t-mobile.com" },
+                Protocol = "tcp"
+            }
+        };
+
+        var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks, has5GDevice: true, externalZoneId: externalZoneId);
+
+        issues.Should().Contain(i => i.Type == "MGMT_MISSING_5G_ACCESS");
+    }
+
+    [Fact]
     public void AnalyzeManagementNetworkFirewallAccess_OppositeIpsBlockRuleEclipsesAllow_Reports5GIssue()
     {
         // Arrange - Block rule uses SourceMatchOppositeIps: blocks all EXCEPT 192.168.50.0/24

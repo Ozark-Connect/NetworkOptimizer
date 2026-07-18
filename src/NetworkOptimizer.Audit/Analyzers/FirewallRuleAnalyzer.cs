@@ -1556,6 +1556,18 @@ public class FirewallRuleAnalyzer
     /// <returns>True if the block rule affects the same source as the allow rule</returns>
     private static bool BlockRuleAffectsSameSource(FirewallRule blockRule, FirewallRule allowRule)
     {
+        // Rules scoped to different source zones cannot affect each other's sources.
+        // An ANY source is ANY within its zone, not global - a broad block in zone A
+        // never covers an allow whose source lives in zone B. Zone-based rules always
+        // carry a source zone ID; an empty one only occurs on pre-Zone-Based (legacy)
+        // sites (unmapped rulesets parse with no zone), where the check must not apply.
+        if (!string.IsNullOrEmpty(blockRule.SourceZoneId) &&
+            !string.IsNullOrEmpty(allowRule.SourceZoneId) &&
+            !string.Equals(blockRule.SourceZoneId, allowRule.SourceZoneId, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
         // Block rule with ANY source affects all sources
         if (blockRule.IsAnySource())
             return true;
