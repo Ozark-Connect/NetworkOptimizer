@@ -135,12 +135,12 @@ const LABEL_ZOOM_REF_DIST = 60;
 const LABEL_ZOOM_MIN = 0.25;
 // Distant device labels fade out entirely - past these camera distances
 // they'd be illegible smudges, so ramp opacity down and hide.
-const LABEL_FADE_START_DIST = 110;
-const LABEL_FADE_END_DIST = 170;
+const LABEL_FADE_START_DIST = 82;
+const LABEL_FADE_END_DIST = 128;
 // Throughput pills fade earlier than device labels - when pulling back,
 // device identity should outlive the rate readouts.
-const LINK_LABEL_FADE_START_DIST = 90;
-const LINK_LABEL_FADE_END_DIST = 140;
+const LINK_LABEL_FADE_START_DIST = 68;
+const LINK_LABEL_FADE_END_DIST = 105;
 
 const LINK_KIND = {
     Uplink: 0,
@@ -2969,7 +2969,7 @@ export class LanFlowMap {
         const camPos = this.camera.position;
         // Reference distance: roughly the fly-in camera target distance (~60u).
         // At this distance labels render at 100%. Farther = smaller, closer = larger.
-        const REF_DIST = 60;
+        const REF_DIST = 45;
         const MIN_SCALE = 0.32;
         const MAX_SCALE = 1.2;
         // On large properties the shrink floor scales down with the devices,
