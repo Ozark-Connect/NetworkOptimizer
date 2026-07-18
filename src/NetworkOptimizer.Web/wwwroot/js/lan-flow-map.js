@@ -114,7 +114,7 @@ const DEVICE_ZOOM_MAX = 1.6;
 // Pipes/particles get the same treatment on a tighter band: a decent floor so
 // they never go skinny, and a capped ceiling zoomed out - just fat enough to
 // still see what's flowing without turning into hoses.
-const LINK_ZOOM_MIN = 0.75;
+const LINK_ZOOM_MIN = 0.5;
 const LINK_ZOOM_MAX = 1.35;
 // The zoom-out ceiling is relative to property size: property factor x zoom
 // boost never exceeds this multiple of an object's designed size. Single-home
