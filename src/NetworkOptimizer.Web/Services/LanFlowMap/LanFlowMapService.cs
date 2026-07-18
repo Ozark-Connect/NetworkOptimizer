@@ -110,14 +110,23 @@ public class LanFlowMapService
 
         var anchors = ProjectAnchors(markers, deviceLocations, heightByMac,
             out var centerLat, out var centerLng, out var lngScale);
-        var droppedAnchors = PruneAnchorOutliers(anchors);
+        // AP anchors define the reference frame (centroid, scene radius, and the
+        // set eligible for outlier pruning). Non-AP device placements are
+        // deliberate user drags: they ride within the frame but must never
+        // perturb the scale or be pruned, or a device placed toward a building
+        // could shift or fall back to scatter on the next load. Keyed to match
+        // the anchor dictionary (NormalizeMac).
+        var apAnchorMacs = new HashSet<string>(
+            markers.Where(m => m.Latitude.HasValue && m.Longitude.HasValue)
+                   .Select(m => NormalizeMac(m.Mac)));
+        var droppedAnchors = PruneAnchorOutliers(anchors, apAnchorMacs);
         if (droppedAnchors.Count > 0)
         {
             _logger.LogDebug(
                 "LAN map: dropped {Count} outlier anchor(s) far outside the cluster (bad/stale placement): {Macs}",
                 droppedAnchors.Count, string.Join(", ", droppedAnchors));
         }
-        snapshot.Bounds = ComputeBounds(anchors, centerLat, centerLng, lngScale);
+        snapshot.Bounds = ComputeBounds(anchors, apAnchorMacs, centerLat, centerLng, lngScale);
         snapshot.Buildings = await BuildBuildingsAsync(centerLat, centerLng, lngScale, ct);
         snapshot.MaterialColors = new Dictionary<string, string>(
             WiFi.Data.MaterialAttenuation.MaterialColors, StringComparer.OrdinalIgnoreCase);
@@ -993,14 +1002,20 @@ public class LanFlowMapService
     private const double OutlierMedianFactor = 6.0;
     private const double OutlierAbsoluteMetres = 200.0;
 
-    private static List<string> PruneAnchorOutliers(Dictionary<string, LanPlacement> anchors)
+    private static List<string> PruneAnchorOutliers(
+        Dictionary<string, LanPlacement> anchors, IReadOnlySet<string> apAnchorMacs)
     {
         var removed = new List<string>();
+        // Only AP anchors are eligible: they define the frame, and a bad AP
+        // geocode is what this guards against. User-placed device anchors
+        // (switches, cameras) are deliberate drags - pruning one would silently
+        // scatter it far from its building, so they're exempt entirely.
+        var apAnchors = anchors.Where(kv => apAnchorMacs.Contains(kv.Key)).ToList();
         // Need enough anchors for a median to be meaningful; with 1-2 we can't tell
         // which one is the outlier, so leave them alone.
-        if (anchors.Count < 3) return removed;
+        if (apAnchors.Count < 3) return removed;
 
-        var distances = anchors.ToDictionary(
+        var distances = apAnchors.ToDictionary(
             kv => kv.Key,
             kv => Math.Sqrt(kv.Value.X * kv.Value.X + kv.Value.Y * kv.Value.Y));
 
@@ -1018,6 +1033,7 @@ public class LanFlowMapService
 
     private static LanFlowMapBounds ComputeBounds(
         Dictionary<string, LanPlacement> anchors,
+        IReadOnlySet<string> apAnchorMacs,
         double centerLat, double centerLng, double lngScale)
     {
         var bounds = new LanFlowMapBounds
@@ -1029,8 +1045,15 @@ public class LanFlowMapService
             bounds.Radius = 1.0;
             return bounds;
         }
+        // Radius (and thus the global scale) is defined by AP anchors only,
+        // mirroring the AP-only centroid. If a non-AP device set the radius,
+        // placing it would change the scale on the next load and shift every
+        // already-placed device. Fall back to all anchors when no APs exist.
+        var radiusAnchors = anchors.Where(kv => apAnchorMacs.Contains(kv.Key))
+            .Select(kv => kv.Value).ToList();
+        if (radiusAnchors.Count == 0) radiusAnchors = anchors.Values.ToList();
         double maxR = 0;
-        foreach (var p in anchors.Values)
+        foreach (var p in radiusAnchors)
         {
             var r = Math.Sqrt(p.X * p.X + p.Y * p.Y + p.Z * p.Z);
             if (r > maxR) maxR = r;
