@@ -892,9 +892,13 @@ export class LanFlowMap {
             this.nodeGroup.add(group);
             this._nodeMeshes.set(node.id, group);
 
-            // Sprite labels for all devices. Infrastructure devices also get DOM
-            // labels (with rate badges) but sprites provide 3D depth sorting.
-            if (node.name) {
+            // Sprite labels for clients only. Infrastructure devices get DOM
+            // labels (with rate badges); their sprite twin used to hide exactly
+            // behind the DOM pill at the old shared anchor height, but with
+            // labels anchored to the mesh top the two would both show, so
+            // infra skips the sprite entirely.
+            const isClientNode = node.kind === NODE_KIND.WiredClient || node.kind === NODE_KIND.WifiClient;
+            if (node.name && isClientNode) {
                 const sprite = this._makeLabelSprite(node.name);
                 sprite.position.set(0, this._nodeTopHalfHeight(node.kind) + 0.35 * this._deviceScale, 0);
                 group.add(sprite);
