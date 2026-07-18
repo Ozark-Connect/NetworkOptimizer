@@ -87,6 +87,65 @@ const NODE_RADIUS = {
     virtualHub: 0.55,
 };
 
+// NODE_RADIUS was tuned against a single-home property, whose meters->scene
+// factor works out to about REF_WORLD_SCALE. Larger properties squeeze more
+// meters into the same ~30-unit scene, so fixed scene-unit devices end up
+// towering over the shrunken buildings. Devices therefore keep a fixed
+// physical size: their radii shrink with the same meters->scene factor the
+// buildings use, capped at 1.0 (small sites render exactly as before) and
+// floored so devices stay readable on very large campuses. WAN globes float
+// outside the structures, so they only breathe a little around design size.
+const REF_WORLD_SCALE = 2.25;
+const DEVICE_SCALE_MIN = 0.35;
+const CLOUD_SCALE_MIN = 0.75;
+const CLOUD_SCALE_MAX = 1.1;
+// Pipes and particle dots track the property shrink too, but on a tighter
+// clamp: they are thin already and carry the flow readability, so they only
+// come down far enough to not read as oversized against small buildings.
+const LINK_SCALE_MIN = 0.6;
+
+// Camera-distance compensation for device meshes (labels have their own DOM
+// equivalent and are untouched): neutral at the fly-in viewing distance,
+// growing toward a ceiling as you zoom out (visibility at property level)
+// and shrinking toward a floor as you zoom in (no room-filling routers).
+const DEVICE_ZOOM_REF_DIST = 60;
+const DEVICE_ZOOM_MIN = 0.6;
+const DEVICE_ZOOM_MAX = 1.6;
+// Pipes/particles get the same treatment on a tighter band: a decent floor so
+// they never go skinny, and a capped ceiling zoomed out - just fat enough to
+// still see what's flowing without turning into hoses.
+const LINK_ZOOM_MIN = 0.5;
+const LINK_ZOOM_MAX = 1.35;
+// Links ramp against a shorter reference than devices: at the mid-zoom range
+// (buildings-and-the-space-between view) pipes were sagging too thin between
+// their floor and ceiling, so they reach full girth earlier while zooming
+// out. The floor and ceiling clamps themselves are unchanged.
+const LINK_ZOOM_REF_DIST = 45;
+// The zoom-out ceiling is relative to property size: property factor x zoom
+// boost never exceeds this multiple of an object's designed size. Single-home
+// maps (factor 1.0) top out at design size, while large campuses keep their
+// full zoom boost since their objects start shrunken.
+const ZOOM_EFFECTIVE_CEIL = 1.0;
+// Sprite labels are world-sized, so perspective balloons them as the camera
+// closes in (the DOM labels already clamp their screen-space scale). Shrink
+// them proportionally inside the reference distance - apparent size then
+// stays constant once you're closer than REF, with a floor so they never
+// collapse entirely. Beyond REF they behave exactly as today.
+const LABEL_ZOOM_REF_DIST = 60;
+const LABEL_ZOOM_MIN = 0.25;
+// Distant device labels fade out entirely - past these camera distances
+// they'd be illegible smudges, so ramp opacity down and hide.
+const LABEL_FADE_START_DIST = 82;
+const LABEL_FADE_END_DIST = 128;
+// Network device (DOM) labels fade sooner than the client sprites above -
+// they're denser (name + rate badge) and crowd the view faster.
+const NET_LABEL_FADE_START_DIST = 66;
+const NET_LABEL_FADE_END_DIST = 102;
+// Throughput pills fade earlier still - when pulling back, device identity
+// should outlive the rate readouts.
+const LINK_LABEL_FADE_START_DIST = 54;
+const LINK_LABEL_FADE_END_DIST = 84;
+
 const LINK_KIND = {
     Uplink: 0,
     WiredClient: 1,
@@ -150,6 +209,9 @@ export class LanFlowMap {
         this._signalHintEnabled = options.signalHint ?? true;
 
         this._snapshot = null;
+        this._deviceScale = 1;          // property-size factor for device radii (set in _layoutNodes)
+        this._cloudScale = 1;           // gentler property-size factor for WAN globes
+        this._linkScale = 1;            // gentler property-size factor for pipes + particle dots
         this._nodesByLink = new Map();
         this._nodeMeshes = new Map();   // nodeId -> THREE.Group
         this._linkMeshes = new Map();   // linkId -> { pipe, particlesDown, particlesUp }
@@ -608,6 +670,14 @@ export class LanFlowMap {
         const boundsR = Number.isFinite(bounds.radius) ? bounds.radius : 1.0;
         const scale = (sceneRadius / Math.max(boundsR, 1.0)) * ANCHOR_SPREAD_FACTOR;
 
+        // Pin devices to a fixed physical size relative to the buildings (which
+        // are built in meters * this same factor). Unanchored sites have a tiny
+        // default bounds radius, so the ratio clamps to 1.0 and nothing changes.
+        const sizeRatio = scale / REF_WORLD_SCALE;
+        this._deviceScale = Math.max(DEVICE_SCALE_MIN, Math.min(1.0, sizeRatio));
+        this._cloudScale = Math.max(CLOUD_SCALE_MIN, Math.min(CLOUD_SCALE_MAX, sizeRatio));
+        this._linkScale = Math.max(LINK_SCALE_MIN, Math.min(1.0, sizeRatio));
+
         const positions = new Map();
         const anchors = new Map();
 
@@ -625,7 +695,11 @@ export class LanFlowMap {
                 } else if (p.source === PLACEMENT_SOURCE.Anchor) {
                     const isClient = node.kind === NODE_KIND.WiredClient || node.kind === NODE_KIND.WifiClient;
                     const isInfra = node.kind === NODE_KIND.Switch || node.kind === NODE_KIND.Gateway;
-                    const mountM = node.mountType ? (mountOffsetM[node.mountType] || 0)
+                    // Precise saved height (3D reposition) wins over the
+                    // MountType / device-kind estimate. p.z is the floor's base
+                    // elevation in metres; heightM is metres above that.
+                    const mountM = Number.isFinite(p.heightM) ? p.heightM
+                        : node.mountType ? (mountOffsetM[node.mountType] || 0)
                         : isClient ? WALL_H_M * 0.5
                         : isInfra ? WALL_H_M * 0.15
                         : 0;
@@ -826,11 +900,15 @@ export class LanFlowMap {
             this.nodeGroup.add(group);
             this._nodeMeshes.set(node.id, group);
 
-            // Sprite labels for all devices. Infrastructure devices also get DOM
-            // labels (with rate badges) but sprites provide 3D depth sorting.
-            if (node.name) {
+            // Sprite labels for clients only. Infrastructure devices get DOM
+            // labels (with rate badges); their sprite twin used to hide exactly
+            // behind the DOM pill at the old shared anchor height, but with
+            // labels anchored to the mesh top the two would both show, so
+            // infra skips the sprite entirely.
+            const isClientNode = node.kind === NODE_KIND.WiredClient || node.kind === NODE_KIND.WifiClient;
+            if (node.name && isClientNode) {
                 const sprite = this._makeLabelSprite(node.name);
-                sprite.position.set(0, radius + 0.8, 0);
+                sprite.position.set(0, this._nodeTopHalfHeight(node.kind) + 0.35 * this._deviceScale, 0);
                 group.add(sprite);
                 this._labelSprites.set(node.id, sprite);
             }
@@ -887,7 +965,7 @@ export class LanFlowMap {
             let effA = a, effB = b;
             const isWan = link.kind === LINK_KIND.Wan || link.kind === LINK_KIND.Transit;
             if (isWan) {
-                const r = NODE_RADIUS.cloud;
+                const r = this._cloudRadius();
                 const cloudEnd = this._cloudMeshes.has(link.toNodeId) ? 'b'
                     : this._cloudMeshes.has(link.fromNodeId) ? 'a' : null;
                 if (cloudEnd) {
@@ -904,10 +982,10 @@ export class LanFlowMap {
             this.linkGroup.add(pipe);
 
             const down = new ParticleStream({
-                from: effA, to: effB, color: COLORS.downstream, particleCount: 0,
+                from: effA, to: effB, color: COLORS.downstream, particleCount: 0, sizeScale: this._linkScale,
             });
             const up = new ParticleStream({
-                from: effB, to: effA, color: COLORS.upstream, particleCount: 0,
+                from: effB, to: effA, color: COLORS.upstream, particleCount: 0, sizeScale: this._linkScale,
             });
             this.particleGroup.add(down.mesh, up.mesh);
 
@@ -1036,7 +1114,7 @@ export class LanFlowMap {
             // Wireframe globe - no solid sphere, just the lat/lng grid lines.
             // LineBasicMaterial.linewidth doesn't work on WebGL, so we use
             // thin tube geometry for each line to get visible thickness.
-            const r = NODE_RADIUS.cloud;
+            const r = this._cloudRadius();
             const gridColor = tier === CLOUD_TIER.Unresolved ? 0x3a4455 : 0x3385d6;
             const tubeMat = new THREE.MeshBasicMaterial({
                 color: gridColor,
@@ -1086,7 +1164,7 @@ export class LanFlowMap {
             const labelText = cloud.name || (cloud.asn ? `AS${cloud.asn}` : 'Cloud');
             const subText = this._buildCloudSubLabel(cloud, tier);
             const label = this._makeLabelSprite(labelText, subText);
-            label.position.set(0, NODE_RADIUS.cloud + 1.2, 0);
+            label.position.set(0, this._cloudRadius() + 1.2, 0);
             group.add(label);
 
             group.position.set(pos.x, pos.y, pos.z);
@@ -1139,22 +1217,46 @@ export class LanFlowMap {
     }
 
     _pipeRadiusForCapacity(capacityBps) {
-        if (typeof capacityBps !== 'number' || !Number.isFinite(capacityBps) || capacityBps <= 0) return 0.10;
+        if (typeof capacityBps !== 'number' || !Number.isFinite(capacityBps) || capacityBps <= 0) return 0.10 * this._linkScale;
         // Log scale: 100 Mbps -> 0.13, 1 Gbps -> 0.18, 10 Gbps -> 0.24, 25 Gbps -> 0.28.
+        // Only the base thins with the property factor; the capacity term stays
+        // at designed size so speed-driven girth (and the contrast between
+        // speeds) reads the same on shrunken maps as on a single home.
         const gbps = capacityBps / 1_000_000_000;
         const t = Math.log10(Math.max(gbps, 0.01)) + 2;  // 1 Mbps -> 0, 10 Gbps -> 3
-        return 0.10 + Math.min(t, 3.5) * 0.05;
+        return 0.10 * this._linkScale + Math.min(t, 3.5) * 0.05;
     }
 
     _nodeRadius(kind) {
+        const base = (() => {
+            switch (kind) {
+                case NODE_KIND.Gateway: return NODE_RADIUS.gateway;
+                case NODE_KIND.Switch: return NODE_RADIUS.switch;
+                case NODE_KIND.AccessPoint: return NODE_RADIUS.ap;
+                case NODE_KIND.WiredClient: return NODE_RADIUS.wiredClient;
+                case NODE_KIND.WifiClient: return NODE_RADIUS.wifiClient;
+                case NODE_KIND.VirtualHub: return NODE_RADIUS.virtualHub;
+                default: return 0.6;
+            }
+        })();
+        return base * this._deviceScale;
+    }
+
+    _cloudRadius() {
+        return NODE_RADIUS.cloud * this._cloudScale;
+    }
+
+    // Approximate half-height of the rendered core mesh, for anchoring labels
+    // just above the top. Radius alone overshoots badly for the flat shapes
+    // (an AP disc is only 0.45r tall), which left labels floating far above.
+    _nodeTopHalfHeight(kind) {
+        const r = this._nodeRadius(kind);
         switch (kind) {
-            case NODE_KIND.Gateway: return NODE_RADIUS.gateway;
-            case NODE_KIND.Switch: return NODE_RADIUS.switch;
-            case NODE_KIND.AccessPoint: return NODE_RADIUS.ap;
-            case NODE_KIND.WiredClient: return NODE_RADIUS.wiredClient;
-            case NODE_KIND.WifiClient: return NODE_RADIUS.wifiClient;
-            case NODE_KIND.VirtualHub: return NODE_RADIUS.virtualHub;
-            default: return 0.6;
+            case NODE_KIND.Gateway: return r * 0.65;       // box height 1.3r
+            case NODE_KIND.Switch: return r * 0.35;        // box height 0.7r
+            case NODE_KIND.AccessPoint: return r * 0.225;  // disc height 0.45r
+            case NODE_KIND.VirtualHub: return r * 0.55;    // squat torus
+            default: return r * 0.95;                      // client polyhedra
         }
     }
 
@@ -1210,6 +1312,7 @@ export class LanFlowMap {
         const scaleY = 1.2 * (h / (fontSize + pad * 2));
         const scaleX = scaleY * (w / h);
         sprite.scale.set(scaleX, scaleY, 1);
+        sprite.userData.baseScale = { x: scaleX, y: scaleY };
         return sprite;
     }
 
@@ -1379,8 +1482,8 @@ export class LanFlowMap {
             const pipe = this._makePipeMesh(apPos, pos, old.link);
             pipe.visible = wasVisible;
             this.linkGroup.add(pipe);
-            const down = new ParticleStream({ from: apPos, to: pos, color: COLORS.downstream, particleCount: 0 });
-            const up = new ParticleStream({ from: pos, to: apPos, color: COLORS.upstream, particleCount: 0 });
+            const down = new ParticleStream({ from: apPos, to: pos, color: COLORS.downstream, particleCount: 0, sizeScale: this._linkScale });
+            const up = new ParticleStream({ from: pos, to: apPos, color: COLORS.upstream, particleCount: 0, sizeScale: this._linkScale });
             down.mesh.visible = wasVisible;
             up.mesh.visible = wasVisible;
             this.particleGroup.add(down.mesh, up.mesh);
@@ -1520,9 +1623,17 @@ export class LanFlowMap {
                 }
                 this.camera.lookAt(this.controls.target);
             } else if (this._repositionMode && this._repositionGroup) {
-                // In reposition mode WASD nudges the device on the XZ plane
+                // In reposition mode WASD nudges the device on the XZ plane.
+                // Step is proportional to camera-to-device distance so nudges
+                // track what you see: fine control zoomed in for room-level
+                // placement, faster traversal zoomed out - and consistent
+                // across property sizes (a fixed scene-unit step covered many
+                // real meters per tick on large, heavily-normalized maps).
                 if (this._keys) {
-                    const step = 0.35;
+                    // Dulled by the property factor too: on large maps the same
+                    // scene distance spans far more real-world meters.
+                    const camDist = this.camera.position.distanceTo(this._repositionGroup.position);
+                    const step = Math.max(0.01, camDist * 0.00375 * this._deviceScale);
                     const cam = this.camera;
                     const forward = new THREE.Vector3();
                     cam.getWorldDirection(forward);
@@ -1611,6 +1722,9 @@ export class LanFlowMap {
             // scenes still feel alive.
             this._pulseNodes(now);
 
+            // Camera-distance size compensation for devices, pipes, particles.
+            this._applyZoomScaling();
+
             // Render through the composer so bloom + tone mapping apply.
             this.composer.render();
             // After the render we have up-to-date matrixWorld for every node group;
@@ -1639,6 +1753,59 @@ export class LanFlowMap {
                 core.material.opacity = Math.max(0.15, t);
                 if (t >= 1) this._roamFade3D.delete(id);
             }
+        }
+    }
+
+    // Scale device cores/halos with camera distance: up toward a ceiling when
+    // zoomed out so devices stay visible at property level, down toward a floor
+    // when zoomed in so they don't fill a room. Only the core and halo scale -
+    // sprite labels are siblings in the same group and keep today's behavior.
+    // Pipes fatten/thin on a tighter clamp (X/Z only - Y is the pipe length),
+    // and particle streams follow via a shader zoom uniform.
+    _applyZoomScaling() {
+        const camPos = this.camera.position;
+        const devMax = Math.max(1.0, Math.min(DEVICE_ZOOM_MAX, ZOOM_EFFECTIVE_CEIL / this._deviceScale));
+        const linkMax = Math.max(1.0, Math.min(LINK_ZOOM_MAX, ZOOM_EFFECTIVE_CEIL / this._linkScale));
+        // Zoom-in floor is relative like the ceiling: large properties thin
+        // their pipes further up close; single-home keeps the designed floor.
+        const linkMin = LINK_ZOOM_MIN * this._linkScale;
+        for (const group of this._nodeMeshes.values()) {
+            const { core, halo } = group.userData ?? {};
+            if (!core) continue;
+            const dist = camPos.distanceTo(group.position);
+            const z = Math.max(DEVICE_ZOOM_MIN, Math.min(devMax, dist / DEVICE_ZOOM_REF_DIST));
+            core.scale.setScalar(z);
+            if (halo) halo.scale.setScalar(z);
+        }
+        for (const { pipe, down, up } of this._linkMeshes.values()) {
+            if (!pipe) continue;
+            const dist = camPos.distanceTo(pipe.position);
+            const z = Math.max(linkMin, Math.min(linkMax, dist / LINK_ZOOM_REF_DIST));
+            pipe.scale.x = z;
+            pipe.scale.z = z;
+            down?.setZoom(z);
+            up?.setZoom(z);
+        }
+        // Sprite labels: reference distance stretches with property size so the
+        // apparent size (and the point where they lock at max) stays
+        // proportional to the shrunken devices instead of locking too early.
+        // The Y offset tracks the rendered top of the core mesh each frame.
+        const labelRef = LABEL_ZOOM_REF_DIST / this._deviceScale;
+        this._devZoomMax = devMax;
+        for (const [nodeId, sprite] of this._labelSprites) {
+            const base = sprite.userData?.baseScale;
+            const group = this._nodeMeshes.get(nodeId);
+            if (!base || !group) continue;
+            const dist = camPos.distanceTo(group.position);
+            const f = Math.max(LABEL_ZOOM_MIN, Math.min(1.0, dist / labelRef));
+            sprite.scale.set(base.x * f, base.y * f, 1);
+            const kind = group.userData?.node?.kind;
+            const z = Math.max(DEVICE_ZOOM_MIN, Math.min(devMax, dist / DEVICE_ZOOM_REF_DIST));
+            sprite.position.y = this._nodeTopHalfHeight(kind) * z + 0.35 * this._deviceScale;
+            const fade = 1 - Math.min(1, Math.max(0,
+                (dist - LABEL_FADE_START_DIST) / (LABEL_FADE_END_DIST - LABEL_FADE_START_DIST)));
+            sprite.material.opacity = fade;
+            sprite.visible = fade > 0.01;
         }
     }
 
@@ -1732,12 +1899,12 @@ export class LanFlowMap {
             core.material.transparent = true;
             halo.material.opacity = 0.05;
         }
-        group.userData = { node, core, baseEmissive };
+        group.userData = { node, core, halo, baseEmissive };
         this.nodeGroup.add(group);
         this._nodeMeshes.set(node.id, group);
         if (node.name) {
             const sprite = this._makeLabelSprite(node.name);
-            sprite.position.set(0, radius + 0.8, 0);
+            sprite.position.set(0, this._nodeTopHalfHeight(node.kind) + 0.35 * this._deviceScale, 0);
             group.add(sprite);
             this._labelSprites.set(node.id, sprite);
         }
@@ -1749,8 +1916,8 @@ export class LanFlowMap {
         if (a && b) {
             pipe = this._makePipeMesh(a, b, link);
             this.linkGroup.add(pipe);
-            down = new ParticleStream({ from: a, to: b, color: COLORS.downstream, particleCount: 0 });
-            up = new ParticleStream({ from: b, to: a, color: COLORS.upstream, particleCount: 0 });
+            down = new ParticleStream({ from: a, to: b, color: COLORS.downstream, particleCount: 0, sizeScale: this._linkScale });
+            up = new ParticleStream({ from: b, to: a, color: COLORS.upstream, particleCount: 0, sizeScale: this._linkScale });
             this.particleGroup.add(down.mesh, up.mesh);
             this._linkMeshes.set(link.id, { pipe, down, up, link });
             this._nodesByLink.set(link.id, [link.fromNodeId, link.toNodeId]);
@@ -2730,6 +2897,31 @@ export class LanFlowMap {
             // top-left (CSS default 0,0).
             el.style.left = '-9999px';
             el.style.top = '-9999px';
+            // Hover tooltip with the link's negotiated capacity - both
+            // directions when asymmetric (WiFi PHY, ISP-provisioned WAN).
+            // Long delay so it doesn't fire while just moving around the map.
+            // Directional capacities always win over the symmetric PHY figure -
+            // a symmetric ISP plan must still show the plan, not the port speed.
+            const capDown = link.capacityDownBps, capUp = link.capacityUpBps;
+            let capTip = null;
+            if (capDown > 0 && capUp > 0) {
+                capTip = `Link speed: ↓ ${formatCapacity(capDown)} / ↑ ${formatCapacity(capUp)}`;
+            } else if (capDown > 0 || capUp > 0) {
+                capTip = `Link speed: ${formatCapacity(capDown > 0 ? capDown : capUp)}`;
+            } else if (Number.isFinite(link.capacityBps) && link.capacityBps > 0) {
+                capTip = `Link speed: ${formatCapacity(link.capacityBps)}`;
+            }
+            if (capTip) {
+                el.setAttribute('data-tooltip', capTip);
+                el.setAttribute('data-tooltip-hover-only', '');
+                el.setAttribute('data-tooltip-delay', '500');
+            }
+            // Pills accept pointer events for the tooltip, which would swallow
+            // the scroll wheel - forward it to the canvas so zoom keeps working.
+            el.addEventListener('wheel', (e) => {
+                e.preventDefault();
+                this.canvas.dispatchEvent(new WheelEvent('wheel', e));
+            }, { passive: false });
             this._labelsLayer.appendChild(el);
             this._linkLabels.set(link.id, { el, kind: link.kind });
         }
@@ -2753,7 +2945,27 @@ export class LanFlowMap {
             el.appendChild(nameEl);
             el.appendChild(rateEl);
             this._labelsLayer.appendChild(el);
-            this._floatingLabels.set(node.id, { el, nameEl, rateEl });
+            this._floatingLabels.set(node.id, { el, nameEl, rateEl, crowdScale: 1 });
+        }
+
+        // Local-density label shrink: infra devices clustered together (rack
+        // areas) get proportionally smaller labels so they don't pile up.
+        // Computed once per layout in world space - stable across camera moves,
+        // unlike per-frame screen-space overlap testing which jitters.
+        const CROWD_RADIUS = 8;
+        const labelIds = Array.from(this._floatingLabels.keys());
+        for (const id of labelIds) {
+            const p = this._positions.get(id);
+            if (!p) continue;
+            let neighbors = 0;
+            for (const otherId of labelIds) {
+                if (otherId === id) continue;
+                const q = this._positions.get(otherId);
+                if (!q) continue;
+                const dx = p.x - q.x, dy = p.y - q.y, dz = p.z - q.z;
+                if (dx * dx + dy * dy + dz * dz < CROWD_RADIUS * CROWD_RADIUS) neighbors += 1;
+            }
+            this._floatingLabels.get(id).crowdScale = Math.max(0.6, 1 - 0.12 * neighbors);
         }
 
         // WAN speed test pills: one per access-ISP cloud, anchored to the cloud mesh.
@@ -2809,22 +3021,41 @@ export class LanFlowMap {
         const camPos = this.camera.position;
         // Reference distance: roughly the fly-in camera target distance (~60u).
         // At this distance labels render at 100%. Farther = smaller, closer = larger.
-        const REF_DIST = 60;
-        const MIN_SCALE = 0.4;
+        const REF_DIST = 36;
+        const MIN_SCALE = 0.24;
         const MAX_SCALE = 1.2;
+        // On large properties the shrink floor scales down with the devices,
+        // so labels keep receding when zoomed out instead of flooring early
+        // and dominating the shrunken scene. The max cap comes down too (by
+        // sqrt, gentler) so mid-zoom building-overview views don't crowd with
+        // full-size labels over shrunken devices. Single-home is unchanged.
+        const minScale = MIN_SCALE * this._deviceScale;
+        const maxScale = MAX_SCALE * Math.sqrt(this._deviceScale);
 
-        for (const [nodeId, { el }] of this._floatingLabels) {
+        for (const [nodeId, { el, crowdScale }] of this._floatingLabels) {
             const group = this._nodeMeshes.get(nodeId);
             if (!group) { el.classList.remove('is-visible'); continue; }
             if (!group.visible) { el.classList.remove('is-visible'); continue; }
             tmp.setFromMatrixPosition(group.matrixWorld);
-            tmp.y += 1.8;  // anchor above the node sphere
             const dist = tmp.distanceTo(camPos);
+            // Anchor just above the rendered top of the core mesh (tracks the
+            // per-frame zoom scale) instead of a fixed offset above center.
+            const zDev = Math.max(DEVICE_ZOOM_MIN, Math.min(this._devZoomMax ?? 1, dist / DEVICE_ZOOM_REF_DIST));
+            tmp.y += this._nodeTopHalfHeight(group.userData?.node?.kind) * zDev + 0.35 * this._deviceScale;
             tmp.project(this.camera);
             if (tmp.z > 1) { el.classList.remove('is-visible'); continue; }
+            const fade = 1 - Math.min(1, Math.max(0,
+                (dist - NET_LABEL_FADE_START_DIST) / (NET_LABEL_FADE_END_DIST - NET_LABEL_FADE_START_DIST)));
+            if (fade <= 0.01) { el.classList.remove('is-visible'); continue; }
+            el.style.opacity = fade.toFixed(3);
             const x = (tmp.x * halfW) + halfW;
             const y = -(tmp.y * halfH) + halfH;
-            const scale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, REF_DIST / Math.max(dist, 1)));
+            // Crowd shrink only matters where labels can actually collide -
+            // zoomed out. Up close the cluster spreads across the screen, so
+            // blend the factor out below 25 units and fully in past 60.
+            const crowdT = Math.min(1, Math.max(0, (dist - 25) / 35));
+            const crowdF = 1 - (1 - (crowdScale ?? 1)) * crowdT;
+            const scale = Math.max(minScale, Math.min(maxScale, REF_DIST / Math.max(dist, 1))) * crowdF;
             el.style.transform = `translate(-50%, -100%) scale(${scale.toFixed(3)})`;
             el.style.transformOrigin = 'center bottom';
             el.style.left = `${x}px`;
@@ -2836,7 +3067,7 @@ export class LanFlowMap {
             const group = this._cloudMeshes.get(`cloud-access-${wanIface}`);
             if (!group) { pill.classList.remove('is-visible'); continue; }
             tmp.setFromMatrixPosition(group.matrixWorld);
-            tmp.y -= NODE_RADIUS.cloud + 0.5;
+            tmp.y -= this._cloudRadius() + 0.5;
             const dist = tmp.distanceTo(camPos);
             tmp.project(this.camera);
             if (tmp.z > 1) { pill.classList.remove('is-visible'); continue; }
@@ -2857,7 +3088,7 @@ export class LanFlowMap {
                 const group = this._cloudMeshes.get(cloudId);
                 if (!group) { lbl.classList.remove('is-visible'); continue; }
                 tmp.setFromMatrixPosition(group.matrixWorld);
-                tmp.y -= NODE_RADIUS.cloud + 0.5;
+                tmp.y -= this._cloudRadius() + 0.5;
                 const dist = tmp.distanceTo(camPos);
                 tmp.project(this.camera);
                 if (tmp.z > 1) { lbl.classList.remove('is-visible'); continue; }
@@ -2925,9 +3156,13 @@ export class LanFlowMap {
             }
             tmp.project(this.camera);
             if (tmp.z > 1) { el.classList.remove('is-visible'); continue; }
+            const fade = 1 - Math.min(1, Math.max(0,
+                (dist - LINK_LABEL_FADE_START_DIST) / (LINK_LABEL_FADE_END_DIST - LINK_LABEL_FADE_START_DIST)));
+            if (fade <= 0.01) { el.classList.remove('is-visible'); continue; }
+            el.style.opacity = fade.toFixed(3);
             const x = (tmp.x * halfW) + halfW;
             const y = -(tmp.y * halfH) + halfH;
-            const scale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, REF_DIST / Math.max(dist, 1)));
+            const scale = Math.max(minScale, Math.min(maxScale, REF_DIST / Math.max(dist, 1)));
             el.style.transform = `translate(-50%, -50%) scale(${scale.toFixed(3)})`;
             el.style.left = `${x}px`;
             el.style.top = `${y}px`;
@@ -3569,15 +3804,20 @@ export class LanFlowMap {
         const lat = bounds.centerLat + dLat * 180 / Math.PI;
         const lng = bounds.centerLng + dLng * 180 / Math.PI;
 
-        // Reverse Y → floor: posY = floor * 3.0 * scale * 0.8
-        const floor = Math.round(pos.y / (scale * 0.8) / 2.9);
+        // Reverse Y exactly: rendered y = (floor * 2.9 + heightM) * scale * 0.8.
+        // Floor = the story the device is physically in (carries through to the
+        // Signal Map); heightM = metres above that floor's base, so the next
+        // load reproduces this position bit-for-bit.
+        const totalM = pos.y / (scale * 0.8);
+        const floor = Math.floor(totalM / 2.9);
+        const heightM = totalM - floor * 2.9;
 
         try {
             await fetch(`${this.apiBase}/device-placement`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 credentials: 'same-origin',
-                body: JSON.stringify({ mac: node.mac, latitude: lat, longitude: lng, floor }),
+                body: JSON.stringify({ mac: node.mac, latitude: lat, longitude: lng, floor, heightM }),
             });
         } catch (err) {
             console.error('[LanFlowMap] Failed to save placement:', err);
@@ -3654,7 +3894,7 @@ function _getDotTexture() {
 }
 
 class ParticleStream {
-    constructor({ from, to, color, particleCount = 0 }) {
+    constructor({ from, to, color, particleCount = 0, sizeScale = 1 }) {
         const fromV = new THREE.Vector3(from.x, from.y, from.z);
         const toV = new THREE.Vector3(to.x, to.y, to.z);
         this._from = fromV;
@@ -3704,13 +3944,15 @@ class ParticleStream {
                 color: { value: new THREE.Color(color) },
                 map: { value: _getDotTexture() },
                 scale: { value: 600.0 },
+                zoom: { value: 1.0 },
             },
             vertexShader: `
                 attribute float size;
                 uniform float scale;
+                uniform float zoom;
                 void main() {
                     vec4 mv = modelViewMatrix * vec4(position, 1.0);
-                    gl_PointSize = size * (scale / max(-mv.z, 1.0));
+                    gl_PointSize = size * zoom * (scale / max(-mv.z, 1.0));
                     gl_Position = projectionMatrix * mv;
                 }
             `,
@@ -3749,7 +3991,14 @@ class ParticleStream {
         // Size that NEW particles will be born at - written into the size
         // attribute when the particle spawns. Existing in-flight particles
         // keep whatever size they were emitted with.
-        this._currentSize = 0.05;
+        this._sizeScale = sizeScale;
+        this._currentSize = 0.05 * sizeScale;
+    }
+
+    // Camera-distance compensation, applied uniformly to all in-flight dots
+    // (unlike per-particle spawn sizes, zooming should resize existing dots).
+    setZoom(z) {
+        this._material.uniforms.zoom.value = z;
     }
 
     setRate(bps) {
@@ -3770,7 +4019,7 @@ class ParticleStream {
         // Stored for use at spawn time only - particles already in flight
         // keep their birth size so a sudden rate change doesn't visually
         // resize dots that have already left the sender.
-        this._currentSize = 0.0375 + (intensity * intensity) * 1.3125;
+        this._currentSize = (0.0375 + (intensity * intensity) * 1.3125) * this._sizeScale;
         // Velocity: 2.5 idle -> 6.5 saturated. Still communicates throughput
         // without slamming between crawl and jet on per-poll rate fluctuations.
         this._velocity = 2.5 + intensity * 4.0;
@@ -3882,6 +4131,12 @@ function formatBps(bps) {
     let v = bps;
     while (v >= 1000 && i < units.length - 1) { v /= 1000; i += 1; }
     return `${v >= 100 ? v.toFixed(0) : v.toFixed(1)} ${units[i]}`;
+}
+
+// Capacity variant: whole numbers drop the trailing .0 ("1 Gbps" not
+// "1.0 Gbps"), real decimals keep it ("2.5 Gbps").
+function formatCapacity(bps) {
+    return formatBps(bps).replace('.0 ', ' ');
 }
 
 function formatAge(ms) {

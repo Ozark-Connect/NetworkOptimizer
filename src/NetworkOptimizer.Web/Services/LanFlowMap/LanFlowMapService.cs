@@ -102,17 +102,31 @@ public class LanFlowMapService
         var deviceLocations = allLocations
             .Where(l => !apMacs.Contains(l.ApMac.ToLowerInvariant()))
             .ToList();
+        // Precise heights come straight off the ApLocations rows; the marker DTO
+        // doesn't carry HeightM, so ProjectAnchors looks it up by MAC for APs.
+        var heightByMac = allLocations
+            .Where(l => l.HeightM.HasValue)
+            .ToDictionary(l => NormalizeMac(l.ApMac), l => l.HeightM!.Value);
 
-        var anchors = ProjectAnchors(markers, deviceLocations,
+        var anchors = ProjectAnchors(markers, deviceLocations, heightByMac,
             out var centerLat, out var centerLng, out var lngScale);
-        var droppedAnchors = PruneAnchorOutliers(anchors);
+        // AP anchors define the reference frame (centroid, scene radius, and the
+        // set eligible for outlier pruning). Non-AP device placements are
+        // deliberate user drags: they ride within the frame but must never
+        // perturb the scale or be pruned, or a device placed toward a building
+        // could shift or fall back to scatter on the next load. Keyed to match
+        // the anchor dictionary (NormalizeMac).
+        var apAnchorMacs = new HashSet<string>(
+            markers.Where(m => m.Latitude.HasValue && m.Longitude.HasValue)
+                   .Select(m => NormalizeMac(m.Mac)));
+        var droppedAnchors = PruneAnchorOutliers(anchors, apAnchorMacs);
         if (droppedAnchors.Count > 0)
         {
             _logger.LogDebug(
                 "LAN map: dropped {Count} outlier anchor(s) far outside the cluster (bad/stale placement): {Macs}",
                 droppedAnchors.Count, string.Join(", ", droppedAnchors));
         }
-        snapshot.Bounds = ComputeBounds(anchors, centerLat, centerLng, lngScale);
+        snapshot.Bounds = ComputeBounds(anchors, apAnchorMacs, centerLat, centerLng, lngScale);
         snapshot.Buildings = await BuildBuildingsAsync(centerLat, centerLng, lngScale, ct);
         snapshot.MaterialColors = new Dictionary<string, string>(
             WiFi.Data.MaterialAttenuation.MaterialColors, StringComparer.OrdinalIgnoreCase);
@@ -916,6 +930,7 @@ public class LanFlowMapService
     private static Dictionary<string, LanPlacement> ProjectAnchors(
         IReadOnlyList<Web.Models.ApMapMarker> markers,
         IReadOnlyList<Storage.Models.ApLocation> deviceLocations,
+        IReadOnlyDictionary<string, double> heightByMac,
         out double centerLat, out double centerLng, out double lngScale)
     {
         centerLat = 0;
@@ -945,13 +960,15 @@ public class LanFlowMapService
 
         foreach (var m in withCoords)
         {
+            var mac = NormalizeMac(m.Mac);
             var (x, y) = ProjectLatLng(m.Latitude!.Value, m.Longitude!.Value, centerLat, centerLng, lngScale);
-            anchors[NormalizeMac(m.Mac)] = new LanPlacement
+            anchors[mac] = new LanPlacement
             {
                 X = x,
                 Y = y,
                 Z = (m.Floor ?? 1) * FloorHeightMetres,
                 Source = LanPlacementSource.Anchor,
+                HeightM = heightByMac.TryGetValue(mac, out var hm) ? hm : null,
             };
         }
 
@@ -966,6 +983,7 @@ public class LanFlowMapService
                 Y = y,
                 Z = (d.Floor ?? 1) * FloorHeightMetres,
                 Source = LanPlacementSource.Anchor,
+                HeightM = d.HeightM,
             };
         }
 
@@ -984,14 +1002,20 @@ public class LanFlowMapService
     private const double OutlierMedianFactor = 6.0;
     private const double OutlierAbsoluteMetres = 200.0;
 
-    private static List<string> PruneAnchorOutliers(Dictionary<string, LanPlacement> anchors)
+    private static List<string> PruneAnchorOutliers(
+        Dictionary<string, LanPlacement> anchors, IReadOnlySet<string> apAnchorMacs)
     {
         var removed = new List<string>();
+        // Only AP anchors are eligible: they define the frame, and a bad AP
+        // geocode is what this guards against. User-placed device anchors
+        // (switches, cameras) are deliberate drags - pruning one would silently
+        // scatter it far from its building, so they're exempt entirely.
+        var apAnchors = anchors.Where(kv => apAnchorMacs.Contains(kv.Key)).ToList();
         // Need enough anchors for a median to be meaningful; with 1-2 we can't tell
         // which one is the outlier, so leave them alone.
-        if (anchors.Count < 3) return removed;
+        if (apAnchors.Count < 3) return removed;
 
-        var distances = anchors.ToDictionary(
+        var distances = apAnchors.ToDictionary(
             kv => kv.Key,
             kv => Math.Sqrt(kv.Value.X * kv.Value.X + kv.Value.Y * kv.Value.Y));
 
@@ -1009,6 +1033,7 @@ public class LanFlowMapService
 
     private static LanFlowMapBounds ComputeBounds(
         Dictionary<string, LanPlacement> anchors,
+        IReadOnlySet<string> apAnchorMacs,
         double centerLat, double centerLng, double lngScale)
     {
         var bounds = new LanFlowMapBounds
@@ -1020,8 +1045,15 @@ public class LanFlowMapService
             bounds.Radius = 1.0;
             return bounds;
         }
+        // Radius (and thus the global scale) is defined by AP anchors only,
+        // mirroring the AP-only centroid. If a non-AP device set the radius,
+        // placing it would change the scale on the next load and shift every
+        // already-placed device. Fall back to all anchors when no APs exist.
+        var radiusAnchors = anchors.Where(kv => apAnchorMacs.Contains(kv.Key))
+            .Select(kv => kv.Value).ToList();
+        if (radiusAnchors.Count == 0) radiusAnchors = anchors.Values.ToList();
         double maxR = 0;
-        foreach (var p in anchors.Values)
+        foreach (var p in radiusAnchors)
         {
             var r = Math.Sqrt(p.X * p.X + p.Y * p.Y + p.Z * p.Z);
             if (r > maxR) maxR = r;
@@ -1220,6 +1252,14 @@ public class LanFlowMapService
                 CapacityBps = ResolveUplinkCapacityBps(d),
                 Band = isWirelessBackhaul ? NormalizeBand(d.UplinkRadioBand) : null,
             };
+            if (isWirelessBackhaul)
+            {
+                // Mesh PHY is asymmetric: the child's uplink RX rate caps traffic
+                // toward it (downstream), its TX rate caps traffic toward the
+                // parent (upstream).
+                if (d.UplinkRxRateKbps > 0) link.CapacityDownBps = d.UplinkRxRateKbps * 1_000L;
+                if (d.UplinkTxRateKbps > 0) link.CapacityUpBps = d.UplinkTxRateKbps * 1_000L;
+            }
 
             // For wired uplinks, the parent switch port carries the throughput we want.
             // Resolve ifName via UniFi port number -> InterfaceNameMap (3.7 chain).
@@ -1332,6 +1372,10 @@ public class LanFlowMapService
                 // PHY rate (kbps) acts as the WiFi link capacity (spec 3.5 - PHY is capacity).
                 long maxPhyKbps = Math.Max(c.TxRate, c.RxRate);
                 if (maxPhyKbps > 0) link.CapacityBps = maxPhyKbps * 1_000L;
+                // Directional PHY: AP TX rate limits traffic toward the client
+                // (downstream), RX rate limits traffic from the client (upstream).
+                if (c.TxRate > 0) link.CapacityDownBps = c.TxRate * 1_000L;
+                if (c.RxRate > 0) link.CapacityUpBps = c.RxRate * 1_000L;
             }
 
             snapshot.Nodes.Add(node);
@@ -1513,8 +1557,15 @@ public class LanFlowMapService
 
             snapshot.Clouds.Add(accessCloud);
 
-            // WAN link: gateway -> access cloud directly. Capacity from WanSummary,
-            // PortKey for live SNMP rate seeding from the gateway's WAN port.
+            // WAN link: gateway -> access cloud directly. PortKey for live SNMP
+            // rate seeding from the gateway's WAN port. The pipe diameter sizes
+            // from the ISP-provisioned plan (larger of down/up) - the port PHY
+            // is only the fallback when no plan speeds are configured.
+            var ispDownBps = wanNet?.WanDownloadMbps > 0 ? (long)wanNet.WanDownloadMbps! * 1_000_000L : (long?)null;
+            var ispUpBps = wanNet?.WanUploadMbps > 0 ? (long)wanNet.WanUploadMbps! * 1_000_000L : (long?)null;
+            var ispMaxBps = ispDownBps.HasValue || ispUpBps.HasValue
+                ? Math.Max(ispDownBps ?? 0, ispUpBps ?? 0)
+                : (long?)null;
             var wanLink = new LanLink
             {
                 Id = $"wan-link-{wan.WanInterface}",
@@ -1527,7 +1578,9 @@ public class LanFlowMapService
                 FromNodeId = accessCloud.Id,
                 ToNodeId = gwId,
                 Kind = LanLinkKind.Wan,
-                CapacityBps = wan.LinkSpeedMbps.HasValue ? (long)wan.LinkSpeedMbps.Value * 1_000_000L : null,
+                CapacityBps = ispMaxBps ?? (wan.LinkSpeedMbps.HasValue ? (long)wan.LinkSpeedMbps.Value * 1_000_000L : null),
+                CapacityDownBps = ispDownBps,
+                CapacityUpBps = ispUpBps,
             };
             if (!string.IsNullOrEmpty(wan.GatewayPortName))
             {

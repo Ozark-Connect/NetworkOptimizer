@@ -32,6 +32,10 @@ public class ApLocation
     [MaxLength(20)]
     public string? MountType { get; set; }
 
+    /// <summary>Precise height in metres above the assigned floor's base elevation, set by
+    /// 3D map repositioning. Null = derive height from MountType / device kind (legacy).</summary>
+    public double? HeightM { get; set; }
+
     /// <summary>When this location was last updated</summary>
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 }
