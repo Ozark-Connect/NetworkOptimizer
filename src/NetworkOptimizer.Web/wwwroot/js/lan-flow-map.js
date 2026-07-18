@@ -137,6 +137,10 @@ const LABEL_ZOOM_MIN = 0.25;
 // they'd be illegible smudges, so ramp opacity down and hide.
 const LABEL_FADE_START_DIST = 110;
 const LABEL_FADE_END_DIST = 170;
+// Throughput pills fade earlier than device labels - when pulling back,
+// device identity should outlive the rate readouts.
+const LINK_LABEL_FADE_START_DIST = 90;
+const LINK_LABEL_FADE_END_DIST = 140;
 
 const LINK_KIND = {
     Uplink: 0,
@@ -3095,6 +3099,10 @@ export class LanFlowMap {
             }
             tmp.project(this.camera);
             if (tmp.z > 1) { el.classList.remove('is-visible'); continue; }
+            const fade = 1 - Math.min(1, Math.max(0,
+                (dist - LINK_LABEL_FADE_START_DIST) / (LINK_LABEL_FADE_END_DIST - LINK_LABEL_FADE_START_DIST)));
+            if (fade <= 0.01) { el.classList.remove('is-visible'); continue; }
+            el.style.opacity = fade.toFixed(3);
             const x = (tmp.x * halfW) + halfW;
             const y = -(tmp.y * halfH) + halfH;
             const scale = Math.max(minScale, Math.min(maxScale, REF_DIST / Math.max(dist, 1)));
