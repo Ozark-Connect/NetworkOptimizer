@@ -1534,8 +1534,15 @@ public class LanFlowMapService
 
             snapshot.Clouds.Add(accessCloud);
 
-            // WAN link: gateway -> access cloud directly. Capacity from WanSummary,
-            // PortKey for live SNMP rate seeding from the gateway's WAN port.
+            // WAN link: gateway -> access cloud directly. PortKey for live SNMP
+            // rate seeding from the gateway's WAN port. The pipe diameter sizes
+            // from the ISP-provisioned plan (larger of down/up) - the port PHY
+            // is only the fallback when no plan speeds are configured.
+            var ispDownBps = wanNet?.WanDownloadMbps > 0 ? (long)wanNet.WanDownloadMbps! * 1_000_000L : (long?)null;
+            var ispUpBps = wanNet?.WanUploadMbps > 0 ? (long)wanNet.WanUploadMbps! * 1_000_000L : (long?)null;
+            var ispMaxBps = ispDownBps.HasValue || ispUpBps.HasValue
+                ? Math.Max(ispDownBps ?? 0, ispUpBps ?? 0)
+                : (long?)null;
             var wanLink = new LanLink
             {
                 Id = $"wan-link-{wan.WanInterface}",
@@ -1548,11 +1555,9 @@ public class LanFlowMapService
                 FromNodeId = accessCloud.Id,
                 ToNodeId = gwId,
                 Kind = LanLinkKind.Wan,
-                CapacityBps = wan.LinkSpeedMbps.HasValue ? (long)wan.LinkSpeedMbps.Value * 1_000_000L : null,
-                // ISP-provisioned speeds are the real (asymmetric) WAN capacity;
-                // the port PHY above only sizes the pipe.
-                CapacityDownBps = wanNet?.WanDownloadMbps > 0 ? (long)wanNet.WanDownloadMbps! * 1_000_000L : null,
-                CapacityUpBps = wanNet?.WanUploadMbps > 0 ? (long)wanNet.WanUploadMbps! * 1_000_000L : null,
+                CapacityBps = ispMaxBps ?? (wan.LinkSpeedMbps.HasValue ? (long)wan.LinkSpeedMbps.Value * 1_000_000L : null),
+                CapacityDownBps = ispDownBps,
+                CapacityUpBps = ispUpBps,
             };
             if (!string.IsNullOrEmpty(wan.GatewayPortName))
             {
