@@ -3607,7 +3607,7 @@ else
                     "window.__mountWanLiveChart = async function(elId) {" +
                     $"  const m = await import('{VersionedJs("/js/wan-live-chart.js")}');" +
                     "  window.__wanLiveChart = m;" +
-                    "  await m.mount(elId);" +
+                    "  await m.mount(elId, { seekOnClick: true });" +
                     "}");
                 _ = JS.InvokeVoidAsync("__mountWanLiveChart", "monitoring-wan-live-chart");
             }

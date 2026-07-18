@@ -40,6 +40,9 @@ let histRate = 0;
 // Seek fetch generation: rapid seeks can resolve out of order, and applying a
 // stale response after a newer one snaps the playhead backward.
 let seekGen = 0;
+// Click-to-seek (Live View mount only): clicking the chart scrubs the map
+// timeline to the clicked instant.
+let seekOnClick = false;
 
 function formatBps(v) {
     if (v == null || v < 1) return '0';
@@ -47,6 +50,19 @@ function formatBps(v) {
     if (v >= 1e6) return (v / 1e6).toFixed(1) + ' Mbps';
     if (v >= 1e3) return (v / 1e3).toFixed(0) + ' Kbps';
     return v.toFixed(0) + ' bps';
+}
+
+// Map a click inside the chart to the instant under the cursor. The inner
+// (grid) group's rect avoids translate math; its width is the plotted span.
+function clickToTime(event, ctx) {
+    const g = ctx?.w?.globals;
+    const inner = ctx?.el?.querySelector('.apexcharts-inner');
+    if (!g || !inner || !Number.isFinite(g.minX) || !Number.isFinite(g.maxX)) return null;
+    const rect = inner.getBoundingClientRect();
+    if (!rect.width) return null;
+    const frac = (event.clientX - rect.left) / rect.width;
+    if (frac < 0 || frac > 1) return null;
+    return g.minX + frac * (g.maxX - g.minX);
 }
 
 function buildOpts() {
@@ -61,6 +77,17 @@ function buildOpts() {
             // labels sit close to the card bottom.
             parentHeightOffset: 0,
             animations: { enabled: true, easing: 'smooth', dynamicAnimation: { speed: 800 } },
+            events: {
+                // Click-to-seek: jump the map timeline (and with it this chart's
+                // playhead, via the normal seekTime round-trip) to the clicked
+                // instant. Live View only - the mount opts in.
+                click: (event, ctx) => {
+                    if (!seekOnClick || !event?.clientX) return;
+                    const t = clickToTime(event, ctx);
+                    if (t == null) return;
+                    window.__lanFlowMap?.getInstance?.()?.seekTo?.(t);
+                },
+            },
         },
         series: [
             { name: 'Download', type: 'area', data: [] },
@@ -352,6 +379,8 @@ export async function mount(containerId, opts) {
     elId = containerId;
     const el = document.getElementById(containerId);
     if (!el) return;
+    seekOnClick = !!opts?.seekOnClick;
+    el.style.cursor = seekOnClick ? 'crosshair' : '';
 
     chart = new ApexCharts(el, buildOpts());
     await chart.render();
