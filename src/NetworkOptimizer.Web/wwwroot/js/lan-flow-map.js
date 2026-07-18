@@ -2871,6 +2871,13 @@ export class LanFlowMap {
             // top-left (CSS default 0,0).
             el.style.left = '-9999px';
             el.style.top = '-9999px';
+            // Hover tooltip with the link's negotiated capacity. Long delay so
+            // it doesn't fire while just moving around the map.
+            if (Number.isFinite(link.capacityBps) && link.capacityBps > 0) {
+                el.setAttribute('data-tooltip', `Link speed: ${formatBps(link.capacityBps)}`);
+                el.setAttribute('data-tooltip-hover-only', '');
+                el.setAttribute('data-tooltip-delay', '500');
+            }
             this._labelsLayer.appendChild(el);
             this._linkLabels.set(link.id, { el, kind: link.kind });
         }
@@ -3078,7 +3085,7 @@ export class LanFlowMap {
             if (tmp.z > 1) { el.classList.remove('is-visible'); continue; }
             const x = (tmp.x * halfW) + halfW;
             const y = -(tmp.y * halfH) + halfH;
-            const scale = Math.max(minScale, Math.min(MAX_SCALE, REF_DIST / Math.max(dist, 1)));
+            const scale = Math.max(minScale, Math.min(maxScale, REF_DIST / Math.max(dist, 1)));
             el.style.transform = `translate(-50%, -50%) scale(${scale.toFixed(3)})`;
             el.style.left = `${x}px`;
             el.style.top = `${y}px`;

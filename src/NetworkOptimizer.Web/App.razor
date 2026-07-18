@@ -277,6 +277,10 @@
                     opts.trigger = 'mouseenter';
                     opts.touch = false;
                 }
+                var delayMs = parseInt(el.dataset.tooltipDelay, 10);
+                if (!isNaN(delayMs)) {
+                    opts.delay = [delayMs, 200];
+                }
                 tippy(el, opts);
             });
         }
@@ -330,6 +334,10 @@
                 if (el.hasAttribute('data-tooltip-hover-only') || el.tagName === 'BUTTON') {
                     opts.trigger = 'mouseenter';
                     opts.touch = false;
+                }
+                var delayMs = parseInt(el.dataset.tooltipDelay, 10);
+                if (!isNaN(delayMs)) {
+                    opts.delay = [delayMs, 200];
                 }
                 if (el._tippy) {
                     // Update existing tooltip if content changed
