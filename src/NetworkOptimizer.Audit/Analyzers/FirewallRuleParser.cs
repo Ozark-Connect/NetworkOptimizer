@@ -193,9 +193,11 @@ public class FirewallRuleParser
                     .ToList();
             }
 
-            // Newer UniFi releases emit matching_target "MAC" with a "macs" array instead of
-            // "CLIENT" with "client_macs". Same semantics - normalize to the canonical CLIENT form
-            // so downstream scope scoring and overlap detection treat them identically.
+            // UniFi's newer raw source MAC restriction feature emits matching_target "MAC" with
+            // a "macs" array; the older client-based restriction uses "CLIENT" with "client_macs".
+            // Both shapes coexist in one response (verified on UniFi Network 10.5.62 EA). Both are
+            // device-scoped sources, so normalize to the canonical CLIENT form and downstream
+            // scope scoring and overlap detection treat them identically.
             if (source.TryGetProperty("macs", out var macList) && macList.ValueKind == JsonValueKind.Array)
             {
                 var parsedMacs = macList.EnumerateArray()

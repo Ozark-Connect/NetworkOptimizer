@@ -123,8 +123,9 @@ public class FirewallRule
 
     /// <summary>
     /// Source matching target type (ANY, IP, NETWORK, CLIENT).
-    /// CLIENT is the canonical form for MAC-scoped sources: the parser normalizes the
-    /// "MAC"/"macs" shape emitted by newer UniFi releases to CLIENT/SourceClientMacs.
+    /// CLIENT is the canonical form for device-scoped sources: the parser normalizes the
+    /// "MAC"/"macs" shape (UniFi's raw source MAC restriction feature) to
+    /// CLIENT/SourceClientMacs, alongside the older client-based "CLIENT"/"client_macs" shape.
     /// </summary>
     public string? SourceMatchingTarget { get; init; }
 

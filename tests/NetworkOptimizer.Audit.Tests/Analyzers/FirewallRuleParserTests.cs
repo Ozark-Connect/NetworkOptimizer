@@ -350,6 +350,90 @@ public class FirewallRuleParserTests
     }
 
     [Fact]
+    public void ParseFirewallPolicy_RawSourceMacRule_FullRealShape_ParsesCorrectly()
+    {
+        // Full rule shape captured from UniFi Network 10.5.62 EA: the raw source MAC
+        // restriction feature ("MAC"/"macs" with matching_target_type SPECIFIC), which
+        // coexists in one response with older client-based "CLIENT"/"client_macs" rules
+        var json = JsonDocument.Parse(@"{
+            ""_id"": ""6a5b8920e205f79b9b565917"",
+            ""action"": ""ALLOW"",
+            ""connection_state_type"": ""ALL"",
+            ""connection_states"": [],
+            ""create_allow_respond"": true,
+            ""description"": """",
+            ""destination"": {
+                ""match_opposite_ports"": false,
+                ""matching_target"": ""ANY"",
+                ""port_matching_type"": ""ANY"",
+                ""zone_id"": ""external-zone""
+            },
+            ""enabled"": true,
+            ""icmp_typename"": ""ANY"",
+            ""icmp_v6_typename"": ""ANY"",
+            ""index"": 10021,
+            ""ip_version"": ""BOTH"",
+            ""logging"": false,
+            ""match_ip_sec"": false,
+            ""match_opposite_protocol"": false,
+            ""name"": ""Allow Failover Device"",
+            ""predefined"": false,
+            ""protocol"": ""all"",
+            ""schedule"": { ""mode"": ""ALWAYS"" },
+            ""source"": {
+                ""macs"": [""aa:bb:cc:dd:ee:01"", ""aa:bb:cc:dd:ee:02""],
+                ""match_opposite_ports"": false,
+                ""matching_target"": ""MAC"",
+                ""matching_target_type"": ""SPECIFIC"",
+                ""port_matching_type"": ""ANY"",
+                ""zone_id"": ""mgmt-zone""
+            }
+        }").RootElement;
+
+        var rule = _parser.ParseFirewallPolicy(json);
+
+        rule.Should().NotBeNull();
+        rule!.SourceMatchingTarget.Should().Be("CLIENT");
+        rule.SourceClientMacs.Should().BeEquivalentTo("aa:bb:cc:dd:ee:01", "aa:bb:cc:dd:ee:02");
+        rule.SourceZoneId.Should().Be("mgmt-zone");
+        rule.DestinationMatchingTarget.Should().Be("ANY");
+        rule.DestinationZoneId.Should().Be("external-zone");
+        rule.Enabled.Should().BeTrue();
+        rule.Index.Should().Be(10021);
+    }
+
+    [Fact]
+    public void ExtractFirewallPolicies_MixedClientAndMacShapes_BothNormalizeToClient()
+    {
+        // One response can contain BOTH device-scoped shapes (verified on 10.5.62 EA):
+        // older client-based rules and newer raw-MAC rules must both land on CLIENT
+        var json = JsonDocument.Parse(@"[{
+            ""_id"": ""old-shape"",
+            ""name"": ""Client Based Rule"",
+            ""source"": {
+                ""matching_target"": ""CLIENT"",
+                ""client_macs"": [""aa:bb:cc:dd:ee:01""]
+            }
+        },
+        {
+            ""_id"": ""new-shape"",
+            ""name"": ""Raw MAC Rule"",
+            ""source"": {
+                ""matching_target"": ""MAC"",
+                ""matching_target_type"": ""SPECIFIC"",
+                ""macs"": [""aa:bb:cc:dd:ee:02""]
+            }
+        }]").RootElement;
+
+        var rules = _parser.ExtractFirewallPolicies(json);
+
+        rules.Should().HaveCount(2);
+        rules.Should().OnlyContain(r => r.SourceMatchingTarget == "CLIENT");
+        rules[0].SourceClientMacs.Should().ContainSingle().Which.Should().Be("aa:bb:cc:dd:ee:01");
+        rules[1].SourceClientMacs.Should().ContainSingle().Which.Should().Be("aa:bb:cc:dd:ee:02");
+    }
+
+    [Fact]
     public void ExtractFirewallPolicies_MacMatchingTargetWithMultipleMacs_ParsesAll()
     {
         var json = JsonDocument.Parse(@"[{
