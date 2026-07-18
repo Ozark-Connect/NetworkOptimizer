@@ -883,7 +883,7 @@ export class LanFlowMap {
             // labels (with rate badges) but sprites provide 3D depth sorting.
             if (node.name) {
                 const sprite = this._makeLabelSprite(node.name);
-                sprite.position.set(0, radius + 0.8, 0);
+                sprite.position.set(0, radius + 0.8 * this._deviceScale, 0);
                 group.add(sprite);
                 this._labelSprites.set(node.id, sprite);
             }
@@ -1838,7 +1838,7 @@ export class LanFlowMap {
         this._nodeMeshes.set(node.id, group);
         if (node.name) {
             const sprite = this._makeLabelSprite(node.name);
-            sprite.position.set(0, radius + 0.8, 0);
+            sprite.position.set(0, radius + 0.8 * this._deviceScale, 0);
             group.add(sprite);
             this._labelSprites.set(node.id, sprite);
         }
@@ -2919,7 +2919,7 @@ export class LanFlowMap {
             if (!group) { el.classList.remove('is-visible'); continue; }
             if (!group.visible) { el.classList.remove('is-visible'); continue; }
             tmp.setFromMatrixPosition(group.matrixWorld);
-            tmp.y += 1.8;  // anchor above the node sphere
+            tmp.y += 1.8 * this._deviceScale;  // anchor above the node sphere
             const dist = tmp.distanceTo(camPos);
             tmp.project(this.camera);
             if (tmp.z > 1) { el.classList.remove('is-visible'); continue; }
