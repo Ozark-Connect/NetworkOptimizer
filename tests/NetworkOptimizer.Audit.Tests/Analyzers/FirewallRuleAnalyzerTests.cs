@@ -9014,6 +9014,149 @@ public class FirewallRuleAnalyzerTests
             i.Message.Contains("Invalid"));
     }
 
+    // Issue #1010: a narrow port-specific block preceding a broad all-traffic block for the
+    // same zone pair must not cause a Missing Isolation false positive. The narrow block only
+    // removes a slice of traffic; the remainder falls through to the broad block.
+    [Fact]
+    public void CheckInterVlanIsolation_NarrowBlockBeforeBroadBlock_NoMissingIsolation()
+    {
+        var iotNet = CreateNetwork("IoT", NetworkPurpose.IoT, id: "iot-net",
+            vlanId: 40, firewallZoneId: "zone-iot");
+        var corpNet = CreateNetwork("Corporate", NetworkPurpose.Corporate, id: "corp-net",
+            vlanId: 10, firewallZoneId: "zone-internal");
+        var networks = new List<NetworkInfo> { iotNet, corpNet };
+
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "block-dot", Name = "Block IoT zone to Internal zone DoT",
+                Action = "drop", Enabled = true, Index = 40000,
+                Protocol = "tcp", DestinationPort = "853",
+                SourceMatchingTarget = "ANY", DestinationMatchingTarget = "ANY",
+                SourceZoneId = "zone-iot", DestinationZoneId = "zone-internal"
+            },
+            new FirewallRule
+            {
+                Id = "block-all", Name = "Block IoT zone to Internal zone",
+                Action = "drop", Enabled = true, Index = 40001,
+                Protocol = "all",
+                SourceMatchingTarget = "ANY", DestinationMatchingTarget = "ANY",
+                SourceZoneId = "zone-iot", DestinationZoneId = "zone-internal"
+            }
+        };
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        issues.Should().NotContain(i => i.Type == IssueTypes.MissingIsolation &&
+            i.Message.Contains("IoT") && i.Message.Contains("Corporate"));
+        issues.Should().NotContain(i => i.Type == IssueTypes.IsolationBypassed);
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_NarrowBlockOnly_ReportsMissingIsolation()
+    {
+        // A port-specific block alone does NOT provide isolation - all other traffic passes.
+        var iotNet = CreateNetwork("IoT", NetworkPurpose.IoT, id: "iot-net",
+            vlanId: 40, firewallZoneId: "zone-iot");
+        var corpNet = CreateNetwork("Corporate", NetworkPurpose.Corporate, id: "corp-net",
+            vlanId: 10, firewallZoneId: "zone-internal");
+        var networks = new List<NetworkInfo> { iotNet, corpNet };
+
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "block-dot", Name = "Block IoT zone to Internal zone DoT",
+                Action = "drop", Enabled = true, Index = 40000,
+                Protocol = "tcp", DestinationPort = "853",
+                SourceMatchingTarget = "ANY", DestinationMatchingTarget = "ANY",
+                SourceZoneId = "zone-iot", DestinationZoneId = "zone-internal"
+            }
+        };
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        issues.Should().Contain(i => i.Type == IssueTypes.MissingIsolation &&
+            i.Message.Contains("IoT") && i.Message.Contains("Corporate"));
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_NarrowBlockBeforeBroadAllow_FlagsIsolationBypassed()
+    {
+        // A narrow block in front of a broad allow must not mask the allow - everything
+        // outside the narrow block's scope is still permitted.
+        var iotNet = CreateNetwork("IoT", NetworkPurpose.IoT, id: "iot-net",
+            vlanId: 40, firewallZoneId: "zone-iot");
+        var corpNet = CreateNetwork("Corporate", NetworkPurpose.Corporate, id: "corp-net",
+            vlanId: 10, firewallZoneId: "zone-internal");
+        var networks = new List<NetworkInfo> { iotNet, corpNet };
+
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "block-dot", Name = "Block IoT zone to Internal zone DoT",
+                Action = "drop", Enabled = true, Index = 40000,
+                Protocol = "tcp", DestinationPort = "853",
+                SourceMatchingTarget = "ANY", DestinationMatchingTarget = "ANY",
+                SourceZoneId = "zone-iot", DestinationZoneId = "zone-internal"
+            },
+            new FirewallRule
+            {
+                Id = "allow-all", Name = "Allow IoT zone to Internal zone",
+                Action = "accept", Enabled = true, Index = 40001,
+                Protocol = "all",
+                SourceMatchingTarget = "ANY", DestinationMatchingTarget = "ANY",
+                SourceZoneId = "zone-iot", DestinationZoneId = "zone-internal"
+            }
+        };
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        issues.Should().Contain(i => i.Type == IssueTypes.IsolationBypassed &&
+            i.Message.Contains("IoT") && i.Message.Contains("Corporate"));
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_AllowBeforeBroadBlock_StillFlagsIsolationBypassed()
+    {
+        // An allow rule ahead of the broad block genuinely bypasses isolation and must
+        // still be detected - skipping narrow blocks must not skip allow rules.
+        var iotNet = CreateNetwork("IoT", NetworkPurpose.IoT, id: "iot-net",
+            vlanId: 40, firewallZoneId: "zone-iot");
+        var corpNet = CreateNetwork("Corporate", NetworkPurpose.Corporate, id: "corp-net",
+            vlanId: 10, firewallZoneId: "zone-internal");
+        var networks = new List<NetworkInfo> { iotNet, corpNet };
+
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "allow-ssh", Name = "Allow IoT SSH to Internal",
+                Action = "accept", Enabled = true, Index = 40000,
+                Protocol = "tcp", DestinationPort = "22",
+                SourceMatchingTarget = "ANY", DestinationMatchingTarget = "ANY",
+                SourceZoneId = "zone-iot", DestinationZoneId = "zone-internal"
+            },
+            new FirewallRule
+            {
+                Id = "block-all", Name = "Block IoT zone to Internal zone",
+                Action = "drop", Enabled = true, Index = 40001,
+                Protocol = "all",
+                SourceMatchingTarget = "ANY", DestinationMatchingTarget = "ANY",
+                SourceZoneId = "zone-iot", DestinationZoneId = "zone-internal"
+            }
+        };
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        issues.Should().Contain(i => i.Type == IssueTypes.IsolationBypassed &&
+            i.Message.Contains("IoT") && i.Message.Contains("Corporate"));
+        issues.Should().NotContain(i => i.Type == IssueTypes.MissingIsolation &&
+            i.Message.Contains("IoT") && i.Message.Contains("Corporate"));
+    }
+
     #endregion
 
     #region Helper Methods

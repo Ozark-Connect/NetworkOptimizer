@@ -105,6 +105,10 @@ public class LanPlacement
     public double Y { get; set; }
     public double Z { get; set; }
     public LanPlacementSource Source { get; set; }
+
+    /// <summary>Precise height in metres above the floor's base elevation (Z), from 3D
+    /// repositioning. Null = the JS layout applies its MountType / device-kind offset.</summary>
+    public double? HeightM { get; set; }
 }
 
 public enum LanLinkKind
@@ -132,6 +136,13 @@ public class LanLink
 
     /// <summary>Capacity (PHY/negotiated/port speed) in bps. Backdrop pipe radius scales from this.</summary>
     public long? CapacityBps { get; set; }
+
+    /// <summary>Downstream (toward the leaf/device) capacity in bps for asymmetric links
+    /// (WiFi PHY, ISP-provisioned WAN). Null for symmetric links - use CapacityBps.</summary>
+    public long? CapacityDownBps { get; set; }
+
+    /// <summary>Upstream (toward the gateway/ISP) capacity in bps for asymmetric links.</summary>
+    public long? CapacityUpBps { get; set; }
 
     /// <summary>Wireless band ("2.4"/"5"/"6") for wifi-client and mesh links.</summary>
     public string? Band { get; set; }
