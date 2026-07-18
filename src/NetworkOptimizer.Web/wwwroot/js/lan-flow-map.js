@@ -2955,8 +2955,11 @@ export class LanFlowMap {
         const MAX_SCALE = 1.2;
         // On large properties the shrink floor scales down with the devices,
         // so labels keep receding when zoomed out instead of flooring early
-        // and dominating the shrunken scene. Single-home sites are unchanged.
+        // and dominating the shrunken scene. The max cap comes down too (by
+        // sqrt, gentler) so mid-zoom building-overview views don't crowd with
+        // full-size labels over shrunken devices. Single-home is unchanged.
         const minScale = MIN_SCALE * this._deviceScale;
+        const maxScale = MAX_SCALE * Math.sqrt(this._deviceScale);
 
         for (const [nodeId, { el }] of this._floatingLabels) {
             const group = this._nodeMeshes.get(nodeId);
@@ -2972,7 +2975,7 @@ export class LanFlowMap {
             if (tmp.z > 1) { el.classList.remove('is-visible'); continue; }
             const x = (tmp.x * halfW) + halfW;
             const y = -(tmp.y * halfH) + halfH;
-            const scale = Math.max(minScale, Math.min(MAX_SCALE, REF_DIST / Math.max(dist, 1)));
+            const scale = Math.max(minScale, Math.min(maxScale, REF_DIST / Math.max(dist, 1)));
             el.style.transform = `translate(-50%, -100%) scale(${scale.toFixed(3)})`;
             el.style.transformOrigin = 'center bottom';
             el.style.left = `${x}px`;
