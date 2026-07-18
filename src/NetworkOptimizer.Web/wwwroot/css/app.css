@@ -456,8 +456,8 @@ h1:focus {
 }
 .wan-chart-mode-cluster {
     position: absolute;
-    top: 0.35rem;
-    left: 0.5rem;
+    top: 0.5rem;
+    right: 3.5rem;
     z-index: 6;
     display: flex;
     align-items: center;
