@@ -41,8 +41,17 @@ let histRate = 0;
 // stale response after a newer one snaps the playhead backward.
 let seekGen = 0;
 // Click-to-seek (Live View mount only): clicking the chart scrubs the map
-// timeline to the clicked instant.
+// timeline to the clicked instant; double-clicking toggles play/pause. The
+// single-click seek is delayed so the second click of a double can cancel it -
+// otherwise the click pair would park playback and the toggle could only
+// ever resume, never pause.
 let seekOnClick = false;
+let clickSeekTimer = null;
+const CLICK_SEEK_DELAY_MS = 280;
+// Historic mode badge (upper-left). Unlike the map badges it hides in live
+// mode entirely - the chart is live by default and only needs the flag (and
+// the click-back-to-live affordance) while parked or playing back.
+let histBadge = null;
 
 function formatBps(v) {
     if (v == null || v < 1) return '0';
@@ -78,25 +87,30 @@ function buildOpts() {
             parentHeightOffset: 0,
             animations: { enabled: true, easing: 'smooth', dynamicAnimation: { speed: 800 } },
             events: {
-                // Click-to-seek: jump the map timeline (and with it this chart's
-                // playhead, via the normal seekTime round-trip) to the clicked
-                // instant and resume playback from there. Live View only - the
-                // mount opts in.
+                // Click-to-seek (delayed so a double-click can cancel it): park
+                // the map timeline - and this chart's playhead, via the normal
+                // seekTime round-trip - at the clicked instant. Live View only -
+                // the mount opts in.
                 click: (event, ctx) => {
                     if (!seekOnClick || !event?.clientX) return;
                     const t = clickToTime(event, ctx);
                     if (t == null) return;
-                    const inst = window.__lanFlowMap?.getInstance?.();
-                    if (!inst?.seekTo) return;
-                    // Instant feedback: freeze live drawing and draw the playhead
-                    // at the clicked instant from the buffer already on screen.
-                    // The map's seek round-trip then re-renders with the proper
-                    // window and playback interpolation takes over.
-                    pause();
-                    histAt = t;
-                    histWall = Date.now();
-                    renderHistoric(t);
-                    inst.seekTo(t, { autoPlay: true });
+                    clearTimeout(clickSeekTimer);
+                    clickSeekTimer = setTimeout(() => {
+                        clickSeekTimer = null;
+                        const inst = window.__lanFlowMap?.getInstance?.();
+                        if (!inst?.seekTo) return;
+                        // Instant feedback: freeze live drawing and draw the
+                        // playhead at the clicked instant from the buffer already
+                        // on screen; the seek round-trip then re-renders with the
+                        // proper window.
+                        pause();
+                        histAt = t;
+                        histWall = Date.now();
+                        if (histBadge) histBadge.style.display = '';
+                        renderHistoric(t);
+                        inst.seekTo(t);
+                    }, CLICK_SEEK_DELAY_MS);
                 },
             },
         },
@@ -391,7 +405,32 @@ export async function mount(containerId, opts) {
     const el = document.getElementById(containerId);
     if (!el) return;
     seekOnClick = !!opts?.seekOnClick;
-    el.style.cursor = seekOnClick ? 'crosshair' : '';
+    el.classList.toggle('wan-chart-seekable', seekOnClick);
+    // Double-click toggles play/pause (native listener - ApexCharts has no
+    // dblclick event). Wire once; the container div survives remounts.
+    if (seekOnClick && !el._wanSeekDbl) {
+        el._wanSeekDbl = true;
+        el.addEventListener('dblclick', (e) => {
+            if (!seekOnClick) return;
+            e.preventDefault();
+            clearTimeout(clickSeekTimer);
+            clickSeekTimer = null;
+            window.__lanFlowMap?.getInstance?.()?._togglePlayPause?.();
+        });
+    }
+    if (seekOnClick && !histBadge) {
+        histBadge = document.createElement('div');
+        histBadge.className = 'wan-chart-mode-badge lan-flow-map-mode is-historic';
+        histBadge.textContent = 'Historic';
+        histBadge.style.display = 'none';
+        histBadge.setAttribute('data-tooltip', 'Click to return to live');
+        histBadge.setAttribute('data-tooltip-hover-only', '');
+        histBadge.addEventListener('click', (e) => {
+            e.stopPropagation();
+            window.__lanFlowMap?.getInstance?.()?._returnToLive?.();
+        });
+        el.appendChild(histBadge);
+    }
 
     chart = new ApexCharts(el, buildOpts());
     await chart.render();
@@ -434,10 +473,11 @@ export function resume() {
 
 // Render the historic view at a given playhead time from the current buffer.
 // No fetching - callers load data; the interpolation timer reuses it.
+// Deliberately NOT gated on the tooltip being active (unlike live updateChart):
+// a seek or running playback must move the playhead and reload the window even
+// while the user hovers the chart - clicking to seek happens with the tooltip up.
 function renderHistoric(at) {
     if (!chart || buffer.length === 0) return;
-    const el = document.getElementById(elId);
-    if (el?.classList.contains('apexcharts-tooltip-active')) return;
     const halfWindow = HISTORY_MINUTES * 60000 / 2;
     const maxTime = Math.min(at + halfWindow, Date.now());
     const playhead = {
@@ -492,6 +532,7 @@ export async function seekTime(isoTimestamp) {
     if (!isoTimestamp) {
         // Return to live mode - updateChart replaces the annotations with the
         // plain time grid, dropping the playhead.
+        if (histBadge) histBadge.style.display = 'none';
         stopHistInterpolation();
         if (pollTimer) return; // already live
         const liveGen = seekGen;
@@ -505,6 +546,7 @@ export async function seekTime(isoTimestamp) {
         return;
     }
     // Historic mode: stop polling, fetch window centered on timestamp
+    if (histBadge) histBadge.style.display = '';
     if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
     if (scrollTimer) { clearInterval(scrollTimer); scrollTimer = null; }
     if (backfillTimer) { clearInterval(backfillTimer); backfillTimer = null; }
@@ -563,6 +605,9 @@ export async function seekTime(isoTimestamp) {
 export function unmount() {
     mountGen++;
     stopHistInterpolation();
+    clearTimeout(clickSeekTimer);
+    clickSeekTimer = null;
+    if (histBadge) { histBadge.remove(); histBadge = null; }
     if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
     if (scrollTimer) { clearInterval(scrollTimer); scrollTimer = null; }
     if (backfillTimer) { clearInterval(backfillTimer); backfillTimer = null; }

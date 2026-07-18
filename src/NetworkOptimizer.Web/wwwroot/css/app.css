@@ -449,6 +449,17 @@ h1:focus {
 .wan-live-chart-card .apexcharts-canvas {
     min-height: 0;
 }
+.wan-chart-seekable {
+    position: relative;
+    cursor: crosshair;
+}
+.wan-chart-mode-badge {
+    position: absolute;
+    top: 0.35rem;
+    left: 0.5rem;
+    z-index: 6;
+    cursor: pointer;
+}
 .dashboard-grid .lv-panel > .wan-live-chart-card {
     margin: -0.5rem;
 }

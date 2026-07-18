@@ -361,10 +361,12 @@ public class MonitoringLiveStats
 
     /// <summary>
     /// Combined ISP+Transit live latency as plotted by the WAN live chart: RTT and
-    /// loss averaged per target type, then the mean of the two types. Loss follows
-    /// RTT presence so a type with no reachable targets doesn't drag the average
-    /// to zero. Shared by the live-stats endpoint and the LAN flow map WAN globes
-    /// so both always show the same number.
+    /// loss averaged per target type, then the mean of the two types. Loss is
+    /// combined over the types that have loss samples, independent of RTT presence,
+    /// mirroring the historic series (QueryMeanIspTransitLatencyAsync) - during a
+    /// full outage RTT goes null while loss pegs at 100, and gating loss on RTT
+    /// blanked the chart exactly when loss mattered most. Shared by the live-stats
+    /// endpoint and the LAN flow map WAN globes so both always show the same number.
     /// </summary>
     public async Task<(double? MeanRttMs, double MeanLossPercent)> GetMeanIspTransitLiveAsync(
         CancellationToken ct = default)
@@ -404,10 +406,10 @@ public class MonitoringLiveStats
         else meanRtt = ispRtt ?? transitRtt;
 
         double meanLoss = 0;
-        if (ispRtt != null && transitRtt != null)
+        if (ispLosses.Count > 0 && transitLosses.Count > 0)
             meanLoss = (ispLoss + transitLoss) / 2;
-        else if (ispRtt != null) meanLoss = ispLoss;
-        else if (transitRtts.Count > 0) meanLoss = transitLoss;
+        else if (ispLosses.Count > 0) meanLoss = ispLoss;
+        else if (transitLosses.Count > 0) meanLoss = transitLoss;
 
         return (meanRtt, meanLoss);
     }

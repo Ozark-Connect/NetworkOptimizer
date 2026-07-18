@@ -2652,13 +2652,10 @@ export class LanFlowMap {
     }
 
     // External seek to an absolute instant (ms epoch) - e.g. a click on the WAN
-    // chart timeline. Mirrors a manual scrub: stops any playback, moves the
-    // timeline to the instant (or snaps to Live at the right edge) and loads it
-    // through the same pipeline as slider/keyboard scrubbing. With autoPlay the
-    // timeline resumes playback from the instant instead of parking paused -
-    // _startHistoricPlayback adopts the instant via _pendingScrubAt and
-    // publishes/loads it immediately.
-    seekTo(ms, { autoPlay = false } = {}) {
+    // chart timeline. Mirrors a manual scrub: stops any playback, parks the
+    // timeline at the instant (or snaps to Live at the right edge) and loads it
+    // through the same debounced pipeline as slider/keyboard scrubbing.
+    seekTo(ms) {
         const range = this._panels.scrubberRange;
         if (!range || !Number.isFinite(ms)) return;
         this._stopHistoricPlayback();
@@ -2668,22 +2665,8 @@ export class LanFlowMap {
         const val = this._timeToScrubberValue(t);
         range.value = val;
         this._onScrubberInput(val, at);
-        if (this._isLiveValue(val, at)) {
-            this._queueScrubChange(val, at);
-            return;
-        }
-        if (this._mode === 'live') this._enterHistoricScrub();
-        if (autoPlay) {
-            this._historicAt = at;
-            this._pendingScrubAt = at;
-            this._paused = false;
-            this._syncPlayPauseIcon();
-            flowData.publishPlayState(false, this._mode);
-            this._notifyPlayState();
-            this._startHistoricPlayback();
-        } else {
-            this._queueScrubChange(val, at);
-        }
+        if (this._mode === 'live' && !this._isLiveValue(val, at)) this._enterHistoricScrub();
+        this._queueScrubChange(val, at);
     }
 
     _onScrubberInput(value, at = null) {
