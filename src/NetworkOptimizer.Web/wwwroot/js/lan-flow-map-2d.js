@@ -558,6 +558,7 @@ class LanFlowMap2D {
             if(e.key!=='ArrowLeft'&&e.key!=='ArrowRight')return;
             if(inst._keys)inst._keys[e.key.toLowerCase()]=false;
             inst._arrowScrubStart=null;
+            inst._kbScrubTime=null;
         });
         // Forward all interactions to the 3D map
         const fwd=()=>window.__lanFlowMap?.getInstance?.();
@@ -580,7 +581,7 @@ class LanFlowMap2D {
             if(e.key==='Shift'){if(inst._keys)inst._keys.shift=false;return;}
             const key=e.key.toLowerCase();
             if(inst._keys)inst._keys[key]=false;
-            if(e.key==='ArrowLeft'||e.key==='ArrowRight')inst._arrowScrubStart=null;
+            if(e.key==='ArrowLeft'||e.key==='ArrowRight'){inst._arrowScrubStart=null;inst._kbScrubTime=null;}
         });
         sRange.addEventListener('input',(e)=>{
             const inst=fwd();if(inst){

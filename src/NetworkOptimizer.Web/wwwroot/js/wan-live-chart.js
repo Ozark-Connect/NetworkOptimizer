@@ -37,6 +37,9 @@ let histTimer = null;
 let histAt = 0;
 let histWall = 0;
 let histRate = 0;
+// Seek fetch generation: rapid seeks can resolve out of order, and applying a
+// stale response after a newer one snaps the playhead backward.
+let seekGen = 0;
 
 function formatBps(v) {
     if (v == null || v < 1) return '0';
@@ -445,13 +448,16 @@ function stopHistInterpolation() {
 
 export async function seekTime(isoTimestamp) {
     if (!chart) return;
+    seekGen++;
     if (!isoTimestamp) {
         // Return to live mode - updateChart replaces the annotations with the
         // plain time grid, dropping the playhead.
         stopHistInterpolation();
         if (pollTimer) return; // already live
+        const liveGen = seekGen;
         buffer = [];
         await loadHistory();
+        if (liveGen !== seekGen) return; // seeked again while loading
         updateChart();
         pollTimer = setInterval(pollLive, POLL_MS);
         scrollTimer = setInterval(updateChart, SCROLL_MS);
@@ -462,6 +468,7 @@ export async function seekTime(isoTimestamp) {
     if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
     if (scrollTimer) { clearInterval(scrollTimer); scrollTimer = null; }
     if (backfillTimer) { clearInterval(backfillTimer); backfillTimer = null; }
+    const gen = seekGen;
     const at = new Date(isoTimestamp).getTime();
     histAt = at;
     histWall = Date.now();
@@ -479,6 +486,7 @@ export async function seekTime(isoTimestamp) {
             { credentials: 'same-origin' });
         if (!resp.ok) return;
         const data = await resp.json();
+        if (gen !== seekGen) return; // a newer seek (or return to live) superseded this one
         buffer = (data.points || []).map(p => ({
             time: new Date(p.time).getTime(),
             download: p.downloadBps,
