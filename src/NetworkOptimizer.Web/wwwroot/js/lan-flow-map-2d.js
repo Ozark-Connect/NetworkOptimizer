@@ -1610,7 +1610,11 @@ class LanFlowMap2D {
             const r=off?null:(this._liveRates[e.lk.portKey]||this._liveRates[e.lk.id]);
             const dn=r?.downstreamBps??0,up=r?.upstreamBps??0;
             const cap=e.lk.capacityBps||1e9;
-            const u=Math.max(dn,up)/cap;
+            // Full-duplex: reserve the top (red) colour for BOTH directions
+            // saturated. Busy direction drives the ramp; the quiet one must also
+            // load up to reach full - a lone saturated direction tops out amber.
+            const dU=Math.min(dn/cap,1),uU=Math.min(up/cap,1);
+            const u=0.75*Math.max(dU,uU)+0.25*Math.min(dU,uU);
             const band=e.lk.band;
             ctx.strokeStyle=pipeClr(Math.min(u,1),band);
             ctx.lineWidth=pipeW(e.lk.capacityBps);

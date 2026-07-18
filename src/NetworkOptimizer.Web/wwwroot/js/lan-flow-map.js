@@ -1372,13 +1372,19 @@ export class LanFlowMap {
             link.down.setRate(r.downstreamBps || 0);
             link.up.setRate(r.upstreamBps || 0);
 
-            // Health: utilization = max(down, up) / capacity. If we don't have capacity,
-            // fall back to a fixed 1 Gbps reference so it still reads.
+            // Health: per-direction utilization against capacity. A link is
+            // full-duplex - each direction carries the full capacity independently
+            // - so a single saturated direction is NOT a saturated link. Reserve
+            // the top (red) color for genuine duplex saturation: the busier
+            // direction drives most of the ramp, but the quieter one must also
+            // load up to reach full. A lone saturated direction tops out in amber.
+            // Without capacity, fall back to a fixed 1 Gbps reference so it reads.
             const capacity = (link.link.capacityBps && link.link.capacityBps > 0)
                 ? link.link.capacityBps
                 : 1_000_000_000;
-            const peak = Math.max(r.downstreamBps || 0, r.upstreamBps || 0);
-            const util = Math.min(peak / capacity, 1.0);
+            const downU = Math.min((r.downstreamBps || 0) / capacity, 1.0);
+            const upU = Math.min((r.upstreamBps || 0) / capacity, 1.0);
+            const util = 0.75 * Math.max(downU, upU) + 0.25 * Math.min(downU, upU);
             this._setPipeHealth(link.pipe, util);
         }
         // Refresh the device-rate text on the floating DOM labels.

@@ -463,6 +463,11 @@ h1:focus {
     align-items: center;
     gap: 0.4rem;
 }
+@media (max-width: 768px) {
+    .wan-chart-mode-cluster {
+        right: 0;
+    }
+}
 .wan-chart-mode-cluster .lan-flow-map-mode {
     cursor: pointer;
 }

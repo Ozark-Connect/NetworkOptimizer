@@ -41,8 +41,14 @@ let histRate = 0;
 // Seek fetch generation: rapid seeks can resolve out of order, and applying a
 // stale response after a newer one snaps the playhead backward.
 let seekGen = 0;
-// Click-to-seek (Live View mount only): clicking the chart scrubs the map
-// timeline to the clicked instant.
+// Touch-primary devices tap the plot to reveal the value tooltip - that's the
+// established paradigm and click-to-seek must not hijack it. Tap-to-seek is
+// desktop-only; the play/pause + Historic cluster (separate tap targets off the
+// plot) still shows, so mobile keeps playback control without breaking tooltips.
+const IS_TOUCH = typeof window !== 'undefined'
+    && window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+// Click-to-seek (Live View, desktop mount only): clicking the chart scrubs the
+// map timeline to the clicked instant.
 let seekOnClick = false;
 // Historic mode cluster (upper-left): play/pause button + Historic badge
 // (click returns to live). Unlike the map badges it hides in live mode
@@ -95,7 +101,8 @@ function buildOpts() {
                 // playhead, via the normal seekTime round-trip - at the clicked
                 // instant. Live View only - the mount opts in.
                 click: (event, ctx) => {
-                    if (!seekOnClick || !event?.clientX) return;
+                    // Touch: leave the tap for the native tooltip, don't seek.
+                    if (!seekOnClick || IS_TOUCH || !event?.clientX) return;
                     const t = clickToTime(event, ctx);
                     if (t == null) return;
                     const inst = window.__lanFlowMap?.getInstance?.();
@@ -454,7 +461,8 @@ export async function mount(containerId, opts) {
     const el = document.getElementById(containerId);
     if (!el) return;
     seekOnClick = !!opts?.seekOnClick;
-    el.classList.toggle('wan-chart-seekable', seekOnClick);
+    // Crosshair only where tap-to-seek is actually live (desktop).
+    el.classList.toggle('wan-chart-seekable', seekOnClick && !IS_TOUCH);
 
     chart = new ApexCharts(el, buildOpts());
     await chart.render();
