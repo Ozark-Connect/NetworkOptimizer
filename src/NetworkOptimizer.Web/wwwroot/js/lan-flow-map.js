@@ -143,8 +143,8 @@ const NET_LABEL_FADE_START_DIST = 66;
 const NET_LABEL_FADE_END_DIST = 102;
 // Throughput pills fade earlier still - when pulling back, device identity
 // should outlive the rate readouts.
-const LINK_LABEL_FADE_START_DIST = 54;
-const LINK_LABEL_FADE_END_DIST = 84;
+const LINK_LABEL_FADE_START_DIST = 62;
+const LINK_LABEL_FADE_END_DIST = 97;
 
 const LINK_KIND = {
     Uplink: 0,
