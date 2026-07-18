@@ -2901,11 +2901,11 @@ export class LanFlowMap {
             const capDown = link.capacityDownBps, capUp = link.capacityUpBps;
             let capTip = null;
             if (capDown > 0 && capUp > 0) {
-                capTip = `Link speed: ↓ ${formatBps(capDown)} / ↑ ${formatBps(capUp)}`;
+                capTip = `Link speed: ↓ ${formatCapacity(capDown)} / ↑ ${formatCapacity(capUp)}`;
             } else if (capDown > 0 || capUp > 0) {
-                capTip = `Link speed: ${formatBps(capDown > 0 ? capDown : capUp)}`;
+                capTip = `Link speed: ${formatCapacity(capDown > 0 ? capDown : capUp)}`;
             } else if (Number.isFinite(link.capacityBps) && link.capacityBps > 0) {
-                capTip = `Link speed: ${formatBps(link.capacityBps)}`;
+                capTip = `Link speed: ${formatCapacity(link.capacityBps)}`;
             }
             if (capTip) {
                 el.setAttribute('data-tooltip', capTip);
@@ -4122,6 +4122,12 @@ function formatBps(bps) {
     let v = bps;
     while (v >= 1000 && i < units.length - 1) { v /= 1000; i += 1; }
     return `${v >= 100 ? v.toFixed(0) : v.toFixed(1)} ${units[i]}`;
+}
+
+// Capacity variant: whole numbers drop the trailing .0 ("1 Gbps" not
+// "1.0 Gbps"), real decimals keep it ("2.5 Gbps").
+function formatCapacity(bps) {
+    return formatBps(bps).replace('.0 ', ' ');
 }
 
 function formatAge(ms) {
