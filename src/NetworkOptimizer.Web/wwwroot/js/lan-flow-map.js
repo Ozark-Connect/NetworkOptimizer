@@ -1736,6 +1736,9 @@ export class LanFlowMap {
         const camPos = this.camera.position;
         const devMax = Math.max(1.0, Math.min(DEVICE_ZOOM_MAX, ZOOM_EFFECTIVE_CEIL / this._deviceScale));
         const linkMax = Math.max(1.0, Math.min(LINK_ZOOM_MAX, ZOOM_EFFECTIVE_CEIL / this._linkScale));
+        // Zoom-in floor is relative like the ceiling: large properties thin
+        // their pipes further up close; single-home keeps the designed floor.
+        const linkMin = LINK_ZOOM_MIN * this._linkScale;
         for (const group of this._nodeMeshes.values()) {
             const { core, halo } = group.userData ?? {};
             if (!core) continue;
@@ -1747,7 +1750,7 @@ export class LanFlowMap {
         for (const { pipe, down, up } of this._linkMeshes.values()) {
             if (!pipe) continue;
             const dist = camPos.distanceTo(pipe.position);
-            const z = Math.max(LINK_ZOOM_MIN, Math.min(linkMax, dist / DEVICE_ZOOM_REF_DIST));
+            const z = Math.max(linkMin, Math.min(linkMax, dist / DEVICE_ZOOM_REF_DIST));
             pipe.scale.x = z;
             pipe.scale.z = z;
             down?.setZoom(z);
