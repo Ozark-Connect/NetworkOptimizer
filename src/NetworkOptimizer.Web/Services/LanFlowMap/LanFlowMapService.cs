@@ -436,6 +436,12 @@ public class LanFlowMapService
         // Cloud RTT: pick the lowest RTT across all access hop targets for this
         // WAN so the globe shows the nearest ISP infrastructure latency, not a
         // deeper transit hop that happens to be last in the wizard ordering.
+        // WAN globe LOSS is different: it shows the combined ISP+Transit mean the
+        // WAN live chart plots, so the globe and the chart's Loss series always
+        // agree - the lowest-RTT hop's own loss missed drops on the other hops.
+        double? wanChartLoss = null;
+        try { wanChartLoss = (await _liveStats.GetMeanIspTransitLiveAsync(ct)).MeanLossPercent; }
+        catch { }
         foreach (var cloud in snapshot.Clouds)
         {
             double? rtt = cloud.RttAvgMs;
@@ -461,6 +467,8 @@ public class LanFlowMapService
                     loss = bestLoss;
                     success = true;
                 }
+                if (cloud.Kind == LanCloudKind.AccessIsp && wanChartLoss != null)
+                    loss = wanChartLoss;
             }
 
             update.CloudStats[cloud.Id] = new CloudLiveStats
@@ -895,10 +903,19 @@ public class LanFlowMapService
                         .FirstOrDefault();
                 }
                 if (best == null) continue;
+                // WAN globe loss mirrors the WAN chart's Loss series (combined
+                // ISP+Transit mean) at the same instant, matching the live path.
+                double? loss = best.LossPercent;
+                if (cloud.Kind == LanCloudKind.AccessIsp && cached.MeanIspTransit.Count > 0)
+                {
+                    loss = cached.MeanIspTransit
+                        .OrderBy(p => Math.Abs((p.Time - at).TotalMilliseconds))
+                        .First().LossPercent;
+                }
                 update.CloudStats[cloud.Id] = new CloudLiveStats
                 {
                     RttAvgMs = best.RttAvgMs,
-                    LossPercent = best.LossPercent,
+                    LossPercent = loss,
                     Success = best.RttAvgMs.HasValue,
                 };
             }
@@ -2103,7 +2120,17 @@ public class LanFlowMapService
             catch (Exception ex) { _logger.LogDebug(ex, "Historic latency fetch failed for {Type}", targetType); }
         }
 
-        return new HistoricDataCache(from, to, ratesByDevice, wifi, wired, healthByDevice, latencyByType);
+        // Combined ISP+Transit mean - the series the WAN live chart plots. WAN globe
+        // loss reads from this during playback so globe and chart always agree.
+        IReadOnlyList<MonitoringInfluxClient.LatencyPoint> meanIspTransit = Array.Empty<MonitoringInfluxClient.LatencyPoint>();
+        try
+        {
+            var targetIds = (await _liveStats.GetIspTransitTargetsAsync(ct)).Select(t => t.TargetId).ToList();
+            meanIspTransit = await _influx.QueryMeanIspTransitLatencyAsync(from, to, targetIds, ct: ct);
+        }
+        catch (Exception ex) { _logger.LogDebug(ex, "Historic mean ISP/transit latency fetch failed"); }
+
+        return new HistoricDataCache(from, to, ratesByDevice, wifi, wired, healthByDevice, latencyByType, meanIspTransit);
     }
 
     private async Task<LinkLiveRates?> QueryClientThroughputAsync(

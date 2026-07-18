@@ -442,12 +442,34 @@ h1:focus {
     overflow: visible;
 }
 .wan-live-chart-card > .card-body {
+    position: relative;
     padding: 0 0 0.3rem;
     margin-right: -0.75rem;
     overflow: visible;
 }
 .wan-live-chart-card .apexcharts-canvas {
     min-height: 0;
+}
+.wan-chart-seekable {
+    position: relative;
+    cursor: crosshair;
+}
+.wan-chart-mode-cluster {
+    position: absolute;
+    top: 0.5rem;
+    right: 3.5rem;
+    z-index: 6;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+@media (max-width: 768px) {
+    .wan-chart-mode-cluster {
+        right: 0;
+    }
+}
+.wan-chart-mode-cluster .lan-flow-map-mode {
+    cursor: pointer;
 }
 .dashboard-grid .lv-panel > .wan-live-chart-card {
     margin: -0.5rem;

@@ -43,45 +43,7 @@ public static class MonitoringChartEndpoints
                 }
             }
 
-            var targets = await liveStats.GetIspTransitTargetsAsync(ct);
-
-            var ispRtts = new List<double>();
-            var ispLosses = new List<double>();
-            var transitRtts = new List<double>();
-            var transitLosses = new List<double>();
-
-            foreach (var t in targets)
-            {
-                var st = liveStats.GetTargetStats(t.TargetId);
-                if (st == null) continue;
-
-                if (t.TargetType == MonitoringTargetType.AccessIsp)
-                {
-                    if (st.RttAvgMs != null) ispRtts.Add(st.RttAvgMs.Value);
-                    ispLosses.Add(st.LossPercent);
-                }
-                else
-                {
-                    if (st.RttAvgMs != null) transitRtts.Add(st.RttAvgMs.Value);
-                    transitLosses.Add(st.LossPercent);
-                }
-            }
-
-            var ispRtt = ispRtts.Count > 0 ? ispRtts.Average() : (double?)null;
-            var ispLoss = ispLosses.Count > 0 ? ispLosses.Average() : 0.0;
-            var transitRtt = transitRtts.Count > 0 ? transitRtts.Average() : (double?)null;
-            var transitLoss = transitLosses.Count > 0 ? transitLosses.Average() : 0.0;
-
-            double? meanRtt = null;
-            if (ispRtt != null && transitRtt != null)
-                meanRtt = (ispRtt.Value + transitRtt.Value) / 2;
-            else meanRtt = ispRtt ?? transitRtt;
-
-            double meanLoss = 0;
-            if (ispRtt != null && transitRtt != null)
-                meanLoss = (ispLoss + transitLoss) / 2;
-            else if (ispRtt != null) meanLoss = ispLoss;
-            else if (transitRtts.Count > 0) meanLoss = transitLoss;
+            var (meanRtt, meanLoss) = await liveStats.GetMeanIspTransitLiveAsync(ct);
 
             return Results.Ok(new
             {
@@ -139,18 +101,19 @@ public static class MonitoringChartEndpoints
             var wanData = await wanTask;
             var rttData = await rttTask;
 
-            var rttByTime = new Dictionary<long, MonitoringInfluxClient.LatencyPoint>();
-            foreach (var p in rttData)
-            {
-                var bucket = p.Time.Ticks / (TimeSpan.TicksPerSecond * 5) * (TimeSpan.TicksPerSecond * 5);
-                rttByTime[bucket] = p;
-            }
+            // As-of merge: each WAN point adopts the newest latency point at or
+            // before its own timestamp. The previous exact-bucket join silently
+            // DROPPED latency points whenever the SNMP tier skipped the matching
+            // 5s window - and SNMP polls get delayed exactly under load, so loss
+            // spikes vanished from the chart precisely when they mattered.
+            var rttSorted = rttData.OrderBy(p => p.Time).ToList();
+            var ri = 0;
             MonitoringInfluxClient.LatencyPoint? lastRtt = null;
 
-            var points = wanData.Select(w =>
+            var points = wanData.OrderBy(w => w.Time).Select(w =>
             {
-                var bucket = w.Time.Ticks / (TimeSpan.TicksPerSecond * 5) * (TimeSpan.TicksPerSecond * 5);
-                if (rttByTime.TryGetValue(bucket, out var rtt)) lastRtt = rtt;
+                while (ri < rttSorted.Count && rttSorted[ri].Time <= w.Time)
+                    lastRtt = rttSorted[ri++];
 
                 return new
                 {
@@ -160,7 +123,7 @@ public static class MonitoringChartEndpoints
                     rttMs = lastRtt?.RttAvgMs,
                     lossPercent = lastRtt?.LossPercent,
                 };
-            });
+            }).ToList();
 
             return Results.Ok(new { points });
         });

@@ -359,6 +359,61 @@ public class MonitoringLiveStats
         return result;
     }
 
+    /// <summary>
+    /// Combined ISP+Transit live latency as plotted by the WAN live chart: RTT and
+    /// loss averaged per target type, then the mean of the two types. Loss is
+    /// combined over the types that have loss samples, independent of RTT presence,
+    /// mirroring the historic series (QueryMeanIspTransitLatencyAsync) - during a
+    /// full outage RTT goes null while loss pegs at 100, and gating loss on RTT
+    /// blanked the chart exactly when loss mattered most. Shared by the live-stats
+    /// endpoint and the LAN flow map WAN globes so both always show the same number.
+    /// </summary>
+    public async Task<(double? MeanRttMs, double MeanLossPercent)> GetMeanIspTransitLiveAsync(
+        CancellationToken ct = default)
+    {
+        var targets = await GetIspTransitTargetsAsync(ct);
+
+        var ispRtts = new List<double>();
+        var ispLosses = new List<double>();
+        var transitRtts = new List<double>();
+        var transitLosses = new List<double>();
+
+        foreach (var t in targets)
+        {
+            var st = GetTargetStats(t.TargetId);
+            if (st == null) continue;
+
+            if (t.TargetType == MonitoringTargetType.AccessIsp)
+            {
+                if (st.RttAvgMs != null) ispRtts.Add(st.RttAvgMs.Value);
+                ispLosses.Add(st.LossPercent);
+            }
+            else
+            {
+                if (st.RttAvgMs != null) transitRtts.Add(st.RttAvgMs.Value);
+                transitLosses.Add(st.LossPercent);
+            }
+        }
+
+        var ispRtt = ispRtts.Count > 0 ? ispRtts.Average() : (double?)null;
+        var ispLoss = ispLosses.Count > 0 ? ispLosses.Average() : 0.0;
+        var transitRtt = transitRtts.Count > 0 ? transitRtts.Average() : (double?)null;
+        var transitLoss = transitLosses.Count > 0 ? transitLosses.Average() : 0.0;
+
+        double? meanRtt;
+        if (ispRtt != null && transitRtt != null)
+            meanRtt = (ispRtt.Value + transitRtt.Value) / 2;
+        else meanRtt = ispRtt ?? transitRtt;
+
+        double meanLoss = 0;
+        if (ispLosses.Count > 0 && transitLosses.Count > 0)
+            meanLoss = (ispLoss + transitLoss) / 2;
+        else if (ispLosses.Count > 0) meanLoss = ispLoss;
+        else if (transitLosses.Count > 0) meanLoss = transitLoss;
+
+        return (meanRtt, meanLoss);
+    }
+
     /// <summary>Total fabric ingress/egress across all devices in the cache.
     /// Only devices with non-null fabric data contribute (APs are excluded
     /// because the collection agent never calls RecordFabricSum for them).</summary>

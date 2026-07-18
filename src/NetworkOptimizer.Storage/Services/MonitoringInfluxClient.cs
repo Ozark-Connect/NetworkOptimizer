@@ -664,14 +664,16 @@ from(bucket: ""{_bucket}"")
         {
             if (group.Select(r => r.ClientMac).Distinct(StringComparer.OrdinalIgnoreCase).Count() != 1)
                 continue; // multiple clients in the window - trunk/uplink, never label
-            var latest = group.OrderByDescending(r => r.Time).First();
+            // Nearest to the scrub instant, matching the counter selection in
+            // QueryPortStatsAsync (name/IP can change across the window).
+            var nearest = group.OrderBy(r => Math.Abs((r.Time - center).Ticks)).First();
             result.Add(new WiredPortClientPoint
             {
-                DeviceMac = latest.DeviceMac,
-                Port = latest.Port,
-                ClientMac = latest.ClientMac,
-                ClientIp = latest.Ip,
-                ClientName = latest.Name,
+                DeviceMac = nearest.DeviceMac,
+                Port = nearest.Port,
+                ClientMac = nearest.ClientMac,
+                ClientIp = nearest.Ip,
+                ClientName = nearest.Name,
             });
         }
         return result;
@@ -1179,12 +1181,17 @@ from(bucket: ""{_bucket}"")
         if (!IsConfigured) return Array.Empty<PortStatsPoint>();
 
         string rangeClause;
+        var lastClause = "\n  |> last()";
         if (at.HasValue)
         {
-            // Mirror the historic snapshot window used elsewhere on the Live tab so
-            // the table lines up with the map and WAN chart at the same scrub point.
+            // Same fetch window as the historic snapshot used elsewhere on the Live
+            // tab. No last() here: last() would take the newest sample in the window
+            // (up to 30 s AFTER the scrub instant), putting the table ahead of the
+            // map and stat cards, which pick the sample NEAREST the instant. Fetch
+            // every sample and let the coalescing below pick the nearest one.
             var center = at.Value.ToUniversalTime();
             rangeClause = $"range(start: {ToFluxInstant(center.AddSeconds(-90))}, stop: {ToFluxInstant(center.AddSeconds(30))})";
+            lastClause = "";
         }
         else
         {
@@ -1204,8 +1211,7 @@ from(bucket: ""{_bucket}"")
         var flux = $@"
 from(bucket: ""{_bucket}"")
   |> {rangeClause}
-  |> filter(fn: (r) => r._measurement == ""interface_counters""){macFilter}
-  |> last()
+  |> filter(fn: (r) => r._measurement == ""interface_counters""){macFilter}{lastClause}
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
 ";
         var raw = new List<PortStatsPoint>();
@@ -1240,13 +1246,18 @@ from(bucket: ""{_bucket}"")
         // written when a rate is computable, so a fresh point may carry oper_status
         // and packet counters while the rates sit on an earlier point. pivot-by-time
         // then splits one interface into several partial rows. Collapse to a single
-        // row per (device, interface), coalescing each field from the most recent
-        // sample that carries it.
+        // row per (device, interface), coalescing each field from the best sample
+        // that carries it: nearest to the scrub instant in historic mode (keeping
+        // the table in lockstep with the map, which picks nearest), most recent
+        // otherwise.
+        var atUtc = at?.ToUniversalTime();
         return raw
             .GroupBy(p => (p.DeviceMac, p.IfName), TupleMacIfComparer)
             .Select(g =>
             {
-                var ordered = g.OrderByDescending(p => p.Time).ToList();
+                var ordered = atUtc.HasValue
+                    ? g.OrderBy(p => Math.Abs((p.Time - atUtc.Value).Ticks)).ToList()
+                    : g.OrderByDescending(p => p.Time).ToList();
                 long? FirstLong(Func<PortStatsPoint, long?> sel) => ordered.Select(sel).FirstOrDefault(v => v.HasValue);
                 double? FirstDouble(Func<PortStatsPoint, double?> sel) => ordered.Select(sel).FirstOrDefault(v => v.HasValue);
                 return new PortStatsPoint
@@ -1678,7 +1689,9 @@ rtt = base
 loss = base
   |> filter(fn: (r) => r._field == ""loss_percent"")
   |> group(columns: [""target_id"", ""target_type""])
-  |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false)
+  |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: true)
+  |> fill(usePrevious: true)
+  |> filter(fn: (r) => exists r._value)
   |> group(columns: [""target_type"", ""_time""])
   |> mean()
   |> group(columns: [""_time""])

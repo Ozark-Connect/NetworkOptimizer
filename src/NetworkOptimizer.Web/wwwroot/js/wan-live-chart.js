@@ -3,6 +3,7 @@
 // /api/monitoring/live-stats for real-time updates.
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
+import * as flowData from './lan-flow-data.js?v=5';
 
 const HISTORY_MINUTES = 5;
 // Poll faster than the 5s SNMP fast tier so no sample is missed when the two
@@ -37,6 +38,30 @@ let histTimer = null;
 let histAt = 0;
 let histWall = 0;
 let histRate = 0;
+// Seek fetch generation: rapid seeks can resolve out of order, and applying a
+// stale response after a newer one snaps the playhead backward.
+let seekGen = 0;
+// Touch-primary devices tap the plot to reveal the value tooltip - that's the
+// established paradigm and click-to-seek must not hijack it. Tap-to-seek is
+// desktop-only; the play/pause + Historic cluster (separate tap targets off the
+// plot) still shows, so mobile keeps playback control without breaking tooltips.
+const IS_TOUCH = typeof window !== 'undefined'
+    && window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+// Click-to-seek (Live View, desktop mount only): clicking the chart scrubs the
+// map timeline to the clicked instant.
+let seekOnClick = false;
+// Historic mode cluster (upper-left): play/pause button + Historic badge
+// (click returns to live). Unlike the map badges it hides in live mode
+// entirely - the chart is live by default and only needs the flag while
+// parked or playing back. Synced from the shared store's playstate events.
+let modeCluster = null;
+let histBadge = null;
+let playBtn = null;
+let unsubFlow = null;
+// Renders forced through the tooltip hold-off until this wall time: a click
+// on the chart (to seek or play) must draw its playhead even though the
+// pointer - and therefore the tooltip - is still over the plot.
+let clickRenderUntil = 0;
 
 function formatBps(v) {
     if (v == null || v < 1) return '0';
@@ -44,6 +69,19 @@ function formatBps(v) {
     if (v >= 1e6) return (v / 1e6).toFixed(1) + ' Mbps';
     if (v >= 1e3) return (v / 1e3).toFixed(0) + ' Kbps';
     return v.toFixed(0) + ' bps';
+}
+
+// Map a click inside the chart to the instant under the cursor. The inner
+// (grid) group's rect avoids translate math; its width is the plotted span.
+function clickToTime(event, ctx) {
+    const g = ctx?.w?.globals;
+    const inner = ctx?.el?.querySelector('.apexcharts-inner');
+    if (!g || !inner || !Number.isFinite(g.minX) || !Number.isFinite(g.maxX)) return null;
+    const rect = inner.getBoundingClientRect();
+    if (!rect.width) return null;
+    const frac = (event.clientX - rect.left) / rect.width;
+    if (frac < 0 || frac > 1) return null;
+    return g.minX + frac * (g.maxX - g.minX);
 }
 
 function buildOpts() {
@@ -58,6 +96,28 @@ function buildOpts() {
             // labels sit close to the card bottom.
             parentHeightOffset: 0,
             animations: { enabled: true, easing: 'smooth', dynamicAnimation: { speed: 800 } },
+            events: {
+                // Click-to-seek: park the map timeline - and this chart's
+                // playhead, via the normal seekTime round-trip - at the clicked
+                // instant. Live View only - the mount opts in.
+                click: (event, ctx) => {
+                    // Touch: leave the tap for the native tooltip, don't seek.
+                    if (!seekOnClick || IS_TOUCH || !event?.clientX) return;
+                    const t = clickToTime(event, ctx);
+                    if (t == null) return;
+                    const inst = window.__lanFlowMap?.getInstance?.();
+                    if (!inst?.seekTo) return;
+                    // Instant feedback: freeze live drawing and draw the playhead
+                    // at the clicked instant from the buffer already on screen;
+                    // the seek round-trip then re-renders with the proper window.
+                    pause();
+                    histAt = t;
+                    histWall = Date.now();
+                    clickRenderUntil = Date.now() + 1500;
+                    renderHistoric(t);
+                    inst.seekTo(t);
+                },
+            },
         },
         series: [
             { name: 'Download', type: 'area', data: [] },
@@ -339,6 +399,57 @@ async function backfillHistory() {
     updateChart();
 }
 
+// Upper-left mode cluster: play/pause + Historic badge, shown only while the
+// timeline is off the live edge. State comes from the shared store's playstate
+// events (published by the 3D map instance, which owns the timeline).
+function ensureModeUi(el) {
+    if (!seekOnClick) return;
+    if (!modeCluster) {
+        modeCluster = document.createElement('div');
+        modeCluster.className = 'wan-chart-mode-cluster';
+
+        playBtn = document.createElement('button');
+        playBtn.type = 'button';
+        playBtn.className = 'lan-flow-map-scrubber-playpause';
+        playBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            clickRenderUntil = Date.now() + 1500;
+            window.__lanFlowMap?.getInstance?.()?._togglePlayPause?.();
+        });
+        modeCluster.appendChild(playBtn);
+
+        histBadge = document.createElement('div');
+        histBadge.className = 'lan-flow-map-mode is-historic';
+        histBadge.textContent = 'Historic';
+        histBadge.setAttribute('data-tooltip', 'Click to return to live');
+        histBadge.setAttribute('data-tooltip-hover-only', '');
+        histBadge.addEventListener('click', (e) => {
+            e.stopPropagation();
+            window.__lanFlowMap?.getInstance?.()?._returnToLive?.();
+        });
+        modeCluster.appendChild(histBadge);
+    }
+    // Parent OUTSIDE the chart's mount div: ApexCharts rebuilds that div's
+    // content on render (and can again on option updates), silently removing
+    // any foreign children. The card body wraps the chart tightly, so the
+    // cluster anchors to the same visual spot.
+    (el.closest('.card-body') ?? el).appendChild(modeCluster);
+    if (!unsubFlow) {
+        unsubFlow = flowData.subscribe((ev) => { if (ev === 'playstate') syncModeUi(); });
+    }
+    syncModeUi();
+}
+
+function syncModeUi() {
+    if (!modeCluster) return;
+    const historic = flowData.getMode() === 'historic';
+    modeCluster.style.display = historic ? '' : 'none';
+    if (!playBtn) return;
+    const paused = flowData.isPaused();
+    playBtn.textContent = paused ? '▶' : '⏸';
+    playBtn.setAttribute('aria-label', paused ? 'Play' : 'Pause');
+}
+
 export async function mount(containerId, opts) {
     if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
     if (scrollTimer) { clearInterval(scrollTimer); scrollTimer = null; }
@@ -349,10 +460,16 @@ export async function mount(containerId, opts) {
     elId = containerId;
     const el = document.getElementById(containerId);
     if (!el) return;
+    seekOnClick = !!opts?.seekOnClick;
+    // Crosshair only where tap-to-seek is actually live (desktop).
+    el.classList.toggle('wan-chart-seekable', seekOnClick && !IS_TOUCH);
 
     chart = new ApexCharts(el, buildOpts());
     await chart.render();
     if (gen !== mountGen) return;
+    // After render - ApexCharts rebuilds the container's content, so anything
+    // appended before it is wiped.
+    ensureModeUi(el);
 
     await loadHistory();
     if (gen !== mountGen) return;
@@ -391,10 +508,16 @@ export function resume() {
 
 // Render the historic view at a given playhead time from the current buffer.
 // No fetching - callers load data; the interpolation timer reuses it.
+// Hovering holds redraws (same as live updateChart) so values can be inspected
+// without the chart shifting under the cursor - EXCEPT briefly after a click on
+// the chart, which must draw its playhead even though the pointer (and so the
+// tooltip) is still over the plot.
 function renderHistoric(at) {
     if (!chart || buffer.length === 0) return;
-    const el = document.getElementById(elId);
-    if (el?.classList.contains('apexcharts-tooltip-active')) return;
+    if (Date.now() > clickRenderUntil) {
+        const el = document.getElementById(elId);
+        if (el?.classList.contains('apexcharts-tooltip-active')) return;
+    }
     const halfWindow = HISTORY_MINUTES * 60000 / 2;
     const maxTime = Math.min(at + halfWindow, Date.now());
     const playhead = {
@@ -445,13 +568,17 @@ function stopHistInterpolation() {
 
 export async function seekTime(isoTimestamp) {
     if (!chart) return;
+    seekGen++;
     if (!isoTimestamp) {
         // Return to live mode - updateChart replaces the annotations with the
-        // plain time grid, dropping the playhead.
+        // plain time grid, dropping the playhead. (Mode cluster visibility is
+        // driven by the store's playstate events, not by seeks.)
         stopHistInterpolation();
         if (pollTimer) return; // already live
+        const liveGen = seekGen;
         buffer = [];
         await loadHistory();
+        if (liveGen !== seekGen) return; // seeked again while loading
         updateChart();
         pollTimer = setInterval(pollLive, POLL_MS);
         scrollTimer = setInterval(updateChart, SCROLL_MS);
@@ -462,6 +589,7 @@ export async function seekTime(isoTimestamp) {
     if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
     if (scrollTimer) { clearInterval(scrollTimer); scrollTimer = null; }
     if (backfillTimer) { clearInterval(backfillTimer); backfillTimer = null; }
+    const gen = seekGen;
     const at = new Date(isoTimestamp).getTime();
     histAt = at;
     histWall = Date.now();
@@ -479,6 +607,7 @@ export async function seekTime(isoTimestamp) {
             { credentials: 'same-origin' });
         if (!resp.ok) return;
         const data = await resp.json();
+        if (gen !== seekGen) return; // a newer seek (or return to live) superseded this one
         buffer = (data.points || []).map(p => ({
             time: new Date(p.time).getTime(),
             download: p.downloadBps,
@@ -498,6 +627,12 @@ export async function seekTime(isoTimestamp) {
                 if (histRate > 0) { histRate = 0; renderHistoric(histAt); }
                 return;
             }
+            // Playback just started: the last seek (histWall) was the final scrub
+            // position, stamped BEFORE play was pressed. Re-baseline so the idle
+            // gap between scrubbing and pressing play isn't counted as playback
+            // time - extrapolating it made the cursor run ahead and then snap
+            // back when the first real playback seek arrived.
+            if (histRate === 0) histWall = Date.now();
             histRate = rate;
             const elapsed = Date.now() - histWall;
             if (elapsed > 2500) return; // seeks stalled (hidden tab etc) - hold
@@ -509,6 +644,8 @@ export async function seekTime(isoTimestamp) {
 export function unmount() {
     mountGen++;
     stopHistInterpolation();
+    if (unsubFlow) { unsubFlow(); unsubFlow = null; }
+    if (modeCluster) { modeCluster.remove(); modeCluster = null; histBadge = null; playBtn = null; }
     if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
     if (scrollTimer) { clearInterval(scrollTimer); scrollTimer = null; }
     if (backfillTimer) { clearInterval(backfillTimer); backfillTimer = null; }

@@ -143,8 +143,12 @@ const NET_LABEL_FADE_START_DIST = 66;
 const NET_LABEL_FADE_END_DIST = 102;
 // Throughput pills fade earlier still - when pulling back, device identity
 // should outlive the rate readouts.
-const LINK_LABEL_FADE_START_DIST = 54;
-const LINK_LABEL_FADE_END_DIST = 84;
+const LINK_LABEL_FADE_START_DIST = 62;
+const LINK_LABEL_FADE_END_DIST = 97;
+// WAN throughput labels outlast the LAN pills - there are only one or two of
+// them and WAN utilisation stays interesting from farther back.
+const WAN_LINK_LABEL_FADE_START_DIST = 78;
+const WAN_LINK_LABEL_FADE_END_DIST = 121;
 
 const LINK_KIND = {
     Uplink: 0,
@@ -241,6 +245,8 @@ export class LanFlowMap {
         };
         this._mode = 'live';      // 'live' | 'historic'
         this._historicAt = null;  // Date when in historic mode
+        this._pendingScrubAt = null; // Date of a scrub not yet flushed to _onScrubberChange
+        this._kbScrubTime = null;    // ms epoch of the continuous keyboard-scrub position
         this._dotnetRef = window.__monitoringRef || null;
         this._playbackSpeed = 1;  // real-time multiplier
         this._playbackAccum = 0;  // fractional slider unit accumulator
@@ -422,7 +428,10 @@ export class LanFlowMap {
         this._onKeyUp = (e) => {
             this._keys[e.key.toLowerCase()] = false;
             if (e.key === 'Shift') this._keys.shift = false;
-            if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') this._arrowScrubStart = null;
+            if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+                this._arrowScrubStart = null;
+                this._kbScrubTime = null;
+            }
         };
         document.addEventListener('keydown', this._onKeyDown);
         document.addEventListener('keyup', this._onKeyUp);
@@ -518,6 +527,7 @@ export class LanFlowMap {
         if (this._raf) cancelAnimationFrame(this._raf);
         if (this._pollTimer) clearInterval(this._pollTimer);
         if (this._historicPlaybackTimer) clearInterval(this._historicPlaybackTimer);
+        clearTimeout(this._scrubberInputDebounce);
         if (this._snapshotTimer) clearInterval(this._snapshotTimer);
         if (this._windowTickTimer) clearInterval(this._windowTickTimer);
         if (this._resizeObserver) this._resizeObserver.disconnect();
@@ -1362,13 +1372,19 @@ export class LanFlowMap {
             link.down.setRate(r.downstreamBps || 0);
             link.up.setRate(r.upstreamBps || 0);
 
-            // Health: utilization = max(down, up) / capacity. If we don't have capacity,
-            // fall back to a fixed 1 Gbps reference so it still reads.
+            // Health: per-direction utilization against capacity. A link is
+            // full-duplex - each direction carries the full capacity independently
+            // - so a single saturated direction is NOT a saturated link. Reserve
+            // the top (red) color for genuine duplex saturation: the busier
+            // direction drives most of the ramp, but the quieter one must also
+            // load up to reach full. A lone saturated direction tops out in amber.
+            // Without capacity, fall back to a fixed 1 Gbps reference so it reads.
             const capacity = (link.link.capacityBps && link.link.capacityBps > 0)
                 ? link.link.capacityBps
                 : 1_000_000_000;
-            const peak = Math.max(r.downstreamBps || 0, r.upstreamBps || 0);
-            const util = Math.min(peak / capacity, 1.0);
+            const downU = Math.min((r.downstreamBps || 0) / capacity, 1.0);
+            const upU = Math.min((r.upstreamBps || 0) / capacity, 1.0);
+            const util = 0.75 * Math.max(downU, upU) + 0.25 * Math.min(downU, upU);
             this._setPipeHealth(link.pipe, util);
         }
         // Refresh the device-rate text on the floating DOM labels.
@@ -1684,8 +1700,12 @@ export class LanFlowMap {
             }
 
             // Left/right arrow: scrub timeline. Throttled to 5 ticks/sec.
-            // Accelerates after holding: 4 → 12 → 35 units/tick over 2 seconds.
-            // Shift multiplies by 9x on top of acceleration.
+            // Accelerates after holding: 4 → 12 → 35 slider-units of time per
+            // tick over 2 seconds. Shift multiplies by 9x on top of acceleration.
+            // Steps a continuous timestamp, not the integer slider value: the
+            // slider window trails now, so requantizing through slider units
+            // would make each step land on a slightly different instant than
+            // the label showed, and the seconds would wander.
             if (this._keys?.['arrowleft'] || this._keys?.['arrowright']) {
                 if (this._historicPlaybackTimer) this._stopHistoricPlayback();
                 const now = performance.now();
@@ -1695,17 +1715,30 @@ export class LanFlowMap {
                     const range = this._panels.scrubberRange;
                     if (range) {
                         const held = now - this._arrowScrubStart;
-                        let step = held > 2000 ? 35 : held > 1000 ? 12 : 4;
-                        if (this._keys.shift) step *= 9;
-                        const dir = this._keys['arrowright'] ? step : -step;
-                        const val = Math.max(0, Math.min(10000, Number(range.value) + dir));
+                        let units = held > 2000 ? 35 : held > 1000 ? 12 : 4;
+                        if (this._keys.shift) units *= 9;
+                        const stepMs = units * (this._scrubSpan / 10000);
+                        const { start, end } = this._scrubWindowBounds();
+                        const base = this._kbScrubTime
+                            ?? this._pendingScrubAt?.getTime()
+                            ?? this._historicAt?.getTime()
+                            ?? this._scrubberValueToTime(Number(range.value)).getTime();
+                        const t = Math.max(start, Math.min(end,
+                            base + (this._keys['arrowright'] ? stepMs : -stepMs)));
+                        this._kbScrubTime = t;
+                        const at = new Date(t);
+                        const val = this._timeToScrubberValue(t);
                         range.value = val;
-                        range.dispatchEvent(new Event('input'));
-                        range.dispatchEvent(new Event('change'));
+                        this._onScrubberInput(val, at);
+                        if (this._mode === 'live' && !this._isLiveValue(val, at)) {
+                            this._enterHistoricScrub();
+                        }
+                        this._queueScrubChange(val, at);
                     }
                 }
             } else {
                 this._arrowScrubStart = null;
+                this._kbScrubTime = null;
             }
 
             // Freeze particle motion while paused (Live or Historic) so the
@@ -2006,17 +2039,29 @@ export class LanFlowMap {
         // Track playback as a continuous timestamp, not integer slider units.
         const TICK_MS = 1000;
         const DATA_REFRESH_TICKS = 1;
-        // Seed from the exact parked instant when known - requantizing through
-        // the slider value can be minutes off on a wide window. But only when
-        // the thumb still agrees with it: a quick scrub right before resuming
-        // may not have flushed through the debounced change handler yet, and
-        // then the thumb position is the user's intent, not the stale instant.
+        // A scrub queued but not yet flushed through the debounced change handler
+        // is the user's freshest intent - resume from that exact instant and drop
+        // the pending flush (the first playback tick loads data anyway, and a
+        // late flush would snap playback back to the pre-play position).
+        clearTimeout(this._scrubberInputDebounce);
+        const pending = this._pendingScrubAt;
+        this._pendingScrubAt = null;
+        // Otherwise seed from the exact parked instant when known - requantizing
+        // through the slider value can be minutes off on a wide window. But only
+        // when the thumb still agrees with it; if not, the thumb position is the
+        // user's intent, not the stale instant.
         const fromValue = this._scrubberValueToTime(
             Number(this._panels.scrubberRange?.value ?? 500));
         const stepMs = this._scrubSpan / 10000;
-        this._playbackTime =
-            (this._historicAt && Math.abs(this._historicAt.getTime() - fromValue.getTime()) <= stepMs)
-                ? this._historicAt : fromValue;
+        this._playbackTime = pending
+            ?? ((this._historicAt && Math.abs(this._historicAt.getTime() - fromValue.getTime()) <= stepMs)
+                ? this._historicAt : fromValue);
+        // Publish the seed position immediately instead of waiting for the first
+        // 1s tick: consumers re-baseline their playhead on a confirmed seek, and
+        // an adopted pending scrub gets its data loaded now rather than a tick late.
+        this._historicAt = this._playbackTime;
+        this._notifyStatCards(this._playbackTime);
+        this._loadHistoric(this._playbackTime);
         let tickCount = 0;
         this._historicPlaybackTimer = setInterval(() => {
             if (this._paused) return;
@@ -2293,54 +2338,22 @@ export class LanFlowMap {
         });
         const range = scrubber.querySelector('.lan-flow-map-scrubber-range');
         this._scrubberInputDebounce = null;
-        range.addEventListener('input', (e) => {
-            const val = Number(e.target.value);
-            this._onScrubberInput(val);
-            if (this._mode === 'live' && !this._isLiveValue(val)) {
-                this._mode = 'historic';
-                this._paused = true;
-                this._syncPlayPauseIcon();
-                this._stopHistoricPlayback();
-                if (this._panels.modeBadge) {
-                    this._panels.modeBadge.textContent = 'Historic';
-                    this._panels.modeBadge.classList.add('is-historic');
-                    this._panels.modeBadge.style.cursor = 'pointer';
-                    this._panels.modeBadge.setAttribute('data-tooltip', 'Click to return to live');
-                }
-                this._syncSpeedLabel();
-            }
-            const now = Date.now();
-            const sinceLastFire = now - this._scrubberLastFire;
-            clearTimeout(this._scrubberInputDebounce);
-            if (sinceLastFire >= 500) {
-                this._scrubberLastFire = now;
-                this._onScrubberChange(val);
-            } else {
-                this._scrubberInputDebounce = setTimeout(() => {
-                    this._scrubberLastFire = Date.now();
-                    this._onScrubberChange(val);
-                }, 500 - sinceLastFire);
-            }
-        });
-        this._scrubberThrottleTimer = null;
         this._scrubberLastFire = 0;
-        range.addEventListener('change', (e) => {
+        // Both listeners resolve the slider value to a timestamp AT EVENT TIME and
+        // carry it through the debounce. The window trails now, so re-deriving the
+        // time when the debounced handler fires (up to 500ms later) would load a
+        // different instant than the label showed.
+        const onScrub = (e) => {
             const val = Number(e.target.value);
-            this._onScrubberInput(val);
-            clearTimeout(this._scrubberInputDebounce);
-            const now = Date.now();
-            const elapsed = now - this._scrubberLastFire;
-            clearTimeout(this._scrubberThrottleTimer);
-            if (elapsed >= 1000) {
-                this._scrubberLastFire = now;
-                this._onScrubberChange(val);
-            } else {
-                this._scrubberThrottleTimer = setTimeout(() => {
-                    this._scrubberLastFire = Date.now();
-                    this._onScrubberChange(val);
-                }, 1000 - elapsed);
+            const at = this._scrubberValueToTime(val);
+            this._onScrubberInput(val, at);
+            if (this._mode === 'live' && !this._isLiveValue(val, at)) {
+                this._enterHistoricScrub();
             }
-        });
+            this._queueScrubChange(val, at);
+        };
+        range.addEventListener('input', onScrub);
+        range.addEventListener('change', onScrub);
         range.addEventListener('keydown', (e) => e.preventDefault());
         // User grabbing the thumb implicitly cancels any active historic playback.
         range.addEventListener('pointerdown', () => this._stopHistoricPlayback());
@@ -2608,18 +2621,72 @@ export class LanFlowMap {
     // Timeline scrubber
     // ------------------------------------------------------------------------
 
-    _onScrubberInput(value) {
+    // Flip Live -> Historic on the first scrub interaction: land paused with the
+    // Historic badge up, and kill any running playback.
+    _enterHistoricScrub() {
+        this._mode = 'historic';
+        this._paused = true;
+        this._syncPlayPauseIcon();
+        this._stopHistoricPlayback();
+        if (this._panels.modeBadge) {
+            this._panels.modeBadge.textContent = 'Historic';
+            this._panels.modeBadge.classList.add('is-historic');
+            this._panels.modeBadge.style.cursor = 'pointer';
+            this._panels.modeBadge.setAttribute('data-tooltip', 'Click to return to live');
+        }
+        this._syncSpeedLabel();
+    }
+
+    // Debounced data-load dispatch for scrub interactions (leading fire, then
+    // trailing at 500ms). The exact instant rides along so the eventual
+    // _onScrubberChange loads what the label showed; _pendingScrubAt keeps the
+    // not-yet-flushed instant visible to _startHistoricPlayback, so stepping and
+    // immediately hitting play resumes from the stepped position instead of a
+    // requantized slider value.
+    _queueScrubChange(val, at) {
+        this._pendingScrubAt = at;
+        const now = Date.now();
+        const sinceLastFire = now - this._scrubberLastFire;
+        clearTimeout(this._scrubberInputDebounce);
+        const fire = () => {
+            this._scrubberLastFire = Date.now();
+            this._pendingScrubAt = null;
+            this._onScrubberChange(val, at);
+        };
+        if (sinceLastFire >= 500) fire();
+        else this._scrubberInputDebounce = setTimeout(fire, 500 - sinceLastFire);
+    }
+
+    // External seek to an absolute instant (ms epoch) - e.g. a click on the WAN
+    // chart timeline. Mirrors a manual scrub: stops any playback, parks the
+    // timeline at the instant (or snaps to Live at the right edge) and loads it
+    // through the same debounced pipeline as slider/keyboard scrubbing.
+    seekTo(ms) {
+        const range = this._panels.scrubberRange;
+        if (!range || !Number.isFinite(ms)) return;
+        this._stopHistoricPlayback();
+        const { start, end } = this._scrubWindowBounds();
+        const t = Math.max(start, Math.min(end, ms));
+        const at = new Date(t);
+        const val = this._timeToScrubberValue(t);
+        range.value = val;
+        this._onScrubberInput(val, at);
+        if (this._mode === 'live' && !this._isLiveValue(val, at)) this._enterHistoricScrub();
+        this._queueScrubChange(val, at);
+    }
+
+    _onScrubberInput(value, at = null) {
         // Visual-only update while dragging - cheap label refresh.
-        const at = this._scrubberValueToTime(value);
-        const rightLabel = this._isLiveValue(value) ? 'Live' : _fmtDateTime(at);
+        at = at ?? this._scrubberValueToTime(value);
+        const rightLabel = this._isLiveValue(value, at) ? 'Live' : _fmtDateTime(at);
         if (this._panels.scrubberRight) {
             this._panels.scrubberRight.textContent = rightLabel;
         }
         flowData.publishScrubber(value, rightLabel, this._playbackSpeed);
     }
 
-    async _onScrubberChange(value) {
-        if (this._isLiveValue(value)) {
+    async _onScrubberChange(value, at = null) {
+        if (this._isLiveValue(value, at)) {
             // Snap back to live.
             this._stopHistoricPlayback();
             this._mode = 'live';
@@ -2643,7 +2710,7 @@ export class LanFlowMap {
             await this._pollLive();
             return;
         }
-        const at = this._scrubberValueToTime(value);
+        at = at ?? this._scrubberValueToTime(value);
         this._mode = 'historic';
         this._historicAt = at;
         // Redirect any running playback to the new position - otherwise its
@@ -2722,10 +2789,12 @@ export class LanFlowMap {
     // The window trails now, so the right edge of the slider is Live. Near-edge
     // values only count as Live when they are also near now in TIME - on a wide
     // window the last couple of slider steps span many minutes, and a position
-    // parked "10 minutes ago" must not read (or snap) as Live.
-    _isLiveValue(value) {
+    // parked "10 minutes ago" must not read (or snap) as Live. Callers that
+    // already resolved the value to an instant pass it so the check agrees with
+    // the time they are actually working with.
+    _isLiveValue(value, at = null) {
         if (value < 9998) return false;
-        return Date.now() - this._scrubberValueToTime(value).getTime() < 60000;
+        return Date.now() - (at ?? this._scrubberValueToTime(value)).getTime() < 60000;
     }
 
     // Widest selectable span: capped by the primary bucket's 90-day retention and,
@@ -3156,8 +3225,9 @@ export class LanFlowMap {
             }
             tmp.project(this.camera);
             if (tmp.z > 1) { el.classList.remove('is-visible'); continue; }
-            const fade = 1 - Math.min(1, Math.max(0,
-                (dist - LINK_LABEL_FADE_START_DIST) / (LINK_LABEL_FADE_END_DIST - LINK_LABEL_FADE_START_DIST)));
+            const fadeStart = kind === LINK_KIND.Wan ? WAN_LINK_LABEL_FADE_START_DIST : LINK_LABEL_FADE_START_DIST;
+            const fadeEnd = kind === LINK_KIND.Wan ? WAN_LINK_LABEL_FADE_END_DIST : LINK_LABEL_FADE_END_DIST;
+            const fade = 1 - Math.min(1, Math.max(0, (dist - fadeStart) / (fadeEnd - fadeStart)));
             if (fade <= 0.01) { el.classList.remove('is-visible'); continue; }
             el.style.opacity = fade.toFixed(3);
             const x = (tmp.x * halfW) + halfW;
