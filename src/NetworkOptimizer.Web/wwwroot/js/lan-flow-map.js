@@ -121,6 +121,13 @@ const LINK_ZOOM_MAX = 1.35;
 // maps (factor 1.0) top out at design size, while large campuses keep their
 // full zoom boost since their objects start shrunken.
 const ZOOM_EFFECTIVE_CEIL = 1.0;
+// Sprite labels are world-sized, so perspective balloons them as the camera
+// closes in (the DOM labels already clamp their screen-space scale). Shrink
+// them proportionally inside the reference distance - apparent size then
+// stays constant once you're closer than REF, with a floor so they never
+// collapse entirely. Beyond REF they behave exactly as today.
+const LABEL_ZOOM_REF_DIST = 60;
+const LABEL_ZOOM_MIN = 0.25;
 
 const LINK_KIND = {
     Uplink: 0,
@@ -1263,6 +1270,7 @@ export class LanFlowMap {
         const scaleY = 1.2 * (h / (fontSize + pad * 2));
         const scaleX = scaleY * (w / h);
         sprite.scale.set(scaleX, scaleY, 1);
+        sprite.userData.baseScale = { x: scaleX, y: scaleY };
         return sprite;
     }
 
@@ -1724,6 +1732,14 @@ export class LanFlowMap {
             pipe.scale.z = z;
             down?.setZoom(z);
             up?.setZoom(z);
+        }
+        for (const [nodeId, sprite] of this._labelSprites) {
+            const base = sprite.userData?.baseScale;
+            const group = this._nodeMeshes.get(nodeId);
+            if (!base || !group) continue;
+            const dist = camPos.distanceTo(group.position);
+            const f = Math.max(LABEL_ZOOM_MIN, Math.min(1.0, dist / LABEL_ZOOM_REF_DIST));
+            sprite.scale.set(base.x * f, base.y * f, 1);
         }
     }
 
