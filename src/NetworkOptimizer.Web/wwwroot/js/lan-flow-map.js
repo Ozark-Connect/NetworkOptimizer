@@ -145,6 +145,10 @@ const NET_LABEL_FADE_END_DIST = 102;
 // should outlive the rate readouts.
 const LINK_LABEL_FADE_START_DIST = 62;
 const LINK_LABEL_FADE_END_DIST = 97;
+// WAN throughput labels outlast the LAN pills - there are only one or two of
+// them and WAN utilisation stays interesting from farther back.
+const WAN_LINK_LABEL_FADE_START_DIST = 78;
+const WAN_LINK_LABEL_FADE_END_DIST = 121;
 
 const LINK_KIND = {
     Uplink: 0,
@@ -3197,8 +3201,9 @@ export class LanFlowMap {
             }
             tmp.project(this.camera);
             if (tmp.z > 1) { el.classList.remove('is-visible'); continue; }
-            const fade = 1 - Math.min(1, Math.max(0,
-                (dist - LINK_LABEL_FADE_START_DIST) / (LINK_LABEL_FADE_END_DIST - LINK_LABEL_FADE_START_DIST)));
+            const fadeStart = kind === LINK_KIND.Wan ? WAN_LINK_LABEL_FADE_START_DIST : LINK_LABEL_FADE_START_DIST;
+            const fadeEnd = kind === LINK_KIND.Wan ? WAN_LINK_LABEL_FADE_END_DIST : LINK_LABEL_FADE_END_DIST;
+            const fade = 1 - Math.min(1, Math.max(0, (dist - fadeStart) / (fadeEnd - fadeStart)));
             if (fade <= 0.01) { el.classList.remove('is-visible'); continue; }
             el.style.opacity = fade.toFixed(3);
             const x = (tmp.x * halfW) + halfW;
