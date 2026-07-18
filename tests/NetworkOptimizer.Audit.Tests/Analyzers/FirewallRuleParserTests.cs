@@ -356,7 +356,7 @@ public class FirewallRuleParserTests
         // restriction feature ("MAC"/"macs" with matching_target_type SPECIFIC), which
         // coexists in one response with older client-based "CLIENT"/"client_macs" rules
         var json = JsonDocument.Parse(@"{
-            ""_id"": ""6a5b8920e205f79b9b565917"",
+            ""_id"": ""raw-mac-rule-1"",
             ""action"": ""ALLOW"",
             ""connection_state_type"": ""ALL"",
             ""connection_states"": [],

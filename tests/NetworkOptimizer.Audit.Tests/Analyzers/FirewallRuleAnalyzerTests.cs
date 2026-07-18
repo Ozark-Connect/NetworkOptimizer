@@ -1300,8 +1300,8 @@ public class FirewallRuleAnalyzerTests
     public void AnalyzeManagementNetworkFirewallAccess_CrossZoneBroadBlock_DoesNotEclipse5GAllow()
     {
         // A zone-wide ANY block in a DIFFERENT source zone must not eclipse the 5G allow:
-        // ANY source is scoped to its zone, not global. Live repro: an unrelated
-        // work-zone -> external block falsely triggered FW-MGMT-003 for Management.
+        // ANY source is scoped to its zone, not global. A broad guest-zone -> external
+        // block must never raise FW-MGMT-003 against the Management zone's 5G allow.
         var mgmtNetworkId = "mgmt-network-123";
         var externalZoneId = "external-zone-123";
         var networks = new List<NetworkInfo>
@@ -1314,14 +1314,14 @@ public class FirewallRuleAnalyzerTests
             // Broad block scoped to a completely different source zone
             new FirewallRule
             {
-                Id = "block-work-internet",
-                Name = "Block Work Internet",
+                Id = "block-guest-internet",
+                Name = "Block Guest Internet",
                 Action = "BLOCK",
                 Enabled = true,
                 Index = 100,
                 Protocol = "all",
                 SourceMatchingTarget = "ANY",
-                SourceZoneId = "work-zone",
+                SourceZoneId = "guest-zone",
                 DestinationMatchingTarget = "ANY",
                 DestinationZoneId = externalZoneId
             },
