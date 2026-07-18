@@ -137,10 +137,14 @@ const LABEL_ZOOM_MIN = 0.25;
 // they'd be illegible smudges, so ramp opacity down and hide.
 const LABEL_FADE_START_DIST = 82;
 const LABEL_FADE_END_DIST = 128;
-// Throughput pills fade earlier than device labels - when pulling back,
-// device identity should outlive the rate readouts.
-const LINK_LABEL_FADE_START_DIST = 68;
-const LINK_LABEL_FADE_END_DIST = 105;
+// Network device (DOM) labels fade sooner than the client sprites above -
+// they're denser (name + rate badge) and crowd the view faster.
+const NET_LABEL_FADE_START_DIST = 66;
+const NET_LABEL_FADE_END_DIST = 102;
+// Throughput pills fade earlier still - when pulling back, device identity
+// should outlive the rate readouts.
+const LINK_LABEL_FADE_START_DIST = 54;
+const LINK_LABEL_FADE_END_DIST = 84;
 
 const LINK_KIND = {
     Uplink: 0,
@@ -3017,8 +3021,8 @@ export class LanFlowMap {
         const camPos = this.camera.position;
         // Reference distance: roughly the fly-in camera target distance (~60u).
         // At this distance labels render at 100%. Farther = smaller, closer = larger.
-        const REF_DIST = 45;
-        const MIN_SCALE = 0.32;
+        const REF_DIST = 36;
+        const MIN_SCALE = 0.24;
         const MAX_SCALE = 1.2;
         // On large properties the shrink floor scales down with the devices,
         // so labels keep receding when zoomed out instead of flooring early
@@ -3041,7 +3045,7 @@ export class LanFlowMap {
             tmp.project(this.camera);
             if (tmp.z > 1) { el.classList.remove('is-visible'); continue; }
             const fade = 1 - Math.min(1, Math.max(0,
-                (dist - LABEL_FADE_START_DIST) / (LABEL_FADE_END_DIST - LABEL_FADE_START_DIST)));
+                (dist - NET_LABEL_FADE_START_DIST) / (NET_LABEL_FADE_END_DIST - NET_LABEL_FADE_START_DIST)));
             if (fade <= 0.01) { el.classList.remove('is-visible'); continue; }
             el.style.opacity = fade.toFixed(3);
             const x = (tmp.x * halfW) + halfW;
