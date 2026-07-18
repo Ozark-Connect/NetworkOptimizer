@@ -1199,12 +1199,12 @@ export class LanFlowMap {
     _pipeRadiusForCapacity(capacityBps) {
         if (typeof capacityBps !== 'number' || !Number.isFinite(capacityBps) || capacityBps <= 0) return 0.10 * this._linkScale;
         // Log scale: 100 Mbps -> 0.13, 1 Gbps -> 0.18, 10 Gbps -> 0.24, 25 Gbps -> 0.28.
-        // The base thins fully with the property factor, but the capacity term
-        // only by sqrt of it - the full factor squeezed the speed-driven girth
-        // differences below what the eye can resolve on shrunken maps.
+        // Only the base thins with the property factor; the capacity term stays
+        // at designed size so speed-driven girth (and the contrast between
+        // speeds) reads the same on shrunken maps as on a single home.
         const gbps = capacityBps / 1_000_000_000;
         const t = Math.log10(Math.max(gbps, 0.01)) + 2;  // 1 Mbps -> 0, 10 Gbps -> 3
-        return 0.10 * this._linkScale + Math.min(t, 3.5) * 0.05 * Math.sqrt(this._linkScale);
+        return 0.10 * this._linkScale + Math.min(t, 3.5) * 0.05;
     }
 
     _nodeRadius(kind) {
