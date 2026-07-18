@@ -102,8 +102,13 @@ public class LanFlowMapService
         var deviceLocations = allLocations
             .Where(l => !apMacs.Contains(l.ApMac.ToLowerInvariant()))
             .ToList();
+        // Precise heights come straight off the ApLocations rows; the marker DTO
+        // doesn't carry HeightM, so ProjectAnchors looks it up by MAC for APs.
+        var heightByMac = allLocations
+            .Where(l => l.HeightM.HasValue)
+            .ToDictionary(l => NormalizeMac(l.ApMac), l => l.HeightM!.Value);
 
-        var anchors = ProjectAnchors(markers, deviceLocations,
+        var anchors = ProjectAnchors(markers, deviceLocations, heightByMac,
             out var centerLat, out var centerLng, out var lngScale);
         var droppedAnchors = PruneAnchorOutliers(anchors);
         if (droppedAnchors.Count > 0)
@@ -916,6 +921,7 @@ public class LanFlowMapService
     private static Dictionary<string, LanPlacement> ProjectAnchors(
         IReadOnlyList<Web.Models.ApMapMarker> markers,
         IReadOnlyList<Storage.Models.ApLocation> deviceLocations,
+        IReadOnlyDictionary<string, double> heightByMac,
         out double centerLat, out double centerLng, out double lngScale)
     {
         centerLat = 0;
@@ -945,13 +951,15 @@ public class LanFlowMapService
 
         foreach (var m in withCoords)
         {
+            var mac = NormalizeMac(m.Mac);
             var (x, y) = ProjectLatLng(m.Latitude!.Value, m.Longitude!.Value, centerLat, centerLng, lngScale);
-            anchors[NormalizeMac(m.Mac)] = new LanPlacement
+            anchors[mac] = new LanPlacement
             {
                 X = x,
                 Y = y,
                 Z = (m.Floor ?? 1) * FloorHeightMetres,
                 Source = LanPlacementSource.Anchor,
+                HeightM = heightByMac.TryGetValue(mac, out var hm) ? hm : null,
             };
         }
 
@@ -966,6 +974,7 @@ public class LanFlowMapService
                 Y = y,
                 Z = (d.Floor ?? 1) * FloorHeightMetres,
                 Source = LanPlacementSource.Anchor,
+                HeightM = d.HeightM,
             };
         }
 
@@ -1220,6 +1229,14 @@ public class LanFlowMapService
                 CapacityBps = ResolveUplinkCapacityBps(d),
                 Band = isWirelessBackhaul ? NormalizeBand(d.UplinkRadioBand) : null,
             };
+            if (isWirelessBackhaul)
+            {
+                // Mesh PHY is asymmetric: the child's uplink RX rate caps traffic
+                // toward it (downstream), its TX rate caps traffic toward the
+                // parent (upstream).
+                if (d.UplinkRxRateKbps > 0) link.CapacityDownBps = d.UplinkRxRateKbps * 1_000L;
+                if (d.UplinkTxRateKbps > 0) link.CapacityUpBps = d.UplinkTxRateKbps * 1_000L;
+            }
 
             // For wired uplinks, the parent switch port carries the throughput we want.
             // Resolve ifName via UniFi port number -> InterfaceNameMap (3.7 chain).

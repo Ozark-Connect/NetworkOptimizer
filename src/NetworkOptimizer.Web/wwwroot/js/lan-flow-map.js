@@ -691,7 +691,11 @@ export class LanFlowMap {
                 } else if (p.source === PLACEMENT_SOURCE.Anchor) {
                     const isClient = node.kind === NODE_KIND.WiredClient || node.kind === NODE_KIND.WifiClient;
                     const isInfra = node.kind === NODE_KIND.Switch || node.kind === NODE_KIND.Gateway;
-                    const mountM = node.mountType ? (mountOffsetM[node.mountType] || 0)
+                    // Precise saved height (3D reposition) wins over the
+                    // MountType / device-kind estimate. p.z is the floor's base
+                    // elevation in metres; heightM is metres above that.
+                    const mountM = Number.isFinite(p.heightM) ? p.heightM
+                        : node.mountType ? (mountOffsetM[node.mountType] || 0)
                         : isClient ? WALL_H_M * 0.5
                         : isInfra ? WALL_H_M * 0.15
                         : 0;
@@ -2892,10 +2896,14 @@ export class LanFlowMap {
             // Hover tooltip with the link's negotiated capacity - both
             // directions when asymmetric (WiFi PHY, ISP-provisioned WAN).
             // Long delay so it doesn't fire while just moving around the map.
+            // Directional capacities always win over the symmetric PHY figure -
+            // a symmetric ISP plan must still show the plan, not the port speed.
             const capDown = link.capacityDownBps, capUp = link.capacityUpBps;
             let capTip = null;
-            if (capDown > 0 && capUp > 0 && capDown !== capUp) {
+            if (capDown > 0 && capUp > 0) {
                 capTip = `Link speed: ↓ ${formatBps(capDown)} / ↑ ${formatBps(capUp)}`;
+            } else if (capDown > 0 || capUp > 0) {
+                capTip = `Link speed: ${formatBps(capDown > 0 ? capDown : capUp)}`;
             } else if (Number.isFinite(link.capacityBps) && link.capacityBps > 0) {
                 capTip = `Link speed: ${formatBps(link.capacityBps)}`;
             }
@@ -3767,15 +3775,20 @@ export class LanFlowMap {
         const lat = bounds.centerLat + dLat * 180 / Math.PI;
         const lng = bounds.centerLng + dLng * 180 / Math.PI;
 
-        // Reverse Y → floor: posY = floor * 3.0 * scale * 0.8
-        const floor = Math.round(pos.y / (scale * 0.8) / 2.9);
+        // Reverse Y exactly: rendered y = (floor * 2.9 + heightM) * scale * 0.8.
+        // Floor = the story the device is physically in (carries through to the
+        // Signal Map); heightM = metres above that floor's base, so the next
+        // load reproduces this position bit-for-bit.
+        const totalM = pos.y / (scale * 0.8);
+        const floor = Math.floor(totalM / 2.9);
+        const heightM = totalM - floor * 2.9;
 
         try {
             await fetch(`${this.apiBase}/device-placement`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 credentials: 'same-origin',
-                body: JSON.stringify({ mac: node.mac, latitude: lat, longitude: lng, floor }),
+                body: JSON.stringify({ mac: node.mac, latitude: lat, longitude: lng, floor, heightM }),
             });
         } catch (err) {
             console.error('[LanFlowMap] Failed to save placement:', err);

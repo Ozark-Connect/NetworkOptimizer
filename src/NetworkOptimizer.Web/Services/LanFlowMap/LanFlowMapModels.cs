@@ -105,6 +105,10 @@ public class LanPlacement
     public double Y { get; set; }
     public double Z { get; set; }
     public LanPlacementSource Source { get; set; }
+
+    /// <summary>Precise height in metres above the floor's base elevation (Z), from 3D
+    /// repositioning. Null = the JS layout applies its MountType / device-kind offset.</summary>
+    public double? HeightM { get; set; }
 }
 
 public enum LanLinkKind

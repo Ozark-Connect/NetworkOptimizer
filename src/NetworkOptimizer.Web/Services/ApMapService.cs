@@ -103,9 +103,11 @@ public class ApMapService
     }
 
     /// <summary>
-    /// Save an AP's map location (upsert by MAC address).
+    /// Save an AP's map location (upsert by MAC address). heightM is the precise
+    /// height above the floor's base elevation from 3D repositioning; callers that
+    /// don't know it (Signal Map drags) omit it and any stored value is preserved.
     /// </summary>
-    public async Task SaveApLocationAsync(string mac, double lat, double lng, int? floor = null)
+    public async Task SaveApLocationAsync(string mac, double lat, double lng, int? floor = null, double? heightM = null)
     {
         var normalizedMac = mac.ToLowerInvariant();
 
@@ -116,6 +118,7 @@ public class ApMapService
             existing.Latitude = lat;
             existing.Longitude = lng;
             if (floor.HasValue) existing.Floor = floor.Value;
+            if (heightM.HasValue) existing.HeightM = heightM.Value;
             existing.UpdatedAt = DateTime.UtcNow;
         }
         else
@@ -126,6 +129,7 @@ public class ApMapService
                 Latitude = lat,
                 Longitude = lng,
                 Floor = floor ?? 1,
+                HeightM = heightM,
                 UpdatedAt = DateTime.UtcNow
             });
         }
