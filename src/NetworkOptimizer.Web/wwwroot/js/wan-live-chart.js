@@ -80,12 +80,23 @@ function buildOpts() {
             events: {
                 // Click-to-seek: jump the map timeline (and with it this chart's
                 // playhead, via the normal seekTime round-trip) to the clicked
-                // instant. Live View only - the mount opts in.
+                // instant and resume playback from there. Live View only - the
+                // mount opts in.
                 click: (event, ctx) => {
                     if (!seekOnClick || !event?.clientX) return;
                     const t = clickToTime(event, ctx);
                     if (t == null) return;
-                    window.__lanFlowMap?.getInstance?.()?.seekTo?.(t);
+                    const inst = window.__lanFlowMap?.getInstance?.();
+                    if (!inst?.seekTo) return;
+                    // Instant feedback: freeze live drawing and draw the playhead
+                    // at the clicked instant from the buffer already on screen.
+                    // The map's seek round-trip then re-renders with the proper
+                    // window and playback interpolation takes over.
+                    pause();
+                    histAt = t;
+                    histWall = Date.now();
+                    renderHistoric(t);
+                    inst.seekTo(t, { autoPlay: true });
                 },
             },
         },
