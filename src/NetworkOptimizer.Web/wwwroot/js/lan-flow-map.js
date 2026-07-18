@@ -2890,6 +2890,12 @@ export class LanFlowMap {
                 el.setAttribute('data-tooltip-hover-only', '');
                 el.setAttribute('data-tooltip-delay', '500');
             }
+            // Pills accept pointer events for the tooltip, which would swallow
+            // the scroll wheel - forward it to the canvas so zoom keeps working.
+            el.addEventListener('wheel', (e) => {
+                e.preventDefault();
+                this.canvas.dispatchEvent(new WheelEvent('wheel', e));
+            }, { passive: false });
             this._labelsLayer.appendChild(el);
             this._linkLabels.set(link.id, { el, kind: link.kind });
         }
