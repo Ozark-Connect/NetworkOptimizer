@@ -99,6 +99,10 @@ const REF_WORLD_SCALE = 2.25;
 const DEVICE_SCALE_MIN = 0.35;
 const CLOUD_SCALE_MIN = 0.75;
 const CLOUD_SCALE_MAX = 1.1;
+// Pipes and particle dots track the property shrink too, but on a tighter
+// clamp: they are thin already and carry the flow readability, so they only
+// come down far enough to not read as oversized against small buildings.
+const LINK_SCALE_MIN = 0.6;
 
 // Camera-distance compensation for device meshes (labels have their own DOM
 // equivalent and are untouched): neutral at the fly-in viewing distance,
@@ -107,6 +111,11 @@ const CLOUD_SCALE_MAX = 1.1;
 const DEVICE_ZOOM_REF_DIST = 60;
 const DEVICE_ZOOM_MIN = 0.6;
 const DEVICE_ZOOM_MAX = 1.6;
+// Pipes/particles get the same treatment on a tighter band: a decent floor so
+// they never go skinny, and a capped ceiling zoomed out - just fat enough to
+// still see what's flowing without turning into hoses.
+const LINK_ZOOM_MIN = 0.75;
+const LINK_ZOOM_MAX = 1.35;
 
 const LINK_KIND = {
     Uplink: 0,
@@ -173,6 +182,7 @@ export class LanFlowMap {
         this._snapshot = null;
         this._deviceScale = 1;          // property-size factor for device radii (set in _layoutNodes)
         this._cloudScale = 1;           // gentler property-size factor for WAN globes
+        this._linkScale = 1;            // gentler property-size factor for pipes + particle dots
         this._nodesByLink = new Map();
         this._nodeMeshes = new Map();   // nodeId -> THREE.Group
         this._linkMeshes = new Map();   // linkId -> { pipe, particlesDown, particlesUp }
@@ -637,6 +647,7 @@ export class LanFlowMap {
         const sizeRatio = scale / REF_WORLD_SCALE;
         this._deviceScale = Math.max(DEVICE_SCALE_MIN, Math.min(1.0, sizeRatio));
         this._cloudScale = Math.max(CLOUD_SCALE_MIN, Math.min(CLOUD_SCALE_MAX, sizeRatio));
+        this._linkScale = Math.max(LINK_SCALE_MIN, Math.min(1.0, sizeRatio));
 
         const positions = new Map();
         const anchors = new Map();
@@ -934,10 +945,10 @@ export class LanFlowMap {
             this.linkGroup.add(pipe);
 
             const down = new ParticleStream({
-                from: effA, to: effB, color: COLORS.downstream, particleCount: 0,
+                from: effA, to: effB, color: COLORS.downstream, particleCount: 0, sizeScale: this._linkScale,
             });
             const up = new ParticleStream({
-                from: effB, to: effA, color: COLORS.upstream, particleCount: 0,
+                from: effB, to: effA, color: COLORS.upstream, particleCount: 0, sizeScale: this._linkScale,
             });
             this.particleGroup.add(down.mesh, up.mesh);
 
@@ -1169,11 +1180,11 @@ export class LanFlowMap {
     }
 
     _pipeRadiusForCapacity(capacityBps) {
-        if (typeof capacityBps !== 'number' || !Number.isFinite(capacityBps) || capacityBps <= 0) return 0.10;
+        if (typeof capacityBps !== 'number' || !Number.isFinite(capacityBps) || capacityBps <= 0) return 0.10 * this._linkScale;
         // Log scale: 100 Mbps -> 0.13, 1 Gbps -> 0.18, 10 Gbps -> 0.24, 25 Gbps -> 0.28.
         const gbps = capacityBps / 1_000_000_000;
         const t = Math.log10(Math.max(gbps, 0.01)) + 2;  // 1 Mbps -> 0, 10 Gbps -> 3
-        return 0.10 + Math.min(t, 3.5) * 0.05;
+        return (0.10 + Math.min(t, 3.5) * 0.05) * this._linkScale;
     }
 
     _nodeRadius(kind) {
@@ -1416,8 +1427,8 @@ export class LanFlowMap {
             const pipe = this._makePipeMesh(apPos, pos, old.link);
             pipe.visible = wasVisible;
             this.linkGroup.add(pipe);
-            const down = new ParticleStream({ from: apPos, to: pos, color: COLORS.downstream, particleCount: 0 });
-            const up = new ParticleStream({ from: pos, to: apPos, color: COLORS.upstream, particleCount: 0 });
+            const down = new ParticleStream({ from: apPos, to: pos, color: COLORS.downstream, particleCount: 0, sizeScale: this._linkScale });
+            const up = new ParticleStream({ from: pos, to: apPos, color: COLORS.upstream, particleCount: 0, sizeScale: this._linkScale });
             down.mesh.visible = wasVisible;
             up.mesh.visible = wasVisible;
             this.particleGroup.add(down.mesh, up.mesh);
@@ -1648,8 +1659,8 @@ export class LanFlowMap {
             // scenes still feel alive.
             this._pulseNodes(now);
 
-            // Camera-distance size compensation for device meshes.
-            this._scaleNodesForZoom();
+            // Camera-distance size compensation for devices, pipes, particles.
+            this._applyZoomScaling();
 
             // Render through the composer so bloom + tone mapping apply.
             this.composer.render();
@@ -1686,7 +1697,9 @@ export class LanFlowMap {
     // zoomed out so devices stay visible at property level, down toward a floor
     // when zoomed in so they don't fill a room. Only the core and halo scale -
     // sprite labels are siblings in the same group and keep today's behavior.
-    _scaleNodesForZoom() {
+    // Pipes fatten/thin on a tighter clamp (X/Z only - Y is the pipe length),
+    // and particle streams follow via a shader zoom uniform.
+    _applyZoomScaling() {
         const camPos = this.camera.position;
         for (const group of this._nodeMeshes.values()) {
             const { core, halo } = group.userData ?? {};
@@ -1695,6 +1708,15 @@ export class LanFlowMap {
             const z = Math.max(DEVICE_ZOOM_MIN, Math.min(DEVICE_ZOOM_MAX, dist / DEVICE_ZOOM_REF_DIST));
             core.scale.setScalar(z);
             if (halo) halo.scale.setScalar(z);
+        }
+        for (const { pipe, down, up } of this._linkMeshes.values()) {
+            if (!pipe) continue;
+            const dist = camPos.distanceTo(pipe.position);
+            const z = Math.max(LINK_ZOOM_MIN, Math.min(LINK_ZOOM_MAX, dist / DEVICE_ZOOM_REF_DIST));
+            pipe.scale.x = z;
+            pipe.scale.z = z;
+            down?.setZoom(z);
+            up?.setZoom(z);
         }
     }
 
@@ -1805,8 +1827,8 @@ export class LanFlowMap {
         if (a && b) {
             pipe = this._makePipeMesh(a, b, link);
             this.linkGroup.add(pipe);
-            down = new ParticleStream({ from: a, to: b, color: COLORS.downstream, particleCount: 0 });
-            up = new ParticleStream({ from: b, to: a, color: COLORS.upstream, particleCount: 0 });
+            down = new ParticleStream({ from: a, to: b, color: COLORS.downstream, particleCount: 0, sizeScale: this._linkScale });
+            up = new ParticleStream({ from: b, to: a, color: COLORS.upstream, particleCount: 0, sizeScale: this._linkScale });
             this.particleGroup.add(down.mesh, up.mesh);
             this._linkMeshes.set(link.id, { pipe, down, up, link });
             this._nodesByLink.set(link.id, [link.fromNodeId, link.toNodeId]);
@@ -3710,7 +3732,7 @@ function _getDotTexture() {
 }
 
 class ParticleStream {
-    constructor({ from, to, color, particleCount = 0 }) {
+    constructor({ from, to, color, particleCount = 0, sizeScale = 1 }) {
         const fromV = new THREE.Vector3(from.x, from.y, from.z);
         const toV = new THREE.Vector3(to.x, to.y, to.z);
         this._from = fromV;
@@ -3760,13 +3782,15 @@ class ParticleStream {
                 color: { value: new THREE.Color(color) },
                 map: { value: _getDotTexture() },
                 scale: { value: 600.0 },
+                zoom: { value: 1.0 },
             },
             vertexShader: `
                 attribute float size;
                 uniform float scale;
+                uniform float zoom;
                 void main() {
                     vec4 mv = modelViewMatrix * vec4(position, 1.0);
-                    gl_PointSize = size * (scale / max(-mv.z, 1.0));
+                    gl_PointSize = size * zoom * (scale / max(-mv.z, 1.0));
                     gl_Position = projectionMatrix * mv;
                 }
             `,
@@ -3805,7 +3829,14 @@ class ParticleStream {
         // Size that NEW particles will be born at - written into the size
         // attribute when the particle spawns. Existing in-flight particles
         // keep whatever size they were emitted with.
-        this._currentSize = 0.05;
+        this._sizeScale = sizeScale;
+        this._currentSize = 0.05 * sizeScale;
+    }
+
+    // Camera-distance compensation, applied uniformly to all in-flight dots
+    // (unlike per-particle spawn sizes, zooming should resize existing dots).
+    setZoom(z) {
+        this._material.uniforms.zoom.value = z;
     }
 
     setRate(bps) {
@@ -3826,7 +3857,7 @@ class ParticleStream {
         // Stored for use at spawn time only - particles already in flight
         // keep their birth size so a sudden rate change doesn't visually
         // resize dots that have already left the sender.
-        this._currentSize = 0.0375 + (intensity * intensity) * 1.3125;
+        this._currentSize = (0.0375 + (intensity * intensity) * 1.3125) * this._sizeScale;
         // Velocity: 2.5 idle -> 6.5 saturated. Still communicates throughput
         // without slamming between crawl and jet on per-poll rate fluctuations.
         this._velocity = 2.5 + intensity * 4.0;
