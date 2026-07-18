@@ -183,6 +183,14 @@ public static class FirewallRuleOverlapDetector
             return ListsOverlapWithOpposite(ips1, opposite1, ips2, opposite2, IpRangesOverlap);
         }
 
+        // Both are CLIENT (MAC-scoped) - check for common MAC addresses
+        if (target1 == "CLIENT")
+        {
+            var macs1 = rule1.SourceClientMacs ?? new List<string>();
+            var macs2 = rule2.SourceClientMacs ?? new List<string>();
+            return StringListsIntersect(macs1, macs2);
+        }
+
         return false;
     }
 

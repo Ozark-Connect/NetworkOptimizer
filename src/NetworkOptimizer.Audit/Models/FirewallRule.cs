@@ -122,7 +122,10 @@ public class FirewallRule
     // === Extended Matching Criteria for Overlap Detection ===
 
     /// <summary>
-    /// Source matching target type (ANY, IP, NETWORK)
+    /// Source matching target type (ANY, IP, NETWORK, CLIENT).
+    /// CLIENT is the canonical form for device-scoped sources: the parser normalizes the
+    /// "MAC"/"macs" shape (UniFi's raw source MAC restriction feature) to
+    /// CLIENT/SourceClientMacs, alongside the older client-based "CLIENT"/"client_macs" shape.
     /// </summary>
     public string? SourceMatchingTarget { get; init; }
 
@@ -132,7 +135,8 @@ public class FirewallRule
     public List<string>? SourceIps { get; init; }
 
     /// <summary>
-    /// Source client MAC addresses (when SourceMatchingTarget is CLIENT)
+    /// Source client MAC addresses (when SourceMatchingTarget is CLIENT).
+    /// Populated from v2 "client_macs" or "macs", or legacy "src_mac_address".
     /// </summary>
     public List<string>? SourceClientMacs { get; init; }
 

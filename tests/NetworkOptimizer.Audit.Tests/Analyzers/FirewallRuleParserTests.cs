@@ -329,6 +329,130 @@ public class FirewallRuleParserTests
     }
 
     [Fact]
+    public void ExtractFirewallPolicies_WithMacMatchingTarget_NormalizesToClient()
+    {
+        // Newer UniFi releases emit matching_target "MAC" with a "macs" array
+        // instead of "CLIENT" with "client_macs" (issue #1011)
+        var json = JsonDocument.Parse(@"[{
+            ""_id"": ""policy1"",
+            ""name"": ""Allow Failover Device"",
+            ""source"": {
+                ""matching_target"": ""MAC"",
+                ""macs"": [""aa:bb:cc:dd:ee:ff""]
+            }
+        }]").RootElement;
+
+        var rules = _parser.ExtractFirewallPolicies(json);
+
+        rules.Should().ContainSingle();
+        rules[0].SourceMatchingTarget.Should().Be("CLIENT");
+        rules[0].SourceClientMacs.Should().ContainSingle().Which.Should().Be("aa:bb:cc:dd:ee:ff");
+    }
+
+    [Fact]
+    public void ParseFirewallPolicy_RawSourceMacRule_FullRealShape_ParsesCorrectly()
+    {
+        // Full rule shape captured from UniFi Network 10.5.62 EA: the raw source MAC
+        // restriction feature ("MAC"/"macs" with matching_target_type SPECIFIC), which
+        // coexists in one response with older client-based "CLIENT"/"client_macs" rules
+        var json = JsonDocument.Parse(@"{
+            ""_id"": ""raw-mac-rule-1"",
+            ""action"": ""ALLOW"",
+            ""connection_state_type"": ""ALL"",
+            ""connection_states"": [],
+            ""create_allow_respond"": true,
+            ""description"": """",
+            ""destination"": {
+                ""match_opposite_ports"": false,
+                ""matching_target"": ""ANY"",
+                ""port_matching_type"": ""ANY"",
+                ""zone_id"": ""external-zone""
+            },
+            ""enabled"": true,
+            ""icmp_typename"": ""ANY"",
+            ""icmp_v6_typename"": ""ANY"",
+            ""index"": 10021,
+            ""ip_version"": ""BOTH"",
+            ""logging"": false,
+            ""match_ip_sec"": false,
+            ""match_opposite_protocol"": false,
+            ""name"": ""Allow Failover Device"",
+            ""predefined"": false,
+            ""protocol"": ""all"",
+            ""schedule"": { ""mode"": ""ALWAYS"" },
+            ""source"": {
+                ""macs"": [""aa:bb:cc:dd:ee:01"", ""aa:bb:cc:dd:ee:02""],
+                ""match_opposite_ports"": false,
+                ""matching_target"": ""MAC"",
+                ""matching_target_type"": ""SPECIFIC"",
+                ""port_matching_type"": ""ANY"",
+                ""zone_id"": ""mgmt-zone""
+            }
+        }").RootElement;
+
+        var rule = _parser.ParseFirewallPolicy(json);
+
+        rule.Should().NotBeNull();
+        rule!.SourceMatchingTarget.Should().Be("CLIENT");
+        rule.SourceClientMacs.Should().BeEquivalentTo("aa:bb:cc:dd:ee:01", "aa:bb:cc:dd:ee:02");
+        rule.SourceZoneId.Should().Be("mgmt-zone");
+        rule.DestinationMatchingTarget.Should().Be("ANY");
+        rule.DestinationZoneId.Should().Be("external-zone");
+        rule.Enabled.Should().BeTrue();
+        rule.Index.Should().Be(10021);
+    }
+
+    [Fact]
+    public void ExtractFirewallPolicies_MixedClientAndMacShapes_BothNormalizeToClient()
+    {
+        // One response can contain BOTH device-scoped shapes (verified on 10.5.62 EA):
+        // older client-based rules and newer raw-MAC rules must both land on CLIENT
+        var json = JsonDocument.Parse(@"[{
+            ""_id"": ""old-shape"",
+            ""name"": ""Client Based Rule"",
+            ""source"": {
+                ""matching_target"": ""CLIENT"",
+                ""client_macs"": [""aa:bb:cc:dd:ee:01""]
+            }
+        },
+        {
+            ""_id"": ""new-shape"",
+            ""name"": ""Raw MAC Rule"",
+            ""source"": {
+                ""matching_target"": ""MAC"",
+                ""matching_target_type"": ""SPECIFIC"",
+                ""macs"": [""aa:bb:cc:dd:ee:02""]
+            }
+        }]").RootElement;
+
+        var rules = _parser.ExtractFirewallPolicies(json);
+
+        rules.Should().HaveCount(2);
+        rules.Should().OnlyContain(r => r.SourceMatchingTarget == "CLIENT");
+        rules[0].SourceClientMacs.Should().ContainSingle().Which.Should().Be("aa:bb:cc:dd:ee:01");
+        rules[1].SourceClientMacs.Should().ContainSingle().Which.Should().Be("aa:bb:cc:dd:ee:02");
+    }
+
+    [Fact]
+    public void ExtractFirewallPolicies_MacMatchingTargetWithMultipleMacs_ParsesAll()
+    {
+        var json = JsonDocument.Parse(@"[{
+            ""_id"": ""policy1"",
+            ""name"": ""Allow Devices"",
+            ""source"": {
+                ""matching_target"": ""MAC"",
+                ""macs"": [""aa:bb:cc:dd:ee:01"", ""aa:bb:cc:dd:ee:02"", ""aa:bb:cc:dd:ee:03""]
+            }
+        }]").RootElement;
+
+        var rules = _parser.ExtractFirewallPolicies(json);
+
+        rules.Should().ContainSingle();
+        rules[0].SourceMatchingTarget.Should().Be("CLIENT");
+        rules[0].SourceClientMacs.Should().HaveCount(3);
+    }
+
+    [Fact]
     public void ExtractFirewallPolicies_PredefinedRule_MarksAsPredefined()
     {
         var json = JsonDocument.Parse(@"[{
@@ -648,6 +772,47 @@ public class FirewallRuleParserTests
 
         rule.Should().NotBeNull();
         rule!.Enabled.Should().BeTrue();
+    }
+
+    [Fact]
+    public void ParseFirewallRule_WithSrcMacAddress_SetsClientMatchingTarget()
+    {
+        // Legacy rules can restrict source by device MAC - must not degrade to ANY source
+        var json = JsonDocument.Parse(@"{
+            ""_id"": ""legacy-mac"",
+            ""name"": ""Allow Failover Device"",
+            ""action"": ""accept"",
+            ""ruleset"": ""LAN_IN"",
+            ""src_mac_address"": ""aa:bb:cc:dd:ee:ff""
+        }").RootElement;
+
+        var rule = _parser.ParseFirewallRule(json);
+
+        rule.Should().NotBeNull();
+        rule!.SourceMatchingTarget.Should().Be("CLIENT");
+        rule.SourceClientMacs.Should().ContainSingle().Which.Should().Be("aa:bb:cc:dd:ee:ff");
+    }
+
+    [Fact]
+    public void ParseFirewallRule_WithSrcMacAddressAndSrcAddress_KeepsIpTargetAndMacs()
+    {
+        // When both an IP and a MAC restriction are present, IP stays the matching target
+        // (so IP overlap checks still apply) but the MAC list is retained
+        var json = JsonDocument.Parse(@"{
+            ""_id"": ""legacy-mac-ip"",
+            ""name"": ""Allow Device by IP and MAC"",
+            ""action"": ""accept"",
+            ""ruleset"": ""LAN_IN"",
+            ""src_address"": ""192.0.2.50"",
+            ""src_mac_address"": ""aa:bb:cc:dd:ee:ff""
+        }").RootElement;
+
+        var rule = _parser.ParseFirewallRule(json);
+
+        rule.Should().NotBeNull();
+        rule!.SourceMatchingTarget.Should().Be("IP");
+        rule.SourceIps.Should().ContainSingle().Which.Should().Be("192.0.2.50");
+        rule.SourceClientMacs.Should().ContainSingle().Which.Should().Be("aa:bb:cc:dd:ee:ff");
     }
 
     #endregion

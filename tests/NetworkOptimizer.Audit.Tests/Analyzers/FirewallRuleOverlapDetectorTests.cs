@@ -214,6 +214,25 @@ public class FirewallRuleOverlapDetectorTests
     }
 
     [Fact]
+    public void SourcesOverlap_BothClient_SharedMac_ReturnsTrue()
+    {
+        // Two MAC-scoped rules targeting the same device overlap (case-insensitive)
+        var rule1 = CreateRule(sourceMatchingTarget: "CLIENT", sourceClientMacs: new List<string> { "AA:BB:CC:DD:EE:FF" });
+        var rule2 = CreateRule(sourceMatchingTarget: "CLIENT", sourceClientMacs: new List<string> { "aa:bb:cc:dd:ee:ff", "11:22:33:44:55:66" });
+
+        FirewallRuleOverlapDetector.SourcesOverlap(rule1, rule2).Should().BeTrue();
+    }
+
+    [Fact]
+    public void SourcesOverlap_BothClient_DifferentMacs_ReturnsFalse()
+    {
+        var rule1 = CreateRule(sourceMatchingTarget: "CLIENT", sourceClientMacs: new List<string> { "aa:bb:cc:dd:ee:ff" });
+        var rule2 = CreateRule(sourceMatchingTarget: "CLIENT", sourceClientMacs: new List<string> { "11:22:33:44:55:66" });
+
+        FirewallRuleOverlapDetector.SourcesOverlap(rule1, rule2).Should().BeFalse();
+    }
+
+    [Fact]
     public void SourcesOverlap_SameNetworkIds_ReturnsTrue()
     {
         var rule1 = CreateRule(sourceMatchingTarget: "NETWORK", sourceNetworkIds: new List<string> { "net1", "net2" });

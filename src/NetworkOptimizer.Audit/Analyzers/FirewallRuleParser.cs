@@ -193,6 +193,28 @@ public class FirewallRuleParser
                     .ToList();
             }
 
+            // UniFi's newer raw source MAC restriction feature emits matching_target "MAC" with
+            // a "macs" array; the older client-based restriction uses "CLIENT" with "client_macs".
+            // Both shapes coexist in one response (verified on UniFi Network 10.5.62 EA). Both are
+            // device-scoped sources, so normalize to the canonical CLIENT form and downstream
+            // scope scoring and overlap detection treat them identically.
+            if (source.TryGetProperty("macs", out var macList) && macList.ValueKind == JsonValueKind.Array)
+            {
+                var parsedMacs = macList.EnumerateArray()
+                    .Where(e => e.ValueKind == JsonValueKind.String)
+                    .Select(e => e.GetString()!)
+                    .ToList();
+                if (parsedMacs.Count > 0)
+                {
+                    sourceClientMacs = sourceClientMacs == null
+                        ? parsedMacs
+                        : sourceClientMacs.Concat(parsedMacs).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                }
+            }
+
+            if (string.Equals(sourceMatchingTarget, "MAC", StringComparison.OrdinalIgnoreCase))
+                sourceMatchingTarget = "CLIENT";
+
             // Flatten IP group reference (matching_target_type == "OBJECT" with ip_group_id)
             var matchingTargetType = source.GetStringOrNull("matching_target_type");
             var ipGroupId = source.GetStringOrNull("ip_group_id");
@@ -443,6 +465,14 @@ public class FirewallRuleParser
             ? srcPortProp.GetString()
             : null;
 
+        // Legacy rules can restrict the source to a single device MAC
+        var srcMacAddress = rule.TryGetProperty("src_mac_address", out var srcMacProp)
+            ? srcMacProp.GetString()
+            : null;
+        List<string>? sourceClientMacs = null;
+        if (!string.IsNullOrEmpty(srcMacAddress))
+            sourceClientMacs = new List<string> { srcMacAddress };
+
         // Destination information
         var destType = rule.TryGetProperty("dst_type", out var dstTypeProp)
             ? dstTypeProp.GetString()
@@ -606,12 +636,17 @@ public class FirewallRuleParser
         // Map legacy ruleset to zone IDs for compatibility with zone-based analysis
         var (sourceZoneId, destZoneId) = MapRulesetToZones(ruleset);
 
-        // Determine matching targets based on resolved fields
+        // Determine matching targets based on resolved fields.
+        // IP/NETWORK take precedence over CLIENT so a rule with both an address and a MAC
+        // restriction keeps participating in IP/network overlap checks (a MAC further narrows
+        // the rule; it never broadens it).
         string? sourceMatchingTarget = null;
         if (sourceIps is { Count: > 0 })
             sourceMatchingTarget = "IP";
         else if (sourceNetworkIds is { Count: > 0 })
             sourceMatchingTarget = "NETWORK";
+        else if (sourceClientMacs is { Count: > 0 })
+            sourceMatchingTarget = "CLIENT";
 
         string? destMatchingTarget = null;
         if (destIps is { Count: > 0 })
@@ -673,6 +708,7 @@ public class FirewallRuleParser
             SourceNetworkIds = sourceNetworkIds,
             SourceMatchingTarget = sourceMatchingTarget,
             SourceIps = sourceIps,
+            SourceClientMacs = sourceClientMacs,
             DestinationNetworkIds = destinationNetworkIds,
             DestinationMatchingTarget = destMatchingTarget,
             DestinationIps = destIps,

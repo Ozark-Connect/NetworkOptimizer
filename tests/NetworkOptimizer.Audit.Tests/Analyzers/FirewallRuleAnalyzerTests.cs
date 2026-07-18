@@ -1297,6 +1297,157 @@ public class FirewallRuleAnalyzerTests
     }
 
     [Fact]
+    public void AnalyzeManagementNetworkFirewallAccess_CrossZoneBroadBlock_DoesNotEclipse5GAllow()
+    {
+        // A zone-wide ANY block in a DIFFERENT source zone must not eclipse the 5G allow:
+        // ANY source is scoped to its zone, not global. A broad guest-zone -> external
+        // block must never raise FW-MGMT-003 against the Management zone's 5G allow.
+        var mgmtNetworkId = "mgmt-network-123";
+        var externalZoneId = "external-zone-123";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, id: mgmtNetworkId,
+                networkIsolationEnabled: true, internetAccessEnabled: false, firewallZoneId: "internal-zone")
+        };
+        var rules = new List<FirewallRule>
+        {
+            // Broad block scoped to a completely different source zone
+            new FirewallRule
+            {
+                Id = "block-guest-internet",
+                Name = "Block Guest Internet",
+                Action = "BLOCK",
+                Enabled = true,
+                Index = 100,
+                Protocol = "all",
+                SourceMatchingTarget = "ANY",
+                SourceZoneId = "guest-zone",
+                DestinationMatchingTarget = "ANY",
+                DestinationZoneId = externalZoneId
+            },
+            CreateFirewallRule("UniFi Cloud", action: "allow", index: 200,
+                sourceNetworkIds: new List<string> { mgmtNetworkId },
+                webDomains: new List<string> { "ui.com" }),
+            CreateFirewallRule("AFC Traffic", action: "allow", index: 201,
+                sourceNetworkIds: new List<string> { mgmtNetworkId },
+                webDomains: new List<string> { "afcapi.qcs.qualcomm.com" }),
+            CreateFirewallRule("NTP", action: "allow", index: 202,
+                sourceNetworkIds: new List<string> { mgmtNetworkId },
+                destinationPort: "123", protocol: "udp"),
+            new FirewallRule
+            {
+                Id = "allow-5g",
+                Name = "5G Modem Registration",
+                Action = "ALLOW",
+                Enabled = true,
+                Index = 300,
+                SourceMatchingTarget = "IP",
+                SourceIps = new List<string> { "192.168.99.5" },
+                SourceZoneId = "internal-zone",
+                WebDomains = new List<string> { "t-mobile.com" },
+                Protocol = "tcp"
+            }
+        };
+
+        var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks, has5GDevice: true, externalZoneId: externalZoneId);
+
+        issues.Should().NotContain(i => i.Type == "MGMT_MISSING_5G_ACCESS");
+    }
+
+    [Fact]
+    public void AnalyzeManagementNetworkFirewallAccess_SameZoneBroadBlock_StillEclipses5GAllow()
+    {
+        // Regression guard for the zone check: a broad ANY block in the SAME source zone
+        // as the 5G allow must still eclipse it and report FW-MGMT-003
+        var mgmtNetworkId = "mgmt-network-123";
+        var externalZoneId = "external-zone-123";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, id: mgmtNetworkId,
+                networkIsolationEnabled: true, internetAccessEnabled: false, firewallZoneId: "internal-zone")
+        };
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "block-internal-internet",
+                Name = "Block Internal Internet",
+                Action = "BLOCK",
+                Enabled = true,
+                Index = 100,
+                Protocol = "all",
+                SourceMatchingTarget = "ANY",
+                SourceZoneId = "internal-zone",
+                DestinationMatchingTarget = "ANY",
+                DestinationZoneId = externalZoneId
+            },
+            new FirewallRule
+            {
+                Id = "allow-5g",
+                Name = "5G Modem Registration",
+                Action = "ALLOW",
+                Enabled = true,
+                Index = 300,
+                SourceMatchingTarget = "IP",
+                SourceIps = new List<string> { "192.168.99.5" },
+                SourceZoneId = "internal-zone",
+                WebDomains = new List<string> { "t-mobile.com" },
+                Protocol = "tcp"
+            }
+        };
+
+        var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks, has5GDevice: true, externalZoneId: externalZoneId);
+
+        issues.Should().Contain(i => i.Type == "MGMT_MISSING_5G_ACCESS");
+    }
+
+    [Fact]
+    public void AnalyzeManagementNetworkFirewallAccess_ZonelessLegacyRules_BroadBlockStillEclipses()
+    {
+        // Regression guard for legacy rules: zone IDs are a v2 concept. Legacy rules with
+        // unmapped rulesets have no source zone at all, so the zone check must not apply
+        // and the conservative eclipse behavior is preserved.
+        var mgmtNetworkId = "mgmt-network-123";
+        var externalZoneId = "external-zone-123";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, id: mgmtNetworkId,
+                networkIsolationEnabled: true, internetAccessEnabled: false)
+        };
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "block-internet",
+                Name = "Block Internet",
+                Action = "BLOCK",
+                Enabled = true,
+                Index = 100,
+                Protocol = "all",
+                SourceMatchingTarget = "ANY",
+                DestinationMatchingTarget = "ANY",
+                DestinationZoneId = externalZoneId
+            },
+            new FirewallRule
+            {
+                Id = "allow-5g",
+                Name = "5G Modem Registration",
+                Action = "ALLOW",
+                Enabled = true,
+                Index = 300,
+                SourceMatchingTarget = "IP",
+                SourceIps = new List<string> { "192.168.99.5" },
+                WebDomains = new List<string> { "t-mobile.com" },
+                Protocol = "tcp"
+            }
+        };
+
+        var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks, has5GDevice: true, externalZoneId: externalZoneId);
+
+        issues.Should().Contain(i => i.Type == "MGMT_MISSING_5G_ACCESS");
+    }
+
+    [Fact]
     public void AnalyzeManagementNetworkFirewallAccess_OppositeIpsBlockRuleEclipsesAllow_Reports5GIssue()
     {
         // Arrange - Block rule uses SourceMatchOppositeIps: blocks all EXCEPT 192.168.50.0/24
@@ -1524,6 +1675,195 @@ public class FirewallRuleAnalyzerTests
         var issue = issues.FirstOrDefault(i => i.Type == "ALLOW_EXCEPTION_PATTERN");
         issue.Should().NotBeNull();
         issue!.Severity.Should().Be(AuditSeverity.Informational);
+    }
+
+    [Fact]
+    public void DetectShadowedRules_MacScopedAllowBeforeZoneWideDeny_ReturnsExceptionPattern()
+    {
+        // Issue #1011: a one-MAC allow (newer "MAC"/"macs" JSON shape) preceding a zone-wide
+        // ANY deny is an intentional narrow exception (FW-EXCEPTION-001), not FW-SUBVERT-001
+        var allowJson = System.Text.Json.JsonDocument.Parse(@"{
+            ""_id"": ""allow-failover"",
+            ""name"": ""Allow Failover Device to External"",
+            ""action"": ""ALLOW"",
+            ""enabled"": true,
+            ""index"": 10000,
+            ""protocol"": ""all"",
+            ""source"": {
+                ""matching_target"": ""MAC"",
+                ""macs"": [""aa:bb:cc:dd:ee:ff""],
+                ""zone_id"": ""mgmt-zone""
+            },
+            ""destination"": {
+                ""matching_target"": ""ANY"",
+                ""zone_id"": ""external-zone""
+            }
+        }").RootElement;
+        var denyJson = System.Text.Json.JsonDocument.Parse(@"{
+            ""_id"": ""block-mgmt-external"",
+            ""name"": ""Block Management to External"",
+            ""action"": ""BLOCK"",
+            ""enabled"": true,
+            ""index"": 10008,
+            ""protocol"": ""all"",
+            ""source"": {
+                ""matching_target"": ""ANY"",
+                ""zone_id"": ""mgmt-zone""
+            },
+            ""destination"": {
+                ""matching_target"": ""ANY"",
+                ""zone_id"": ""external-zone""
+            }
+        }").RootElement;
+
+        var rules = new List<FirewallRule>
+        {
+            _analyzer.ParseFirewallPolicy(allowJson)!,
+            _analyzer.ParseFirewallPolicy(denyJson)!
+        };
+
+        var issues = _analyzer.DetectShadowedRules(rules, networkConfigs: null, externalZoneId: "external-zone");
+
+        issues.Should().NotContain(i => i.Type == "ALLOW_SUBVERTS_DENY");
+        var issue = issues.FirstOrDefault(i => i.Type == "ALLOW_EXCEPTION_PATTERN");
+        issue.Should().NotBeNull();
+        issue!.Severity.Should().Be(AuditSeverity.Informational);
+        issue.RuleId.Should().Be("FW-EXCEPTION-001");
+        issue.Description.Should().Be("External Access");
+    }
+
+    [Fact]
+    public void DetectShadowedRules_MacScopedAllowWithInterleavedServiceBlocks_NoSubvertIssues()
+    {
+        // Full policy order from issue #1011: the MAC-scoped allow at 10000 is followed by
+        // DNS, DoT/DoQ, and NTP block rules BEFORE the zone-wide deny at 10008. The allow
+        // overlaps every one of those denies; none of the pairs may degrade to FW-SUBVERT-001.
+        FirewallRule MakeBlock(string id, string name, int index, string? protocol, string? port) => new FirewallRule
+        {
+            Id = id,
+            Name = name,
+            Action = "BLOCK",
+            Enabled = true,
+            Index = index,
+            Protocol = protocol,
+            DestinationPort = port,
+            SourceMatchingTarget = "ANY",
+            SourceZoneId = "mgmt-zone",
+            DestinationMatchingTarget = "ANY",
+            DestinationZoneId = "external-zone"
+        };
+
+        var macAllowJson = System.Text.Json.JsonDocument.Parse(@"{
+            ""_id"": ""allow-failover"",
+            ""name"": ""Allow Failover Device to External"",
+            ""action"": ""ALLOW"",
+            ""enabled"": true,
+            ""index"": 10000,
+            ""protocol"": ""all"",
+            ""source"": {
+                ""matching_target"": ""MAC"",
+                ""matching_target_type"": ""SPECIFIC"",
+                ""macs"": [""aa:bb:cc:dd:ee:ff""],
+                ""zone_id"": ""mgmt-zone""
+            },
+            ""destination"": {
+                ""matching_target"": ""ANY"",
+                ""zone_id"": ""external-zone""
+            }
+        }").RootElement;
+
+        var rules = new List<FirewallRule>
+        {
+            _analyzer.ParseFirewallPolicy(macAllowJson)!,
+            MakeBlock("block-dns", "Block Management DNS to External", 10002, "tcp_udp", "53"),
+            MakeBlock("block-dot", "Block Management DoT/DoQ to External", 10004, "tcp_udp", "853"),
+            MakeBlock("block-ntp", "Block Management NTP to External", 10006, "udp", "123"),
+            MakeBlock("block-all", "Block Management to External", 10008, "all", null)
+        };
+
+        var issues = _analyzer.DetectShadowedRules(rules, networkConfigs: null, externalZoneId: "external-zone");
+
+        issues.Should().NotContain(i => i.Type == "ALLOW_SUBVERTS_DENY");
+        issues.Should().NotContain(i => i.Type == "DENY_SHADOWS_ALLOW");
+        issues.Should().OnlyContain(i => i.Type == "ALLOW_EXCEPTION_PATTERN");
+        issues.Should().OnlyContain(i => i.Severity == AuditSeverity.Informational);
+        // The allow overlaps each of the four deny rules - all classified as exceptions
+        issues.Should().HaveCount(4);
+    }
+
+    [Fact]
+    public void DetectShadowedRules_MacScopedDenyBeforeMacScopedAllow_SameDevice_ReturnsShadowedIssue()
+    {
+        // Two MAC-scoped rules for the SAME device previously never overlapped
+        // (CLIENT vs CLIENT fell through to no-overlap), hiding real shadowing
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "deny-device",
+                Name = "Block Device",
+                Action = "block",
+                Enabled = true,
+                Index = 1,
+                Protocol = "all",
+                SourceMatchingTarget = "CLIENT",
+                SourceClientMacs = new List<string> { "aa:bb:cc:dd:ee:ff" },
+                DestinationMatchingTarget = "ANY"
+            },
+            new FirewallRule
+            {
+                Id = "allow-device",
+                Name = "Allow Device",
+                Action = "allow",
+                Enabled = true,
+                Index = 2,
+                Protocol = "all",
+                SourceMatchingTarget = "CLIENT",
+                SourceClientMacs = new List<string> { "aa:bb:cc:dd:ee:ff" },
+                DestinationMatchingTarget = "ANY"
+            }
+        };
+
+        var issues = _analyzer.DetectShadowedRules(rules);
+
+        issues.Should().ContainSingle();
+        issues.First().Type.Should().Be("DENY_SHADOWS_ALLOW");
+    }
+
+    [Fact]
+    public void DetectShadowedRules_MacScopedRulesForDifferentDevices_ReturnsNoIssues()
+    {
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "deny-device-a",
+                Name = "Block Device A",
+                Action = "block",
+                Enabled = true,
+                Index = 1,
+                Protocol = "all",
+                SourceMatchingTarget = "CLIENT",
+                SourceClientMacs = new List<string> { "aa:bb:cc:dd:ee:01" },
+                DestinationMatchingTarget = "ANY"
+            },
+            new FirewallRule
+            {
+                Id = "allow-device-b",
+                Name = "Allow Device B",
+                Action = "allow",
+                Enabled = true,
+                Index = 2,
+                Protocol = "all",
+                SourceMatchingTarget = "CLIENT",
+                SourceClientMacs = new List<string> { "aa:bb:cc:dd:ee:02" },
+                DestinationMatchingTarget = "ANY"
+            }
+        };
+
+        var issues = _analyzer.DetectShadowedRules(rules);
+
+        issues.Should().BeEmpty();
     }
 
     [Fact]
@@ -2601,6 +2941,33 @@ public class FirewallRuleAnalyzerTests
         var issues = _analyzer.DetectPermissiveRules(rules);
 
         // Not flagged because specific source IPs make the rule restrictive
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void DetectPermissiveRules_MacScopedSourceWithAnyDestination_NotFlagged()
+    {
+        // A MAC-scoped source (newer "MAC"/"macs" shape) restricts the rule to specific
+        // devices, so ANY destination is not broad. Parse from JSON to prove the shape
+        // normalizes to CLIENT and hits the IsSourceMacBased guard.
+        var json = System.Text.Json.JsonDocument.Parse(@"{
+            ""_id"": ""mac-any-dest"",
+            ""name"": ""Allow Failover Device to External"",
+            ""action"": ""ALLOW"",
+            ""enabled"": true,
+            ""protocol"": ""all"",
+            ""source"": {
+                ""matching_target"": ""MAC"",
+                ""macs"": [""aa:bb:cc:dd:ee:ff""]
+            },
+            ""destination"": {
+                ""matching_target"": ""ANY""
+            }
+        }").RootElement;
+        var rules = new List<FirewallRule> { _analyzer.ParseFirewallPolicy(json)! };
+
+        var issues = _analyzer.DetectPermissiveRules(rules);
+
         issues.Should().BeEmpty();
     }
 
