@@ -3046,7 +3046,12 @@ export class LanFlowMap {
             el.style.opacity = fade.toFixed(3);
             const x = (tmp.x * halfW) + halfW;
             const y = -(tmp.y * halfH) + halfH;
-            const scale = Math.max(minScale, Math.min(maxScale, REF_DIST / Math.max(dist, 1))) * (crowdScale ?? 1);
+            // Crowd shrink only matters where labels can actually collide -
+            // zoomed out. Up close the cluster spreads across the screen, so
+            // blend the factor out below 25 units and fully in past 60.
+            const crowdT = Math.min(1, Math.max(0, (dist - 25) / 35));
+            const crowdF = 1 - (1 - (crowdScale ?? 1)) * crowdT;
+            const scale = Math.max(minScale, Math.min(maxScale, REF_DIST / Math.max(dist, 1))) * crowdF;
             el.style.transform = `translate(-50%, -100%) scale(${scale.toFixed(3)})`;
             el.style.transformOrigin = 'center bottom';
             el.style.left = `${x}px`;
