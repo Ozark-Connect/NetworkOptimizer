@@ -2046,6 +2046,12 @@ export class LanFlowMap {
         this._playbackTime = pending
             ?? ((this._historicAt && Math.abs(this._historicAt.getTime() - fromValue.getTime()) <= stepMs)
                 ? this._historicAt : fromValue);
+        // Publish the seed position immediately instead of waiting for the first
+        // 1s tick: consumers re-baseline their playhead on a confirmed seek, and
+        // an adopted pending scrub gets its data loaded now rather than a tick late.
+        this._historicAt = this._playbackTime;
+        this._notifyStatCards(this._playbackTime);
+        this._loadHistoric(this._playbackTime);
         let tickCount = 0;
         this._historicPlaybackTimer = setInterval(() => {
             if (this._paused) return;

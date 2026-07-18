@@ -506,6 +506,12 @@ export async function seekTime(isoTimestamp) {
                 if (histRate > 0) { histRate = 0; renderHistoric(histAt); }
                 return;
             }
+            // Playback just started: the last seek (histWall) was the final scrub
+            // position, stamped BEFORE play was pressed. Re-baseline so the idle
+            // gap between scrubbing and pressing play isn't counted as playback
+            // time - extrapolating it made the cursor run ahead and then snap
+            // back when the first real playback seek arrived.
+            if (histRate === 0) histWall = Date.now();
             histRate = rate;
             const elapsed = Date.now() - histWall;
             if (elapsed > 2500) return; // seeks stalled (hidden tab etc) - hold
