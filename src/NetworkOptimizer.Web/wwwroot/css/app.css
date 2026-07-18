@@ -442,6 +442,7 @@ h1:focus {
     overflow: visible;
 }
 .wan-live-chart-card > .card-body {
+    position: relative;
     padding: 0 0 0.3rem;
     margin-right: -0.75rem;
     overflow: visible;

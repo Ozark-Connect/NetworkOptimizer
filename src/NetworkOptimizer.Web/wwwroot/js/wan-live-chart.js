@@ -422,8 +422,11 @@ function ensureModeUi(el) {
         });
         modeCluster.appendChild(histBadge);
     }
-    // Re-append every mount: ApexCharts rebuilds the container's content.
-    el.appendChild(modeCluster);
+    // Parent OUTSIDE the chart's mount div: ApexCharts rebuilds that div's
+    // content on render (and can again on option updates), silently removing
+    // any foreign children. The card body wraps the chart tightly, so the
+    // cluster anchors to the same visual spot.
+    (el.closest('.card-body') ?? el).appendChild(modeCluster);
     if (!unsubFlow) {
         unsubFlow = flowData.subscribe((ev) => { if (ev === 'playstate') syncModeUi(); });
     }
