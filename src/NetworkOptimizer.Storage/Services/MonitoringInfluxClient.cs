@@ -1689,7 +1689,9 @@ rtt = base
 loss = base
   |> filter(fn: (r) => r._field == ""loss_percent"")
   |> group(columns: [""target_id"", ""target_type""])
-  |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false)
+  |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: true)
+  |> fill(usePrevious: true)
+  |> filter(fn: (r) => exists r._value)
   |> group(columns: [""target_type"", ""_time""])
   |> mean()
   |> group(columns: [""_time""])

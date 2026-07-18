@@ -453,11 +453,16 @@ h1:focus {
     position: relative;
     cursor: crosshair;
 }
-.wan-chart-mode-badge {
+.wan-chart-mode-cluster {
     position: absolute;
     top: 0.35rem;
     left: 0.5rem;
     z-index: 6;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+.wan-chart-mode-cluster .lan-flow-map-mode {
     cursor: pointer;
 }
 .dashboard-grid .lv-panel > .wan-live-chart-card {
