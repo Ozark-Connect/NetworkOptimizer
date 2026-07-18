@@ -116,6 +116,11 @@ const DEVICE_ZOOM_MAX = 1.6;
 // still see what's flowing without turning into hoses.
 const LINK_ZOOM_MIN = 0.75;
 const LINK_ZOOM_MAX = 1.35;
+// The zoom-out ceiling is relative to property size: property factor x zoom
+// boost never exceeds this multiple of an object's designed size. Single-home
+// maps (factor 1.0) top out at design size, while large campuses keep their
+// full zoom boost since their objects start shrunken.
+const ZOOM_EFFECTIVE_CEIL = 1.0;
 
 const LINK_KIND = {
     Uplink: 0,
@@ -1701,18 +1706,20 @@ export class LanFlowMap {
     // and particle streams follow via a shader zoom uniform.
     _applyZoomScaling() {
         const camPos = this.camera.position;
+        const devMax = Math.max(1.0, Math.min(DEVICE_ZOOM_MAX, ZOOM_EFFECTIVE_CEIL / this._deviceScale));
+        const linkMax = Math.max(1.0, Math.min(LINK_ZOOM_MAX, ZOOM_EFFECTIVE_CEIL / this._linkScale));
         for (const group of this._nodeMeshes.values()) {
             const { core, halo } = group.userData ?? {};
             if (!core) continue;
             const dist = camPos.distanceTo(group.position);
-            const z = Math.max(DEVICE_ZOOM_MIN, Math.min(DEVICE_ZOOM_MAX, dist / DEVICE_ZOOM_REF_DIST));
+            const z = Math.max(DEVICE_ZOOM_MIN, Math.min(devMax, dist / DEVICE_ZOOM_REF_DIST));
             core.scale.setScalar(z);
             if (halo) halo.scale.setScalar(z);
         }
         for (const { pipe, down, up } of this._linkMeshes.values()) {
             if (!pipe) continue;
             const dist = camPos.distanceTo(pipe.position);
-            const z = Math.max(LINK_ZOOM_MIN, Math.min(LINK_ZOOM_MAX, dist / DEVICE_ZOOM_REF_DIST));
+            const z = Math.max(LINK_ZOOM_MIN, Math.min(linkMax, dist / DEVICE_ZOOM_REF_DIST));
             pipe.scale.x = z;
             pipe.scale.z = z;
             down?.setZoom(z);
