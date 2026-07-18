@@ -101,18 +101,19 @@ public static class MonitoringChartEndpoints
             var wanData = await wanTask;
             var rttData = await rttTask;
 
-            var rttByTime = new Dictionary<long, MonitoringInfluxClient.LatencyPoint>();
-            foreach (var p in rttData)
-            {
-                var bucket = p.Time.Ticks / (TimeSpan.TicksPerSecond * 5) * (TimeSpan.TicksPerSecond * 5);
-                rttByTime[bucket] = p;
-            }
+            // As-of merge: each WAN point adopts the newest latency point at or
+            // before its own timestamp. The previous exact-bucket join silently
+            // DROPPED latency points whenever the SNMP tier skipped the matching
+            // 5s window - and SNMP polls get delayed exactly under load, so loss
+            // spikes vanished from the chart precisely when they mattered.
+            var rttSorted = rttData.OrderBy(p => p.Time).ToList();
+            var ri = 0;
             MonitoringInfluxClient.LatencyPoint? lastRtt = null;
 
-            var points = wanData.Select(w =>
+            var points = wanData.OrderBy(w => w.Time).Select(w =>
             {
-                var bucket = w.Time.Ticks / (TimeSpan.TicksPerSecond * 5) * (TimeSpan.TicksPerSecond * 5);
-                if (rttByTime.TryGetValue(bucket, out var rtt)) lastRtt = rtt;
+                while (ri < rttSorted.Count && rttSorted[ri].Time <= w.Time)
+                    lastRtt = rttSorted[ri++];
 
                 return new
                 {
@@ -122,7 +123,7 @@ public static class MonitoringChartEndpoints
                     rttMs = lastRtt?.RttAvgMs,
                     lossPercent = lastRtt?.LossPercent,
                 };
-            });
+            }).ToList();
 
             return Results.Ok(new { points });
         });
