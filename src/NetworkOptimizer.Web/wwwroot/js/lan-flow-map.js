@@ -1581,9 +1581,15 @@ export class LanFlowMap {
                 }
                 this.camera.lookAt(this.controls.target);
             } else if (this._repositionMode && this._repositionGroup) {
-                // In reposition mode WASD nudges the device on the XZ plane
+                // In reposition mode WASD nudges the device on the XZ plane.
+                // Step is proportional to camera-to-device distance so nudges
+                // track what you see: fine control zoomed in for room-level
+                // placement, faster traversal zoomed out - and consistent
+                // across property sizes (a fixed scene-unit step covered many
+                // real meters per tick on large, heavily-normalized maps).
                 if (this._keys) {
-                    const step = 0.35;
+                    const camDist = this.camera.position.distanceTo(this._repositionGroup.position);
+                    const step = Math.max(0.02, camDist * 0.005);
                     const cam = this.camera;
                     const forward = new THREE.Vector3();
                     cam.getWorldDirection(forward);
