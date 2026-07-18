@@ -43,45 +43,7 @@ public static class MonitoringChartEndpoints
                 }
             }
 
-            var targets = await liveStats.GetIspTransitTargetsAsync(ct);
-
-            var ispRtts = new List<double>();
-            var ispLosses = new List<double>();
-            var transitRtts = new List<double>();
-            var transitLosses = new List<double>();
-
-            foreach (var t in targets)
-            {
-                var st = liveStats.GetTargetStats(t.TargetId);
-                if (st == null) continue;
-
-                if (t.TargetType == MonitoringTargetType.AccessIsp)
-                {
-                    if (st.RttAvgMs != null) ispRtts.Add(st.RttAvgMs.Value);
-                    ispLosses.Add(st.LossPercent);
-                }
-                else
-                {
-                    if (st.RttAvgMs != null) transitRtts.Add(st.RttAvgMs.Value);
-                    transitLosses.Add(st.LossPercent);
-                }
-            }
-
-            var ispRtt = ispRtts.Count > 0 ? ispRtts.Average() : (double?)null;
-            var ispLoss = ispLosses.Count > 0 ? ispLosses.Average() : 0.0;
-            var transitRtt = transitRtts.Count > 0 ? transitRtts.Average() : (double?)null;
-            var transitLoss = transitLosses.Count > 0 ? transitLosses.Average() : 0.0;
-
-            double? meanRtt = null;
-            if (ispRtt != null && transitRtt != null)
-                meanRtt = (ispRtt.Value + transitRtt.Value) / 2;
-            else meanRtt = ispRtt ?? transitRtt;
-
-            double meanLoss = 0;
-            if (ispRtt != null && transitRtt != null)
-                meanLoss = (ispLoss + transitLoss) / 2;
-            else if (ispRtt != null) meanLoss = ispLoss;
-            else if (transitRtts.Count > 0) meanLoss = transitLoss;
+            var (meanRtt, meanLoss) = await liveStats.GetMeanIspTransitLiveAsync(ct);
 
             return Results.Ok(new
             {

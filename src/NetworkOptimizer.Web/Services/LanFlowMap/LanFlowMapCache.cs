@@ -85,4 +85,5 @@ public record HistoricDataCache(
     IReadOnlyList<MonitoringInfluxClient.ClientThroughputPoint> WifiClients,
     IReadOnlyList<MonitoringInfluxClient.ClientThroughputPoint> WiredClients,
     Dictionary<string, IReadOnlyList<MonitoringInfluxClient.DeviceHealthPoint>> HealthByDevice,
-    Dictionary<MonitoringTargetType, IReadOnlyList<MonitoringInfluxClient.LatencyPoint>> LatencyByTargetType);
+    Dictionary<MonitoringTargetType, IReadOnlyList<MonitoringInfluxClient.LatencyPoint>> LatencyByTargetType,
+    IReadOnlyList<MonitoringInfluxClient.LatencyPoint> MeanIspTransit);
