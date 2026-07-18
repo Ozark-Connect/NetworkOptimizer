@@ -883,7 +883,7 @@ export class LanFlowMap {
             // labels (with rate badges) but sprites provide 3D depth sorting.
             if (node.name) {
                 const sprite = this._makeLabelSprite(node.name);
-                sprite.position.set(0, radius + 0.8 * this._deviceScale, 0);
+                sprite.position.set(0, this._nodeTopHalfHeight(node.kind) + 0.35 * this._deviceScale, 0);
                 group.add(sprite);
                 this._labelSprites.set(node.id, sprite);
             }
@@ -1216,6 +1216,20 @@ export class LanFlowMap {
 
     _cloudRadius() {
         return NODE_RADIUS.cloud * this._cloudScale;
+    }
+
+    // Approximate half-height of the rendered core mesh, for anchoring labels
+    // just above the top. Radius alone overshoots badly for the flat shapes
+    // (an AP disc is only 0.45r tall), which left labels floating far above.
+    _nodeTopHalfHeight(kind) {
+        const r = this._nodeRadius(kind);
+        switch (kind) {
+            case NODE_KIND.Gateway: return r * 0.65;       // box height 1.3r
+            case NODE_KIND.Switch: return r * 0.35;        // box height 0.7r
+            case NODE_KIND.AccessPoint: return r * 0.225;  // disc height 0.45r
+            case NODE_KIND.VirtualHub: return r * 0.55;    // squat torus
+            default: return r * 0.95;                      // client polyhedra
+        }
     }
 
     _nodeColor(kind) {
@@ -1739,13 +1753,22 @@ export class LanFlowMap {
             down?.setZoom(z);
             up?.setZoom(z);
         }
+        // Sprite labels: reference distance stretches with property size so the
+        // apparent size (and the point where they lock at max) stays
+        // proportional to the shrunken devices instead of locking too early.
+        // The Y offset tracks the rendered top of the core mesh each frame.
+        const labelRef = LABEL_ZOOM_REF_DIST / this._deviceScale;
+        this._devZoomMax = devMax;
         for (const [nodeId, sprite] of this._labelSprites) {
             const base = sprite.userData?.baseScale;
             const group = this._nodeMeshes.get(nodeId);
             if (!base || !group) continue;
             const dist = camPos.distanceTo(group.position);
-            const f = Math.max(LABEL_ZOOM_MIN, Math.min(1.0, dist / LABEL_ZOOM_REF_DIST));
+            const f = Math.max(LABEL_ZOOM_MIN, Math.min(1.0, dist / labelRef));
             sprite.scale.set(base.x * f, base.y * f, 1);
+            const kind = group.userData?.node?.kind;
+            const z = Math.max(DEVICE_ZOOM_MIN, Math.min(devMax, dist / DEVICE_ZOOM_REF_DIST));
+            sprite.position.y = this._nodeTopHalfHeight(kind) * z + 0.35 * this._deviceScale;
         }
     }
 
@@ -1844,7 +1867,7 @@ export class LanFlowMap {
         this._nodeMeshes.set(node.id, group);
         if (node.name) {
             const sprite = this._makeLabelSprite(node.name);
-            sprite.position.set(0, radius + 0.8 * this._deviceScale, 0);
+            sprite.position.set(0, this._nodeTopHalfHeight(node.kind) + 0.35 * this._deviceScale, 0);
             group.add(sprite);
             this._labelSprites.set(node.id, sprite);
         }
@@ -2919,19 +2942,26 @@ export class LanFlowMap {
         const REF_DIST = 60;
         const MIN_SCALE = 0.4;
         const MAX_SCALE = 1.2;
+        // On large properties the shrink floor scales down with the devices,
+        // so labels keep receding when zoomed out instead of flooring early
+        // and dominating the shrunken scene. Single-home sites are unchanged.
+        const minScale = MIN_SCALE * this._deviceScale;
 
         for (const [nodeId, { el }] of this._floatingLabels) {
             const group = this._nodeMeshes.get(nodeId);
             if (!group) { el.classList.remove('is-visible'); continue; }
             if (!group.visible) { el.classList.remove('is-visible'); continue; }
             tmp.setFromMatrixPosition(group.matrixWorld);
-            tmp.y += 1.8 * this._deviceScale;  // anchor above the node sphere
             const dist = tmp.distanceTo(camPos);
+            // Anchor just above the rendered top of the core mesh (tracks the
+            // per-frame zoom scale) instead of a fixed offset above center.
+            const zDev = Math.max(DEVICE_ZOOM_MIN, Math.min(this._devZoomMax ?? 1, dist / DEVICE_ZOOM_REF_DIST));
+            tmp.y += this._nodeTopHalfHeight(group.userData?.node?.kind) * zDev + 0.35 * this._deviceScale;
             tmp.project(this.camera);
             if (tmp.z > 1) { el.classList.remove('is-visible'); continue; }
             const x = (tmp.x * halfW) + halfW;
             const y = -(tmp.y * halfH) + halfH;
-            const scale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, REF_DIST / Math.max(dist, 1)));
+            const scale = Math.max(minScale, Math.min(MAX_SCALE, REF_DIST / Math.max(dist, 1)));
             el.style.transform = `translate(-50%, -100%) scale(${scale.toFixed(3)})`;
             el.style.transformOrigin = 'center bottom';
             el.style.left = `${x}px`;
@@ -3034,7 +3064,7 @@ export class LanFlowMap {
             if (tmp.z > 1) { el.classList.remove('is-visible'); continue; }
             const x = (tmp.x * halfW) + halfW;
             const y = -(tmp.y * halfH) + halfH;
-            const scale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, REF_DIST / Math.max(dist, 1)));
+            const scale = Math.max(minScale, Math.min(MAX_SCALE, REF_DIST / Math.max(dist, 1)));
             el.style.transform = `translate(-50%, -50%) scale(${scale.toFixed(3)})`;
             el.style.left = `${x}px`;
             el.style.top = `${y}px`;
