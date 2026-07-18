@@ -15925,6 +15925,8 @@ tr.stats-row-filtered {
     display: inline-flex;
     gap: 0.55rem;
     pointer-events: auto;
+    cursor: help;
+    user-select: none;
 }
 .lan-flow-map-link-label .down {
     color: var(--speed-download-color);
