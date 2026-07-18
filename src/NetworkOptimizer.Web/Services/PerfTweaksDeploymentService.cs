@@ -19,7 +19,7 @@ public class PerfTweaksDeploymentService
     private const string OnBootDir = "/data/on_boot.d";
     private const string PerfTweaksDir = "/data/perf-tweaks";
     private const string SfpModuleDir = "/data/sfp-sgmiiplus";
-    private static readonly Version MaxSupportedFirmware = new(5, 1, 21);
+    private static readonly Version MaxSupportedFirmware = new(5, 1, 26);
 
     private static readonly Dictionary<string, string> BootScriptFiles = new()
     {

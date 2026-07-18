@@ -121,7 +121,7 @@
                     @if (_gatewayConnected && _status?.FirmwareSupported == false && !string.IsNullOrEmpty(_status?.FirmwareVersion))
                     {
                         <div class="alert alert-danger" style="margin-top: 1rem;">
-                            <strong>Unsupported Firmware:</strong> Performance tweaks are currently tested and supported up to UniFi OS 5.1.21. Your gateway is running @_status.FirmwareVersion. Deploying new tweaks is disabled until we validate compatibility with this version. Existing tweaks will continue to run.
+                            <strong>Unsupported Firmware:</strong> Performance tweaks are currently tested and supported up to UniFi OS 5.1.26. Your gateway is running @_status.FirmwareVersion. Deploying new tweaks is disabled until we validate compatibility with this version. Existing tweaks will continue to run.
                         </div>
                     }
 
