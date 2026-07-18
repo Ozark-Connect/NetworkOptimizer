@@ -1622,8 +1622,10 @@ export class LanFlowMap {
                 // across property sizes (a fixed scene-unit step covered many
                 // real meters per tick on large, heavily-normalized maps).
                 if (this._keys) {
+                    // Dulled by the property factor too: on large maps the same
+                    // scene distance spans far more real-world meters.
                     const camDist = this.camera.position.distanceTo(this._repositionGroup.position);
-                    const step = Math.max(0.02, camDist * 0.005);
+                    const step = Math.max(0.01, camDist * 0.00375 * this._deviceScale);
                     const cam = this.camera;
                     const forward = new THREE.Vector3();
                     cam.getWorldDirection(forward);
@@ -2887,10 +2889,18 @@ export class LanFlowMap {
             // top-left (CSS default 0,0).
             el.style.left = '-9999px';
             el.style.top = '-9999px';
-            // Hover tooltip with the link's negotiated capacity. Long delay so
-            // it doesn't fire while just moving around the map.
-            if (Number.isFinite(link.capacityBps) && link.capacityBps > 0) {
-                el.setAttribute('data-tooltip', `Link speed: ${formatBps(link.capacityBps)}`);
+            // Hover tooltip with the link's negotiated capacity - both
+            // directions when asymmetric (WiFi PHY, ISP-provisioned WAN).
+            // Long delay so it doesn't fire while just moving around the map.
+            const capDown = link.capacityDownBps, capUp = link.capacityUpBps;
+            let capTip = null;
+            if (capDown > 0 && capUp > 0 && capDown !== capUp) {
+                capTip = `Link speed: ↓ ${formatBps(capDown)} / ↑ ${formatBps(capUp)}`;
+            } else if (Number.isFinite(link.capacityBps) && link.capacityBps > 0) {
+                capTip = `Link speed: ${formatBps(link.capacityBps)}`;
+            }
+            if (capTip) {
+                el.setAttribute('data-tooltip', capTip);
                 el.setAttribute('data-tooltip-hover-only', '');
                 el.setAttribute('data-tooltip-delay', '500');
             }

@@ -1332,6 +1332,10 @@ public class LanFlowMapService
                 // PHY rate (kbps) acts as the WiFi link capacity (spec 3.5 - PHY is capacity).
                 long maxPhyKbps = Math.Max(c.TxRate, c.RxRate);
                 if (maxPhyKbps > 0) link.CapacityBps = maxPhyKbps * 1_000L;
+                // Directional PHY: AP TX rate limits traffic toward the client
+                // (downstream), RX rate limits traffic from the client (upstream).
+                if (c.TxRate > 0) link.CapacityDownBps = c.TxRate * 1_000L;
+                if (c.RxRate > 0) link.CapacityUpBps = c.RxRate * 1_000L;
             }
 
             snapshot.Nodes.Add(node);
@@ -1528,6 +1532,10 @@ public class LanFlowMapService
                 ToNodeId = gwId,
                 Kind = LanLinkKind.Wan,
                 CapacityBps = wan.LinkSpeedMbps.HasValue ? (long)wan.LinkSpeedMbps.Value * 1_000_000L : null,
+                // ISP-provisioned speeds are the real (asymmetric) WAN capacity;
+                // the port PHY above only sizes the pipe.
+                CapacityDownBps = wanNet?.WanDownloadMbps > 0 ? (long)wanNet.WanDownloadMbps! * 1_000_000L : null,
+                CapacityUpBps = wanNet?.WanUploadMbps > 0 ? (long)wanNet.WanUploadMbps! * 1_000_000L : null,
             };
             if (!string.IsNullOrEmpty(wan.GatewayPortName))
             {
