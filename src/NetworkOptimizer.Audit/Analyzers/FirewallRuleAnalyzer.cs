@@ -859,9 +859,13 @@ public class FirewallRuleAnalyzer
     {
         // Use FirewallRuleEvaluator to find the effective rule for this traffic direction
         // Use forNewConnections=true to skip infrastructure rules like "Allow Established/Related"
-        // that only handle return traffic and shouldn't be considered as isolation bypasses
+        // that only handle return traffic and shouldn't be considered as isolation bypasses.
+        // Partial block rules (specific ports/protocols/domains) are skipped, mirroring
+        // CheckAndAddIsolationIssue: traffic outside their scope falls through, so an allow
+        // rule behind a narrow block still takes effect for the remaining traffic.
         var evalResult = FirewallRuleEvaluator.Evaluate(rules,
-            r => HasNetworkPair(r, sourceNet, destNet),
+            r => HasNetworkPair(r, sourceNet, destNet) &&
+                 (!r.ActionType.IsBlockAction() || BlocksAllTraffic(r)),
             forNewConnections: true);
 
         // Only flag if traffic is effectively allowed (allow rule takes effect)
@@ -974,16 +978,21 @@ public class FirewallRuleAnalyzer
 
         // Evaluate firewall rules considering rule ordering (lower index = higher priority)
         // Use forNewConnections=true to skip RESPOND_ONLY allow rules (like "Allow Return Traffic")
-        // since we care about whether NEW connections can be initiated, not established traffic
+        // since we care about whether NEW connections can be initiated, not established traffic.
+        // Block rules restricted to specific ports/protocols/domains are skipped entirely: they
+        // only remove a slice of traffic and the remainder falls through to later rules, so a
+        // broad block behind a narrow one still provides isolation (#1010). Allow rules are
+        // never skipped - an earlier allow genuinely bypasses a later broad block.
         var evalResult = FirewallRuleEvaluator.Evaluate(rules,
-            r => HasNetworkPair(r, sourceNetwork, destNetwork),
+            r => HasNetworkPair(r, sourceNetwork, destNetwork) &&
+                 (!r.ActionType.IsBlockAction() || BlocksAllTraffic(r)),
             forNewConnections: true);
 
         // For isolation, the rule must:
         // 1. Be a block action (checked by IsBlocked)
         // 2. Block NEW connections (checked by IsBlocked via BlocksNewConnections)
-        // 3. Block ALL traffic, not just specific ports/protocols/domains
-        var hasIsolationRule = evalResult.IsBlocked && BlocksAllTraffic(evalResult.EffectiveRule!);
+        // 3. Block ALL traffic, not just specific ports/protocols/domains (guaranteed by the predicate)
+        var hasIsolationRule = evalResult.IsBlocked;
 
         if (evalResult.BlockRuleEclipsed)
         {
