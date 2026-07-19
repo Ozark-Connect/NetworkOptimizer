@@ -833,7 +833,12 @@ public class LanFlowMapService
                     var isGw = node.Kind == LanNodeKind.Gateway;
                     var filtered = isGw
                         ? rates.Where(p => System.Text.RegularExpressions.Regex.IsMatch(p.IfName, @"^eth\d+$"))
-                        : rates;
+                        // Exclude the synthetic UDB bridge-downlink series: it's a single directional
+                        // flow, not a switch fabric, so summing it as ingress/egress makes a bridge
+                        // look asymmetric. Dropping it leaves the bridge with no fabric badge, so it
+                        // falls back to adjacent-link summing (symmetric) - matching the live badge,
+                        // which has no fabric series for a UDB either.
+                        : rates.Where(p => !string.Equals(p.IfName, BridgeInterfaceRecorder.DownlinkIfName, StringComparison.OrdinalIgnoreCase));
                     var closestRates = filtered
                         .GroupBy(p => p.Time)
                         .OrderBy(g => Math.Abs((g.Key - at).TotalMilliseconds))
