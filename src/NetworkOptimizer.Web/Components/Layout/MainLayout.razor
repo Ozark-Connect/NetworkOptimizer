@@ -130,6 +130,11 @@
                 // Site switcher menu lives inside the top bar; hiding the bar would make
                 // the open menu inherit pointer-events: none and freeze it on screen
                 if (document.querySelector('.site-switcher-menu')) return;
+                // Short content: hiding the bar with nothing to scroll leaves no
+                // scroll-up gesture to bring it back. The content must overflow even
+                // after the bar's height is reclaimed by the hide (clientHeight grows
+                // by the bar's height once it's gone).
+                if (!currentEl || currentEl.scrollHeight <= currentEl.clientHeight + (topBar ? topBar.offsetHeight : 0) + 10) return;
                 if (topBar && !topBar.classList.contains('top-bar-hidden')) {
                     autoHideDone = true;
                     topBar.classList.add('top-bar-hidden');
