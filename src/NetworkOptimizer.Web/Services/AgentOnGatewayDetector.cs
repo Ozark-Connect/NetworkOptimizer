@@ -12,10 +12,13 @@ namespace NetworkOptimizer.Web.Services;
 /// instead). Detection is IP correlation only - no agent-side flag - so it
 /// works with any agent version.
 ///
-/// Callers are NEVER blocked: the answer comes from a cache (stale is fine for
-/// UI gating), and a miss or expiry triggers a background refresh with its own
-/// timeout. Sites are queried on UI paths - first page paint must not wait on
-/// console round-trips through an agent tunnel that may be mid-reconnect.
+/// Repeat callers are never blocked: the answer comes from a cache (stale is
+/// fine for UI gating), and expiry triggers a background refresh with its own
+/// timeout. The FIRST query for a site awaits one bounded refresh instead of
+/// defaulting to false - a false answer paints the full speed-test surfaces
+/// (dead targets pointing at the gateway) on a gateway-agent site, and pages
+/// without polling would hold that until a reload. After that one await the
+/// cache always has an entry, so UI paths answer instantly.
 ///
 /// Consumers gate the speed-test surfaces on this: today an on-gateway agent
 /// never hosts the LAN speed-test listener or the WAN test binary. When
@@ -32,7 +35,7 @@ public class AgentOnGatewayDetector
     private readonly SiteConnectionRegistry _siteConnections;
     private readonly ILogger<AgentOnGatewayDetector> _logger;
     private readonly ConcurrentDictionary<string, (bool OnGateway, DateTime At)> _cache = new();
-    private readonly ConcurrentDictionary<string, byte> _refreshing = new();
+    private readonly ConcurrentDictionary<string, Task> _refreshing = new();
 
     public AgentOnGatewayDetector(
         AgentEnrollmentService enrollment,
@@ -46,45 +49,54 @@ public class AgentOnGatewayDetector
 
     /// <summary>
     /// Whether the site's online agent appears to run on the site's UniFi
-    /// gateway. Answers instantly from cache (a stale answer is served while a
-    /// background refresh runs); false for the default site or until a first
-    /// refresh completes. Never blocks on console round-trips.
+    /// gateway. Answers instantly from cache once a site has ever been resolved
+    /// (a stale answer is served while a background refresh runs); the first
+    /// query for a site awaits one refresh (bounded by the refresh timeout) so
+    /// speed-test surfaces never paint from a made-up false. False for the
+    /// default site.
     /// </summary>
-    public Task<bool> IsAgentOnGatewayAsync(string siteSlug, CancellationToken ct = default)
+    public async Task<bool> IsAgentOnGatewayAsync(string siteSlug, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(siteSlug) || siteSlug == SiteManagementService.DefaultSiteSlug)
-            return Task.FromResult(false);
+            return false;
 
         var hasCached = _cache.TryGetValue(siteSlug, out var cached);
-        if (!hasCached || DateTime.UtcNow - cached.At >= CacheTtl)
-            StartBackgroundRefresh(siteSlug);
+        if (hasCached && DateTime.UtcNow - cached.At < CacheTtl)
+            return cached.OnGateway;
 
-        return Task.FromResult(hasCached && cached.OnGateway);
+        var refresh = StartOrJoinRefresh(siteSlug);
+        if (hasCached)
+            return cached.OnGateway;
+
+        try
+        {
+            await refresh.WaitAsync(ct);
+        }
+        catch (OperationCanceledException)
+        {
+            // Caller gave up (page disposed) - the refresh itself continues.
+        }
+        return _cache.TryGetValue(siteSlug, out var fresh) && fresh.OnGateway;
     }
 
-    /// <summary>One in-flight refresh per site; result lands in the cache for the next caller.</summary>
-    private void StartBackgroundRefresh(string siteSlug)
-    {
-        if (!_refreshing.TryAdd(siteSlug, 0))
-            return;
-
-        _ = Task.Run(async () =>
+    /// <summary>One in-flight refresh per site; result lands in the cache, and first-time callers await the returned task.</summary>
+    private Task StartOrJoinRefresh(string siteSlug) =>
+        _refreshing.GetOrAdd(siteSlug, slug => Task.Run(async () =>
         {
             try
             {
                 using var cts = new CancellationTokenSource(RefreshTimeout);
-                await RefreshAsync(siteSlug, cts.Token);
+                await RefreshAsync(slug, cts.Token);
             }
             catch (Exception ex)
             {
-                _logger.LogDebug(ex, "Agent-on-gateway detection failed for site {Slug}", siteSlug);
+                _logger.LogDebug(ex, "Agent-on-gateway detection failed for site {Slug}", slug);
             }
             finally
             {
-                _refreshing.TryRemove(siteSlug, out _);
+                _refreshing.TryRemove(slug, out _);
             }
-        });
-    }
+        }));
 
     private async Task RefreshAsync(string siteSlug, CancellationToken ct)
     {

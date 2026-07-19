@@ -109,6 +109,37 @@ public class ClientSpeedTestService
     }
 
     /// <summary>
+    /// The site's client speed test target override as an IP literal, or null when
+    /// unset or a hostname (an off-topology DNS name can't anchor a LAN trace).
+    /// Parsed the same way <see cref="SiteSpeedTestTargetResolver"/> treats the
+    /// override: full URLs yield their host, anything else is the host itself.
+    /// </summary>
+    private async Task<string?> GetTargetOverrideIpAsync()
+    {
+        try
+        {
+            await using var db = await CreateSiteDbAsync();
+            var value = (await db.SystemSettings.FindAsync(SystemSettingKeys.ClientSpeedTestTargetOverride))?.Value?.Trim();
+            if (string.IsNullOrEmpty(value))
+                return null;
+
+            var host = value;
+            if ((value.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
+                    || value.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                && Uri.TryCreate(value, UriKind.Absolute, out var uri))
+            {
+                host = uri.Host;
+            }
+            return System.Net.IPAddress.TryParse(host, out _) ? host : null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to read client speed test target override for site {Site}", _siteSlug);
+            return null;
+        }
+    }
+
+    /// <summary>
     /// Record a speed test result from OpenSpeedTest browser client.
     /// </summary>
     public async Task<Iperf3Result> RecordOpenSpeedTestResultAsync(
@@ -520,21 +551,28 @@ public class ClientSpeedTestService
 
                 // A relayed result's LocalIp is the listener's socket address, which
                 // can be off-topology (Docker bridge networking, or a multi-NIC agent
-                // box picking the wrong interface). The reported endpoint (agent LAN
-                // IP / HOST_IP) is the operator-correctable address the site already
-                // advertises for speed test targets, so when the server endpoint
-                // wasn't found, retry the trace anchored there.
+                // box picking the wrong interface). When the server endpoint wasn't
+                // found, retry the trace anchored at where clients are actually sent:
+                // the site's target override first (the box the operator pointed
+                // clients at - the only agent-independent anchor, so it also covers
+                // the default site), then the reported endpoint (agent LAN IP /
+                // HOST_IP) the site advertises when no override is set.
                 if (!path.IsValid && path.ErrorMessage == NetworkPath.ServerPositionNotFoundError)
                 {
-                    var fallbackIp = await ResolveServerIpAsync();
-                    if (!string.IsNullOrEmpty(fallbackIp) && fallbackIp != result.LocalIp)
+                    var candidates = new[] { await GetTargetOverrideIpAsync(), await ResolveServerIpAsync() };
+                    foreach (var fallbackIp in candidates.Where(ip => !string.IsNullOrEmpty(ip)).Distinct())
                     {
-                        _logger.LogDebug("Server position not found from {LocalIp}; retrying with reported endpoint {FallbackIp}",
+                        if (fallbackIp == result.LocalIp)
+                            continue;
+                        _logger.LogDebug("Server position not found from {LocalIp}; retrying with site endpoint {FallbackIp}",
                             result.LocalIp ?? "auto", fallbackIp);
                         path = await _pathAnalyzer.CalculatePathAsync(
                             result.DeviceHost, fallbackIp, retryOnFailure: false, priorSnapshot);
                         if (path.IsValid)
+                        {
                             result.LocalIp = fallbackIp;
+                            break;
+                        }
                     }
                 }
             }
