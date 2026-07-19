@@ -127,6 +127,12 @@
         if (string.Equals(pathOnly, "sites", StringComparison.OrdinalIgnoreCase))
             return NavigationManager.BaseUri;
 
+        // Client Performance pins a specific client via ?ip= - that address
+        // belongs to the site being left, so a switch drops it and lands on the
+        // new site's own client view (tab/range params and the #fragment carry).
+        if (string.Equals(pathOnly, "client-dashboard", StringComparison.OrdinalIgnoreCase))
+            return SiteContextService.RemoveQueryParam(NavigationManager.Uri, "ip");
+
         return NavigationManager.Uri;
     }
 }

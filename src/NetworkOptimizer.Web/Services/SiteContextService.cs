@@ -120,7 +120,10 @@ public class SiteContextService : IAlertSiteScope
     }
 
     /// <summary>Returns the URL with any ?site= parameter removed, other parameters and fragment intact.</summary>
-    public static string RemoveSiteParam(string url)
+    public static string RemoveSiteParam(string url) => RemoveQueryParam(url, SiteQueryParam);
+
+    /// <summary>Returns the URL with the named query parameter removed, other parameters and fragment intact.</summary>
+    public static string RemoveQueryParam(string url, string name)
     {
         var fragment = "";
         var fragmentAt = url.IndexOf('#');
@@ -136,8 +139,8 @@ public class SiteContextService : IAlertSiteScope
 
         var kept = url[(queryAt + 1)..]
             .Split('&', StringSplitOptions.RemoveEmptyEntries)
-            .Where(p => !p.Equals(SiteQueryParam, StringComparison.OrdinalIgnoreCase)
-                     && !p.StartsWith(SiteQueryParam + "=", StringComparison.OrdinalIgnoreCase))
+            .Where(p => !p.Equals(name, StringComparison.OrdinalIgnoreCase)
+                     && !p.StartsWith(name + "=", StringComparison.OrdinalIgnoreCase))
             .ToList();
 
         var basePart = url[..queryAt];
