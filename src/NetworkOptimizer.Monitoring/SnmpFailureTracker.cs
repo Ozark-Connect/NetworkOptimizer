@@ -56,6 +56,27 @@ public sealed class SnmpFailureTracker
     }
 
     /// <summary>
+    /// Clears all failure counters and exclusions - used after the SNMP credentials
+    /// change (self-heal), so devices dropped under the old, stale community are retried
+    /// immediately with the new one instead of waiting out their exclusion window.
+    /// </summary>
+    public void Reset()
+    {
+        _failures.Clear();
+        _excluded.Clear();
+    }
+
+    /// <summary>
+    /// Whether the given key is currently failing: already excluded, or with at least
+    /// <paramref name="minConsecutiveFailures"/> consecutive failures pending. The caller
+    /// counts these across the current SNMP-enabled device list to detect a fabric-wide
+    /// failure (community rotated / SNMP disabled) without needing any prior-success
+    /// baseline - so it fires even on a cold start where the community was already wrong.
+    /// </summary>
+    public bool IsFailing(string key, int minConsecutiveFailures = 2) =>
+        PeekExcluded(key, out _) || GetFailureCount(key) >= minConsecutiveFailures;
+
+    /// <summary>
     /// Whether the key is currently excluded. An expired exclusion is removed
     /// (with its failure count) and reported through <paramref name="justExpired"/>
     /// so the caller can log that polling resumes.

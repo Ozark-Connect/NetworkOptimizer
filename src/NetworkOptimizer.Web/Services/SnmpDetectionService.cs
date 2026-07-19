@@ -7,6 +7,15 @@ namespace NetworkOptimizer.Web.Services;
 
 public class SnmpDetectionResult
 {
+    /// <summary>
+    /// Longest community string UniFi devices reliably accept. UniFi Network lets you
+    /// save a longer one at the Console level, but past this length device support gets
+    /// firmware-dependent: switches typically silently reject it and drop from polling,
+    /// while gateways often (not always) tolerate it and keep reporting. Warn the user
+    /// when the detected community exceeds this so they can shorten it.
+    /// </summary>
+    public const int MaxSupportedCommunityLength = 20;
+
     public bool Success { get; set; }
     public string? ErrorMessage { get; set; }
 
@@ -15,6 +24,14 @@ public class SnmpDetectionResult
     public string? Community { get; set; }
     public string? V3Username { get; set; }
     public string? V3Password { get; set; }
+
+    /// <summary>
+    /// True when SNMP v2c is enabled with a community string longer than
+    /// <see cref="MaxSupportedCommunityLength"/> - switches typically drop from polling
+    /// (the gateway may keep reporting) and nothing heals until it's shortened.
+    /// </summary>
+    public bool CommunityTooLong =>
+        SnmpEnabled && Community is { Length: > MaxSupportedCommunityLength };
 
     public SnmpDetectionState DetectionState
     {
@@ -115,52 +132,16 @@ public class SnmpDetectionService
                 };
             }
 
-            if (!settings.RootElement.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Array)
+            var result = ParseSnmpSettings(settings);
+            if (result.Success)
             {
-                return new SnmpDetectionResult
-                {
-                    Success = false,
-                    ErrorMessage = "Unexpected settings response format"
-                };
-            }
-
-            foreach (var item in data.EnumerateArray())
-            {
-                if (!item.TryGetProperty("key", out var key) || key.GetString() != "snmp")
-                    continue;
-
-                var result = new SnmpDetectionResult { Success = true };
-
-                if (item.TryGetProperty("enabled", out var enabled))
-                    result.SnmpEnabled = enabled.GetBoolean();
-
-                if (item.TryGetProperty("enabledV3", out var enabledV3))
-                    result.SnmpV3Enabled = enabledV3.GetBoolean();
-
-                if (item.TryGetProperty("community", out var community))
-                    result.Community = community.GetString();
-
-                if (item.TryGetProperty("username", out var username))
-                    result.V3Username = username.GetString();
-
-                if (item.TryGetProperty("x_password", out var password))
-                    result.V3Password = password.GetString();
-
                 _logger.LogInformation(
                     "SNMP detection: enabled={Enabled}, v3={V3}, community={HasCommunity}, v3user={HasV3User}",
                     result.SnmpEnabled, result.SnmpV3Enabled,
                     !string.IsNullOrEmpty(result.Community),
                     !string.IsNullOrEmpty(result.V3Username));
-
-                return result;
             }
-
-            return new SnmpDetectionResult
-            {
-                Success = true,
-                SnmpEnabled = false,
-                SnmpV3Enabled = false
-            };
+            return result;
         }
         catch (Exception ex)
         {
@@ -170,6 +151,143 @@ public class SnmpDetectionService
                 Success = false,
                 ErrorMessage = $"Failed to read settings: {ex.Message}"
             };
+        }
+    }
+
+    /// <summary>
+    /// Parses the SNMP section out of a raw UniFi settings response (the document
+    /// returned by <c>GetSettingsRawAsync</c>). Pure and side-effect-free so both the
+    /// interactive detection flow and the collection agent's self-heal can share one
+    /// parser and never drift. Returns Success=false only when the response shape is
+    /// unusable; a well-formed response with SNMP off returns Success=true with the
+    /// enabled flags cleared.
+    /// </summary>
+    public static SnmpDetectionResult ParseSnmpSettings(JsonDocument settings)
+    {
+        if (settings == null
+            || !settings.RootElement.TryGetProperty("data", out var data)
+            || data.ValueKind != JsonValueKind.Array)
+        {
+            return new SnmpDetectionResult
+            {
+                Success = false,
+                ErrorMessage = "Unexpected settings response format"
+            };
+        }
+
+        foreach (var item in data.EnumerateArray())
+        {
+            if (!item.TryGetProperty("key", out var key) || key.GetString() != "snmp")
+                continue;
+
+            var result = new SnmpDetectionResult { Success = true };
+
+            if (item.TryGetProperty("enabled", out var enabled))
+                result.SnmpEnabled = enabled.GetBoolean();
+
+            if (item.TryGetProperty("enabledV3", out var enabledV3))
+                result.SnmpV3Enabled = enabledV3.GetBoolean();
+
+            if (item.TryGetProperty("community", out var community))
+                result.Community = community.GetString();
+
+            if (item.TryGetProperty("username", out var username))
+                result.V3Username = username.GetString();
+
+            if (item.TryGetProperty("x_password", out var password))
+                result.V3Password = password.GetString();
+
+            return result;
+        }
+
+        return new SnmpDetectionResult
+        {
+            Success = true,
+            SnmpEnabled = false,
+            SnmpV3Enabled = false
+        };
+    }
+
+    /// <summary>
+    /// Maps a detection result onto a <see cref="MonitoringSettings"/> entity: version,
+    /// community, and v3 credentials, encrypting secrets via <paramref name="credentialProtection"/>.
+    /// Sets <see cref="MonitoringSettings.SnmpDetectionState"/> but leaves the timestamp
+    /// fields to the caller. Shared by the interactive save path and the collection
+    /// agent's self-heal adopt path so credential handling stays identical.
+    /// </summary>
+    public static void ApplyToSettings(
+        MonitoringSettings settings,
+        SnmpDetectionResult result,
+        ICredentialProtectionService credentialProtection)
+    {
+        settings.SnmpDetectionState = result.DetectionState;
+
+        // Never store a too-long community: devices reject it, so adopting it clobbers a
+        // possibly-working credential for nothing. Record the state/timestamps (the UI
+        // warning keys off the detection result, not storage) and keep the old creds so
+        // the fixed community registers as a change when the user shortens it.
+        if (result.CommunityTooLong) return;
+
+        if (result.DetectionState == SnmpDetectionState.EnabledV2c)
+        {
+            settings.SnmpVersion = SnmpVersionSetting.V2c;
+            settings.SnmpCommunity = credentialProtection.Encrypt(result.Community!);
+            if (!string.IsNullOrEmpty(result.V3Username))
+            {
+                settings.SnmpV3Username = result.V3Username;
+                settings.SnmpV3AuthPassword = !string.IsNullOrEmpty(result.V3Password)
+                    ? credentialProtection.Encrypt(result.V3Password)
+                    : null;
+            }
+        }
+        else if (result.DetectionState == SnmpDetectionState.EnabledV3Only)
+        {
+            settings.SnmpVersion = SnmpVersionSetting.V3;
+            settings.SnmpV3Username = result.V3Username;
+            settings.SnmpV3AuthPassword = !string.IsNullOrEmpty(result.V3Password)
+                ? credentialProtection.Encrypt(result.V3Password)
+                : null;
+        }
+    }
+
+    /// <summary>
+    /// Whether the SNMP config just pulled from the console differs from what a
+    /// <see cref="MonitoringSettings"/> row currently holds (version, community, or v3
+    /// credentials), including SNMP having been turned off entirely. Decrypts the stored
+    /// secrets to compare. Shared by the direct-poll self-heal and the agent-site
+    /// re-detect so both decide "did it actually change?" identically.
+    /// </summary>
+    public static bool ConfigDiffers(
+        MonitoringSettings current,
+        SnmpDetectionResult detected,
+        ICredentialProtectionService credentialProtection)
+    {
+        switch (detected.DetectionState)
+        {
+            case SnmpDetectionState.Disabled:
+                return current.SnmpDetectionState != SnmpDetectionState.Disabled;
+
+            case SnmpDetectionState.EnabledV2c:
+                // Re-enabled after we adopted Disabled counts as a change even when the
+                // credentials are identical - otherwise the state parks at Disabled forever.
+                if (current.SnmpDetectionState == SnmpDetectionState.Disabled) return true;
+                if (current.SnmpVersion != SnmpVersionSetting.V2c) return true;
+                var storedCommunity = string.IsNullOrEmpty(current.SnmpCommunity)
+                    ? string.Empty
+                    : credentialProtection.Decrypt(current.SnmpCommunity);
+                return !string.Equals(storedCommunity, detected.Community ?? string.Empty, StringComparison.Ordinal);
+
+            case SnmpDetectionState.EnabledV3Only:
+                if (current.SnmpDetectionState == SnmpDetectionState.Disabled) return true;
+                if (current.SnmpVersion != SnmpVersionSetting.V3) return true;
+                if (!string.Equals(current.SnmpV3Username, detected.V3Username, StringComparison.Ordinal)) return true;
+                var storedPassword = string.IsNullOrEmpty(current.SnmpV3AuthPassword)
+                    ? string.Empty
+                    : credentialProtection.Decrypt(current.SnmpV3AuthPassword);
+                return !string.Equals(storedPassword, detected.V3Password ?? string.Empty, StringComparison.Ordinal);
+
+            default:
+                return false;
         }
     }
 
@@ -206,30 +324,8 @@ public class SnmpDetectionService
                 db.MonitoringSettings.Add(settings);
             }
 
-            settings.SnmpDetectionState = result.DetectionState;
+            ApplyToSettings(settings, result, _credentialProtection);
             settings.LastSnmpDetection = DateTime.UtcNow;
-
-            if (result.DetectionState == SnmpDetectionState.EnabledV2c)
-            {
-                settings.SnmpVersion = SnmpVersionSetting.V2c;
-                settings.SnmpCommunity = _credentialProtection.Encrypt(result.Community!);
-                if (!string.IsNullOrEmpty(result.V3Username))
-                {
-                    settings.SnmpV3Username = result.V3Username;
-                    settings.SnmpV3AuthPassword = !string.IsNullOrEmpty(result.V3Password)
-                        ? _credentialProtection.Encrypt(result.V3Password)
-                        : null;
-                }
-            }
-            else if (result.DetectionState == SnmpDetectionState.EnabledV3Only)
-            {
-                settings.SnmpVersion = SnmpVersionSetting.V3;
-                settings.SnmpV3Username = result.V3Username;
-                settings.SnmpV3AuthPassword = !string.IsNullOrEmpty(result.V3Password)
-                    ? _credentialProtection.Encrypt(result.V3Password)
-                    : null;
-            }
-
             settings.UpdatedAt = DateTime.UtcNow;
             await db.SaveChangesAsync(ct);
         }

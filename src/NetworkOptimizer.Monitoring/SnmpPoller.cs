@@ -274,6 +274,33 @@ public class SnmpPoller : ISnmpPoller
             var cache = _deviceCache.GetOrAdd(cacheKey, _ => new DevicePollerCache());
             var now = DateTime.UtcNow;
 
+            // Reachability probe FIRST: walk the primary traffic counter before any other
+            // work. When the device stops answering (rotated community, reboot, firewall)
+            // every walk runs its full timeout+retries, so the old order - metadata and
+            // medium-tier walks before the fast counters - burned minutes of timeouts per
+            // device per cycle, exactly when the credential self-heal needed the failure
+            // counted within seconds. A device that answers nothing here aborts the whole
+            // poll after at most two walks.
+            var hcInOctets = await BulkWalkAsync(ip, UniFiOids.IfHCInOctets);
+            bool needFallback = hcInOctets.Count == 0;
+            List<Variable>? inOctets32 = null, outOctets32 = null;
+            List<Variable> hcOutOctets;
+            if (needFallback)
+            {
+                inOctets32 = await BulkWalkAsync(ip, UniFiOids.IfInOctets);
+                if (inOctets32.Count == 0)
+                {
+                    _logger.LogDebug("No traffic counters from {Ip} - unreachable over SNMP, skipping remaining walks this cycle", ip);
+                    return interfaces;
+                }
+                outOctets32 = await BulkWalkAsync(ip, UniFiOids.IfOutOctets);
+                hcOutOctets = new List<Variable>();
+            }
+            else
+            {
+                hcOutOctets = await BulkWalkAsync(ip, UniFiOids.IfHCOutOctets);
+            }
+
             // Slow tier: refresh static interface metadata when cache has expired
             if (cache.Metadata == null ||
                 (now - cache.LastMetadataPoll).TotalSeconds >= _config.SlowPollIntervalSeconds)
@@ -314,18 +341,6 @@ public class SnmpPoller : ISnmpPoller
 
                 cache.LastOperPoll = now;
                 DebugLog($"Medium tier: refreshed oper/error counters for {ip}");
-            }
-
-            // Fast tier: always walk HC traffic counters
-            var hcInOctets = await BulkWalkAsync(ip, UniFiOids.IfHCInOctets);
-            var hcOutOctets = await BulkWalkAsync(ip, UniFiOids.IfHCOutOctets);
-
-            bool needFallback = hcInOctets.Count == 0;
-            List<Variable>? inOctets32 = null, outOctets32 = null;
-            if (needFallback)
-            {
-                inOctets32 = await BulkWalkAsync(ip, UniFiOids.IfInOctets);
-                outOctets32 = await BulkWalkAsync(ip, UniFiOids.IfOutOctets);
             }
 
             // Fast tier: packet counters (unicast, multicast, broadcast)

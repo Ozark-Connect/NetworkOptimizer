@@ -176,14 +176,27 @@ else
     @* ──────────────── Tab: Live View ──────────────── *@
     @if (_activeTab == "live" && _monitoringReady)
     {
+        @* Too-long community shows even when the gateway is still polling - gateways
+           often tolerate a long Community String while the switches silently drop. *@
         var unpolledKeyDevices = GetUnpolledKeyDevices();
-        if (unpolledKeyDevices.Count > 0)
+        if (unpolledKeyDevices.Count > 0 || CommunityTooLong)
         {
             <div class="alert alert-warning" style="margin-bottom: 1rem;">
                 <div class="banner-content">
                     <span class="banner-icon banner-icon-warning">!</span>
                     <div class="banner-text" style="flex: 1;">
-                        @if (unpolledKeyDevices.Count == 1)
+                        @if (CommunityTooLong)
+                        {
+                            @* Keep the gateway-down specifics when both conditions hold - only the
+                               device-table pointer is useless here, not the who's-affected detail. *@
+                            var prefix = unpolledKeyDevices.Count == 1
+                                ? $"{unpolledKeyDevices[0].Name} isn't being polled - the "
+                                : unpolledKeyDevices.Count > 1
+                                    ? $"{unpolledKeyDevices.Count} key devices aren't being polled - the "
+                                    : "The ";
+                            @($"{prefix}SNMP Community String is too long. UniFi devices only reliably support 20 characters; shorten it in UniFi Network.")
+                        }
+                        else if (unpolledKeyDevices.Count == 1)
                         {
                             var d = unpolledKeyDevices[0];
                             @($"{d.Name} {KeyDeviceReason(d)}")
@@ -194,7 +207,10 @@ else
                         }
                     </div>
                     <div class="banner-actions">
-                        <button class="btn btn-sm btn-primary" @onclick="GoToSnmpDevices">Review SNMP devices</button>
+                        @if (!CommunityTooLong)
+                        {
+                            <button class="btn btn-sm btn-primary" @onclick="GoToSnmpDevices">Review SNMP devices</button>
+                        }
                     </div>
                 </div>
             </div>
@@ -1299,7 +1315,7 @@ else
                             <ol>
                                 <li>Open UniFi Network</li>
                                 <li>Search Settings for <strong>"SNMP Monitoring"</strong></li>
-                                <li>Enable <strong>SNMP v1/v2c</strong> and set a unique community string</li>
+                                <li>Enable <strong>SNMP v1/v2c</strong> and set a unique Community String (20 characters max)</li>
                             </ol>
                             <p>Currently at: Settings → CyberSecure → Traffic Logging → SNMP Monitoring. This menu has moved between UniFi versions - the search term is the reliable way to find it.</p>
 
@@ -1314,7 +1330,7 @@ else
                             <p>Devices without SNMP enabled will not report port-level traffic or health metrics.</p>
 
                             <h4>Recommended configuration</h4>
-                            <p><strong>SNMP v1/v2c</strong> with a unique community string is recommended over v3. SNMPv3's per-packet authentication and encryption adds measurable CPU load to your gateway and fabric devices. The recommended security posture is a <strong>management VLAN</strong> isolating your network devices, not per-packet crypto.</p>
+                            <p><strong>SNMP v1/v2c</strong> with a unique Community String is recommended over v3. SNMPv3's per-packet authentication and encryption adds measurable CPU load to your gateway and fabric devices. The recommended security posture is a <strong>management VLAN</strong> isolating your network devices, not per-packet crypto.</p>
                         </div>
                     </details>
 
@@ -1350,6 +1366,25 @@ else
         }
         else
         {
+            @if (CommunityTooLong)
+            {
+                <div class="alert alert-warning" style="margin-bottom: 1.5rem;">
+                    <strong>SNMP Community String is too long.</strong>
+                    @* Show the count only when THIS page's detection measured it - the server
+                       flag can flip the banner on while the locally cached length is stale. *@
+                    @(_snmpCommunityTooLong && _snmpCommunityLength > 0
+                        ? $"Yours is {_snmpCommunityLength} characters; UniFi devices only reliably support 20."
+                        : "UniFi devices only reliably support 20 characters.")
+                    Shorten it and re-check.
+                    <div style="margin-top: 0.75rem;">
+                        <button class="btn btn-sm btn-secondary" @onclick="RunDetection" disabled="@_detecting">
+                            @if (_detecting) { <span class="spinner-sm"></span> <span>Re-checking...</span> }
+                            else { <span>Re-check</span> }
+                        </button>
+                    </div>
+                </div>
+            }
+
             @if (_showV3Recommendation && _snmpState == SnmpDetectionState.EnabledV3Only)
             {
                 <div class="alert alert-info" style="margin-bottom: 1.5rem;">
@@ -1579,6 +1614,13 @@ else
     private bool _detecting;
     private bool _showV3Recommendation = true;
     private string? _detectionError;
+    private bool _snmpCommunityTooLong;
+    private int _snmpCommunityLength;
+    // Server-side sighting from the collection agent's self-heal re-pull, refreshed on
+    // the 15s tick - catches a too-long community set while the user sits on Live View,
+    // where page-load detection has already come and gone.
+    private bool _serverCommunityTooLong;
+    private bool CommunityTooLong => _snmpCommunityTooLong || _serverCommunityTooLong;
 
     private bool? _influxReachable;
     private string? _influxError;
@@ -2275,6 +2317,12 @@ else
             await SnmpDetection.SaveDetectionResultAsync(result);
             var settings = await SnmpDetection.GetOrCreateSettingsAsync();
             _snmpState = settings.SnmpDetectionState;
+            _snmpCommunityTooLong = result.CommunityTooLong;
+            _snmpCommunityLength = result.Community?.Length ?? 0;
+            // Fresh console read beats the agent's cached self-heal sighting - otherwise a
+            // fixed community still shows the too-long banner until the agent's next re-pull.
+            _serverCommunityTooLong = result.CommunityTooLong;
+            CollectionAgent.NoteExternalDetection(result.CommunityTooLong);
         }
         else
         {
@@ -2319,6 +2367,15 @@ else
         try
         {
             _snmpDeviceStatuses = await CollectionAgent.GetSnmpDeviceStatusesAsync();
+            var serverTooLong = CollectionAgent.CommunityTooLongDetected;
+            // While the too-long banner is showing (either source), re-run detection each
+            // tick: the count stays accurate, and the banner auto-dismisses as soon as the
+            // console reports a fixed Community String - no manual re-check needed. Also
+            // fires when the server flag first flips on, so a stale local length never
+            // pairs with a fresh too-long verdict.
+            if (!_detecting && ((serverTooLong && !_serverCommunityTooLong) || CommunityTooLong))
+                _ = InvokeAsync(RunDetection);
+            _serverCommunityTooLong = serverTooLong;
         }
         catch (Exception ex)
         {
