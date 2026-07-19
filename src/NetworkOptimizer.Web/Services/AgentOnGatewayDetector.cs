@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using NetworkOptimizer.Core.Enums;
+using NetworkOptimizer.Storage.Models;
 
 namespace NetworkOptimizer.Web.Services;
 
@@ -14,11 +15,14 @@ namespace NetworkOptimizer.Web.Services;
 ///
 /// Repeat callers are never blocked: the answer comes from a cache (stale is
 /// fine for UI gating), and expiry triggers a background refresh with its own
-/// timeout. The FIRST query for a site awaits one bounded refresh instead of
-/// defaulting to false - a false answer paints the full speed-test surfaces
-/// (dead targets pointing at the gateway) on a gateway-agent site, and pages
-/// without polling would hold that until a reload. After that one await the
-/// cache always has an entry, so UI paths answer instantly.
+/// timeout. The FIRST query for a site seeds from the persisted last verdict
+/// (surviving restarts, when the console - which reconnects through the agent
+/// tunnel - may not be back yet to answer live), and only a never-detected
+/// site awaits one bounded refresh. A made-up false would paint the full
+/// speed-test surfaces (dead targets pointing at the gateway) on a
+/// gateway-agent site, and pages without polling would hold that until a
+/// reload. After the first answer the cache always has an entry, so UI paths
+/// answer instantly.
 ///
 /// Consumers gate the speed-test surfaces on this: today an on-gateway agent
 /// never hosts the LAN speed-test listener or the WAN test binary. When
@@ -33,6 +37,7 @@ public class AgentOnGatewayDetector
 
     private readonly AgentEnrollmentService _enrollment;
     private readonly SiteConnectionRegistry _siteConnections;
+    private readonly NetworkOptimizer.Storage.Services.SiteDbContextFactory _siteDbFactory;
     private readonly ILogger<AgentOnGatewayDetector> _logger;
     private readonly ConcurrentDictionary<string, (bool OnGateway, DateTime At)> _cache = new();
     private readonly ConcurrentDictionary<string, Task> _refreshing = new();
@@ -40,10 +45,12 @@ public class AgentOnGatewayDetector
     public AgentOnGatewayDetector(
         AgentEnrollmentService enrollment,
         SiteConnectionRegistry siteConnections,
+        NetworkOptimizer.Storage.Services.SiteDbContextFactory siteDbFactory,
         ILogger<AgentOnGatewayDetector> logger)
     {
         _enrollment = enrollment;
         _siteConnections = siteConnections;
+        _siteDbFactory = siteDbFactory;
         _logger = logger;
     }
 
@@ -67,6 +74,17 @@ public class AgentOnGatewayDetector
         var refresh = StartOrJoinRefresh(siteSlug);
         if (hasCached)
             return cached.OnGateway;
+
+        // Cold start: after a restart the cache is empty but the site's console
+        // (which reconnects through the agent tunnel) may not be back yet, so a
+        // live refresh can't answer. The persisted last verdict bridges that gap -
+        // seed it stale so the refresh in flight still overwrites it.
+        var persisted = await LoadPersistedAsync(siteSlug);
+        if (persisted != null)
+        {
+            _cache.TryAdd(siteSlug, (persisted.Value, DateTime.MinValue));
+            return _cache.TryGetValue(siteSlug, out var seeded) ? seeded.OnGateway : persisted.Value;
+        }
 
         try
         {
@@ -134,6 +152,53 @@ public class AgentOnGatewayDetector
             _logger.LogDebug(ex, "Gateway LAN IP resolution failed for site {Slug} during on-gateway detection", siteSlug);
         }
 
-        _cache[siteSlug] = (gatewayIps.Contains(agentIp!, StringComparer.OrdinalIgnoreCase), DateTime.UtcNow);
+        var onGateway = gatewayIps.Contains(agentIp!, StringComparer.OrdinalIgnoreCase);
+        _cache[siteSlug] = (onGateway, DateTime.UtcNow);
+        await PersistAsync(siteSlug, onGateway);
+    }
+
+    /// <summary>The persisted last verdict for a site, or null when never detected.</summary>
+    private async Task<bool?> LoadPersistedAsync(string siteSlug)
+    {
+        try
+        {
+            await using var db = _siteDbFactory.CreateForSite(siteSlug, isDefault: false);
+            var value = (await db.SystemSettings.FindAsync(SystemSettingKeys.AgentOnGateway))?.Value;
+            return value == null ? null : value == "true";
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to load persisted agent-on-gateway verdict for site {Slug}", siteSlug);
+            return null;
+        }
+    }
+
+    /// <summary>Persists a real (console-backed) verdict; writes only on change to spare the site DB.</summary>
+    private async Task PersistAsync(string siteSlug, bool onGateway)
+    {
+        try
+        {
+            var value = onGateway ? "true" : "false";
+            await using var db = _siteDbFactory.CreateForSite(siteSlug, isDefault: false);
+            var setting = await db.SystemSettings.FindAsync(SystemSettingKeys.AgentOnGateway);
+            if (setting == null)
+                db.SystemSettings.Add(new SystemSetting
+                {
+                    Key = SystemSettingKeys.AgentOnGateway,
+                    Value = value
+                });
+            else if (setting.Value != value)
+            {
+                setting.Value = value;
+                setting.UpdatedAt = DateTime.UtcNow;
+            }
+            else
+                return;
+            await db.SaveChangesAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to persist agent-on-gateway verdict for site {Slug}", siteSlug);
+        }
     }
 }

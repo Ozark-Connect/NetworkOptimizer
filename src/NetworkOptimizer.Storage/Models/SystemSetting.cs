@@ -53,8 +53,15 @@ public static class SystemSettingKeys
     // Per-site Client Speed Test target override (agent sites only): an IP/host or a
     // full URL the browser should hit for the LAN speed test, used when the agent's
     // auto-detected LAN IP isn't its client-facing address (e.g. behind a reverse
-    // proxy). Client-facing only - the path trace always uses the agent's real LAN IP.
+    // proxy). The path trace anchors at the agent's real LAN IP, with this override
+    // (when an IP) as a fallback anchor if that misses the topology.
     public const string ClientSpeedTestTargetOverride = "clientspeedtest.target_override";
+
+    // Per-site: last detected answer to "does this site's agent run on the UniFi
+    // gateway itself" (AgentOnGatewayDetector). Seeds the in-memory cache after a
+    // restart so speed-test surfaces gate correctly before the site's console
+    // connection comes back up.
+    public const string AgentOnGateway = "agent.on_gateway";
 
     // UI preferences (legacy - no longer used)
     public const string SponsorshipBannerDismissed = "ui.sponsorship_banner_dismissed";
