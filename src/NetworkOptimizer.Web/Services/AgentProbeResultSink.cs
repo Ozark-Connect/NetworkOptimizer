@@ -68,6 +68,15 @@ public class AgentProbeResultSink
     // because this sink is a singleton serving every agent site.
     private readonly ConcurrentDictionary<string, LanFabricAggregator> _fabricBySite = new();
 
+    // Agent-site SNMP self-heal. The server doesn't poll SNMP for agent sites (the agent
+    // does and only relays results), so there's no per-device failure signal to react to
+    // like on direct sites. Instead we re-detect the SNMP config from the site's console
+    // (reached through the agent's tunnel) on this throttle inside the periodic config
+    // push, adopting and re-pushing any change - so a community rotated in the remote
+    // UniFi reaches the agent within a couple of minutes instead of never. Keyed by slug.
+    private readonly ConcurrentDictionary<string, DateTime> _lastAgentSnmpRedetectAt = new();
+    private static readonly TimeSpan AgentSnmpRedetectInterval = TimeSpan.FromMinutes(2);
+
     public AgentProbeResultSink(
         SiteDbContextFactory siteDbFactory,
         MonitoringInfluxRegistry influxRegistry,
@@ -281,6 +290,12 @@ public class AgentProbeResultSink
             await using var db = _siteDbFactory.CreateForSite(connection.SiteSlug, isDefault: false);
             var settings = await db.MonitoringSettings.AsNoTracking().FirstOrDefaultAsync(ct);
 
+            // Before building the push, re-detect the SNMP config from the site's console
+            // and adopt any change, so a community/credential rotation in the remote UniFi
+            // propagates to the agent. Throttled internally; returns the (possibly updated)
+            // settings so the config we push below carries the fresh credentials.
+            settings = await MaybeRedetectAgentSnmpAsync(connection.SiteSlug, db, settings, ct);
+
             var config = new SnmpConfig { Enabled = false };
             if (settings is { Enabled: true })
             {
@@ -380,6 +395,76 @@ public class AgentProbeResultSink
         {
             _logger.LogWarning(ex, "Failed to push SNMP config to agent {Id} (site {Slug})",
                 connection.AgentId, connection.SiteSlug);
+        }
+    }
+
+    /// <summary>
+    /// Re-detects the SNMP config from an agent site's console (reached through the
+    /// agent's tunnel) and adopts it if it changed, on a per-site throttle. This is the
+    /// agent-site equivalent of the direct-poll self-heal: because the server never sees
+    /// the agent's per-device SNMP failures, it can't react to them, so instead it
+    /// proactively re-pulls the config every couple of minutes and lets the caller push
+    /// any change. Returns the (possibly updated) settings so the push carries the fresh
+    /// credentials. A too-long community is left alone (re-pulling returns the same value
+    /// the devices already reject; the Setup tab surfaces the length warning).
+    /// </summary>
+    private async Task<MonitoringSettings?> MaybeRedetectAgentSnmpAsync(
+        string siteSlug, NetworkOptimizerDbContext db, MonitoringSettings? settings, CancellationToken ct)
+    {
+        if (settings is not { Enabled: true }) return settings;
+        if (settings.SnmpDetectionState != SnmpDetectionState.EnabledV2c
+            && settings.SnmpDetectionState != SnmpDetectionState.EnabledV3Only
+            && settings.SnmpDetectionState != SnmpDetectionState.Working)
+            return settings;
+
+        if (_lastAgentSnmpRedetectAt.TryGetValue(siteSlug, out var last)
+            && DateTime.UtcNow - last < AgentSnmpRedetectInterval)
+            return settings;
+
+        var siteConnection = _siteConnections.GetFor(siteSlug);
+        if (!siteConnection.IsConnected || siteConnection.Client == null)
+            return settings; // console (via tunnel) not up yet; retry on the next push
+
+        _lastAgentSnmpRedetectAt[siteSlug] = DateTime.UtcNow;
+
+        try
+        {
+            SnmpDetectionResult detected;
+            using (var raw = await siteConnection.Client.GetSettingsRawAsync(ct))
+            {
+                if (raw == null) return settings;
+                detected = SnmpDetectionService.ParseSnmpSettings(raw);
+            }
+            if (!detected.Success) return settings;
+
+            if (detected.CommunityTooLong)
+            {
+                _logger.LogWarning(
+                    "SNMP self-heal (agent site {Slug}): UniFi community string is {Len} chars (> {Max}); switches reject it. Not adopting - shorten it in UniFi Network.",
+                    siteSlug, detected.Community?.Length, SnmpDetectionResult.MaxSupportedCommunityLength);
+                return settings;
+            }
+
+            if (!SnmpDetectionService.ConfigDiffers(settings, detected, _credentialProtection))
+                return settings; // unchanged - nothing to adopt
+
+            var row = await db.MonitoringSettings.FirstOrDefaultAsync(ct);
+            if (row == null) return settings;
+            var before = row.SnmpDetectionState;
+            SnmpDetectionService.ApplyToSettings(row, detected, _credentialProtection);
+            row.LastSnmpDetection = DateTime.UtcNow;
+            row.UpdatedAt = DateTime.UtcNow;
+            await db.SaveChangesAsync(ct);
+
+            _logger.LogWarning(
+                "SNMP self-heal (agent site {Slug}): adopted updated SNMP config from UniFi ({Before} -> {After}); re-pushing to agent.",
+                siteSlug, before, row.SnmpDetectionState);
+            return row;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "SNMP self-heal re-detect failed for agent site {Slug}", siteSlug);
+            return settings;
         }
     }
 

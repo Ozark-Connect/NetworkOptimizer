@@ -501,16 +501,22 @@ public class MonitoringCollectionAgent : BackgroundService
             && settings.SnmpDetectionState != SnmpDetectionState.Working)
             return;
 
-        // Trigger: a couple of devices that were polling fine have started failing
-        // (>= 2 consecutive misses each, so a single dropped packet doesn't count). We
-        // don't wait for a fabric-wide dropout or the 5-failure exclusion - the re-pull
-        // is cheap and diff-gated, so reacting after a couple of failures is the whole
+        // Trigger: the devices that were polling fine have started failing (>= 2
+        // consecutive misses each, so a single dropped packet doesn't count). We don't
+        // wait for a fabric-wide dropout or the 5-failure exclusion - the re-pull is
+        // cheap and diff-gated, so reacting after a couple of failures is the whole
         // point. A device that never spoke SNMP (Flex Mini) isn't in the healthy set,
         // so it can't trigger this. A genuine outage leaves the config unchanged and
         // the re-pull simply no-ops.
-        if (_snmpFailures.HealthyCount == 0) return;
+        //
+        // The floor is 2 devices on a normal fabric (one flaky device shouldn't re-pull),
+        // but scales down to 1 for a single-device network - a lone all-in-one (a UDR7 with
+        // no separate switches or APs) must still self-heal off its own failure.
+        var healthy = _snmpFailures.HealthyCount;
+        if (healthy == 0) return;
         var failing = _snmpFailures.FailingHealthyCount(minConsecutiveFailures: 2);
-        if (failing < 2)
+        var trigger = Math.Min(2, healthy);
+        if (failing < trigger)
         {
             // Fabric is healthy again - forget the baseline so the next failure event is
             // treated as fresh and re-pulls promptly instead of waiting out the backoff.
@@ -558,7 +564,7 @@ public class MonitoringCollectionAgent : BackgroundService
                 return;
             }
 
-            if (!SnmpConfigDiffers(settings, detected))
+            if (!SnmpDetectionService.ConfigDiffers(settings, detected, _credentialProtection))
             {
                 _logger.LogInformation(
                     "SNMP self-heal (site {Site}): UniFi SNMP config is unchanged, so the failures are not a credential change (device outage, firewall, or IPS). Leaving polling as-is.",
@@ -587,38 +593,6 @@ public class MonitoringCollectionAgent : BackgroundService
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "SNMP self-heal (site {Site}): re-pull failed", _siteSlug);
-        }
-    }
-
-    /// <summary>
-    /// Whether the SNMP config just pulled from UniFi differs from what this agent is
-    /// currently polling with (version, community, or v3 credentials), including SNMP
-    /// having been turned off entirely. Decrypts the stored secrets to compare.
-    /// </summary>
-    private bool SnmpConfigDiffers(MonitoringSettings current, SnmpDetectionResult detected)
-    {
-        switch (detected.DetectionState)
-        {
-            case SnmpDetectionState.Disabled:
-                return current.SnmpDetectionState != SnmpDetectionState.Disabled;
-
-            case SnmpDetectionState.EnabledV2c:
-                if (current.SnmpVersion != SnmpVersionSetting.V2c) return true;
-                var storedCommunity = string.IsNullOrEmpty(current.SnmpCommunity)
-                    ? string.Empty
-                    : _credentialProtection.Decrypt(current.SnmpCommunity);
-                return !string.Equals(storedCommunity, detected.Community ?? string.Empty, StringComparison.Ordinal);
-
-            case SnmpDetectionState.EnabledV3Only:
-                if (current.SnmpVersion != SnmpVersionSetting.V3) return true;
-                if (!string.Equals(current.SnmpV3Username, detected.V3Username, StringComparison.Ordinal)) return true;
-                var storedPassword = string.IsNullOrEmpty(current.SnmpV3AuthPassword)
-                    ? string.Empty
-                    : _credentialProtection.Decrypt(current.SnmpV3AuthPassword);
-                return !string.Equals(storedPassword, detected.V3Password ?? string.Empty, StringComparison.Ordinal);
-
-            default:
-                return false;
         }
     }
 

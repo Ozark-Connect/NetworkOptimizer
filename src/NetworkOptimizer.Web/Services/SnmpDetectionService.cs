@@ -245,6 +245,43 @@ public class SnmpDetectionService
         }
     }
 
+    /// <summary>
+    /// Whether the SNMP config just pulled from the console differs from what a
+    /// <see cref="MonitoringSettings"/> row currently holds (version, community, or v3
+    /// credentials), including SNMP having been turned off entirely. Decrypts the stored
+    /// secrets to compare. Shared by the direct-poll self-heal and the agent-site
+    /// re-detect so both decide "did it actually change?" identically.
+    /// </summary>
+    public static bool ConfigDiffers(
+        MonitoringSettings current,
+        SnmpDetectionResult detected,
+        ICredentialProtectionService credentialProtection)
+    {
+        switch (detected.DetectionState)
+        {
+            case SnmpDetectionState.Disabled:
+                return current.SnmpDetectionState != SnmpDetectionState.Disabled;
+
+            case SnmpDetectionState.EnabledV2c:
+                if (current.SnmpVersion != SnmpVersionSetting.V2c) return true;
+                var storedCommunity = string.IsNullOrEmpty(current.SnmpCommunity)
+                    ? string.Empty
+                    : credentialProtection.Decrypt(current.SnmpCommunity);
+                return !string.Equals(storedCommunity, detected.Community ?? string.Empty, StringComparison.Ordinal);
+
+            case SnmpDetectionState.EnabledV3Only:
+                if (current.SnmpVersion != SnmpVersionSetting.V3) return true;
+                if (!string.Equals(current.SnmpV3Username, detected.V3Username, StringComparison.Ordinal)) return true;
+                var storedPassword = string.IsNullOrEmpty(current.SnmpV3AuthPassword)
+                    ? string.Empty
+                    : credentialProtection.Decrypt(current.SnmpV3AuthPassword);
+                return !string.Equals(storedPassword, detected.V3Password ?? string.Empty, StringComparison.Ordinal);
+
+            default:
+                return false;
+        }
+    }
+
     public async Task<MonitoringSettings> GetOrCreateSettingsAsync(CancellationToken ct = default)
     {
         await _settingsLock.WaitAsync(ct);
