@@ -84,6 +84,7 @@ public class AgentProbeResultSink
         SiteConnectionRegistry siteConnections,
         MonitoringAlertRegistry alertRegistry,
         ICredentialProtectionService credentialProtection,
+        MonitoringCollectionRegistry collectionRegistry,
         ILogger<AgentProbeResultSink> logger)
     {
         _siteDbFactory = siteDbFactory;
@@ -92,8 +93,11 @@ public class AgentProbeResultSink
         _siteConnections = siteConnections;
         _alertRegistry = alertRegistry;
         _credentialProtection = credentialProtection;
+        _collectionRegistry = collectionRegistry;
         _logger = logger;
     }
+
+    private readonly MonitoringCollectionRegistry _collectionRegistry;
 
     /// <summary>Called once per connection after the hello exchange, and by the periodic refresh.</summary>
     public async Task OnAgentConnectedAsync(AgentTunnelConnection connection, CancellationToken ct)
@@ -438,6 +442,11 @@ public class AgentProbeResultSink
                 detected = SnmpDetectionService.ParseSnmpSettings(raw);
             }
             if (!detected.Success) return settings;
+
+            // Mirror the sighting onto the site's collection agent instance - the site's
+            // Monitoring page reads that flag (scoped DI resolves per-site), so a managed
+            // site's banner auto-appears and auto-dismisses just like the default site's.
+            _collectionRegistry.GetFor(siteSlug).NoteExternalDetection(detected.CommunityTooLong);
 
             if (detected.CommunityTooLong)
             {
