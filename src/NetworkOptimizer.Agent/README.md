@@ -71,9 +71,10 @@ any gateway with the headroom works. The published
 `linux-arm64` build runs on UniFi OS (Debian, glibc 2.31, systemd); the
 `install-agent-gateway.sh` installer (below, and generated for you in the setup
 wizard) puts it under `/data` so it persists, with a systemd unit tuned for a
-shared router - workstation GC and a memory fence - so it holds a ~50 MB
-footprint that can't pressure routing or IPS. Even a 2 GB gateway has ample
-headroom.
+shared router - workstation GC plus a memory ceiling (256 MB soft, 512 MB hard).
+In practice it uses ~50 MB; the ceiling is a safety backstop set well above that,
+so even a fault stays bounded far below anything that would affect routing or IPS.
+Even a 2 GB gateway has ample headroom.
 
 This path is **monitoring-only**: the LAN speed test stays off, because hosting
 an nginx/iperf3 speed-test server on the router would compete with the data
