@@ -12,7 +12,7 @@
 # Differences from install-native.sh, all for the gateway environment:
 #   - installs to /data (persistent on UniFi OS) rather than /opt
 #   - a systemd unit tuned for a shared router box: workstation GC and a memory
-#     fence so the agent can never pressure routing/IPS
+#     fence so the agent stays well clear of routing/IPS
 #   - no speed-test machinery (no nginx, no iperf3, no uwnspeedtest)
 #   - an --uninstall path for clean teardown
 #
@@ -100,7 +100,7 @@ if ! systemctl is-active --quiet "${SERVICE_NAME}.service"; then
     if [ -z "$AVAILABLE_MB" ]; then
         echo "Warning: could not read MemAvailable from /proc/meminfo - skipping the memory check." >&2
     elif [ "$AVAILABLE_MB" -lt "$MIN_AVAILABLE_MB" ]; then
-        err "only ${AVAILABLE_MB} MB of memory is available; the agent needs ${MIN_AVAILABLE_MB} MB of headroom so it can never pressure routing/IPS. Free up memory (e.g. remove unused UniFi applications) or run the agent on a separate box (see install-native.sh)."
+        err "only ${AVAILABLE_MB} MB of memory is available; the agent needs ${MIN_AVAILABLE_MB} MB of headroom so it stays well clear of routing/IPS. Free up memory (e.g. remove unused UniFi applications) or run the agent on a separate box (see install-native.sh)."
     else
         echo "Memory check: ${AVAILABLE_MB} MB available (need ${MIN_AVAILABLE_MB} MB) - OK"
     fi
@@ -150,7 +150,7 @@ WorkingDirectory=${INSTALL_DIR}
 ExecStart=${INSTALL_DIR}/NetworkOptimizer.Agent
 # Tuned for a shared router box. Workstation GC keeps the heap to a single small
 # arena (server GC would allocate one per core); the memory fence caps the agent
-# well above its ~50 MB steady state so a fault can never pressure routing/IPS,
+# well above its ~50 MB steady state so a fault stays well clear of routing/IPS,
 # and systemd restarts it if it trips.
 Environment=DOTNET_gcServer=0
 MemoryHigh=256M
