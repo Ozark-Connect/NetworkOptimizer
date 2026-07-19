@@ -71,14 +71,14 @@ public class MonitoringCollectionAgent : BackgroundService
     // "last polled" column and "not yet polled" state on the Setup dashboard.
     private readonly ConcurrentDictionary<string, DateTime> _snmpLastPolled = new();
 
-    // SNMP self-heal throttle. As soon as a couple of previously-healthy devices start
-    // failing (the symptom of a community string rotated in UniFi), we re-pull the SNMP
-    // config from the console and adopt it if it changed. The re-pull is one cheap,
-    // diff-gated console call, so we react eagerly. Two guards keep habitually-failing
-    // devices from re-pulling forever: a hard floor between any two re-pulls, and a long
-    // idle backoff once the same devices keep failing (a device problem, not a credential
-    // change). A fresh escalation - more devices failing than last time - bypasses the
-    // backoff so a genuine fabric-wide flip is still caught within a couple of cycles.
+    // SNMP self-heal throttle. When a majority of SNMP-enabled devices are failing (the
+    // symptom of a community string rotated in UniFi), we re-pull the SNMP config from
+    // the console and adopt it if it changed. The re-pull is one cheap, diff-gated
+    // console call, so we react eagerly. Two guards keep habitually-failing devices from
+    // re-pulling forever: a hard floor between any two re-pulls, and a long idle backoff
+    // once the same devices keep failing (a device problem, not a credential change).
+    // Escalation - more devices failing than last time, or a standing too-long-community
+    // verdict - bypasses the backoff so a genuine flip is caught within a couple of cycles.
     private DateTime _lastSnmpSelfHealAt = DateTime.MinValue;
     private int _lastSnmpSelfHealFailingCount;
     private static readonly TimeSpan SnmpSelfHealMinInterval = TimeSpan.FromSeconds(30);
