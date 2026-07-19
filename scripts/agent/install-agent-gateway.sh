@@ -27,6 +27,9 @@
 #   --dir PATH     Install directory (default: /data/netopt-agent)
 #   --uninstall    Stop + remove the service and install dir, then exit
 #
+# Re-running the installer upgrades the agent in place: it downloads the latest
+# release, keeps the enrolled key, and restarts the service on the new binary.
+#
 # NOTE: the systemd unit lives on the overlay root, so it does not survive a
 # UniFi OS firmware update. The binary and config under /data do persist. After a
 # firmware update, re-run this installer (it keeps the enrolled key) to reinstate
@@ -103,9 +106,13 @@ fi
 echo "Installing Network Optimizer agent to ${INSTALL_DIR} (${RID}, monitoring-only)"
 mkdir -p "$INSTALL_DIR"
 
+# Download to a temp name and rename into place: writing over the binary while
+# the agent is running fails with ETXTBSY, but rename swaps the directory entry
+# and the running process keeps its old inode until the restart below.
 echo "Downloading agent binary..."
-curl -fSL "${RELEASE_BASE}/NetworkOptimizer.Agent-${RID}" -o "${INSTALL_DIR}/NetworkOptimizer.Agent"
-chmod +x "${INSTALL_DIR}/NetworkOptimizer.Agent"
+curl -fSL "${RELEASE_BASE}/NetworkOptimizer.Agent-${RID}" -o "${INSTALL_DIR}/NetworkOptimizer.Agent.new"
+chmod +x "${INSTALL_DIR}/NetworkOptimizer.Agent.new"
+mv -f "${INSTALL_DIR}/NetworkOptimizer.Agent.new" "${INSTALL_DIR}/NetworkOptimizer.Agent"
 
 CONFIG="${INSTALL_DIR}/agent.json"
 
@@ -153,7 +160,10 @@ WantedBy=multi-user.target
 UNIT
 
 systemctl daemon-reload
-systemctl enable --now "${SERVICE_NAME}.service"
+systemctl enable "${SERVICE_NAME}.service"
+# restart (not `enable --now`) so an upgrade re-run moves an already-running
+# agent onto the new binary; it starts a stopped/fresh service just the same
+systemctl restart "${SERVICE_NAME}.service"
 
 echo
 echo "Agent started (monitoring-only). It enrolls, then holds a tunnel to ${SERVER%/}."
