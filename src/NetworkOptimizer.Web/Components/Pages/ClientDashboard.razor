@@ -1298,7 +1298,11 @@
         }
 
         // The agent answered but the console hasn't listed the client yet (still warming
-        // up on a cold connect) - clear so the next retry re-probes cleanly.
+        // up on a cold connect) - or the viewer isn't a client of this site at all (an
+        // off-site/VPN vantage: whoami reports their address at another site). Clear so
+        // the next retry re-probes cleanly, and say so - a silent miss here reads as
+        // "the probe never delivered" when debugging from logs.
+        Logger.LogDebug("Client identity (site {Site}): whoami returned {Ip} but it matches no client on this site", SiteContext.Slug, _clientIp);
         _clientIp = null;
         return false;
     }
