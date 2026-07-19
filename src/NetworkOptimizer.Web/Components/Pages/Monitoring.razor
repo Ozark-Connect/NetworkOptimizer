@@ -2368,10 +2368,12 @@ else
         {
             _snmpDeviceStatuses = await CollectionAgent.GetSnmpDeviceStatusesAsync();
             var serverTooLong = CollectionAgent.CommunityTooLongDetected;
-            // The server flag flipping on means the community changed under us - re-run
-            // detection so the banner's character count reflects the new value instead of
-            // pairing a stale length with the fresh too-long verdict.
-            if (serverTooLong && !_serverCommunityTooLong && !_detecting)
+            // While the too-long banner is showing (either source), re-run detection each
+            // tick: the count stays accurate, and the banner auto-dismisses as soon as the
+            // console reports a fixed Community String - no manual re-check needed. Also
+            // fires when the server flag first flips on, so a stale local length never
+            // pairs with a fresh too-long verdict.
+            if (!_detecting && ((serverTooLong && !_serverCommunityTooLong) || CommunityTooLong))
                 _ = InvokeAsync(RunDetection);
             _serverCommunityTooLong = serverTooLong;
         }
