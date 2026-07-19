@@ -84,10 +84,12 @@ public class MonitoringCollectionAgent : BackgroundService
     private static readonly TimeSpan SnmpSelfHealMinInterval = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan SnmpSelfHealIdleBackoff = TimeSpan.FromMinutes(15);
     // When the fast tier first actually polls (console up, poller built). Self-heal
-    // stays quiet for a warm-up window after this so first-cycle jitter can't fire a
-    // needless re-pull before devices have had a fair chance to answer.
+    // stays quiet for a short warm-up after this so first-cycle jitter can't fire a
+    // needless re-pull before devices have had a fair chance to answer. Kept short (a
+    // few poll cycles) so it doesn't slow the genuine cold-start-wrong-community heal -
+    // the 2-consecutive-failure requirement and the diff-gate are the real guards.
     private DateTime _snmpPollingStartedAt = DateTime.MinValue;
-    private static readonly TimeSpan SnmpSelfHealWarmup = TimeSpan.FromSeconds(45);
+    private static readonly TimeSpan SnmpSelfHealWarmup = TimeSpan.FromSeconds(15);
 
     // Custom OID config cache. Refreshed every medium-tier cycle.
     private Dictionary<string, List<CustomOidConfiguration>> _customOidsByDevice = new();
@@ -248,8 +250,18 @@ public class MonitoringCollectionAgent : BackgroundService
             WifiClientTierCollectAsync,
             TimeSpan.FromSeconds(30),
             stoppingToken);
+        // SNMP credential self-heal on its own short cadence. It must NOT ride the fast
+        // tier's cycle: when every SNMP call is timing out (the exact failure it exists to
+        // detect), a fast cycle stretches to minutes of stacked timeouts and an end-of-cycle
+        // check starves - the self-heal took 4+ minutes to fire. This loop reads the failure
+        // tracker and (rarely, throttled) makes one console API call, so 10s is cheap.
+        var selfHealTask = RunTierAsync("snmp-selfheal",
+            _ => TimeSpan.FromSeconds(10),
+            SnmpSelfHealTierAsync,
+            TimeSpan.FromSeconds(12),
+            stoppingToken);
 
-        await Task.WhenAll(fastTask, mediumTask, slowTask, latencyTask, healthTask, wifiTask);
+        await Task.WhenAll(fastTask, mediumTask, slowTask, latencyTask, healthTask, wifiTask, selfHealTask);
         _logger.LogInformation("Monitoring collection agent stopped (site {Site})", _siteSlug);
     }
 
@@ -484,9 +496,19 @@ public class MonitoringCollectionAgent : BackgroundService
         // fallbacks. Shared verbatim with the agent-relayed path (AgentProbeResultSink)
         // via LanFabricAggregator so secondary sites compute identical numbers.
         _fabric.WriteAggregates(devices, _liveStats, DateTime.UtcNow);
+    }
 
-        // If a majority of SNMP-enabled devices are failing, the SNMP credentials may
-        // have been rotated in UniFi. Re-pull and adopt if they changed.
+    /// <summary>
+    /// The dedicated self-heal tier: evaluates the failure tracker against the current
+    /// device list every tick, independent of the fast tier's cycle time. Uses the same
+    /// cached device list as the pollers (4s TTL), so a tick normally costs a dictionary
+    /// scan and nothing else.
+    /// </summary>
+    private async Task SnmpSelfHealTierAsync(MonitoringSettings settings, CancellationToken ct)
+    {
+        if (AgentCoversCollection()) return;
+        var devices = await GetMonitorableDevicesAsync(ct);
+        if (devices.Count == 0) return;
         await MaybeSelfHealSnmpAsync(devices, settings, ct);
     }
 
