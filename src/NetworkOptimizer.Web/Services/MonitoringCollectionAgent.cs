@@ -512,7 +512,12 @@ public class MonitoringCollectionAgent : BackgroundService
         // synthesis, and gateway WAN rates, with all the direction conventions and
         // fallbacks. Shared verbatim with the agent-relayed path (AgentProbeResultSink)
         // via LanFabricAggregator so secondary sites compute identical numbers.
-        _fabric.WriteAggregates(devices, _liveStats, DateTime.UtcNow);
+        var aggNow = DateTime.UtcNow;
+        _fabric.WriteAggregates(devices, _liveStats, aggNow);
+        // Persist UDB downlink port_table rates to interface_counters so the historic LAN-flow-map
+        // resolver can re-derive them (the live path above is in-memory only, and a UDB has no
+        // SNMP interface series). Shared verbatim with the agent-relayed path.
+        BridgeInterfaceRecorder.Record(_fabric, devices, _influx, aggNow);
     }
 
     /// <summary>

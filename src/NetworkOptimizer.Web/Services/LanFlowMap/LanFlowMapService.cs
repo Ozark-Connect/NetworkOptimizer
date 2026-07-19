@@ -678,6 +678,14 @@ public class LanFlowMapService
                                         && !p.IfName.Contains('.'))
                                     .OrderBy(p => Math.Abs((p.Time - at).TotalMilliseconds))
                                     .FirstOrDefault();
+                                // UDB single-port bridge: no vwiresta interface. Its downlink
+                                // port_table rate is persisted under a synthetic "bridge-downlink"
+                                // series (BridgeInterfaceRecorder), stored in the same rateIn =
+                                // downstream convention, so it maps through the block below.
+                                resolved ??= cPts
+                                    .Where(p => string.Equals(p.IfName, BridgeInterfaceRecorder.DownlinkIfName, StringComparison.OrdinalIgnoreCase))
+                                    .OrderBy(p => Math.Abs((p.Time - at).TotalMilliseconds))
+                                    .FirstOrDefault();
                             }
                             else
                             {
@@ -746,6 +754,25 @@ public class LanFlowMapService
                             if (closest != null)
                                 rates = MapPortToLinkRates(link, closest.RateInBps ?? 0, closest.RateOutBps ?? 0, closest.Time);
                         }
+                    }
+                    // UDB bridged leaf: the client's own wired counters are always zero, so source
+                    // the rate from the bridge's persisted downlink series (mirrors the live path's
+                    // BridgeParentMac substitution). Set only for DeviceBridge parents, so switch/AP
+                    // clients keep the wired_client fallback below untouched.
+                    if (rates == null && !string.IsNullOrEmpty(link.BridgeParentMac)
+                        && ratesByDevice.TryGetValue(link.BridgeParentMac, out var bpts))
+                    {
+                        var closest = bpts
+                            .Where(p => string.Equals(p.IfName, BridgeInterfaceRecorder.DownlinkIfName, StringComparison.OrdinalIgnoreCase))
+                            .OrderBy(p => Math.Abs((p.Time - at).TotalMilliseconds))
+                            .FirstOrDefault();
+                        if (closest != null)
+                            rates = new LinkLiveRates
+                            {
+                                DownstreamBps = closest.RateInBps ?? 0,
+                                UpstreamBps = closest.RateOutBps ?? 0,
+                                AsOf = closest.Time,
+                            };
                     }
                     // Fallback: wired_client from batch pre-fetch
                     if (rates == null)
@@ -2105,6 +2132,9 @@ public class LanFlowMapService
                 var (mac, _) = ParsePortKey(link.PortKey);
                 if (!string.IsNullOrEmpty(mac)) deviceMacs.Add(mac);
             }
+            // A UDB-bridged client leaf sources its historic rate from the bridge's persisted
+            // downlink series, so make sure the bridge's interface rows are fetched.
+            if (!string.IsNullOrEmpty(link.BridgeParentMac)) deviceMacs.Add(link.BridgeParentMac);
         }
 
         var ratesByDevice = new Dictionary<string, IReadOnlyList<MonitoringInfluxClient.InterfaceRatePoint>>(
