@@ -187,7 +187,14 @@ else
                     <div class="banner-text" style="flex: 1;">
                         @if (CommunityTooLong)
                         {
-                            @("SNMP Community String is too long - UniFi devices only reliably support 20 characters. Shorten it in UniFi Network.")
+                            @* Keep the gateway-down specifics when both conditions hold - only the
+                               device-table pointer is useless here, not the who's-affected detail. *@
+                            var prefix = unpolledKeyDevices.Count == 1
+                                ? $"{unpolledKeyDevices[0].Name} isn't being polled - the "
+                                : unpolledKeyDevices.Count > 1
+                                    ? $"{unpolledKeyDevices.Count} key devices aren't being polled - the "
+                                    : "The ";
+                            @($"{prefix}SNMP Community String is too long. UniFi devices only reliably support 20 characters; shorten it in UniFi Network.")
                         }
                         else if (unpolledKeyDevices.Count == 1)
                         {
