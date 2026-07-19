@@ -100,6 +100,14 @@ public class MonitoringCollectionAgent : BackgroundService
     /// </summary>
     public bool CommunityTooLongDetected { get; private set; }
 
+    /// <summary>
+    /// Lets the Setup page's interactive re-check override the cached self-heal sighting
+    /// with its fresher console read. Without this, a user who shortens the community and
+    /// hits Re-check still sees the too-long banner until the agent's next re-pull.
+    /// </summary>
+    public void NoteExternalDetection(bool communityTooLong) =>
+        CommunityTooLongDetected = communityTooLong;
+
     // Custom OID config cache. Refreshed every medium-tier cycle.
     private Dictionary<string, List<CustomOidConfiguration>> _customOidsByDevice = new();
     private DateTime _customOidsLoadedAt = DateTime.MinValue;
@@ -585,7 +593,10 @@ public class MonitoringCollectionAgent : BackgroundService
         // check. If it's the same devices still down, we already confirmed the config
         // didn't change (a device problem, not a credential rotation), so wait out the
         // idle backoff rather than re-pulling for habitually-failing devices every cycle.
-        bool escalated = failing > _lastSnmpSelfHealFailingCount;
+        // Exception: while the last verdict was a too-long community, keep the short
+        // cadence - the user is presumably out shortening it, and the fix must be
+        // adopted ~30s after devices reprovision, not after a 15-minute backoff.
+        bool escalated = failing > _lastSnmpSelfHealFailingCount || CommunityTooLongDetected;
         if (!escalated && sinceLast < SnmpSelfHealIdleBackoff) return;
 
         if (_connectionService.Client == null || !_connectionService.IsConnected)

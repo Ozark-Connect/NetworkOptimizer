@@ -2317,6 +2317,10 @@ else
             _snmpState = settings.SnmpDetectionState;
             _snmpCommunityTooLong = result.CommunityTooLong;
             _snmpCommunityLength = result.Community?.Length ?? 0;
+            // Fresh console read beats the agent's cached self-heal sighting - otherwise a
+            // fixed community still shows the too-long banner until the agent's next re-pull.
+            _serverCommunityTooLong = result.CommunityTooLong;
+            CollectionAgent.NoteExternalDetection(result.CommunityTooLong);
         }
         else
         {
