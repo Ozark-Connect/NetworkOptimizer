@@ -222,6 +222,12 @@ public class SnmpDetectionService
     {
         settings.SnmpDetectionState = result.DetectionState;
 
+        // Never store a too-long community: devices reject it, so adopting it clobbers a
+        // possibly-working credential for nothing. Record the state/timestamps (the UI
+        // warning keys off the detection result, not storage) and keep the old creds so
+        // the fixed community registers as a change when the user shortens it.
+        if (result.CommunityTooLong) return;
+
         if (result.DetectionState == SnmpDetectionState.EnabledV2c)
         {
             settings.SnmpVersion = SnmpVersionSetting.V2c;

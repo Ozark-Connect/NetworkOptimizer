@@ -1370,7 +1370,9 @@ else
             {
                 <div class="alert alert-warning" style="margin-bottom: 1.5rem;">
                     <strong>SNMP Community String is too long.</strong>
-                    @(_snmpCommunityLength > 0
+                    @* Show the count only when THIS page's detection measured it - the server
+                       flag can flip the banner on while the locally cached length is stale. *@
+                    @(_snmpCommunityTooLong && _snmpCommunityLength > 0
                         ? $"Yours is {_snmpCommunityLength} characters; UniFi devices only reliably support 20."
                         : "UniFi devices only reliably support 20 characters.")
                     Shorten it and re-check.
@@ -2365,7 +2367,13 @@ else
         try
         {
             _snmpDeviceStatuses = await CollectionAgent.GetSnmpDeviceStatusesAsync();
-            _serverCommunityTooLong = CollectionAgent.CommunityTooLongDetected;
+            var serverTooLong = CollectionAgent.CommunityTooLongDetected;
+            // The server flag flipping on means the community changed under us - re-run
+            // detection so the banner's character count reflects the new value instead of
+            // pairing a stale length with the fresh too-long verdict.
+            if (serverTooLong && !_serverCommunityTooLong && !_detecting)
+                _ = InvokeAsync(RunDetection);
+            _serverCommunityTooLong = serverTooLong;
         }
         catch (Exception ex)
         {
