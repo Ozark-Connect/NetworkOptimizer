@@ -291,8 +291,13 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
             // and anchor the position at the gateway device when they line up:
             // SwitchMac stays null because the gateway is the topology root, so
             // BuildHopList walks target -> switches -> gateway and stops there.
+            // Only for an explicit sourceIp (a measured test endpoint): the
+            // interface-enumeration fallback can contain local bridge gateways
+            // (e.g. Docker's 172.17.0.1) that could coincide with a site subnet,
+            // and a transient client-list miss must stay a retryable error there,
+            // never a cached gateway anchor.
             var gatewayDevice = topology.Devices.FirstOrDefault(d => d.Type == DeviceType.Gateway);
-            if (gatewayDevice != null)
+            if (gatewayDevice != null && !string.IsNullOrEmpty(sourceIp))
             {
                 var lanGatewayIps = topology.Networks
                     .Where(n => !n.IsWan && !string.IsNullOrEmpty(n.IpSubnet))
@@ -2332,22 +2337,38 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
 
         // Add server as final endpoint
         // Use name from UniFi, fall back to hostname, then "This Server"
-        var serverName = !string.IsNullOrEmpty(serverPosition.Name) ? serverPosition.Name
-                       : !string.IsNullOrEmpty(serverPosition.Hostname) ? serverPosition.Hostname
-                       : "This Server";
-        var serverHop = new NetworkHop
+        // When the server position IS the last hop (a gateway-resident agent:
+        // the walker already terminated on the gateway device), appending an
+        // endpoint would render the same box twice - annotate the terminal hop
+        // instead. A client-list server can never share a MAC with a device hop,
+        // so this only fires for the gateway-anchored position.
+        var lastHop = hops.Count > 0 ? hops[^1] : null;
+        if (lastHop != null && !string.IsNullOrEmpty(serverPosition.Mac)
+            && serverPosition.Mac.Equals(lastHop.DeviceMac, StringComparison.OrdinalIgnoreCase))
         {
-            Order = hops.Count,
-            Type = HopType.Server,
-            DeviceMac = serverPosition.Mac,
-            DeviceName = serverName,
-            DeviceIp = serverPosition.IpAddress,
-            IngressPort = serverPosition.SwitchPort,
-            IngressPortName = GetPortName(rawDevices, serverPosition.SwitchMac, serverPosition.SwitchPort),
-            IngressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, serverPosition.SwitchMac, serverPosition.SwitchPort),
-            Notes = "Speed test server"
-        };
-        hops.Add(serverHop);
+            lastHop.Notes = string.IsNullOrEmpty(lastHop.Notes)
+                ? "Speed test server runs on this gateway"
+                : $"{lastHop.Notes}; speed test server runs on this gateway";
+        }
+        else
+        {
+            var serverName = !string.IsNullOrEmpty(serverPosition.Name) ? serverPosition.Name
+                           : !string.IsNullOrEmpty(serverPosition.Hostname) ? serverPosition.Hostname
+                           : "This Server";
+            var serverHop = new NetworkHop
+            {
+                Order = hops.Count,
+                Type = HopType.Server,
+                DeviceMac = serverPosition.Mac,
+                DeviceName = serverName,
+                DeviceIp = serverPosition.IpAddress,
+                IngressPort = serverPosition.SwitchPort,
+                IngressPortName = GetPortName(rawDevices, serverPosition.SwitchMac, serverPosition.SwitchPort),
+                IngressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, serverPosition.SwitchMac, serverPosition.SwitchPort),
+                Notes = "Speed test server"
+            };
+            hops.Add(serverHop);
+        }
 
         // Check if we need to prepend a VPN hop (Teleport or Tailscale)
         var vpnHop = DetectAndCreateVpnHop(path.DestinationHost, topology, rawDevices, wanIp, resolvedWanGroup);
