@@ -851,6 +851,26 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
             }
 
             var path = await _pathAnalyzer.CalculatePathAsync(targetHost, result.LocalIp, retryOnFailure: true, snapshot);
+
+            // The iperf3-reported local address can be off-topology (Docker bridge
+            // networking, or a multi-NIC agent box picking the wrong interface). The
+            // agent's reported LAN IP is the operator-correctable address the site
+            // already advertises for speed test targets (NO_AGENT_LAN_IP), so when
+            // the server endpoint wasn't found, retry the trace anchored there.
+            if (!_isDefault && !path.IsValid && path.ErrorMessage == NetworkPath.ServerPositionNotFoundError)
+            {
+                var agentLanIp = await _serviceProvider.GetRequiredService<AgentEnrollmentService>()
+                    .GetOnlineAgentLanIpAsync(_siteSlug);
+                if (!string.IsNullOrEmpty(agentLanIp) && agentLanIp != result.LocalIp)
+                {
+                    _logger.LogDebug("Server position not found from {LocalIp}; retrying with agent LAN IP {AgentIp}",
+                        result.LocalIp ?? "auto", agentLanIp);
+                    path = await _pathAnalyzer.CalculatePathAsync(targetHost, agentLanIp, retryOnFailure: false, snapshot);
+                    if (path.IsValid)
+                        result.LocalIp = agentLanIp;
+                }
+            }
+
             var analysis = _pathAnalyzer.AnalyzeSpeedTest(
                 path,
                 result.DownloadMbps,

@@ -517,6 +517,26 @@ public class ClientSpeedTestService
                     result.LocalIp,
                     retryOnFailure: true,
                     priorSnapshot);
+
+                // A relayed result's LocalIp is the listener's socket address, which
+                // can be off-topology (Docker bridge networking, or a multi-NIC agent
+                // box picking the wrong interface). The reported endpoint (agent LAN
+                // IP / HOST_IP) is the operator-correctable address the site already
+                // advertises for speed test targets, so when the server endpoint
+                // wasn't found, retry the trace anchored there.
+                if (!path.IsValid && path.ErrorMessage == NetworkPath.ServerPositionNotFoundError)
+                {
+                    var fallbackIp = await ResolveServerIpAsync();
+                    if (!string.IsNullOrEmpty(fallbackIp) && fallbackIp != result.LocalIp)
+                    {
+                        _logger.LogDebug("Server position not found from {LocalIp}; retrying with reported endpoint {FallbackIp}",
+                            result.LocalIp ?? "auto", fallbackIp);
+                        path = await _pathAnalyzer.CalculatePathAsync(
+                            result.DeviceHost, fallbackIp, retryOnFailure: false, priorSnapshot);
+                        if (path.IsValid)
+                            result.LocalIp = fallbackIp;
+                    }
+                }
             }
 
             var analysis = _pathAnalyzer.AnalyzeSpeedTest(

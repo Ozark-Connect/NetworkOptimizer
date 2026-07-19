@@ -70,6 +70,13 @@ public class NetworkPath
     public string? ErrorMessage { get; set; }
 
     /// <summary>
+    /// <see cref="ErrorMessage"/> value when the server endpoint couldn't be located
+    /// on the site's topology. Callers with an alternate server address (e.g. the
+    /// site agent's reported LAN IP) key their retry on this.
+    /// </summary>
+    public const string ServerPositionNotFoundError = "Could not determine server position in network";
+
+    /// <summary>
     /// Number of switch hops in the path
     /// </summary>
     public int SwitchHopCount => Hops.Count(h => h.Type == HopType.Switch);

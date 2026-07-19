@@ -326,10 +326,6 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                     };
                     _logger.LogInformation("Server position: the gateway itself ({Name}, {Ip}) - gateway-resident server",
                         gatewayDevice.Name, displayIp);
-                    if (string.IsNullOrEmpty(sourceIp))
-                    {
-                        _cache.Set(ServerPositionCacheKey, gatewayPosition, ServerPositionCacheDuration);
-                    }
                     return gatewayPosition;
                 }
             }
@@ -433,7 +429,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
             if (serverPosition == null)
             {
                 path.IsValid = false;
-                path.ErrorMessage = "Could not determine server position in network";
+                path.ErrorMessage = NetworkPath.ServerPositionNotFoundError;
                 return path;
             }
 

@@ -25,6 +25,7 @@ public class GatewaySpeedTestService : IGatewaySpeedTestService
     private readonly SiteContextService _siteContext;
     private readonly SiteTunnelRouting _tunnelRouting;
     private readonly AgentIperf3Service _agentIperf3;
+    private readonly AgentEnrollmentService _agentEnrollment;
 
     // Track running tests
     private bool _isTestRunning = false;
@@ -40,6 +41,7 @@ public class GatewaySpeedTestService : IGatewaySpeedTestService
         SiteContextService siteContext,
         SiteTunnelRouting tunnelRouting,
         AgentIperf3Service agentIperf3,
+        AgentEnrollmentService agentEnrollment,
         Licensing.LicenseStateService licenseState)
     {
         _licenseState = licenseState;
@@ -53,6 +55,7 @@ public class GatewaySpeedTestService : IGatewaySpeedTestService
         _pathAnalyzer = speedTestRegistry.GetFor(_siteContext.Slug).PathAnalyzer;
         _tunnelRouting = tunnelRouting;
         _agentIperf3 = agentIperf3;
+        _agentEnrollment = agentEnrollment;
     }
 
     /// <summary>Context for the database holding this instance's site data.</summary>
@@ -500,6 +503,23 @@ public class GatewaySpeedTestService : IGatewaySpeedTestService
             _logger.LogDebug("Analyzing network path to gateway {Host}", targetHost);
 
             var path = await _pathAnalyzer.CalculatePathAsync(targetHost, localIp);
+
+            // The iperf3-reported local address can be off-topology (Docker bridge
+            // networking, or a multi-NIC agent box picking the wrong interface). The
+            // agent's reported LAN IP is the operator-correctable address the site
+            // already advertises for speed test targets (NO_AGENT_LAN_IP), so when
+            // the server endpoint wasn't found, retry the trace anchored there.
+            if (!_siteContext.IsDefault && !path.IsValid && path.ErrorMessage == NetworkPath.ServerPositionNotFoundError)
+            {
+                var agentLanIp = await _agentEnrollment.GetOnlineAgentLanIpAsync(_siteContext.Slug);
+                if (!string.IsNullOrEmpty(agentLanIp) && agentLanIp != localIp)
+                {
+                    _logger.LogDebug("Server position not found from {LocalIp}; retrying with agent LAN IP {AgentIp}",
+                        localIp ?? "auto", agentLanIp);
+                    path = await _pathAnalyzer.CalculatePathAsync(targetHost, agentLanIp);
+                }
+            }
+
             var analysis = _pathAnalyzer.AnalyzeSpeedTest(
                 path,
                 downloadMbps,
