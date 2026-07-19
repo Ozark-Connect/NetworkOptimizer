@@ -2026,12 +2026,14 @@ public class LanFlowMapService
         string.IsNullOrEmpty(mac) ? string.Empty : mac.ToLowerInvariant().Replace("-", ":");
 
     /// <summary>
-    /// Client label fallback chain that matches what the audit / port-security
-    /// analyzers use: user-set Name > device-reported Hostname > MAC. Keeps the 3D
-    /// map labels consistent with the rest of the UI.
+    /// Client label fallback chain matching Wi-Fi Optimizer - Client Stats: UniFi's
+    /// system-selected DisplayName (v2 active-clients) > user-set Name > device-reported
+    /// Hostname > MAC. The DisplayName step keeps name-less clients from rendering as a
+    /// raw MAC on the 2D/3D maps when the console has a friendly/fingerprint name for them.
     /// </summary>
     private static string ResolveClientLabel(NetworkOptimizer.UniFi.DiscoveredClient c)
     {
+        if (!string.IsNullOrWhiteSpace(c.DisplayName)) return c.DisplayName;
         if (!string.IsNullOrWhiteSpace(c.Name)) return c.Name;
         if (!string.IsNullOrWhiteSpace(c.Hostname)) return c.Hostname;
         return string.IsNullOrEmpty(c.Mac) ? "unknown" : c.Mac;

@@ -92,11 +92,15 @@ public class ClientDashboardService
         try
         {
             var clients = await _connectionService.Client.GetClientsAsync();
+            // Overlay UniFi's friendly display name (v2 active-clients, cached 5 min) so the
+            // picker matches the name shown on the page and in Client Stats.
+            var displayNames = await ClientDisplayNameCache.GetAsync(_connectionService.Client);
             return (clients ?? new List<UniFiClientResponse>())
                 .Where(c => !string.IsNullOrEmpty(c.BestIp))
                 .Select(c => new SelectableClient(
                     c.BestIp!,
-                    !string.IsNullOrWhiteSpace(c.Name) ? c.Name
+                    displayNames.TryGetValue(c.Mac.ToLowerInvariant(), out var dn) ? dn
+                        : !string.IsNullOrWhiteSpace(c.Name) ? c.Name
                         : !string.IsNullOrWhiteSpace(c.Hostname) ? c.Hostname : c.BestIp!,
                     c.IsWired))
                 .OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase)
@@ -164,7 +168,12 @@ public class ClientDashboardService
                 _offlineIdentityCache.TryRemove(clientIp, out _);
                 _ipToMacCache[clientIp] = client.Mac;
 
-                var identity = MapClientToIdentity(client);
+                // UniFi's friendly display name is only on the v2 active-clients endpoint, not
+                // stat/sta; pull it (cached 5 min, labels only) so an unnamed device shows the
+                // same name here as in Client Stats instead of a raw MAC.
+                var displayNames = await ClientDisplayNameCache.GetAsync(_connectionService.Client);
+                displayNames.TryGetValue(client.Mac.ToLowerInvariant(), out var displayName);
+                var identity = MapClientToIdentity(client, displayName);
 
                 // Try WiFiman endpoint for more-realtime signal data, overlay on top of stat/sta
                 await OverlayWiFiManDataAsync(identity, clientIp);
@@ -940,12 +949,16 @@ public class ClientDashboardService
         }
     }
 
-    private ClientIdentity MapClientToIdentity(UniFiClientResponse client)
+    private ClientIdentity MapClientToIdentity(UniFiClientResponse client, string? displayName = null)
     {
         return new ClientIdentity
         {
             Mac = client.Mac,
-            Name = !string.IsNullOrEmpty(client.Name) ? client.Name : null,
+            // Prefer UniFi's system-selected display name (v2 active-clients, e.g. a
+            // fingerprint-derived "Apple TV") over the raw stat/sta name, matching Client
+            // Stats and the offline-identity path so an unnamed device never shows as a MAC.
+            Name = !string.IsNullOrEmpty(displayName) ? displayName
+                 : !string.IsNullOrEmpty(client.Name) ? client.Name : null,
             Hostname = !string.IsNullOrEmpty(client.Hostname) ? client.Hostname : null,
             Ip = client.Ip,
             IsWired = client.IsWired,

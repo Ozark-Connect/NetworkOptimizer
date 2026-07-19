@@ -360,6 +360,11 @@ public class UniFiDiscovery
             }
         }
 
+        // UniFi's friendly display name (fingerprint / system-selected) lives only on the v2
+        // active-clients endpoint, not on stat/sta. Pull it (cached 5 min, labels only) so the
+        // 2D/3D maps show the same name as Wi-Fi Optimizer - Client Stats instead of a raw MAC.
+        var displayNames = await ClientDisplayNameCache.GetAsync(_apiClient, cancellationToken);
+
         var discoveredClients = clients.Select(c =>
         {
             // Use stat/sta BestIp (ip > last_ip > fixed_ip), then active clients endpoint (UX/UX7 bug workaround)
@@ -375,6 +380,7 @@ public class UniFiDiscovery
                 Mac = c.Mac,
                 Hostname = c.Hostname,
                 Name = c.Name,
+                DisplayName = displayNames.TryGetValue(c.Mac.ToLowerInvariant(), out var dn) ? dn : string.Empty,
                 IpAddress = ipAddress ?? string.Empty,
                 Network = c.Network,
                 NetworkId = c.NetworkId,
@@ -872,6 +878,13 @@ public class DiscoveredClient
     public string Mac { get; set; } = string.Empty;
     public string Hostname { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
+    /// <summary>
+    /// UniFi's system-selected friendly device name from the v2 active-clients endpoint
+    /// (the "device print name" the console shows, e.g. a fingerprint-derived "Apple TV"
+    /// for an unnamed device). Populated for currently-active clients; empty when unknown.
+    /// Prefer this over <see cref="Name"/>/<see cref="Hostname"/> for display labels.
+    /// </summary>
+    public string DisplayName { get; set; } = string.Empty;
     public string IpAddress { get; set; } = string.Empty;
     public string Network { get; set; } = string.Empty;
     public string NetworkId { get; set; } = string.Empty;
