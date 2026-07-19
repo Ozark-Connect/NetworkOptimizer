@@ -18,6 +18,7 @@
 @inject SiteContextService SiteContext
 @inject NetworkOptimizer.Web.Services.Licensing.LicenseStateService LicenseState
 @inject SiteTunnelRouting TunnelRouting
+@inject AgentOnGatewayDetector OnGatewayDetector
 @inject UniFiConnectionService ConnectionService
 @inject IJSRuntime JS
 @inject SystemSettingsService SettingsService
@@ -154,7 +155,11 @@
                     }
                 </div>
 
-                @* Server Option - Secondary *@
+                @* Server Option - Secondary. Hidden entirely when the site's agent runs
+                   on the gateway itself: the run would happen ON the gateway, which is
+                   what the Gateway option already does properly. *@
+                @if (!_agentOnGateway)
+                {
                 <div class="wan-test-option @(_serverAvailable ? "" : "wan-test-option-unavailable")">
                     <div class="wan-test-option-header">
                         <span class="wan-test-option-label">Server</span>
@@ -200,6 +205,7 @@
                         }
                     </div>
                 </div>
+                }
             </div>
 
             @if (!string.IsNullOrEmpty(_errorMessage))
@@ -666,6 +672,7 @@
     // Agent-backed secondary site whose on-site agent isn't currently connected.
     // Both WAN tests run through that agent, so they can't run until it reconnects.
     private bool _siteAgentOffline;
+    private bool _agentOnGateway;
     private bool _serverAvailable = true;
     private string? _serverUnavailableReason;
     private System.Threading.Timer? _agentStatusTimer;
@@ -923,6 +930,13 @@
         _siteAgentOffline = !SiteContext.IsDefault
             && await TunnelRouting.IsViaAgentAsync(SiteContext.Slug)
             && !agentOnline;
+
+        // An agent on the gateway itself (monitoring-only) has no WAN test binary,
+        // and a "from the server through the LAN" run makes no sense when the agent
+        // IS the gateway - the Server option is hidden and the Gateway test is the
+        // one to use. When speed-test-capable gateway installs arrive, key this off
+        // the agent's capability instead of its location.
+        _agentOnGateway = agentOnline && await OnGatewayDetector.IsAgentOnGatewayAsync(SiteContext.Slug);
         var agentRequired = !SiteContext.IsDefault && !agentOnline;
         var agentReason = _siteAgentOffline ? AgentOfflineReason : NoAgentReason;
 
@@ -962,9 +976,9 @@
                     // Compare on the rendered availability, not just the offline flag:
                     // a site with no via-agent flag that gains its first agent flips
                     // _serverAvailable without ever changing _siteAgentOffline.
-                    var before = (_siteAgentOffline, _serverAvailable, _gatewayAvailable);
+                    var before = (_siteAgentOffline, _serverAvailable, _gatewayAvailable, _agentOnGateway);
                     await RefreshAgentAvailabilityAsync();
-                    var changed = before != (_siteAgentOffline, _serverAvailable, _gatewayAvailable);
+                    var changed = before != (_siteAgentOffline, _serverAvailable, _gatewayAvailable, _agentOnGateway);
 
                     // The console comes back a moment after the agent tunnel does; once it's
                     // connected, load the WAN data the Gateway (Direct) test needs so the

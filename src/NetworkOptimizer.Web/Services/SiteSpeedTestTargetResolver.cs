@@ -24,25 +24,31 @@ public class SiteSpeedTestTargetResolver
     /// <param name="Host">Bare host of the target (for display), or null.</param>
     /// <param name="UsesAgent">True when clients should be pointed at the site-local agent.</param>
     /// <param name="AgentOffline">True when the site reported no online agent LAN IP (an override may still apply).</param>
+    /// <param name="AgentOnGateway">True when the site's agent runs on the UniFi gateway itself, which hosts no
+    /// speed-test listener - there is no client-facing target, and pages explain why instead of showing one.</param>
     public sealed record Result(
         string? EffectiveTarget,
         string? BaseUrl,
         string? Host,
         bool UsesAgent,
-        bool AgentOffline);
+        bool AgentOffline,
+        bool AgentOnGateway = false);
 
     private readonly SiteContextService _siteContext;
     private readonly AgentEnrollmentService _agentEnrollment;
     private readonly ISystemSettingsService _settings;
+    private readonly AgentOnGatewayDetector _onGatewayDetector;
 
     public SiteSpeedTestTargetResolver(
         SiteContextService siteContext,
         AgentEnrollmentService agentEnrollment,
-        ISystemSettingsService settings)
+        ISystemSettingsService settings,
+        AgentOnGatewayDetector onGatewayDetector)
     {
         _siteContext = siteContext;
         _agentEnrollment = agentEnrollment;
         _settings = settings;
+        _onGatewayDetector = onGatewayDetector;
     }
 
     /// <summary>
@@ -61,6 +67,18 @@ public class SiteSpeedTestTargetResolver
         var targetOverride = (await _settings.GetAsync(SystemSettingKeys.ClientSpeedTestTargetOverride))?.Trim();
         var agentLanIp = await _agentEnrollment.GetOnlineAgentLanIpAsync(_siteContext.Slug);
         var agentOffline = agentLanIp == null;
+
+        // An agent on the gateway itself reports the gateway's IP (usually the WAN
+        // address) and hosts no speed-test listener, so there is nothing to point
+        // clients at - the "target" would be the router. An explicit override still
+        // wins (a separate box the operator knows about). When speed-test-capable
+        // gateway installs arrive, replace this location check with the agent's
+        // speed-test capability so the config can flow through.
+        if (string.IsNullOrEmpty(targetOverride) && agentLanIp != null
+            && await _onGatewayDetector.IsAgentOnGatewayAsync(_siteContext.Slug))
+        {
+            return new Result(null, null, null, UsesAgent: false, AgentOffline: false, AgentOnGateway: true);
+        }
 
         var effectiveTarget = !string.IsNullOrEmpty(targetOverride) ? targetOverride : agentLanIp;
         if (string.IsNullOrEmpty(effectiveTarget))
