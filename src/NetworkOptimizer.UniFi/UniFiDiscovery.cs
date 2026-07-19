@@ -888,7 +888,7 @@ public class DiscoveredClient
     public string DisplayName { get; set; } = string.Empty;
     /// <summary>
     /// Friendly name of a bridged/adopted UniFi ecosystem device (from the console's ucore),
-    /// e.g. a UniFi Protect camera's "[Camera] Driveway" surfaced through a UniFi Device Bridge.
+    /// e.g. a UniFi Protect camera's "[Camera] Front Door" surfaced through a UniFi Device Bridge.
     /// Empty for ordinary clients. Used as a display-label fallback below the user-set Name.
     /// </summary>
     public string UcoreName { get; set; } = string.Empty;

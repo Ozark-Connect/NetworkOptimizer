@@ -274,7 +274,7 @@ public class UniFiClientResponse
 /// </summary>
 public class UniFiUcoreDeviceInfo
 {
-    /// <summary>Friendly device name as configured in the owning app, e.g. "[Camera] Driveway".</summary>
+    /// <summary>Friendly device name as configured in the owning app, e.g. "[Camera] Front Door".</summary>
     [JsonPropertyName("name")]
     public string? Name { get; set; }
 

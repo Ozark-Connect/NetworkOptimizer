@@ -953,7 +953,7 @@ public class ClientDashboardService
     private ClientIdentity MapClientToIdentity(UniFiClientResponse client, string? displayName = null)
     {
         // Bridged UniFi ecosystem devices (e.g. a Protect camera on a UniFi Device Bridge) have
-        // no user Name/display_name but expose a friendly ucore name like "[Camera] Driveway".
+        // no user Name/display_name but expose a friendly ucore name like "[Camera] Front Door".
         var ucoreName = client.UnifiDeviceInfoFromUcore?.Name;
         return new ClientIdentity
         {
