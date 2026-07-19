@@ -1350,6 +1350,20 @@ else
         }
         else
         {
+            @if (_snmpCommunityTooLong)
+            {
+                <div class="alert alert-warning" style="margin-bottom: 1.5rem;">
+                    <strong>SNMP community string is too long.</strong>
+                    Your community string is @_snmpCommunityLength characters. UniFi switches and most other SNMP devices silently reject a community string longer than 20 characters, so they drop from polling while the gateway (which tolerates it) keeps reporting. Shorten it to 20 characters or fewer in UniFi Network (Settings, search "SNMP Monitoring"), let your devices reprovision, then re-check.
+                    <div style="margin-top: 0.75rem;">
+                        <button class="btn btn-sm btn-secondary" @onclick="RunDetection" disabled="@_detecting">
+                            @if (_detecting) { <span class="spinner-sm"></span> <span>Re-checking...</span> }
+                            else { <span>Re-check</span> }
+                        </button>
+                    </div>
+                </div>
+            }
+
             @if (_showV3Recommendation && _snmpState == SnmpDetectionState.EnabledV3Only)
             {
                 <div class="alert alert-info" style="margin-bottom: 1.5rem;">
@@ -1579,6 +1593,8 @@ else
     private bool _detecting;
     private bool _showV3Recommendation = true;
     private string? _detectionError;
+    private bool _snmpCommunityTooLong;
+    private int _snmpCommunityLength;
 
     private bool? _influxReachable;
     private string? _influxError;
@@ -2275,6 +2291,8 @@ else
             await SnmpDetection.SaveDetectionResultAsync(result);
             var settings = await SnmpDetection.GetOrCreateSettingsAsync();
             _snmpState = settings.SnmpDetectionState;
+            _snmpCommunityTooLong = result.CommunityTooLong;
+            _snmpCommunityLength = result.Community?.Length ?? 0;
         }
         else
         {
