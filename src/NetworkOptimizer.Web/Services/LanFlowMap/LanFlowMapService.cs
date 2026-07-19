@@ -352,6 +352,24 @@ public class LanFlowMapService
                         }
                     }
                 }
+                // UDB (single-port bridge) leaf: the bridged client's own wired counters are
+                // always zero, so source the rate from the bridge's device aggregate (the same
+                // value shown on the UDB's wireless-uplink link, since it's a single flow).
+                // BridgeParentMac is set only for DeviceBridge parents, so switch/AP clients
+                // never take this path and keep their existing client-counter behavior.
+                if (rates == null && !string.IsNullOrEmpty(link.BridgeParentMac))
+                {
+                    var bridge = _liveStats.GetForDevice(link.BridgeParentMac);
+                    if (bridge != null && bridge.LastRateUpdate.HasValue)
+                    {
+                        rates = new LinkLiveRates
+                        {
+                            DownstreamBps = bridge.RateOutBps ?? 0,
+                            UpstreamBps = bridge.RateInBps ?? 0,
+                            AsOf = bridge.LastRateUpdate.Value,
+                        };
+                    }
+                }
                 // Fallback: UniFi client stats (for switches without SNMP).
                 // TX from the client's perspective = upload = upstream on the link.
                 if (rates == null)
@@ -660,6 +678,14 @@ public class LanFlowMapService
                                         && !p.IfName.Contains('.'))
                                     .OrderBy(p => Math.Abs((p.Time - at).TotalMilliseconds))
                                     .FirstOrDefault();
+                                // UDB single-port bridge: no vwiresta interface. Its downlink
+                                // port_table rate is persisted under a synthetic "bridge-downlink"
+                                // series (BridgeInterfaceRecorder), stored in the same rateIn =
+                                // downstream convention, so it maps through the block below.
+                                resolved ??= cPts
+                                    .Where(p => string.Equals(p.IfName, BridgeInterfaceRecorder.DownlinkIfName, StringComparison.OrdinalIgnoreCase))
+                                    .OrderBy(p => Math.Abs((p.Time - at).TotalMilliseconds))
+                                    .FirstOrDefault();
                             }
                             else
                             {
@@ -729,6 +755,25 @@ public class LanFlowMapService
                                 rates = MapPortToLinkRates(link, closest.RateInBps ?? 0, closest.RateOutBps ?? 0, closest.Time);
                         }
                     }
+                    // UDB bridged leaf: the client's own wired counters are always zero, so source
+                    // the rate from the bridge's persisted downlink series (mirrors the live path's
+                    // BridgeParentMac substitution). Set only for DeviceBridge parents, so switch/AP
+                    // clients keep the wired_client fallback below untouched.
+                    if (rates == null && !string.IsNullOrEmpty(link.BridgeParentMac)
+                        && ratesByDevice.TryGetValue(link.BridgeParentMac, out var bpts))
+                    {
+                        var closest = bpts
+                            .Where(p => string.Equals(p.IfName, BridgeInterfaceRecorder.DownlinkIfName, StringComparison.OrdinalIgnoreCase))
+                            .OrderBy(p => Math.Abs((p.Time - at).TotalMilliseconds))
+                            .FirstOrDefault();
+                        if (closest != null)
+                            rates = new LinkLiveRates
+                            {
+                                DownstreamBps = closest.RateInBps ?? 0,
+                                UpstreamBps = closest.RateOutBps ?? 0,
+                                AsOf = closest.Time,
+                            };
+                    }
                     // Fallback: wired_client from batch pre-fetch
                     if (rates == null)
                     {
@@ -788,7 +833,12 @@ public class LanFlowMapService
                     var isGw = node.Kind == LanNodeKind.Gateway;
                     var filtered = isGw
                         ? rates.Where(p => System.Text.RegularExpressions.Regex.IsMatch(p.IfName, @"^eth\d+$"))
-                        : rates;
+                        // Exclude the synthetic UDB bridge-downlink series: it's a single directional
+                        // flow, not a switch fabric, so summing it as ingress/egress makes a bridge
+                        // look asymmetric. Dropping it leaves the bridge with no fabric badge, so it
+                        // falls back to adjacent-link summing (symmetric) - matching the live badge,
+                        // which has no fabric series for a UDB either.
+                        : rates.Where(p => !string.Equals(p.IfName, BridgeInterfaceRecorder.DownlinkIfName, StringComparison.OrdinalIgnoreCase));
                     var closestRates = filtered
                         .GroupBy(p => p.Time)
                         .OrderBy(g => Math.Abs((g.Key - at).TotalMilliseconds))
@@ -1382,6 +1432,13 @@ public class LanFlowMapService
                         if (string.IsNullOrEmpty(node.SwitchPortName) && !string.IsNullOrEmpty(port.Name))
                             node.SwitchPortName = port.Name;
                     }
+
+                    // A UDB (single-port bridge) never reports non-zero wired byte counters for the
+                    // client behind it, so tag this leaf to source its live rate from the bridge's
+                    // device aggregate instead. Only DeviceBridge parents are tagged - switch/AP
+                    // clients keep their existing (working) client-counter path untouched.
+                    if (parentDev.DeviceType == DeviceType.DeviceBridge)
+                        link.BridgeParentMac = parentMac;
                 }
             }
             else if (!c.IsWired)
@@ -2035,6 +2092,9 @@ public class LanFlowMapService
     {
         if (!string.IsNullOrWhiteSpace(c.DisplayName)) return c.DisplayName;
         if (!string.IsNullOrWhiteSpace(c.Name)) return c.Name;
+        // Bridged UniFi ecosystem devices (Protect cameras, UNAS) carry no user Name/DisplayName
+        // but expose a friendly ucore name; prefer it over the auto-generated hostname.
+        if (!string.IsNullOrWhiteSpace(c.UcoreName)) return c.UcoreName;
         if (!string.IsNullOrWhiteSpace(c.Hostname)) return c.Hostname;
         return string.IsNullOrEmpty(c.Mac) ? "unknown" : c.Mac;
     }
@@ -2077,6 +2137,9 @@ public class LanFlowMapService
                 var (mac, _) = ParsePortKey(link.PortKey);
                 if (!string.IsNullOrEmpty(mac)) deviceMacs.Add(mac);
             }
+            // A UDB-bridged client leaf sources its historic rate from the bridge's persisted
+            // downlink series, so make sure the bridge's interface rows are fetched.
+            if (!string.IsNullOrEmpty(link.BridgeParentMac)) deviceMacs.Add(link.BridgeParentMac);
         }
 
         var ratesByDevice = new Dictionary<string, IReadOnlyList<MonitoringInfluxClient.InterfaceRatePoint>>(

@@ -224,30 +224,29 @@ public sealed class LanFabricAggregator
             // would produce a one-burst / many-zeroes pattern here).
         }
 
-        // Second pass: mesh-uplinked APs need a custom aggregate because
-        // UniFi's device-level stat.tx_bytes / rx_bytes doesn't reliably
-        // include traffic shuttled across the wireless backhaul - the
-        // AP-fallback above can read low or zero even when the AP is
-        // relaying a lot of traffic for downstream gear and its own
-        // wireless clients. Wired APs don't need this: their parent
-        // switch port already sees every byte (wireless clients included)
-        // because that traffic exits the AP via Ethernet. Mesh APs have
-        // no such port to read, so we synthesize the aggregate from two
-        // contributors:
-        //   (a) downstream UniFi devices (switch or another AP plugged
-        //       into the mesh AP's Ethernet downlink) - their boundary
-        //       aggregates were just written in the first pass.
-        //   (b) wireless clients directly associated to this mesh AP -
-        //       their TX/RX throughput maps onto the backhaul flow.
-        // NetworkPathAnalyzer treats device.Uplink.Type == "wireless" as
-        // the mesh marker; mirror that here for consistency with how the
-        // speed-test path tracer identifies mesh hops.
-        foreach (var meshAp in devices.Where(d =>
-            d.DeviceType == DeviceType.AccessPoint
+        // Second pass: wirelessly-uplinked devices - mesh APs AND single-port bridges
+        // (UDBs) - need a custom aggregate because UniFi's device-level stat.tx_bytes /
+        // rx_bytes doesn't reliably include traffic shuttled across the wireless backhaul,
+        // and there's no parent switch port to read (the first pass found nothing for them).
+        // Wired APs/switches don't need this: their parent port already sees every byte.
+        // We synthesize the aggregate from whichever of these contributors apply:
+        //   (a) downstream UniFi devices (switch or another AP plugged into an Ethernet
+        //       downlink) - their boundary aggregates were just written in the first pass.
+        //   (b) wireless clients directly associated to a mesh AP - their TX/RX throughput
+        //       maps onto the backhaul flow.
+        //   (c) for a UDB, the bridged client is a plain wired client (neither a UniFi child
+        //       nor a wifi client), so its throughput lives on the bridge's OWN downlink
+        //       port_table; read that. Restricted to DeviceBridge so a mesh AP never
+        //       double-counts its downstream, which is already covered by (a).
+        // NetworkPathAnalyzer treats device.Uplink.Type == "wireless" as the mesh marker;
+        // mirror that here for consistency with how the speed-test path tracer identifies
+        // mesh hops.
+        foreach (var dev in devices.Where(d =>
+            (d.DeviceType == DeviceType.AccessPoint || d.DeviceType == DeviceType.DeviceBridge)
             && d.Uplink != null
             && string.Equals(d.Uplink.Type, "wireless", StringComparison.OrdinalIgnoreCase)))
         {
-            var meshMac = NormalizeMac(meshAp.Mac);
+            var devMac = NormalizeMac(dev.Mac);
             double sumIn = 0, sumOut = 0;
             bool anyContribution = false;
 
@@ -255,7 +254,7 @@ public sealed class LanFabricAggregator
             foreach (var child in devices)
             {
                 if (child.Uplink == null || string.IsNullOrEmpty(child.Uplink.UplinkMac)) continue;
-                if (!string.Equals(NormalizeMac(child.Uplink.UplinkMac), meshMac, StringComparison.OrdinalIgnoreCase)) continue;
+                if (!string.Equals(NormalizeMac(child.Uplink.UplinkMac), devMac, StringComparison.OrdinalIgnoreCase)) continue;
                 var stats = liveStats.GetForDevice(child.Mac);
                 if (stats == null || !stats.LastRateUpdate.HasValue) continue;
                 sumIn += stats.RateInBps ?? 0;
@@ -267,7 +266,8 @@ public sealed class LanFabricAggregator
             // is AP -> client (downloads, gateway-relative), Rx is the
             // reverse (uploads). Sum onto the same RateIn / RateOut sides
             // the children write so the totals stay direction-consistent.
-            foreach (var wc in liveStats.GetWifiClientsForAp(meshAp.Mac))
+            // A UDB is not an AP, so this yields nothing for it.
+            foreach (var wc in liveStats.GetWifiClientsForAp(dev.Mac))
             {
                 var rx = wc.RxThroughputBps ?? 0;
                 var tx = wc.TxThroughputBps ?? 0;
@@ -279,17 +279,37 @@ public sealed class LanFabricAggregator
                 }
             }
 
+            // (c) UDB bridged wired client: its bytes live on the bridge's own downlink
+            // port_table. Same direction convention as a parent reading a port toward a
+            // child (port RX = uploads from the client, TX = downloads to it), so add
+            // (DownBps, UpBps) onto the same (sumIn, sumOut) sides as (a)/(b). DeviceBridge
+            // only - a mesh AP's own downstream is already counted in (a).
+            if (dev.DeviceType == DeviceType.DeviceBridge && dev.PortTable != null)
+            {
+                foreach (var port in dev.PortTable)
+                {
+                    if (port.IsUplink) continue;
+                    var portRate = PortRate(devMac, port.PortIdx);
+                    if (portRate.HasValue)
+                    {
+                        sumIn += portRate.Value.DownBps;
+                        sumOut += portRate.Value.UpBps;
+                        anyContribution = true;
+                    }
+                }
+            }
+
             // SNMP first-pass (vwiresta) is the most accurate source. Only
             // overwrite if SNMP didn't get a chance (e.g. AP unreachable via
             // SNMP) - i.e. the live-stats entry has no aggregate yet.
             if (anyContribution)
             {
-                var existing = liveStats.GetForDevice(meshAp.Mac);
+                var existing = liveStats.GetForDevice(dev.Mac);
                 bool snmpAlreadySet = existing?.RateInBps.HasValue == true
                                       || existing?.RateOutBps.HasValue == true;
                 if (!snmpAlreadySet)
                 {
-                    liveStats.RecordInterfaceAggregate(meshAp.Mac, sumIn, sumOut, now);
+                    liveStats.RecordInterfaceAggregate(dev.Mac, sumIn, sumOut, now);
                 }
             }
         }
