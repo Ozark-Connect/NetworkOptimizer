@@ -352,6 +352,24 @@ public class LanFlowMapService
                         }
                     }
                 }
+                // UDB (single-port bridge) leaf: the bridged client's own wired counters are
+                // always zero, so source the rate from the bridge's device aggregate (the same
+                // value shown on the UDB's wireless-uplink link, since it's a single flow).
+                // BridgeParentMac is set only for DeviceBridge parents, so switch/AP clients
+                // never take this path and keep their existing client-counter behavior.
+                if (rates == null && !string.IsNullOrEmpty(link.BridgeParentMac))
+                {
+                    var bridge = _liveStats.GetForDevice(link.BridgeParentMac);
+                    if (bridge != null && bridge.LastRateUpdate.HasValue)
+                    {
+                        rates = new LinkLiveRates
+                        {
+                            DownstreamBps = bridge.RateOutBps ?? 0,
+                            UpstreamBps = bridge.RateInBps ?? 0,
+                            AsOf = bridge.LastRateUpdate.Value,
+                        };
+                    }
+                }
                 // Fallback: UniFi client stats (for switches without SNMP).
                 // TX from the client's perspective = upload = upstream on the link.
                 if (rates == null)
@@ -1382,6 +1400,13 @@ public class LanFlowMapService
                         if (string.IsNullOrEmpty(node.SwitchPortName) && !string.IsNullOrEmpty(port.Name))
                             node.SwitchPortName = port.Name;
                     }
+
+                    // A UDB (single-port bridge) never reports non-zero wired byte counters for the
+                    // client behind it, so tag this leaf to source its live rate from the bridge's
+                    // device aggregate instead. Only DeviceBridge parents are tagged - switch/AP
+                    // clients keep their existing (working) client-counter path untouched.
+                    if (parentDev.DeviceType == DeviceType.DeviceBridge)
+                        link.BridgeParentMac = parentMac;
                 }
             }
             else if (!c.IsWired)
@@ -2035,6 +2060,9 @@ public class LanFlowMapService
     {
         if (!string.IsNullOrWhiteSpace(c.DisplayName)) return c.DisplayName;
         if (!string.IsNullOrWhiteSpace(c.Name)) return c.Name;
+        // Bridged UniFi ecosystem devices (Protect cameras, UNAS) carry no user Name/DisplayName
+        // but expose a friendly ucore name; prefer it over the auto-generated hostname.
+        if (!string.IsNullOrWhiteSpace(c.UcoreName)) return c.UcoreName;
         if (!string.IsNullOrWhiteSpace(c.Hostname)) return c.Hostname;
         return string.IsNullOrEmpty(c.Mac) ? "unknown" : c.Mac;
     }

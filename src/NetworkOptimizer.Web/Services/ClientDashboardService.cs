@@ -101,6 +101,7 @@ public class ClientDashboardService
                     c.BestIp!,
                     displayNames.TryGetValue(c.Mac.ToLowerInvariant(), out var dn) ? dn
                         : !string.IsNullOrWhiteSpace(c.Name) ? c.Name
+                        : c.UnifiDeviceInfoFromUcore?.Name is { Length: > 0 } ucore ? ucore
                         : !string.IsNullOrWhiteSpace(c.Hostname) ? c.Hostname : c.BestIp!,
                     c.IsWired))
                 .OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase)
@@ -951,14 +952,18 @@ public class ClientDashboardService
 
     private ClientIdentity MapClientToIdentity(UniFiClientResponse client, string? displayName = null)
     {
+        // Bridged UniFi ecosystem devices (e.g. a Protect camera on a UniFi Device Bridge) have
+        // no user Name/display_name but expose a friendly ucore name like "[Camera] Driveway".
+        var ucoreName = client.UnifiDeviceInfoFromUcore?.Name;
         return new ClientIdentity
         {
             Mac = client.Mac,
             // Prefer UniFi's system-selected display name (v2 active-clients, e.g. a
-            // fingerprint-derived "Apple TV") over the raw stat/sta name, matching Client
-            // Stats and the offline-identity path so an unnamed device never shows as a MAC.
+            // fingerprint-derived "Apple TV") over the raw stat/sta name, then the ucore device
+            // name, matching Client Stats/the map so an unnamed device never shows as a MAC.
             Name = !string.IsNullOrEmpty(displayName) ? displayName
-                 : !string.IsNullOrEmpty(client.Name) ? client.Name : null,
+                 : !string.IsNullOrEmpty(client.Name) ? client.Name
+                 : !string.IsNullOrEmpty(ucoreName) ? ucoreName : null,
             Hostname = !string.IsNullOrEmpty(client.Hostname) ? client.Hostname : null,
             Ip = client.Ip,
             IsWired = client.IsWired,

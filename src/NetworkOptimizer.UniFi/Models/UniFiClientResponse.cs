@@ -255,6 +255,36 @@ public class UniFiClientResponse
     /// </summary>
     [JsonPropertyName("roam_count")]
     public int? RoamCount { get; set; }
+
+    /// <summary>
+    /// UniFi ecosystem device metadata surfaced by the console (ucore) for an adopted/bridged
+    /// device that shows up as a client - e.g. a UniFi Protect camera bridged onto the LAN via a
+    /// UniFi Device Bridge, or a UNAS. Carries the friendly device name and product line/model.
+    /// Null for ordinary clients.
+    /// </summary>
+    [JsonPropertyName("unifi_device_info_from_ucore")]
+    public UniFiUcoreDeviceInfo? UnifiDeviceInfoFromUcore { get; set; }
+}
+
+/// <summary>
+/// UniFi ecosystem device info (from the console's ucore) for an adopted/bridged device that
+/// appears as a client - e.g. a UniFi Protect camera on a UniFi Device Bridge. The friendly
+/// <see cref="Name"/> is what UniFi shows for the device; the product fields are kept for
+/// identifying the device line/model.
+/// </summary>
+public class UniFiUcoreDeviceInfo
+{
+    /// <summary>Friendly device name as configured in the owning app, e.g. "[Camera] Driveway".</summary>
+    [JsonPropertyName("name")]
+    public string? Name { get; set; }
+
+    /// <summary>Product line, e.g. "PROTECT", "NETWORK", "UNAS".</summary>
+    [JsonPropertyName("product_line")]
+    public string? ProductLine { get; set; }
+
+    /// <summary>Short product/model name, e.g. "UVC G6 Pro Bullet".</summary>
+    [JsonPropertyName("product_shortname")]
+    public string? ProductShortname { get; set; }
 }
 
 /// <summary>

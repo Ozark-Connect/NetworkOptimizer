@@ -381,6 +381,7 @@ public class UniFiDiscovery
                 Hostname = c.Hostname,
                 Name = c.Name,
                 DisplayName = displayNames.TryGetValue(c.Mac.ToLowerInvariant(), out var dn) ? dn : string.Empty,
+                UcoreName = c.UnifiDeviceInfoFromUcore?.Name ?? string.Empty,
                 IpAddress = ipAddress ?? string.Empty,
                 Network = c.Network,
                 NetworkId = c.NetworkId,
@@ -885,6 +886,12 @@ public class DiscoveredClient
     /// Prefer this over <see cref="Name"/>/<see cref="Hostname"/> for display labels.
     /// </summary>
     public string DisplayName { get; set; } = string.Empty;
+    /// <summary>
+    /// Friendly name of a bridged/adopted UniFi ecosystem device (from the console's ucore),
+    /// e.g. a UniFi Protect camera's "[Camera] Driveway" surfaced through a UniFi Device Bridge.
+    /// Empty for ordinary clients. Used as a display-label fallback below the user-set Name.
+    /// </summary>
+    public string UcoreName { get; set; } = string.Empty;
     public string IpAddress { get; set; } = string.Empty;
     public string Network { get; set; } = string.Empty;
     public string NetworkId { get; set; } = string.Empty;
