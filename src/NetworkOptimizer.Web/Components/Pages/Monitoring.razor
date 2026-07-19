@@ -185,7 +185,7 @@ else
                     <div class="banner-text" style="flex: 1;">
                         @if (CommunityTooLong)
                         {
-                            @("SNMP community string is too long - devices reject anything over 20 characters. Shorten it in UniFi.")
+                            @("SNMP Community String is too long - devices reject anything over 20 characters. Shorten it in UniFi.")
                         }
                         else if (unpolledKeyDevices.Count == 1)
                         {
@@ -1306,7 +1306,7 @@ else
                             <ol>
                                 <li>Open UniFi Network</li>
                                 <li>Search Settings for <strong>"SNMP Monitoring"</strong></li>
-                                <li>Enable <strong>SNMP v1/v2c</strong> and set a unique community string</li>
+                                <li>Enable <strong>SNMP v1/v2c</strong> and set a unique Community String (20 characters max)</li>
                             </ol>
                             <p>Currently at: Settings → CyberSecure → Traffic Logging → SNMP Monitoring. This menu has moved between UniFi versions - the search term is the reliable way to find it.</p>
 
@@ -1321,7 +1321,7 @@ else
                             <p>Devices without SNMP enabled will not report port-level traffic or health metrics.</p>
 
                             <h4>Recommended configuration</h4>
-                            <p><strong>SNMP v1/v2c</strong> with a unique community string is recommended over v3. SNMPv3's per-packet authentication and encryption adds measurable CPU load to your gateway and fabric devices. The recommended security posture is a <strong>management VLAN</strong> isolating your network devices, not per-packet crypto.</p>
+                            <p><strong>SNMP v1/v2c</strong> with a unique Community String is recommended over v3. SNMPv3's per-packet authentication and encryption adds measurable CPU load to your gateway and fabric devices. The recommended security posture is a <strong>management VLAN</strong> isolating your network devices, not per-packet crypto.</p>
                         </div>
                     </details>
 
@@ -1360,7 +1360,7 @@ else
             @if (CommunityTooLong)
             {
                 <div class="alert alert-warning" style="margin-bottom: 1.5rem;">
-                    <strong>SNMP community string is too long.</strong>
+                    <strong>SNMP Community String is too long.</strong>
                     @(_snmpCommunityLength > 0
                         ? $"Yours is {_snmpCommunityLength} characters; UniFi devices silently reject anything over 20."
                         : "UniFi devices silently reject anything over 20 characters.")
