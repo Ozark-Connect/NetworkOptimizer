@@ -2,10 +2,10 @@
 @inject AgentServerUrlProvider AgentServerUrl
 
 @* Agent enrollment token plus how to stand the agent up, shared by the site
-   wizard and the Multi-Site settings panel. Released builds get the published
-   Docker one-liner as the primary path; only a source build (detected via
-   AppVersionInfo) shows build-from-source directions. Both fill in the
-   configured central server URL so nothing is hand-typed. *@
+   wizard and the Multi-Site settings panel. Always the published-release
+   one-liners (Docker, bare metal, on-gateway) - even on a source-built server,
+   the agent should come from a release, not a hand-built binary. The
+   configured central server URL is filled in so nothing is hand-typed. *@
 
 <div class="agent-install">
 <div class="alert alert-success">
@@ -22,46 +22,6 @@
     </p>
 }
 
-@if (AppVersionInfo.IsSourceBuild)
-{
-    <p class="section-description">
-        This is a source build, so build the agent from source and run the single self-contained binary on
-        the site box - nothing else needs to be installed there.
-    </p>
-    <ol class="agent-steps">
-        <li>
-            Build for the box's architecture (<code>linux-arm64</code> for a Pi or ARM box):
-            <pre><code>dotnet publish src/NetworkOptimizer.Agent -c Release -r linux-x64</code></pre>
-            <div class="agent-step-note">
-                The binary lands at
-                <code>src/NetworkOptimizer.Agent/bin/Release/net10.0/linux-x64/publish/NetworkOptimizer.Agent</code>.
-            </div>
-        </li>
-        <li>
-            Create <code>agent.json</code> next to the binary:
-            <pre><code>@AgentJsonSnippet()</code></pre>
-        </li>
-        <li>
-            Copy the <code>NetworkOptimizer.Agent</code> binary and <code>agent.json</code> to the box and run
-            it - it enrolls, writes its key back into <code>agent.json</code>, and holds the tunnel:
-            <pre><code>chmod +x NetworkOptimizer.Agent && ./NetworkOptimizer.Agent</code></pre>
-            <div class="agent-step-note">
-                Once it shows Online here, run it from a systemd service so it survives reboots (see the
-                deployment guide).
-            </div>
-        </li>
-    </ol>
-    <p class="form-hint">
-        <code>serverUrl</code> and <code>tunnelUrl</code> are this server's HTTPS address as reachable from
-        the site - over a VPN or site-to-site VPN, or a public address (the agent refuses plain HTTP). The
-        gRPC tunnel rides that same reverse proxy on this one host, so the proxy must route the agent-tunnel
-        gRPC path to it; see the deployment guide. If the site can't reach this server over a VPN, expose the
-        reverse proxy - on a UniFi gateway at this server's site: UniFi Network &gt; Settings &gt; Policy
-        Table &gt; Port Forwarding (usually 443/TCP).
-    </p>
-}
-else
-{
     <p class="section-description">
         On the site's agent box, install with Docker or as a bare-metal systemd service - pick one. Either
         way the agent dials out to <code>@ServerDisplay</code> over HTTPS only, with no inbound access to the
@@ -79,6 +39,21 @@ else
     </p>
     <pre><code>@NativeOneLiner()</code></pre>
 
+    <h4 class="agent-flavor-title">On a UniFi gateway</h4>
+    <p class="form-hint">
+        Run the agent on the gateway itself (any current UniFi gateway - UCG, UXG, UDM, UDR, EFG) instead of a separate box.
+        Monitoring-only - it installs to <code>/data</code> with a memory-fenced service. UniFi gateways
+        SSH in as root, so run it there directly:
+    </p>
+    <pre><code>@GatewayOneLiner()</code></pre>
+    @if (LanSpeedTest)
+    {
+        <p class="form-hint">
+            LAN speed testing isn't hosted on the gateway - use the Docker or bare-metal command above on a
+            separate box for that.
+        </p>
+    }
+
     <p class="form-hint">
         Full options and troubleshooting are in the
         <a href="https://github.com/Ozark-Connect/NetworkOptimizer/blob/main/src/NetworkOptimizer.Agent/README.md" target="_blank" rel="noopener">agent deployment guide</a>.
@@ -87,7 +62,6 @@ else
         at this server's site: UniFi Network &gt; Settings &gt; Policy Table &gt; Port Forwarding (usually
         443/TCP).
     </p>
-}
 </div>
 
 @code {
@@ -105,19 +79,6 @@ else
     private string ServerDisplay => string.IsNullOrWhiteSpace(ServerUrl) ? "this server" : ServerUrl!.TrimEnd('/');
 
     private string ServerValue => string.IsNullOrWhiteSpace(ServerUrl) ? "https://your-network-optimizer" : ServerUrl!.TrimEnd('/');
-
-    private string AgentJsonSnippet()
-    {
-        var sb = new StringBuilder();
-        sb.Append("{\n");
-        sb.Append($"  \"serverUrl\": \"{ServerValue}\",\n");
-        sb.Append($"  \"tunnelUrl\": \"{ServerValue}\",\n");
-        sb.Append($"  \"enrollmentToken\": \"{Token}\"");
-        if (LanSpeedTest)
-            sb.Append(",\n  \"lanSpeedTest\": true");
-        sb.Append("\n}");
-        return sb.ToString();
-    }
 
     private string DockerOneLiner()
     {
@@ -138,6 +99,17 @@ else
         sb.Append($"  --token \"{Token}\"");
         if (LanSpeedTest)
             sb.Append(" \\\n  --lan-speed-test");
+        return sb.ToString();
+    }
+
+    // Monitoring-only gateway installer: no --lan-speed-test (the router must not
+    // host a speed-test server), and no sudo (UniFi gateways SSH in as root).
+    private string GatewayOneLiner()
+    {
+        var sb = new StringBuilder();
+        sb.Append("curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/agent/install-agent-gateway.sh | bash -s -- \\\n");
+        sb.Append($"  --server \"{ServerValue}\" \\\n");
+        sb.Append($"  --token \"{Token}\"");
         return sb.ToString();
     }
 }

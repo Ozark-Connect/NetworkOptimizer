@@ -400,6 +400,14 @@
                             </a>
                         </div>
                     }
+                    else if (_isOwnDevice && _agentOnGateway)
+                    {
+                        <p class="form-hint">
+                            Speed tests aren't available at this site - its agent runs on the UniFi gateway,
+                            which doesn't host the LAN speed test. Deploy a Docker or bare-metal agent on a
+                            separate box at the site to enable them.
+                        </p>
+                    }
 
                     @* Speed History Chart *@
                     @if (_speedDownloadData.Count > 0)
@@ -904,6 +912,8 @@
     private ApexChartOptions<SpeedChartPoint> _latencyChartOptions = new();
     private int? _expandedResultId;
     private string? _openSpeedTestUrl;
+    // The site's agent runs on the UniFi gateway (no speed-test listener at the site).
+    private bool _agentOnGateway;
 
     // Signal tab
     private List<SignalHistoryEntry> _signalHistory = new();
@@ -1288,7 +1298,11 @@
         }
 
         // The agent answered but the console hasn't listed the client yet (still warming
-        // up on a cold connect) - clear so the next retry re-probes cleanly.
+        // up on a cold connect) - or the viewer isn't a client of this site at all (an
+        // off-site/VPN vantage: whoami reports their address at another site). Clear so
+        // the next retry re-probes cleanly, and say so - a silent miss here reads as
+        // "the probe never delivered" when debugging from logs.
+        Logger.LogDebug("Client identity (site {Site}): whoami returned {Ip} but it matches no client on this site", SiteContext.Slug, _clientIp);
         _clientIp = null;
         return false;
     }
@@ -2316,9 +2330,20 @@
         // Falls through to the central-server config below only for the default site or
         // when no agent is online.
         var siteTarget = await SiteTarget.ResolveAsync();
+        _agentOnGateway = siteTarget.AgentOnGateway;
         if (siteTarget.UsesAgent)
         {
             _openSpeedTestUrl = siteTarget.BaseUrl;
+            return;
+        }
+
+        // The site's agent runs on the UniFi gateway itself: no speed-test
+        // listener exists at the site, and the central-server URL below is
+        // unreachable from the site's LAN - leave the URL empty so the page
+        // explains instead of offering a dead button.
+        if (_agentOnGateway)
+        {
+            _openSpeedTestUrl = null;
             return;
         }
 

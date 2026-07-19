@@ -22,6 +22,7 @@
 @inject Iperf3SpeedTestService SpeedTestService
 @inject UniFiConnectionService ConnectionService
 @inject IGatewaySshService GatewaySshService
+@inject AgentOnGatewayDetector OnGatewayDetector
 @inject WanDataUsageService DataUsageService
 @inject IJSRuntime JS
 @inject PullToRefreshState PtrState
@@ -1703,6 +1704,11 @@
     private List<(string Host, string Label, bool IsUniFi)> _lanDeviceOptions = [];
     private List<WanSelectorOption> _wanSelectorOptions = [];
     private bool _gatewayAvailable;
+    // The site's agent runs on the UniFi gateway (no uwnspeedtest binary there),
+    // so the Server WAN test can never succeed - hidden for new schedules. An
+    // existing legacy Server schedule keeps its option while being edited so the
+    // bound selection stays coherent.
+    private bool _agentOnGateway;
     private string _newWanTestType = "gateway";
     private string _newWanSelection = "0";
     private bool _newWanMaxMode;
@@ -1716,7 +1722,7 @@
     private int? _editingLanScheduleId;
     private string? _scheduleMessage;
     private string _scheduleMessageClass = "info";
-    private bool CanCreateWanSchedule => _newWanTestType == "server" || (_gatewayAvailable && _wanSelectorOptions.Count > 0);
+    private bool CanCreateWanSchedule => (_newWanTestType == "server" && !_agentOnGateway) || (_gatewayAvailable && _wanSelectorOptions.Count > 0);
     private readonly string _serverTzAbbrev = GetServerTimezoneAbbrev();
 
     private RenderFragment WanScheduleForm => __builder =>
@@ -1739,7 +1745,10 @@
                             {
                                 <option value="gateway">Gateway (Direct)</option>
                             }
-                            <option value="server">Server</option>
+                            @if (!_agentOnGateway || _newWanTestType == "server")
+                            {
+                                <option value="server">Server</option>
+                            }
                         </select>
                     </div>
                     @if (_newWanTestType == "gateway" && _wanSelectorOptions.Count > 0)
@@ -2135,7 +2144,16 @@
             _gatewayAvailable = false;
         }
 
-        if (!_gatewayAvailable)
+        try
+        {
+            _agentOnGateway = await OnGatewayDetector.IsAgentOnGatewayAsync(SiteContext.Slug);
+        }
+        catch
+        {
+            _agentOnGateway = false;
+        }
+
+        if (!_gatewayAvailable && !_agentOnGateway)
             _newWanTestType = "server";
 
         BuildWanSelectorOptions();

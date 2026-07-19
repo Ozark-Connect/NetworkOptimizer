@@ -17,6 +17,7 @@
 @inject SiteContextService SiteContext
 @inject NetworkOptimizer.Web.Services.Licensing.LicenseStateService LicenseState
 @inject SiteTunnelRouting TunnelRouting
+@inject AgentOnGatewayDetector OnGatewayDetector
 @inject NavigationManager NavigationManager
 @inject IJSRuntime JS
 @inject SystemSettingsService SettingsService
@@ -148,6 +149,10 @@
 }
 
 <div class="speedtest-container @((localIperf3Status != null && !localIperf3Status.IsAvailable) || _agentRequired ? "locked-out" : "")">
+    @* Gateway Speed Test - hidden when the site's agent runs on the gateway
+       itself: agent-to-gateway iperf3 would be a loopback self-test. *@
+    @if (!_agentOnGateway)
+    {
     <!-- Gateway Speed Test Section -->
     <div class="card" id="gateway-test">
         <div class="card-header">
@@ -310,6 +315,7 @@
             }
         </div>
     </div>
+    }
 
     <!-- SSH Credentials Status -->
     @if (_sshConfigLoaded && !sshConfigured)
@@ -339,6 +345,16 @@
             </div>
         </div>
         <div class="card-body">
+            @if (_agentOnGateway && !_devicesViaAgent)
+            {
+                <div class="alert alert-info">
+                    <strong>Agent on gateway:</strong> Device speed tests reach the site's devices over SSH through
+                    the agent tunnel, which isn't enabled for this site. Turn on <strong>Reach this site's devices
+                    through the agent tunnel</strong> under Settings &gt; Multi-Site to run them.
+                </div>
+            }
+            else
+            {
             <p class="section-description">
                 Select any supported non-gateway device to run a speed test. Devices are auto-discovered from your UniFi controller.
                 <span class="tooltip-wrapper">
@@ -463,6 +479,7 @@
                         }
                     </div>
                 }
+            }
             }
         </div>
     </div>
@@ -1364,6 +1381,10 @@
     // LAN tests run through that agent (SSH to devices + throughput at the site),
     // so they're locked out until it reconnects; the poll re-enables them.
     private bool _siteAgentOffline;
+    // The site's agent runs on the UniFi gateway itself (monitoring-only install).
+    private bool _agentOnGateway;
+    // Per-site "SSH and UniFi Console proxy" flag - device SSH through the tunnel.
+    private bool _devicesViaAgent;
     // A managed (non-default) site with no live agent at all - covers both the
     // via-agent-but-disconnected case (_siteAgentOffline) and a site that has
     // never set an agent up. LAN tests can't run either way, so the page locks out.
@@ -1497,6 +1518,12 @@
         var agentOnline = TunnelRouting.IsAgentOnline(SiteContext.Slug);
         _agentRequired = !SiteContext.IsDefault && !agentOnline;
         _siteAgentOffline = _agentRequired && await TunnelRouting.IsViaAgentAsync(SiteContext.Slug);
+
+        // UI gating for a gateway-resident agent: the Gateway Speed Test is a
+        // self-test there (hidden), and the UniFi Device Speed Test needs device
+        // SSH through the tunnel, so it keys on the devices-via-agent proxy flag.
+        _agentOnGateway = agentOnline && await OnGatewayDetector.IsAgentOnGatewayAsync(SiteContext.Slug);
+        _devicesViaAgent = await TunnelRouting.IsViaAgentAsync(SiteContext.Slug);
     }
 
     /// <summary>
@@ -1513,9 +1540,9 @@
             {
                 await InvokeAsync(async () =>
                 {
-                    var before = (_siteAgentOffline, _agentRequired);
+                    var before = (_siteAgentOffline, _agentRequired, _agentOnGateway, _devicesViaAgent);
                     await RefreshAgentAvailabilityAsync();
-                    var changed = before != (_siteAgentOffline, _agentRequired);
+                    var changed = before != (_siteAgentOffline, _agentRequired, _agentOnGateway, _devicesViaAgent);
 
                     // The console comes back a moment after the agent tunnel does; once
                     // it's connected, load the UniFi device list so it populates without

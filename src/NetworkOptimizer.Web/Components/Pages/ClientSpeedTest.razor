@@ -53,12 +53,20 @@
                     </a>
                 </div>
             }
+            else if (agentOnGateway)
+            {
+                <div class="alert alert-info">
+                    <strong>Agent on gateway:</strong> This site's agent runs on the UniFi gateway itself, which doesn't host the LAN speed test. To enable client speed tests here, deploy a Docker or bare-metal agent on a separate box at the site (Settings &gt; Multi-Site).
+                </div>
+            }
             else if (agentSiteOffline)
             {
                 <div class="alert alert-warning">
                     <strong>On-site agent offline:</strong> This site's agent isn't reporting in, so the targets below point at the central server and may be unreachable from the site's network. Start the site's agent to test against the site directly.
                 </div>
             }
+            @if (!agentOnGateway)
+            {
             <div class="test-options">
                 <!-- OpenSpeedTest Option -->
                 <div class="test-option">
@@ -186,6 +194,7 @@
                     }
                 </div>
             </div>
+            }
         </div>
     </div>
 
@@ -806,6 +815,7 @@
     // of this central server (whose address is unreachable from a remote site LAN).
     private bool siteUsesAgent;
     private bool agentSiteOffline;
+    private bool agentOnGateway;
     private string targetLabel = "this server";
 
     // OpenSpeedTest health check cache
@@ -864,6 +874,7 @@
         // target below when the site has no online agent reporting a LAN IP yet.
         var siteTarget = await SiteTarget.ResolveAsync();
         agentSiteOffline = !SiteContext.IsDefault && siteTarget.AgentOffline;
+        agentOnGateway = siteTarget.AgentOnGateway;
         siteUsesAgent = siteTarget.UsesAgent;
         targetLabel = siteUsesAgent ? "the on-site agent" : "this server";
 

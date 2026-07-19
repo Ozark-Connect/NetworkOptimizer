@@ -60,16 +60,22 @@ esac
 echo "Installing Network Optimizer agent to ${INSTALL_DIR} (${RID})"
 mkdir -p "$INSTALL_DIR"
 
+# Binaries are downloaded to a temp name and renamed into place: writing over a
+# binary while it is running fails with ETXTBSY, but rename swaps the directory
+# entry and any running process keeps its old inode until the restart below.
+
 # Agent binary
 echo "Downloading agent binary..."
-curl -fSL "${RELEASE_BASE}/NetworkOptimizer.Agent-${RID}" -o "${INSTALL_DIR}/NetworkOptimizer.Agent"
-chmod +x "${INSTALL_DIR}/NetworkOptimizer.Agent"
+curl -fSL "${RELEASE_BASE}/NetworkOptimizer.Agent-${RID}" -o "${INSTALL_DIR}/NetworkOptimizer.Agent.new"
+chmod +x "${INSTALL_DIR}/NetworkOptimizer.Agent.new"
+mv -f "${INSTALL_DIR}/NetworkOptimizer.Agent.new" "${INSTALL_DIR}/NetworkOptimizer.Agent"
 
 # uwnspeedtest binary for site-local WAN speed tests; the agent resolves it next
 # to itself (AppContext.BaseDirectory/uwnspeedtest).
 echo "Downloading WAN speed test binary..."
-curl -fSL "${RELEASE_BASE}/uwnspeedtest-${RID}" -o "${INSTALL_DIR}/uwnspeedtest"
-chmod +x "${INSTALL_DIR}/uwnspeedtest"
+curl -fSL "${RELEASE_BASE}/uwnspeedtest-${RID}" -o "${INSTALL_DIR}/uwnspeedtest.new"
+chmod +x "${INSTALL_DIR}/uwnspeedtest.new"
+mv -f "${INSTALL_DIR}/uwnspeedtest.new" "${INSTALL_DIR}/uwnspeedtest"
 
 CONFIG="${INSTALL_DIR}/agent.json"
 
@@ -250,11 +256,16 @@ WantedBy=multi-user.target
 UNIT
 
 systemctl daemon-reload
-systemctl enable --now "${SERVICE_NAME}.service"
+systemctl enable "${SERVICE_NAME}.service"
+# restart (not `enable --now`) so an upgrade re-run moves an already-running
+# agent onto the new binary; it starts a stopped/fresh service just the same
+systemctl restart "${SERVICE_NAME}.service"
 
-# nginx is bound to the agent (BindsTo); start it now that the agent unit exists
-# and is running, so it isn't immediately stopped for a missing dependency.
-if [ "${START_SPEEDTEST_NGINX:-0}" = 1 ]; then
+# nginx is bound to the agent (BindsTo), so it was stopped by the agent restart
+# (or was never started - starting it before the agent exists would immediately
+# stop it again). Start it whenever its unit is enabled: fresh install with the
+# speed test, or an upgrade re-run on a box that already had it.
+if [ "${START_SPEEDTEST_NGINX:-0}" = 1 ] || systemctl is-enabled --quiet netopt-speedtest-nginx.service 2>/dev/null; then
     systemctl start netopt-speedtest-nginx.service
 fi
 

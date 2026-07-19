@@ -37,6 +37,7 @@
 @inject AgentEnrollmentService AgentEnrollment
 @inject AgentServerUrlProvider AgentServerUrl
 @inject AgentTunnelRegistry TunnelRegistry
+@inject AgentOnGatewayDetector OnGatewayDetector
 @inject NetworkOptimizer.Storage.Services.SiteDbContextFactory SiteDb
 @inject SnmpDetectionService SnmpDetection
 @inject MonitoringInfluxClient InfluxClient
@@ -3268,7 +3269,7 @@
                                                                     Where browsers reach this site's speed test pages. Blank = the
                                                                     agent's detected LAN IP over https. Enter a full URL for a reverse
                                                                     proxy or an http agent (AGENT_SPEEDTEST_TLS=0); a bare host uses
-                                                                    https on the agent port. Doesn't affect the network path trace.
+                                                                    https on the agent port.
                                                                 </small>
                                                             </div>
                                                         </div>
@@ -3674,7 +3675,18 @@
     private List<SiteAgent> AgentsFor(int siteId) =>
         _agentsBySite.TryGetValue(siteId, out var agents) ? agents : new List<SiteAgent>();
 
-    private int AgentCount(int siteId) => AgentsFor(siteId).Count;
+    // First free default name: count+1 collides after deletions (a sole
+    // "Agent 2" plus a new agent would mint a second "Agent 2").
+    private string NextAgentName(int siteId)
+    {
+        var names = AgentsFor(siteId).Select(a => a.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        for (var n = 1; ; n++)
+        {
+            var candidate = n == 1 ? "Agent" : $"Agent {n}";
+            if (!names.Contains(candidate))
+                return candidate;
+        }
+    }
 
     // At-a-glance agent state for a site's row in the Sites table. Uses the
     // shared IsAgentLive definition (tunnel-connected or heartbeat-fresh) and is
@@ -3705,6 +3717,8 @@
                 await LoadConsoleViaAgentAsync(site);
                 await LoadSshViaAgentAsync(site);
                 await LoadClientSpeedTestTargetAsync(site);
+                _agentOnGateway[site.Id] = !site.IsDefault
+                    && await OnGatewayDetector.IsAgentOnGatewayAsync(site.Slug);
             }
         }
     }
@@ -3802,9 +3816,14 @@
     // Placeholder shows what a blank override resolves to - the online agent's
     // detected LAN IP on the agent's https port (same pick as
     // SiteSpeedTestTargetResolver) - so the operator can see the auto value
-    // they'd be overriding. Generic example when no agent has reported in.
+    // they'd be overriding. A gateway-resident agent hosts no speed test, so
+    // its "auto" is nothing (the resolver gates the target off) and the
+    // placeholder says so instead of advertising the gateway's IP. Generic
+    // example when no agent has reported in.
     private string ClientSpeedTestPlaceholder(Site site)
     {
+        if (_agentOnGateway.TryGetValue(site.Id, out var onGateway) && onGateway)
+            return "none - the agent runs on the UniFi gateway; enter a separate box hosting the speed test";
         var lanIp = AgentsFor(site.Id)
             .Where(a => a.Enabled && !string.IsNullOrEmpty(a.LanIp) && TunnelRegistry.IsAgentLive(a))
             .OrderByDescending(a => a.LastSeenAt)
@@ -3814,6 +3833,10 @@
             ? $"auto: https://{lanIp}:{SiteSpeedTestTargetResolver.AgentOpenSpeedTestPort} (agent's detected LAN IP)"
             : "e.g. 192.168.1.50 or https://speed.example.com";
     }
+
+    // The site's agent runs on the UniFi gateway itself (per AgentOnGatewayDetector),
+    // loaded when the site's agent panel expands.
+    private readonly Dictionary<int, bool> _agentOnGateway = new();
 
     private async Task LoadClientSpeedTestTargetAsync(Site site)
     {
@@ -3847,7 +3870,7 @@
         _creatingAgent = true;
         try
         {
-            var (agent, token) = await AgentEnrollment.CreateAgentAsync(site.Id, $"Agent {AgentCount(site.Id) + 1}");
+            var (agent, token) = await AgentEnrollment.CreateAgentAsync(site.Id, NextAgentName(site.Id));
             _newAgentToken = token;
             _newAgentTokenSiteId = site.Id;
             await LoadAgentsAsync();

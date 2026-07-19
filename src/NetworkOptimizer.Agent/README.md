@@ -62,6 +62,28 @@ handles 2.5 GbE fine and most multi-core hardware from the last decade saturates
 10 GbE without breaking a sweat. Match the box to the LAN speed you actually
 want to test.
 
+### On a UniFi gateway (on-box)
+
+You can also run the agent directly on the UniFi gateway itself instead of a
+separate site box - any current UniFi OS gateway (UCG, UXG, UDM, UDR, EFG lines).
+There is no model gate: the installer checks free memory, not the model, so
+any gateway with the headroom works. The published
+`linux-arm64` build runs on UniFi OS (Debian, glibc 2.31, systemd); the
+`install-agent-gateway.sh` installer (below, and generated for you in the setup
+wizard) puts it under `/data` so it persists, with a systemd unit tuned for a
+shared router - workstation GC and a memory fence - so it holds a ~50 MB
+footprint that can't pressure routing or IPS. Even a 2 GB gateway has ample
+headroom.
+
+This path is **monitoring-only**: the LAN speed test stays off, because hosting
+an nginx/iperf3 speed-test server on the router would compete with the data
+plane. For LAN speed testing, run a Docker or bare-metal agent on a separate box
+(and size that box to the LAN speed, per above). Two caveats: the systemd unit
+lives on the overlay, so a UniFi OS firmware update drops it - re-run the
+installer to reinstate it (it keeps the enrolled key; the binary and config
+under `/data` persist) - and putting the agent on the gateway trades away the
+"segment the agent box" isolation described under Security and hardening.
+
 ## Install
 
 On the site's agent box, install with Docker or bare-metal (systemd) - pick one.
@@ -99,6 +121,23 @@ Both scripts accept:
 - `--lan-speed-test` - host the LAN speed test page (port 3000) and iperf3 (5201)
 - `--insecure` - accept a self-signed cert on the server's reverse proxy
 - `--dir PATH` - override the install directory
+
+### On a UniFi gateway (on-box)
+
+To run the agent on the gateway itself (any current UniFi OS gateway)
+rather than a separate box, use the gateway installer. It installs to `/data`
+(persistent on UniFi OS) with a memory-fenced systemd unit, monitoring-only (no
+speed test). UniFi gateways SSH in as root, so no `sudo`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/agent/install-agent-gateway.sh | bash -s -- \
+  --server "https://optimizer.example.com" \
+  --token  "noa_..."
+```
+
+It accepts `--insecure`, `--dir PATH`, and `--uninstall` (clean teardown). See
+"Where to run it > On a UniFi gateway" for the footprint and firmware-update
+caveats.
 
 ### Speed test listener: TLS, plain HTTP, and reverse proxies
 
@@ -323,6 +362,11 @@ status pages, and your probe/speed-test targets. This is the network-side
 complement to `proxyAllowedCidrs` below: that pins what the server can reach
 *through* the agent; this caps what the agent box can reach *on your network* if
 it is ever compromised.
+
+Running the agent *on* the gateway (see "Where to run it > On a UniFi gateway")
+trades this segmentation away by design - the agent then lives on the router
+itself rather than a box you can fence off. That is a deliberate
+convenience-vs-isolation choice, so weigh it against the hardening above.
 
 Coming soon: the Security Audit will review the agent's own firewall placement,
 and Network Optimizer will be able to deploy a recommended least-privilege

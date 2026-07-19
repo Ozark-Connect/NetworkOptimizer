@@ -276,6 +276,9 @@ builder.Services.AddScoped<NetworkOptimizer.Alerts.Interfaces.IAlertSiteScope>(s
 // Resolves a site's display name so delivered alerts name their originating site.
 builder.Services.AddSingleton<NetworkOptimizer.Alerts.Interfaces.IAlertSiteNameResolver, AlertSiteNameResolver>();
 builder.Services.AddSingleton<AgentEnrollmentService>();
+// Detects agents running on the site's UniFi gateway itself (monitoring-only
+// installs) so speed-test surfaces can gate accordingly.
+builder.Services.AddSingleton<AgentOnGatewayDetector>();
 
 // Licensing: singleton state machine, activation and phone-home loop. All
 // licensing data is instance-wide registry data in the main database.

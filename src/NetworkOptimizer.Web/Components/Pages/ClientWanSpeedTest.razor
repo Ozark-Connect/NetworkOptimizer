@@ -78,7 +78,16 @@
                             Run a speed test against your own external server. This measures your internet speed (WAN) -
                             traffic goes from your device, out through your WAN, across the internet to the remote server, and back.
                         </p>
-                        @if (AgentRequiredButOffline)
+                        @if (AgentOnGateway)
+                        {
+                            <div class="alert alert-info">
+                                <strong>Agent on gateway:</strong> This site's agent runs on the UniFi gateway itself,
+                                which doesn't host the speed-test pages that relay client WAN results back to this
+                                server. To enable client WAN tests here, deploy a Docker or bare-metal agent on a
+                                separate box at the site (Settings &gt; Multi-Site).
+                            </div>
+                        }
+                        else if (AgentRequiredButOffline)
                         {
                             <div class="alert alert-warning">
                                 <strong>This site's agent is offline.</strong> WAN speed test results for this site
@@ -668,6 +677,10 @@
     // A not-yet-resolved target (null) counts as offline for the same reason.
     private bool AgentRequiredButOffline =>
         !SiteContext.IsDefault && _siteTarget is null or { UsesAgent: false };
+
+    // The agent runs on the gateway itself (monitoring-only): no speed-test
+    // listener exists at the site, so there is no relay page to link at all.
+    private bool AgentOnGateway => _siteTarget is { AgentOnGateway: true };
 
     private string ExternalBaseUrl
     {
