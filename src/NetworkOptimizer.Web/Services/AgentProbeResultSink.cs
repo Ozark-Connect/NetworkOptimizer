@@ -412,9 +412,11 @@ public class AgentProbeResultSink
         string siteSlug, NetworkOptimizerDbContext db, MonitoringSettings? settings, CancellationToken ct)
     {
         if (settings is not { Enabled: true }) return settings;
-        if (settings.SnmpDetectionState != SnmpDetectionState.EnabledV2c
-            && settings.SnmpDetectionState != SnmpDetectionState.EnabledV3Only
-            && settings.SnmpDetectionState != SnmpDetectionState.Working)
+        // Disabled stays in the rotation: if SNMP was turned off in the remote UniFi and we
+        // adopted that, we must keep re-detecting to notice it being turned back ON (the
+        // ConfigDiffers Disabled->Enabled transition). Only NotChecked - detection never
+        // ran for this site - is excluded.
+        if (settings.SnmpDetectionState == SnmpDetectionState.NotChecked)
             return settings;
 
         if (_lastAgentSnmpRedetectAt.TryGetValue(siteSlug, out var last)

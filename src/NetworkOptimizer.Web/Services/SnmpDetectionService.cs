@@ -263,6 +263,9 @@ public class SnmpDetectionService
                 return current.SnmpDetectionState != SnmpDetectionState.Disabled;
 
             case SnmpDetectionState.EnabledV2c:
+                // Re-enabled after we adopted Disabled counts as a change even when the
+                // credentials are identical - otherwise the state parks at Disabled forever.
+                if (current.SnmpDetectionState == SnmpDetectionState.Disabled) return true;
                 if (current.SnmpVersion != SnmpVersionSetting.V2c) return true;
                 var storedCommunity = string.IsNullOrEmpty(current.SnmpCommunity)
                     ? string.Empty
@@ -270,6 +273,7 @@ public class SnmpDetectionService
                 return !string.Equals(storedCommunity, detected.Community ?? string.Empty, StringComparison.Ordinal);
 
             case SnmpDetectionState.EnabledV3Only:
+                if (current.SnmpDetectionState == SnmpDetectionState.Disabled) return true;
                 if (current.SnmpVersion != SnmpVersionSetting.V3) return true;
                 if (!string.Equals(current.SnmpV3Username, detected.V3Username, StringComparison.Ordinal)) return true;
                 var storedPassword = string.IsNullOrEmpty(current.SnmpV3AuthPassword)
