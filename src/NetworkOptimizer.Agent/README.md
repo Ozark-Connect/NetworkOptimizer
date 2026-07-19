@@ -65,7 +65,7 @@ want to test.
 ### On a UniFi gateway (on-box)
 
 You can also run the agent directly on the UniFi gateway itself instead of a
-separate site box - any current UniFi OS gateway (UCG, UXG, UDM, EFG lines).
+separate site box - any current UniFi OS gateway (UCG, UXG, UDM, UDR, EFG lines).
 There is no model gate: the installer checks free memory, not the model, so
 any gateway with the headroom works. The published
 `linux-arm64` build runs on UniFi OS (Debian, glibc 2.31, systemd); the

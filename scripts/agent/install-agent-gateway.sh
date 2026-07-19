@@ -3,7 +3,7 @@
 # Network Optimizer on-site agent - UniFi gateway (on-box) installer.
 #
 # For running the agent directly on a UniFi gateway instead of a separate site
-# box. Any current UniFi OS gateway (UCG, UXG, UDM, EFG lines) works - there is
+# box. Any current UniFi OS gateway (UCG, UXG, UDM, UDR, EFG lines) works - there is
 # no model gate; the memory pre-flight below is the only capability check. Monitoring only: the LAN speed test
 # is intentionally NOT installed here - hosting an nginx/iperf3 speed-test server
 # on the router would compete with the data plane. For LAN speed testing, run a
