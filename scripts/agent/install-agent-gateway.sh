@@ -84,6 +84,22 @@ case "$(uname -m)" in
     *) err "Unsupported architecture: $(uname -m). Build from source (see the agent README)." ;;
 esac
 
+# Memory pre-flight: the agent's real steady-state cost is ~50 MB, but the unit
+# fences it at MemoryHigh=256M, so require that much headroom before installing.
+# Skipped when the service is already running (an update/reinstate - its memory
+# is already accounted for in MemAvailable).
+MIN_AVAILABLE_MB=256
+if ! systemctl is-active --quiet "${SERVICE_NAME}.service"; then
+    AVAILABLE_MB="$(awk '/MemAvailable/ {print int($2/1024)}' /proc/meminfo)"
+    if [ -z "$AVAILABLE_MB" ]; then
+        echo "Warning: could not read MemAvailable from /proc/meminfo - skipping the memory check." >&2
+    elif [ "$AVAILABLE_MB" -lt "$MIN_AVAILABLE_MB" ]; then
+        err "only ${AVAILABLE_MB} MB of memory is available; the agent needs ${MIN_AVAILABLE_MB} MB of headroom so it can never pressure routing/IPS. Free up memory (e.g. remove unused UniFi applications) or run the agent on a separate box (see install-native.sh)."
+    else
+        echo "Memory check: ${AVAILABLE_MB} MB available (need ${MIN_AVAILABLE_MB} MB) - OK"
+    fi
+fi
+
 echo "Installing Network Optimizer agent to ${INSTALL_DIR} (${RID}, monitoring-only)"
 mkdir -p "$INSTALL_DIR"
 
