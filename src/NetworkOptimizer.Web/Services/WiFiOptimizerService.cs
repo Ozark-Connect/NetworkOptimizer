@@ -47,6 +47,10 @@ public class WiFiOptimizerService
     private SiteHealthScore? _cachedHealthScore;
     private DateTimeOffset _lastRefresh = DateTimeOffset.MinValue;
     private readonly TimeSpan _cacheExpiry = TimeSpan.FromSeconds(30);
+    // Serializes health-score refreshes. Overlapping calls (initial load racing the Overview
+    // auto-refresh) otherwise interleave on the shared _cachedHealthScore field and append
+    // each finding twice, showing duplicate Health Issues entries.
+    private readonly SemaphoreSlim _healthScoreLock = new(1, 1);
 
     public WiFiOptimizerService(
         UniFiConnectionService connectionService,
@@ -109,15 +113,25 @@ public class WiFiOptimizerService
             return _cachedHealthScore;
         }
 
+        await _healthScoreLock.WaitAsync();
         try
         {
+            // Re-check under the lock: a concurrent caller may have refreshed while we waited.
+            if (!forceRefresh && _cachedHealthScore != null && DateTimeOffset.UtcNow - _lastRefresh < _cacheExpiry)
+            {
+                return _cachedHealthScore;
+            }
+
             await RefreshDataAsync();
             if (_cachedAps == null || _cachedClients == null)
             {
                 return null;
             }
 
-            _cachedHealthScore = _healthScorer.Calculate(_cachedAps, _cachedClients, _cachedRoamingData);
+            // Build into a local score and only publish it to the shared field once fully
+            // assembled - never mutate _cachedHealthScore in place, or a caller could observe
+            // (or a racing refresh could double up) a half-populated Issues list.
+            var score = _healthScorer.Calculate(_cachedAps, _cachedClients, _cachedRoamingData);
 
             // Only consider online APs for additional issue checks
             var onlineAps = _cachedAps.Where(ap => ap.IsOnline).ToList();
@@ -127,7 +141,7 @@ public class WiFiOptimizerService
             var hasMloEnabledWlan = _cachedWlanConfigs?.Any(w => w.Enabled && w.MloEnabled) == true;
             if (hasWifi7Aps && hasMloEnabledWlan)
             {
-                _cachedHealthScore.Issues.Add(new HealthIssue
+                score.Issues.Add(new HealthIssue
                 {
                     Severity = HealthIssueSeverity.Info,
                     Dimensions = { HealthDimension.AirtimeEfficiency },
@@ -143,7 +157,7 @@ public class WiFiOptimizerService
             if (hasAps6GHz && !hasWlan6GHz)
             {
                 var aps6GHzCount = onlineAps.Count(ap => ap.Radios.Any(r => r.Band == RadioBand.Band6GHz));
-                _cachedHealthScore.Issues.Add(new HealthIssue
+                score.Issues.Add(new HealthIssue
                 {
                     Severity = HealthIssueSeverity.Info,
                     Dimensions = { HealthDimension.ChannelHealth, HealthDimension.AirtimeEfficiency },
@@ -157,15 +171,20 @@ public class WiFiOptimizerService
             if (_cachedWlanConfigs != null && _cachedNetworks != null)
             {
                 var context = await BuildOptimizerContextAsync(onlineAps, _cachedClients, _cachedWlanConfigs, _cachedNetworks);
-                _optimizerEngine.EvaluateRules(_cachedHealthScore, context);
+                _optimizerEngine.EvaluateRules(score, context);
             }
 
-            return _cachedHealthScore;
+            _cachedHealthScore = score;
+            return score;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to calculate site health score");
             return null;
+        }
+        finally
+        {
+            _healthScoreLock.Release();
         }
     }
 
@@ -1352,106 +1371,106 @@ public class WiFiOptimizerService
             // fall through with whatever stress was built plus the memory/soak sections below.
             try
             {
-            foreach (var (mac, metrics, recentMetrics, events) in allResults)
-            {
-                if (metrics.Count == 0) continue;
-                var macLower = mac.ToLowerInvariant();
-
-                // Find the current channel for each band from the AP snapshot
-                var ap = onlineAps.First(a => a.Mac.Equals(mac, StringComparison.OrdinalIgnoreCase));
-
-                foreach (var band in bands)
+                foreach (var (mac, metrics, recentMetrics, events) in allResults)
                 {
-                    var radio = ap.Radios.FirstOrDefault(r => r.Band == band && r.Channel.HasValue);
-                    if (radio == null) continue;
+                    if (metrics.Count == 0) continue;
+                    var macLower = mac.ToLowerInvariant();
 
-                    // Build channel timeline from change events (sorted chronologically)
-                    var bandEvents = events
-                        .Where(e => e.Band == band)
-                        .OrderBy(e => e.Timestamp)
-                        .ToList();
+                    // Find the current channel for each band from the AP snapshot
+                    var ap = onlineAps.First(a => a.Mac.Equals(mac, StringComparison.OrdinalIgnoreCase));
 
-                    _logger.LogDebug("[ChannelRec] {ApName} {Band}: {EventCount} channel events, current=ch{CurrentCh}, events=[{Events}]",
-                        ap.Name, band, bandEvents.Count, radio.Channel,
-                        string.Join(", ", bandEvents.Select(e => $"{e.Timestamp:MM/dd} ch{e.PreviousChannel}→ch{e.NewChannel}")));
-
-                    // 7-day hourly: average per channel
-                    var channelMetrics = new Dictionary<int, List<(double Util, double Interf, double TxRetry)>>();
-                    foreach (var metric in metrics)
+                    foreach (var band in bands)
                     {
-                        if (!metric.ByBand.TryGetValue(band, out var bandData) ||
-                            !bandData.ChannelUtilization.HasValue)
-                            continue;
+                        var radio = ap.Radios.FirstOrDefault(r => r.Band == band && r.Channel.HasValue);
+                        if (radio == null) continue;
 
-                        var channel = ChannelMemoryHelper.GetChannelAtTime(metric.Timestamp, bandEvents, radio.Channel!.Value);
-                        // An event parsed without PREVIOUS_CHANNEL yields channel 0 for samples
-                        // predating it - not a real channel, don't build stress for it.
-                        if (channel <= 0) continue;
-                        if (!channelMetrics.ContainsKey(channel))
-                            channelMetrics[channel] = new List<(double, double, double)>();
-                        channelMetrics[channel].Add((
-                            bandData.ChannelUtilization ?? 0,
-                            bandData.Interference ?? 0,
-                            bandData.TxRetryPct ?? 0));
-                    }
+                        // Build channel timeline from change events (sorted chronologically)
+                        var bandEvents = events
+                            .Where(e => e.Band == band)
+                            .OrderBy(e => e.Timestamp)
+                            .ToList();
 
-                    // 1-day 5-min: average for current channel only (higher resolution recent data)
-                    var recentCurrentChannel = new List<(double Util, double Interf, double TxRetry)>();
-                    foreach (var metric in recentMetrics)
-                    {
-                        if (!metric.ByBand.TryGetValue(band, out var bandData) ||
-                            !bandData.ChannelUtilization.HasValue)
-                            continue;
+                        _logger.LogDebug("[ChannelRec] {ApName} {Band}: {EventCount} channel events, current=ch{CurrentCh}, events=[{Events}]",
+                            ap.Name, band, bandEvents.Count, radio.Channel,
+                            string.Join(", ", bandEvents.Select(e => $"{e.Timestamp:MM/dd} ch{e.PreviousChannel}→ch{e.NewChannel}")));
 
-                        var channel = ChannelMemoryHelper.GetChannelAtTime(metric.Timestamp, bandEvents, radio.Channel!.Value);
-                        if (channel == radio.Channel!.Value)
+                        // 7-day hourly: average per channel
+                        var channelMetrics = new Dictionary<int, List<(double Util, double Interf, double TxRetry)>>();
+                        foreach (var metric in metrics)
                         {
-                            recentCurrentChannel.Add((
+                            if (!metric.ByBand.TryGetValue(band, out var bandData) ||
+                                !bandData.ChannelUtilization.HasValue)
+                                continue;
+
+                            var channel = ChannelMemoryHelper.GetChannelAtTime(metric.Timestamp, bandEvents, radio.Channel!.Value);
+                            // An event parsed without PREVIOUS_CHANNEL yields channel 0 for samples
+                            // predating it - not a real channel, don't build stress for it.
+                            if (channel <= 0) continue;
+                            if (!channelMetrics.ContainsKey(channel))
+                                channelMetrics[channel] = new List<(double, double, double)>();
+                            channelMetrics[channel].Add((
                                 bandData.ChannelUtilization ?? 0,
                                 bandData.Interference ?? 0,
                                 bandData.TxRetryPct ?? 0));
                         }
-                    }
 
-                    if (channelMetrics.Count > 0)
-                    {
-                        var perChannel = new Dictionary<int, (double, double, double)>();
-                        foreach (var (ch, dataPoints) in channelMetrics)
+                        // 1-day 5-min: average for current channel only (higher resolution recent data)
+                        var recentCurrentChannel = new List<(double Util, double Interf, double TxRetry)>();
+                        foreach (var metric in recentMetrics)
                         {
-                            var avg = (
-                                dataPoints.Average(d => d.Util),
-                                dataPoints.Average(d => d.Interf),
-                                dataPoints.Average(d => d.TxRetry));
+                            if (!metric.ByBand.TryGetValue(band, out var bandData) ||
+                                !bandData.ChannelUtilization.HasValue)
+                                continue;
 
-                            // For current channel: use max of 7-day avg and 1-day avg
-                            // so recent deterioration isn't diluted by older data
-                            if (ch == radio.Channel!.Value && recentCurrentChannel.Count > 0)
+                            var channel = ChannelMemoryHelper.GetChannelAtTime(metric.Timestamp, bandEvents, radio.Channel!.Value);
+                            if (channel == radio.Channel!.Value)
                             {
-                                var recentAvg = (
-                                    recentCurrentChannel.Average(d => d.Util),
-                                    recentCurrentChannel.Average(d => d.Interf),
-                                    recentCurrentChannel.Average(d => d.TxRetry));
-
-                                avg = (
-                                    Math.Max(avg.Item1, recentAvg.Item1),
-                                    Math.Max(avg.Item2, recentAvg.Item2),
-                                    Math.Max(avg.Item3, recentAvg.Item3));
-
-                                _logger.LogDebug("[ChannelRec] {ApName} {Band} ch{Ch}: 7d avg u={U7:F1}% i={I7:F1}% tx={T7:F1}%, " +
-                                    "1d avg u={U1:F1}% i={I1:F1}% tx={T1:F1}% ({Count} samples), using max",
-                                    ap.Name, band, ch,
-                                    dataPoints.Average(d => d.Util), dataPoints.Average(d => d.Interf), dataPoints.Average(d => d.TxRetry),
-                                    recentAvg.Item1, recentAvg.Item2, recentAvg.Item3, recentCurrentChannel.Count);
+                                recentCurrentChannel.Add((
+                                    bandData.ChannelUtilization ?? 0,
+                                    bandData.Interference ?? 0,
+                                    bandData.TxRetryPct ?? 0));
                             }
-
-                            perChannel[ch] = avg;
                         }
-                        result[band][macLower] = perChannel;
+
+                        if (channelMetrics.Count > 0)
+                        {
+                            var perChannel = new Dictionary<int, (double, double, double)>();
+                            foreach (var (ch, dataPoints) in channelMetrics)
+                            {
+                                var avg = (
+                                    dataPoints.Average(d => d.Util),
+                                    dataPoints.Average(d => d.Interf),
+                                    dataPoints.Average(d => d.TxRetry));
+
+                                // For current channel: use max of 7-day avg and 1-day avg
+                                // so recent deterioration isn't diluted by older data
+                                if (ch == radio.Channel!.Value && recentCurrentChannel.Count > 0)
+                                {
+                                    var recentAvg = (
+                                        recentCurrentChannel.Average(d => d.Util),
+                                        recentCurrentChannel.Average(d => d.Interf),
+                                        recentCurrentChannel.Average(d => d.TxRetry));
+
+                                    avg = (
+                                        Math.Max(avg.Item1, recentAvg.Item1),
+                                        Math.Max(avg.Item2, recentAvg.Item2),
+                                        Math.Max(avg.Item3, recentAvg.Item3));
+
+                                    _logger.LogDebug("[ChannelRec] {ApName} {Band} ch{Ch}: 7d avg u={U7:F1}% i={I7:F1}% tx={T7:F1}%, " +
+                                        "1d avg u={U1:F1}% i={I1:F1}% tx={T1:F1}% ({Count} samples), using max",
+                                        ap.Name, band, ch,
+                                        dataPoints.Average(d => d.Util), dataPoints.Average(d => d.Interf), dataPoints.Average(d => d.TxRetry),
+                                        recentAvg.Item1, recentAvg.Item2, recentAvg.Item3, recentCurrentChannel.Count);
+                                }
+
+                                perChannel[ch] = avg;
+                            }
+                            result[band][macLower] = perChannel;
+                        }
                     }
                 }
-            }
 
-            context.Stress = result;
+                context.Stress = result;
             }
             catch (Exception ex)
             {
