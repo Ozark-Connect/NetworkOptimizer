@@ -183,7 +183,11 @@ else
                 <div class="banner-content">
                     <span class="banner-icon banner-icon-warning">!</span>
                     <div class="banner-text" style="flex: 1;">
-                        @if (unpolledKeyDevices.Count == 1)
+                        @if (CommunityTooLong)
+                        {
+                            @("SNMP community string is too long - devices reject anything over 20 characters. Shorten it in UniFi.")
+                        }
+                        else if (unpolledKeyDevices.Count == 1)
                         {
                             var d = unpolledKeyDevices[0];
                             @($"{d.Name} {KeyDeviceReason(d)}")
@@ -194,7 +198,10 @@ else
                         }
                     </div>
                     <div class="banner-actions">
-                        <button class="btn btn-sm btn-primary" @onclick="GoToSnmpDevices">Review SNMP devices</button>
+                        @if (!CommunityTooLong)
+                        {
+                            <button class="btn btn-sm btn-primary" @onclick="GoToSnmpDevices">Review SNMP devices</button>
+                        }
                     </div>
                 </div>
             </div>
@@ -1350,11 +1357,14 @@ else
         }
         else
         {
-            @if (_snmpCommunityTooLong)
+            @if (CommunityTooLong)
             {
                 <div class="alert alert-warning" style="margin-bottom: 1.5rem;">
                     <strong>SNMP community string is too long.</strong>
-                    Your community string is @_snmpCommunityLength characters. UniFi switches and most other SNMP devices silently reject a community string longer than 20 characters, so they drop from polling while the gateway (which tolerates it) keeps reporting. Shorten it to 20 characters or fewer in UniFi Network (Settings, search "SNMP Monitoring"), let your devices reprovision, then re-check.
+                    @(_snmpCommunityLength > 0
+                        ? $"Yours is {_snmpCommunityLength} characters; UniFi devices silently reject anything over 20."
+                        : "UniFi devices silently reject anything over 20 characters.")
+                    Shorten it and re-check.
                     <div style="margin-top: 0.75rem;">
                         <button class="btn btn-sm btn-secondary" @onclick="RunDetection" disabled="@_detecting">
                             @if (_detecting) { <span class="spinner-sm"></span> <span>Re-checking...</span> }
@@ -1595,6 +1605,11 @@ else
     private string? _detectionError;
     private bool _snmpCommunityTooLong;
     private int _snmpCommunityLength;
+    // Server-side sighting from the collection agent's self-heal re-pull, refreshed on
+    // the 15s tick - catches a too-long community set while the user sits on Live View,
+    // where page-load detection has already come and gone.
+    private bool _serverCommunityTooLong;
+    private bool CommunityTooLong => _snmpCommunityTooLong || _serverCommunityTooLong;
 
     private bool? _influxReachable;
     private string? _influxError;
@@ -2337,6 +2352,7 @@ else
         try
         {
             _snmpDeviceStatuses = await CollectionAgent.GetSnmpDeviceStatusesAsync();
+            _serverCommunityTooLong = CollectionAgent.CommunityTooLongDetected;
         }
         catch (Exception ex)
         {

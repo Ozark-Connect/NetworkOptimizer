@@ -91,6 +91,15 @@ public class MonitoringCollectionAgent : BackgroundService
     private DateTime _snmpPollingStartedAt = DateTime.MinValue;
     private static readonly TimeSpan SnmpSelfHealWarmup = TimeSpan.FromSeconds(15);
 
+    /// <summary>
+    /// Set when the self-heal re-pull found the console's community string over the
+    /// device-supported max (nothing can be adopted; polling stays down until the user
+    /// shortens it). The Monitoring page reads this on its refresh tick so the Live View
+    /// banner can name the real problem instead of pointing at the SNMP device table.
+    /// Cleared whenever polling is healthy or a usable config is adopted.
+    /// </summary>
+    public bool CommunityTooLongDetected { get; private set; }
+
     // Custom OID config cache. Refreshed every medium-tier cycle.
     private Dictionary<string, List<CustomOidConfiguration>> _customOidsByDevice = new();
     private DateTime _customOidsLoadedAt = DateTime.MinValue;
@@ -565,6 +574,7 @@ public class MonitoringCollectionAgent : BackgroundService
             // Fabric is healthy again - forget the baseline so the next failure event is
             // treated as fresh and re-pulls promptly instead of waiting out the backoff.
             _lastSnmpSelfHealFailingCount = 0;
+            CommunityTooLongDetected = false;
             return;
         }
 
@@ -597,13 +607,14 @@ public class MonitoringCollectionAgent : BackgroundService
                 detected = SnmpDetectionService.ParseSnmpSettings(raw);
             }
             if (!detected.Success) return;
+            CommunityTooLongDetected = detected.CommunityTooLong;
 
             // A too-long community re-pulls to the same value the devices already reject;
             // adopting it would change nothing and we'd loop. Leave it for the user.
             if (detected.CommunityTooLong)
             {
                 _logger.LogWarning(
-                    "SNMP self-heal (site {Site}): UniFi community string is {Len} chars (> {Max}); switches reject it. Not adopting - shorten it in UniFi Network.",
+                    "SNMP self-heal (site {Site}): UniFi community string is {Len} chars (> {Max}); devices reject it. Not adopting - it must be shortened.",
                     _siteSlug, detected.Community?.Length, SnmpDetectionResult.MaxSupportedCommunityLength);
                 return;
             }
