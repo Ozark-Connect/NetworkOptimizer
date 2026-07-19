@@ -64,8 +64,10 @@ want to test.
 
 ### On a UniFi gateway (on-box)
 
-You can also run the agent directly on the UniFi gateway itself - UCG-Fiber,
-UXG-Fiber, UDM, EFG, and up - instead of a separate site box. The published
+You can also run the agent directly on the UniFi gateway itself instead of a
+separate site box - any current UniFi OS gateway (UCG, UXG, UDM, EFG lines).
+There is no model gate: the installer checks free memory, not the model, so
+any gateway with the headroom works. The published
 `linux-arm64` build runs on UniFi OS (Debian, glibc 2.31, systemd); the
 `install-agent-gateway.sh` installer (below, and generated for you in the setup
 wizard) puts it under `/data` so it persists, with a systemd unit tuned for a
@@ -122,7 +124,7 @@ Both scripts accept:
 
 ### On a UniFi gateway (on-box)
 
-To run the agent on the gateway itself (UCG-Fiber, UXG-Fiber, UDM, EFG, ...)
+To run the agent on the gateway itself (any current UniFi OS gateway)
 rather than a separate box, use the gateway installer. It installs to `/data`
 (persistent on UniFi OS) with a memory-fenced systemd unit, monitoring-only (no
 speed test). UniFi gateways SSH in as root, so no `sudo`:
