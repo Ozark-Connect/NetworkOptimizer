@@ -3675,7 +3675,18 @@
     private List<SiteAgent> AgentsFor(int siteId) =>
         _agentsBySite.TryGetValue(siteId, out var agents) ? agents : new List<SiteAgent>();
 
-    private int AgentCount(int siteId) => AgentsFor(siteId).Count;
+    // First free default name: count+1 collides after deletions (a sole
+    // "Agent 2" plus a new agent would mint a second "Agent 2").
+    private string NextAgentName(int siteId)
+    {
+        var names = AgentsFor(siteId).Select(a => a.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        for (var n = 1; ; n++)
+        {
+            var candidate = n == 1 ? "Agent" : $"Agent {n}";
+            if (!names.Contains(candidate))
+                return candidate;
+        }
+    }
 
     // At-a-glance agent state for a site's row in the Sites table. Uses the
     // shared IsAgentLive definition (tunnel-connected or heartbeat-fresh) and is
@@ -3859,7 +3870,7 @@
         _creatingAgent = true;
         try
         {
-            var (agent, token) = await AgentEnrollment.CreateAgentAsync(site.Id, $"Agent {AgentCount(site.Id) + 1}");
+            var (agent, token) = await AgentEnrollment.CreateAgentAsync(site.Id, NextAgentName(site.Id));
             _newAgentToken = token;
             _newAgentTokenSiteId = site.Id;
             await LoadAgentsAsync();
