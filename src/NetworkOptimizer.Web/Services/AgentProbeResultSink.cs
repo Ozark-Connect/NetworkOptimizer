@@ -442,7 +442,7 @@ public class AgentProbeResultSink
             if (detected.CommunityTooLong)
             {
                 _logger.LogWarning(
-                    "SNMP self-heal (agent site {Slug}): UniFi community string is {Len} chars (> {Max}); devices reject it. Not adopting - it must be shortened.",
+                    "SNMP self-heal (agent site {Slug}): UniFi Community String is {Len} chars, over the reliable {Max}-char device max. Not adopting - it must be shortened.",
                     siteSlug, detected.Community?.Length, SnmpDetectionResult.MaxSupportedCommunityLength);
                 return settings;
             }

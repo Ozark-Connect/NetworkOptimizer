@@ -176,8 +176,10 @@ else
     @* ──────────────── Tab: Live View ──────────────── *@
     @if (_activeTab == "live" && _monitoringReady)
     {
+        @* Too-long community shows even when the gateway is still polling - gateways
+           often tolerate a long Community String while the switches silently drop. *@
         var unpolledKeyDevices = GetUnpolledKeyDevices();
-        if (unpolledKeyDevices.Count > 0)
+        if (unpolledKeyDevices.Count > 0 || CommunityTooLong)
         {
             <div class="alert alert-warning" style="margin-bottom: 1rem;">
                 <div class="banner-content">
@@ -185,7 +187,7 @@ else
                     <div class="banner-text" style="flex: 1;">
                         @if (CommunityTooLong)
                         {
-                            @("SNMP Community String is too long - devices reject anything over 20 characters. Shorten it in UniFi.")
+                            @("SNMP Community String is too long - UniFi devices only reliably support 20 characters. Shorten it in UniFi.")
                         }
                         else if (unpolledKeyDevices.Count == 1)
                         {
@@ -1362,8 +1364,8 @@ else
                 <div class="alert alert-warning" style="margin-bottom: 1.5rem;">
                     <strong>SNMP Community String is too long.</strong>
                     @(_snmpCommunityLength > 0
-                        ? $"Yours is {_snmpCommunityLength} characters; UniFi devices silently reject anything over 20."
-                        : "UniFi devices silently reject anything over 20 characters.")
+                        ? $"Yours is {_snmpCommunityLength} characters; UniFi devices only reliably support 20."
+                        : "UniFi devices only reliably support 20 characters.")
                     Shorten it and re-check.
                     <div style="margin-top: 0.75rem;">
                         <button class="btn btn-sm btn-secondary" @onclick="RunDetection" disabled="@_detecting">

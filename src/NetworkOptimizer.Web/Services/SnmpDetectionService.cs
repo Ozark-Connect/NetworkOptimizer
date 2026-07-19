@@ -8,11 +8,11 @@ namespace NetworkOptimizer.Web.Services;
 public class SnmpDetectionResult
 {
     /// <summary>
-    /// Longest community string the SNMP agents on UniFi devices actually accept.
-    /// UniFi Network lets you save a longer one at the Console level, but the on-device
-    /// agents (gateways included) silently reject requests carrying a community longer
-    /// than this, so everything drops from polling. Warn the user when the detected
-    /// community exceeds this so they can shorten it.
+    /// Longest community string UniFi devices reliably accept. UniFi Network lets you
+    /// save a longer one at the Console level, but past this length device support gets
+    /// firmware-dependent: switches typically silently reject it and drop from polling,
+    /// while gateways often (not always) tolerate it and keep reporting. Warn the user
+    /// when the detected community exceeds this so they can shorten it.
     /// </summary>
     public const int MaxSupportedCommunityLength = 20;
 
@@ -27,7 +27,8 @@ public class SnmpDetectionResult
 
     /// <summary>
     /// True when SNMP v2c is enabled with a community string longer than
-    /// <see cref="MaxSupportedCommunityLength"/> - devices reject it and all polling fails.
+    /// <see cref="MaxSupportedCommunityLength"/> - switches typically drop from polling
+    /// (the gateway may keep reporting) and nothing heals until it's shortened.
     /// </summary>
     public bool CommunityTooLong =>
         SnmpEnabled && Community is { Length: > MaxSupportedCommunityLength };

@@ -614,7 +614,7 @@ public class MonitoringCollectionAgent : BackgroundService
             if (detected.CommunityTooLong)
             {
                 _logger.LogWarning(
-                    "SNMP self-heal (site {Site}): UniFi community string is {Len} chars (> {Max}); devices reject it. Not adopting - it must be shortened.",
+                    "SNMP self-heal (site {Site}): UniFi Community String is {Len} chars, over the reliable {Max}-char device max. Not adopting - it must be shortened.",
                     _siteSlug, detected.Community?.Length, SnmpDetectionResult.MaxSupportedCommunityLength);
                 return;
             }
