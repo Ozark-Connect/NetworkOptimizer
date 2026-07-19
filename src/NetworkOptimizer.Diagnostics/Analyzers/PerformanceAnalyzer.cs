@@ -231,8 +231,8 @@ public class PerformanceAnalyzer
                     else
                     {
                         description = $"You have {highSpeedAccessPorts} access ports running at 2.5 GbE or higher, " +
-                            "but Jumbo Frames are not enabled. Jumbo Frames (MTU 9000) reduce per-packet overhead " +
-                            "and can improve throughput by 10-30% for large transfers on high-speed links.";
+                            "but Jumbo Frames are not enabled. Jumbo Frames (MTU 9000) cut per-packet overhead, " +
+                            "worth roughly 5-8% more throughput for large transfers on high-speed links.";
                         severity = PerformanceSeverity.Info;
                     }
 
