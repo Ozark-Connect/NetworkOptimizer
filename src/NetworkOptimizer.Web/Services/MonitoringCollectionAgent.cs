@@ -71,12 +71,18 @@ public class MonitoringCollectionAgent : BackgroundService
     // "last polled" column and "not yet polled" state on the Setup dashboard.
     private readonly ConcurrentDictionary<string, DateTime> _snmpLastPolled = new();
 
-    // SNMP self-heal throttle. When a batch of previously-healthy devices all drop
-    // from polling (the classic symptom of a community string rotated in UniFi), we
-    // re-pull the SNMP config from the console and adopt it if it changed. Rate-limited
-    // so a genuine outage (reboot, firewall/IPS) can't hammer the console API.
+    // SNMP self-heal throttle. As soon as a couple of previously-healthy devices start
+    // failing (the symptom of a community string rotated in UniFi), we re-pull the SNMP
+    // config from the console and adopt it if it changed. The re-pull is one cheap,
+    // diff-gated console call, so we react eagerly. Two guards keep habitually-failing
+    // devices from re-pulling forever: a hard floor between any two re-pulls, and a long
+    // idle backoff once the same devices keep failing (a device problem, not a credential
+    // change). A fresh escalation - more devices failing than last time - bypasses the
+    // backoff so a genuine fabric-wide flip is still caught within a couple of cycles.
     private DateTime _lastSnmpSelfHealAt = DateTime.MinValue;
-    private static readonly TimeSpan SnmpSelfHealCooldown = TimeSpan.FromMinutes(5);
+    private int _lastSnmpSelfHealFailingCount;
+    private static readonly TimeSpan SnmpSelfHealMinInterval = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan SnmpSelfHealIdleBackoff = TimeSpan.FromMinutes(15);
 
     // Custom OID config cache. Refreshed every medium-tier cycle.
     private Dictionary<string, List<CustomOidConfiguration>> _customOidsByDevice = new();
@@ -495,25 +501,42 @@ public class MonitoringCollectionAgent : BackgroundService
             && settings.SnmpDetectionState != SnmpDetectionState.Working)
             return;
 
-        if (DateTime.UtcNow - _lastSnmpSelfHealAt < SnmpSelfHealCooldown) return;
+        // Trigger: a couple of devices that were polling fine have started failing
+        // (>= 2 consecutive misses each, so a single dropped packet doesn't count). We
+        // don't wait for a fabric-wide dropout or the 5-failure exclusion - the re-pull
+        // is cheap and diff-gated, so reacting after a couple of failures is the whole
+        // point. A device that never spoke SNMP (Flex Mini) isn't in the healthy set,
+        // so it can't trigger this. A genuine outage leaves the config unchanged and
+        // the re-pull simply no-ops.
+        if (_snmpFailures.HealthyCount == 0) return;
+        var failing = _snmpFailures.FailingHealthyCount(minConsecutiveFailures: 2);
+        if (failing < 2)
+        {
+            // Fabric is healthy again - forget the baseline so the next failure event is
+            // treated as fresh and re-pulls promptly instead of waiting out the backoff.
+            _lastSnmpSelfHealFailingCount = 0;
+            return;
+        }
 
-        // Trigger: at least half of the devices that were known to work (floor of 2)
-        // are now dropped. A single dead device, or one that never spoke SNMP, doesn't
-        // qualify - that's not a credential change.
-        var healthy = _snmpFailures.HealthyCount;
-        if (healthy < 2) return;
-        var dropped = _snmpFailures.ExcludedHealthyCount();
-        var threshold = Math.Max(2, (int)Math.Ceiling(healthy * 0.5));
-        if (dropped < threshold) return;
+        var sinceLast = DateTime.UtcNow - _lastSnmpSelfHealAt;
+        if (sinceLast < SnmpSelfHealMinInterval) return;
 
-        _lastSnmpSelfHealAt = DateTime.UtcNow;
+        // Past the floor: only re-pull again if MORE devices are failing than at our last
+        // check. If it's the same devices still down, we already confirmed the config
+        // didn't change (a device problem, not a credential rotation), so wait out the
+        // idle backoff rather than re-pulling for habitually-failing devices every cycle.
+        bool escalated = failing > _lastSnmpSelfHealFailingCount;
+        if (!escalated && sinceLast < SnmpSelfHealIdleBackoff) return;
 
         if (_connectionService.Client == null || !_connectionService.IsConnected)
-            return; // can't reach the console to re-pull; retry after the cooldown
+            return; // can't reach the console; retry once reconnected (interval not consumed)
+
+        _lastSnmpSelfHealAt = DateTime.UtcNow;
+        _lastSnmpSelfHealFailingCount = failing;
 
         _logger.LogWarning(
-            "SNMP self-heal (site {Site}): {Dropped}/{Healthy} previously-healthy devices dropped from polling. Re-pulling SNMP config from UniFi to check for a credential change.",
-            _siteSlug, dropped, healthy);
+            "SNMP self-heal (site {Site}): {Failing} previously-healthy device(s) failing SNMP polls. Re-pulling config from UniFi to check for a credential change.",
+            _siteSlug, failing);
 
         try
         {

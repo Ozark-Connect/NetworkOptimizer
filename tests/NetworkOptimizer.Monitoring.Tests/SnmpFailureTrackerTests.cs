@@ -36,9 +36,9 @@ public class SnmpFailureTrackerTests
     }
 
     [Fact]
-    public void ExcludedHealthyCount_CountsOnlyPreviouslyHealthyDevices()
+    public void FailingHealthyCount_CountsOnlyPreviouslyHealthyDevices()
     {
-        var tracker = new SnmpFailureTracker(failureThreshold: 2);
+        var tracker = new SnmpFailureTracker(failureThreshold: 5);
 
         // A and B polled successfully before; C never did (e.g. a device that
         // does not speak SNMP), so its later failures must not count.
@@ -51,7 +51,12 @@ public class SnmpFailureTrackerTests
             tracker.NoteFailure(device);
         }
 
-        tracker.ExcludedHealthyCount().Should().Be(2, "only A and B were healthy before failing");
+        // Two consecutive failures each - below the exclusion threshold, but the
+        // eager self-heal signal counts them the moment they cross minConsecutiveFailures.
+        tracker.FailingHealthyCount(minConsecutiveFailures: 2)
+            .Should().Be(2, "only A and B were healthy before failing");
+        tracker.FailingHealthyCount(minConsecutiveFailures: 3)
+            .Should().Be(0, "neither has 3 consecutive failures yet");
     }
 
     [Fact]
@@ -70,6 +75,6 @@ public class SnmpFailureTrackerTests
         tracker.IsExcluded(DeviceA, out _).Should().BeFalse("exclusions cleared");
         tracker.GetFailureCount(DeviceA).Should().Be(0, "failure counters cleared");
         tracker.HealthyCount.Should().Be(2, "seen-healthy baseline is retained");
-        tracker.ExcludedHealthyCount().Should().Be(0);
+        tracker.FailingHealthyCount().Should().Be(0);
     }
 }

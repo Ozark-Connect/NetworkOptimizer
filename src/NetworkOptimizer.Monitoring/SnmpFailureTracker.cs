@@ -77,16 +77,21 @@ public sealed class SnmpFailureTracker
     public int HealthyCount => _healthy.Count;
 
     /// <summary>
-    /// Number of previously-healthy devices currently excluded from polling (dropped
-    /// after crossing the failure threshold). A high count signals a fabric-wide SNMP
-    /// failure - e.g. the community string was rotated in UniFi - as opposed to a single
-    /// dead device, letting the caller re-pull the config and self-heal.
+    /// Number of previously-healthy devices currently failing - either already excluded,
+    /// or with at least <paramref name="minConsecutiveFailures"/> consecutive failures
+    /// pending. A high count signals a fabric-wide SNMP failure (e.g. the community
+    /// string was rotated in UniFi) as opposed to a single dead device, letting the
+    /// caller re-pull the config and self-heal. Keying on the raw failure count rather
+    /// than full exclusion reacts within a couple of poll cycles instead of waiting out
+    /// the 5-failure exclusion threshold - which a device that intermittently answers
+    /// (mid-reprovision) may never reach.
     /// </summary>
-    public int ExcludedHealthyCount()
+    public int FailingHealthyCount(int minConsecutiveFailures = 2)
     {
         int count = 0;
         foreach (var key in _healthy.Keys)
-            if (PeekExcluded(key, out _)) count++;
+            if (PeekExcluded(key, out _) || GetFailureCount(key) >= minConsecutiveFailures)
+                count++;
         return count;
     }
 
