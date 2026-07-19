@@ -21,6 +21,11 @@ public sealed class SnmpFailureTracker
 
     private readonly ConcurrentDictionary<string, int> _failures = new();
     private readonly ConcurrentDictionary<string, DateTime> _excluded = new();
+    // Devices that have polled successfully at least once this lifecycle. Retained
+    // across Reset() so the fabric-wide-failure heuristic keeps a baseline of "which
+    // devices were known to work" - a device that never spoke SNMP (e.g. a Flex Mini)
+    // must not count toward a credential-rotation signal.
+    private readonly ConcurrentDictionary<string, byte> _healthy = new();
     private readonly int _threshold;
     private readonly TimeSpan _duration;
 
@@ -48,11 +53,41 @@ public sealed class SnmpFailureTracker
         return _excluded.TryAdd(key, DateTime.UtcNow);
     }
 
-    /// <summary>Records a successful poll, resetting the failure counter.</summary>
+    /// <summary>Records a successful poll, resetting the failure counter and marking the device healthy.</summary>
     public void NoteSuccess(string key)
     {
         if (string.IsNullOrEmpty(key)) return;
         _failures.TryRemove(key, out _);
+        _healthy[key] = 1;
+    }
+
+    /// <summary>
+    /// Clears all failure counters and exclusions - used after the SNMP credentials
+    /// change (self-heal), so devices dropped under the old, stale community are retried
+    /// immediately with the new one instead of waiting out their exclusion window. The
+    /// seen-healthy baseline is intentionally retained.
+    /// </summary>
+    public void Reset()
+    {
+        _failures.Clear();
+        _excluded.Clear();
+    }
+
+    /// <summary>Number of devices that have polled successfully at least once this lifecycle.</summary>
+    public int HealthyCount => _healthy.Count;
+
+    /// <summary>
+    /// Number of previously-healthy devices currently excluded from polling (dropped
+    /// after crossing the failure threshold). A high count signals a fabric-wide SNMP
+    /// failure - e.g. the community string was rotated in UniFi - as opposed to a single
+    /// dead device, letting the caller re-pull the config and self-heal.
+    /// </summary>
+    public int ExcludedHealthyCount()
+    {
+        int count = 0;
+        foreach (var key in _healthy.Keys)
+            if (PeekExcluded(key, out _)) count++;
+        return count;
     }
 
     /// <summary>

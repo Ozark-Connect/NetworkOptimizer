@@ -71,6 +71,13 @@ public class MonitoringCollectionAgent : BackgroundService
     // "last polled" column and "not yet polled" state on the Setup dashboard.
     private readonly ConcurrentDictionary<string, DateTime> _snmpLastPolled = new();
 
+    // SNMP self-heal throttle. When a batch of previously-healthy devices all drop
+    // from polling (the classic symptom of a community string rotated in UniFi), we
+    // re-pull the SNMP config from the console and adopt it if it changed. Rate-limited
+    // so a genuine outage (reboot, firewall/IPS) can't hammer the console API.
+    private DateTime _lastSnmpSelfHealAt = DateTime.MinValue;
+    private static readonly TimeSpan SnmpSelfHealCooldown = TimeSpan.FromMinutes(5);
+
     // Custom OID config cache. Refreshed every medium-tier cycle.
     private Dictionary<string, List<CustomOidConfiguration>> _customOidsByDevice = new();
     private DateTime _customOidsLoadedAt = DateTime.MinValue;
@@ -463,6 +470,133 @@ public class MonitoringCollectionAgent : BackgroundService
         // fallbacks. Shared verbatim with the agent-relayed path (AgentProbeResultSink)
         // via LanFabricAggregator so secondary sites compute identical numbers.
         _fabric.WriteAggregates(devices, _liveStats, DateTime.UtcNow);
+
+        // If a batch of previously-healthy devices just dropped from polling, the SNMP
+        // credentials may have been rotated in UniFi. Re-pull and adopt if they changed.
+        await MaybeSelfHealSnmpAsync(settings, ct);
+    }
+
+    /// <summary>
+    /// Self-heals stale SNMP credentials. SNMPv2c gives no distinct "wrong community"
+    /// error - a rotated community is indistinguishable from a timeout - so the trigger
+    /// is behavioural: a batch of devices that were polling fine have all dropped at
+    /// once. When that happens we re-pull the SNMP config from the console API (which
+    /// still answers even when SNMP to the devices is dead, different transport) and
+    /// adopt it only if it actually differs from what we're using. A real outage leaves
+    /// UniFi's config untouched, so same config = no-op. Covers a rotated v2c community,
+    /// changed v3 credentials, and SNMP being disabled entirely. A community longer than
+    /// the device-supported max is left alone - re-pulling returns the same broken value,
+    /// and the Setup tab already surfaces the length warning.
+    /// </summary>
+    private async Task MaybeSelfHealSnmpAsync(MonitoringSettings settings, CancellationToken ct)
+    {
+        if (settings.SnmpDetectionState != SnmpDetectionState.EnabledV2c
+            && settings.SnmpDetectionState != SnmpDetectionState.EnabledV3Only
+            && settings.SnmpDetectionState != SnmpDetectionState.Working)
+            return;
+
+        if (DateTime.UtcNow - _lastSnmpSelfHealAt < SnmpSelfHealCooldown) return;
+
+        // Trigger: at least half of the devices that were known to work (floor of 2)
+        // are now dropped. A single dead device, or one that never spoke SNMP, doesn't
+        // qualify - that's not a credential change.
+        var healthy = _snmpFailures.HealthyCount;
+        if (healthy < 2) return;
+        var dropped = _snmpFailures.ExcludedHealthyCount();
+        var threshold = Math.Max(2, (int)Math.Ceiling(healthy * 0.5));
+        if (dropped < threshold) return;
+
+        _lastSnmpSelfHealAt = DateTime.UtcNow;
+
+        if (_connectionService.Client == null || !_connectionService.IsConnected)
+            return; // can't reach the console to re-pull; retry after the cooldown
+
+        _logger.LogWarning(
+            "SNMP self-heal (site {Site}): {Dropped}/{Healthy} previously-healthy devices dropped from polling. Re-pulling SNMP config from UniFi to check for a credential change.",
+            _siteSlug, dropped, healthy);
+
+        try
+        {
+            SnmpDetectionResult detected;
+            using (var raw = await _connectionService.Client.GetSettingsRawAsync(ct))
+            {
+                if (raw == null) return;
+                detected = SnmpDetectionService.ParseSnmpSettings(raw);
+            }
+            if (!detected.Success) return;
+
+            // A too-long community re-pulls to the same value the devices already reject;
+            // adopting it would change nothing and we'd loop. Leave it for the user.
+            if (detected.CommunityTooLong)
+            {
+                _logger.LogWarning(
+                    "SNMP self-heal (site {Site}): UniFi community string is {Len} chars (> {Max}); switches reject it. Not adopting - shorten it in UniFi Network.",
+                    _siteSlug, detected.Community?.Length, SnmpDetectionResult.MaxSupportedCommunityLength);
+                return;
+            }
+
+            if (!SnmpConfigDiffers(settings, detected))
+            {
+                _logger.LogInformation(
+                    "SNMP self-heal (site {Site}): UniFi SNMP config is unchanged, so the failures are not a credential change (device outage, firewall, or IPS). Leaving polling as-is.",
+                    _siteSlug);
+                return;
+            }
+
+            await using var db = await CreateSiteDbAsync(ct);
+            var row = await db.MonitoringSettings.FirstOrDefaultAsync(ct);
+            if (row == null) return;
+            var before = row.SnmpDetectionState;
+            SnmpDetectionService.ApplyToSettings(row, detected, _credentialProtection);
+            row.LastSnmpDetection = DateTime.UtcNow;
+            row.UpdatedAt = DateTime.UtcNow;
+            await db.SaveChangesAsync(ct);
+
+            // Clear failure/exclusion state so the dropped devices are retried at once
+            // with the new credentials. The poller rebuilds itself next cycle because
+            // ComputePollerConfigHash keys on the credential fields we just changed.
+            _snmpFailures.Reset();
+
+            _logger.LogWarning(
+                "SNMP self-heal (site {Site}): adopted updated SNMP config from UniFi ({Before} -> {After}). Reset failure tracking; polling resumes with the new credentials.",
+                _siteSlug, before, row.SnmpDetectionState);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "SNMP self-heal (site {Site}): re-pull failed", _siteSlug);
+        }
+    }
+
+    /// <summary>
+    /// Whether the SNMP config just pulled from UniFi differs from what this agent is
+    /// currently polling with (version, community, or v3 credentials), including SNMP
+    /// having been turned off entirely. Decrypts the stored secrets to compare.
+    /// </summary>
+    private bool SnmpConfigDiffers(MonitoringSettings current, SnmpDetectionResult detected)
+    {
+        switch (detected.DetectionState)
+        {
+            case SnmpDetectionState.Disabled:
+                return current.SnmpDetectionState != SnmpDetectionState.Disabled;
+
+            case SnmpDetectionState.EnabledV2c:
+                if (current.SnmpVersion != SnmpVersionSetting.V2c) return true;
+                var storedCommunity = string.IsNullOrEmpty(current.SnmpCommunity)
+                    ? string.Empty
+                    : _credentialProtection.Decrypt(current.SnmpCommunity);
+                return !string.Equals(storedCommunity, detected.Community ?? string.Empty, StringComparison.Ordinal);
+
+            case SnmpDetectionState.EnabledV3Only:
+                if (current.SnmpVersion != SnmpVersionSetting.V3) return true;
+                if (!string.Equals(current.SnmpV3Username, detected.V3Username, StringComparison.Ordinal)) return true;
+                var storedPassword = string.IsNullOrEmpty(current.SnmpV3AuthPassword)
+                    ? string.Empty
+                    : _credentialProtection.Decrypt(current.SnmpV3AuthPassword);
+                return !string.Equals(storedPassword, detected.V3Password ?? string.Empty, StringComparison.Ordinal);
+
+            default:
+                return false;
+        }
     }
 
     // Owns the per-port / per-device byte-rate caches and the topology-boundary
