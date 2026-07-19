@@ -283,6 +283,52 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
 
         if (serverClient == null)
         {
+            // Not a client - the iperf3 endpoint may be the gateway itself (an
+            // agent-on-gateway install), and the gateway never appears in the
+            // client list. Match the searched IPs against the gateway device's
+            // reported IP (UniFi puts its WAN address there) and each LAN
+            // network's gateway address (ip_subnet is "<gateway-ip>/<prefix>"),
+            // and anchor the position at the gateway device when they line up:
+            // SwitchMac stays null because the gateway is the topology root, so
+            // BuildHopList walks target -> switches -> gateway and stops there.
+            var gatewayDevice = topology.Devices.FirstOrDefault(d => d.Type == DeviceType.Gateway);
+            if (gatewayDevice != null)
+            {
+                var lanGatewayIps = topology.Networks
+                    .Where(n => !n.IsWan && !string.IsNullOrEmpty(n.IpSubnet))
+                    .Select(n => n.IpSubnet!.Split('/')[0])
+                    .ToList();
+                var matchedLanIp = localIps.FirstOrDefault(ip => lanGatewayIps.Contains(ip, StringComparer.OrdinalIgnoreCase));
+                var matchesGateway = matchedLanIp != null
+                    || localIps.Any(ip => ip.Equals(gatewayDevice.IpAddress, StringComparison.OrdinalIgnoreCase));
+                if (matchesGateway)
+                {
+                    // Prefer a LAN-side address for display - the WAN IP is
+                    // meaningless as a LAN path source.
+                    var displayIp = matchedLanIp ?? lanGatewayIps.FirstOrDefault() ?? gatewayDevice.IpAddress;
+                    var gatewayNetwork = FindNetworkByIp(topology.Networks, displayIp);
+                    var gatewayPosition = new ServerPosition
+                    {
+                        IpAddress = displayIp,
+                        Mac = gatewayDevice.Mac,
+                        Name = gatewayDevice.Name,
+                        SwitchMac = null,
+                        NetworkId = gatewayNetwork?.Id,
+                        NetworkName = gatewayNetwork?.Name,
+                        VlanId = gatewayNetwork?.VlanId,
+                        IsWired = true,
+                        DiscoveredAt = DateTime.UtcNow
+                    };
+                    _logger.LogInformation("Server position: the gateway itself ({Name}, {Ip}) - gateway-resident server",
+                        gatewayDevice.Name, displayIp);
+                    if (string.IsNullOrEmpty(sourceIp))
+                    {
+                        _cache.Set(ServerPositionCacheKey, gatewayPosition, ServerPositionCacheDuration);
+                    }
+                    return gatewayPosition;
+                }
+            }
+
             _logger.LogWarning("Server not found in UniFi client list. Local IPs: {Ips}", string.Join(", ", localIps));
             return null;
         }
