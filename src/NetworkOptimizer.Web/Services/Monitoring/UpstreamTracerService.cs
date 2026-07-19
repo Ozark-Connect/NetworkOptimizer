@@ -1632,6 +1632,16 @@ public class UpstreamTracerService
             });
             _logger.LogInformation("Attached transit witness {Address} (AS{Asn} {Name}) - near-transit anchor",
                 address, asn, name);
+
+            // Trace the witness so PersistHopOrderAsync records the real transit hops that precede
+            // it as its ancestry. Without this the anycast endpoint is ping-only, lands in
+            // UpstreamDiscoveries with no ancestors, and fails FarClusterRoutesThroughNear - so ISP
+            // Health can never use the witness's clean end-to-end jitter to absolve a jittery near
+            // hop it routes through. The proof is honest: ancestry comes from 4.2.2.2's actual path,
+            // so an absolve only happens when that path genuinely traverses the monitored hop; if
+            // the anycast lands on a different Level 3 POP there is no overlap and no absolve.
+            var (_, witnessTrace) = await TraceOneAsync(new TraceEndpoint(name, address), ProbeMode.Icmp, ct);
+            _lastTraces.Add(witnessTrace);
         }
     }
 
