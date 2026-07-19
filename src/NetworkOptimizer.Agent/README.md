@@ -78,11 +78,15 @@ headroom.
 This path is **monitoring-only**: the LAN speed test stays off, because hosting
 an nginx/iperf3 speed-test server on the router would compete with the data
 plane. For LAN speed testing, run a Docker or bare-metal agent on a separate box
-(and size that box to the LAN speed, per above). Two caveats: the systemd unit
-lives on the overlay, so a UniFi OS firmware update drops it - re-run the
-installer to reinstate it (it keeps the enrolled key; the binary and config
-under `/data` persist) - and putting the agent on the gateway trades away the
-"segment the agent box" isolation described under Security and hardening.
+(and size that box to the LAN speed, per above).
+
+It survives UniFi OS firmware upgrades with nothing to re-run: on UniFi OS the
+root filesystem is an overlay whose writable upper layer is the persistent
+`/data` partition, so the binary, config, and the systemd unit under
+`/etc/systemd/system` all live on persistent storage and carry across a firmware
+upgrade untouched (the same reason udm-boot survives). The one trade-off to weigh
+is isolation: putting the agent on the gateway gives up the "segment the agent
+box" hardening described under Security and hardening.
 
 ## Install
 
@@ -136,8 +140,8 @@ curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main
 ```
 
 It accepts `--insecure`, `--dir PATH`, and `--uninstall` (clean teardown). See
-"Where to run it > On a UniFi gateway" for the footprint and firmware-update
-caveats.
+"Where to run it > On a UniFi gateway" for the footprint, firmware-upgrade
+persistence, and the isolation trade-off.
 
 ### Speed test listener: TLS, plain HTTP, and reverse proxies
 

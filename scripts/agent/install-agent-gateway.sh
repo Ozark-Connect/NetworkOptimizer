@@ -31,10 +31,12 @@
 # Re-running the installer upgrades the agent in place: it downloads the latest
 # release, keeps the enrolled key, and restarts the service on the new binary.
 #
-# NOTE: the systemd unit lives on the overlay root, so it does not survive a
-# UniFi OS firmware update. The binary and config under /data do persist. After a
-# firmware update, re-run this installer (it keeps the enrolled key) to reinstate
-# the service.
+# Survives firmware upgrades with no action needed: on UniFi OS the root
+# filesystem is an overlay whose writable upper layer IS the persistent /data
+# partition, so a unit written to /etc/systemd/system physically lands on
+# persistent storage (this is exactly how udm-boot itself survives). The binary,
+# config, and systemd unit all carry across a firmware upgrade untouched. (A
+# factory reset wipes /data and needs a fresh install, like anything else.)
 
 set -euo pipefail
 
@@ -90,7 +92,7 @@ esac
 
 # Memory pre-flight: the agent's real steady-state cost is ~50 MB, but the unit
 # fences it at MemoryHigh=256M, so require that much headroom before installing.
-# Skipped when the service is already running (an update/reinstate - its memory
+# Skipped when the service is already running (an update re-run - its memory
 # is already accounted for in MemAvailable).
 MIN_AVAILABLE_MB=256
 if ! systemctl is-active --quiet "${SERVICE_NAME}.service"; then
@@ -117,8 +119,8 @@ mv -f "${INSTALL_DIR}/NetworkOptimizer.Agent.new" "${INSTALL_DIR}/NetworkOptimiz
 
 CONFIG="${INSTALL_DIR}/agent.json"
 
-# Preserve an already-enrolled config so re-running (to update the binary, or to
-# reinstate the service after a firmware update) never wipes the persisted key.
+# Preserve an already-enrolled config so re-running to update the binary never
+# wipes the persisted key.
 if grep -q '"agentKey"' "$CONFIG" 2>/dev/null; then
     echo "Existing enrolled agent config found - keeping it."
 else
