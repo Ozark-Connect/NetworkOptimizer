@@ -21,11 +21,6 @@ public sealed class SnmpFailureTracker
 
     private readonly ConcurrentDictionary<string, int> _failures = new();
     private readonly ConcurrentDictionary<string, DateTime> _excluded = new();
-    // Devices that have polled successfully at least once this lifecycle. Retained
-    // across Reset() so the fabric-wide-failure heuristic keeps a baseline of "which
-    // devices were known to work" - a device that never spoke SNMP (e.g. a Flex Mini)
-    // must not count toward a credential-rotation signal.
-    private readonly ConcurrentDictionary<string, byte> _healthy = new();
     private readonly int _threshold;
     private readonly TimeSpan _duration;
 
@@ -53,19 +48,17 @@ public sealed class SnmpFailureTracker
         return _excluded.TryAdd(key, DateTime.UtcNow);
     }
 
-    /// <summary>Records a successful poll, resetting the failure counter and marking the device healthy.</summary>
+    /// <summary>Records a successful poll, resetting the failure counter.</summary>
     public void NoteSuccess(string key)
     {
         if (string.IsNullOrEmpty(key)) return;
         _failures.TryRemove(key, out _);
-        _healthy[key] = 1;
     }
 
     /// <summary>
     /// Clears all failure counters and exclusions - used after the SNMP credentials
     /// change (self-heal), so devices dropped under the old, stale community are retried
-    /// immediately with the new one instead of waiting out their exclusion window. The
-    /// seen-healthy baseline is intentionally retained.
+    /// immediately with the new one instead of waiting out their exclusion window.
     /// </summary>
     public void Reset()
     {
@@ -73,27 +66,15 @@ public sealed class SnmpFailureTracker
         _excluded.Clear();
     }
 
-    /// <summary>Number of devices that have polled successfully at least once this lifecycle.</summary>
-    public int HealthyCount => _healthy.Count;
-
     /// <summary>
-    /// Number of previously-healthy devices currently failing - either already excluded,
-    /// or with at least <paramref name="minConsecutiveFailures"/> consecutive failures
-    /// pending. A high count signals a fabric-wide SNMP failure (e.g. the community
-    /// string was rotated in UniFi) as opposed to a single dead device, letting the
-    /// caller re-pull the config and self-heal. Keying on the raw failure count rather
-    /// than full exclusion reacts within a couple of poll cycles instead of waiting out
-    /// the 5-failure exclusion threshold - which a device that intermittently answers
-    /// (mid-reprovision) may never reach.
+    /// Whether the given key is currently failing: already excluded, or with at least
+    /// <paramref name="minConsecutiveFailures"/> consecutive failures pending. The caller
+    /// counts these across the current SNMP-enabled device list to detect a fabric-wide
+    /// failure (community rotated / SNMP disabled) without needing any prior-success
+    /// baseline - so it fires even on a cold start where the community was already wrong.
     /// </summary>
-    public int FailingHealthyCount(int minConsecutiveFailures = 2)
-    {
-        int count = 0;
-        foreach (var key in _healthy.Keys)
-            if (PeekExcluded(key, out _) || GetFailureCount(key) >= minConsecutiveFailures)
-                count++;
-        return count;
-    }
+    public bool IsFailing(string key, int minConsecutiveFailures = 2) =>
+        PeekExcluded(key, out _) || GetFailureCount(key) >= minConsecutiveFailures;
 
     /// <summary>
     /// Whether the key is currently excluded. An expired exclusion is removed

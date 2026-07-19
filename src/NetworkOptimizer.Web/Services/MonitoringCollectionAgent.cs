@@ -83,6 +83,11 @@ public class MonitoringCollectionAgent : BackgroundService
     private int _lastSnmpSelfHealFailingCount;
     private static readonly TimeSpan SnmpSelfHealMinInterval = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan SnmpSelfHealIdleBackoff = TimeSpan.FromMinutes(15);
+    // When the fast tier first actually polls (console up, poller built). Self-heal
+    // stays quiet for a warm-up window after this so first-cycle jitter can't fire a
+    // needless re-pull before devices have had a fair chance to answer.
+    private DateTime _snmpPollingStartedAt = DateTime.MinValue;
+    private static readonly TimeSpan SnmpSelfHealWarmup = TimeSpan.FromSeconds(45);
 
     // Custom OID config cache. Refreshed every medium-tier cycle.
     private Dictionary<string, List<CustomOidConfiguration>> _customOidsByDevice = new();
@@ -352,6 +357,9 @@ public class MonitoringCollectionAgent : BackgroundService
         var poller = GetOrBuildPoller(settings);
         if (poller == null) return;
 
+        // Mark the first real poll cycle so the self-heal warm-up grace can start.
+        if (_snmpPollingStartedAt == default) _snmpPollingStartedAt = DateTime.UtcNow;
+
         // Configure InfluxDB client (no-op if already configured)
         if (!_influx.IsConfigured)
             await _influx.ReconfigureAsync(ct);
@@ -477,46 +485,60 @@ public class MonitoringCollectionAgent : BackgroundService
         // via LanFabricAggregator so secondary sites compute identical numbers.
         _fabric.WriteAggregates(devices, _liveStats, DateTime.UtcNow);
 
-        // If a batch of previously-healthy devices just dropped from polling, the SNMP
-        // credentials may have been rotated in UniFi. Re-pull and adopt if they changed.
-        await MaybeSelfHealSnmpAsync(settings, ct);
+        // If a majority of SNMP-enabled devices are failing, the SNMP credentials may
+        // have been rotated in UniFi. Re-pull and adopt if they changed.
+        await MaybeSelfHealSnmpAsync(devices, settings, ct);
     }
 
     /// <summary>
     /// Self-heals stale SNMP credentials. SNMPv2c gives no distinct "wrong community"
     /// error - a rotated community is indistinguishable from a timeout - so the trigger
-    /// is behavioural: a batch of devices that were polling fine have all dropped at
-    /// once. When that happens we re-pull the SNMP config from the console API (which
-    /// still answers even when SNMP to the devices is dead, different transport) and
-    /// adopt it only if it actually differs from what we're using. A real outage leaves
-    /// UniFi's config untouched, so same config = no-op. Covers a rotated v2c community,
-    /// changed v3 credentials, and SNMP being disabled entirely. A community longer than
-    /// the device-supported max is left alone - re-pulling returns the same broken value,
+    /// is behavioural: a majority of the SNMP-enabled devices are failing. When that
+    /// happens we re-pull the SNMP config from the console API (which still answers even
+    /// when SNMP to the devices is dead, different transport) and adopt it only if it
+    /// actually differs from what we're using. A real outage leaves UniFi's config
+    /// untouched, so same config = no-op. Covers a rotated v2c community, changed v3
+    /// credentials, and SNMP being disabled entirely. A community longer than the
+    /// device-supported max is left alone - re-pulling returns the same broken value,
     /// and the Setup tab already surfaces the length warning.
     /// </summary>
-    private async Task MaybeSelfHealSnmpAsync(MonitoringSettings settings, CancellationToken ct)
+    private async Task MaybeSelfHealSnmpAsync(
+        IReadOnlyList<UniFiDeviceResponse> devices, MonitoringSettings settings, CancellationToken ct)
     {
         if (settings.SnmpDetectionState != SnmpDetectionState.EnabledV2c
             && settings.SnmpDetectionState != SnmpDetectionState.EnabledV3Only
             && settings.SnmpDetectionState != SnmpDetectionState.Working)
             return;
 
-        // Trigger: the devices that were polling fine have started failing (>= 2
-        // consecutive misses each, so a single dropped packet doesn't count). We don't
-        // wait for a fabric-wide dropout or the 5-failure exclusion - the re-pull is
-        // cheap and diff-gated, so reacting after a couple of failures is the whole
-        // point. A device that never spoke SNMP (Flex Mini) isn't in the healthy set,
-        // so it can't trigger this. A genuine outage leaves the config unchanged and
-        // the re-pull simply no-ops.
-        //
-        // The floor is 2 devices on a normal fabric (one flaky device shouldn't re-pull),
-        // but scales down to 1 for a single-device network - a lone all-in-one (a UDR7 with
-        // no separate switches or APs) must still self-heal off its own failure.
-        var healthy = _snmpFailures.HealthyCount;
-        if (healthy == 0) return;
-        var failing = _snmpFailures.FailingHealthyCount(minConsecutiveFailures: 2);
-        var trigger = Math.Min(2, healthy);
-        if (failing < trigger)
+        // Denominator: the devices UniFi reports as SNMP-enabled (location/contact set).
+        // Basing the trigger on the current device list - NOT a "previously-healthy" set -
+        // is what makes it fire even on a cold start where the community was already wrong
+        // before this process began (nothing ever polled successfully, so a healthy
+        // baseline is permanently empty). This was the bug: a restart during an outage
+        // could never self-heal.
+        var snmpMacs = devices
+            .Where(d => Monitoring.SnmpDeviceRules.HasSnmpEnabled(d))
+            .Select(d => NormalizeMac(d.Mac))
+            .Where(m => m.Length > 0)
+            .ToList();
+        if (snmpMacs.Count == 0) return;
+
+        // Warm-up grace: ignore the first poll cycles after startup, where transient
+        // failures (network/console still settling) shouldn't fire a re-pull. A correct
+        // community answers immediately, so this only delays a genuinely-wrong cold start.
+        if (_snmpPollingStartedAt == default
+            || DateTime.UtcNow - _snmpPollingStartedAt < SnmpSelfHealWarmup)
+            return;
+
+        // Trigger: a majority of SNMP-enabled devices failing (>= 2 consecutive misses
+        // each, so a single dropped packet doesn't count). A majority is a fabric-wide
+        // problem (community rotated / SNMP disabled); a minority is a device problem
+        // (a Flex Mini that can't do SNMP) and must NOT re-pull. On a single-device
+        // network the majority is that one device. The re-pull is cheap and diff-gated,
+        // so a genuine outage just no-ops.
+        var failing = snmpMacs.Count(mac => _snmpFailures.IsFailing(mac, minConsecutiveFailures: 2));
+        var threshold = Math.Max(1, (int)Math.Ceiling(snmpMacs.Count * 0.5));
+        if (failing < threshold)
         {
             // Fabric is healthy again - forget the baseline so the next failure event is
             // treated as fresh and re-pulls promptly instead of waiting out the backoff.
@@ -541,8 +563,8 @@ public class MonitoringCollectionAgent : BackgroundService
         _lastSnmpSelfHealFailingCount = failing;
 
         _logger.LogWarning(
-            "SNMP self-heal (site {Site}): {Failing} previously-healthy device(s) failing SNMP polls. Re-pulling config from UniFi to check for a credential change.",
-            _siteSlug, failing);
+            "SNMP self-heal (site {Site}): {Failing}/{Total} SNMP-enabled devices failing polls. Re-pulling config from UniFi to check for a credential change.",
+            _siteSlug, failing, snmpMacs.Count);
 
         try
         {

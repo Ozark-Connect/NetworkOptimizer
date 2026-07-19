@@ -23,49 +23,48 @@ public class SnmpFailureTrackerTests
     }
 
     [Fact]
-    public void NoteSuccess_MarksDeviceHealthy()
-    {
-        var tracker = new SnmpFailureTracker();
-
-        tracker.HealthyCount.Should().Be(0);
-        tracker.NoteSuccess(DeviceA);
-        tracker.NoteSuccess(DeviceB);
-        tracker.NoteSuccess(DeviceA); // idempotent per device
-
-        tracker.HealthyCount.Should().Be(2);
-    }
-
-    [Fact]
-    public void FailingHealthyCount_CountsOnlyPreviouslyHealthyDevices()
+    public void IsFailing_TrueAtConsecutiveFailures_NoPriorSuccessNeeded()
     {
         var tracker = new SnmpFailureTracker(failureThreshold: 5);
 
-        // A and B polled successfully before; C never did (e.g. a device that
-        // does not speak SNMP), so its later failures must not count.
-        tracker.NoteSuccess(DeviceA);
-        tracker.NoteSuccess(DeviceB);
-
-        foreach (var device in new[] { DeviceA, DeviceB, DeviceC })
-        {
-            tracker.NoteFailure(device);
-            tracker.NoteFailure(device);
-        }
-
-        // Two consecutive failures each - below the exclusion threshold, but the
-        // eager self-heal signal counts them the moment they cross minConsecutiveFailures.
-        tracker.FailingHealthyCount(minConsecutiveFailures: 2)
-            .Should().Be(2, "only A and B were healthy before failing");
-        tracker.FailingHealthyCount(minConsecutiveFailures: 3)
-            .Should().Be(0, "neither has 3 consecutive failures yet");
+        // A cold-start device that never polled successfully - it must still register as
+        // failing (this is the whole point: a restart during an outage can self-heal).
+        tracker.IsFailing(DeviceA, minConsecutiveFailures: 2).Should().BeFalse();
+        tracker.NoteFailure(DeviceA);
+        tracker.IsFailing(DeviceA, minConsecutiveFailures: 2).Should().BeFalse("only one failure so far");
+        tracker.NoteFailure(DeviceA);
+        tracker.IsFailing(DeviceA, minConsecutiveFailures: 2).Should().BeTrue("two consecutive failures");
+        tracker.IsFailing(DeviceA, minConsecutiveFailures: 3).Should().BeFalse("not three yet");
     }
 
     [Fact]
-    public void Reset_ClearsFailuresAndExclusions_RetainsHealthyBaseline()
+    public void IsFailing_TrueWhileExcluded()
     {
         var tracker = new SnmpFailureTracker(failureThreshold: 2);
 
+        tracker.NoteFailure(DeviceA);
+        tracker.NoteFailure(DeviceA); // hits threshold -> excluded
+        tracker.IsFailing(DeviceA).Should().BeTrue("excluded devices count as failing");
+    }
+
+    [Fact]
+    public void NoteSuccess_ClearsFailing()
+    {
+        var tracker = new SnmpFailureTracker(failureThreshold: 5);
+
+        tracker.NoteFailure(DeviceA);
+        tracker.NoteFailure(DeviceA);
+        tracker.IsFailing(DeviceA, minConsecutiveFailures: 2).Should().BeTrue();
+
         tracker.NoteSuccess(DeviceA);
-        tracker.NoteSuccess(DeviceB);
+        tracker.IsFailing(DeviceA, minConsecutiveFailures: 2).Should().BeFalse("a success resets the counter");
+    }
+
+    [Fact]
+    public void Reset_ClearsFailuresAndExclusions()
+    {
+        var tracker = new SnmpFailureTracker(failureThreshold: 2);
+
         tracker.NoteFailure(DeviceA);
         tracker.NoteFailure(DeviceA);
         tracker.IsExcluded(DeviceA, out _).Should().BeTrue();
@@ -74,7 +73,6 @@ public class SnmpFailureTrackerTests
 
         tracker.IsExcluded(DeviceA, out _).Should().BeFalse("exclusions cleared");
         tracker.GetFailureCount(DeviceA).Should().Be(0, "failure counters cleared");
-        tracker.HealthyCount.Should().Be(2, "seen-healthy baseline is retained");
-        tracker.FailingHealthyCount().Should().Be(0);
+        tracker.IsFailing(DeviceA).Should().BeFalse();
     }
 }
