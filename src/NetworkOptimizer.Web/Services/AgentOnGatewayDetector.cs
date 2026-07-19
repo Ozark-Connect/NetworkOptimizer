@@ -71,20 +71,25 @@ public class AgentOnGatewayDetector
         if (hasCached && DateTime.UtcNow - cached.At < CacheTtl)
             return cached.OnGateway;
 
+        // Cold start: after a restart the cache is empty but the site's console
+        // (which reconnects through the agent tunnel) may not be back yet, so a
+        // live refresh can't answer. The persisted last verdict bridges that
+        // gap - seeded stale, and BEFORE the refresh starts, so a refresh that
+        // finds the console down keeps this answer instead of racing an
+        // invented false into the empty cache.
+        if (!hasCached)
+        {
+            var persisted = await LoadPersistedAsync(siteSlug);
+            if (persisted != null)
+            {
+                _cache.TryAdd(siteSlug, (persisted.Value, DateTime.MinValue));
+                hasCached = _cache.TryGetValue(siteSlug, out cached);
+            }
+        }
+
         var refresh = StartOrJoinRefresh(siteSlug);
         if (hasCached)
             return cached.OnGateway;
-
-        // Cold start: after a restart the cache is empty but the site's console
-        // (which reconnects through the agent tunnel) may not be back yet, so a
-        // live refresh can't answer. The persisted last verdict bridges that gap -
-        // seed it stale so the refresh in flight still overwrites it.
-        var persisted = await LoadPersistedAsync(siteSlug);
-        if (persisted != null)
-        {
-            _cache.TryAdd(siteSlug, (persisted.Value, DateTime.MinValue));
-            return _cache.TryGetValue(siteSlug, out var seeded) ? seeded.OnGateway : persisted.Value;
-        }
 
         try
         {
@@ -121,7 +126,9 @@ public class AgentOnGatewayDetector
         var agentIp = await _enrollment.GetOnlineAgentLanIpAsync(siteSlug);
         if (string.IsNullOrEmpty(agentIp))
         {
-            _cache[siteSlug] = (false, DateTime.UtcNow);
+            // Agent momentarily offline - not evidence of location either way
+            // (the speed-test surfaces gate on the missing agent IP anyway).
+            KeepLastAnswer(siteSlug);
             return;
         }
 
@@ -129,10 +136,8 @@ public class AgentOnGatewayDetector
         if (!connection.IsConnected || connection.Client == null)
         {
             // Console momentarily down (it reconnects through the same agent
-            // tunnel) - keep the last answer instead of flapping to false, but
-            // re-stamp it so expiry doesn't re-trigger a refresh every call.
-            var last = _cache.TryGetValue(siteSlug, out var cached) && cached.OnGateway;
-            _cache[siteSlug] = (last, DateTime.UtcNow);
+            // tunnel, so this is the norm right after a restart).
+            KeepLastAnswer(siteSlug);
             return;
         }
 
@@ -155,6 +160,19 @@ public class AgentOnGatewayDetector
         var onGateway = gatewayIps.Contains(agentIp!, StringComparer.OrdinalIgnoreCase);
         _cache[siteSlug] = (onGateway, DateTime.UtcNow);
         await PersistAsync(siteSlug, onGateway);
+    }
+
+    /// <summary>
+    /// A degraded refresh (agent or console unreachable) must never invent an
+    /// answer: re-stamp whatever the cache holds (last real verdict or the
+    /// persisted seed) so expiry doesn't hammer refreshes, and leave a cache
+    /// with no entry EMPTY so the site stays unknown and keeps retrying rather
+    /// than trusting a made-up false for a full TTL.
+    /// </summary>
+    private void KeepLastAnswer(string siteSlug)
+    {
+        if (_cache.TryGetValue(siteSlug, out var cached))
+            _cache[siteSlug] = (cached.OnGateway, DateTime.UtcNow);
     }
 
     /// <summary>The persisted last verdict for a site, or null when never detected.</summary>
