@@ -429,6 +429,10 @@ else
                                     {
                                         <span class="isp-factor-name">@factor.Name</span>
                                     }
+                                    @if (!string.IsNullOrEmpty(factor.InvolvementTooltip))
+                                    {
+                                        <span class="tooltip-icon tooltip-icon-sm" data-tooltip="@factor.InvolvementTooltip">½</span>
+                                    }
                                     @if (!string.IsNullOrEmpty(factor.ValueText))
                                     {
                                         <span class="isp-factor-value">@factor.ValueText</span>

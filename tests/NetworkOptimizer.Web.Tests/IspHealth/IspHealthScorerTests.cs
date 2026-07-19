@@ -1010,6 +1010,102 @@ public class IspHealthScorerTests
     }
 
     [Fact]
+    public void A_clean_destination_absolves_a_transit_asn_it_routes_through()
+    {
+        // A transit ASN shows high self-jitter (ICMP deprioritization) with no farther cluster of
+        // its own to disprove it. A monitored destination reached THROUGH the ASN (its hop is in the
+        // destination's ancestor set) is clean end-to-end - a hard upper bound on the ASN's true
+        // jitter - so it absolves the transit ASN. Arm A. Divergent ancestry = no absolve (strict).
+        AsnSeries Transit() => new()
+        {
+            AsnNumber = 64500,
+            AsnName = "TransitOne",
+            TargetIds = { "transit-jittery" },
+            Samples = TestSeries.Flat(TestSeries.Start, Day, 10, 4.0),
+            HopIps = { "20.0.0.1" }
+        };
+        var cleanDest = new AsnSeries
+        {
+            AsnNumber = 64512,
+            AsnName = "Destination",
+            TargetIds = { "dest-clean" },
+            Samples = TestSeries.Flat(TestSeries.Start, Day, 13, 0.4),
+            HopIps = { "30.0.0.1" },
+            AncestorIps = { "20.0.0.1" } // reached through the transit ASN's hop
+        };
+        var divergentDest = new AsnSeries
+        {
+            AsnNumber = 64512,
+            AsnName = "Destination",
+            TargetIds = { "dest-clean" },
+            Samples = TestSeries.Flat(TestSeries.Start, Day, 13, 0.4),
+            HopIps = { "30.0.0.1" },
+            AncestorIps = { "10.9.9.9" } // a different hop - does not route through our transit
+        };
+
+        var absolved = new IspHealthScorer(Options).Score(
+            BuildInputs(transit: new List<AsnSeries> { Transit() },
+                destinations: new List<AsnSeries> { cleanDest }, hopOrderKnown: true), Gpon).TransitAsns.Single();
+        var notAbsolved = new IspHealthScorer(Options).Score(
+            BuildInputs(transit: new List<AsnSeries> { Transit() },
+                destinations: new List<AsnSeries> { divergentDest }, hopOrderKnown: true), Gpon).TransitAsns.Single();
+
+        absolved.JitterScore.Should().BeGreaterThan(notAbsolved.JitterScore!.Value,
+            "a clean destination routing through the transit ASN proves its jitter is an ICMP artifact");
+        absolved.JitterAssimilated.Should().BeTrue("the clean destination pulled the jitter down");
+    }
+
+    [Fact]
+    public void Transit_health_weights_asns_by_internet_host_involvement()
+    {
+        // Two transit ASNs, one clean and one jittery. The jittery one carries NO monitored internet
+        // host, so involvement weighting drops it to the 25% floor and the dimension leans on the
+        // clean, host-carrying ASN - scoring higher than the plain average an install with no
+        // attribution would get. Arm 4. The destination routes only through the clean ASN, so Arm A
+        // can't rescue the jittery one's jitter (isolating the weighting effect).
+        List<AsnSeries> Transits() => new()
+        {
+            new AsnSeries
+            {
+                AsnNumber = 64500, AsnName = "CleanTransit",
+                TargetIds = { "transit-clean" },
+                Samples = TestSeries.Flat(TestSeries.Start, Day, 10, 0.4),
+                HopIps = { "20.0.0.1" }
+            },
+            new AsnSeries
+            {
+                AsnNumber = 64600, AsnName = "JitteryTransit",
+                TargetIds = { "transit-jittery" },
+                Samples = TestSeries.Flat(TestSeries.Start, Day, 12, 4.0),
+                HopIps = { "21.0.0.1" }
+            }
+        };
+        var dest = new AsnSeries
+        {
+            AsnNumber = 64512, AsnName = "Destination",
+            TargetIds = { "dest-clean" },
+            Samples = TestSeries.Flat(TestSeries.Start, Day, 13, 0.4),
+            HopIps = { "30.0.0.1" },
+            AncestorIps = { "20.0.0.1" } // routes through the clean transit only
+        };
+
+        var weighted = new IspHealthScorer(Options).Score(
+            BuildInputs(transit: Transits(), destinations: new List<AsnSeries> { dest }, hopOrderKnown: true), Gpon)
+            .TransitDimension;
+        // Baseline: no attribution, so both ASNs weigh equally - the plain average, no tooltips.
+        var equal = new IspHealthScorer(Options).Score(
+            BuildInputs(transit: Transits(), hopOrderKnown: true), Gpon)
+            .TransitDimension;
+
+        weighted.Score.Should().BeGreaterThan(equal.Score!.Value,
+            "down-weighting the jittery, host-less transit lifts the dimension toward the clean, host-carrying one");
+        weighted.Factors.Single(f => f.Name == "CleanTransit").InvolvementTooltip.Should().Contain("weighted at 100%");
+        weighted.Factors.Single(f => f.Name == "JitteryTransit").InvolvementTooltip.Should().Contain("25%");
+        equal.Factors.Should().OnlyContain(f => f.InvolvementTooltip == null,
+            "with no attributable host there is no involvement to differentiate");
+    }
+
+    [Fact]
     public void Without_hop_order_a_transit_asn_is_graded_on_its_near_cluster()
     {
         // Backward compat: installs that have not re-run discovery have no stored hop

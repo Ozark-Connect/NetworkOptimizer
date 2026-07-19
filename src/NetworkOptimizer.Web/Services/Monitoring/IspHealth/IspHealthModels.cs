@@ -53,6 +53,14 @@ public class IspScoreFactor
 
     /// <summary>What was measured and against which expectation.</summary>
     public string? Description { get; init; }
+
+    /// <summary>
+    /// For transit ASNs (Arm 4): the involvement-weight tooltip, e.g. "Carries 6 of 8 monitored
+    /// internet hosts - weighted at 100% in Transit Health". Null when involvement doesn't
+    /// differentiate (no host attributable to any transit, so all fall to equal weight) - the UI
+    /// shows the fraction icon only when this is set.
+    /// </summary>
+    public string? InvolvementTooltip { get; init; }
 }
 
 /// <summary>One of the three top-level score dimensions.</summary>
