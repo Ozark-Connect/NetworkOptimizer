@@ -143,21 +143,23 @@ public sealed class NokiaXs010xOntProvider : IOntProvider
     }
 
     /// <summary>
-    /// Logs in once, then reads getUpdateinfo trying the resolved <see cref="AuthFlow"/> order,
-    /// returning the first result that carries an RX reading and caching the flow that produced
-    /// it. Returns the last built stats (which may lack RX) if a flow logged in but returned no
-    /// data, or null if login itself failed.
+    /// Reads getUpdateinfo trying the resolved <see cref="AuthFlow"/> order, returning the first
+    /// result that carries an RX reading and caching the flow that produced it. Each flow gets its
+    /// own fresh login so a probe of the wrong flow (e.g. a Direct getUpdateinfo that 401s on the
+    /// CLEI variant, which forces a PON-password session state) can't poison the next flow's
+    /// session. Returns the last built stats (which may lack RX) if a flow logged in but returned
+    /// no data, or null if every login failed.
     /// </summary>
     private async Task<OntStats?> FetchStatsAsync(
         HttpClient client, string baseUrl, OntPollContext context, CancellationToken ct)
     {
-        var cookieId = await LoginAsync(client, baseUrl, context, ct);
-        if (cookieId is null)
-            return null;
-
         OntStats? last = null;
         foreach (var flow in ResolveFlows(context))
         {
+            var cookieId = await LoginAsync(client, baseUrl, context, ct);
+            if (cookieId is null)
+                continue;
+
             var infoJson = flow == AuthFlow.PageWalk
                 ? await GetUpdateInfoViaWalkAsync(client, baseUrl, cookieId, context.Name, ct)
                 : await GetUpdateInfoAsync(client, baseUrl, cookieId, context.Name, MoreInfoPagePath, browserHeaders: false, ct);
@@ -289,10 +291,11 @@ public sealed class NokiaXs010xOntProvider : IOntProvider
     /// <summary>
     /// Builds a GponForm request. The session cookie is attached whenever one is supplied. When
     /// <paramref name="browserHeaders"/> is set the request also mirrors the device page's XHR
-    /// traffic - a Referer of the page the call is made from and, for the POSTs, Origin and
-    /// X-Requested-With: XMLHttpRequest - which the T-Fiber/Metronet CLEI variant needs. The
-    /// Direct getUpdateinfo passes false to stay the bare cookie-only request the one confirmed
-    /// firmware accepts. Pass <paramref name="formBody"/> null for a GET (a page navigation).
+    /// traffic - a browser User-Agent, a Referer of the page the call is made from and, for the
+    /// POSTs, Origin and X-Requested-With: XMLHttpRequest - which the T-Fiber/Metronet CLEI variant
+    /// needs. The Direct getUpdateinfo passes false to stay the bare cookie-only request that
+    /// shipped in v2.1.1/v2.2.0 (the one confirmed working, on @Liosnel's box). Pass
+    /// <paramref name="formBody"/> null for a GET (a page navigation).
     /// </summary>
     private static HttpRequestMessage BuildRequest(
         HttpMethod method, string url, string? formBody, string baseUrl, string refererPath, string? cookieId, bool browserHeaders)
@@ -304,6 +307,7 @@ public sealed class NokiaXs010xOntProvider : IOntProvider
 
         if (browserHeaders)
         {
+            request.Headers.TryAddWithoutValidation("User-Agent", BrowserUserAgent);
             request.Headers.TryAddWithoutValidation("Referer", $"{baseUrl}{refererPath}");
             if (formBody is not null)
             {
@@ -431,8 +435,6 @@ public sealed class NokiaXs010xOntProvider : IOntProvider
         // boxes can tie the login session to the connection, so keep-alive reuse across the
         // login -> getUpdateinfo steps can return an empty/unauthenticated response.
         client.DefaultRequestHeaders.ConnectionClose = true;
-        // A browser User-Agent - the picky CLEI variant appears to sniff it; harmless elsewhere.
-        client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", BrowserUserAgent);
         return client;
     }
 
