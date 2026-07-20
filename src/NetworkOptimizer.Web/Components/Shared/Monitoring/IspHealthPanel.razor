@@ -345,11 +345,11 @@ else
                                             @target.Name
                                             @if (target.IsGradedHop)
                                             {
-                                                <span class="isp-target-graded" data-tooltip="The lowest-RTT ISP hop; access-layer idle latency is measured from it">Lowest RTT</span>
+                                                <span class="isp-target-badge isp-target-graded" data-tooltip="The lowest-RTT ISP hop; access-layer idle latency is measured from it">Lowest RTT</span>
                                             }
                                             @if (target.SuggestDisable)
                                             {
-                                                <button type="button" class="isp-target-disable-hint"
+                                                <button type="button" class="isp-target-badge isp-target-disable-hint"
                                                         data-tooltip="Not on your traced path but adding jitter - review in Latency targets to disable"
                                                         @onclick="() => OnReviewTarget.InvokeAsync(target.TargetId)">Not on path &#9888;</button>
                                             }

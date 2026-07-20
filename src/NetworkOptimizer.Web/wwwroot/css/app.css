@@ -17294,29 +17294,26 @@ a.isp-outage-ack:hover {
     margin-top: 0.45rem;
 }
 
-.isp-target-graded {
-    margin-left: 0.35rem;
+.isp-target-badge {
+    margin-left: 0.5rem;
     padding: 0.05rem 0.4rem;
     border-radius: 4px;
-    background: rgba(5, 80, 181, 0.25);
-    color: var(--primary-hover);
     font-size: 0.62rem;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.04em;
+    vertical-align: middle;
+}
+
+.isp-target-graded {
+    background: rgba(5, 80, 181, 0.25);
+    color: var(--primary-hover);
 }
 
 .isp-target-disable-hint {
-    margin-left: 0.35rem;
-    padding: 0.05rem 0.4rem;
     border: none;
-    border-radius: 4px;
     background: rgba(231, 150, 19, 0.2);
     color: var(--warning-color);
-    font-size: 0.62rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
     cursor: pointer;
 }
 
