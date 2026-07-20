@@ -98,7 +98,9 @@ _aa_nginx_profile_file() {
         if [ -f "$dir/$fname" ]; then
             cand="$dir/$fname"
         else
-            cand="$(grep -rslF "$pname" "$dir" 2>/dev/null | grep -v '/local/' | head -1 || true)"
+            # Exclude local/ (include-only) and cache/ (compiled binaries, not loadable
+            # profile sources - matching one leads to a bogus apparmor_parser reload).
+            cand="$(grep -rslF "$pname" "$dir" 2>/dev/null | grep -vE '/(local|cache)/' | head -1 || true)"
         fi
         [ -n "$cand" ] && { file="$cand"; break; }
     done
@@ -146,7 +148,9 @@ maybe_fix_apparmor_nginx() {
         echo "$AA_MARK_END"
     } >> "$localfile"
 
-    apparmor_parser -r "$file" >/dev/null 2>&1 \
+    # -T skips the compiled cache, so a read-only cache dir (common on appliance
+    # distros) doesn't fail the reload; the profile still loads from source.
+    apparmor_parser -rT "$file" >/dev/null 2>&1 \
         || echo "  apparmor_parser reload failed; the override may not have taken (the profile may not include local/${base})."
     return 0
 }
