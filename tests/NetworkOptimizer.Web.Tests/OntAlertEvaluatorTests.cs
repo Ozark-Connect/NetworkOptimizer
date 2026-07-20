@@ -98,6 +98,64 @@ public class OntAlertEvaluatorTests
         bus.Events.Should().NotContain(e => e.EventType == TempEvent);
     }
 
+    [Fact]
+    public async Task BipDeltaAboveThreshold_PublishesBipSpike_AfterBaseline()
+    {
+        var (evaluator, bus) = Create();
+
+        // First poll sets the baseline (no alert), second poll's +200 delta exceeds the 100 threshold.
+        await evaluator.EvaluateAsync(1, "ONT", SafeRx, PonLinkState.Operation, null, bipErrors: 0);
+        await evaluator.EvaluateAsync(1, "ONT", SafeRx, PonLinkState.Operation, null, bipErrors: 200);
+
+        var bip = bus.Events.Where(e => e.EventType == "ont.bip_errors").ToList();
+        bip.Should().HaveCount(1);
+        bip[0].Source.Should().Be("ont");
+        bip[0].MetricValue.Should().Be(200);
+        bip[0].ThresholdValue.Should().Be(100);
+    }
+
+    [Fact]
+    public async Task BipCounterReset_DoesNotFakeSpike()
+    {
+        var (evaluator, bus) = Create();
+
+        await evaluator.EvaluateAsync(1, "ONT", SafeRx, PonLinkState.Operation, null, bipErrors: 5000);
+        // ONT reboots; counter resets below the prior value -> negative step -> no alert.
+        await evaluator.EvaluateAsync(1, "ONT", SafeRx, PonLinkState.Operation, null, bipErrors: 10);
+
+        bus.Events.Should().NotContain(e => e.EventType == "ont.bip_errors");
+    }
+
+    [Fact]
+    public async Task FecDisabled_EvaluatesHecNotFec()
+    {
+        var (evaluator, bus) = Create();
+
+        // With FEC disabled, a large FEC delta must be ignored and HEC drives the codeword alert.
+        await evaluator.EvaluateAsync(1, "ONT", SafeRx, PonLinkState.Operation, fecErrors: 0,
+            hecErrors: 0, fecEnabled: false);
+        await evaluator.EvaluateAsync(1, "ONT", SafeRx, PonLinkState.Operation, fecErrors: 100000,
+            hecErrors: 500, fecEnabled: false);
+
+        bus.Events.Should().NotContain(e => e.EventType == "ont.fec_errors");
+        var hec = bus.Events.Where(e => e.EventType == "ont.hec_errors").ToList();
+        hec.Should().HaveCount(1);
+        hec[0].MetricValue.Should().Be(500);
+    }
+
+    [Fact]
+    public async Task FecEnabledOrUnknown_EvaluatesFecNotHec()
+    {
+        var (evaluator, bus) = Create();
+
+        // Default (fecEnabled unknown/null, the standalone-ONT case): FEC drives the alert, HEC is ignored.
+        await evaluator.EvaluateAsync(1, "ONT", SafeRx, PonLinkState.Operation, fecErrors: 0, hecErrors: 0);
+        await evaluator.EvaluateAsync(1, "ONT", SafeRx, PonLinkState.Operation, fecErrors: 2000, hecErrors: 9999);
+
+        bus.Events.Should().NotContain(e => e.EventType == "ont.hec_errors");
+        bus.Events.Count(e => e.EventType == "ont.fec_errors").Should().Be(1);
+    }
+
     private sealed class CapturingBus : IAlertEventBus
     {
         public List<AlertEvent> Events { get; } = new();

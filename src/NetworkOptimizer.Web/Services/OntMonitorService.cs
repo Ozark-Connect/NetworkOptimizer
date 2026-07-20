@@ -165,7 +165,16 @@ public class OntMonitorService : IDisposable
 
         if (isNew)
             await AlertRuleAutoEnable.EnableBySourceAsync(scope, "ont", _logger);
+
+        // Attaching augmented PON polling to an SFP ONT unlocks the BIP/HEC error alerts -
+        // enable them immediately (any save that lands an attachment, new or edited), so an
+        // existing-ONT user doesn't have to wait for the next startup's freshly-seeded pass.
+        if (config.AttachedSfpId.HasValue)
+            await AlertRuleAutoEnable.EnablePatternsAsync(scope, AugmentedOntAlertPatterns, _logger);
     }
+
+    /// <summary>PON error alerts unlocked by augmented (SFP-attached) ONT polling.</summary>
+    private static readonly string[] AugmentedOntAlertPatterns = { "ont.bip_errors", "ont.hec_errors" };
 
     /// <summary>
     /// Delete an ONT configuration and remove cached stats.
@@ -279,10 +288,13 @@ public class OntMonitorService : IDisposable
                 // Fire-and-forget write to InfluxDB
                 WriteToInflux(config, stats);
 
+                // Standalone ONT providers report BIP where available but not HEC or the
+                // FEC-enable state, so FEC stays the codeword-error signal (fecEnabled null).
                 _ = _alertEvaluator.EvaluateAsync(
                     config.Id, config.Name,
                     stats.RxPowerDbm, stats.PonLinkStatus, stats.FecErrors,
-                    stats.TemperatureC, thresholds.PonRxPowerLowDbm, thresholds.PonTempHighC);
+                    stats.TemperatureC, thresholds.PonRxPowerLowDbm, thresholds.PonTempHighC,
+                    bipErrors: stats.BipErrors);
 
                 _logger.LogDebug("ONT {Name} polled successfully: Rx={Rx} dBm", config.Name, stats.RxPowerDbm);
                 return stats;

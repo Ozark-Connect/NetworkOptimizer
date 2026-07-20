@@ -34,6 +34,10 @@ public static class PonThresholds
     /// <summary>Per-poll BIP (bit-interleaved-parity) error threshold. BIP errors are uncorrected bit
     /// errors, so this is stricter than the FEC corrected-error threshold.</summary>
     public const long PonBipErrorSpikePerPoll = 100;
+    /// <summary>Per-poll uncorrectable-HEC (header error control) threshold. HEC guards the GEM/GTC
+    /// framing headers and is always active regardless of payload FEC, so it's the live error signal
+    /// on a link running with FEC disabled. Uncorrected like BIP, so it shares BIP's stricter threshold.</summary>
+    public const long PonHecErrorSpikePerPoll = 100;
 
     // --- ONT error-count health for ISP Health (absolute count over the window, per-day). ---
     // A healthy PON link has a negligible BIP / uncorrectable-FEC count: 0 is ideal, a few per day

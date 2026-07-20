@@ -2152,7 +2152,12 @@ public class MonitoringCollectionAgent : BackgroundService
 
                     // Alert evaluation runs in its own try/catch so an alert failure is
                     // logged but never marks the (successful) poll as errored - matching
-                    // the SFP/device-health evaluator call sites.
+                    // the SFP/device-health evaluator call sites. FEC is only meaningful
+                    // when the OLT profile enables it; when disabled the evaluator falls
+                    // back to HEC, so pass the enable state.
+                    bool? fecEnabled = stats.DsFecEnabled.HasValue || stats.UsFecEnabled.HasValue
+                        ? stats.DsFecEnabled == 1 || stats.UsFecEnabled == 1
+                        : null;
                     try
                     {
                         await _ontAlertEvaluator.EvaluateAsync(
@@ -2161,7 +2166,11 @@ public class MonitoringCollectionAgent : BackgroundService
                             NetOptCustomPonOntProvider.ToPonLinkState(stats.PloamStateRaw),
                             stats.FecErrors,
                             temperatureC: null,
-                            thresholds.PonRxPowerLowDbm, thresholds.PonTempHighC, ct);
+                            thresholds.PonRxPowerLowDbm, thresholds.PonTempHighC,
+                            bipErrors: stats.BipErrors,
+                            hecErrors: stats.HecUncorrected,
+                            fecEnabled: fecEnabled,
+                            ct);
                     }
                     catch (Exception ex)
                     {
