@@ -200,7 +200,7 @@ async function loadAndUpdate() {
         powerChart.updateSeries(powerSeries, false);
     }
     if (tempChart) tempChart.updateSeries(tempSeries, false);
-    updateErrorsChart(data);
+    await updateErrorsChart(data);
 
     updateVisibility();
     lastData = data;
@@ -215,10 +215,21 @@ const fmtDbm = v => v != null ? v.toFixed(2) : '-';
 const fmtTemp = v => v != null ? v.toFixed(1) : '-';
 const fmtCount = v => v == null ? '' : v >= 1e6 ? (v / 1e6).toFixed(1) + 'M' : v >= 1e3 ? (v / 1e3).toFixed(1) + 'k' : String(Math.round(v));
 
-function updateErrorsChart(data) {
+// Create the errors chart on first use, so ONTs that never report FEC/BIP don't
+// pay for an instance they'd never see.
+async function ensureErrorsChartMounted() {
+    if (errorsChart) return;
+    const container = document.getElementById(containerId);
+    const errorsEl = container?.querySelector('.ont-errors-chart');
+    if (!errorsEl) return;
+    errorsChart = new ApexCharts(errorsEl, { ...baseOpts(160, 'errors', fmtCount), series: [], colors: PALETTE });
+    await errorsChart.render();
+}
+
+async function updateErrorsChart(data) {
     const container = document.getElementById(containerId);
     const section = container?.querySelector('.ont-errors-section');
-    if (!section || !errorsChart) return;
+    if (!section) return;
     const withErrors = (data.devices || []).filter(d =>
         (d.data || []).some(p => p.fec != null || p.bip != null));
     if (!withErrors.length) {
@@ -226,6 +237,8 @@ function updateErrorsChart(data) {
         errorsSeriesByDevice = {};
         return;
     }
+    await ensureErrorsChartMounted();
+    if (!errorsChart) return;
     section.style.display = '';
 
     errorsSeriesByDevice = {};
@@ -430,14 +443,8 @@ export async function mount(elId) {
     await powerChart.render();
     await tempChart.render();
 
-    const errorsEl = container.querySelector('.ont-errors-chart');
-    if (errorsEl) {
-        errorsChart = new ApexCharts(errorsEl, {
-            ...baseOpts(160, 'errors', fmtCount),
-            series: [], colors: PALETTE,
-        });
-        await errorsChart.render();
-    }
+    // The FEC/BIP errors chart is mounted lazily (ensureErrorsChartMounted) only when
+    // an ONT actually reports those counters - ONTs without them never create it.
 
     container.querySelectorAll('[data-range]').forEach(btn => {
         btn.addEventListener('click', () => selectPresetRange(container, parseInt(btn.dataset.range)));
