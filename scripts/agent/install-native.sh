@@ -177,19 +177,17 @@ print_speedtest_apparmor_hint() {
     _aa_denied_install_dir || return 0
     local pname
     pname="$(_aa_nginx_profile_name)"; [ -n "$pname" ] || pname="$NGINX_BIN"
-    echo "  Cause: AppArmor profile '${pname}' is blocking ${INSTALL_DIR}, and a scoped"
-    echo "  local override didn't clear it (no findable profile source / local hook)."
-    echo "  To serve the speed test, relax the nginx profile, then start the service:"
+    echo "  AppArmor profile '${pname}' denies nginx access to ${INSTALL_DIR}, and a scoped"
+    echo "  local override couldn't be applied (no findable profile source / local hook)."
+    echo "  The agent and monitoring are unaffected - this gates only the optional speed test page."
+    echo "  To enable it, grant that profile persistent access to ${INSTALL_DIR} (must survive a reboot):"
     if command -v aa-complain >/dev/null 2>&1; then
-        # Cleaner (complain mode: keeps the profile, just logs) - when apparmor-utils
-        # is present. Needs a profile source file, which appliance distros may lack.
+        # aa-complain edits the profile and reloads it, so the change persists.
         echo "    sudo aa-complain '${pname}'"
     else
-        # Tool-free and source-free: works by profile name on any confined box.
-        echo "    echo -n '${pname}' | sudo tee /sys/kernel/security/apparmor/.remove   # unload, until reboot"
+        echo "    add a persistent exception to that profile per your host's AppArmor policy"
     fi
     echo "    sudo systemctl start ${SPEEDTEST_SERVICE}"
-    echo "  The agent and monitoring work regardless - only the LAN speed test needs this."
 }
 
 # Remove any AppArmor local override this installer added (marker-guarded, so a
