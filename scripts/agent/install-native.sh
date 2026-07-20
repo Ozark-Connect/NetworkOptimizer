@@ -17,6 +17,8 @@
 #   --lan-speed-test Host the LAN speed test page (port 3000) and iperf3 (5201)
 #   --insecure       Accept a self-signed cert on the server's reverse proxy
 #   --dir PATH       Install directory (default: /opt/netopt-agent)
+#   --uninstall      Stop and remove the agent, its services, install dir, and any
+#                    AppArmor override this installer added, then exit
 
 set -euo pipefail
 
@@ -24,8 +26,10 @@ SERVER=""
 TOKEN=""
 LAN_SPEED_TEST=false
 INSECURE=false
+UNINSTALL=false
 INSTALL_DIR="/opt/netopt-agent"
 SERVICE_NAME="netopt-agent"
+SPEEDTEST_SERVICE="netopt-speedtest-nginx"
 RELEASE_BASE="https://github.com/Ozark-Connect/NetworkOptimizer/releases/latest/download"
 
 while [ $# -gt 0 ]; do
@@ -34,6 +38,7 @@ while [ $# -gt 0 ]; do
         --token) TOKEN="$2"; shift 2 ;;
         --lan-speed-test) LAN_SPEED_TEST=true; shift ;;
         --insecure) INSECURE=true; shift ;;
+        --uninstall) UNINSTALL=true; shift ;;
         --dir) INSTALL_DIR="$2"; shift 2 ;;
         *) echo "Unknown option: $1" >&2; exit 1 ;;
     esac
@@ -49,6 +54,11 @@ err() { echo "Error: $*" >&2; exit 1; }
 # permissions. Everything below runs ONLY after `nginx -t` has already failed and
 # only acts on a real AppArmor denial of our install dir, so any host where the
 # speed test already works never enters this path.
+
+# Markers bracketing our block inside an AppArmor local override, so it can be added
+# without clobbering a user's existing file and removed cleanly on --uninstall.
+AA_MARK_BEGIN="# NETOPT-AGENT-OVERRIDE BEGIN"
+AA_MARK_END="# NETOPT-AGENT-OVERRIDE END"
 
 # True when the kernel log shows AppArmor denying access to a path under the
 # install dir (recorded when the failing `nginx -t` ran). This is the trigger:
@@ -115,16 +125,22 @@ maybe_fix_apparmor_nginx() {
         *) return 0 ;;
     esac
     base="$(basename "$file")"
+    local localfile="/etc/apparmor.d/local/${base}"
 
-    echo "AppArmor is blocking ${INSTALL_DIR}; adding a local override (/etc/apparmor.d/local/${base}) and reloading."
+    echo "AppArmor is blocking ${INSTALL_DIR}; adding a local override (${localfile}) and reloading."
     mkdir -p /etc/apparmor.d/local
-    cat > "/etc/apparmor.d/local/${base}" <<AAOVERRIDE
-# Added by the Network Optimizer agent installer.
-# Lets the dedicated LAN speed test nginx master use its pid, logs, and webroot
-# under the install dir. Additive and local-only; delete this file to revert.
-${INSTALL_DIR}/ r,
-${INSTALL_DIR}/** rw,
-AAOVERRIDE
+    # Additive and idempotent: strip any prior block of ours (e.g. an earlier install
+    # to a different dir), then append the current one. Never clobbers a user's own
+    # rules in this file.
+    [ -f "$localfile" ] && sed -i "/${AA_MARK_BEGIN}/,/${AA_MARK_END}/d" "$localfile"
+    {
+        echo "$AA_MARK_BEGIN"
+        echo "# Added by the Network Optimizer agent installer - removed by --uninstall."
+        echo "# Lets the LAN speed test nginx master use its pid, logs, and webroot here."
+        echo "${INSTALL_DIR}/ r,"
+        echo "${INSTALL_DIR}/** rw,"
+        echo "$AA_MARK_END"
+    } >> "$localfile"
 
     apparmor_parser -r "$file" >/dev/null 2>&1 \
         || echo "  apparmor_parser reload failed; the override may not have taken (the profile may not include local/${base})."
@@ -157,13 +173,72 @@ print_speedtest_apparmor_hint() {
     echo "  Then: sudo systemctl start netopt-speedtest-nginx"
 }
 
-[ "$(id -u)" -eq 0 ] || err "Run as root (needed to install the systemd service): sudo bash install-native.sh ..."
+# Remove any AppArmor local override this installer added (marker-guarded, so a
+# user's own rules in the same file are preserved), then best-effort reload so the
+# removal takes effect. Called from teardown.
+remove_apparmor_override() {
+    local f changed=0
+    for f in /etc/apparmor.d/local/*; do
+        [ -f "$f" ] || continue
+        grep -q "$AA_MARK_BEGIN" "$f" 2>/dev/null || continue
+        sed -i "/${AA_MARK_BEGIN}/,/${AA_MARK_END}/d" "$f"
+        [ -s "$f" ] || rm -f "$f"   # nothing left but our block -> drop the file
+        changed=1
+        echo "  Removed AppArmor override from ${f}."
+    done
+    [ "$changed" = 1 ] && systemctl reload apparmor >/dev/null 2>&1 || true
+    return 0
+}
+
+# nginx workers drop privileges after start, so an install dir whose ancestors are
+# not world-traversable (e.g. under /root, mode 700) makes them 403 - they can't
+# reach the webroot. True in that case, so the wrapper should run workers as root.
+_webroot_needs_root_worker() {
+    local p mode
+    p="$(readlink -f "$1" 2>/dev/null || echo "$1")"
+    while [ -n "$p" ] && [ "$p" != "/" ]; do
+        mode="$(stat -c '%A' "$p" 2>/dev/null || echo '')"
+        case "$mode" in
+            "") ;;             # stat failed at this level; ignore
+            *x|*t) ;;          # other-execute set (x, or t with the sticky bit as on
+                               # /tmp) -> traversable, keep walking up
+            *) return 0 ;;     # last char '-' or 'T' -> blocks an unprivileged worker
+        esac
+        p="$(dirname "$p")"
+    done
+    return 1
+}
+
+# Stop and remove everything this installer created, in an order that never leaves a
+# running "ghost" unit (services are stopped before their unit files are deleted).
+# Leaves the host's own nginx and its AppArmor profile untouched.
+uninstall_agent() {
+    echo "Removing the Network Optimizer agent (${SERVICE_NAME}) and ${INSTALL_DIR}..."
+    systemctl disable --now "${SERVICE_NAME}.service" "${SPEEDTEST_SERVICE}.service" 2>/dev/null || true
+    rm -f "/etc/systemd/system/${SERVICE_NAME}.service" \
+          "/etc/systemd/system/${SPEEDTEST_SERVICE}.service" \
+          "/etc/systemd/system/multi-user.target.wants/${SERVICE_NAME}.service"
+    systemctl daemon-reload 2>/dev/null || true
+    systemctl reset-failed "${SERVICE_NAME}.service" "${SPEEDTEST_SERVICE}.service" 2>/dev/null || true
+    remove_apparmor_override
+    rm -rf "$INSTALL_DIR"
+    echo "Done - agent removed. The host's own nginx and AppArmor profile are untouched."
+}
+
+[ "$(id -u)" -eq 0 ] || err "Run as root (needed to manage the systemd service): sudo bash install-native.sh ..."
+command -v systemctl >/dev/null 2>&1 || err "systemd is required (systemctl not found)"
+
+# Teardown short-circuits the install: needs neither --server nor a token.
+if [ "$UNINSTALL" = true ]; then
+    uninstall_agent
+    exit 0
+fi
+
 [ -n "$SERVER" ] || err "--server is required (the central server's HTTPS address)"
 case "$SERVER" in
     https://*) ;;
     *) err "--server must be an https:// URL (the agent refuses cleartext)" ;;
 esac
-command -v systemctl >/dev/null 2>&1 || err "systemd is required (systemctl not found)"
 command -v curl >/dev/null 2>&1 || err "curl is required"
 
 # Map machine architecture to the published self-contained runtime identifier.
@@ -310,6 +385,15 @@ CFGJS
             -e "s#__ERRORLOG__#${INSTALL_DIR}/nginx-error.log#" \
             -e "s#__SERVERCONF__#${INSTALL_DIR}/nginx-speedtest-server.conf#" \
             "${INSTALL_DIR}/nginx-speedtest.conf"
+
+        # If the install dir isn't world-traversable (e.g. under /root, mode 700),
+        # unprivileged nginx workers can't reach the webroot and every request 403s.
+        # Run the workers as root in that case so the page serves wherever it lives;
+        # a world-traversable dir (the /opt default) keeps the safer unprivileged user.
+        if _webroot_needs_root_worker "$WEBROOT"; then
+            sed -i "1i user root;" "${INSTALL_DIR}/nginx-speedtest.conf"
+            echo "Note: ${INSTALL_DIR} isn't world-traversable, so the speed test nginx runs its workers as root."
+        fi
 
         # Dedicated systemd unit for OUR nginx master - separate from the system one.
         cat > /etc/systemd/system/netopt-speedtest-nginx.service <<UNIT

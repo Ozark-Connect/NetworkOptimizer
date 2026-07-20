@@ -126,6 +126,16 @@ Both scripts accept:
 - `--lan-speed-test` - host the LAN speed test page (port 3000) and iperf3 (5201)
 - `--insecure` - accept a self-signed cert on the server's reverse proxy
 - `--dir PATH` - override the install directory
+- `--uninstall` - stop and remove the agent, its services, and install dir, then exit
+
+To remove a bare-metal agent (stops the services first, then removes the units,
+install dir, and any AppArmor override the installer added; the host's own nginx
+is left untouched):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/agent/install-native.sh | sudo bash -s -- --uninstall
+# add --dir PATH if you installed somewhere other than /opt/netopt-agent
+```
 
 ### On a UniFi gateway (on-box)
 
