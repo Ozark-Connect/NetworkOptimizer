@@ -127,6 +127,7 @@ Both scripts accept:
 - `--insecure` - accept a self-signed cert on the server's reverse proxy
 - `--dir PATH` - override the install directory
 - `--uninstall` - stop and remove the agent, its services, and install dir, then exit
+- `--configure-apparmor` - if the host's nginx AppArmor profile blocks the speed test dir, add a persistent, scoped local override (off by default; the installer won't touch host security policy unless asked). The install output tells you to re-run with this flag when it applies.
 
 To remove a bare-metal agent (stops the services first, then removes the units,
 install dir, and any AppArmor override the installer added; the host's own nginx

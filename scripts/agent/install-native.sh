@@ -19,6 +19,10 @@
 #   --dir PATH       Install directory (default: /opt/netopt-agent)
 #   --uninstall      Stop and remove the agent, its services, install dir, and any
 #                    AppArmor override this installer added, then exit
+#   --configure-apparmor  If the host's nginx AppArmor profile blocks the speed
+#                    test dir, add a persistent, scoped local override (off by
+#                    default - the installer won't modify host security policy
+#                    unless asked)
 
 set -euo pipefail
 
@@ -27,6 +31,7 @@ TOKEN=""
 LAN_SPEED_TEST=false
 INSECURE=false
 UNINSTALL=false
+CONFIGURE_APPARMOR=false
 INSTALL_DIR="/opt/netopt-agent"
 SERVICE_NAME="netopt-agent"
 SPEEDTEST_SERVICE="netopt-speedtest-nginx"
@@ -39,6 +44,7 @@ while [ $# -gt 0 ]; do
         --lan-speed-test) LAN_SPEED_TEST=true; shift ;;
         --insecure) INSECURE=true; shift ;;
         --uninstall) UNINSTALL=true; shift ;;
+        --configure-apparmor) CONFIGURE_APPARMOR=true; shift ;;
         --dir) INSTALL_DIR="$2"; shift 2 ;;
         *) echo "Unknown option: $1" >&2; exit 1 ;;
     esac
@@ -122,12 +128,14 @@ _aa_nginx_profile_file() {
 }
 
 # Additive, local-only AppArmor override letting the confined nginx use the install
-# dir. Only attempted when the vendor profile is a file under /etc/apparmor.d (the
-# only place a local/ drop-in is consumed). Never edits the vendor profile; reloads
-# only that one profile. A parse error makes apparmor_parser abort and keep the
-# running profile, so a bad override can't unconfine the host's own nginx. Caller
-# re-tests `nginx -t` to judge the result.
+# dir. OPT-IN: only runs under --configure-apparmor, so the installer never modifies
+# host security policy unless explicitly asked. The override is scoped and persistent
+# (a file under /etc/apparmor.d/local); never edits the vendor profile; reloads only
+# that one profile. A parse error makes apparmor_parser abort and keep the running
+# profile, so a bad override can't unconfine the host's own nginx. Caller re-tests
+# `nginx -t` to judge the result.
 maybe_fix_apparmor_nginx() {
+    [ "$CONFIGURE_APPARMOR" = true ] || return 0
     command -v apparmor_parser >/dev/null 2>&1 || return 0
     _aa_denied_install_dir || return 0
 
@@ -177,17 +185,17 @@ print_speedtest_apparmor_hint() {
     _aa_denied_install_dir || return 0
     local pname
     pname="$(_aa_nginx_profile_name)"; [ -n "$pname" ] || pname="$NGINX_BIN"
-    echo "  AppArmor profile '${pname}' denies nginx access to ${INSTALL_DIR}, and a scoped"
-    echo "  local override couldn't be applied (no findable profile source / local hook)."
+    echo "  AppArmor profile '${pname}' denies nginx access to ${INSTALL_DIR}."
     echo "  The agent and monitoring are unaffected - this gates only the optional speed test page."
-    echo "  To enable it, grant that profile persistent access to ${INSTALL_DIR} (must survive a reboot):"
-    if command -v aa-complain >/dev/null 2>&1; then
-        # aa-complain edits the profile and reloads it, so the change persists.
-        echo "    sudo aa-complain '${pname}'"
+    if [ "$CONFIGURE_APPARMOR" != true ]; then
+        echo "  To have the installer add a persistent, scoped AppArmor exception, re-run the"
+        echo "  install command with  --configure-apparmor  added."
     else
-        echo "    add a persistent exception to that profile per your host's AppArmor policy"
+        echo "  A scoped exception couldn't be applied here: this host's nginx profile has no"
+        echo "  source file or local/ include hook to attach one to. Enabling the speed test"
+        echo "  needs a persistent change to that profile by your admin, or serving it from a"
+        echo "  host whose nginx isn't AppArmor-confined."
     fi
-    echo "    sudo systemctl start ${SPEEDTEST_SERVICE}"
 }
 
 # Remove any AppArmor local override this installer added (marker-guarded, so a
