@@ -450,7 +450,7 @@ else
                                 <div class="isp-factor-bar-track">
                                     <div class="isp-factor-bar @BarClass(factor.Score)" style="width: @(factor.Score ?? 0)%"></div>
                                 </div>
-                                <span class="isp-factor-score @ScoreTextClass(factor.Score)">@(factor.Score?.ToString() ?? "--")</span>
+                                <span class="isp-factor-score @(ScoreTextClass(factor.Score) + CaveatClass(factor.LowReachScoreCaveat))" data-tooltip="@factor.LowReachScoreCaveat">@(factor.Score?.ToString() ?? "--")</span>
                             </div>
                             @if (!string.IsNullOrEmpty(factor.Description)
                                  && !(factor.Name == "Physical Link" && r.PhysicalLinkCandidates.Count > 1))
@@ -503,7 +503,7 @@ else
                                     </div>
                                     <div class="isp-asn-sub">@(isIspAsn ? "ISP network" : asn.AsnNumber < 0 ? "Direct peering" : "Transit") @(asn.AsnNumber > 0 ? $"· AS{asn.AsnNumber}" : "")</div>
                                 </div>
-                                <span class="isp-asn-grade @ScoreTextClass(asn.OverallScore)">@(asn.OverallScore?.ToString() ?? "--")</span>
+                                <span class="isp-asn-grade @(ScoreTextClass(asn.OverallScore) + CaveatClass(asn.LowReachScoreCaveat))" data-tooltip="@asn.LowReachScoreCaveat">@(asn.OverallScore?.ToString() ?? "--")</span>
                             </div>
                             <div class="isp-asn-stats">
                                 @if (showRange)
@@ -1428,6 +1428,9 @@ else
         >= 60 => "isp-score-fair",
         _ => "isp-score-poor"
     };
+
+    // Appended to a score's class list (with a leading space) when it carries a caveat tooltip.
+    private static string CaveatClass(string? caveat) => caveat != null ? " isp-score-caveat" : "";
 
     private static string BarClass(int? score) => score switch
     {

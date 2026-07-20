@@ -61,6 +61,10 @@ public class IspScoreFactor
     /// shows the fraction icon only when this is set.
     /// </summary>
     public string? InvolvementTooltip { get; init; }
+
+    /// <summary>For a reach-0 transit ASN scoring below 80: the score-text caveat about ICMP
+    /// deprioritization, copied from <see cref="IspAsnHealth.LowReachScoreCaveat"/>. Null otherwise.</summary>
+    public string? LowReachScoreCaveat { get; init; }
 }
 
 /// <summary>One of the three top-level score dimensions.</summary>
@@ -135,6 +139,15 @@ public class IspAsnHealth
         : InvolvementReach > 0
             ? $"Carries {InvolvementReach} of {InvolvementHostTotal} internet targets (forward path), {w * 100:0}% weight"
             : $"Off the forward path; held at {w * 100:0}% (likely the return path from popular services)";
+
+    /// <summary>Caveat for the score TEXT of a reach-0 transit ASN scoring below 80: nothing monitored
+    /// routes through it on the forward path, so a depressed score may be ICMP deprioritization at its
+    /// routers rather than real path trouble. Only for real transit ASNs (AsnNumber &gt; 0) with known
+    /// attribution and zero forward-path reach; null otherwise.</summary>
+    public string? LowReachScoreCaveat => AsnNumber > 0 && ShowInvolvement && InvolvementReach == 0
+        && OverallScore is int s && s < 80
+        ? "Nothing you monitor routes through this network on the forward path, so a low score here may just be its routers deprioritizing ICMP rather than real path trouble - it's shown because it may carry your return path or a failover route."
+        : null;
 
     public int? LatencyStabilityScore { get; init; }
     public int? JitterScore { get; init; }

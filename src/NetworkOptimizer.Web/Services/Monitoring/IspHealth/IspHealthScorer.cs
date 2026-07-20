@@ -1527,7 +1527,8 @@ public class IspHealthScorer
             Description = a.CongestionEventCount > 0
                 ? $"{a.CongestionEventCount} congestion event{(a.CongestionEventCount == 1 ? "" : "s")} in the window."
                 : null,
-            InvolvementTooltip = a.InvolvementTooltip
+            InvolvementTooltip = a.InvolvementTooltip,
+            LowReachScoreCaveat = a.LowReachScoreCaveat
         }).ToList();
 
         var scored = asns.Where(a => a.OverallScore.HasValue).ToList();
