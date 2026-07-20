@@ -264,6 +264,14 @@ else
                         @(stats?.VoltageV.HasValue == true ? $"{stats.VoltageV.Value:0.0#} V" : "-")
                     </span>
                 </div>
+                @{ var sfpPonState = PonLinkStateExtensions.ParsePonLinkState(stats?.PonLinkStatus); }
+                @if (sfpPonState != PonLinkState.Unknown)
+                {
+                    <div class="metric-row">
+                        <span class="metric-label">PON Status:</span>
+                        <span class="metric-value">@sfpPonState.ToDisplayString()</span>
+                    </div>
+                }
             </div>
         </div>
         <div class="metric-box">
@@ -293,6 +301,27 @@ else
                         @(stats?.TemperatureC.HasValue == true ? $"{stats.TemperatureC.Value:0.0#} °C" : "-")
                     </span>
                 </div>
+                @if (stats?.BipErrors.HasValue == true)
+                {
+                    <div class="metric-row">
+                        <span class="metric-label">BIP:</span>
+                        <span class="metric-value">@stats.BipErrors.Value.ToString("N0")</span>
+                    </div>
+                }
+                @if (stats?.FecErrors.HasValue == true)
+                {
+                    <div class="metric-row">
+                        <span class="metric-label">FEC:</span>
+                        <span class="metric-value">@stats.FecErrors.Value.ToString("N0")</span>
+                    </div>
+                }
+                @if (stats?.GemRxDropped.HasValue == true)
+                {
+                    <div class="metric-row">
+                        <span class="metric-label">Drops:</span>
+                        <span class="metric-value">@stats.GemRxDropped.Value.ToString("N0")</span>
+                    </div>
+                }
             </div>
         </div>
     </div>

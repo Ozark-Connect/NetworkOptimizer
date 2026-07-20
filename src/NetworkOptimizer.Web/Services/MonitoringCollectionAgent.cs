@@ -2213,6 +2213,10 @@ public class MonitoringCollectionAgent : BackgroundService
             if (ponSupplemental.TryGetValue((mac, portName), out var ponStats))
             {
                 _ = _influx.WriteSfpPonAsync(mac, portName, ponStats, timestamp);
+                // Mirror the key PON values into live stats so the SFP ONT card can show
+                // PON status and absolute error counters without a DB roundtrip.
+                _liveStats.RecordSfpPon(mac, portName, ponStats.PonLinkStatus,
+                    ponStats.BipErrors, ponStats.FecErrors, ponStats.GemRxDropped, timestamp);
             }
 
             // Mirror the values into the live-stats cache so the dashboard SFP card can
