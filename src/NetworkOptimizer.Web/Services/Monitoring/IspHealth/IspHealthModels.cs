@@ -111,6 +111,31 @@ public class IspAsnHealth
     /// <summary>Median RTT beyond the first clean ISP hop. Null for ISP ASNs.</summary>
     public double? ReachDeltaMs { get; init; }
 
+    /// <summary>
+    /// Arm 4 - internet-host involvement, for transit ASNs. Set only when attribution is known
+    /// (hop order + destinations); left false/null for ISP ASNs and unattributable installs.
+    /// </summary>
+    public bool ShowInvolvement { get; set; }
+
+    /// <summary>How many monitored internet destinations are proven to route through this ASN.</summary>
+    public int InvolvementReach { get; set; }
+
+    /// <summary>Total monitored internet destinations (the denominator of the involvement fraction).</summary>
+    public int InvolvementHostTotal { get; set; }
+
+    /// <summary>
+    /// The 0.25-1.0 weight this ASN's own score carries in Transit Health; the remaining (1 - weight)
+    /// blends to a neutral 100, so a transit carrying none of your hosts can't drag the dimension.
+    /// Null when involvement isn't shown.
+    /// </summary>
+    public double? InvolvementWeight { get; set; }
+
+    /// <summary>Fraction-icon tooltip built from the involvement fields; null when not shown.</summary>
+    public string? InvolvementTooltip => !ShowInvolvement || InvolvementWeight is not double w ? null
+        : InvolvementReach > 0
+            ? $"Carries {InvolvementReach} of {InvolvementHostTotal} monitored internet host{(InvolvementHostTotal == 1 ? "" : "s")} - weighted at {w * 100:0}% in Transit Health"
+            : $"No monitored internet host is confirmed on this transit's path - weighted at {w * 100:0}% (the minimum)";
+
     public int? LatencyStabilityScore { get; init; }
     public int? JitterScore { get; init; }
     public int? LossScore { get; init; }

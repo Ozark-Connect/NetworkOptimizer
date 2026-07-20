@@ -107,6 +107,24 @@ public class IspHealthScorer
             kv => inputs.HopOrderKnown ? inputs.DestinationSeries.Count(d => RoutesThrough(d.AncestorIps, kv.Value)) : 0);
         var transitMaxReach = transitReachByAsn.Count > 0 ? transitReachByAsn.Values.Max() : 0;
 
+        // Attribution is "known" when we have the ancestry to prove routes-through AND destinations to
+        // test against. Then reach == 0 is a TRUE zero (a peered site whose destinations cross no
+        // transit) and floors the ASN at 25% - distinct from "no ancestry at all", where we can't tell
+        // and leave involvement unset (equal weight). Attach the involvement to each transit ASN so
+        // both Transit Health and the Networks on Your Path card read from one source.
+        var transitAttributionKnown = inputs.HopOrderKnown && inputs.DestinationSeries.Count > 0;
+        foreach (var a in transitAsns)
+        {
+            a.ShowInvolvement = transitAttributionKnown;
+            a.InvolvementHostTotal = inputs.DestinationSeries.Count;
+            a.InvolvementReach = transitReachByAsn.TryGetValue(a.AsnNumber, out var rc) ? rc : 0;
+            a.InvolvementWeight = transitAttributionKnown
+                ? (transitMaxReach > 0
+                    ? TransitInvolvementFloor + (1 - TransitInvolvementFloor) * ((double)a.InvolvementReach / transitMaxReach)
+                    : TransitInvolvementFloor)
+                : null;
+        }
+
         // Every ISP hop is graded; the dimension averages them all. Each hop's jitter is
         // absolved per-hop and routes-through-gated (a transit ASN or deeper ISP hop only
         // absolves a hop it is proven downstream of), so a divergent clean transit can't
@@ -115,13 +133,7 @@ public class IspHealthScorer
         var ispHopGrades = GradeIspHops(inputs.IspAsnSeries, inputs.TransitAsnSeries, transitAsns, inputs.DestinationSeries, inputs.CongestionEvents, jitterFloor, inputs.HopOrderKnown, accessMedianRtt, inputs.InternetMedianDeltaMs);
         // Collapse the per-hop grades to one entry per ASN for the Networks on Your Path card.
         var ispAsns = AggregateIspAsns(ispHopGrades, inputs.CongestionEvents, _options.JitterAssimilationMinDeltaMs);
-        // Attribution is "known" when we have the ancestry to prove routes-through AND destinations
-        // to test against. Then reach == 0 is a TRUE zero (a peered site whose destinations cross no
-        // transit) and floors the ASN at 25% - distinct from "no ancestry at all", where we can't
-        // tell and fall back to equal weight.
-        var transitAttributionKnown = inputs.HopOrderKnown && inputs.DestinationSeries.Count > 0;
-        var transitDimension = BuildAsnDimension("Transit Health", _options.TransitWeight, transitAsns,
-            transitReachByAsn, transitMaxReach, inputs.DestinationSeries.Count, transitAttributionKnown);
+        var transitDimension = BuildAsnDimension("Transit Health", _options.TransitWeight, transitAsns);
         var ispAsnDimension = BuildIspDimension(_options.IspAsnWeight, ispHopGrades);
 
         var overall = CombineDimensions(accessDimension, transitDimension, ispAsnDimension);
@@ -1297,59 +1309,48 @@ public class IspHealthScorer
     /// </summary>
     private const double TransitInvolvementFloor = 0.25;
 
+    /// <summary>Neutral baseline the uninvolved fraction of a transit ASN's score blends toward: a
+    /// transit carrying none of your hosts can't hurt Transit Health (it contributes ~100).</summary>
+    private const double TransitNeutralBaseline = 100.0;
+
     /// <summary>
-    /// Builds a transit-style ASN dimension. When <paramref name="hostAttributionKnown"/> (we have
-    /// the ancestry and destinations to test routes-through), each ASN is weighted by its involvement
-    /// - <see cref="TransitInvolvementFloor"/> + (1 - floor) * reach / maxReach, or the bare floor
-    /// when no ASN carries a host (<paramref name="maxReach"/> == 0, a peered site) - and a
-    /// fraction-icon tooltip is attached. Without attribution (no hop order / no destinations) we
-    /// can't tell, so every weight is 1.0 (plain average) and no tooltip is shown.
+    /// Builds a transit-style ASN dimension. Each ASN carries its <see cref="IspAsnHealth.InvolvementWeight"/>
+    /// (0.25-1.0, set upstream from internet-host involvement); its effective contribution is
+    /// weight * own + (1 - weight) * <see cref="TransitNeutralBaseline"/>, and the dimension score is
+    /// the involvement-weighted average of those - so the transit you actually use dominates and a
+    /// side-path transit's problems don't drag the number. When no ASN has involvement set (no
+    /// attribution), it's the plain average and no fraction icon is shown.
     /// </summary>
-    private static IspScoreDimension BuildAsnDimension(string name, double weight, List<IspAsnHealth> asns,
-        Dictionary<int, int>? reachByAsn = null, int maxReach = 0, int destinationTotal = 0,
-        bool hostAttributionKnown = false)
+    private static IspScoreDimension BuildAsnDimension(string name, double weight, List<IspAsnHealth> asns)
     {
-        var showInvolvement = reachByAsn != null && hostAttributionKnown;
-
-        double Involvement(int asn)
+        var factors = asns.Select(a => new IspScoreFactor
         {
-            if (!showInvolvement) return 1.0;
-            // Attribution known but no ASN carries a host (peered site): true-zero involvement, floor.
-            if (maxReach <= 0) return TransitInvolvementFloor;
-            var reach = reachByAsn!.TryGetValue(asn, out var rc) ? rc : 0;
-            return TransitInvolvementFloor + (1 - TransitInvolvementFloor) * ((double)reach / maxReach);
-        }
-
-        var factors = asns.Select(a =>
-        {
-            var reach = reachByAsn != null && reachByAsn.TryGetValue(a.AsnNumber, out var rc) ? rc : 0;
-            var involvement = Involvement(a.AsnNumber);
-            var tip = !showInvolvement ? null
-                : reach > 0
-                    ? $"Carries {reach} of {destinationTotal} monitored internet host{(destinationTotal == 1 ? "" : "s")} - weighted at {involvement * 100:0}% in Transit Health"
-                    : $"No monitored internet host is confirmed on this transit's path - weighted at {involvement * 100:0}% (the minimum)";
-            return new IspScoreFactor
-            {
-                Name = string.IsNullOrEmpty(a.AsnName) ? $"AS{a.AsnNumber}" : a.AsnName,
-                Score = a.OverallScore,
-                Weight = involvement,
-                ValueText = a.MeanRttMs.HasValue ? FormatMsCoarse(a.MeanRttMs.Value) : null,
-                Description = a.CongestionEventCount > 0
-                    ? $"{a.CongestionEventCount} congestion event{(a.CongestionEventCount == 1 ? "" : "s")} in the window."
-                    : null,
-                InvolvementTooltip = tip
-            };
+            Name = string.IsNullOrEmpty(a.AsnName) ? $"AS{a.AsnNumber}" : a.AsnName,
+            Score = a.OverallScore,
+            Weight = a.InvolvementWeight ?? 1.0,
+            ValueText = a.MeanRttMs.HasValue ? FormatMsCoarse(a.MeanRttMs.Value) : null,
+            Description = a.CongestionEventCount > 0
+                ? $"{a.CongestionEventCount} congestion event{(a.CongestionEventCount == 1 ? "" : "s")} in the window."
+                : null,
+            InvolvementTooltip = a.InvolvementTooltip
         }).ToList();
 
         var scored = asns.Where(a => a.OverallScore.HasValue).ToList();
         int? score;
         if (scored.Count == 0)
             score = null;
+        else if (scored.All(a => a.InvolvementWeight is null))
+            score = (int)Math.Round(scored.Average(a => a.OverallScore!.Value));
         else
         {
-            var wsum = scored.Sum(a => Involvement(a.AsnNumber));
+            var wsum = scored.Sum(a => a.InvolvementWeight ?? 1.0);
             score = wsum > 0
-                ? (int)Math.Round(scored.Sum(a => a.OverallScore!.Value * Involvement(a.AsnNumber)) / wsum)
+                ? (int)Math.Round(scored.Sum(a =>
+                {
+                    var w = a.InvolvementWeight ?? 1.0;
+                    var effective = w * a.OverallScore!.Value + (1 - w) * TransitNeutralBaseline;
+                    return w * effective;
+                }) / wsum)
                 : (int)Math.Round(scored.Average(a => a.OverallScore!.Value));
         }
         return new IspScoreDimension { Name = name, Score = score, Weight = weight, Factors = factors };

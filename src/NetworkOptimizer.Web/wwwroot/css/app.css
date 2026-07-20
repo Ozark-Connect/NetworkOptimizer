@@ -16750,6 +16750,29 @@ a.isp-health-hero-speed:hover {
     color: var(--text-primary);
 }
 
+.isp-factor-name-row {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    min-width: 0;
+}
+
+.isp-asn-name-row {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+}
+
+.isp-involvement-pie {
+    display: inline-flex;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+.isp-involvement-pie svg {
+    display: block;
+}
+
 .isp-factor-value {
     font-size: 0.75rem;
     color: var(--text-secondary);
