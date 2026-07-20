@@ -224,6 +224,16 @@ else
         </div>
     </div>
 
+    var sfpPonState = PonLinkStateExtensions.ParsePonLinkState(stats?.PonLinkStatus);
+    // FEC disabled on the OLT profile => FEC counters stay 0; HEC is the live signal.
+    var fecOff = stats?.FecEnabled == false;
+    var midErr = fecOff ? stats?.HecUncorrected : stats?.FecErrors;
+    var midErrLabel = fecOff ? "HEC" : "FEC";
+    var midErrTip = fecOff ? "uncorrectable HEC header errors (payload FEC disabled)" : "uncorrectable FEC codewords";
+    var hasErrCounts = stats?.BipErrors.HasValue == true || midErr.HasValue || stats?.GemRxDropped.HasValue == true;
+    // Supplemental PON data present: move SFP Voltage to the Stats column to keep the
+    // two columns even (Connection gains PON Status + error counts).
+    var hasPonSupplement = sfpPonState != PonLinkState.Unknown || hasErrCounts;
     <div class="cellular-metrics" style="margin-top: 0.75rem;">
         <div class="metric-box">
             <div class="metric-header">Connection</div>
@@ -240,6 +250,13 @@ else
                     <span class="metric-label">Link Type:</span>
                     <span class="metric-value @(current.IsActiveEthernet ? "ont-ae-value" : "")">@LinkTypeLabel(current)</span>
                 </div>
+                @if (sfpPonState != PonLinkState.Unknown)
+                {
+                    <div class="metric-row">
+                        <span class="metric-label">PON Status:</span>
+                        <span class="metric-value">@sfpPonState.ToDisplayString()</span>
+                    </div>
+                }
                 @if (current.LinkSpeedMbps.HasValue)
                 {
                     <div class="metric-row">
@@ -258,18 +275,20 @@ else
                         </span>
                     </div>
                 }
-                <div class="metric-row">
-                    <span class="metric-label">SFP Voltage:</span>
-                    <span class="metric-value">
-                        @(stats?.VoltageV.HasValue == true ? $"{stats.VoltageV.Value:0.0#} V" : "-")
-                    </span>
-                </div>
-                @{ var sfpPonState = PonLinkStateExtensions.ParsePonLinkState(stats?.PonLinkStatus); }
-                @if (sfpPonState != PonLinkState.Unknown)
+                @if (hasErrCounts)
                 {
                     <div class="metric-row">
-                        <span class="metric-label">PON Status:</span>
-                        <span class="metric-value">@sfpPonState.ToDisplayString()</span>
+                        <span class="metric-label" data-tooltip="@($"BIP / {midErrTip} / dropped GEM frames (cumulative)")">@($"BIP/{midErrLabel}/Drops:")</span>
+                        <span class="metric-value">@FmtCount(stats?.BipErrors) / @FmtCount(midErr) / @FmtCount(stats?.GemRxDropped)</span>
+                    </div>
+                }
+                @if (!hasPonSupplement)
+                {
+                    <div class="metric-row">
+                        <span class="metric-label">SFP Voltage:</span>
+                        <span class="metric-value">
+                            @(stats?.VoltageV.HasValue == true ? $"{stats.VoltageV.Value:0.0#} V" : "-")
+                        </span>
                     </div>
                 }
             </div>
@@ -301,11 +320,13 @@ else
                         @(stats?.TemperatureC.HasValue == true ? $"{stats.TemperatureC.Value:0.0#} °C" : "-")
                     </span>
                 </div>
-                @if (stats?.BipErrors.HasValue == true || stats?.FecErrors.HasValue == true || stats?.GemRxDropped.HasValue == true)
+                @if (hasPonSupplement)
                 {
                     <div class="metric-row">
-                        <span class="metric-label" data-tooltip="BIP / FEC / dropped GEM frames (cumulative)">BIP/FEC/Drops:</span>
-                        <span class="metric-value">@FmtCount(stats?.BipErrors) / @FmtCount(stats?.FecErrors) / @FmtCount(stats?.GemRxDropped)</span>
+                        <span class="metric-label">SFP Voltage:</span>
+                        <span class="metric-value">
+                            @(stats?.VoltageV.HasValue == true ? $"{stats.VoltageV.Value:0.0#} V" : "-")
+                        </span>
                     </div>
                 }
             </div>

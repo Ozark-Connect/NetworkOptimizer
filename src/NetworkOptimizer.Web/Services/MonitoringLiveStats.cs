@@ -489,10 +489,12 @@ public class MonitoringLiveStats
     /// supplement poll doesn't blank the prior good values.
     /// </summary>
     public void RecordSfpPon(string deviceMac, string portName, string? ponLinkStatus,
-        long? bipErrors, long? fecErrors, long? gemRxDropped, DateTime timestamp)
+        long? bipErrors, long? fecErrors, long? hecUncorrected, bool? fecEnabled,
+        long? gemRxDropped, DateTime timestamp)
     {
         if (string.IsNullOrEmpty(deviceMac) || string.IsNullOrEmpty(portName)) return;
-        if (string.IsNullOrEmpty(ponLinkStatus) && !bipErrors.HasValue && !fecErrors.HasValue && !gemRxDropped.HasValue)
+        if (string.IsNullOrEmpty(ponLinkStatus) && !bipErrors.HasValue && !fecErrors.HasValue
+            && !hecUncorrected.HasValue && !gemRxDropped.HasValue)
             return;
 
         var key = (Normalize(deviceMac), portName);
@@ -503,6 +505,8 @@ public class MonitoringLiveStats
                 PonLinkStatus = ponLinkStatus,
                 BipErrors = bipErrors,
                 FecErrors = fecErrors,
+                HecUncorrected = hecUncorrected,
+                FecEnabled = fecEnabled,
                 GemRxDropped = gemRxDropped,
                 LastUpdate = timestamp
             },
@@ -511,6 +515,8 @@ public class MonitoringLiveStats
                 PonLinkStatus = ponLinkStatus ?? prior.PonLinkStatus,
                 BipErrors = bipErrors ?? prior.BipErrors,
                 FecErrors = fecErrors ?? prior.FecErrors,
+                HecUncorrected = hecUncorrected ?? prior.HecUncorrected,
+                FecEnabled = fecEnabled ?? prior.FecEnabled,
                 GemRxDropped = gemRxDropped ?? prior.GemRxDropped,
             });
     }
@@ -719,6 +725,12 @@ public record SfpLiveStats
     public long? BipErrors { get; init; }
     /// <summary>Absolute (cumulative) uncorrectable FEC codewords from the PON supplement.</summary>
     public long? FecErrors { get; init; }
+    /// <summary>Absolute (cumulative) uncorrectable HEC header errors - the always-on
+    /// framing-layer error signal, meaningful even when payload FEC is disabled.</summary>
+    public long? HecUncorrected { get; init; }
+    /// <summary>Whether payload FEC is enabled per the OLT profile. Null = unknown. When
+    /// false, the FEC counters stay 0 and HEC is the live error signal to show instead.</summary>
+    public bool? FecEnabled { get; init; }
     /// <summary>Absolute (cumulative) dropped GEM frames from the PON supplement.</summary>
     public long? GemRxDropped { get; init; }
 }
