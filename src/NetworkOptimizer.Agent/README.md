@@ -123,11 +123,11 @@ Downloads the self-contained binary (no .NET runtime or Docker), writes
 
 Both scripts accept:
 
-- `--lan-speed-test` - host the LAN speed test page (port 3000) and iperf3 (5201)
+- `--lan-speed-test` - host the LAN speed test page (port 3000) and iperf3 (5201). This is the **only** thing that uses nginx; core monitoring needs neither nginx nor this flag.
 - `--insecure` - accept a self-signed cert on the server's reverse proxy
 - `--dir PATH` - override the install directory
 - `--uninstall` - stop and remove the agent, its services, and install dir, then exit
-- `--configure-apparmor` - if the host's nginx AppArmor profile blocks the speed test dir, add a persistent, scoped local override (off by default; the installer won't touch host security policy unless asked). The install output tells you to re-run with this flag when it applies.
+- `--configure-apparmor` - only relevant with `--lan-speed-test`: the speed test is served by nginx, so if the host's nginx AppArmor profile blocks the speed test dir, this adds a persistent, scoped local override (off by default; the installer won't touch host security policy unless asked). The install output tells you to re-run with this flag when it applies.
 
 To remove a bare-metal agent (stops the services first, then removes the units,
 install dir, and any AppArmor override the installer added; the host's own nginx

@@ -19,10 +19,12 @@
 #   --dir PATH       Install directory (default: /opt/netopt-agent)
 #   --uninstall      Stop and remove the agent, its services, install dir, and any
 #                    AppArmor override this installer added, then exit
-#   --configure-apparmor  If the host's nginx AppArmor profile blocks the speed
-#                    test dir, add a persistent, scoped local override (off by
-#                    default - the installer won't modify host security policy
-#                    unless asked)
+#   --configure-apparmor  Only relevant with --lan-speed-test: the speed test is
+#                    served by nginx, and if the host's nginx AppArmor profile
+#                    blocks the speed test dir, this adds a persistent, scoped local
+#                    override (off by default - the installer won't modify host
+#                    security policy unless asked). Nothing else uses nginx; core
+#                    monitoring never touches it.
 
 set -euo pipefail
 
