@@ -301,25 +301,11 @@ else
                         @(stats?.TemperatureC.HasValue == true ? $"{stats.TemperatureC.Value:0.0#} °C" : "-")
                     </span>
                 </div>
-                @if (stats?.BipErrors.HasValue == true)
+                @if (stats?.BipErrors.HasValue == true || stats?.FecErrors.HasValue == true || stats?.GemRxDropped.HasValue == true)
                 {
                     <div class="metric-row">
-                        <span class="metric-label">BIP:</span>
-                        <span class="metric-value">@stats.BipErrors.Value.ToString("N0")</span>
-                    </div>
-                }
-                @if (stats?.FecErrors.HasValue == true)
-                {
-                    <div class="metric-row">
-                        <span class="metric-label">FEC:</span>
-                        <span class="metric-value">@stats.FecErrors.Value.ToString("N0")</span>
-                    </div>
-                }
-                @if (stats?.GemRxDropped.HasValue == true)
-                {
-                    <div class="metric-row">
-                        <span class="metric-label">Drops:</span>
-                        <span class="metric-value">@stats.GemRxDropped.Value.ToString("N0")</span>
+                        <span class="metric-label" data-tooltip="BIP / FEC / dropped GEM frames (cumulative)">BIP/FEC/Drops:</span>
+                        <span class="metric-value">@FmtCount(stats?.BipErrors) / @FmtCount(stats?.FecErrors) / @FmtCount(stats?.GemRxDropped)</span>
                     </div>
                 }
             </div>
@@ -540,6 +526,8 @@ else
     private static string FormatLinkSpeed(int mbps) => mbps >= 1000
         ? $"{mbps / 1000.0:0.##} Gbps"
         : $"{mbps} Mbps";
+
+    private static string FmtCount(long? v) => v.HasValue ? v.Value.ToString("N0") : "-";
 
     public string? CurrentModuleKey
     {
