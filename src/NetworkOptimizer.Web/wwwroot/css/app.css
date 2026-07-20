@@ -16804,6 +16804,14 @@ a.isp-health-hero-speed:hover {
     font-size: 0.9rem;
     font-weight: 700;
     text-align: right;
+    cursor: default;
+}
+
+.isp-factor-score.isp-score-caveat,
+.isp-asn-grade.isp-score-caveat {
+    cursor: help;
+    text-decoration: underline dotted;
+    text-underline-offset: 3px;
 }
 
 .isp-factor-description {
@@ -16901,6 +16909,7 @@ a.isp-health-hero-speed:hover {
 .isp-asn-grade {
     font-size: 1.3rem;
     font-weight: 700;
+    cursor: default;
 }
 
 .isp-asn-stats {

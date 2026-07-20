@@ -61,6 +61,10 @@ public class IspScoreFactor
     /// shows the fraction icon only when this is set.
     /// </summary>
     public string? InvolvementTooltip { get; init; }
+
+    /// <summary>For a reach-0 transit ASN scoring below 80: the score-text caveat about ICMP
+    /// deprioritization, copied from <see cref="IspAsnHealth.LowReachScoreCaveat"/>. Null otherwise.</summary>
+    public string? LowReachScoreCaveat { get; init; }
 }
 
 /// <summary>One of the three top-level score dimensions.</summary>
@@ -96,7 +100,7 @@ public class IspAsnHealth
 
     public double? P95RttMs { get; init; }
     public double? MedianJitterMs { get; init; }
-    public double? P95JitterMs { get; init; }
+    public double? ScoredJitterMs { get; init; }
 
     /// <summary>True when the displayed jitter was assimilated from elsewhere (a cleaner
     /// farther cluster for transit, or the cleanest transit ASN for the ISP) rather than
@@ -136,6 +140,15 @@ public class IspAsnHealth
             ? $"Carries {InvolvementReach} of {InvolvementHostTotal} internet targets (forward path), {w * 100:0}% weight"
             : $"Off the forward path; held at {w * 100:0}% (likely the return path from popular services)";
 
+    /// <summary>Caveat for the score TEXT of a reach-0 transit ASN scoring below 80: nothing monitored
+    /// routes through it on the forward path, so a depressed score may be ICMP deprioritization at its
+    /// routers rather than real path trouble. Only for real transit ASNs (AsnNumber &gt; 0) with known
+    /// attribution and zero forward-path reach; null otherwise.</summary>
+    public string? LowReachScoreCaveat => AsnNumber > 0 && ShowInvolvement && InvolvementReach == 0
+        && OverallScore is int s && s < 80
+        ? "Lightly weighted - nothing we are monitoring routes through this network; a low score is likely just ICMP deprioritization."
+        : null;
+
     public int? LatencyStabilityScore { get; init; }
     public int? JitterScore { get; init; }
     public int? LossScore { get; init; }
@@ -157,10 +170,10 @@ public class IspTargetHealth
     /// <summary>Displayed RTT: winsorized mean over the window.</summary>
     public double? RttMs { get; init; }
 
-    /// <summary>Effective (absolved) P95 jitter this hop is graded on.</summary>
-    public double? P95JitterMs { get; init; }
+    /// <summary>Effective (absolved) jitter this hop is graded on.</summary>
+    public double? ScoredJitterMs { get; init; }
 
-    /// <summary>This hop's own measured P95 jitter, before any absolve.</summary>
+    /// <summary>This hop's own measured jitter, before any absolve.</summary>
     public double? RawJitterMs { get; init; }
 
     /// <summary>True when a cleaner witness (transit/sibling/destination) pulled this hop's jitter below its own reading.</summary>

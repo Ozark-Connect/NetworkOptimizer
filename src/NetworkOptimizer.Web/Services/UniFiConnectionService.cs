@@ -519,8 +519,13 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     /// True when this site's console is reached through its agent tunnel and that tunnel
     /// isn't up yet - a transient "waiting for the agent" state, not a misconfiguration.
     /// The UI should prompt to wait/refresh rather than steering to connection setup.
+    /// Requires a configured, credentialed console: awaiting-agent is meaningless without a
+    /// saved target, so a half-configured site falls through to the "set up in Settings" banner
+    /// instead of showing the wait/refresh one (which would tell you to open Settings while only
+    /// offering Refresh).
     /// </summary>
-    public bool IsAwaitingAgent => _awaitingAgent && !_isConnected;
+    public bool IsAwaitingAgent =>
+        _awaitingAgent && !_isConnected && _settings is { IsConfigured: true, HasCredentials: true };
     public DateTime? LastConnectedAt => _lastConnectedAt;
     public bool IsUniFiOs => _client?.IsUniFiOs ?? false;
 
