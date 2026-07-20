@@ -229,7 +229,7 @@ public class IspHealthScorer
             IspAsnDimension = ispAsnDimension,
             TransitAsns = transitAsns,
             IspAsns = ispAsns,
-            IspTargets = inputs.IspTargetSeries.Select(s => BuildIspTargetHealth(s, inputs.FirstHopTargetId, ispHopGrades, _options.RttWinsorPercentile)).ToList(),
+            IspTargets = inputs.IspTargetSeries.Select(s => BuildIspTargetHealth(s, inputs.FirstHopTargetId, ispHopGrades, _options.RttWinsorPercentile, inputs.NotTracedTargetIds)).ToList(),
             CongestionEvents = inputs.CongestionEvents,
             PathShifts = inputs.PathShifts,
             Outages = inputs.Outages,
@@ -1255,7 +1255,13 @@ public class IspHealthScorer
         return result;
     }
 
-    private IspTargetHealth BuildIspTargetHealth(AsnSeries series, string? firstHopTargetId, List<IspAsnHealth> hopGrades, double winsorPercentile)
+    /// <summary>
+    /// A hop is suggested for disable when its jitter score is at or below this - i.e. jitter is a
+    /// real deficit, not noise. Combined with "off the traced path" to avoid nagging on clean hops.
+    /// </summary>
+    private const int DisableSuggestMaxJitterScore = 70;
+
+    private IspTargetHealth BuildIspTargetHealth(AsnSeries series, string? firstHopTargetId, List<IspAsnHealth> hopGrades, double winsorPercentile, IReadOnlySet<string> notTracedTargetIds)
     {
         var rtts = series.Samples.Where(s => s.RttAvgMs.HasValue).Select(s => s.RttAvgMs!.Value).ToList();
         var jitters = series.Samples.Select(s => s.EffectiveJitterMs).Where(j => j.HasValue).Select(j => j!.Value).ToList();
@@ -1265,6 +1271,8 @@ public class IspHealthScorer
         // Jitter comes from the grade (the effective/absolved value the hop is scored on), so
         // the row matches the grade beside it. Fall back to the hop's own raw P95 when ungraded.
         var rawP95 = jitters.Count > 0 ? SeriesStats.Percentile(jitters, 0.95) : null;
+        var isGraded = targetId == firstHopTargetId;
+        var notTraced = notTracedTargetIds.Contains(targetId);
         return new IspTargetHealth
         {
             TargetId = targetId,
@@ -1276,7 +1284,11 @@ public class IspHealthScorer
             LossPct = losses.Count > 0 ? losses.Average() : null,
             OverallScore = grade?.OverallScore,
             ReachDeltaMs = grade?.ReachDeltaMs,
-            IsGradedHop = targetId == firstHopTargetId
+            IsGradedHop = isGraded,
+            NotOnTracedPath = notTraced,
+            // Off the traced path AND its jitter is a real deficit - the "why am I still scoring this?"
+            // candidate. Never the graded nearest hop.
+            SuggestDisable = notTraced && !isGraded && grade?.JitterScore is int js && js <= DisableSuggestMaxJitterScore
         };
     }
 

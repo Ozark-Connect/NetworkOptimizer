@@ -40,7 +40,8 @@ public class IspHealthScorerTests
         bool lineIdle = false,
         bool hopOrderKnown = false,
         List<OutageEvent>? outages = null,
-        TimeSpan? scoreWindow = null)
+        TimeSpan? scoreWindow = null,
+        HashSet<string>? notTracedTargetIds = null)
     {
         // lineIdle: a near-zero, flat WAN with no load bursts (~0% average load), for
         // exercising the load-calibrated packet-loss ceiling at the idle end.
@@ -82,6 +83,7 @@ public class IspHealthScorerTests
             CongestionEvents = congestion ?? new List<CongestionEvent>(),
             SmartQueuesEnabled = smartQueuesEnabled,
             HopOrderKnown = hopOrderKnown,
+            NotTracedTargetIds = notTracedTargetIds ?? new HashSet<string>(),
             Outages = outages ?? new List<OutageEvent>()
         };
     }
@@ -1103,6 +1105,34 @@ public class IspHealthScorerTests
         weighted.Factors.Single(f => f.Name == "JitteryTransit").InvolvementTooltip.Should().Contain("25%");
         equal.Factors.Should().OnlyContain(f => f.InvolvementTooltip == null,
             "with no attributable host there is no involvement to differentiate");
+    }
+
+    [Fact]
+    public void Off_path_jittery_isp_hop_is_flagged_for_disable()
+    {
+        // A hop that answers pings but appears on no trace (an OLT that ICMP-deprioritizes traceroute)
+        // with high jitter is flagged SuggestDisable. The graded on-path hop never is.
+        var graded = new AsnSeries
+        {
+            AsnNumber = 64496, AsnName = "ISP", TargetIds = { "isp-near" }, RoleTargetIds = { "isp-near" },
+            Samples = TestSeries.Flat(TestSeries.Start, Day, 2.0, 0.3), HopIps = { "10.0.0.1" }
+        };
+        var offPathJittery = new AsnSeries
+        {
+            AsnNumber = 64496, AsnName = "ISP", TargetIds = { "isp-olt" }, RoleTargetIds = { "isp-olt" },
+            Samples = TestSeries.Flat(TestSeries.Start, Day, 4.0, 6.0), HopIps = { "10.0.0.9" }
+        };
+        var hops = new List<AsnSeries> { graded, offPathJittery };
+
+        var report = new IspHealthScorer(Options).Score(
+            BuildInputs(ispAsn: hops, ispTargets: hops, firstHopTargetId: "isp-near",
+                hopOrderKnown: true, notTracedTargetIds: new HashSet<string> { "isp-olt" }), Gpon);
+
+        var olt = report.IspTargets.Single(t => t.TargetId == "isp-olt");
+        olt.NotOnTracedPath.Should().BeTrue();
+        olt.SuggestDisable.Should().BeTrue("off the traced path and dragging its score with jitter");
+        report.IspTargets.Single(t => t.TargetId == "isp-near").SuggestDisable.Should().BeFalse(
+            "the graded on-path hop is never suggested for disable");
     }
 
     [Fact]

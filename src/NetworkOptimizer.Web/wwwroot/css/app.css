@@ -17306,6 +17306,24 @@ a.isp-outage-ack:hover {
     letter-spacing: 0.04em;
 }
 
+.isp-target-disable-hint {
+    margin-left: 0.35rem;
+    padding: 0.05rem 0.4rem;
+    border: none;
+    border-radius: 4px;
+    background: rgba(231, 150, 19, 0.2);
+    color: var(--warning-color);
+    font-size: 0.62rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    cursor: pointer;
+}
+
+.isp-target-disable-hint:hover {
+    background: rgba(231, 150, 19, 0.32);
+}
+
 .isp-target-stat {
     display: flex;
     flex-direction: column;

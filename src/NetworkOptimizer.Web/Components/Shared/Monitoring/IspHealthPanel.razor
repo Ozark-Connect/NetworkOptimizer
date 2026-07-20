@@ -347,6 +347,12 @@ else
                                             {
                                                 <span class="isp-target-graded" data-tooltip="The lowest-RTT ISP hop; access-layer idle latency is measured from it">Lowest RTT</span>
                                             }
+                                            @if (target.SuggestDisable)
+                                            {
+                                                <button type="button" class="isp-target-disable-hint"
+                                                        data-tooltip="Not on your traced path but adding jitter - review in Latency targets to disable"
+                                                        @onclick="() => OnReviewTarget.InvokeAsync(target.TargetId)">Not on path &#9888;</button>
+                                            }
                                         </div>
                                         <div class="isp-factor-bar-track">
                                             <div class="isp-factor-bar @BarClass(target.OverallScore)" style="width: @(target.OverallScore ?? 0)%"></div>
@@ -662,6 +668,10 @@ else
 
 @code {
     private const int NetworkPreviewCount = 5;
+
+    // Raised when the user clicks the disable hint on an off-path, jittery ISP hop; the parent jumps
+    // to the Latency targets card so they can pause it. Argument is the hop's TargetId.
+    [Parameter] public EventCallback<string> OnReviewTarget { get; set; }
 
     // Arm 4: pie-slice icon showing a transit ASN's internet-host involvement weight (0.25-1.0).
     private RenderFragment InvolvementPie(double weight, string tooltip) => @<span class="isp-involvement-pie" data-tooltip="@tooltip">

@@ -134,7 +134,7 @@ public class IspAsnHealth
     public string? InvolvementTooltip => !ShowInvolvement || InvolvementWeight is not double w ? null
         : InvolvementReach > 0
             ? $"Carries {InvolvementReach} of {InvolvementHostTotal} internet targets (forward path), {w * 100:0}% weight"
-            : $"No internet target's forward path crosses this; held at {w * 100:0}% (likely their return path)";
+            : $"Off the forward path; held at {w * 100:0}% (likely the return path from popular services)";
 
     public int? LatencyStabilityScore { get; init; }
     public int? JitterScore { get; init; }
@@ -176,6 +176,18 @@ public class IspTargetHealth
 
     /// <summary>True for the first clean hop, the target the access layer idle latency comes from.</summary>
     public bool IsGradedHop { get; init; }
+
+    /// <summary>
+    /// True when this hop answers pings but appears in no discovery trace (HopNumber 0) - e.g. an
+    /// OLT/CMTS that ICMP-deprioritizes traceroute. Its jitter isn't a forward-path signal.
+    /// </summary>
+    public bool NotOnTracedPath { get; init; }
+
+    /// <summary>
+    /// True when this hop is off the traced path AND its jitter is materially degrading its score -
+    /// a strong "you probably want to stop scoring this" signal that drives the ISP Health disable hint.
+    /// </summary>
+    public bool SuggestDisable { get; init; }
 }
 
 /// <summary>An actionable finding or recommendation surfaced on the ISP Health tab.</summary>
@@ -693,6 +705,12 @@ public class IspHealthInputs
     /// transit (transit is always downstream of the ISP) and stays closed for ISP siblings.
     /// </summary>
     public bool HopOrderKnown { get; init; }
+
+    /// <summary>
+    /// TargetIds of monitored hops that answer pings but appear in no discovery trace (HopNumber 0) -
+    /// used to flag likely-disable ISP hops whose jitter isn't a forward-path signal.
+    /// </summary>
+    public IReadOnlySet<string> NotTracedTargetIds { get; init; } = new HashSet<string>();
 
     /// <summary>
     /// Window-aggregated physical-link metrics for the one source matched to the WAN, or null
