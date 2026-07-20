@@ -59,19 +59,34 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-err() { echo "Error: $*" >&2; exit 1; }
+# --- Output helpers -----------------------------------------------------------
+# Colorized, structured output; colors collapse to empty when stdout isn't a
+# terminal, so piped/logged output stays clean.
+if [ -t 1 ]; then
+    _b=$'\e[1m'; _dim=$'\e[2m'; _grn=$'\e[32m'; _ylw=$'\e[33m'; _red=$'\e[31m'; _cyn=$'\e[36m'; _rst=$'\e[0m'
+else
+    _b=; _dim=; _grn=; _ylw=; _red=; _cyn=; _rst=
+fi
+_rule="$(printf '\xe2\x94\x80%.0s' {1..52})"   # ── divider between sections
+step() { printf '\n%s%s%s\n%s==>%s %s%s%s\n' "$_dim" "$_rule" "$_rst" "${_cyn}${_b}" "$_rst" "$_b" "$*" "$_rst"; }
+ok()   { printf '  %s\xe2\x9c\x93%s %s\n' "$_grn" "$_rst" "$*"; }
+note() { printf '  %s%s%s\n' "$_dim" "$*" "$_rst"; }
+warn() { printf '  %s\xe2\x9a\xa0%s  %s\n' "$_ylw" "$_rst" "$*"; }
+err()  { printf '%sError:%s %s\n' "${_red}${_b}" "$_rst" "$*" >&2; exit 1; }
 
 [ "$(id -u)" -eq 0 ] || err "Run as root (the gateway's default SSH user is root)."
 command -v systemctl >/dev/null 2>&1 || err "systemd is required (systemctl not found)."
 
 # --- Teardown --------------------------------------------------------------
 if [ "$UNINSTALL" = true ]; then
-    echo "Removing ${SERVICE_NAME} and ${INSTALL_DIR}..."
+    step "Removing the Network Optimizer agent"
+    note "${SERVICE_NAME} + ${INSTALL_DIR}"
     systemctl disable --now "${SERVICE_NAME}.service" 2>/dev/null || true
     rm -f "/etc/systemd/system/${SERVICE_NAME}.service"
     systemctl daemon-reload 2>/dev/null || true
     rm -rf "$INSTALL_DIR"
-    echo "Done - the gateway is back to stock."
+    ok "Removed - the gateway is back to stock."
+    printf '\n'
     exit 0
 fi
 
@@ -96,36 +111,39 @@ esac
 # is already accounted for in MemAvailable).
 MIN_AVAILABLE_MB=256
 if ! systemctl is-active --quiet "${SERVICE_NAME}.service"; then
+    step "Memory pre-flight"
     AVAILABLE_MB="$(awk '/MemAvailable/ {print int($2/1024)}' /proc/meminfo)"
     if [ -z "$AVAILABLE_MB" ]; then
-        echo "Warning: could not read MemAvailable from /proc/meminfo - skipping the memory check." >&2
+        warn "could not read MemAvailable from /proc/meminfo - skipping the memory check."
     elif [ "$AVAILABLE_MB" -lt "$MIN_AVAILABLE_MB" ]; then
         err "only ${AVAILABLE_MB} MB of memory is available; the agent needs ${MIN_AVAILABLE_MB} MB of headroom so it stays well clear of routing/IPS. Free up memory (e.g. remove unused UniFi applications) or run the agent on a separate box (see install-native.sh)."
     else
-        echo "Memory check: ${AVAILABLE_MB} MB available (need ${MIN_AVAILABLE_MB} MB) - OK"
+        ok "${AVAILABLE_MB} MB available (need ${MIN_AVAILABLE_MB} MB)"
     fi
 fi
 
-echo "Installing Network Optimizer agent to ${INSTALL_DIR} (${RID}, monitoring-only)"
+printf '\n%sNetwork Optimizer on-site agent (gateway, monitoring-only)%s\n' "$_b" "$_rst"
+note "Installing to ${INSTALL_DIR}  (${RID})"
 mkdir -p "$INSTALL_DIR"
 
 # Download to a temp name and rename into place: writing over the binary while
 # the agent is running fails with ETXTBSY, but rename swaps the directory entry
 # and the running process keeps its old inode until the restart below.
-echo "Downloading agent binary..."
-curl -fSL "${RELEASE_BASE}/NetworkOptimizer.Agent-${RID}" -o "${INSTALL_DIR}/NetworkOptimizer.Agent.new"
+step "Downloading agent binary"
+curl -fsSL "${RELEASE_BASE}/NetworkOptimizer.Agent-${RID}" -o "${INSTALL_DIR}/NetworkOptimizer.Agent.new"
 chmod +x "${INSTALL_DIR}/NetworkOptimizer.Agent.new"
 mv -f "${INSTALL_DIR}/NetworkOptimizer.Agent.new" "${INSTALL_DIR}/NetworkOptimizer.Agent"
+ok "agent (${RID})"
 
 CONFIG="${INSTALL_DIR}/agent.json"
 
+step "Configuring the agent"
 # Preserve an already-enrolled config so re-running to update the binary never
 # wipes the persisted key.
 if grep -q '"agentKey"' "$CONFIG" 2>/dev/null; then
-    echo "Existing enrolled agent config found - keeping it."
+    note "Existing enrollment found - keeping agent.json"
 else
     [ -n "$TOKEN" ] || err "--token is required for a first-time install."
-    echo "Writing ${CONFIG}"
     {
         echo "{"
         echo "  \"serverUrl\": \"${SERVER%/}\","
@@ -135,9 +153,10 @@ else
         echo "}"
     } > "$CONFIG"
     chmod 600 "$CONFIG"
+    ok "Wrote ${CONFIG}"
 fi
 
-echo "Installing ${SERVICE_NAME}.service"
+step "Installing the agent service"
 cat > "/etc/systemd/system/${SERVICE_NAME}.service" <<UNIT
 [Unit]
 Description=Network Optimizer Agent (${SERVICE_NAME})
@@ -163,15 +182,15 @@ WantedBy=multi-user.target
 UNIT
 
 systemctl daemon-reload
-systemctl enable "${SERVICE_NAME}.service"
+systemctl enable --quiet "${SERVICE_NAME}.service"
 # restart (not `enable --now`) so an upgrade re-run moves an already-running
 # agent onto the new binary; it starts a stopped/fresh service just the same
 systemctl restart "${SERVICE_NAME}.service"
+ok "${SERVICE_NAME}.service installed and started"
 
-echo
-echo "Agent started (monitoring-only). It enrolls, then holds a tunnel to ${SERVER%/}."
-echo "Watch it come Online in the web UI, or follow logs:"
-echo "  journalctl -u ${SERVICE_NAME} -f"
-echo
-echo "Remove it again with:"
-echo "  bash <(curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/agent/install-agent-gateway.sh) --uninstall"
+step "Done"
+ok "Agent installed and running (monitoring-only)"
+note "It enrolls, then holds a tunnel to ${SERVER%/} - watch it come Online in the web UI."
+note "Logs:   journalctl -u ${SERVICE_NAME} -f"
+note "Remove: bash <(curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/agent/install-agent-gateway.sh) --uninstall"
+printf '\n'
