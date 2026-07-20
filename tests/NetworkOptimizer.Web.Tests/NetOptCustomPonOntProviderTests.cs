@@ -35,6 +35,7 @@ public class NetOptCustomPonOntProviderTests
       },
       "gpe_pon": { "ibp_good": 670798566, "ibp_discard": 4, "ebp_good": 848843235, "ebp_discard": 0, "learning_discard": 0 },
       "gpe_lan": { "ibp_good": 848843244, "ibp_discard": 0, "ebp_good": 670798569, "ebp_discard": 5, "learning_discard": 0 },
+      "optics": { "rx_power_dbm": -18.4, "tx_power_dbm": 2.1, "temperature_c": 47.3, "voltage_v": 3.28 },
       "sfp_uptime_s": 358825
     }
     """;
@@ -54,6 +55,10 @@ public class NetOptCustomPonOntProviderTests
         p.GpePon!.IbpDiscard.Should().Be(4);
         p.GpeLan!.EbpDiscard.Should().Be(5);
         p.LanCounters!.RxFcsErr.Should().Be(3);
+        p.Optics!.RxPowerDbm.Should().Be(-18.4);
+        p.Optics.TxPowerDbm.Should().Be(2.1);
+        p.Optics.TemperatureC.Should().Be(47.3);
+        p.Optics.VoltageV.Should().Be(3.28);
         p.SfpUptimeS.Should().Be(358825);
     }
 
@@ -85,6 +90,12 @@ public class NetOptCustomPonOntProviderTests
         s.OnuResponseTime.Should().Be(34992);
         s.DsFecEnabled.Should().Be(0);
         s.SfpUptimeS.Should().Be(358825);
+
+        // Optional DDM optics carried as a fallback for gaps the gateway can't read.
+        s.RxPowerDbm.Should().Be(-18.4);
+        s.TxPowerDbm.Should().Be(2.1);
+        s.TemperatureC.Should().Be(47.3);
+        s.VoltageV.Should().Be(3.28);
     }
 
     [Fact]
@@ -96,6 +107,10 @@ public class NetOptCustomPonOntProviderTests
         stats.PonLinkStatus.Should().Be(PonLinkState.Operation);
         stats.FecErrors.Should().Be(2);
         stats.BipErrors.Should().Be(7);
+        stats.RxPowerDbm.Should().Be(-18.4);
+        stats.TxPowerDbm.Should().Be(2.1);
+        stats.TemperatureC.Should().Be(47.3);
+        stats.VoltageV.Should().Be(3.28);
     }
 
     [Fact]
@@ -117,12 +132,15 @@ public class NetOptCustomPonOntProviderTests
         p.Should().NotBeNull();
         p!.Ploam.Should().BeNull();
         p.GtcCounters.Should().BeNull();
+        p.Optics.Should().BeNull();
         p.SfpUptimeS.Should().BeNull();
 
         var s = NetOptCustomPonOntProvider.MapToSupplemental(p);
         s.PonLinkStatus.Should().BeNull();
         s.BipErrors.Should().BeNull();
         s.FecErrors.Should().BeNull();
+        s.RxPowerDbm.Should().BeNull();
+        s.VoltageV.Should().BeNull();
     }
 
     [Fact]

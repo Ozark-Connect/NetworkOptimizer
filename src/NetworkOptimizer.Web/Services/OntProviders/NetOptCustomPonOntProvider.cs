@@ -169,10 +169,16 @@ public class NetOptCustomPonOntProvider : ISfpSupplementalOntProvider
     /// Map the contract payload onto the shared PON supplemental DTO. Standard
     /// concepts keep their standard encodings: PLOAM states use the same strings
     /// as the ont measurement's pon_link_status; fec_errors is uncorrectable
-    /// codewords; bip_errors is the raw BIP counter.
+    /// codewords; bip_errors is the raw BIP counter. DDM optics readings are a
+    /// fallback only - the gateway's own SFP DDM poll takes precedence when it can
+    /// read the module (see CollectSfpForDevice).
     /// </summary>
     internal static PonSupplementalStats MapToSupplemental(NetOptCustomPonPayload p) => new()
     {
+        RxPowerDbm = p.Optics?.RxPowerDbm,
+        TxPowerDbm = p.Optics?.TxPowerDbm,
+        TemperatureC = p.Optics?.TemperatureC,
+        VoltageV = p.Optics?.VoltageV,
         PloamStateRaw = p.Ploam?.CurrState,
         PonLinkStatus = EncodePloamState(p.Ploam?.CurrState),
         PonLinkStatusPrev = EncodePloamState(p.Ploam?.PreviousState),
@@ -212,8 +218,9 @@ public class NetOptCustomPonOntProvider : ISfpSupplementalOntProvider
 
     /// <summary>
     /// Standalone mapping: the standard OntStats fields this contract can serve.
-    /// DDM optics readings are absent by design - in the SFP-module scenario the
-    /// gateway's DDM poll owns those.
+    /// DDM optics readings are populated only when the endpoint supplies the
+    /// optional <c>optics</c> section; in the SFP-module (attached) scenario the
+    /// gateway's own DDM poll owns those and takes precedence.
     /// </summary>
     internal static OntStats MapToOntStats(NetOptCustomPonPayload p) => new()
     {
@@ -221,6 +228,10 @@ public class NetOptCustomPonOntProvider : ISfpSupplementalOntProvider
         PonLinkStatus = ToPonLinkState(p.Ploam?.CurrState),
         FecErrors = p.GtcCounters?.FecWordsUncorr,
         BipErrors = p.GtcCounters?.Bip,
+        RxPowerDbm = p.Optics?.RxPowerDbm,
+        TxPowerDbm = p.Optics?.TxPowerDbm,
+        TemperatureC = p.Optics?.TemperatureC,
+        VoltageV = p.Optics?.VoltageV,
     };
 
     /// <summary>Raw PLOAM state number (1-7 = O1-O7) to the shared enum.</summary>
@@ -268,9 +279,38 @@ public class NetOptCustomPonPayload
     [JsonPropertyName("gpe_lan")]
     public GpeBridgePortSection? GpeLan { get; set; }
 
+    [JsonPropertyName("optics")]
+    public OpticsSection? Optics { get; set; }
+
     /// <summary>Seconds since the ONT module booted.</summary>
     [JsonPropertyName("sfp_uptime_s")]
     public long? SfpUptimeS { get; set; }
+
+    /// <summary>
+    /// DDM optics readings, in the same units as SFP DDM (dBm / degrees C / volts).
+    /// Optional - serve these when the module exposes DDM but the gateway cannot
+    /// read it off the SFP slot (common with GPON sticks). When the config is
+    /// attached to a monitored SFP module and the gateway's own DDM poll returns a
+    /// value, that value wins; these are used only to fill the gaps.
+    /// </summary>
+    public class OpticsSection
+    {
+        /// <summary>Receive optical power in dBm.</summary>
+        [JsonPropertyName("rx_power_dbm")]
+        public double? RxPowerDbm { get; set; }
+
+        /// <summary>Transmit optical power in dBm.</summary>
+        [JsonPropertyName("tx_power_dbm")]
+        public double? TxPowerDbm { get; set; }
+
+        /// <summary>Transceiver temperature in degrees Celsius.</summary>
+        [JsonPropertyName("temperature_c")]
+        public double? TemperatureC { get; set; }
+
+        /// <summary>Supply voltage in volts.</summary>
+        [JsonPropertyName("voltage_v")]
+        public double? VoltageV { get; set; }
+    }
 
     public class LanSection
     {

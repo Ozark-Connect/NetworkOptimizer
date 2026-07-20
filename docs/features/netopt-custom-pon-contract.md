@@ -16,7 +16,9 @@ Configure it under Settings - ONT Device Monitoring with provider
   polled on the gateway SFP collection cycle instead, with the full metric set
   merged into that module's `sfp` measurement and charted on the SFP Stats tab.
   Use this when the ONT *is* the SFP module in your gateway, so its DDM optics
-  readings and its PON internals form one time series.
+  readings and its PON internals form one time series. The gateway reads DDM off
+  the SFP slot directly; the contract's optional `optics` section only fills DDM
+  the gateway can't read (see [Optics precedence](#optics-precedence)).
 
 ## Endpoint semantics
 
@@ -112,6 +114,12 @@ numeric strings; 64-bit counters are expected.
     "ebp_good": 670798569,  "ebp_discard": 0,
     "learning_discard": 0
   },
+  "optics": {               // DDM optics, same units as SFP DDM (fallback - see note below)
+    "rx_power_dbm": -18.4,  // receive optical power, dBm
+    "tx_power_dbm": 2.1,    // transmit optical power, dBm
+    "temperature_c": 47.3,  // transceiver temperature, degrees C
+    "voltage_v": 3.28       // supply voltage, volts
+  },
   "sfp_uptime_s": 358825    // seconds since the ONT module booted (counter-reset anchor)
 }
 ```
@@ -140,12 +148,29 @@ onto Network Optimizer's existing schema:
 | `gpe_pon` / `gpe_lan` discards | `gpe_{pon,lan}_{ingress,egress,learning}_discard` | good-frame counters are not stored |
 | `lan.link_status` | `lan_link_status` | |
 | `lan_counters.*` | `lan_tx_frames`, `lan_rx_frames`, `lan_tx_drop_events`, `lan_rx_fcs_err`, `lan_buffer_overflow` | |
+| `optics.rx_power_dbm` / `tx_power_dbm` | `rx_power_dbm` / `tx_power_dbm` | DDM fallback; gateway SFP DDM wins (see below) |
+| `optics.temperature_c` / `voltage_v` | `temperature_c` / `voltage_v` | DDM fallback; gateway SFP DDM wins (see below) |
 | `sfp_uptime_s` | `sfp_uptime_s` | |
 
 Not recorded: `lan.mode`, `lan.phy_duplex` (static config), GEM byte counters
 (32-bit wrap), `drop` / `omci_drop` / `rx_oversized_frames`,
 `fec_error_corr` / `fec_words_total` / `fec_seconds`, and the `gpe_*` good-frame
 counters (redundant with `lan_counters` and GEM frame counters).
+
+### Optics precedence
+
+The `optics` section is optional and exists for modules whose DDM the gateway
+cannot read off its SFP slot - many GPON sticks present no usable DDM there. When
+the config is **attached to a monitored SFP module**, the gateway's own DDM
+reading wins field by field: `optics.rx_power_dbm` is written only when the
+gateway slot reports no RX power, and likewise for TX power, temperature, and
+voltage. So supplying `optics` never overrides what the gateway can already see;
+it just fills the gaps. In **standalone** mode there is no gateway DDM to defer
+to, so the `optics` values flow straight to the ONT Stats tab.
+
+DDM alerts continue to run off the gateway's SFP DDM readings only; the
+contract-supplied fallback is charted and displayed but is not yet wired into DDM
+alert thresholds.
 
 ## Reference implementation
 
