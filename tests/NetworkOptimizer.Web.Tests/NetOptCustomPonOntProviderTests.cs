@@ -11,6 +11,7 @@ public class NetOptCustomPonOntProviderTests
     // through the gateway), trimmed only in counter magnitudes.
     private const string SamplePayload = """
     {
+      "optics": { "rx_power_dbm": -18.4, "tx_power_dbm": 2.1, "temperature_c": 47.3, "voltage_v": 3.28 },
       "lan": { "mode": 15, "link_status": 5, "phy_duplex": 1 },
       "lan_counters": {
         "tx_frames": 671630919, "rx_frames": 850075595,
@@ -35,7 +36,6 @@ public class NetOptCustomPonOntProviderTests
       },
       "gpe_pon": { "ibp_good": 670798566, "ibp_discard": 4, "ebp_good": 848843235, "ebp_discard": 0, "learning_discard": 0 },
       "gpe_lan": { "ibp_good": 848843244, "ibp_discard": 0, "ebp_good": 670798569, "ebp_discard": 5, "learning_discard": 0 },
-      "optics": { "rx_power_dbm": -18.4, "tx_power_dbm": 2.1, "temperature_c": 47.3, "voltage_v": 3.28 },
       "sfp_uptime_s": 358825
     }
     """;

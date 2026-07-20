@@ -225,13 +225,13 @@ public class NetOptCustomPonOntProvider : ISfpSupplementalOntProvider
     internal static OntStats MapToOntStats(NetOptCustomPonPayload p) => new()
     {
         Timestamp = DateTime.UtcNow,
-        PonLinkStatus = ToPonLinkState(p.Ploam?.CurrState),
-        FecErrors = p.GtcCounters?.FecWordsUncorr,
-        BipErrors = p.GtcCounters?.Bip,
         RxPowerDbm = p.Optics?.RxPowerDbm,
         TxPowerDbm = p.Optics?.TxPowerDbm,
         TemperatureC = p.Optics?.TemperatureC,
         VoltageV = p.Optics?.VoltageV,
+        PonLinkStatus = ToPonLinkState(p.Ploam?.CurrState),
+        FecErrors = p.GtcCounters?.FecWordsUncorr,
+        BipErrors = p.GtcCounters?.Bip,
     };
 
     /// <summary>Raw PLOAM state number (1-7 = O1-O7) to the shared enum.</summary>
@@ -258,6 +258,9 @@ public class NetOptCustomPonPayload
     [JsonPropertyName("message")]
     public string? Message { get; set; }
 
+    [JsonPropertyName("optics")]
+    public OpticsSection? Optics { get; set; }
+
     [JsonPropertyName("lan")]
     public LanSection? Lan { get; set; }
 
@@ -278,9 +281,6 @@ public class NetOptCustomPonPayload
 
     [JsonPropertyName("gpe_lan")]
     public GpeBridgePortSection? GpeLan { get; set; }
-
-    [JsonPropertyName("optics")]
-    public OpticsSection? Optics { get; set; }
 
     /// <summary>Seconds since the ONT module booted.</summary>
     [JsonPropertyName("sfp_uptime_s")]
