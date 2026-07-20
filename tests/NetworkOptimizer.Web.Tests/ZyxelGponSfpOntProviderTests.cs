@@ -135,6 +135,11 @@ public class ZyxelGponSfpOntProviderTests
     [Theory]
     [InlineData("0")]
     [InlineData("9")]
+    [InlineData("51")]  // must NOT substring-match O5 -> Operation
+    [InlineData("15")]  // must NOT substring-match O1 -> Initial
+    [InlineData("55")]
+    [InlineData("O5")]  // literal, not a bare ordinal
+    [InlineData("")]
     public void ApplyResponses_LineStatusUnknown_LeavesOperationalStatusNull(string lineStatus)
     {
         var stats = new OntStats();
@@ -146,6 +151,17 @@ public class ZyxelGponSfpOntProviderTests
         stats.PonLinkStatus.Should().Be(PonLinkState.Unknown);
         stats.OperationalStatus.Should().BeNull();
         stats.LinkState.Should().Be("Unknown");
+    }
+
+    [Theory]
+    [InlineData("51")]
+    [InlineData("15")]
+    [InlineData("57")]
+    public void MapLineStatus_MultiDigit_IsNotMisreadAsHealthy(string lineStatus)
+    {
+        // Regression: substring parsing would have turned "51" into O5/Operation and reported
+        // the link Up, potentially suppressing a down alert.
+        ZyxelGponSfpOntProvider.MapLineStatus(lineStatus).Should().Be(PonLinkState.Unknown);
     }
 
     [Fact]

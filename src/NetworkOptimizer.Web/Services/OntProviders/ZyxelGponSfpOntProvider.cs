@@ -75,9 +75,15 @@ public sealed class ZyxelGponSfpOntProvider : IOntProvider
             {
                 snBody = await client.GetStringAsync($"{baseUrl}{SnPath}", cancellationToken);
             }
-            catch (OperationCanceledException) { throw; }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw; // genuine caller-requested cancellation
+            }
             catch (Exception ex)
             {
+                // Includes an HttpClient.Timeout (surfaces as OperationCanceledException with our
+                // token NOT cancelled): get_sn is best-effort, so a slow/hung serial endpoint must
+                // not discard the optical telemetry we already have.
                 _logger.LogDebug(ex,
                     "Zyxel GPON-SFP ONT {Name}: serial enrichment (get_sn) failed, continuing with optical telemetry",
                     context.Name);
@@ -105,9 +111,14 @@ public sealed class ZyxelGponSfpOntProvider : IOntProvider
 
             return stats;
         }
-        catch (OperationCanceledException) { throw; }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw; // genuine caller-requested cancellation
+        }
         catch (Exception ex)
         {
+            // A transport failure or an HttpClient.Timeout (OperationCanceledException with our
+            // token not cancelled) yields null per the IOntProvider contract, not an exception.
             _logger.LogWarning(ex, "Error polling Zyxel GPON-SFP ONT {Name} at {Host}",
                 context.Name, context.ConfiguredHost ?? context.Host);
             return null;
@@ -185,11 +196,10 @@ public sealed class ZyxelGponSfpOntProvider : IOntProvider
         stats.DeviceModel = "Zyxel PMG3000";
         stats.PonType = "GPON";
 
-        // line_status is the raw ONU state ordinal (device returns "5"); prefix "O" so it
-        // reuses the shared O1-O7 parser.
+        // line_status is the raw ONU state ordinal (device returns "5").
         if (gpon.TryGetValue("line_status", out var lineStatus))
         {
-            var state = PonLinkStateExtensions.ParsePonLinkState("O" + lineStatus.Trim());
+            var state = MapLineStatus(lineStatus);
             stats.PonLinkStatus = state;
             stats.LinkState = state.ToDisplayString();
             stats.OperationalStatus = state switch
@@ -409,6 +419,24 @@ public sealed class ZyxelGponSfpOntProvider : IOntProvider
         while (i < body.Length && char.IsWhiteSpace(body[i]))
             i++;
     }
+
+    /// <summary>
+    /// Maps the device's line_status to an ITU ONU state. The stick reports a single ordinal
+    /// "1".."7"; matched exactly (not via substring), so an unexpected/malformed value such as
+    /// "51" or "15" resolves to Unknown rather than being misread as a healthy O5 - reporting a
+    /// bad status as Up could suppress a genuine down alert.
+    /// </summary>
+    internal static PonLinkState MapLineStatus(string? raw) => raw?.Trim() switch
+    {
+        "1" => PonLinkState.Initial,
+        "2" => PonLinkState.Standby,
+        "3" => PonLinkState.SerialNumber,
+        "4" => PonLinkState.Ranging,
+        "5" => PonLinkState.Operation,
+        "6" => PonLinkState.Popup,
+        "7" => PonLinkState.EmergencyStop,
+        _ => PonLinkState.Unknown,
+    };
 
     /// <summary>
     /// Trims the value, strips a terminal "(ASCII)" suffix (only when terminal), and returns
