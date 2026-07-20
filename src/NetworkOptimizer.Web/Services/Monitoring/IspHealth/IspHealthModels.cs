@@ -146,7 +146,7 @@ public class IspAsnHealth
     /// attribution and zero forward-path reach; null otherwise.</summary>
     public string? LowReachScoreCaveat => AsnNumber > 0 && ShowInvolvement && InvolvementReach == 0
         && OverallScore is int s && s < 80
-        ? "Nothing you monitor routes through this network on the forward path, so a low score here may just be its routers deprioritizing ICMP rather than real path trouble - it's shown because it may carry your return path or a failover route."
+        ? "Lightly weighted - nothing we are monitoring routes through this network, so a low score is likely just ICMP deprioritization."
         : null;
 
     public int? LatencyStabilityScore { get; init; }
