@@ -41,6 +41,88 @@ done
 
 err() { echo "Error: $*" >&2; exit 1; }
 
+# --- LAN speed test nginx: AppArmor remediation -------------------------------
+# Some distros ship an ENFORCING AppArmor profile on the nginx binary that only
+# permits nginx's stock paths (/var/log/nginx, /run/nginx.pid, ...). Our dedicated
+# speed test master keeps its pid, logs, and webroot under the install dir, which
+# such a profile denies even to root - the failure is a MAC denial, not file
+# permissions. Everything below runs ONLY after `nginx -t` has already failed and
+# only acts on a real AppArmor denial of our install dir, so any host where the
+# speed test already works never enters this path.
+
+# True when the kernel log shows AppArmor denying access to a path under the
+# install dir (recorded when the failing `nginx -t` ran). This is the trigger:
+# without an actual denial we leave AppArmor entirely alone.
+_aa_denied_install_dir() {
+    [ -d /sys/kernel/security/apparmor ] || return 1
+    { journalctl -k -n 400 --no-pager 2>/dev/null || dmesg 2>/dev/null || true; } \
+        | grep -q "apparmor=\"DENIED\".*name=\"${INSTALL_DIR}" 2>/dev/null
+}
+
+# Path of the vendor AppArmor profile file confining nginx, discovered from the
+# denial record's profile name (falling back to the nginx binary path). Empty if
+# it can't be found. Cached after the first lookup.
+AA_NGINX_PROFILE_FILE=""
+_aa_nginx_profile_file() {
+    [ -n "$AA_NGINX_PROFILE_FILE" ] && { printf '%s' "$AA_NGINX_PROFILE_FILE"; return 0; }
+    local kern prof_name file
+    kern="$({ journalctl -k -n 400 --no-pager 2>/dev/null || dmesg 2>/dev/null || true; })"
+    prof_name="$(printf '%s\n' "$kern" \
+        | grep "apparmor=\"DENIED\".*name=\"${INSTALL_DIR}" \
+        | grep -o 'profile="[^"]*"' | head -1 | sed 's/^profile="//; s/"$//' || true)"
+    [ -n "$prof_name" ] || prof_name="$NGINX_BIN"
+    # The .d file that DECLARES the profile (attachment path appears in it); never a
+    # file already under local/, which is the include-only drop-in dir.
+    file="$(grep -rslF "$prof_name" /etc/apparmor.d 2>/dev/null | grep -v '/local/' | head -1 || true)"
+    AA_NGINX_PROFILE_FILE="$file"
+    printf '%s' "$file"
+}
+
+# Additive, local-only AppArmor override letting the confined nginx use the install
+# dir. Never edits the vendor profile; reloads only that one profile. A parse error
+# makes apparmor_parser abort and keep the running profile, so a bad override can't
+# unconfine the host's own nginx. Caller re-tests `nginx -t` to judge the result.
+maybe_fix_apparmor_nginx() {
+    command -v apparmor_parser >/dev/null 2>&1 || return 0
+    _aa_denied_install_dir || return 0
+
+    local file base
+    file="$(_aa_nginx_profile_file)"
+    if [ -z "$file" ]; then
+        echo "AppArmor is blocking ${INSTALL_DIR}, but its nginx profile file wasn't found under /etc/apparmor.d - see the fix hint below."
+        return 0
+    fi
+    base="$(basename "$file")"
+
+    echo "AppArmor is blocking ${INSTALL_DIR}; adding a local override (/etc/apparmor.d/local/${base}) and reloading."
+    mkdir -p /etc/apparmor.d/local
+    cat > "/etc/apparmor.d/local/${base}" <<AAOVERRIDE
+# Added by the Network Optimizer agent installer.
+# Lets the dedicated LAN speed test nginx master use its pid, logs, and webroot
+# under the install dir. Additive and local-only; delete this file to revert.
+${INSTALL_DIR}/ r,
+${INSTALL_DIR}/** rw,
+AAOVERRIDE
+
+    apparmor_parser -r "$file" >/dev/null 2>&1 \
+        || echo "  apparmor_parser reload failed; the override may not have taken (the profile may not include local/${base})."
+    return 0
+}
+
+# Actionable manual remediation, printed only when the speed test nginx still fails
+# because of an AppArmor denial (so it never nags on unrelated failures).
+print_speedtest_apparmor_hint() {
+    _aa_denied_install_dir || return 0
+    local base="usr.sbin.nginx" file
+    file="$(_aa_nginx_profile_file)"
+    [ -n "$file" ] && base="$(basename "$file")"
+    echo "  Cause: an AppArmor profile on nginx is blocking ${INSTALL_DIR}."
+    echo "  Fix (add a local override, then reload the profile):"
+    echo "    printf '%s\n%s\n' '${INSTALL_DIR}/ r,' '${INSTALL_DIR}/** rw,' | sudo tee /etc/apparmor.d/local/${base}"
+    echo "    sudo apparmor_parser -r /etc/apparmor.d/${base}"
+    echo "  Or set the nginx profile to complain mode: sudo aa-complain ${NGINX_BIN}"
+}
+
 [ "$(id -u)" -eq 0 ] || err "Run as root (needed to install the systemd service): sudo bash install-native.sh ..."
 [ -n "$SERVER" ] || err "--server is required (the central server's HTTPS address)"
 case "$SERVER" in
@@ -221,6 +303,14 @@ RestartSec=5
 WantedBy=multi-user.target
 UNIT
 
+        # If the first test fails only because an enforcing AppArmor profile denies
+        # our install dir, add a local override and let the re-test below decide. This
+        # is skipped entirely when the test already passes, so working hosts are
+        # untouched.
+        if ! "$NGINX_BIN" -t -c "${INSTALL_DIR}/nginx-speedtest.conf" >/dev/null 2>&1; then
+            maybe_fix_apparmor_nginx
+        fi
+
         if "$NGINX_BIN" -t -c "${INSTALL_DIR}/nginx-speedtest.conf" >/dev/null 2>&1; then
             systemctl daemon-reload
             # Enable now, but START it below, after the agent unit is installed and
@@ -231,6 +321,7 @@ UNIT
             echo "Dedicated nginx for OpenSpeedTest on port 3000 will start with the agent (netopt-speedtest-nginx.service)."
         else
             echo "WARNING: nginx config test failed - the LAN speed test page won't serve."
+            print_speedtest_apparmor_hint
             echo "Diagnose with: $NGINX_BIN -t -c ${INSTALL_DIR}/nginx-speedtest.conf"
         fi
     fi
