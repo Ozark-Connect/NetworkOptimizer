@@ -17906,6 +17906,7 @@ body.kiosk-mode .status-indicators {
 }
 
 .site-config-panel {
+    position: relative;
     display: flex;
     flex-direction: column;
     gap: 0.85rem;
@@ -17913,6 +17914,30 @@ body.kiosk-mode .status-indicators {
     padding: 1rem;
     background: var(--bg-tertiary);
     border-radius: var(--border-radius-lg);
+}
+
+.site-config-dismiss {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.75rem;
+    height: 1.75rem;
+    padding: 0;
+    border: none;
+    border-radius: var(--border-radius);
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 1.25rem;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.site-config-dismiss:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
 }
 
 .site-config-section {
