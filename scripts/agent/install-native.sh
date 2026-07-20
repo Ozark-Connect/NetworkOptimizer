@@ -44,7 +44,20 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-err() { echo "Error: $*" >&2; exit 1; }
+# --- Output helpers -----------------------------------------------------------
+# Colorized, structured output; colors collapse to empty when stdout isn't a
+# terminal (piped/redirected/logged), so captured output stays clean.
+if [ -t 1 ]; then
+    _b=$'\e[1m'; _dim=$'\e[2m'; _grn=$'\e[32m'; _ylw=$'\e[33m'; _red=$'\e[31m'; _cyn=$'\e[36m'; _rst=$'\e[0m'
+else
+    _b=; _dim=; _grn=; _ylw=; _red=; _cyn=; _rst=
+fi
+_rule="$(printf '\xe2\x94\x80%.0s' {1..52})"   # ── divider between sections
+step() { printf '\n%s%s%s\n%s==>%s %s%s%s\n' "$_dim" "$_rule" "$_rst" "${_cyn}${_b}" "$_rst" "$_b" "$*" "$_rst"; }
+ok()   { printf '  %s\xe2\x9c\x93%s %s\n' "$_grn" "$_rst" "$*"; }
+note() { printf '  %s%s%s\n' "$_dim" "$*" "$_rst"; }
+warn() { printf '  %s\xe2\x9a\xa0%s  %s\n' "$_ylw" "$_rst" "$*"; }
+err()  { printf '%sError:%s %s\n' "${_red}${_b}" "$_rst" "$*" >&2; exit 1; }
 
 # --- LAN speed test nginx: AppArmor remediation -------------------------------
 # Some distros ship an ENFORCING AppArmor profile on the nginx binary that only
@@ -190,7 +203,7 @@ remove_apparmor_override() {
         sed -i "/${AA_MARK_BEGIN}/,/${AA_MARK_END}/d" "$f"
         [ -s "$f" ] || rm -f "$f"   # nothing left but our block -> drop the file
         changed=1
-        echo "  Removed AppArmor override from ${f}."
+        note "Removed AppArmor override from ${f}"
     done
     [ "$changed" = 1 ] && systemctl reload apparmor >/dev/null 2>&1 || true
     AA_OVERRIDE_REMOVED="$changed"
@@ -221,7 +234,8 @@ _webroot_needs_root_worker() {
 # Leaves the host's own nginx untouched; removes only the AppArmor override this
 # installer itself added (if any), reporting accordingly.
 uninstall_agent() {
-    echo "Removing the Network Optimizer agent (${SERVICE_NAME}) and ${INSTALL_DIR}..."
+    step "Removing the Network Optimizer agent"
+    note "${SERVICE_NAME} + ${INSTALL_DIR}"
     # Whether this install ever set up the speed test (and thus borrowed nginx) - so
     # the summary only mentions nginx/AppArmor when they were actually involved.
     local had_speedtest=0
@@ -235,12 +249,13 @@ uninstall_agent() {
     remove_apparmor_override
     rm -rf "$INSTALL_DIR"
     if [ "${AA_OVERRIDE_REMOVED:-0}" = 1 ]; then
-        echo "Done - agent removed, including the AppArmor override it had added. The host's own nginx is untouched."
+        ok "Agent removed, including the AppArmor override it had added. The host's own nginx is untouched."
     elif [ "$had_speedtest" = 1 ]; then
-        echo "Done - agent removed. The host's own nginx is untouched."
+        ok "Agent removed. The host's own nginx is untouched."
     else
-        echo "Done - agent removed."
+        ok "Agent removed."
     fi
+    printf '\n'
 }
 
 [ "$(id -u)" -eq 0 ] || err "Run as root (needed to manage the systemd service): sudo bash install-native.sh ..."
@@ -266,35 +281,37 @@ case "$(uname -m)" in
     *) err "Unsupported architecture: $(uname -m). Build from source (see the agent README)." ;;
 esac
 
-echo "Installing Network Optimizer agent to ${INSTALL_DIR} (${RID})"
+printf '\n%sNetwork Optimizer on-site agent%s\n' "$_b" "$_rst"
+note "Installing to ${INSTALL_DIR}  (${RID})"
 mkdir -p "$INSTALL_DIR"
 
 # Binaries are downloaded to a temp name and renamed into place: writing over a
 # binary while it is running fails with ETXTBSY, but rename swaps the directory
 # entry and any running process keeps its old inode until the restart below.
 
+step "Downloading binaries"
 # Agent binary
-echo "Downloading agent binary..."
-curl -fSL "${RELEASE_BASE}/NetworkOptimizer.Agent-${RID}" -o "${INSTALL_DIR}/NetworkOptimizer.Agent.new"
+curl -fsSL "${RELEASE_BASE}/NetworkOptimizer.Agent-${RID}" -o "${INSTALL_DIR}/NetworkOptimizer.Agent.new"
 chmod +x "${INSTALL_DIR}/NetworkOptimizer.Agent.new"
 mv -f "${INSTALL_DIR}/NetworkOptimizer.Agent.new" "${INSTALL_DIR}/NetworkOptimizer.Agent"
+ok "agent (${RID})"
 
 # uwnspeedtest binary for site-local WAN speed tests; the agent resolves it next
 # to itself (AppContext.BaseDirectory/uwnspeedtest).
-echo "Downloading WAN speed test binary..."
-curl -fSL "${RELEASE_BASE}/uwnspeedtest-${RID}" -o "${INSTALL_DIR}/uwnspeedtest.new"
+curl -fsSL "${RELEASE_BASE}/uwnspeedtest-${RID}" -o "${INSTALL_DIR}/uwnspeedtest.new"
 chmod +x "${INSTALL_DIR}/uwnspeedtest.new"
 mv -f "${INSTALL_DIR}/uwnspeedtest.new" "${INSTALL_DIR}/uwnspeedtest"
+ok "WAN speed test helper"
 
 CONFIG="${INSTALL_DIR}/agent.json"
 
+step "Configuring the agent"
 # Preserve an already-enrolled config so re-running the installer (e.g. to
 # update the binary) never wipes the persisted agent key.
 if grep -q '"agentKey"' "$CONFIG" 2>/dev/null; then
-    echo "Existing enrolled agent config found - keeping it."
+    note "Existing enrollment found - keeping agent.json"
 else
     [ -n "$TOKEN" ] || err "--token is required for a first-time install"
-    echo "Writing ${CONFIG}"
     {
         echo "{"
         echo "  \"serverUrl\": \"${SERVER%/}\","
@@ -306,6 +323,7 @@ else
         fi
         printf '\n}\n'
     } > "$CONFIG"
+    ok "Wrote ${CONFIG}"
 fi
 
 # nginx serves the OpenSpeedTest page + the throughput-critical transfer legs
@@ -318,13 +336,13 @@ fi
 # conf.d file and running `systemctl restart nginx` would hijack or bounce that
 # unrelated instance, which is unacceptable. We only borrow the nginx *binary*.
 if [ "$LAN_SPEED_TEST" = true ]; then
-    echo "Setting up a dedicated nginx instance for the LAN speed test..."
+    step "Setting up the LAN speed test (nginx)"
     if ! command -v nginx >/dev/null 2>&1; then
         if command -v apt-get >/dev/null 2>&1; then apt-get update -qq && apt-get install -y -qq nginx
         elif command -v dnf >/dev/null 2>&1; then dnf install -y -q nginx
         elif command -v yum >/dev/null 2>&1; then yum install -y -q nginx
         elif command -v apk >/dev/null 2>&1; then apk add --no-cache nginx
-        else echo "WARNING: could not install nginx automatically - install it and re-run to enable the LAN speed test."; fi
+        else warn "could not install nginx automatically - install it and re-run to enable the LAN speed test."; fi
     fi
 
     NGINX_BIN="$(command -v nginx 2>/dev/null || echo /usr/sbin/nginx)"
@@ -334,7 +352,7 @@ if [ "$LAN_SPEED_TEST" = true ]; then
         WEBROOT="${INSTALL_DIR}/speedtest-web"
         RAW="https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main"
         mkdir -p "$WEBROOT/assets/js"
-        echo "Downloading OpenSpeedTest..."
+        note "Fetching the OpenSpeedTest page"
         TARBALL="$(mktemp)"; TMPX="$(mktemp -d)"
         curl -fsSL "https://github.com/Ozark-Connect/NetworkOptimizer/archive/refs/heads/main.tar.gz" -o "$TARBALL"
         tar -xzf "$TARBALL" -C "$TMPX" --strip-components=3 "NetworkOptimizer-main/src/OpenSpeedTest"
@@ -372,7 +390,7 @@ CFGJS
                 -e 's/^\([[:space:]]*listen[[:space:]][^;]*\) ssl\([^;]*;\)/\1\2/' \
                 -e '/^[[:space:]]*ssl_/d' \
                 "${INSTALL_DIR}/nginx-speedtest-server.conf"
-            echo "AGENT_SPEEDTEST_TLS=0 - LAN speed test will serve plain http on port 3000."
+            note "AGENT_SPEEDTEST_TLS=0 - serving plain http on port 3000"
         else
             # Persisted self-signed cert for the LAN speed test's TLS listener (secure context
             # for the browser Geolocation API / GPS-tagged results, no per-site reverse proxy).
@@ -389,7 +407,7 @@ CFGJS
                     -keyout "$CERTDIR/key.pem" -out "$CERTDIR/cert.pem" \
                     -subj "/CN=${CN:-agent}" -addext "subjectAltName=$SAN" >/dev/null 2>&1 \
                     && chmod 600 "$CERTDIR/key.pem" \
-                    || echo "WARNING: self-signed cert generation failed - the LAN speed test won't serve over TLS."
+                    || warn "self-signed cert generation failed - the LAN speed test won't serve over TLS."
             fi
             sed -i \
                 -e "s#__CERTFILE__#${CERTDIR}/cert.pem#" \
@@ -410,7 +428,7 @@ CFGJS
         # a world-traversable dir (the /opt default) keeps the safer unprivileged user.
         if _webroot_needs_root_worker "$WEBROOT"; then
             sed -i "1i user root;" "${INSTALL_DIR}/nginx-speedtest.conf"
-            echo "Note: ${INSTALL_DIR} isn't world-traversable, so the speed test nginx runs its workers as root."
+            note "${INSTALL_DIR} isn't world-traversable, so the speed test nginx runs its workers as root"
         fi
 
         # Dedicated systemd unit for OUR nginx master - separate from the system one.
@@ -452,19 +470,19 @@ UNIT
             # Enable now, but START it below, after the agent unit is installed and
             # running - nginx BindsTo the agent, so starting it before the agent exists
             # would immediately stop it again.
-            systemctl enable netopt-speedtest-nginx.service
+            systemctl enable --quiet netopt-speedtest-nginx.service
             START_SPEEDTEST_NGINX=1
-            echo "Dedicated nginx for OpenSpeedTest on port 3000 will start with the agent (netopt-speedtest-nginx.service)."
+            ok "LAN speed test ready on port 3000 (starts with the agent)"
         else
-            echo "WARNING: nginx config test failed - the LAN speed test page won't serve."
+            warn "nginx config test failed - the LAN speed test page won't serve."
             print_speedtest_apparmor_hint
-            echo "Diagnose with: $NGINX_BIN -t -c ${INSTALL_DIR}/nginx-speedtest.conf"
+            note "Diagnose: $NGINX_BIN -t -c ${INSTALL_DIR}/nginx-speedtest.conf"
         fi
     fi
 fi
 
 # systemd unit
-echo "Installing ${SERVICE_NAME}.service"
+step "Installing the agent service"
 cat > "/etc/systemd/system/${SERVICE_NAME}.service" <<UNIT
 [Unit]
 Description=Network Optimizer Agent (${SERVICE_NAME})
@@ -483,10 +501,11 @@ WantedBy=multi-user.target
 UNIT
 
 systemctl daemon-reload
-systemctl enable "${SERVICE_NAME}.service"
+systemctl enable --quiet "${SERVICE_NAME}.service"
 # restart (not `enable --now`) so an upgrade re-run moves an already-running
 # agent onto the new binary; it starts a stopped/fresh service just the same
 systemctl restart "${SERVICE_NAME}.service"
+ok "${SERVICE_NAME}.service installed and started"
 
 # nginx is bound to the agent (BindsTo), so it was stopped by the agent restart
 # (or was never started - starting it before the agent exists would immediately
@@ -496,7 +515,8 @@ if [ "${START_SPEEDTEST_NGINX:-0}" = 1 ] || systemctl is-enabled --quiet netopt-
     systemctl start netopt-speedtest-nginx.service
 fi
 
-echo
-echo "Agent started. It enrolls, then holds a tunnel to ${SERVER%/}."
-echo "Watch it come Online in the web UI, or follow logs:"
-echo "  journalctl -u ${SERVICE_NAME} -f"
+step "Done"
+ok "Agent installed and running"
+note "It enrolls, then holds a tunnel to ${SERVER%/} - watch it come Online in the web UI."
+note "Logs: journalctl -u ${SERVICE_NAME} -f"
+printf '\n'
