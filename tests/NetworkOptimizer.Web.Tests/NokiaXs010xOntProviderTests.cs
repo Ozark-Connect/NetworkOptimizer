@@ -279,10 +279,39 @@ public class NokiaXs010xOntProviderTests
         server.RejectedUserAgentlessUpdateInfo.Should().BeTrue("the Direct flow should have probed first and been 401'd");
     }
 
+    [Fact]
+    public async Task PollAsync_MalformedSetCookieFirmware_DirectFlowStillAuthenticates()
+    {
+        // Simulates the root cause @jakerobb isolated on #929: the firmware answers the login
+        // calls with a malformed "Set-Cookie: Path=/; HttpOnly" header (no name=value). With a
+        // cookie-enabled handler the CookieContainer swallows it and substitutes garbage for the
+        // hand-set sessionid header; with UseCookies off the Direct flow must succeed as-is,
+        // without ever falling back to the curl replay.
+        await using var server = new PickyGponFormServer(requireUserAgent: false, emitMalformedSetCookie: true);
+        var provider = new NokiaXs010xOntProvider(NullLogger<NokiaXs010xOntProvider>.Instance);
+        var context = new OntPollContext
+        {
+            Id = 2,
+            Name = "TestOnt",
+            Host = "127.0.0.1",
+            Port = server.Port,
+            Username = "admin",
+            Password = "1234",
+        };
+
+        var stats = await provider.PollAsync(context);
+
+        stats.Should().NotBeNull();
+        stats!.RxPowerDbm.Should().BeApproximately(-13.3, 0.0001);
+        server.SawWalkPage.Should().BeFalse("Direct should authenticate without the curl-replay fallback");
+    }
+
     /// <summary>
-    /// Minimal GponForm device double that mimics the picky CLEI firmware: serves the login
-    /// handshake to anyone, but 401s getUpdateinfo when the request has no User-Agent header or
-    /// the wrong session cookie. One request per connection, Connection: close, like the device.
+    /// Minimal GponForm device double that mimics the picky firmware variants: serves the login
+    /// handshake to anyone, but 401s getUpdateinfo when the session cookie is wrong (or, when
+    /// <c>requireUserAgent</c> is set, when the request has no User-Agent header), and can emit
+    /// the malformed Set-Cookie header the real units send on login responses. One request per
+    /// connection, Connection: close, like the device.
     /// </summary>
     private sealed class PickyGponFormServer : IAsyncDisposable
     {
@@ -293,13 +322,19 @@ public class NokiaXs010xOntProviderTests
         private readonly TcpListener _listener;
         private readonly CancellationTokenSource _cts = new();
         private readonly Task _acceptLoop;
+        private readonly bool _requireUserAgent;
+        private readonly bool _emitMalformedSetCookie;
 
         public int Port { get; }
 
         public bool RejectedUserAgentlessUpdateInfo { get; private set; }
 
-        public PickyGponFormServer()
+        public bool SawWalkPage { get; private set; }
+
+        public PickyGponFormServer(bool requireUserAgent = true, bool emitMalformedSetCookie = false)
         {
+            _requireUserAgent = requireUserAgent;
+            _emitMalformedSetCookie = emitMalformedSetCookie;
             _listener = new TcpListener(IPAddress.Loopback, 0);
             _listener.Start();
             Port = ((IPEndPoint)_listener.LocalEndpoint).Port;
@@ -348,21 +383,29 @@ public class NokiaXs010xOntProviderTests
             var hasSession = lines.Any(l =>
                 l.StartsWith("Cookie:", StringComparison.OrdinalIgnoreCase) && l.Contains($"sessionid={CookieId}"));
 
+            if (target == "/ponpasswd.html")
+                SawWalkPage = true;
+
             var status = "200 OK";
+            var setCookie = "";
             string responseBody;
             switch (target)
             {
                 case "/GponForm/Login_GetConfig":
                     responseBody = $$"""{"XError":0,"nonce":"{{Nonce}}","saltval":"{{Salt}}"}""";
+                    if (_emitMalformedSetCookie)
+                        setCookie = "Set-Cookie: Path=/; HttpOnly\r\n";
                     break;
                 case "/GponForm/LoginForm":
                     var expectedCmt = NokiaXs010xOntProvider.ComputeCmt("admin", Salt, "1234");
                     responseBody = body.Contains($"cmt={expectedCmt}") && body.Contains($"nonce={Nonce}")
                         ? $$"""{"login_result":"success","cookieid":"{{CookieId}}"}"""
                         : """{"login_result":"error"}""";
+                    if (_emitMalformedSetCookie)
+                        setCookie = "Set-Cookie: Path=/; HttpOnly\r\n";
                     break;
                 case "/GponForm/getUpdateinfo":
-                    if (hasUserAgent && hasSession)
+                    if ((hasUserAgent || !_requireUserAgent) && hasSession)
                     {
                         responseBody = FullUpdateInfoJson;
                     }
@@ -380,7 +423,7 @@ public class NokiaXs010xOntProviderTests
             }
 
             var response =
-                $"HTTP/1.1 {status}\r\nContent-Type: text/html\r\n" +
+                $"HTTP/1.1 {status}\r\nContent-Type: text/html\r\n{setCookie}" +
                 $"Content-Length: {Encoding.ASCII.GetByteCount(responseBody)}\r\nConnection: close\r\n\r\n" +
                 responseBody;
             await stream.WriteAsync(Encoding.ASCII.GetBytes(response), _cts.Token);

@@ -24,20 +24,26 @@ namespace NetworkOptimizer.Web.Services.OntProviders;
 ///      -> {"CurrentPonPw","VendorID","VersionID","SerialNum","Mac","ActiveSwVer",
 ///          "StandbySwVer","RxOptPwr"}
 ///
-/// Some firmware (a T-Fiber/Metronet CLEI variant) accepts this sequence from curl and from a
-/// browser but answers 401 -> /login.html when HttpClient sends the logically identical
-/// requests. The rejection is about wire framing, not auth logic: HttpClient omits User-Agent
-/// and Accept, appends "; charset=utf-8" to the Content-Type, emits content headers after the
-/// request headers (curl puts Content-Length before Content-Type) and adds Connection: close.
-/// None of that framing can be fully controlled through HttpClient, so two flows are tried and
-/// the winner is cached per config (see <see cref="AuthFlow"/>). <see cref="AuthFlow.Direct"/>
-/// is the plain HttpClient sequence exactly as shipped in v2.1.1/v2.2.0 - the one firmware
-/// confirmed working (@Liosnel's) accepts it, so its bytes are kept untouched.
-/// <see cref="AuthFlow.CurlReplay"/> writes the raw HTTP requests of the curl script proven on
-/// the picky firmware over a plain TCP socket, byte-for-byte (same headers, order and casing;
-/// fresh connection per request like separate curl invocations), including the forced
-/// PON-password page walk that firmware presents: GET /login.html, login, GET /ponpasswd.html,
-/// POST /GponForm/ponpasswd_GetConfig, GET /moreinfo.html, then getUpdateinfo.
+/// Some firmware accepts this sequence from curl and from a browser but answered 401 ->
+/// /login.html when HttpClient sent the logically identical requests. Root cause (found by
+/// @jakerobb on #929): those units answer the login calls with a malformed
+/// "Set-Cookie: Path=/; HttpOnly" header carrying no name=value pair. A cookie-enabled handler
+/// parses "Path=/" as a literal cookie, and once the CookieContainer holds anything for the
+/// host it silently replaces the hand-set "Cookie: sessionid=..." header - so the device never
+/// saw the session id. curl and raw sockets have no cookie engine and browsers discard the
+/// malformed header, which is why every other client worked. <see cref="CreateClient"/>
+/// therefore disables handler cookies so the hand-set header goes out untouched.
+///
+/// Firmware behavior demonstrably varies across units, so two flows are kept and the winner is
+/// cached per config (see <see cref="AuthFlow"/>). <see cref="AuthFlow.Direct"/> is the plain
+/// HttpClient sequence as shipped in v2.1.1/v2.2.0 (confirmed working on @Liosnel's unit) plus
+/// the cookie fix, which only changes the wire when a device emits Set-Cookie on login.
+/// <see cref="AuthFlow.CurlReplay"/> is defense in depth: it writes the raw HTTP requests of
+/// the tester-proven curl script over a plain TCP socket, byte-for-byte (same headers, order
+/// and casing; fresh connection per request like separate curl invocations), including the
+/// forced PON-password page walk some firmware presents: GET /login.html, login,
+/// GET /ponpasswd.html, POST /GponForm/ponpasswd_GetConfig, GET /moreinfo.html, then
+/// getUpdateinfo. It is immune to any handler-level rewriting by construction.
 ///
 /// The device exposes no TX power, temperature, or explicit link state; the receive
 /// optical power (RxOptPwr, dBm) is the one health metric it reports. Login credentials
@@ -66,12 +72,12 @@ public sealed class NokiaXs010xOntProvider : IOntProvider
     /// </summary>
     private enum AuthFlow
     {
-        /// <summary>Plain HttpClient login + cookie-only getUpdateinfo, byte-identical to the
-        /// shipped v2.1.1/v2.2.0 requests (@Liosnel's firmware accepts these).</summary>
+        /// <summary>Plain HttpClient login + cookie-only getUpdateinfo (handler cookies off so
+        /// the hand-set session header survives malformed device Set-Cookie headers).</summary>
         Direct,
 
-        /// <summary>Raw-socket byte-for-byte replay of the curl script the picky
-        /// (T-Fiber/Metronet CLEI) firmware is proven to accept.</summary>
+        /// <summary>Raw-socket byte-for-byte replay of the tester-proven curl script, immune to
+        /// handler-level rewriting by construction.</summary>
         CurlReplay,
     }
 
@@ -654,7 +660,14 @@ public sealed class NokiaXs010xOntProvider : IOntProvider
 
     internal static HttpClient CreateClient()
     {
-        var client = new HttpClient { Timeout = TimeSpan.FromSeconds(TimeoutSeconds) };
+        // Handler cookies must stay off (thanks @jakerobb, #929): some firmware answers the
+        // login calls with a malformed "Set-Cookie: Path=/; HttpOnly" header, which a default
+        // CookieContainer parses as a literal cookie and then silently substitutes for the
+        // hand-set "Cookie: sessionid=..." header, so the device never sees the session id.
+        // The real session cookie arrives in the LoginForm JSON body, not in Set-Cookie, so
+        // nothing legitimate is lost by disabling the cookie engine.
+        var handler = new HttpClientHandler { UseCookies = false };
+        var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(TimeoutSeconds) };
         // Mirror the working curl flow: a fresh TCP connection per request. These GponForm
         // boxes can tie the login session to the connection, so keep-alive reuse across the
         // login -> getUpdateinfo steps can return an empty/unauthenticated response.
