@@ -514,6 +514,8 @@ public class ThirdPartyDnsDetector
         if (!IPAddress.TryParse(ipAddress, out var resolverIp))
             return false;
 
+        _logger.LogDebug("ControlD probe: querying verify.controld.com via {Resolver}", ipAddress);
+
         try
         {
             var lookup = new LookupClient(new LookupClientOptions(resolverIp)
@@ -532,24 +534,32 @@ public class ThirdPartyDnsDetector
                 return false;
             }
 
-            var hasCname = dnsResult.Answers
+            var cnameTargets = dnsResult.Answers
                 .OfType<DnsClient.Protocol.CNameRecord>()
-                .Any(r => r.CanonicalName.Value
-                    .TrimEnd('.')
-                    .EndsWith("controld.com", StringComparison.OrdinalIgnoreCase));
+                .Select(r => r.CanonicalName.Value.TrimEnd('.'))
+                .ToList();
+            var aRecords = dnsResult.Answers
+                .OfType<DnsClient.Protocol.ARecord>()
+                .Select(r => r.Address.ToString())
+                .ToList();
 
-            if (!hasCname)
-            {
-                var aRecords = dnsResult.Answers
-                    .OfType<DnsClient.Protocol.ARecord>()
-                    .Select(r => r.Address.ToString())
-                    .ToList();
-
-                hasCname = aRecords.Any(ip => ip.StartsWith("147.185.34."));
-            }
+            var hasCname = cnameTargets.Any(t => t.EndsWith("controld.com", StringComparison.OrdinalIgnoreCase))
+                || aRecords.Any(ip => ip.StartsWith("147.185.34."));
 
             if (hasCname)
+            {
                 _logger.LogDebug("ControlD probe: detected via verify.controld.com CNAME through {Resolver}", ipAddress);
+            }
+            else
+            {
+                // Log the actual answer so a reporter's logs show WHAT the resolver
+                // returned for verify.controld.com (it only carries the ControlD
+                // CNAME/A when the query actually traverses ControlD).
+                _logger.LogDebug("ControlD probe: no ControlD record via {Resolver} (CNAMEs: [{Cnames}], A: [{ARecords}])",
+                    ipAddress,
+                    cnameTargets.Count > 0 ? string.Join(", ", cnameTargets) : "none",
+                    aRecords.Count > 0 ? string.Join(", ", aRecords) : "none");
+            }
 
             return hasCname;
         }
@@ -994,11 +1004,15 @@ public class ThirdPartyDnsDetector
     /// </summary>
     private async Task<bool> TryProbeTechnitiumDnsEndpointAsync(string baseUrl, int timeoutSeconds = 3)
     {
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(timeoutSeconds));
+
+        if (await TryProbeTechnitiumStatusAsync(baseUrl, cts.Token))
+            return true;
+
         try
         {
             _logger.LogDebug("Probing Technitium DNS at {Url}", baseUrl);
 
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(timeoutSeconds));
             var response = await _httpClient.GetAsync(baseUrl, cts.Token);
 
             if (!response.IsSuccessStatusCode)
@@ -1020,6 +1034,63 @@ public class ThirdPartyDnsDetector
         catch (Exception ex)
         {
             _logger.LogDebug("Technitium DNS probe to {Url} error: {Type} - {Message}", baseUrl, ex.GetType().Name, ex.Message);
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Probe the Technitium status API within the parent endpoint's timeout budget.
+    /// </summary>
+    private async Task<bool> TryProbeTechnitiumStatusAsync(string baseUrl, CancellationToken cancellationToken)
+    {
+        var statusUrl = $"{baseUrl}/api/status";
+
+        try
+        {
+            _logger.LogDebug("Probing Technitium DNS status API at {Url}", statusUrl);
+
+            var response = await _httpClient.GetAsync(statusUrl, cancellationToken);
+
+            if (!response.IsSuccessStatusCode)
+                return false;
+
+            var content = await response.Content.ReadAsStringAsync(cancellationToken);
+            using var document = JsonDocument.Parse(content);
+            var root = document.RootElement;
+
+            if (root.ValueKind != JsonValueKind.Object ||
+                !root.TryGetProperty("status", out var status) ||
+                status.ValueKind != JsonValueKind.String ||
+                !string.Equals(status.GetString(), "ok", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            var hasDefaultCredentials = root.TryGetProperty("hasDefaultCredentials", out var defaultCredentials) &&
+                defaultCredentials.ValueKind is JsonValueKind.True or JsonValueKind.False;
+            var hasSsoEnabled = root.TryGetProperty("ssoEnabled", out var ssoEnabled) &&
+                ssoEnabled.ValueKind is JsonValueKind.True or JsonValueKind.False;
+
+            return hasDefaultCredentials && hasSsoEnabled;
+        }
+        catch (TaskCanceledException)
+        {
+            _logger.LogDebug("Technitium DNS status API probe to {Url} timed out", statusUrl);
+            return false;
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogDebug("Technitium DNS status API probe to {Url} failed: {Message}", statusUrl, ex.Message);
+            return false;
+        }
+        catch (JsonException ex)
+        {
+            _logger.LogDebug("Technitium DNS status API probe to {Url} returned invalid JSON: {Message}", statusUrl, ex.Message);
+            return false;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug("Technitium DNS status API probe to {Url} error: {Type} - {Message}", statusUrl, ex.GetType().Name, ex.Message);
             return false;
         }
     }

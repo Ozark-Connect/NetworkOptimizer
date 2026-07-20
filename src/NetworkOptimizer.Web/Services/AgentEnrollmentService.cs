@@ -227,17 +227,17 @@ public class AgentEnrollmentService
         if (site == null)
             return null;
 
-        // Filter to live agents FIRST (open tunnel is authoritative and instant,
-        // heartbeat freshness covers REST-only agents and reconnect gaps - the
-        // same IsAgentLive definition every status surface uses), then take the
-        // most recently seen, so a site with one stale and one live agent still
-        // resolves and the resolved target always matches what the UI shows.
+        // Filter to reachable agents FIRST (open tunnel, or a fresh REST heartbeat
+        // - the LAN speed test hits the agent's nginx directly, not the tunnel, so
+        // a heartbeat-only agent is still a valid target even when its tunnel is
+        // down), then take the most recently seen, so a site with one stale and one
+        // reachable agent still resolves.
         var agents = await db.SiteAgents.AsNoTracking()
             .Where(a => a.SiteId == site.Id && a.Enabled && a.EnrolledAt != null && a.LanIp != null)
             .OrderByDescending(a => a.LastSeenAt)
             .ToListAsync();
 
-        return agents.FirstOrDefault(a => _tunnelRegistry.IsAgentLive(a))?.LanIp;
+        return agents.FirstOrDefault(a => _tunnelRegistry.IsReachable(a))?.LanIp;
     }
 
     /// <summary>Enables or disables an agent. Disabled agents cannot enroll or heartbeat.</summary>

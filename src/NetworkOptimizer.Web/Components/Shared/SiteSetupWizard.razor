@@ -211,8 +211,8 @@
                 <h3 class="site-wizard-title">@_site.Name is ready</h3>
                 <p class="section-description">
                     The site's database is provisioned@(_connected ? ", its UniFi Console is connected" : "")@(_agentToken != null ? ", and its agent token is issued" : "").
-                    Switch to the site to configure monitoring, speed tests, and everything else, exactly like a
-                    single-site install.
+                    Switch to the site to @(_connected ? "" : "connect its UniFi Console, then ")configure monitoring, speed tests,
+                    and everything else, exactly like a single-site install.
                 </p>
             </div>
         </div>
@@ -446,6 +446,38 @@
     private async Task ResetAsync()
     {
         await RefreshLimitAsync();
+        ResetForm();
+        await OnSitesChanged.InvokeAsync();
+    }
+
+    /// <summary>
+    /// Clears the completed ("... is ready") success screen back to a fresh Add-a-Site
+    /// form. Called when the user opens a site's Configuration from the Sites table, so
+    /// the stale success state does not linger. No-op while a site is mid-setup, so
+    /// in-progress input is never discarded.
+    /// </summary>
+    public void ResetIfComplete()
+    {
+        if (_step != 4)
+            return;
+
+        ResetForm();
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// Unconditionally returns the wizard to a fresh Add-a-Site form, whatever step
+    /// it is on. Used when the site it may be operating on is removed - e.g. deleting
+    /// a site while its agent-setup step is showing.
+    /// </summary>
+    public void Reset()
+    {
+        ResetForm();
+        StateHasChanged();
+    }
+
+    private void ResetForm()
+    {
         _step = 1;
         _site = null;
         _name = "";
@@ -460,6 +492,5 @@
         _featureLanSpeedTest = false;
         _featureProxy = false;
         _message = "";
-        await OnSitesChanged.InvokeAsync();
     }
 }

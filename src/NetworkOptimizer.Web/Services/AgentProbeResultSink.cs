@@ -731,6 +731,10 @@ public class AgentProbeResultSink
                     // fast tier's RecordInterfaceAggregate(mac, out, in) convention.
                     liveStats.RecordInterfaceAggregate(mDev.Mac, m.Out, m.In, aggNow);
             fabric.WriteAggregates(console.Devices, liveStats, aggNow);
+            // Persist UDB downlink port_table rates to interface_counters for the historic
+            // resolver - identical to the directly-monitored fast tier (in-memory-only live path,
+            // and a UDB has no SNMP interface series to re-derive from during playback).
+            BridgeInterfaceRecorder.Record(fabric, console.Devices, influx, aggNow);
         }
 
         // Reconcile the InterfaceNameMap (friendly name, negotiated speed, port number,

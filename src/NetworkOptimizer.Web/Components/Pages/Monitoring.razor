@@ -369,7 +369,7 @@ else
         {
             @FlakyTargetsBanner
         }
-        <IspHealthPanel />
+        <IspHealthPanel OnReviewTarget="ReviewIspHopInLatencyTargets" />
     }
 
     @* ──────────────── Tab: Network Performance ──────────────── *@
@@ -717,6 +717,23 @@ else
                     <div class="chart-header"><h3 class="chart-title">Temperature</h3></div>
                     <div class="sfp-temp-chart"></div>
                 </div>
+                <!-- Supplemental PON-layer charts: shown only when a module has an attached
+                     Network Optimizer Custom ONT config feeding PON stats. -->
+                <div class="sfp-pon-section" style="display: none;">
+                    <div class="chart-card" style="margin-top: 1rem;">
+                        <div class="chart-header"><h3 class="chart-title">PON Errors (per interval)</h3></div>
+                        <div class="sfp-pon-errors-chart"></div>
+                    </div>
+                    <div class="chart-card" style="margin-top: 1rem;">
+                        <div class="chart-header"><h3 class="chart-title">Host Link Errors (per interval)</h3></div>
+                        <div class="sfp-pon-host-chart"></div>
+                    </div>
+                    <div class="chart-card" style="margin-top: 1rem;">
+                        <div class="chart-header"><h3 class="chart-title">GEM Frames (per interval)</h3></div>
+                        <div class="sfp-pon-gem-chart"></div>
+                    </div>
+                    <div class="sfp-pon-details"></div>
+                </div>
                 <div class="sfp-stats-table"></div>
             </div>
         </div>
@@ -1016,6 +1033,13 @@ else
                 <div class="chart-card" style="margin-top: 1rem;">
                     <div class="chart-header"><h3 class="chart-title">Temperature</h3></div>
                     <div class="ont-temp-chart"></div>
+                </div>
+                <!-- Shown only when at least one ONT reports FEC/BIP counters. -->
+                <div class="ont-errors-section" style="display: none;">
+                    <div class="chart-card" style="margin-top: 1rem;">
+                        <div class="chart-header"><h3 class="chart-title">FEC / BIP Errors (per interval)</h3></div>
+                        <div class="ont-errors-chart"></div>
+                    </div>
                 </div>
                 <div class="ont-stats-table"></div>
             </div>
@@ -1915,7 +1939,7 @@ else
 
         var cmConfigs = await CmMonitorService.GetConfigsAsync();
         _cmHasDevices = cmConfigs.Count > 0;
-        var ontConfigs = await OntMonitorService.GetConfigsAsync();
+        var ontConfigs = await OntMonitorService.GetStandaloneConfigsAsync();
         _ontHasDevices = ontConfigs.Count > 0;
         var cellConfigs = await CellularModemService.GetModemsAsync();
         _cellularHasDevices = cellConfigs.Count > 0;
@@ -2828,6 +2852,19 @@ else
             await _latencyTargetsCard.ExpandAndHighlightAsync(targetId);
     }
 
+    // ISP Health disable hint (off-path, jittery hop): switch to the Network Performance tab (where
+    // Latency targets lives, same as JumpToLatencyTargetAsync), then highlight the target once its
+    // card mounts (handled in OnAfterRenderAsync via _pendingLatencyJumpId).
+    private int? _pendingLatencyJumpId;
+
+    private void ReviewIspHopInLatencyTargets(string targetId)
+    {
+        var id = _targets.FirstOrDefault(t => t.TargetId == targetId)?.Id;
+        if (id == null) return;
+        _pendingLatencyJumpId = id;
+        SetActiveTab("performance");
+    }
+
     private async Task DismissLanFlakyHintAsync(MonitoringTarget target)
     {
         try
@@ -3516,6 +3553,14 @@ else
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        // Pending jump from the ISP Health disable hint: once the Network Performance tab's Latency
+        // targets card has mounted, expand + highlight the target, then clear so it fires once.
+        if (_pendingLatencyJumpId is int jumpId && _latencyTargetsCard != null)
+        {
+            _pendingLatencyJumpId = null;
+            await _latencyTargetsCard.ExpandAndHighlightAsync(jumpId);
+        }
+
         // The chart containers only exist while the console is connected - the whole
         // tab region renders behind the connection banner. Without this guard, a page
         // opened during a console outage (agent-backed site waiting for its tunnel,

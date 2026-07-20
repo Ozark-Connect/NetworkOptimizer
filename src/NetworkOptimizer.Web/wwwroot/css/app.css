@@ -16750,6 +16750,29 @@ a.isp-health-hero-speed:hover {
     color: var(--text-primary);
 }
 
+.isp-factor-name-row {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    min-width: 0;
+}
+
+.isp-asn-name-row {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+}
+
+.isp-involvement-pie {
+    display: inline-flex;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+.isp-involvement-pie svg {
+    display: block;
+}
+
 .isp-factor-value {
     font-size: 0.75rem;
     color: var(--text-secondary);
@@ -16781,6 +16804,14 @@ a.isp-health-hero-speed:hover {
     font-size: 0.9rem;
     font-weight: 700;
     text-align: right;
+    cursor: default;
+}
+
+.isp-factor-score.isp-score-caveat,
+.isp-asn-grade.isp-score-caveat {
+    cursor: help;
+    text-decoration: underline dotted;
+    text-underline-offset: 3px;
 }
 
 .isp-factor-description {
@@ -16878,6 +16909,7 @@ a.isp-health-hero-speed:hover {
 .isp-asn-grade {
     font-size: 1.3rem;
     font-weight: 700;
+    cursor: default;
 }
 
 .isp-asn-stats {
@@ -17260,6 +17292,11 @@ a.isp-outage-ack:hover {
 }
 
 .isp-hop-name {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    column-gap: 0.5rem;
+    row-gap: 0.25rem;
     font-size: 0.85rem;
     font-weight: 500;
     color: var(--text-primary);
@@ -17271,16 +17308,36 @@ a.isp-outage-ack:hover {
     margin-top: 0.45rem;
 }
 
-.isp-target-graded {
-    margin-left: 0.35rem;
-    padding: 0.05rem 0.4rem;
+.isp-target-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    padding: 0.15rem 0.4rem;
+    border: 0;
     border-radius: 4px;
-    background: rgba(5, 80, 181, 0.25);
-    color: var(--primary-hover);
+    font-family: inherit;
     font-size: 0.62rem;
     font-weight: 600;
+    line-height: 1;
     text-transform: uppercase;
     letter-spacing: 0.04em;
+}
+
+.isp-target-graded {
+    background: rgba(5, 80, 181, 0.25);
+    color: var(--primary-hover);
+}
+
+.isp-target-disable-hint {
+    border: none;
+    background: rgba(231, 150, 19, 0.2);
+    color: var(--warning-color);
+    cursor: pointer;
+}
+
+.isp-target-disable-hint:hover {
+    background: rgba(231, 150, 19, 0.32);
 }
 
 .isp-target-stat {
@@ -17858,13 +17915,38 @@ body.kiosk-mode .status-indicators {
 }
 
 .site-config-panel {
+    position: relative;
     display: flex;
     flex-direction: column;
     gap: 0.85rem;
     margin: 0.25rem 0 0.75rem;
-    padding: 1rem;
+    padding: 2.5rem 1rem 1rem;
     background: var(--bg-tertiary);
     border-radius: var(--border-radius-lg);
+}
+
+.site-config-dismiss {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.75rem;
+    height: 1.75rem;
+    padding: 0;
+    border: none;
+    border-radius: var(--border-radius);
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 1.25rem;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.site-config-dismiss:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
 }
 
 .site-config-section {

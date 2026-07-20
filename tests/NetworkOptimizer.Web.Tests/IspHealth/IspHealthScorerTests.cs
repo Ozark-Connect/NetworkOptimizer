@@ -40,7 +40,8 @@ public class IspHealthScorerTests
         bool lineIdle = false,
         bool hopOrderKnown = false,
         List<OutageEvent>? outages = null,
-        TimeSpan? scoreWindow = null)
+        TimeSpan? scoreWindow = null,
+        HashSet<string>? notTracedTargetIds = null)
     {
         // lineIdle: a near-zero, flat WAN with no load bursts (~0% average load), for
         // exercising the load-calibrated packet-loss ceiling at the idle end.
@@ -82,6 +83,7 @@ public class IspHealthScorerTests
             CongestionEvents = congestion ?? new List<CongestionEvent>(),
             SmartQueuesEnabled = smartQueuesEnabled,
             HopOrderKnown = hopOrderKnown,
+            NotTracedTargetIds = notTracedTargetIds ?? new HashSet<string>(),
             Outages = outages ?? new List<OutageEvent>()
         };
     }
@@ -818,7 +820,7 @@ public class IspHealthScorerTests
 
         withJitteryTransit.IspAsnDimension.Score.Should().Be(noTransit.IspAsnDimension.Score,
             "a jittery transit ASN must not raise the ISP jitter (cap is min, not max)");
-        withJitteryTransit.IspAsns.Single().P95JitterMs.Should().BeApproximately(0.3, 0.05,
+        withJitteryTransit.IspAsns.Single().ScoredJitterMs.Should().BeApproximately(0.3, 0.05,
             "the displayed ISP jitter stays at the ISP mean when transit is not cleaner");
     }
 
@@ -1003,10 +1005,234 @@ public class IspHealthScorerTests
         graded.JitterScore.Should().BeGreaterThan(ungraded.JitterScore!.Value,
             "the clean farther cluster disproves the near hop's false jitter");
         graded.JitterScore.Should().BeGreaterThan(85);
-        graded.P95JitterMs.Should().BeApproximately(0.4, 0.1,
+        graded.ScoredJitterMs.Should().BeApproximately(0.4, 0.1,
             "the displayed jitter is the absolved value, not the near hop's 4 ms");
         graded.JitterAssimilated.Should().BeTrue("the farther cluster pulled the jitter down");
         graded.RawJitterMs.Should().BeApproximately(4.0, 0.1, "the raw near reading is kept for the tooltip");
+    }
+
+    [Fact]
+    public void A_clean_destination_absolves_a_transit_asn_it_routes_through()
+    {
+        // A transit ASN shows high self-jitter (ICMP deprioritization) with no farther cluster of
+        // its own to disprove it. A monitored destination reached THROUGH the ASN (its hop is in the
+        // destination's ancestor set) is clean end-to-end - a hard upper bound on the ASN's true
+        // jitter - so it absolves the transit ASN. Arm A. Divergent ancestry = no absolve (strict).
+        AsnSeries Transit() => new()
+        {
+            AsnNumber = 64500,
+            AsnName = "TransitOne",
+            TargetIds = { "transit-jittery" },
+            Samples = TestSeries.Flat(TestSeries.Start, Day, 10, 4.0),
+            HopIps = { "20.0.0.1" }
+        };
+        var cleanDest = new AsnSeries
+        {
+            AsnNumber = 64512,
+            AsnName = "Destination",
+            TargetIds = { "dest-clean" },
+            Samples = TestSeries.Flat(TestSeries.Start, Day, 13, 0.4),
+            HopIps = { "30.0.0.1" },
+            AncestorIps = { "20.0.0.1" } // reached through the transit ASN's hop
+        };
+        var divergentDest = new AsnSeries
+        {
+            AsnNumber = 64512,
+            AsnName = "Destination",
+            TargetIds = { "dest-clean" },
+            Samples = TestSeries.Flat(TestSeries.Start, Day, 13, 0.4),
+            HopIps = { "30.0.0.1" },
+            AncestorIps = { "10.9.9.9" } // a different hop - does not route through our transit
+        };
+
+        var absolved = new IspHealthScorer(Options).Score(
+            BuildInputs(transit: new List<AsnSeries> { Transit() },
+                destinations: new List<AsnSeries> { cleanDest }, hopOrderKnown: true), Gpon).TransitAsns.Single();
+        var notAbsolved = new IspHealthScorer(Options).Score(
+            BuildInputs(transit: new List<AsnSeries> { Transit() },
+                destinations: new List<AsnSeries> { divergentDest }, hopOrderKnown: true), Gpon).TransitAsns.Single();
+
+        absolved.JitterScore.Should().BeGreaterThan(notAbsolved.JitterScore!.Value,
+            "a clean destination routing through the transit ASN proves its jitter is an ICMP artifact");
+        absolved.JitterAssimilated.Should().BeTrue("the clean destination pulled the jitter down");
+    }
+
+    [Fact]
+    public void Transit_health_weights_asns_by_internet_host_involvement()
+    {
+        // Two transit ASNs, one clean and one jittery. The jittery one carries NO monitored internet
+        // host, so involvement weighting drops it to the 25% floor and the dimension leans on the
+        // clean, host-carrying ASN - scoring higher than the plain average an install with no
+        // attribution would get. Arm 4. The destination routes only through the clean ASN, so Arm A
+        // can't rescue the jittery one's jitter (isolating the weighting effect).
+        List<AsnSeries> Transits() => new()
+        {
+            new AsnSeries
+            {
+                AsnNumber = 64500, AsnName = "CleanTransit",
+                TargetIds = { "transit-clean" },
+                Samples = TestSeries.Flat(TestSeries.Start, Day, 10, 0.4),
+                HopIps = { "20.0.0.1" }
+            },
+            new AsnSeries
+            {
+                AsnNumber = 64600, AsnName = "JitteryTransit",
+                TargetIds = { "transit-jittery" },
+                Samples = TestSeries.Flat(TestSeries.Start, Day, 12, 4.0),
+                HopIps = { "21.0.0.1" }
+            }
+        };
+        var dest = new AsnSeries
+        {
+            AsnNumber = 64512, AsnName = "Destination",
+            TargetIds = { "dest-clean" },
+            Samples = TestSeries.Flat(TestSeries.Start, Day, 13, 0.4),
+            HopIps = { "30.0.0.1" },
+            AncestorIps = { "20.0.0.1" } // routes through the clean transit only
+        };
+
+        var weighted = new IspHealthScorer(Options).Score(
+            BuildInputs(transit: Transits(), destinations: new List<AsnSeries> { dest }, hopOrderKnown: true), Gpon)
+            .TransitDimension;
+        // Baseline: no attribution, so both ASNs weigh equally - the plain average, no tooltips.
+        var equal = new IspHealthScorer(Options).Score(
+            BuildInputs(transit: Transits(), hopOrderKnown: true), Gpon)
+            .TransitDimension;
+
+        weighted.Score.Should().BeGreaterThan(equal.Score!.Value,
+            "down-weighting the jittery, host-less transit lifts the dimension toward the clean, host-carrying one");
+        weighted.Factors.Single(f => f.Name == "CleanTransit").InvolvementTooltip.Should().Contain("100% weight");
+        weighted.Factors.Single(f => f.Name == "JitteryTransit").InvolvementTooltip.Should().Contain("25%");
+        equal.Factors.Should().OnlyContain(f => f.InvolvementTooltip == null,
+            "with no attributable host there is no involvement to differentiate");
+    }
+
+    [Fact]
+    public void Off_path_jittery_isp_hop_is_flagged_for_disable()
+    {
+        // A hop that answers pings but appears on no trace (an OLT that ICMP-deprioritizes traceroute)
+        // with high jitter is flagged SuggestDisable. The graded on-path hop never is.
+        var graded = new AsnSeries
+        {
+            AsnNumber = 64496, AsnName = "ISP", TargetIds = { "isp-near" }, RoleTargetIds = { "isp-near" },
+            Samples = TestSeries.Flat(TestSeries.Start, Day, 2.0, 0.3), HopIps = { "10.0.0.1" }
+        };
+        var offPathJittery = new AsnSeries
+        {
+            AsnNumber = 64496, AsnName = "ISP", TargetIds = { "isp-olt" }, RoleTargetIds = { "isp-olt" },
+            Samples = TestSeries.Flat(TestSeries.Start, Day, 4.0, 6.0), HopIps = { "10.0.0.9" }
+        };
+        var hops = new List<AsnSeries> { graded, offPathJittery };
+
+        var report = new IspHealthScorer(Options).Score(
+            BuildInputs(ispAsn: hops, ispTargets: hops, firstHopTargetId: "isp-near",
+                hopOrderKnown: true, notTracedTargetIds: new HashSet<string> { "isp-olt" }), Gpon);
+
+        var olt = report.IspTargets.Single(t => t.TargetId == "isp-olt");
+        olt.NotOnTracedPath.Should().BeTrue();
+        olt.SuggestDisable.Should().BeTrue("off the traced path and dragging its score with jitter");
+        report.IspTargets.Single(t => t.TargetId == "isp-near").SuggestDisable.Should().BeFalse(
+            "the graded on-path hop is never suggested for disable");
+    }
+
+    [Fact]
+    public void Transit_asns_with_no_attributable_hosts_are_floored_and_labeled()
+    {
+        // A fully-peered site: destinations reach the internet directly, so their (complete) ancestry
+        // crosses no transit and every transit ASN carries zero monitored hosts. With attribution
+        // available (hop order + destinations), that is a TRUE zero - each transit is floored at 25%
+        // and labeled, not left at the equal-weight "unknown" fallback. Arm 4.
+        List<AsnSeries> Transits() => new()
+        {
+            new AsnSeries { AsnNumber = 64500, AsnName = "TransitA", TargetIds = { "ta" },
+                Samples = TestSeries.Flat(TestSeries.Start, Day, 10, 0.5), HopIps = { "20.0.0.1" } },
+            new AsnSeries { AsnNumber = 64600, AsnName = "TransitB", TargetIds = { "tb" },
+                Samples = TestSeries.Flat(TestSeries.Start, Day, 12, 0.5), HopIps = { "21.0.0.1" } }
+        };
+        var peeredDest = new AsnSeries
+        {
+            AsnNumber = 64512, AsnName = "Destination", TargetIds = { "dest" },
+            Samples = TestSeries.Flat(TestSeries.Start, Day, 8, 0.4), HopIps = { "30.0.0.1" },
+            AncestorIps = { "9.9.9.9" } // routes through neither transit (peered)
+        };
+
+        var dim = new IspHealthScorer(Options).Score(
+            BuildInputs(transit: Transits(), destinations: new List<AsnSeries> { peeredDest }, hopOrderKnown: true), Gpon)
+            .TransitDimension;
+
+        // The two transit ASNs carry zero hosts, so both are floored at 25% and labeled.
+        dim.Factors.Where(f => f.Name != "IX Peering").Should()
+            .OnlyContain(f => f.InvolvementTooltip != null && f.InvolvementTooltip.Contains("25%"),
+                "complete ancestry showing zero transit involvement floors and labels every transit ASN");
+        // And because the destination is reached directly (no transit, low delta), its measured quality
+        // is surfaced as the IX Peering entry carrying full weight - not the neutral-100 fill.
+        dim.Factors.Should().ContainSingle(f => f.Name == "IX Peering")
+            .Which.InvolvementTooltip.Should().Contain("100% weight");
+    }
+
+    [Fact]
+    public void Ix_peering_entry_requires_both_low_delta_and_no_transit_on_path()
+    {
+        // Only the direct-peered destination becomes the synthetic IX Peering entry. The other two are
+        // each excluded by one arm of the AND rule:
+        //   - ViaTransit: low RTT, but its path crosses a transit ASN (the "fast but not peering" case).
+        //   - FarPeer: crosses no transit, but a large best-case delta (peering behind a hidden L2 haul).
+        var transit = new List<AsnSeries>
+        {
+            new() { AsnNumber = 64500, AsnName = "Transit", TargetIds = { "t" },
+                Samples = TestSeries.Flat(TestSeries.Start, Day, 10, 0.5), HopIps = { "20.0.0.1" } }
+        };
+        var peered = new AsnSeries
+        {
+            AsnNumber = 13335, AsnName = "Peered", TargetIds = { "peered" },
+            Samples = TestSeries.Flat(TestSeries.Start, Day, 4, 0.3), HopIps = { "30.0.0.1" },
+            AncestorIps = { "10.0.0.1" } // access ISP hop only - crosses no transit
+        };
+        var viaTransit = new AsnSeries
+        {
+            AsnNumber = 15169, AsnName = "ViaTransit", TargetIds = { "via" },
+            Samples = TestSeries.Flat(TestSeries.Start, Day, 4, 0.3), HopIps = { "31.0.0.1" },
+            AncestorIps = { "10.0.0.1", "20.0.0.1" } // low RTT but routes through the transit ASN
+        };
+        var farPeer = new AsnSeries
+        {
+            AsnNumber = 54113, AsnName = "FarPeer", TargetIds = { "far" },
+            Samples = TestSeries.Flat(TestSeries.Start, Day, 20, 0.3), HopIps = { "32.0.0.1" },
+            AncestorIps = { "10.0.0.1" } // crosses no transit, but ~18 ms beyond the access hop
+        };
+
+        var dim = new IspHealthScorer(Options).Score(
+            BuildInputs(transit: transit, destinations: new List<AsnSeries> { peered, viaTransit, farPeer },
+                hopOrderKnown: true), Gpon).TransitDimension;
+
+        var ix = dim.Factors.Should().ContainSingle(f => f.Name == "IX Peering").Which;
+        ix.Score.Should().NotBeNull("the peered destination's own measured quality drives the entry");
+        ix.InvolvementTooltip.Should().Contain("1 of 3 internet targets",
+            "only the direct-peered destination qualifies; the transit-crossing and far ones are excluded");
+    }
+
+    [Fact]
+    public void Ix_peering_entry_is_absent_when_no_destination_is_directly_peered()
+    {
+        // Every destination crosses the transit ASN (a rural-style backhaul), so no IX Peering entry is
+        // synthesized and Transit Health grades on the real transit alone - the prior behavior stands.
+        var transit = new List<AsnSeries>
+        {
+            new() { AsnNumber = 64500, AsnName = "Transit", TargetIds = { "t" },
+                Samples = TestSeries.Flat(TestSeries.Start, Day, 10, 0.5), HopIps = { "20.0.0.1" } }
+        };
+        var viaTransit = new AsnSeries
+        {
+            AsnNumber = 15169, AsnName = "ViaTransit", TargetIds = { "via" },
+            Samples = TestSeries.Flat(TestSeries.Start, Day, 12, 0.3), HopIps = { "31.0.0.1" },
+            AncestorIps = { "10.0.0.1", "20.0.0.1" }
+        };
+
+        var dim = new IspHealthScorer(Options).Score(
+            BuildInputs(transit: transit, destinations: new List<AsnSeries> { viaTransit },
+                hopOrderKnown: true), Gpon).TransitDimension;
+
+        dim.Factors.Should().NotContain(f => f.Name == "IX Peering");
     }
 
     [Fact]

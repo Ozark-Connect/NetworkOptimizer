@@ -139,7 +139,9 @@ public class PhysicalLinkResolver
     private async Task<List<Cand>> PonCandidatesAsync(NetworkOptimizerDbContext db, CancellationToken ct)
     {
         var sfps = await SfpCandidatesAsync(db, SfpCategory.Pon, PhysicalMedium.Pon, ct);
-        var onts = (await db.OntConfigurations.AsNoTracking().Where(o => o.Enabled).ToListAsync(ct))
+        // Attached configs represent the SFP module's PON layer (handled by the SFP
+        // candidate above), not a standalone ONT hop - exclude them here.
+        var onts = (await db.OntConfigurations.AsNoTracking().Where(o => o.Enabled && o.AttachedSfpId == null).ToListAsync(ct))
             .Where(o => IsFresh(o.LastPolled, o.PollingIntervalSeconds))
             .Select(o => new Cand($"ont:{o.Id}", o.Name, PhysicalMedium.Pon, o.Id, null, null));
         return sfps.Concat(onts).ToList();

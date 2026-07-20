@@ -368,6 +368,28 @@ public static class DefaultAlertRules
         },
         new AlertRule
         {
+            // Uncorrected bit errors; always-on signal, and the primary error alert on a
+            // link running with payload FEC disabled. Only ONTs whose provider reports BIP trip it.
+            Name = "ONT: BIP Error Spike",
+            IsEnabled = false,
+            EventTypePattern = "ont.bip_errors",
+            Source = "ont",
+            MinSeverity = AlertSeverity.Warning,
+            CooldownSeconds = 1800 // 30 minutes
+        },
+        new AlertRule
+        {
+            // Uncorrectable framing-header errors; the live codeword-error signal when payload
+            // FEC is disabled. Only augmented SFP-ONT polling reports HEC, so it stays inert otherwise.
+            Name = "ONT: HEC Error Spike",
+            IsEnabled = false,
+            EventTypePattern = "ont.hec_errors",
+            Source = "ont",
+            MinSeverity = AlertSeverity.Warning,
+            CooldownSeconds = 1800 // 30 minutes
+        },
+        new AlertRule
+        {
             // Only ONTs whose provider reports a temperature can trip this; the rest never fire it.
             Name = "ONT: Temperature High",
             IsEnabled = false,

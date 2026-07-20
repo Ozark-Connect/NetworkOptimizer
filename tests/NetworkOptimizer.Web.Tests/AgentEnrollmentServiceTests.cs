@@ -18,7 +18,7 @@ public class AgentEnrollmentServiceTests
     }
 
     private readonly TestDbFactory _factory;
-    private readonly AgentTunnelRegistry _tunnelRegistry = new();
+    private readonly AgentTunnelRegistry _tunnelRegistry = new(new AgentTunnelOptions(Enabled: true, Port: 0));
     private readonly AgentEnrollmentService _service;
 
     public AgentEnrollmentServiceTests()

@@ -150,6 +150,13 @@ public class LanLink
     /// <summary>Stable correlation key for wired throughput chain: device MAC + ifName (spec 3.7).
     /// Also the lookup key for MonitoringLiveStats.GetPortRate per-port live tick refreshes.</summary>
     public string? PortKey { get; set; }
+
+    /// <summary>Server-side only. Set to the parent's device MAC ONLY for a wired-client link whose
+    /// parent is a single-port UniFi Device Bridge (UDB). The live-rate pass sources this leaf's
+    /// rate from the bridge's device aggregate, because the bridged client's own wired byte
+    /// counters are always zero. Null for every other link, so no existing case is affected.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string? BridgeParentMac { get; set; }
 }
 
 public enum LanCloudKind
