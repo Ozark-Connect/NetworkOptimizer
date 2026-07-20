@@ -40,6 +40,36 @@ public static class AlertRuleAutoEnable
     }
 
     /// <summary>
+    /// Enables specific disabled rules (by EventTypePattern) when a capability first
+    /// becomes available - e.g. attaching augmented PON polling to an SFP ONT unlocks the
+    /// BIP/HEC error alerts. Skips if any of those patterns is already enabled, so it never
+    /// re-enables a rule the user turned off. Complements the startup
+    /// <see cref="EnableFreshlySeeded"/> path by acting immediately on the triggering save.
+    /// </summary>
+    public static async Task EnablePatternsAsync(IServiceScope scope, IReadOnlyCollection<string> patterns, ILogger logger)
+    {
+        try
+        {
+            var db = scope.ServiceProvider.GetRequiredService<NetworkOptimizerDbContext>();
+
+            var rules = (await db.AlertRules.ToListAsync())
+                .Where(r => patterns.Contains(r.EventTypePattern))
+                .ToList();
+            if (rules.Count == 0 || rules.Any(r => r.IsEnabled)) return;
+
+            foreach (var rule in rules) rule.IsEnabled = true;
+            await db.SaveChangesAsync();
+
+            logger.LogInformation("Auto-enabled {Count} alert rules for patterns [{Patterns}]",
+                rules.Count, string.Join(", ", patterns));
+        }
+        catch (Exception ex)
+        {
+            logger.LogDebug(ex, "Failed to auto-enable pattern rules");
+        }
+    }
+
+    /// <summary>
     /// Enables rules that were JUST seeded (their EventTypePattern is in
     /// <paramref name="seededPatterns"/>) for a source whose monitoring is already configured
     /// on this database. Unlike <see cref="EnableBySourceAsync"/> this only touches the

@@ -172,6 +172,93 @@ public class ThirdPartyDnsDetectorTests : IDisposable
     }
 
     [Fact]
+    public async Task DetectThirdPartyDnsAsync_TechnitiumStatusApiDetected_FlagsProviderAsTechnitiumDns()
+    {
+        const string baseUrl = "http://10.10.20.30:5380";
+        var httpClient = CreateRequestAwareMockHttpClient(request =>
+        {
+            if (request.RequestUri?.AbsoluteUri == $"{baseUrl}/api/status")
+            {
+                return new HttpResponseMessage
+                {
+                    StatusCode = HttpStatusCode.OK,
+                    Content = new StringContent("""{"hasDefaultCredentials":false,"ssoEnabled":true,"server":"technitium.example.local","status":"ok"}""")
+                };
+            }
+
+            return new HttpResponseMessage { StatusCode = HttpStatusCode.NotFound };
+        });
+        var detector = CreateDetector(httpClient);
+
+        var result = await detector.DetectThirdPartyDnsAsync(CreateTechnitiumTestNetworks(), customUrl: baseUrl);
+
+        result.Should().ContainSingle();
+        result[0].IsTechnitiumDns.Should().BeTrue();
+        result[0].DnsProviderName.Should().Be("Technitium DNS");
+    }
+
+    [Theory]
+    [InlineData("{\"status\":\"ok\"}")]
+    [InlineData("{\"status\":\"ok\",\"hasDefaultCredentials\":false}")]
+    [InlineData("{\"status\":\"ok\",\"ssoEnabled\":true}")]
+    [InlineData("{\"status\":\"ok\",\"hasDefaultCredentials\":false,\"ssoEnabled\":\"true\"}")]
+    [InlineData("not-json")]
+    public async Task DetectThirdPartyDnsAsync_NonTechnitiumStatusResponse_NotDetectedAsTechnitiumDns(string statusResponse)
+    {
+        var httpClient = CreateRequestAwareMockHttpClient(request =>
+        {
+            if (request.RequestUri?.AbsolutePath == "/api/status")
+            {
+                return new HttpResponseMessage
+                {
+                    StatusCode = HttpStatusCode.OK,
+                    Content = new StringContent(statusResponse)
+                };
+            }
+
+            return new HttpResponseMessage { StatusCode = HttpStatusCode.NotFound };
+        });
+        var detector = CreateDetector(httpClient);
+
+        var result = await detector.DetectThirdPartyDnsAsync(CreateTechnitiumTestNetworks(), customUrl: "http://10.10.20.30:5380");
+
+        result.Should().ContainSingle();
+        result[0].IsTechnitiumDns.Should().BeFalse();
+        result[0].DnsProviderName.Should().Be("Third-Party LAN DNS");
+    }
+
+    [Fact]
+    public async Task DetectThirdPartyDnsAsync_TechnitiumStatusUnavailable_FallsBackToHtmlDetection()
+    {
+        const string baseUrl = "http://10.10.20.30:5380";
+        var requestedPaths = new List<string>();
+        var technitiumResponse = @"<html><head><title>Technitium DNS Server</title><script src=""js/common.js""></script></head><body>Technitium</body></html>";
+        var httpClient = CreateRequestAwareMockHttpClient(request =>
+        {
+            requestedPaths.Add(request.RequestUri?.AbsolutePath ?? "");
+
+            if (request.RequestUri?.GetLeftPart(UriPartial.Authority) == baseUrl &&
+                request.RequestUri.AbsolutePath == "/")
+            {
+                return new HttpResponseMessage
+                {
+                    StatusCode = HttpStatusCode.OK,
+                    Content = new StringContent(technitiumResponse)
+                };
+            }
+
+            return new HttpResponseMessage { StatusCode = HttpStatusCode.NotFound };
+        });
+        var detector = CreateDetector(httpClient);
+
+        var result = await detector.DetectThirdPartyDnsAsync(CreateTechnitiumTestNetworks(), customUrl: baseUrl);
+
+        requestedPaths.Should().Contain("/api/status");
+        result.Should().ContainSingle();
+        result[0].IsTechnitiumDns.Should().BeTrue();
+    }
+
+    [Fact]
     public async Task DetectThirdPartyDnsAsync_TechnitiumTitleWithoutAssets_NotDetectedAsTechnitiumDns()
     {
         var technitiumLikeResponse = @"<html><head><title>Technitium DNS Server</title></head><body>Technitium</body></html>";
@@ -199,6 +286,23 @@ public class ThirdPartyDnsDetectorTests : IDisposable
         result[0].DnsProviderName.Should().Be("Third-Party LAN DNS");
     }
 
+    private static List<NetworkInfo> CreateTechnitiumTestNetworks()
+    {
+        return
+        [
+            new NetworkInfo
+            {
+                Id = "net1",
+                DhcpEnabled = true,
+                Name = "Trusted",
+                VlanId = 1,
+                Subnet = "10.10.20.0/24",
+                Gateway = "10.10.20.1",
+                DnsServers = ["10.10.20.30"]
+            }
+        ];
+    }
+
     private ThirdPartyDnsDetector CreateDetector(HttpClient? httpClient = null)
     {
         httpClient ??= new HttpClient { Timeout = TimeSpan.FromSeconds(3) };
@@ -219,6 +323,20 @@ public class ThirdPartyDnsDetectorTests : IDisposable
                 StatusCode = statusCode,
                 Content = new StringContent(content)
             });
+
+        return new HttpClient(handlerMock.Object) { Timeout = TimeSpan.FromSeconds(3) };
+    }
+
+    private static HttpClient CreateRequestAwareMockHttpClient(Func<HttpRequestMessage, HttpResponseMessage> responseFactory)
+    {
+        var handlerMock = new Mock<HttpMessageHandler>();
+        handlerMock
+            .Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ReturnsAsync((HttpRequestMessage request, CancellationToken _) => responseFactory(request));
 
         return new HttpClient(handlerMock.Object) { Timeout = TimeSpan.FromSeconds(3) };
     }
@@ -1457,8 +1575,8 @@ public class ThirdPartyDnsDetectorTests : IDisposable
         // HTTP handler should only be called once per unique IP
         // Pi-hole probe: 3 attempts (port 80, 443, 8080)
         // AdGuard Home probe: 3 attempts (port 80, 443, 3000)
-        // Technitium DNS probe: 4 attempts (port 5380, 53443, 80, 443)
-        callCount.Should().BeLessThanOrEqualTo(10);
+        // Technitium DNS probe: 8 attempts (status API and HTML on ports 5380, 53443, 80, 443)
+        callCount.Should().BeLessThanOrEqualTo(14);
     }
 
     #endregion

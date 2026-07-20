@@ -1317,8 +1317,9 @@ public class UpstreamTracerService
     /// flipped in either direction: an existing enabled row keeps covering its
     /// cluster (no second pick is added beside it), and an existing disabled row is
     /// never re-enabled - a disabled row can be a flaky-target verdict, not just an
-    /// old default. ASNs with no gate-clearing hop end up with nothing enabled, which
-    /// is what lets the downstream witness/fallback injection step in.
+    /// old default. An ASN with no gate-clearing hop ends up with nothing enabled here;
+    /// that is fine, because a curated transit ASN (e.g. Level 3) still gets its anycast
+    /// witness attached downstream regardless (InjectTransitWitnessesAsync).
     /// </summary>
     internal static void ApplyTransitClumpSelection(IEnumerable<TransitAsnCandidate> candidates)
     {
@@ -1367,8 +1368,8 @@ public class UpstreamTracerService
 
     // Reachability gate: a candidate must answer enough pings in a short rapid burst (200 ms
     // spacing) to be auto-selected, so flaky, ICMP-deprioritized routers don't get monitored - and
-    // so the Level 3 transit witness (4.2.2.2) is injected exactly when no real AS3356 router clears
-    // the gate. We always send 3; the required successes depend on the connection's access medium
+    // so a curated transit witness (e.g. Level 3 4.2.2.2) must itself clear the gate before it is
+    // attached. We always send 3; the required successes depend on the connection's access medium
     // (Item B): air-interface mediums (WISP, cellular) and the unconfigured Unknown case allow one
     // dropped reply (2/3); stable wired/fiber/LEO mediums demand 3/3.
     private const int ReachabilityPingCount = 3;
@@ -1432,12 +1433,12 @@ public class UpstreamTracerService
         // With verified RTTs in hand, refine the provisional per-clump picks: enable
         // the lowest-RTT hop that cleared the gate in each of an ASN's clumps (near
         // ingress + far egress), instead of blindly keeping the lowest hop number.
-        // Runs before witness injection so an ASN that ends up with a selection
-        // doesn't also get a witness.
         ApplyTransitClumpSelection(State.TransitAsns);
 
-        // Item A: if Level 3 (AS3356) is on the path but no AS3356 router cleared the gate, inject
-        // 4.2.2.2 as a transit witness so ISP Health still has Lumen transit data.
+        // Item A: whenever a curated transit ASN (e.g. Level 3 / AS3356) is near-transit, attach its
+        // anycast witness (4.2.2.2) as a transit target - alongside any real routers, not only as a
+        // fallback - so ISP Health always has a stable Lumen transit anchor even when the real hops
+        // vary POP-to-POP across runs or start deprioritizing ICMP.
         await InjectTransitWitnessesAsync(minSuccesses, ct);
 
         // If the access ASN is one we have curated endpoints for and none of its first-mile
@@ -1450,9 +1451,12 @@ public class UpstreamTracerService
     }
 
     // Item A: anycast DNS witnesses for transit ASNs whose routers commonly ICMP-deprioritize or
-    // hide behind L2-transparent infra. Used only when the ASN is on the path but no router clears
-    // the reachability gate. The endpoint is anycast (nearest edge), hence the "transit witness"
-    // label. Extend this table to add witnesses for other transit ASNs (e.g. AS7018 AT&T).
+    // hide behind L2-transparent infra. Attached whenever the ASN is genuinely near-transit - not
+    // only as a fallback - so the tier always has a stable anchor even when real routers respond
+    // (they vary POP-to-POP across runs and can start dropping ICMP). The endpoint is anycast
+    // (nearest edge), hence the "transit witness" label; it hits a more distant POP than the closest
+    // real hop, which is why the real hops are kept, never replaced. Extend this table to add
+    // witnesses for other transit ASNs (e.g. AS7018 AT&T).
     private static readonly (int Asn, string Address, string Name, string Label)[] TransitWitnesses =
     {
         (3356, "4.2.2.2", "Level 3", "Level 3 DNS (transit witness)")
@@ -1598,8 +1602,10 @@ public class UpstreamTracerService
             if (!_nearTransitAsns.Contains(asn)) continue;
             // And not when this tier-1 only ever sits above another tier-1 (core peering).
             if (_excludedTier1Asns.Contains(asn)) continue;
-            // Skip if any real router in this ASN already cleared the gate, or the witness exists.
-            if (State.TransitAsns.Any(t => t.AsnNumber == asn && t.Enabled && !t.Unreachable)) continue;
+            // Skip only if this witness address is already a candidate this run. A real router in the
+            // same ASN no longer suppresses the witness - the anycast anchor is attached alongside it
+            // (the real hops are usually a closer POP, so both are kept). Same-address dedup on write
+            // (UpsertTransitTargetAsync) folds this into any hand-added row at the same address.
             if (State.TransitAsns.Any(t => string.Equals(t.HopAddress, address, StringComparison.OrdinalIgnoreCase))) continue;
 
             // The witness must itself clear the gate before we enable it.
@@ -1624,8 +1630,18 @@ public class UpstreamTracerService
                 VerifiedRttMs = result.RttAvgMs,
                 Enabled = true
             });
-            _logger.LogInformation("Injected transit witness {Address} (AS{Asn} {Name}) - no reachable {Name} router",
-                address, asn, name, name);
+            _logger.LogInformation("Attached transit witness {Address} (AS{Asn} {Name}) - near-transit anchor",
+                address, asn, name);
+
+            // Trace the witness so PersistHopOrderAsync records the real transit hops that precede
+            // it as its ancestry. Without this the anycast endpoint is ping-only, lands in
+            // UpstreamDiscoveries with no ancestors, and fails FarClusterRoutesThroughNear - so ISP
+            // Health can never use the witness's clean end-to-end jitter to absolve a jittery near
+            // hop it routes through. The proof is honest: ancestry comes from 4.2.2.2's actual path,
+            // so an absolve only happens when that path genuinely traverses the monitored hop; if
+            // the anycast lands on a different Level 3 POP there is no overlap and no absolve.
+            var (_, witnessTrace) = await TraceOneAsync(new TraceEndpoint(name, address), ProbeMode.Icmp, ct);
+            _lastTraces.Add(witnessTrace);
         }
     }
 

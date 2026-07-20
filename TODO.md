@@ -321,6 +321,37 @@ The following were implemented in the WiFi Optimizer feature:
 
 ## Monitoring
 
+### PON supplemental counters: wrap-aware deltas (SFP Stats)
+The augmented PON provider's frame/allocation counters (GEM tx/rx, LAN frames, allocations) are 32-bit
+on the ONT and wrap (~4.29B unsigned, or ~2.15B if signed). Every path handles the wrap **safely**
+today - the chart delta guard (`cur >= prev ? cur - prev : null`), the alert spike check
+(`if (delta < 0) delta = 0`), and ISP Health's positive-increment total all treat a wrap like a
+counter reset. The only cost is a single dropped data point on the frame charts at each wrap, which on
+a busy link can be ~hourly for the high-rate counters.
+
+Follow-up (low priority): reconstruct the true delta across a wrap instead of gapping it. Use
+`sfp_uptime_s` to distinguish a wrap (uptime kept climbing) from a real reset/reboot (uptime dropped),
+then add the modular span. Blocker: we'd have to know the counter width (2^31 vs 2^32) per field, and a
+wrong guess produces a garbage spike - so the safe null-gap stays the default until the widths are
+confirmed. Not worth it for a rare one-point gap; revisit if the frame charts read as too sparse.
+
+### Upstream path discovery: DynamoDB regional endpoints for transit trace exposure (Setup tab)
+Transit Health involvement weighting and destination->transit jitter absolution both key off which
+monitored internet targets a transit ASN provably carries (trace ancestry). The current CDN/DNS
+targets peer at the local IX, so they cross no transit and give the attribution nothing to work with.
+AWS DynamoDB regional endpoints ARE ICMP-pingable and DO ride paid transit, so they're good extra
+trace targets (and can double as monitored targets):
+
+    dynamodb.<region>.amazonaws.com   (nearest region(s) first, e.g. us-west-2, us-west-1, us-east-2, us-east-1)
+
+- **Not anycast** - resolve + latency-rank to the nearest region(s), else you trace a transcontinental
+  path that misrepresents the transit.
+- **Attribution still needs work (observed in testing):** the endpoint pings and the path is NOT
+  peered, but the intermediate transit hops don't answer traceroute (all stars) - so the current
+  ancestry can't tell WHICH transit ASN it crossed. DynamoDB gives a clean AWS target that genuinely
+  transits; surfacing which transit still needs the responding-hop-ASN capture (record every
+  responding hop's ASN, not just monitored-target IPs), and pure-star segments recover nothing.
+
 ### Investigation Functions (Network Performance tab)
 The Investigate card currently jumps the latency charts to the most recent **packet-loss** and **loaded-loss** events and steps event-to-event (coalesced, peak-loss minute). Ideas to extend it:
 

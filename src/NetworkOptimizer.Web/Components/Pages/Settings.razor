@@ -1566,10 +1566,32 @@
                                 <option value="telekom-modem2">Telekom Glasfaser-Modem 2 (HTTP)</option>
                                 <option value="nokia-xs010x-q">Nokia XS-010X-Q (HTTP)</option>
                                 <option value="zyxel-gpon-sfp">Zyxel GPON-SFP (PMG3000, HTTP)</option>
+                                <option value="netopt-custom">Network Optimizer Custom (HTTP JSON)</option>
                                 <option value="generic-http-ont">Generic HTTP ONT</option>
                             </select>
                         </div>
                     </div>
+
+                    @if (_editingOnt.Provider == "netopt-custom")
+                    {
+                        <div class="form-row">
+                            <div class="form-group" style="flex: 2;">
+                                <label class="form-label">Attach to SFP Module</label>
+                                <select class="form-control" @bind="_editingOnt.AttachedSfpId">
+                                    <option value="">None (standalone)</option>
+                                    @foreach (var sfp in _attachableSfps)
+                                    {
+                                        <option value="@sfp.Id">@AttachableSfpLabel(sfp)</option>
+                                    }
+                                </select>
+                                <small class="form-help">
+                                    Attached ONTs are polled with the gateway SFP cycle and their PON stats merge into
+                                    the selected module's SFP Stats series; the polling interval below is ignored.
+                                    Standalone ONTs show on ONT Stats instead.
+                                </small>
+                            </div>
+                        </div>
+                    }
 
                     <div class="form-row">
                         <div class="form-group" style="flex: 2;">
@@ -3690,9 +3712,10 @@
     }
 
     // At-a-glance agent state for a site's row in the Sites table. Uses the
-    // shared IsAgentLive definition (tunnel-connected or heartbeat-fresh) and is
-    // kept current by the agent poll timer, so it agrees with the other status
-    // surfaces instead of freezing at whatever page load saw.
+    // shared IsAgentLive definition (tunnel-connected, or heartbeat-fresh only
+    // when this server offers no tunnel) and is kept current by the agent poll
+    // timer, so it agrees with the other status surfaces instead of freezing at
+    // whatever page load saw.
     private (string Dot, string Label, string Tooltip) SiteAgentStatus(int siteId)
     {
         var agents = AgentsFor(siteId);
@@ -3826,7 +3849,7 @@
         if (_agentOnGateway.TryGetValue(site.Id, out var onGateway) && onGateway)
             return "none - the agent runs on the UniFi gateway; enter a separate box hosting the speed test";
         var lanIp = AgentsFor(site.Id)
-            .Where(a => a.Enabled && !string.IsNullOrEmpty(a.LanIp) && TunnelRegistry.IsAgentLive(a))
+            .Where(a => a.Enabled && !string.IsNullOrEmpty(a.LanIp) && TunnelRegistry.IsReachable(a))
             .OrderByDescending(a => a.LastSeenAt)
             .Select(a => a.LanIp)
             .FirstOrDefault();
@@ -3957,6 +3980,7 @@
 
     // External ONT Monitoring
     private List<OntConfiguration> _ontConfigs = new();
+    private List<MonitoredSfp> _attachableSfps = new();
     private OntConfiguration _editingOnt = new() { Provider = "att-gateway", Port = 80, PollingIntervalSeconds = 300, Enabled = true };
     private bool _ontFormVisible;
     private bool _savingOnt;
@@ -5710,6 +5734,17 @@
         try
         {
             _ontConfigs = await OntMonitorService.GetConfigsAsync();
+
+            // Attachment choices for the Network Optimizer Custom provider: the
+            // site's ONT-monitored SFP modules.
+            await using (var sfpDb = SiteDb.CreateForSite(SiteContext.Slug, SiteContext.IsDefault))
+            {
+                _attachableSfps = await sfpDb.MonitoredSfps.AsNoTracking()
+                    .Where(s => s.IsMonitoredOnt)
+                    .OrderBy(s => s.DeviceMac).ThenBy(s => s.PortName)
+                    .ToListAsync();
+            }
+
             if (_ontConfigs.Any(o => !string.IsNullOrEmpty(o.LastError)))
                 _ontStatus = "Error";
             else if (_ontConfigs.Any(o => o.Enabled))
@@ -5827,6 +5862,7 @@
             Username = config.Username,
             Password = config.Password,
             PrivateKeyPath = config.PrivateKeyPath,
+            AttachedSfpId = config.AttachedSfpId,
             PollingIntervalSeconds = config.PollingIntervalSeconds,
             Enabled = config.Enabled,
             LastPolled = config.LastPolled,
@@ -5858,12 +5894,18 @@
         {
             _editingOnt.Host = GetOntProviderDefaultHost(provider);
         }
+
+        // SFP attachment is only meaningful for providers that support it; clear a
+        // stale association so it can't linger invisibly after a provider switch.
+        if (provider != "netopt-custom")
+            _editingOnt.AttachedSfpId = null;
     }
 
     private static int GetOntProviderDefaultPort(string provider) => provider switch
     {
         "8311" => 443,
         "quantum-q1000k" => 443,
+        "netopt-custom" => 10012,
         _ => 80,
     };
 
@@ -5891,9 +5933,19 @@
         "telekom-modem2" => "Telekom Glasfaser-Modem 2 (HTTP)",
         "nokia-xs010x-q" => "Nokia XS-010X-Q (HTTP)",
         "zyxel-gpon-sfp" => "Zyxel GPON-SFP (PMG3000, HTTP)",
+        "netopt-custom" => "Network Optimizer Custom (HTTP JSON)",
         "generic-http-ont" => "Generic HTTP ONT",
         _ => provider,
     };
+
+    private static string AttachableSfpLabel(MonitoredSfp sfp)
+    {
+        var name = !string.IsNullOrEmpty(sfp.FriendlyName)
+            ? sfp.FriendlyName
+            : $"{sfp.SfpVendor} {sfp.SfpPart}".Trim();
+        if (string.IsNullOrWhiteSpace(name)) name = sfp.DeviceMac;
+        return $"{name} - port {sfp.PortName}";
+    }
 
     // --- Starlink Monitoring ---
 

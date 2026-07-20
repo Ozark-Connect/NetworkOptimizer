@@ -53,6 +53,14 @@ public class IspScoreFactor
 
     /// <summary>What was measured and against which expectation.</summary>
     public string? Description { get; init; }
+
+    /// <summary>
+    /// For transit ASNs (Arm 4): the involvement-weight tooltip, e.g. "Carries 6 of 8 monitored
+    /// internet hosts - weighted at 100% in Transit Health". Null when involvement doesn't
+    /// differentiate (no host attributable to any transit, so all fall to equal weight) - the UI
+    /// shows the fraction icon only when this is set.
+    /// </summary>
+    public string? InvolvementTooltip { get; init; }
 }
 
 /// <summary>One of the three top-level score dimensions.</summary>
@@ -103,6 +111,31 @@ public class IspAsnHealth
     /// <summary>Median RTT beyond the first clean ISP hop. Null for ISP ASNs.</summary>
     public double? ReachDeltaMs { get; init; }
 
+    /// <summary>
+    /// Arm 4 - internet-host involvement, for transit ASNs. Set only when attribution is known
+    /// (hop order + destinations); left false/null for ISP ASNs and unattributable installs.
+    /// </summary>
+    public bool ShowInvolvement { get; set; }
+
+    /// <summary>How many monitored internet destinations are proven to route through this ASN.</summary>
+    public int InvolvementReach { get; set; }
+
+    /// <summary>Total monitored internet destinations (the denominator of the involvement fraction).</summary>
+    public int InvolvementHostTotal { get; set; }
+
+    /// <summary>
+    /// The 0.25-1.0 weight this ASN's own score carries in the involvement-weighted Transit Health
+    /// average. Floored at 0.25 so an off-path transit still counts - it may be on your return path or a
+    /// failover route - but only lightly. Null when involvement isn't shown.
+    /// </summary>
+    public double? InvolvementWeight { get; set; }
+
+    /// <summary>Fraction-icon tooltip built from the involvement fields; null when not shown.</summary>
+    public string? InvolvementTooltip => !ShowInvolvement || InvolvementWeight is not double w ? null
+        : InvolvementReach > 0
+            ? $"Carries {InvolvementReach} of {InvolvementHostTotal} internet targets (forward path), {w * 100:0}% weight"
+            : $"Off the forward path; held at {w * 100:0}% (likely the return path from popular services)";
+
     public int? LatencyStabilityScore { get; init; }
     public int? JitterScore { get; init; }
     public int? LossScore { get; init; }
@@ -143,6 +176,18 @@ public class IspTargetHealth
 
     /// <summary>True for the first clean hop, the target the access layer idle latency comes from.</summary>
     public bool IsGradedHop { get; init; }
+
+    /// <summary>
+    /// True when this hop answers pings but appears in no discovery trace (HopNumber 0) - e.g. an
+    /// OLT/CMTS that ICMP-deprioritizes traceroute. Its jitter isn't a forward-path signal.
+    /// </summary>
+    public bool NotOnTracedPath { get; init; }
+
+    /// <summary>
+    /// True when this hop is off the traced path AND its jitter is materially degrading its score -
+    /// a strong "you probably want to stop scoring this" signal that drives the ISP Health disable hint.
+    /// </summary>
+    public bool SuggestDisable { get; init; }
 }
 
 /// <summary>An actionable finding or recommendation surfaced on the ISP Health tab.</summary>
@@ -660,6 +705,12 @@ public class IspHealthInputs
     /// transit (transit is always downstream of the ISP) and stays closed for ISP siblings.
     /// </summary>
     public bool HopOrderKnown { get; init; }
+
+    /// <summary>
+    /// TargetIds of monitored hops that answer pings but appear in no discovery trace (HopNumber 0) -
+    /// used to flag likely-disable ISP hops whose jitter isn't a forward-path signal.
+    /// </summary>
+    public IReadOnlySet<string> NotTracedTargetIds { get; init; } = new HashSet<string>();
 
     /// <summary>
     /// Window-aggregated physical-link metrics for the one source matched to the WAN, or null

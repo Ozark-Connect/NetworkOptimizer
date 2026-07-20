@@ -361,7 +361,12 @@ public class UniFiApiClient : IDisposable
         }
         finally
         {
-            _authLock.Release();
+            // On a reconnect the client (and its _authLock) can be disposed while this login
+            // is still in flight; Release() would then throw ObjectDisposedException out of the
+            // finally and surface as a scary "Cannot access a disposed object" console-connection
+            // error. There's nothing to release on a disposed semaphore, so ignore just that case.
+            try { _authLock.Release(); }
+            catch (ObjectDisposedException) { }
         }
     }
 

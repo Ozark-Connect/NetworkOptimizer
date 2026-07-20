@@ -45,6 +45,15 @@ public class OntConfiguration
     [MaxLength(500)]
     public string? PrivateKeyPath { get; set; }
 
+    /// <summary>
+    /// When set, this ONT supplements the monitored SFP module with that
+    /// MonitoredSfp.Id: it is polled on the gateway SFP collection cycle (the
+    /// standalone poll loop and PollingIntervalSeconds are bypassed) and its
+    /// PON-layer metrics merge into that module's sfp measurement. Requires a
+    /// provider implementing ISfpSupplementalOntProvider. Null = standalone ONT.
+    /// </summary>
+    public int? AttachedSfpId { get; set; }
+
     /// <summary>Whether this ONT is enabled for polling</summary>
     public bool Enabled { get; set; } = true;
 

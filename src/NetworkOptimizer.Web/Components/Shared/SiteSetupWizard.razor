@@ -211,8 +211,8 @@
                 <h3 class="site-wizard-title">@_site.Name is ready</h3>
                 <p class="section-description">
                     The site's database is provisioned@(_connected ? ", its UniFi Console is connected" : "")@(_agentToken != null ? ", and its agent token is issued" : "").
-                    Switch to the site to configure monitoring, speed tests, and everything else, exactly like a
-                    single-site install.
+                    Switch to the site to @(_connected ? "" : "connect its UniFi Console, then ")configure monitoring, speed tests,
+                    and everything else, exactly like a single-site install.
                 </p>
             </div>
         </div>
