@@ -95,13 +95,26 @@ public class OntMonitorService : IDisposable
     }
 
     /// <summary>
-    /// Get all ONT configurations (for UI and chart endpoints).
+    /// Get all ONT configurations, including those attached to an SFP module
+    /// (for the Settings management list).
     /// </summary>
     public async Task<List<OntConfiguration>> GetConfigsAsync()
     {
         using var scope = CreateSiteScope();
         var repository = scope.ServiceProvider.GetRequiredService<IOntRepository>();
         return await repository.GetOntConfigurationsAsync();
+    }
+
+    /// <summary>
+    /// Standalone ONT configurations only - excludes configs attached to an SFP
+    /// module, which surface as PON data on that module (SFP Stats), not as their
+    /// own ONT device. Drives the ONT Stats tab, the Dashboard ONT card, and the
+    /// ONT chart endpoint so an attached config never appears as a standalone ONT.
+    /// </summary>
+    public async Task<List<OntConfiguration>> GetStandaloneConfigsAsync()
+    {
+        var configs = await GetConfigsAsync();
+        return configs.Where(c => c.AttachedSfpId == null).ToList();
     }
 
     /// <summary>
@@ -152,7 +165,16 @@ public class OntMonitorService : IDisposable
 
         if (isNew)
             await AlertRuleAutoEnable.EnableBySourceAsync(scope, "ont", _logger);
+
+        // Attaching augmented PON polling to an SFP ONT unlocks the BIP/HEC error alerts -
+        // enable them immediately (any save that lands an attachment, new or edited), so an
+        // existing-ONT user doesn't have to wait for the next startup's freshly-seeded pass.
+        if (config.AttachedSfpId.HasValue)
+            await AlertRuleAutoEnable.EnablePatternsAsync(scope, AugmentedOntAlertPatterns, _logger);
     }
+
+    /// <summary>PON error alerts unlocked by augmented (SFP-attached) ONT polling.</summary>
+    private static readonly string[] AugmentedOntAlertPatterns = { "ont.bip_errors", "ont.hec_errors" };
 
     /// <summary>
     /// Delete an ONT configuration and remove cached stats.
@@ -209,6 +231,12 @@ public class OntMonitorService : IDisposable
 
             foreach (var config in configs)
             {
+                // Configs attached to a monitored SFP module are polled by that
+                // site's gateway SFP collection cycle (MonitoringCollectionAgent),
+                // which merges their PON stats into the module's sfp measurement.
+                if (config.AttachedSfpId.HasValue)
+                    continue;
+
                 if (!forceAll && config.LastPolled.HasValue)
                 {
                     var elapsed = DateTime.UtcNow - config.LastPolled.Value;
@@ -260,10 +288,14 @@ public class OntMonitorService : IDisposable
                 // Fire-and-forget write to InfluxDB
                 WriteToInflux(config, stats);
 
+                // Standalone ONT providers report BIP where available but not HEC or the
+                // FEC-enable state, so FEC stays the codeword-error signal (fecEnabled null).
                 _ = _alertEvaluator.EvaluateAsync(
                     config.Id, config.Name,
                     stats.RxPowerDbm, stats.PonLinkStatus, stats.FecErrors,
-                    stats.TemperatureC, thresholds.PonRxPowerLowDbm, thresholds.PonTempHighC);
+                    stats.TemperatureC, thresholds.PonRxPowerLowDbm, thresholds.PonTempHighC,
+                    bipErrors: stats.BipErrors,
+                    sourceUrl: $"/monitoring?tab=ont&ont={config.Id}");
 
                 _logger.LogDebug("ONT {Name} polled successfully: Rx={Rx} dBm", config.Name, stats.RxPowerDbm);
                 return stats;

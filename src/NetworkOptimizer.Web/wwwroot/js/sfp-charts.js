@@ -13,6 +13,14 @@ const RANGE_MS = { 0: 15*60000, 1: 3600000, 6: 6*3600000, 24: 86400000, 168: 7*8
 
 let powerChart = null;
 let tempChart = null;
+// Supplemental PON-layer charts (attached Network Optimizer Custom ONT configs);
+// the whole section stays hidden unless some module has PON data.
+let ponErrChart = null;
+let ponGemChart = null;
+let ponHostChart = null;
+// Modules that currently have PON data, whether visible or not. The PON section and
+// its detail table are shown only for the ones selected in the filter.
+let ponCapableModules = [];
 let pollTimer = null;
 let currentRangeHours = 24;
 let windowOffset = 0;
@@ -148,6 +156,53 @@ function updateVisibility() {
             else tempChart.hideSeries(m.label);
         }
     });
+    // Fire-and-forget: rebuilds the PON charts/section for the selected modules. Kept
+    // off the synchronous path so a chart error can never break chip re-rendering.
+    refreshPonSection();
+}
+
+// Rebuild the PON section (charts + detail table) for the currently-selected PON
+// modules, or hide it when none are selected. The section is shown BEFORE the charts
+// are mounted/updated so ApexCharts sizes them correctly - a chart first rendered in a
+// display:none container stays zero-size until its next update.
+async function refreshPonSection() {
+    const container = document.getElementById(containerId);
+    const section = container?.querySelector('.sfp-pon-section');
+    if (!section) return;
+    const visiblePon = ponCapableModules.filter(m => visibility[m.id] !== false);
+    if (!visiblePon.length) { section.style.display = 'none'; return; }
+    section.style.display = '';
+    await ensurePonChartsMounted();
+    if (!ponErrChart) return;
+    try {
+        const multi = visiblePon.length > 1;
+        const errSeries = [], gemSeries = [], hostSeries = [];
+        visiblePon.forEach(m => {
+            const pts = m.pon;
+            const prefix = multi ? `${m.label} ` : '';
+            errSeries.push(
+                { name: `${prefix}BIP`, data: ponPoints(pts, 'bip') },
+                { name: `${prefix}FEC`, data: ponPoints(pts, 'fec') },
+                { name: `${prefix}FEC corrected`, data: ponPoints(pts, 'fecCorr') },
+                { name: `${prefix}HEC`, data: ponPoints(pts, 'hec') },
+                { name: `${prefix}GEM drops`, data: ponPoints(pts, 'gemDrop') },
+                { name: `${prefix}Allocs lost`, data: ponPoints(pts, 'allocLost') },
+            );
+            gemSeries.push(
+                { name: `${prefix}RX frames`, data: ponPoints(pts, 'gemRx') },
+                { name: `${prefix}TX frames`, data: ponPoints(pts, 'gemTx') },
+            );
+            hostSeries.push(
+                { name: `${prefix}FCS errors`, data: ponPoints(pts, 'lanFcs') },
+                { name: `${prefix}TX drops`, data: ponPoints(pts, 'lanDrop') },
+                { name: `${prefix}Buffer overflows`, data: ponPoints(pts, 'lanOvfl') },
+            );
+        });
+        ponErrChart.updateSeries(errSeries, false);
+        ponGemChart.updateSeries(gemSeries, false);
+        ponHostChart.updateSeries(hostSeries, false);
+        renderPonDetails(container, visiblePon);
+    } catch (e) { /* leave the previous render if a chart update fails */ }
 }
 
 async function loadAndUpdate() {
@@ -186,6 +241,8 @@ async function loadAndUpdate() {
         powerChart.updateSeries(powerSeries, false);
     }
     if (tempChart) tempChart.updateSeries(tSeries, false);
+    // Never let a PON chart failure abort the rest of the refresh (badges, stats table).
+    try { await updatePonCharts(data); } catch (_) {}
 
     updateVisibility();
     lastData = data;
@@ -198,6 +255,62 @@ async function loadAndUpdate() {
 
 const fmtDbm = v => v != null ? v.toFixed(2) : '-';
 const fmtTemp = v => v != null ? v.toFixed(1) : '-';
+const fmtCount = v => v == null ? '' : v >= 1e6 ? (v / 1e6).toFixed(1) + 'M' : v >= 1e3 ? (v / 1e3).toFixed(1) + 'k' : String(Math.round(v));
+
+// Same encoding PonLinkStateExtensions.ToInfluxValue uses for pon_link_status.
+const PLOAM_LABELS = {
+    initial: 'Initializing (O1)', standby: 'Standby (O2)', serial_number: 'Authenticating (O3)',
+    ranging: 'Ranging (O4)', operation: 'Connected (O5)', popup: 'Signal Lost (O6)',
+    emergency_stop: 'Disabled (O7)',
+};
+
+function ponPoints(pts, key) {
+    return pts.filter(p => p[key] != null).map(p => ({ x: new Date(p.time).getTime(), y: p[key] }));
+}
+
+// Create the three PON charts on first use. Kept out of mount() so setups without
+// supplemental PON polling never pay for instances they'd never see.
+async function ensurePonChartsMounted() {
+    if (ponErrChart) return;
+    const container = document.getElementById(containerId);
+    const ponErrEl = container?.querySelector('.sfp-pon-errors-chart');
+    const ponGemEl = container?.querySelector('.sfp-pon-gem-chart');
+    const ponHostEl = container?.querySelector('.sfp-pon-host-chart');
+    if (!ponErrEl || !ponGemEl || !ponHostEl) return;
+    ponErrChart = new ApexCharts(ponErrEl, { ...baseOpts(160, 'errors', fmtCount), series: [], colors: PALETTE });
+    ponGemChart = new ApexCharts(ponGemEl, { ...baseOpts(160, 'frames', fmtCount), series: [], colors: PALETTE });
+    ponHostChart = new ApexCharts(ponHostEl, { ...baseOpts(160, 'errors', fmtCount), series: [], colors: PALETTE });
+    await Promise.all([ponErrChart.render(), ponGemChart.render(), ponHostChart.render()]);
+}
+
+async function updatePonCharts(data) {
+    ponCapableModules = (data.modules || []).filter(m => m.pon?.length);
+    await refreshPonSection();
+}
+
+function renderPonDetails(container, withPon) {
+    const el = container.querySelector('.sfp-pon-details');
+    if (!el) return;
+    const fmtUp = s => s == null ? '-'
+        : `${Math.floor(s / 86400)}d ${Math.floor(s % 86400 / 3600)}h ${Math.floor(s % 3600 / 60)}m`;
+    const rows = withPon.map(m => {
+        const last = [...m.pon].reverse().find(p => p.state != null) || m.pon[m.pon.length - 1];
+        const state = PLOAM_LABELS[last.state] || last.state || '-';
+        const fec = last.dsFec == null && last.usFec == null ? '-'
+            : `${last.dsFec ? 'on' : 'off'} / ${last.usFec ? 'on' : 'off'}`;
+        return `<tr>
+            <td>${escapeHtml(m.label)}</td>
+            <td>${escapeHtml(state)}</td>
+            <td>${last.onuId ?? '-'}</td>
+            <td>${fec}</td>
+            <td>${last.respTime ?? '-'}</td>
+            <td>${fmtUp(last.uptime)}</td>
+        </tr>`;
+    }).join('');
+    el.innerHTML = `<div class="table-responsive"><table class="data-table">
+        <thead><tr><th>Module</th><th>PLOAM State</th><th>ONU ID</th><th>FEC DS / US</th><th>Response Time</th><th>ONT Uptime</th></tr></thead>
+        <tbody>${rows}</tbody></table></div>`;
+}
 
 function renderStatsTable(container, showAll) {
     const el = container.querySelector('.sfp-stats-table');
@@ -363,6 +476,9 @@ export async function mount(elId) {
 
     if (powerChart) { powerChart.destroy(); powerChart = null; }
     if (tempChart) { tempChart.destroy(); tempChart = null; }
+    if (ponErrChart) { ponErrChart.destroy(); ponErrChart = null; }
+    if (ponGemChart) { ponGemChart.destroy(); ponGemChart = null; }
+    if (ponHostChart) { ponHostChart.destroy(); ponHostChart = null; }
 
     powerChart = new ApexCharts(powerEl, {
         ...baseOpts(200, 'dBm', v => v != null ? v.toFixed(1) + ' dBm' : '', {
@@ -376,6 +492,10 @@ export async function mount(elId) {
 
     await powerChart.render();
     await tempChart.render();
+
+    // PON charts are mounted lazily (ensurePonChartsMounted) only once a module with
+    // supplemental PON polling actually reports data - the ~99% of SFP setups without
+    // it never create these instances.
 
     container.querySelectorAll('[data-range]').forEach(btn => {
         btn.addEventListener('click', () => selectPresetRange(container, parseInt(btn.dataset.range)));
@@ -469,9 +589,13 @@ export function unmount() {
     if (fetchController) { fetchController.abort(); fetchController = null; }
     if (powerChart) { powerChart.destroy(); powerChart = null; }
     if (tempChart) { tempChart.destroy(); tempChart = null; }
+    if (ponErrChart) { ponErrChart.destroy(); ponErrChart = null; }
+    if (ponGemChart) { ponGemChart.destroy(); ponGemChart = null; }
+    if (ponHostChart) { ponHostChart.destroy(); ponHostChart = null; }
     containerId = null;
     moduleMeta = [];
     visibility = {};
+    ponCapableModules = [];
     lastData = null;
     currentRangeHours = 24;
     windowOffset = 0;

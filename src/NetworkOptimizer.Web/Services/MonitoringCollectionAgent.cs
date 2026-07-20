@@ -2,13 +2,16 @@ using System.Collections.Concurrent;
 using System.Net;
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Core.Enums;
+using NetworkOptimizer.Core.Models;
 using NetworkOptimizer.Monitoring;
 using NetworkOptimizer.Monitoring.Models;
 using NetworkOptimizer.Monitoring.Probes;
+using NetworkOptimizer.Monitoring.Providers;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Services;
 using NetworkOptimizer.UniFi;
 using NetworkOptimizer.UniFi.Models;
+using NetworkOptimizer.Web.Services.OntProviders;
 
 namespace NetworkOptimizer.Web.Services;
 
@@ -50,6 +53,9 @@ public class MonitoringCollectionAgent : BackgroundService
     private readonly NetworkOptimizer.Web.Services.Monitoring.MonitoringAlertEvaluator _alertEvaluator;
     private readonly NetworkOptimizer.Web.Services.Monitoring.SfpAlertEvaluator _sfpAlertEvaluator;
     private readonly NetworkOptimizer.Web.Services.Monitoring.DeviceHealthAlertEvaluator _deviceHealthAlertEvaluator;
+    private readonly NetworkOptimizer.Web.Services.Monitoring.OntAlertEvaluator _ontAlertEvaluator;
+    private readonly Dictionary<string, ISfpSupplementalOntProvider> _supplementalOntProviders;
+    private readonly SiteTunnelRouting _tunnelRouting;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<MonitoringCollectionAgent> _logger;
     private readonly Licensing.LicenseStateService _licenseState;
@@ -125,6 +131,8 @@ public class MonitoringCollectionAgent : BackgroundService
         LocalProbeExecutor localProbe,
         MonitoringAlertRegistry alertRegistry,
         Licensing.LicenseStateService licenseState,
+        IEnumerable<IOntProvider> ontProviders,
+        SiteTunnelRouting tunnelRouting,
         ILoggerFactory loggerFactory,
         ILogger<MonitoringCollectionAgent> logger,
         string siteSlug = SiteManagementService.DefaultSiteSlug)
@@ -144,6 +152,11 @@ public class MonitoringCollectionAgent : BackgroundService
         _alertEvaluator = evaluators.Targets;
         _sfpAlertEvaluator = evaluators.Sfp;
         _deviceHealthAlertEvaluator = evaluators.DeviceHealth;
+        _ontAlertEvaluator = evaluators.Ont;
+        _supplementalOntProviders = ontProviders
+            .OfType<ISfpSupplementalOntProvider>()
+            .ToDictionary(p => p.ProviderKey, StringComparer.OrdinalIgnoreCase);
+        _tunnelRouting = tunnelRouting;
         _loggerFactory = loggerFactory;
         _logger = logger;
     }
@@ -889,12 +902,17 @@ public class MonitoringCollectionAgent : BackgroundService
         var existingSfps = await db.MonitoredSfps.ToDictionaryAsync(
             s => (s.DeviceMac, s.PortName), s => s, ct);
 
+        // Supplemental PON stats: poll ONT configs attached to a monitored SFP module
+        // (Network Optimizer Custom endpoints) so their PON-layer metrics can merge into
+        // the sfp measurement alongside the DDM values below.
+        var ponSupplemental = await CollectPonSupplementalAsync(db, existingSfps, settings, ct);
+
         // SFP collection (spec 5.9): write DDM values to the sfp measurement for every port
         // where UniFi reports sfp_found, and reconcile the MonitoredSfps relational row.
         var nowSfp = DateTime.UtcNow;
         foreach (var device in devices)
         {
-            CollectSfpForDevice(device, db, existingSfps, nowSfp);
+            CollectSfpForDevice(device, db, existingSfps, ponSupplemental, nowSfp);
         }
 
         // SFP threshold evaluation: check DDM values against alert thresholds
@@ -2064,10 +2082,125 @@ public class MonitoringCollectionAgent : BackgroundService
             _logger.LogDebug("Seeded {Count} SFP live entries from InfluxDB (site {Site})", seeded, _siteSlug);
     }
 
+    /// <summary>
+    /// Poll every enabled ONT configuration attached to a monitored SFP module and
+    /// return the supplemental PON stats keyed by that module's (DeviceMac, PortName),
+    /// for merging into the sfp measurement. Attached configs bypass the standalone
+    /// OntMonitorService loop, so their LastPolled/LastError status is stamped here
+    /// (persisted by the slow tier's SaveChanges) and ONT alerts (PON link state, FEC)
+    /// are evaluated here too - DDM alerts stay with the SFP evaluator.
+    /// </summary>
+    private async Task<Dictionary<(string DeviceMac, string PortName), PonSupplementalStats>> CollectPonSupplementalAsync(
+        NetworkOptimizerDbContext db,
+        Dictionary<(string DeviceMac, string PortName), MonitoredSfp> sfps,
+        MonitoringSettings settings,
+        CancellationToken ct)
+    {
+        var result = new Dictionary<(string, string), PonSupplementalStats>();
+        List<OntConfiguration> attached;
+        try
+        {
+            attached = await db.OntConfigurations
+                .Where(o => o.Enabled && o.AttachedSfpId != null)
+                .ToListAsync(ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Attached ONT config load failed (site {Site})", _siteSlug);
+            return result;
+        }
+        if (attached.Count == 0) return result;
+
+        var sfpById = sfps.Values.Where(s => s.Id > 0).ToDictionary(s => s.Id);
+        var thresholds = NetworkOptimizer.Web.Services.Monitoring.SfpDdmThresholds.FromSettings(settings);
+
+        foreach (var config in attached)
+        {
+            if (!sfpById.TryGetValue(config.AttachedSfpId!.Value, out var sfp))
+            {
+                config.LastError = "Attached SFP module no longer exists";
+                config.UpdatedAt = DateTime.UtcNow;
+                continue;
+            }
+            if (!_supplementalOntProviders.TryGetValue(config.Provider, out var provider))
+            {
+                config.LastError = $"Provider '{config.Provider}' does not support SFP module attachment";
+                config.UpdatedAt = DateTime.UtcNow;
+                continue;
+            }
+
+            try
+            {
+                // Same tunnel-proxy routing the standalone ONT poll path uses, so
+                // attached endpoints on agent sites are reached through the relay.
+                var (host, port) = await _tunnelRouting.RouteAsync(_siteSlug, config.Host, config.Port);
+                var context = new OntPollContext
+                {
+                    Id = config.Id,
+                    Name = config.Name,
+                    Host = host,
+                    ConfiguredHost = config.Host,
+                    Port = port,
+                };
+
+                var stats = await provider.PollSupplementalAsync(context, ct);
+                if (stats != null)
+                {
+                    result[(sfp.DeviceMac, sfp.PortName)] = stats;
+                    config.LastPolled = DateTime.UtcNow;
+                    config.LastError = null;
+
+                    // Alert evaluation runs in its own try/catch so an alert failure is
+                    // logged but never marks the (successful) poll as errored - matching
+                    // the SFP/device-health evaluator call sites. FEC is only meaningful
+                    // when the OLT profile enables it; when disabled the evaluator falls
+                    // back to HEC, so pass the enable state.
+                    bool? fecEnabled = stats.DsFecEnabled.HasValue || stats.UsFecEnabled.HasValue
+                        ? stats.DsFecEnabled == 1 || stats.UsFecEnabled == 1
+                        : null;
+                    // Attached ONTs surface on SFP Stats, so link the alert to that module.
+                    var sfpUrl = $"/monitoring?tab=sfp&sfp={sfp.DeviceMac.Replace("-", ":").ToLowerInvariant()}:{sfp.PortName}";
+                    try
+                    {
+                        await _ontAlertEvaluator.EvaluateAsync(
+                            config.Id, config.Name,
+                            rxPowerDbm: null,
+                            NetOptCustomPonOntProvider.ToPonLinkState(stats.PloamStateRaw),
+                            stats.FecErrors,
+                            temperatureC: null,
+                            thresholds.PonRxPowerLowDbm, thresholds.PonTempHighC,
+                            bipErrors: stats.BipErrors,
+                            hecErrors: stats.HecUncorrected,
+                            fecEnabled: fecEnabled,
+                            sourceUrl: sfpUrl,
+                            ct: ct);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogDebug(ex, "PON alert evaluation failed for {Name}", config.Name);
+                    }
+                }
+                else
+                {
+                    config.LastError = "Poll returned no data";
+                }
+                config.UpdatedAt = DateTime.UtcNow;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Supplemental PON poll failed for {Name} (site {Site})", config.Name, _siteSlug);
+                config.LastError = ex.Message;
+                config.UpdatedAt = DateTime.UtcNow;
+            }
+        }
+        return result;
+    }
+
     private void CollectSfpForDevice(
         UniFiDeviceResponse device,
         NetworkOptimizerDbContext db,
         Dictionary<(string DeviceMac, string PortName), MonitoredSfp> existing,
+        IReadOnlyDictionary<(string DeviceMac, string PortName), PonSupplementalStats> ponSupplemental,
         DateTime timestamp)
     {
         if (device.PortTable == null || device.PortTable.Count == 0) return;
@@ -2096,6 +2229,21 @@ public class MonitoringCollectionAgent : BackgroundService
                 voltageV: port.SfpVoltage,
                 sfpLinkSpeedMbps: port.Speed > 0 ? port.Speed : null,
                 timestamp: timestamp);
+
+            // Supplemental PON-layer stats from an attached ONT config merge onto the
+            // same series and timestamp (field union with the DDM point above).
+            if (ponSupplemental.TryGetValue((mac, portName), out var ponStats))
+            {
+                _ = _influx.WriteSfpPonAsync(mac, portName, ponStats, timestamp);
+                // Mirror the key PON values into live stats so the SFP ONT card can show
+                // PON status and absolute error counters without a DB roundtrip.
+                bool? fecEnabled = ponStats.DsFecEnabled.HasValue || ponStats.UsFecEnabled.HasValue
+                    ? ponStats.DsFecEnabled == 1 || ponStats.UsFecEnabled == 1
+                    : null;
+                _liveStats.RecordSfpPon(mac, portName, ponStats.PonLinkStatus,
+                    ponStats.BipErrors, ponStats.FecErrors, ponStats.HecUncorrected, fecEnabled,
+                    ponStats.GemRxDropped, timestamp);
+            }
 
             // Mirror the values into the live-stats cache so the dashboard SFP card can
             // render without a DB roundtrip on every refresh.

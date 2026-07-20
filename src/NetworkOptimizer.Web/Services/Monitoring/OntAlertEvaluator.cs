@@ -18,6 +18,10 @@ public class OntAlertEvaluator
     private const double RxPowerHysteresisDbm = PonThresholds.PowerHysteresisDbm;
     private const double TempHysteresisC = PonThresholds.TempHysteresisC;
     private const long FecErrorDeltaThreshold = PonThresholds.PonFecErrorSpikePerPoll;
+    private const long BipErrorStrictThreshold = PonThresholds.PonBipErrorSpikePerPoll;
+    private const long BipErrorRelaxedThreshold = PonThresholds.PonBipErrorSpikeFecOnPerPoll;
+    private const long HecErrorDeltaThreshold = PonThresholds.PonHecErrorSpikePerPoll;
+    private const string DefaultSourceUrl = "/monitoring?tab=ont";
 
     private readonly IAlertEventBus _eventBus;
     private readonly ILogger<OntAlertEvaluator> _logger;
@@ -47,9 +51,16 @@ public class OntAlertEvaluator
         double? temperatureC = null,
         double rxPowerLowDbm = PonThresholds.PonRxPowerLowDbm,
         double tempHighC = PonThresholds.PonTempHighC,
+        long? bipErrors = null,
+        long? hecErrors = null,
+        bool? fecEnabled = null,
+        string? sourceUrl = null,
         CancellationToken ct = default)
     {
         var state = _states.GetOrAdd(ontId, _ => new OntAlertState());
+        // Where a raised alert links to. Attached SFP ONTs surface on SFP Stats, standalone
+        // ONTs on ONT Stats; the caller passes the deep link to the triggering module.
+        state.SourceUrl = string.IsNullOrEmpty(sourceUrl) ? DefaultSourceUrl : sourceUrl;
 
         if (rxPowerDbm.HasValue)
         {
@@ -58,7 +69,22 @@ public class OntAlertEvaluator
 
         await CheckPonLink(state, ontId, ontName, ponLinkStatus, ct);
 
-        if (fecErrors.HasValue)
+        // BIP is always-on regardless of FEC, so it's evaluated whenever reported.
+        if (bipErrors.HasValue)
+        {
+            await CheckBipErrors(state, ontId, ontName, bipErrors.Value, fecEnabled, ct);
+        }
+
+        // The uncorrectable-codeword signal adapts to whether payload FEC is running:
+        // FEC codewords when it's enabled (or unknown - the standalone-ONT default),
+        // HEC header errors when it's explicitly disabled and FEC counters stay flat.
+        // Mirrors the SFP ONT card's adaptive FEC/HEC display.
+        if (fecEnabled == false)
+        {
+            if (hecErrors.HasValue)
+                await CheckHecErrors(state, ontId, ontName, hecErrors.Value, ct);
+        }
+        else if (fecErrors.HasValue)
         {
             await CheckFecErrors(state, ontId, ontName, fecErrors.Value, ct);
         }
@@ -88,7 +114,7 @@ public class OntAlertEvaluator
                 DeviceName = ontName,
                 MetricValue = rxPower,
                 ThresholdValue = rxPowerLowDbm,
-                SourceUrl = "/monitoring?tab=ont",
+                SourceUrl = state.SourceUrl,
                 Tags = ["ont", "rx_power"],
                 Context = new Dictionary<string, string>
                 {
@@ -127,7 +153,7 @@ public class OntAlertEvaluator
                 DeviceName = ontName,
                 MetricValue = tempC,
                 ThresholdValue = tempHighC,
-                SourceUrl = "/monitoring?tab=ont",
+                SourceUrl = state.SourceUrl,
                 Tags = ["ont", "temperature"],
                 Context = new Dictionary<string, string>
                 {
@@ -160,7 +186,7 @@ public class OntAlertEvaluator
                 Title = $"{ontName} PON link down{_siteSuffix}",
                 Message = $"ONT {ontName} PON link is down (state: {ponLinkStatus}).",
                 DeviceName = ontName,
-                SourceUrl = "/monitoring?tab=ont",
+                SourceUrl = state.SourceUrl,
                 Tags = ["ont", "pon_link"],
                 Context = new Dictionary<string, string>
                 {
@@ -175,41 +201,72 @@ public class OntAlertEvaluator
         }
     }
 
-    private async ValueTask CheckFecErrors(
-        OntAlertState state, int ontId, string ontName, long fecErrors, CancellationToken ct)
+    private ValueTask CheckFecErrors(
+        OntAlertState state, int ontId, string ontName, long fecErrors, CancellationToken ct) =>
+        CheckErrorSpike(ontId, ontName, fecErrors, state.PreviousFecErrors, FecErrorDeltaThreshold,
+            "ont.fec_errors", "FEC error", "FEC errors", "fec", "fec_delta",
+            v => state.PreviousFecErrors = v, state.SourceUrl, ct);
+
+    private ValueTask CheckBipErrors(
+        OntAlertState state, int ontId, string ontName, long bipErrors, bool? fecEnabled, CancellationToken ct)
     {
-        if (state.PreviousFecErrors.HasValue)
+        // BIP is uncorrected data loss only when payload FEC is off; with FEC on (or unknown,
+        // the standalone-ONT default) it counts pre-FEC line errors FEC corrects, so relax the
+        // threshold to avoid flagging a healthy FEC-enabled link at its normal operating point.
+        var threshold = fecEnabled == false ? BipErrorStrictThreshold : BipErrorRelaxedThreshold;
+        return CheckErrorSpike(ontId, ontName, bipErrors, state.PreviousBipErrors, threshold,
+            "ont.bip_errors", "BIP error", "BIP errors", "bip", "bip_delta",
+            v => state.PreviousBipErrors = v, state.SourceUrl, ct);
+    }
+
+    private ValueTask CheckHecErrors(
+        OntAlertState state, int ontId, string ontName, long hecErrors, CancellationToken ct) =>
+        CheckErrorSpike(ontId, ontName, hecErrors, state.PreviousHecErrors, HecErrorDeltaThreshold,
+            "ont.hec_errors", "HEC error", "HEC errors", "hec", "hec_delta",
+            v => state.PreviousHecErrors = v, state.SourceUrl, ct);
+
+    /// <summary>
+    /// Shared per-poll error-counter spike check. Fires when the increase since the last
+    /// poll exceeds the threshold; a negative step (ONT counter reset) counts as zero, so
+    /// a reboot never fakes a spike. The first reading only establishes the baseline.
+    /// </summary>
+    private async ValueTask CheckErrorSpike(
+        int ontId, string ontName, long current, long? previous, long threshold,
+        string eventType, string spikeLabel, string countLabel, string metricTag, string deltaKey,
+        Action<long> setPrevious, string sourceUrl, CancellationToken ct)
+    {
+        if (previous.HasValue)
         {
-            var delta = fecErrors - state.PreviousFecErrors.Value;
+            var delta = current - previous.Value;
             if (delta < 0) delta = 0; // counter reset
 
-            if (delta > FecErrorDeltaThreshold)
+            if (delta > threshold)
             {
-                _logger.LogDebug("ONT {Name} FEC error spike: {Delta} errors since last poll", ontName, delta);
+                _logger.LogDebug("ONT {Name} {Label} spike: {Delta} since last poll", ontName, spikeLabel, delta);
 
                 await _eventBus.PublishAsync(new AlertEvent
                 {
-                    EventType = "ont.fec_errors",
+                    EventType = eventType,
                     Source = "ont",
                     Severity = AlertSeverity.Warning,
-                    Title = $"{ontName} FEC error spike{_siteSuffix}",
-                    Message = $"ONT {ontName} had {delta:N0} FEC errors since last poll (threshold: {FecErrorDeltaThreshold:N0}).",
+                    Title = $"{ontName} {spikeLabel} spike{_siteSuffix}",
+                    Message = $"ONT {ontName} had {delta:N0} {countLabel} since last poll (threshold: {threshold:N0}).",
                     DeviceName = ontName,
                     MetricValue = delta,
-                    ThresholdValue = FecErrorDeltaThreshold,
-                    SourceUrl = "/monitoring?tab=ont",
-                    Tags = ["ont", "fec"],
+                    ThresholdValue = threshold,
+                    SourceUrl = sourceUrl,
+                    Tags = ["ont", metricTag],
                     Context = new Dictionary<string, string>
                     {
                         ["ont_id"] = ontId.ToString(),
-                        ["metric"] = "fec_errors",
-                        ["fec_delta"] = delta.ToString()
+                        ["metric"] = $"{metricTag}_errors",
+                        [deltaKey] = delta.ToString()
                     }
                 }, ct);
             }
         }
 
-        state.PreviousFecErrors = fecErrors;
+        setPrevious(current);
     }
 
     private class OntAlertState
@@ -218,5 +275,8 @@ public class OntAlertEvaluator
         public bool PonLinkDown;
         public bool TempBreached;
         public long? PreviousFecErrors;
+        public long? PreviousBipErrors;
+        public long? PreviousHecErrors;
+        public string SourceUrl = DefaultSourceUrl;
     }
 }

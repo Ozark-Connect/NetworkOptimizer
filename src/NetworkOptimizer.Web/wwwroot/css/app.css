@@ -17283,6 +17283,11 @@ a.isp-outage-ack:hover {
 }
 
 .isp-hop-name {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    column-gap: 0.5rem;
+    row-gap: 0.25rem;
     font-size: 0.85rem;
     font-weight: 500;
     color: var(--text-primary);
@@ -17295,14 +17300,19 @@ a.isp-outage-ack:hover {
 }
 
 .isp-target-badge {
-    margin-left: 0.5rem;
-    padding: 0.05rem 0.4rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    padding: 0.15rem 0.4rem;
+    border: 0;
     border-radius: 4px;
+    font-family: inherit;
     font-size: 0.62rem;
     font-weight: 600;
+    line-height: 1;
     text-transform: uppercase;
     letter-spacing: 0.04em;
-    vertical-align: middle;
 }
 
 .isp-target-graded {

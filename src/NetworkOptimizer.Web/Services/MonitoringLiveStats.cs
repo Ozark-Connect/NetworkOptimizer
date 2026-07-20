@@ -469,8 +469,9 @@ public class MonitoringLiveStats
             },
             // Merge: each field keeps the new value when present, otherwise preserves
             // the prior value. One null reading on a single sensor (e.g. bias) no
-            // longer wipes the others.
-            (_, prior) => new SfpLiveStats
+            // longer wipes the others. PON supplement fields (set by RecordSfpPon) are
+            // always carried through - this DDM path never touches them.
+            (_, prior) => prior with
             {
                 RxPowerDbm = rxDbm ?? prior.RxPowerDbm,
                 TxPowerDbm = txDbm ?? prior.TxPowerDbm,
@@ -478,6 +479,45 @@ public class MonitoringLiveStats
                 TemperatureC = tempC ?? prior.TemperatureC,
                 VoltageV = voltageV ?? prior.VoltageV,
                 LastUpdate = timestamp
+            });
+    }
+
+    /// <summary>
+    /// Record the latest PON-layer supplement (from an attached ONT provider) onto the
+    /// module's live SFP entry, preserving the DDM readings. Absolute counters; the card
+    /// shows them as-is. Skips the write when nothing usable came back so a failed
+    /// supplement poll doesn't blank the prior good values.
+    /// </summary>
+    public void RecordSfpPon(string deviceMac, string portName, string? ponLinkStatus,
+        long? bipErrors, long? fecErrors, long? hecUncorrected, bool? fecEnabled,
+        long? gemRxDropped, DateTime timestamp)
+    {
+        if (string.IsNullOrEmpty(deviceMac) || string.IsNullOrEmpty(portName)) return;
+        if (string.IsNullOrEmpty(ponLinkStatus) && !bipErrors.HasValue && !fecErrors.HasValue
+            && !hecUncorrected.HasValue && !gemRxDropped.HasValue)
+            return;
+
+        var key = (Normalize(deviceMac), portName);
+        _sfpStats.AddOrUpdate(
+            key,
+            _ => new SfpLiveStats
+            {
+                PonLinkStatus = ponLinkStatus,
+                BipErrors = bipErrors,
+                FecErrors = fecErrors,
+                HecUncorrected = hecUncorrected,
+                FecEnabled = fecEnabled,
+                GemRxDropped = gemRxDropped,
+                LastUpdate = timestamp
+            },
+            (_, prior) => prior with
+            {
+                PonLinkStatus = ponLinkStatus ?? prior.PonLinkStatus,
+                BipErrors = bipErrors ?? prior.BipErrors,
+                FecErrors = fecErrors ?? prior.FecErrors,
+                HecUncorrected = hecUncorrected ?? prior.HecUncorrected,
+                FecEnabled = fecEnabled ?? prior.FecEnabled,
+                GemRxDropped = gemRxDropped ?? prior.GemRxDropped,
             });
     }
 
@@ -677,6 +717,22 @@ public record SfpLiveStats
     public double? TemperatureC { get; init; }
     public double? VoltageV { get; init; }
     public DateTime LastUpdate { get; init; }
+
+    /// <summary>PON activation state, influx-encoded (e.g. "operation"), from an attached
+    /// supplemental ONT provider. Null when the module has no PON supplement.</summary>
+    public string? PonLinkStatus { get; init; }
+    /// <summary>Absolute (cumulative) BIP error count from the PON supplement.</summary>
+    public long? BipErrors { get; init; }
+    /// <summary>Absolute (cumulative) uncorrectable FEC codewords from the PON supplement.</summary>
+    public long? FecErrors { get; init; }
+    /// <summary>Absolute (cumulative) uncorrectable HEC header errors - the always-on
+    /// framing-layer error signal, meaningful even when payload FEC is disabled.</summary>
+    public long? HecUncorrected { get; init; }
+    /// <summary>Whether payload FEC is enabled per the OLT profile. Null = unknown. When
+    /// false, the FEC counters stay 0 and HEC is the live error signal to show instead.</summary>
+    public bool? FecEnabled { get; init; }
+    /// <summary>Absolute (cumulative) dropped GEM frames from the PON supplement.</summary>
+    public long? GemRxDropped { get; init; }
 }
 
 public record PortLiveRate
