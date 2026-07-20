@@ -93,7 +93,7 @@ _aa_nginx_profile_file() {
     local pname fname dir cand file=""
     pname="$(_aa_nginx_profile_name)"; [ -n "$pname" ] || pname="$NGINX_BIN"
     fname="$(_aa_profile_filename "$pname")"
-    for dir in /etc/apparmor.d /var/lib/snapd/apparmor/profiles; do
+    for dir in /etc/apparmor.d /usr/share/apparmor.d /var/lib/snapd/apparmor/profiles; do
         [ -d "$dir" ] || continue
         if [ -f "$dir/$fname" ]; then
             cand="$dir/$fname"
@@ -119,9 +119,13 @@ maybe_fix_apparmor_nginx() {
     local file base
     file="$(_aa_nginx_profile_file)"
     case "$file" in
-        /etc/apparmor.d/*) ;;
-        # Not file-backed under /etc/apparmor.d (non-standard or snap profile): a
-        # local/ override wouldn't be consumed. Leave it to the hint below.
+        # Vendor profiles under these dirs use the standard local/ include base
+        # (/etc/apparmor.d/local), so an override there applies. The override file
+        # always lives under /etc/apparmor.d/local regardless of where the profile
+        # itself ships; we reload the profile source wherever it was found.
+        /etc/apparmor.d/*|/usr/share/apparmor.d/*) ;;
+        # Snap or otherwise non-standard profile won't consume /etc/apparmor.d/local:
+        # a local override wouldn't apply. Leave it to the hint below.
         *) return 0 ;;
     esac
     base="$(basename "$file")"
@@ -148,29 +152,19 @@ maybe_fix_apparmor_nginx() {
 }
 
 # Actionable manual remediation, printed only when the speed test nginx still fails
-# because of an AppArmor denial (so it never nags on unrelated failures). Names the
-# real profile and picks the applicable fix: a local override when the profile is a
-# standard /etc/apparmor.d file, otherwise complain mode.
+# because of an AppArmor denial (so it never nags on unrelated failures). By the time
+# this prints, the automatic local-override fix has already been tried or wasn't
+# possible, so complain mode - which works regardless of how the profile is shipped -
+# is the reliable recommendation. Names the real profile.
 print_speedtest_apparmor_hint() {
     _aa_denied_install_dir || return 0
-    local pname file base
+    local pname
     pname="$(_aa_nginx_profile_name)"; [ -n "$pname" ] || pname="$NGINX_BIN"
-    file="$(_aa_nginx_profile_file)"
-    echo "  Cause: AppArmor profile '${pname}' is blocking ${INSTALL_DIR}."
-    case "$file" in
-        /etc/apparmor.d/*)
-            base="$(basename "$file")"
-            echo "  Fix - add a local override, then reload the profile:"
-            echo "    printf '%s\n%s\n' '${INSTALL_DIR}/ r,' '${INSTALL_DIR}/** rw,' | sudo tee /etc/apparmor.d/local/${base}"
-            echo "    sudo apparmor_parser -r ${file}"
-            echo "  Or relax it (logs but allows): sudo aa-complain '${pname}'"
-            ;;
-        *)
-            echo "  Its profile isn't a standard file under /etc/apparmor.d, so relax it (logs but allows):"
-            echo "    sudo aa-complain '${pname}'"
-            ;;
-    esac
-    echo "  Then: sudo systemctl start netopt-speedtest-nginx"
+    echo "  Cause: AppArmor profile '${pname}' is blocking ${INSTALL_DIR}, and an additive"
+    echo "  local override didn't clear it (the profile likely has no local/ include hook)."
+    echo "  Relax it (logs but still allows), then start the service:"
+    echo "    sudo aa-complain '${pname}'"
+    echo "    sudo systemctl start ${SPEEDTEST_SERVICE}"
 }
 
 # Remove any AppArmor local override this installer added (marker-guarded, so a
