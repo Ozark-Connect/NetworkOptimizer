@@ -115,8 +115,13 @@ public class IspHealthScorer
         var ispHopGrades = GradeIspHops(inputs.IspAsnSeries, inputs.TransitAsnSeries, transitAsns, inputs.DestinationSeries, inputs.CongestionEvents, jitterFloor, inputs.HopOrderKnown, accessMedianRtt, inputs.InternetMedianDeltaMs);
         // Collapse the per-hop grades to one entry per ASN for the Networks on Your Path card.
         var ispAsns = AggregateIspAsns(ispHopGrades, inputs.CongestionEvents, _options.JitterAssimilationMinDeltaMs);
+        // Attribution is "known" when we have the ancestry to prove routes-through AND destinations
+        // to test against. Then reach == 0 is a TRUE zero (a peered site whose destinations cross no
+        // transit) and floors the ASN at 25% - distinct from "no ancestry at all", where we can't
+        // tell and fall back to equal weight.
+        var transitAttributionKnown = inputs.HopOrderKnown && inputs.DestinationSeries.Count > 0;
         var transitDimension = BuildAsnDimension("Transit Health", _options.TransitWeight, transitAsns,
-            transitReachByAsn, transitMaxReach, inputs.DestinationSeries.Count);
+            transitReachByAsn, transitMaxReach, inputs.DestinationSeries.Count, transitAttributionKnown);
         var ispAsnDimension = BuildIspDimension(_options.IspAsnWeight, ispHopGrades);
 
         var overall = CombineDimensions(accessDimension, transitDimension, ispAsnDimension);
@@ -1293,21 +1298,24 @@ public class IspHealthScorer
     private const double TransitInvolvementFloor = 0.25;
 
     /// <summary>
-    /// Builds a transit-style ASN dimension. When <paramref name="reachByAsn"/> is supplied and at
-    /// least one ASN has an attributable internet host (<paramref name="maxReach"/> &gt; 0), each
-    /// ASN's contribution to the dimension score is weighted by its involvement -
-    /// <see cref="TransitInvolvementFloor"/> + (1 - floor) * reach / maxReach - and a fraction-icon
-    /// tooltip is attached. When nothing is attributable (transit invisible on the destination
-    /// paths), every weight is 1.0, so the score is the plain average and no tooltip is shown.
+    /// Builds a transit-style ASN dimension. When <paramref name="hostAttributionKnown"/> (we have
+    /// the ancestry and destinations to test routes-through), each ASN is weighted by its involvement
+    /// - <see cref="TransitInvolvementFloor"/> + (1 - floor) * reach / maxReach, or the bare floor
+    /// when no ASN carries a host (<paramref name="maxReach"/> == 0, a peered site) - and a
+    /// fraction-icon tooltip is attached. Without attribution (no hop order / no destinations) we
+    /// can't tell, so every weight is 1.0 (plain average) and no tooltip is shown.
     /// </summary>
     private static IspScoreDimension BuildAsnDimension(string name, double weight, List<IspAsnHealth> asns,
-        Dictionary<int, int>? reachByAsn = null, int maxReach = 0, int destinationTotal = 0)
+        Dictionary<int, int>? reachByAsn = null, int maxReach = 0, int destinationTotal = 0,
+        bool hostAttributionKnown = false)
     {
-        var differentiate = reachByAsn != null && maxReach > 0;
+        var showInvolvement = reachByAsn != null && hostAttributionKnown;
 
         double Involvement(int asn)
         {
-            if (!differentiate) return 1.0;
+            if (!showInvolvement) return 1.0;
+            // Attribution known but no ASN carries a host (peered site): true-zero involvement, floor.
+            if (maxReach <= 0) return TransitInvolvementFloor;
             var reach = reachByAsn!.TryGetValue(asn, out var rc) ? rc : 0;
             return TransitInvolvementFloor + (1 - TransitInvolvementFloor) * ((double)reach / maxReach);
         }
@@ -1316,7 +1324,7 @@ public class IspHealthScorer
         {
             var reach = reachByAsn != null && reachByAsn.TryGetValue(a.AsnNumber, out var rc) ? rc : 0;
             var involvement = Involvement(a.AsnNumber);
-            var tip = !differentiate ? null
+            var tip = !showInvolvement ? null
                 : reach > 0
                     ? $"Carries {reach} of {destinationTotal} monitored internet host{(destinationTotal == 1 ? "" : "s")} - weighted at {involvement * 100:0}% in Transit Health"
                     : $"No monitored internet host is confirmed on this transit's path - weighted at {involvement * 100:0}% (the minimum)";

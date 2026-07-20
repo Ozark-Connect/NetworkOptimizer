@@ -1106,6 +1106,35 @@ public class IspHealthScorerTests
     }
 
     [Fact]
+    public void Transit_asns_with_no_attributable_hosts_are_floored_and_labeled()
+    {
+        // A fully-peered site: destinations reach the internet directly, so their (complete) ancestry
+        // crosses no transit and every transit ASN carries zero monitored hosts. With attribution
+        // available (hop order + destinations), that is a TRUE zero - each transit is floored at 25%
+        // and labeled, not left at the equal-weight "unknown" fallback. Arm 4.
+        List<AsnSeries> Transits() => new()
+        {
+            new AsnSeries { AsnNumber = 64500, AsnName = "TransitA", TargetIds = { "ta" },
+                Samples = TestSeries.Flat(TestSeries.Start, Day, 10, 0.5), HopIps = { "20.0.0.1" } },
+            new AsnSeries { AsnNumber = 64600, AsnName = "TransitB", TargetIds = { "tb" },
+                Samples = TestSeries.Flat(TestSeries.Start, Day, 12, 0.5), HopIps = { "21.0.0.1" } }
+        };
+        var peeredDest = new AsnSeries
+        {
+            AsnNumber = 64512, AsnName = "Destination", TargetIds = { "dest" },
+            Samples = TestSeries.Flat(TestSeries.Start, Day, 8, 0.4), HopIps = { "30.0.0.1" },
+            AncestorIps = { "9.9.9.9" } // routes through neither transit (peered)
+        };
+
+        var dim = new IspHealthScorer(Options).Score(
+            BuildInputs(transit: Transits(), destinations: new List<AsnSeries> { peeredDest }, hopOrderKnown: true), Gpon)
+            .TransitDimension;
+
+        dim.Factors.Should().OnlyContain(f => f.InvolvementTooltip != null && f.InvolvementTooltip.Contains("25%"),
+            "complete ancestry showing zero transit involvement floors and labels every transit ASN");
+    }
+
+    [Fact]
     public void Without_hop_order_a_transit_asn_is_graded_on_its_near_cluster()
     {
         // Backward compat: installs that have not re-run discovery have no stored hop
