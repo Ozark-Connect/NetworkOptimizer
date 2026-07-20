@@ -1574,7 +1574,7 @@
                     <div class="form-row">
                         <div class="form-group" style="flex: 2;">
                             <label class="form-label">Host / IP</label>
-                            <input type="text" class="form-control" @bind="_editingOnt.Host" placeholder="192.168.1.254" required />
+                            <input type="text" class="form-control" @bind="_editingOnt.Host" placeholder="@GetOntHostPlaceholder(_editingOnt.Provider)" required />
                             <small class="form-help">
                                 Behind your WAN and unreachable for polling?
                                 <a href="@MonitoringInterfaceLink(_editingOnt.Host, "ont")">Set up a monitoring interface →</a>
@@ -5844,9 +5844,20 @@
 
     private void OnOntProviderChanged(ChangeEventArgs e)
     {
+        var previousProvider = _editingOnt.Provider;
         var provider = e.Value?.ToString() ?? "att-gateway";
         _editingOnt.Provider = provider;
         _editingOnt.Port = GetOntProviderDefaultPort(provider);
+
+        // Suggest the provider's known management host, mirroring the port default. Fill when the
+        // field is empty, and replace a host that was auto-filled from the previous provider's
+        // default (so a stale suggestion is not saved for a different device) - but never
+        // overwrite a value the user actually typed.
+        if (string.IsNullOrWhiteSpace(_editingOnt.Host) ||
+            _editingOnt.Host == GetOntProviderDefaultHost(previousProvider))
+        {
+            _editingOnt.Host = GetOntProviderDefaultHost(provider);
+        }
     }
 
     private static int GetOntProviderDefaultPort(string provider) => provider switch
@@ -5855,6 +5866,21 @@
         "quantum-q1000k" => 443,
         _ => 80,
     };
+
+    // Known default management address for providers whose stick/box ships on a fixed IP;
+    // blank when there is no single sensible default (so nothing is prefilled).
+    private static string GetOntProviderDefaultHost(string provider) => provider switch
+    {
+        "zyxel-gpon-sfp" => "10.10.1.1",
+        _ => "",
+    };
+
+    // Host-field placeholder: the provider's known default when there is one, else a generic example.
+    private static string GetOntHostPlaceholder(string provider)
+    {
+        var suggested = GetOntProviderDefaultHost(provider);
+        return string.IsNullOrEmpty(suggested) ? "192.168.1.254" : suggested;
+    }
 
     private static string GetOntProviderDisplayName(string provider) => provider switch
     {
