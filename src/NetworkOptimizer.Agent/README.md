@@ -123,9 +123,23 @@ Downloads the self-contained binary (no .NET runtime or Docker), writes
 
 Both scripts accept:
 
-- `--lan-speed-test` - host the LAN speed test page (port 3000) and iperf3 (5201)
+- `--lan-speed-test` - host the LAN speed test page (port 3000) and iperf3 (5201). The only feature that uses nginx.
 - `--insecure` - accept a self-signed cert on the server's reverse proxy
 - `--dir PATH` - override the install directory
+
+The bare-metal installer additionally accepts:
+
+- `--uninstall` - stop and remove the agent, its services, and install dir, then exit
+- `--configure-apparmor` - with `--lan-speed-test`, add a persistent AppArmor exception if the host's nginx profile blocks the speed test (off by default).
+
+To remove a bare-metal agent (stops the services first, then removes the units,
+install dir, and any AppArmor override the installer added; the host's own nginx
+is left untouched):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/agent/install-native.sh | sudo bash -s -- --uninstall
+# add --dir PATH if you installed somewhere other than /opt/netopt-agent
+```
 
 ### On a UniFi gateway (on-box)
 
@@ -468,6 +482,13 @@ them to the central server tagged with the site slug and the client's real IP, s
 they land in the site's own database with no CORS or exposure of the central
 server to browsers. If an `iperf3` binary is on the agent's PATH, an iperf3 server
 (port 5201) runs alongside for wired/CLI throughput tests.
+
+If the host's nginx is confined by AppArmor, it may be denied access to the
+install dir and the page won't serve (the agent and monitoring are unaffected).
+Re-run `install-native.sh` with `--configure-apparmor` to add a persistent,
+scoped exception where the profile supports it; on a host whose profile has no
+source file or `local/` hook, an admin must grant the exception, or run the
+speed-test agent on a host whose nginx isn't AppArmor-confined.
 
 The address the central server hands to site clients for these tests is the
 agent's auto-detected LAN IPv4 (`DetectLocalIpFromInterfaces`). With the default

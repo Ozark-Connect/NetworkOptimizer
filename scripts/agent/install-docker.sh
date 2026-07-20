@@ -37,7 +37,20 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-err() { echo "Error: $*" >&2; exit 1; }
+# --- Output helpers -----------------------------------------------------------
+# Colorized, structured output; colors collapse to empty when stdout isn't a
+# terminal, so piped/logged output stays clean.
+if [ -t 1 ]; then
+    _b=$'\e[1m'; _dim=$'\e[2m'; _grn=$'\e[32m'; _ylw=$'\e[33m'; _red=$'\e[31m'; _cyn=$'\e[36m'; _rst=$'\e[0m'
+else
+    _b=; _dim=; _grn=; _ylw=; _red=; _cyn=; _rst=
+fi
+_rule="$(printf '\xe2\x94\x80%.0s' {1..52})"   # ── divider between sections
+step() { printf '\n%s%s%s\n%s==>%s %s%s%s\n' "$_dim" "$_rule" "$_rst" "${_cyn}${_b}" "$_rst" "$_b" "$*" "$_rst"; }
+ok()   { printf '  %s\xe2\x9c\x93%s %s\n' "$_grn" "$_rst" "$*"; }
+note() { printf '  %s%s%s\n' "$_dim" "$*" "$_rst"; }
+warn() { printf '  %s\xe2\x9a\xa0%s  %s\n' "$_ylw" "$_rst" "$*"; }
+err()  { printf '%sError:%s %s\n' "${_red}${_b}" "$_rst" "$*" >&2; exit 1; }
 
 [ -n "$SERVER" ] || err "--server is required (the central server's HTTPS address)"
 case "$SERVER" in
@@ -61,21 +74,23 @@ if [ "$(id -u)" -ne 0 ]; then
     SUDO="sudo"
 fi
 
-echo "Installing Network Optimizer agent to ${INSTALL_DIR}"
+printf '\n%sNetwork Optimizer on-site agent (Docker)%s\n' "$_b" "$_rst"
+note "Installing to ${INSTALL_DIR}"
 $SUDO mkdir -p "${INSTALL_DIR}/data"
 
-# Compose template
+step "Fetching the compose template"
 $SUDO curl -fsSL "$COMPOSE_URL" -o "${INSTALL_DIR}/docker-compose.yml"
+ok "docker-compose.yml"
 
 CONFIG="${INSTALL_DIR}/data/agent.json"
 
+step "Configuring the agent"
 # Preserve an already-enrolled config so re-running the installer (e.g. to
 # update the image) never wipes the persisted agent key.
 if $SUDO grep -q '"agentKey"' "$CONFIG" 2>/dev/null; then
-    echo "Existing enrolled agent config found - keeping it."
+    note "Existing enrollment found - keeping agent.json"
 else
     [ -n "$TOKEN" ] || err "--token is required for a first-time install"
-    echo "Writing ${CONFIG}"
     TMP_CONFIG="$(mktemp)"
     {
         echo "{"
@@ -90,13 +105,16 @@ else
     } > "$TMP_CONFIG"
     $SUDO cp "$TMP_CONFIG" "$CONFIG"
     rm -f "$TMP_CONFIG"
+    ok "Wrote ${CONFIG}"
 fi
 
-echo "Starting agent..."
+step "Starting the agent"
 $SUDO $COMPOSE -f "${INSTALL_DIR}/docker-compose.yml" pull
 $SUDO $COMPOSE -f "${INSTALL_DIR}/docker-compose.yml" up -d
+ok "container up"
 
-echo
-echo "Agent started. It enrolls, then holds a tunnel to ${SERVER%/}."
-echo "Watch it come Online in the web UI, or follow logs:"
-echo "  ${SUDO} docker logs -f network-optimizer-agent"
+step "Done"
+ok "Agent started"
+note "It enrolls, then holds a tunnel to ${SERVER%/} - watch it come Online in the web UI."
+note "Logs: ${SUDO} docker logs -f network-optimizer-agent"
+printf '\n'
