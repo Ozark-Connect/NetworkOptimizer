@@ -9,9 +9,10 @@ namespace NetworkOptimizer.Web.Services;
 /// Periodically sweeps enrolled agents and raises alert events when one stays
 /// offline past the grace threshold, pairing each with a reconnect event when it
 /// comes back. Sweeps <see cref="AgentTunnelRegistry.IsAgentLive"/> (open tunnel,
-/// or heartbeat freshness for REST-only agents and reconnect gaps) instead of
-/// hooking tunnel teardown, so agent redeploys and transient tunnel bounces never
-/// alert - only an agent continuously offline for the full threshold does.
+/// its brief reconnect grace, or - only when this server offers no tunnel - REST
+/// heartbeat freshness) instead of hooking tunnel teardown, so agent redeploys
+/// and transient tunnel bounces never alert - only an agent continuously offline
+/// for the full threshold does.
 /// </summary>
 public class AgentConnectionAlertMonitor : BackgroundService
 {

@@ -3711,9 +3711,10 @@
     }
 
     // At-a-glance agent state for a site's row in the Sites table. Uses the
-    // shared IsAgentLive definition (tunnel-connected or heartbeat-fresh) and is
-    // kept current by the agent poll timer, so it agrees with the other status
-    // surfaces instead of freezing at whatever page load saw.
+    // shared IsAgentLive definition (tunnel-connected, or heartbeat-fresh only
+    // when this server offers no tunnel) and is kept current by the agent poll
+    // timer, so it agrees with the other status surfaces instead of freezing at
+    // whatever page load saw.
     private (string Dot, string Label, string Tooltip) SiteAgentStatus(int siteId)
     {
         var agents = AgentsFor(siteId);
@@ -3847,7 +3848,7 @@
         if (_agentOnGateway.TryGetValue(site.Id, out var onGateway) && onGateway)
             return "none - the agent runs on the UniFi gateway; enter a separate box hosting the speed test";
         var lanIp = AgentsFor(site.Id)
-            .Where(a => a.Enabled && !string.IsNullOrEmpty(a.LanIp) && TunnelRegistry.IsAgentLive(a))
+            .Where(a => a.Enabled && !string.IsNullOrEmpty(a.LanIp) && TunnelRegistry.IsReachable(a))
             .OrderByDescending(a => a.LastSeenAt)
             .Select(a => a.LanIp)
             .FirstOrDefault();
