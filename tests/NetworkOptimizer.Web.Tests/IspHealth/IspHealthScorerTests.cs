@@ -1099,7 +1099,7 @@ public class IspHealthScorerTests
 
         weighted.Score.Should().BeGreaterThan(equal.Score!.Value,
             "down-weighting the jittery, host-less transit lifts the dimension toward the clean, host-carrying one");
-        weighted.Factors.Single(f => f.Name == "CleanTransit").InvolvementTooltip.Should().Contain("weighted at 100%");
+        weighted.Factors.Single(f => f.Name == "CleanTransit").InvolvementTooltip.Should().Contain("100% weight");
         weighted.Factors.Single(f => f.Name == "JitteryTransit").InvolvementTooltip.Should().Contain("25%");
         equal.Factors.Should().OnlyContain(f => f.InvolvementTooltip == null,
             "with no attributable host there is no involvement to differentiate");

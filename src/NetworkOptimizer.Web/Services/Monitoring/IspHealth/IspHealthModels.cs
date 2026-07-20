@@ -133,8 +133,8 @@ public class IspAsnHealth
     /// <summary>Fraction-icon tooltip built from the involvement fields; null when not shown.</summary>
     public string? InvolvementTooltip => !ShowInvolvement || InvolvementWeight is not double w ? null
         : InvolvementReach > 0
-            ? $"Carries {InvolvementReach} of {InvolvementHostTotal} monitored internet host{(InvolvementHostTotal == 1 ? "" : "s")} on the forward path - weighted at {w * 100:0}% in Transit Health"
-            : $"No monitored host's forward path crosses this transit, so it's held at the {w * 100:0}% minimum rather than dropped - it still counts because return traffic from popular services often comes back this way (asymmetric routing, which a forward traceroute can't see).";
+            ? $"Carries {InvolvementReach}/{InvolvementHostTotal} hosts (forward path), {w * 100:0}% weight"
+            : $"Off the forward path; held at {w * 100:0}% (likely the return path from popular services)";
 
     public int? LatencyStabilityScore { get; init; }
     public int? JitterScore { get; init; }
