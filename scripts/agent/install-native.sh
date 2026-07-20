@@ -480,7 +480,7 @@ UNIT
         else
             warn "nginx config test failed - the LAN speed test page won't serve."
             print_speedtest_apparmor_hint
-            note "Diagnose: $NGINX_BIN -t -c ${INSTALL_DIR}/nginx-speedtest.conf"
+            note "Diagnose: sudo $NGINX_BIN -t -c ${INSTALL_DIR}/nginx-speedtest.conf"
         fi
     fi
 fi
