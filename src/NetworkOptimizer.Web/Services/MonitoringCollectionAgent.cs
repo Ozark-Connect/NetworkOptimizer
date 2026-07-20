@@ -2158,6 +2158,8 @@ public class MonitoringCollectionAgent : BackgroundService
                     bool? fecEnabled = stats.DsFecEnabled.HasValue || stats.UsFecEnabled.HasValue
                         ? stats.DsFecEnabled == 1 || stats.UsFecEnabled == 1
                         : null;
+                    // Attached ONTs surface on SFP Stats, so link the alert to that module.
+                    var sfpUrl = $"/monitoring?tab=sfp&sfp={sfp.DeviceMac.Replace("-", ":").ToLowerInvariant()}:{sfp.PortName}";
                     try
                     {
                         await _ontAlertEvaluator.EvaluateAsync(
@@ -2170,7 +2172,8 @@ public class MonitoringCollectionAgent : BackgroundService
                             bipErrors: stats.BipErrors,
                             hecErrors: stats.HecUncorrected,
                             fecEnabled: fecEnabled,
-                            ct);
+                            sourceUrl: sfpUrl,
+                            ct: ct);
                     }
                     catch (Exception ex)
                     {

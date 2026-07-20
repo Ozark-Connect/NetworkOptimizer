@@ -21,6 +21,7 @@ public class OntAlertEvaluator
     private const long BipErrorStrictThreshold = PonThresholds.PonBipErrorSpikePerPoll;
     private const long BipErrorRelaxedThreshold = PonThresholds.PonBipErrorSpikeFecOnPerPoll;
     private const long HecErrorDeltaThreshold = PonThresholds.PonHecErrorSpikePerPoll;
+    private const string DefaultSourceUrl = "/monitoring?tab=ont";
 
     private readonly IAlertEventBus _eventBus;
     private readonly ILogger<OntAlertEvaluator> _logger;
@@ -53,9 +54,13 @@ public class OntAlertEvaluator
         long? bipErrors = null,
         long? hecErrors = null,
         bool? fecEnabled = null,
+        string? sourceUrl = null,
         CancellationToken ct = default)
     {
         var state = _states.GetOrAdd(ontId, _ => new OntAlertState());
+        // Where a raised alert links to. Attached SFP ONTs surface on SFP Stats, standalone
+        // ONTs on ONT Stats; the caller passes the deep link to the triggering module.
+        state.SourceUrl = string.IsNullOrEmpty(sourceUrl) ? DefaultSourceUrl : sourceUrl;
 
         if (rxPowerDbm.HasValue)
         {
@@ -109,7 +114,7 @@ public class OntAlertEvaluator
                 DeviceName = ontName,
                 MetricValue = rxPower,
                 ThresholdValue = rxPowerLowDbm,
-                SourceUrl = "/monitoring?tab=ont",
+                SourceUrl = state.SourceUrl,
                 Tags = ["ont", "rx_power"],
                 Context = new Dictionary<string, string>
                 {
@@ -148,7 +153,7 @@ public class OntAlertEvaluator
                 DeviceName = ontName,
                 MetricValue = tempC,
                 ThresholdValue = tempHighC,
-                SourceUrl = "/monitoring?tab=ont",
+                SourceUrl = state.SourceUrl,
                 Tags = ["ont", "temperature"],
                 Context = new Dictionary<string, string>
                 {
@@ -181,7 +186,7 @@ public class OntAlertEvaluator
                 Title = $"{ontName} PON link down{_siteSuffix}",
                 Message = $"ONT {ontName} PON link is down (state: {ponLinkStatus}).",
                 DeviceName = ontName,
-                SourceUrl = "/monitoring?tab=ont",
+                SourceUrl = state.SourceUrl,
                 Tags = ["ont", "pon_link"],
                 Context = new Dictionary<string, string>
                 {
@@ -200,7 +205,7 @@ public class OntAlertEvaluator
         OntAlertState state, int ontId, string ontName, long fecErrors, CancellationToken ct) =>
         CheckErrorSpike(ontId, ontName, fecErrors, state.PreviousFecErrors, FecErrorDeltaThreshold,
             "ont.fec_errors", "FEC error", "FEC errors", "fec", "fec_delta",
-            v => state.PreviousFecErrors = v, ct);
+            v => state.PreviousFecErrors = v, state.SourceUrl, ct);
 
     private ValueTask CheckBipErrors(
         OntAlertState state, int ontId, string ontName, long bipErrors, bool? fecEnabled, CancellationToken ct)
@@ -211,14 +216,14 @@ public class OntAlertEvaluator
         var threshold = fecEnabled == false ? BipErrorStrictThreshold : BipErrorRelaxedThreshold;
         return CheckErrorSpike(ontId, ontName, bipErrors, state.PreviousBipErrors, threshold,
             "ont.bip_errors", "BIP error", "BIP errors", "bip", "bip_delta",
-            v => state.PreviousBipErrors = v, ct);
+            v => state.PreviousBipErrors = v, state.SourceUrl, ct);
     }
 
     private ValueTask CheckHecErrors(
         OntAlertState state, int ontId, string ontName, long hecErrors, CancellationToken ct) =>
         CheckErrorSpike(ontId, ontName, hecErrors, state.PreviousHecErrors, HecErrorDeltaThreshold,
             "ont.hec_errors", "HEC error", "HEC errors", "hec", "hec_delta",
-            v => state.PreviousHecErrors = v, ct);
+            v => state.PreviousHecErrors = v, state.SourceUrl, ct);
 
     /// <summary>
     /// Shared per-poll error-counter spike check. Fires when the increase since the last
@@ -228,7 +233,7 @@ public class OntAlertEvaluator
     private async ValueTask CheckErrorSpike(
         int ontId, string ontName, long current, long? previous, long threshold,
         string eventType, string spikeLabel, string countLabel, string metricTag, string deltaKey,
-        Action<long> setPrevious, CancellationToken ct)
+        Action<long> setPrevious, string sourceUrl, CancellationToken ct)
     {
         if (previous.HasValue)
         {
@@ -249,7 +254,7 @@ public class OntAlertEvaluator
                     DeviceName = ontName,
                     MetricValue = delta,
                     ThresholdValue = threshold,
-                    SourceUrl = "/monitoring?tab=ont",
+                    SourceUrl = sourceUrl,
                     Tags = ["ont", metricTag],
                     Context = new Dictionary<string, string>
                     {
@@ -272,5 +277,6 @@ public class OntAlertEvaluator
         public long? PreviousFecErrors;
         public long? PreviousBipErrors;
         public long? PreviousHecErrors;
+        public string SourceUrl = DefaultSourceUrl;
     }
 }

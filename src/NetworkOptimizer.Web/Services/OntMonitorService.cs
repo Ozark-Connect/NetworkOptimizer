@@ -294,7 +294,8 @@ public class OntMonitorService : IDisposable
                     config.Id, config.Name,
                     stats.RxPowerDbm, stats.PonLinkStatus, stats.FecErrors,
                     stats.TemperatureC, thresholds.PonRxPowerLowDbm, thresholds.PonTempHighC,
-                    bipErrors: stats.BipErrors);
+                    bipErrors: stats.BipErrors,
+                    sourceUrl: $"/monitoring?tab=ont&ont={config.Id}");
 
                 _logger.LogDebug("ONT {Name} polled successfully: Rx={Rx} dBm", config.Name, stats.RxPowerDbm);
                 return stats;
