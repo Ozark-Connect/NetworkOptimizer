@@ -18,7 +18,6 @@ let tempChart = null;
 let ponErrChart = null;
 let ponGemChart = null;
 let ponHostChart = null;
-let ponSeriesByModule = {};
 // Modules that currently have PON data, whether visible or not. The PON section and
 // its detail table are shown only for the ones selected in the filter.
 let ponCapableModules = [];
@@ -156,26 +155,54 @@ function updateVisibility() {
             if (vis) tempChart.showSeries(m.label);
             else tempChart.hideSeries(m.label);
         }
-        const ps = ponSeriesByModule[m.id];
-        if (ps) {
-            [[ponErrChart, ps.err], [ponGemChart, ps.gem], [ponHostChart, ps.host]].forEach(([chart, names]) => {
-                if (!chart || !names) return;
-                names.forEach(n => vis ? chart.showSeries(n) : chart.hideSeries(n));
-            });
-        }
     });
-    syncPonSectionVisibility();
+    // Fire-and-forget: rebuilds the PON charts/section for the selected modules. Kept
+    // off the synchronous path so a chart error can never break chip re-rendering.
+    refreshPonSection();
 }
 
-// Show the PON section (charts + detail table) only while at least one PON-capable
-// module is selected in the filter; the table lists just those selected modules.
-function syncPonSectionVisibility() {
+// Rebuild the PON section (charts + detail table) for the currently-selected PON
+// modules, or hide it when none are selected. The section is shown BEFORE the charts
+// are mounted/updated so ApexCharts sizes them correctly - a chart first rendered in a
+// display:none container stays zero-size until its next update.
+async function refreshPonSection() {
     const container = document.getElementById(containerId);
     const section = container?.querySelector('.sfp-pon-section');
     if (!section) return;
     const visiblePon = ponCapableModules.filter(m => visibility[m.id] !== false);
-    section.style.display = visiblePon.length ? '' : 'none';
-    renderPonDetails(container, visiblePon);
+    if (!visiblePon.length) { section.style.display = 'none'; return; }
+    section.style.display = '';
+    await ensurePonChartsMounted();
+    if (!ponErrChart) return;
+    try {
+        const multi = visiblePon.length > 1;
+        const errSeries = [], gemSeries = [], hostSeries = [];
+        visiblePon.forEach(m => {
+            const pts = m.pon;
+            const prefix = multi ? `${m.label} ` : '';
+            errSeries.push(
+                { name: `${prefix}BIP`, data: ponPoints(pts, 'bip') },
+                { name: `${prefix}FEC`, data: ponPoints(pts, 'fec') },
+                { name: `${prefix}FEC corrected`, data: ponPoints(pts, 'fecCorr') },
+                { name: `${prefix}HEC`, data: ponPoints(pts, 'hec') },
+                { name: `${prefix}GEM drops`, data: ponPoints(pts, 'gemDrop') },
+                { name: `${prefix}Allocs lost`, data: ponPoints(pts, 'allocLost') },
+            );
+            gemSeries.push(
+                { name: `${prefix}RX frames`, data: ponPoints(pts, 'gemRx') },
+                { name: `${prefix}TX frames`, data: ponPoints(pts, 'gemTx') },
+            );
+            hostSeries.push(
+                { name: `${prefix}FCS errors`, data: ponPoints(pts, 'lanFcs') },
+                { name: `${prefix}TX drops`, data: ponPoints(pts, 'lanDrop') },
+                { name: `${prefix}Buffer overflows`, data: ponPoints(pts, 'lanOvfl') },
+            );
+        });
+        ponErrChart.updateSeries(errSeries, false);
+        ponGemChart.updateSeries(gemSeries, false);
+        ponHostChart.updateSeries(hostSeries, false);
+        renderPonDetails(container, visiblePon);
+    } catch (e) { /* leave the previous render if a chart update fails */ }
 }
 
 async function loadAndUpdate() {
@@ -256,49 +283,8 @@ async function ensurePonChartsMounted() {
 }
 
 async function updatePonCharts(data) {
-    const withPon = (data.modules || []).filter(m => m.pon?.length);
-    ponCapableModules = withPon;
-    ponSeriesByModule = {};
-    if (!withPon.length) { syncPonSectionVisibility(); return; }
-    await ensurePonChartsMounted();
-    if (!ponErrChart) { syncPonSectionVisibility(); return; }
-
-    const errSeries = [], gemSeries = [], hostSeries = [];
-    withPon.forEach(m => {
-        const pts = m.pon;
-        // Prefix series with the module label only when several modules share the
-        // charts - the usual case is a single supplemented module.
-        const prefix = withPon.length > 1 ? `${m.label} ` : '';
-        const err = [
-            { name: `${prefix}BIP`, data: ponPoints(pts, 'bip') },
-            { name: `${prefix}FEC`, data: ponPoints(pts, 'fec') },
-            { name: `${prefix}FEC corrected`, data: ponPoints(pts, 'fecCorr') },
-            { name: `${prefix}HEC`, data: ponPoints(pts, 'hec') },
-            { name: `${prefix}GEM drops`, data: ponPoints(pts, 'gemDrop') },
-            { name: `${prefix}Allocs lost`, data: ponPoints(pts, 'allocLost') },
-        ];
-        const gem = [
-            { name: `${prefix}RX frames`, data: ponPoints(pts, 'gemRx') },
-            { name: `${prefix}TX frames`, data: ponPoints(pts, 'gemTx') },
-            { name: `${prefix}TX idle`, data: ponPoints(pts, 'gemTxIdle') },
-        ];
-        const host = [
-            { name: `${prefix}FCS errors`, data: ponPoints(pts, 'lanFcs') },
-            { name: `${prefix}TX drops`, data: ponPoints(pts, 'lanDrop') },
-            { name: `${prefix}Buffer overflows`, data: ponPoints(pts, 'lanOvfl') },
-        ];
-        ponSeriesByModule[m.id] = {
-            err: err.map(s => s.name), gem: gem.map(s => s.name), host: host.map(s => s.name),
-        };
-        errSeries.push(...err);
-        gemSeries.push(...gem);
-        hostSeries.push(...host);
-    });
-
-    ponErrChart.updateSeries(errSeries, false);
-    ponGemChart.updateSeries(gemSeries, false);
-    ponHostChart.updateSeries(hostSeries, false);
-    syncPonSectionVisibility();
+    ponCapableModules = (data.modules || []).filter(m => m.pon?.length);
+    await refreshPonSection();
 }
 
 function renderPonDetails(container, withPon) {
@@ -608,7 +594,6 @@ export function unmount() {
     containerId = null;
     moduleMeta = [];
     visibility = {};
-    ponSeriesByModule = {};
     ponCapableModules = [];
     lastData = null;
     currentRangeHours = 24;
