@@ -54,40 +54,8 @@ public sealed class NokiaXs010xOntProvider : IOntProvider
 
         try
         {
-            using var client = CreateClient();
             var baseUrl = BuildBaseUrl(context);
-
-            OntStats? stats = null;
-            const int maxAttempts = 3;
-            for (var attempt = 1; attempt <= maxAttempts; attempt++)
-            {
-                var cookieId = await LoginAsync(client, baseUrl, context, cancellationToken);
-                if (cookieId is not null)
-                {
-                    var infoJson = await GetUpdateInfoAsync(client, baseUrl, cookieId, context.Name, cancellationToken);
-                    stats = new OntStats
-                    {
-                        Timestamp = DateTime.UtcNow,
-                        DeviceHost = context.ConfiguredHost ?? context.Host,
-                        DeviceName = context.Name,
-                        DeviceModel = "Nokia XS-010X-Q",
-                    };
-                    ApplyUpdateInfo(infoJson, stats);
-                    if (stats.RxPowerDbm is not null)
-                        break;
-                }
-
-                // The device sometimes returns an unauthenticated/empty response when the login
-                // and data request race on the same client - the browser flow and the working
-                // curl script both hit fresh connections with pauses between steps. A fresh login
-                // on a fresh connection (ConnectionClose in CreateClient) usually settles it.
-                if (attempt < maxAttempts)
-                {
-                    _logger.LogDebug("Nokia XS-010X-Q ONT {Name}: no RX power on attempt {Attempt}/{Max}, retrying",
-                        context.Name, attempt, maxAttempts);
-                    await Task.Delay(TimeSpan.FromMilliseconds(600), cancellationToken);
-                }
-            }
+            var stats = await PollWithFallbackAsync(baseUrl, context, cancellationToken);
 
             if (stats is null)
             {
@@ -119,17 +87,11 @@ public sealed class NokiaXs010xOntProvider : IOntProvider
 
         try
         {
-            using var client = CreateClient();
             var baseUrl = BuildBaseUrl(context);
+            var stats = await PollWithFallbackAsync(baseUrl, context, cancellationToken);
 
-            var cookieId = await LoginAsync(client, baseUrl, context, cancellationToken);
-            if (cookieId is null)
+            if (stats is null)
                 return (false, "Login failed - check username/password (default is admin/1234)");
-
-            var infoJson = await GetUpdateInfoAsync(client, baseUrl, cookieId, context.Name, cancellationToken);
-
-            var stats = new OntStats();
-            ApplyUpdateInfo(infoJson, stats);
 
             if (stats.RxPowerDbm is null)
                 return (false, "Logged in but response did not contain the expected RxOptPwr field");
@@ -140,6 +102,79 @@ public sealed class NokiaXs010xOntProvider : IOntProvider
         {
             return (false, $"Connection failed: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Runs the login + getUpdateinfo sequence, trying two connection strategies in turn.
+    /// The provider was built from a single community-captured flow that uses a fresh TCP
+    /// connection per request (<see cref="CreateClient"/> with ConnectionClose), which works
+    /// on some XS-010X-Q firmware but not others: variants that bind the auth session to the
+    /// login TCP connection reject the cookie on the separate getUpdateinfo socket with a
+    /// 401 -> /login.html redirect. When the fresh-connection path yields no RX reading, we
+    /// retry over a single shared keep-alive connection so login and data ride the same
+    /// socket. Returns the first result carrying an RX reading, otherwise the last non-null
+    /// (logged-in-but-no-data) result, or null when every attempt failed to log in.
+    /// </summary>
+    private async Task<OntStats?> PollWithFallbackAsync(
+        string baseUrl, OntPollContext context, CancellationToken ct)
+    {
+        using (var freshClient = CreateClient(keepAlive: false))
+        {
+            var stats = await PollOnceAsync(freshClient, baseUrl, context, ct);
+            if (stats?.RxPowerDbm is not null)
+                return stats;
+
+            _logger.LogDebug(
+                "Nokia XS-010X-Q ONT {Name}: no RX power over fresh connections, retrying on a single keep-alive connection",
+                context.Name);
+
+            using (var keepAliveClient = CreateClient(keepAlive: true))
+            {
+                var keepAliveStats = await PollOnceAsync(keepAliveClient, baseUrl, context, ct);
+                return keepAliveStats ?? stats;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Runs up to three login + getUpdateinfo attempts on a single client, returning as soon
+    /// as an RX reading is obtained. Retries cover the device occasionally returning an
+    /// unauthenticated/empty response when the login and data request race on the same client.
+    /// Returns the built stats (which may lack an RX reading if login succeeded but the data
+    /// call did not), or null if login never succeeded.
+    /// </summary>
+    private async Task<OntStats?> PollOnceAsync(
+        HttpClient client, string baseUrl, OntPollContext context, CancellationToken ct)
+    {
+        OntStats? stats = null;
+        const int maxAttempts = 3;
+        for (var attempt = 1; attempt <= maxAttempts; attempt++)
+        {
+            var cookieId = await LoginAsync(client, baseUrl, context, ct);
+            if (cookieId is not null)
+            {
+                var infoJson = await GetUpdateInfoAsync(client, baseUrl, cookieId, context.Name, ct);
+                stats = new OntStats
+                {
+                    Timestamp = DateTime.UtcNow,
+                    DeviceHost = context.ConfiguredHost ?? context.Host,
+                    DeviceName = context.Name,
+                    DeviceModel = "Nokia XS-010X-Q",
+                };
+                ApplyUpdateInfo(infoJson, stats);
+                if (stats.RxPowerDbm is not null)
+                    break;
+            }
+
+            if (attempt < maxAttempts)
+            {
+                _logger.LogDebug("Nokia XS-010X-Q ONT {Name}: no RX power on attempt {Attempt}/{Max}, retrying",
+                    context.Name, attempt, maxAttempts);
+                await Task.Delay(TimeSpan.FromMilliseconds(600), ct);
+            }
+        }
+
+        return stats;
     }
 
     /// <summary>
@@ -174,16 +209,23 @@ public sealed class NokiaXs010xOntProvider : IOntProvider
 
         string loginJson;
         int loginStatus;
+        string? setCookie;
         using (var content = new StringContent(body, Encoding.UTF8, FormContentType))
         using (var response = await client.PostAsync($"{baseUrl}{LoginPath}", content, ct))
         {
             loginStatus = (int)response.StatusCode;
             loginJson = await response.Content.ReadAsStringAsync(ct);
+            // Diagnostic: the reference flow delivers the cookie in the JSON body and clears the
+            // Set-Cookie header, but some firmware may instead set a real (differently named)
+            // cookie via header. Log it so a non-working unit's logs reveal which path it uses.
+            setCookie = response.Headers.TryGetValues("Set-Cookie", out var cookieValues)
+                ? string.Join(" | ", cookieValues)
+                : null;
         }
 
         var cookieId = ParseCookieId(loginJson);
-        _logger.LogDebug("Nokia XS-010X-Q ONT {Name}: LoginForm HTTP {Status}, gotCookie={HasCookie}, body={Body}",
-            context.Name, loginStatus, cookieId != null, Preview(loginJson));
+        _logger.LogDebug("Nokia XS-010X-Q ONT {Name}: LoginForm HTTP {Status}, gotCookie={HasCookie}, setCookie={SetCookie}, body={Body}",
+            context.Name, loginStatus, cookieId != null, setCookie ?? "(none)", Preview(loginJson));
         return cookieId;
     }
 
@@ -309,8 +351,21 @@ public sealed class NokiaXs010xOntProvider : IOntProvider
     private static double? ParseDouble(string? text) =>
         double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var val) ? val : null;
 
-    internal static HttpClient CreateClient()
+    internal static HttpClient CreateClient(bool keepAlive = false)
     {
+        if (keepAlive)
+        {
+            // Fallback strategy: pin every request to a single shared connection. Firmware that
+            // binds the auth session to the login TCP connection needs login and getUpdateinfo
+            // to ride the same socket, otherwise the cookie is rejected (401 -> /login.html).
+            // MaxConnectionsPerServer=1 forces the sequential requests through one connection.
+            var handler = new SocketsHttpHandler { MaxConnectionsPerServer = 1 };
+            return new HttpClient(handler, disposeHandler: true)
+            {
+                Timeout = TimeSpan.FromSeconds(TimeoutSeconds),
+            };
+        }
+
         var client = new HttpClient { Timeout = TimeSpan.FromSeconds(TimeoutSeconds) };
         // Mirror the working curl flow: a fresh TCP connection per request. These GponForm
         // boxes can tie the login session to the connection, so keep-alive reuse across the
