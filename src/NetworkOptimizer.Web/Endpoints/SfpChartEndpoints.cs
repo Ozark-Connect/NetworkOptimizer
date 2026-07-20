@@ -42,6 +42,8 @@ public static class SfpChartEndpoints
 
             var modules = sfps.Select(s => (s.DeviceMac, s.PortName)).ToList();
             var data = await influx.QuerySfpByModulesAsync(modules, queryFrom, queryTo, ct: ct);
+            // Supplemental PON-layer series (attached ONT configs); empty for modules without one.
+            var ponData = await influx.QuerySfpPonByModulesAsync(modules, queryFrom, queryTo, ct: ct);
 
             var targets = await db.MonitoringTargets.AsNoTracking()
                 .Where(t => t.TargetType == MonitoringTargetType.Fabric)
@@ -76,11 +78,59 @@ public static class SfpChartEndpoints
                         tx = p.TxPowerDbm,
                         temp = p.TemperatureC,
                         voltage = p.VoltageV
-                    })
+                    }),
+                    pon = BuildPonSeries(ponData.TryGetValue(key, out var ponPts) ? ponPts : null)
                 };
             });
 
             return Results.Ok(new { modules = result });
         });
+    }
+
+    /// <summary>
+    /// Project supplemental PON points into the chart payload, converting cumulative
+    /// counters to per-interval deltas (CM Stats style - cumulative lines are unreadable).
+    /// A negative step means the ONT rebooted and reset its counters; that interval's
+    /// delta is null (a gap) rather than a bogus spike. Null when the module has no
+    /// supplemental data, so the UI can hide the PON section entirely.
+    /// </summary>
+    private static List<object>? BuildPonSeries(List<MonitoringInfluxClient.SfpPonPoint>? points)
+    {
+        if (points is not { Count: > 0 }) return null;
+
+        static long? Delta(long? cur, long? prev) =>
+            cur is long c && prev is long p && c >= p ? c - p : null;
+
+        var ordered = points.OrderBy(p => p.Time).ToList();
+        var items = new List<object>(ordered.Count);
+        MonitoringInfluxClient.SfpPonPoint? prev = null;
+        foreach (var p in ordered)
+        {
+            items.Add(new
+            {
+                time = p.Time.ToString("o"),
+                state = p.PonLinkStatus,
+                statePrev = p.PonLinkStatusPrev,
+                onuId = p.OnuId,
+                dsFec = p.DsFecEnabled,
+                usFec = p.UsFecEnabled,
+                respTime = p.OnuResponseTime,
+                uptime = p.SfpUptimeS,
+                bip = Delta(p.BipErrors, prev?.BipErrors),
+                fec = Delta(p.FecErrors, prev?.FecErrors),
+                fecCorr = Delta(p.FecCorrectedWords, prev?.FecCorrectedWords),
+                hec = Delta(p.HecUncorrected, prev?.HecUncorrected),
+                gemTx = Delta(p.GemTxFrames, prev?.GemTxFrames),
+                gemTxIdle = Delta(p.GemTxIdleFrames, prev?.GemTxIdleFrames),
+                gemRx = Delta(p.GemRxFrames, prev?.GemRxFrames),
+                gemDrop = Delta(p.GemRxDropped, prev?.GemRxDropped),
+                allocLost = Delta(p.AllocLost, prev?.AllocLost),
+                lanFcs = Delta(p.LanRxFcsErrors, prev?.LanRxFcsErrors),
+                lanDrop = Delta(p.LanTxDropEvents, prev?.LanTxDropEvents),
+                lanOvfl = Delta(p.LanBufferOverflow, prev?.LanBufferOverflow),
+            });
+            prev = p;
+        }
+        return items;
     }
 }

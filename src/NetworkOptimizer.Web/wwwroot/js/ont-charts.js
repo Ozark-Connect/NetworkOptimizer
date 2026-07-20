@@ -13,6 +13,9 @@ const RANGE_MS = { 0: 15*60000, 1: 3600000, 6: 6*3600000, 24: 86400000, 168: 7*8
 
 let powerChart = null;
 let tempChart = null;
+// FEC/BIP error-delta chart; its section stays hidden unless some ONT reports the counters.
+let errorsChart = null;
+let errorsSeriesByDevice = {};
 let pollTimer = null;
 let currentRangeHours = 24;
 let windowOffset = 0;
@@ -148,6 +151,10 @@ function updateVisibility() {
                 if (vis) tempChart.showSeries(m.label);
                 else tempChart.hideSeries(m.label);
             }
+            const es = errorsSeriesByDevice[m.id];
+            if (errorsChart && es) {
+                es.forEach(n => vis ? errorsChart.showSeries(n) : errorsChart.hideSeries(n));
+            }
         } catch (_) {}
     });
 }
@@ -193,6 +200,7 @@ async function loadAndUpdate() {
         powerChart.updateSeries(powerSeries, false);
     }
     if (tempChart) tempChart.updateSeries(tempSeries, false);
+    updateErrorsChart(data);
 
     updateVisibility();
     lastData = data;
@@ -205,6 +213,34 @@ async function loadAndUpdate() {
 
 const fmtDbm = v => v != null ? v.toFixed(2) : '-';
 const fmtTemp = v => v != null ? v.toFixed(1) : '-';
+const fmtCount = v => v == null ? '' : v >= 1e6 ? (v / 1e6).toFixed(1) + 'M' : v >= 1e3 ? (v / 1e3).toFixed(1) + 'k' : String(Math.round(v));
+
+function updateErrorsChart(data) {
+    const container = document.getElementById(containerId);
+    const section = container?.querySelector('.ont-errors-section');
+    if (!section || !errorsChart) return;
+    const withErrors = (data.devices || []).filter(d =>
+        (d.data || []).some(p => p.fec != null || p.bip != null));
+    if (!withErrors.length) {
+        section.style.display = 'none';
+        errorsSeriesByDevice = {};
+        return;
+    }
+    section.style.display = '';
+
+    errorsSeriesByDevice = {};
+    const series = [];
+    withErrors.forEach(d => {
+        const pts = d.data || [];
+        const s = [
+            { name: `${d.label} FEC`, data: pts.filter(p => p.fec != null).map(p => ({ x: new Date(p.time).getTime(), y: p.fec })) },
+            { name: `${d.label} BIP`, data: pts.filter(p => p.bip != null).map(p => ({ x: new Date(p.time).getTime(), y: p.bip })) },
+        ];
+        errorsSeriesByDevice[d.id] = s.map(x => x.name);
+        series.push(...s);
+    });
+    errorsChart.updateSeries(series, false);
+}
 
 function renderStatsTable(container, showAll) {
     const el = container.querySelector('.ont-stats-table');
@@ -379,6 +415,7 @@ export async function mount(elId) {
 
     if (powerChart) { powerChart.destroy(); powerChart = null; }
     if (tempChart) { tempChart.destroy(); tempChart = null; }
+    if (errorsChart) { errorsChart.destroy(); errorsChart = null; }
 
     powerChart = new ApexCharts(powerEl, {
         ...baseOpts(220, 'dBm', v => v != null ? v.toFixed(1) + ' dBm' : '', {
@@ -392,6 +429,15 @@ export async function mount(elId) {
 
     await powerChart.render();
     await tempChart.render();
+
+    const errorsEl = container.querySelector('.ont-errors-chart');
+    if (errorsEl) {
+        errorsChart = new ApexCharts(errorsEl, {
+            ...baseOpts(160, 'errors', fmtCount),
+            series: [], colors: PALETTE,
+        });
+        await errorsChart.render();
+    }
 
     container.querySelectorAll('[data-range]').forEach(btn => {
         btn.addEventListener('click', () => selectPresetRange(container, parseInt(btn.dataset.range)));
@@ -465,9 +511,11 @@ export function unmount() {
     if (fetchController) { fetchController.abort(); fetchController = null; }
     if (powerChart) { powerChart.destroy(); powerChart = null; }
     if (tempChart) { tempChart.destroy(); tempChart = null; }
+    if (errorsChart) { errorsChart.destroy(); errorsChart = null; }
     containerId = null;
     deviceMeta = [];
     visibility = {};
+    errorsSeriesByDevice = {};
     lastData = null;
     currentRangeHours = 24;
     windowOffset = 0;

@@ -717,6 +717,23 @@ else
                     <div class="chart-header"><h3 class="chart-title">Temperature</h3></div>
                     <div class="sfp-temp-chart"></div>
                 </div>
+                <!-- Supplemental PON-layer charts: shown only when a module has an attached
+                     Network Optimizer Custom ONT config feeding PON stats. -->
+                <div class="sfp-pon-section" style="display: none;">
+                    <div class="chart-card" style="margin-top: 1rem;">
+                        <div class="chart-header"><h3 class="chart-title">PON Errors (per interval)</h3></div>
+                        <div class="sfp-pon-errors-chart"></div>
+                    </div>
+                    <div class="chart-card" style="margin-top: 1rem;">
+                        <div class="chart-header"><h3 class="chart-title">GEM Frames (per interval)</h3></div>
+                        <div class="sfp-pon-gem-chart"></div>
+                    </div>
+                    <div class="chart-card" style="margin-top: 1rem;">
+                        <div class="chart-header"><h3 class="chart-title">Host Link Errors (per interval)</h3></div>
+                        <div class="sfp-pon-host-chart"></div>
+                    </div>
+                    <div class="sfp-pon-details"></div>
+                </div>
                 <div class="sfp-stats-table"></div>
             </div>
         </div>
@@ -1016,6 +1033,13 @@ else
                 <div class="chart-card" style="margin-top: 1rem;">
                     <div class="chart-header"><h3 class="chart-title">Temperature</h3></div>
                     <div class="ont-temp-chart"></div>
+                </div>
+                <!-- Shown only when at least one ONT reports FEC/BIP counters. -->
+                <div class="ont-errors-section" style="display: none;">
+                    <div class="chart-card" style="margin-top: 1rem;">
+                        <div class="chart-header"><h3 class="chart-title">FEC / BIP Errors (per interval)</h3></div>
+                        <div class="ont-errors-chart"></div>
+                    </div>
                 </div>
                 <div class="ont-stats-table"></div>
             </div>

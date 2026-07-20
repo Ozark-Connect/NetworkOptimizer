@@ -84,6 +84,7 @@ public class OntRepository : IOntRepository
                     existing.Username = config.Username;
                     existing.Password = config.Password;
                     existing.PrivateKeyPath = config.PrivateKeyPath;
+                    existing.AttachedSfpId = config.AttachedSfpId;
                     existing.Enabled = config.Enabled;
                     existing.PollingIntervalSeconds = config.PollingIntervalSeconds;
                     existing.LastPolled = config.LastPolled;

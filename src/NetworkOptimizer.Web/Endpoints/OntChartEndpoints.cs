@@ -47,11 +47,15 @@ public static class OntChartEndpoints
             {
                 var name = nameMap[kvp.Key];
 
-                return new
+                // FEC/BIP counters are cumulative; the chart wants per-interval deltas
+                // (CM Stats style). A negative step is a device counter reset - null
+                // (a gap), not a bogus spike.
+                var pts = kvp.Value.OrderBy(p => p.Time).ToList();
+                var items = new List<object>(pts.Count);
+                MonitoringInfluxClient.OntPoint? prev = null;
+                foreach (var p in pts)
                 {
-                    id = kvp.Key,
-                    label = name,
-                    data = kvp.Value.Select(p => new
+                    items.Add(new
                     {
                         time = p.Time.ToString("o"),
                         rx = p.RxPowerDbm,
@@ -59,11 +63,24 @@ public static class OntChartEndpoints
                         temp = p.TemperatureC,
                         voltage = p.VoltageV,
                         bias = p.BiasMa,
-                    })
+                        fec = Delta(p.FecErrors, prev?.FecErrors),
+                        bip = Delta(p.BipErrors, prev?.BipErrors),
+                    });
+                    prev = p;
+                }
+
+                return new
+                {
+                    id = kvp.Key,
+                    label = name,
+                    data = items,
                 };
             });
 
             return Results.Ok(new { devices = result });
         });
     }
+
+    private static long? Delta(long? cur, long? prev) =>
+        cur is long c && prev is long p && c >= p ? c - p : null;
 }

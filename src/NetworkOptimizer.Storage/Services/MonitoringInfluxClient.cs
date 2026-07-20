@@ -5,6 +5,7 @@ using InfluxDB.Client.Writes;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Core.Enums;
+using NetworkOptimizer.Core.Models;
 using NetworkOptimizer.Storage.Models;
 
 namespace NetworkOptimizer.Storage.Services;
@@ -755,6 +756,64 @@ from(bucket: ""{_longtermBucket}"")
         if (temperatureC.HasValue) point = point.Field("temperature_c", temperatureC.Value);
         if (voltageV.HasValue) point = point.Field("voltage_v", voltageV.Value);
         if (sfpLinkSpeedMbps.HasValue) point = point.Field("sfp_link_speed_mbps", sfpLinkSpeedMbps.Value);
+
+        Enqueue(point, longterm: true);
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Write supplemental PON-layer stats onto the sfp measurement, merging with the
+    /// DDM point CollectSfpForDevice writes for the same module and timestamp (same
+    /// series + timestamp = field union in InfluxDB). pon_link_status / fec_errors /
+    /// bip_errors reuse the ont measurement's field names and encodings so display
+    /// and alert logic can treat SFP-slot and standalone ONTs uniformly.
+    /// </summary>
+    public Task WriteSfpPonAsync(
+        string deviceMac,
+        string portName,
+        PonSupplementalStats stats,
+        DateTime timestamp)
+    {
+        if (!IsConfigured) return Task.CompletedTask;
+        var point = PointData.Measurement("sfp")
+            .Tag("device_mac", NormalizeMac(deviceMac))
+            .Tag("port_name", portName)
+            .Timestamp(timestamp.ToUniversalTime(), WritePrecision.Ns);
+
+        if (!string.IsNullOrEmpty(stats.PonLinkStatus)) point = point.Field("pon_link_status", stats.PonLinkStatus);
+        if (!string.IsNullOrEmpty(stats.PonLinkStatusPrev)) point = point.Field("pon_link_status_prev", stats.PonLinkStatusPrev);
+        if (stats.PloamElapsedMs.HasValue) point = point.Field("ploam_elapsed_ms", stats.PloamElapsedMs.Value);
+        if (stats.GtcDsState.HasValue) point = point.Field("gtc_ds_state", stats.GtcDsState.Value);
+        if (stats.OnuId.HasValue) point = point.Field("onu_id", stats.OnuId.Value);
+        if (stats.DsFecEnabled.HasValue) point = point.Field("ds_fec_enabled", stats.DsFecEnabled.Value);
+        if (stats.UsFecEnabled.HasValue) point = point.Field("us_fec_enabled", stats.UsFecEnabled.Value);
+        if (stats.OnuResponseTime.HasValue) point = point.Field("onu_response_time", stats.OnuResponseTime.Value);
+        if (stats.BipErrors.HasValue) point = point.Field("bip_errors", stats.BipErrors.Value);
+        if (stats.FecErrors.HasValue) point = point.Field("fec_errors", stats.FecErrors.Value);
+        if (stats.FecCorrectedWords.HasValue) point = point.Field("fec_corrected_words", stats.FecCorrectedWords.Value);
+        if (stats.HecCorrected.HasValue) point = point.Field("hec_corrected", stats.HecCorrected.Value);
+        if (stats.HecUncorrected.HasValue) point = point.Field("hec_uncorrected", stats.HecUncorrected.Value);
+        if (stats.BwmapCorrected.HasValue) point = point.Field("bwmap_corrected", stats.BwmapCorrected.Value);
+        if (stats.BwmapUncorrected.HasValue) point = point.Field("bwmap_uncorrected", stats.BwmapUncorrected.Value);
+        if (stats.GemTxFrames.HasValue) point = point.Field("gem_tx_frames", stats.GemTxFrames.Value);
+        if (stats.GemTxIdleFrames.HasValue) point = point.Field("gem_tx_idle_frames", stats.GemTxIdleFrames.Value);
+        if (stats.GemRxFrames.HasValue) point = point.Field("gem_rx_frames", stats.GemRxFrames.Value);
+        if (stats.GemRxDropped.HasValue) point = point.Field("gem_rx_dropped", stats.GemRxDropped.Value);
+        if (stats.AllocTotal.HasValue) point = point.Field("alloc_total", stats.AllocTotal.Value);
+        if (stats.AllocLost.HasValue) point = point.Field("alloc_lost", stats.AllocLost.Value);
+        if (stats.GpePonIngressDiscard.HasValue) point = point.Field("gpe_pon_ingress_discard", stats.GpePonIngressDiscard.Value);
+        if (stats.GpePonEgressDiscard.HasValue) point = point.Field("gpe_pon_egress_discard", stats.GpePonEgressDiscard.Value);
+        if (stats.GpePonLearningDiscard.HasValue) point = point.Field("gpe_pon_learning_discard", stats.GpePonLearningDiscard.Value);
+        if (stats.GpeLanIngressDiscard.HasValue) point = point.Field("gpe_lan_ingress_discard", stats.GpeLanIngressDiscard.Value);
+        if (stats.GpeLanEgressDiscard.HasValue) point = point.Field("gpe_lan_egress_discard", stats.GpeLanEgressDiscard.Value);
+        if (stats.GpeLanLearningDiscard.HasValue) point = point.Field("gpe_lan_learning_discard", stats.GpeLanLearningDiscard.Value);
+        if (stats.LanLinkStatus.HasValue) point = point.Field("lan_link_status", stats.LanLinkStatus.Value);
+        if (stats.LanTxFrames.HasValue) point = point.Field("lan_tx_frames", stats.LanTxFrames.Value);
+        if (stats.LanRxFrames.HasValue) point = point.Field("lan_rx_frames", stats.LanRxFrames.Value);
+        if (stats.LanTxDropEvents.HasValue) point = point.Field("lan_tx_drop_events", stats.LanTxDropEvents.Value);
+        if (stats.LanRxFcsErrors.HasValue) point = point.Field("lan_rx_fcs_err", stats.LanRxFcsErrors.Value);
+        if (stats.LanBufferOverflow.HasValue) point = point.Field("lan_buffer_overflow", stats.LanBufferOverflow.Value);
+        if (stats.SfpUptimeS.HasValue) point = point.Field("sfp_uptime_s", stats.SfpUptimeS.Value);
 
         Enqueue(point, longterm: true);
         return Task.CompletedTask;
@@ -1798,6 +1857,107 @@ from(bucket: ""{_longtermBucket}"")
                 TxPowerDbm = AsDoubleOrNull(record.GetValueByKey("tx_power_dbm")),
                 TemperatureC = AsDoubleOrNull(record.GetValueByKey("temperature_c")),
                 VoltageV = AsDoubleOrNull(record.GetValueByKey("voltage_v"))
+            });
+        }
+        return results;
+    }
+
+    /// <summary>One point of supplemental PON-layer stats on the sfp measurement (attached ONT config).
+    /// Counters are cumulative; callers derive per-interval deltas.</summary>
+    public class SfpPonPoint
+    {
+        public DateTime Time { get; set; }
+        public string? PonLinkStatus { get; set; }
+        public string? PonLinkStatusPrev { get; set; }
+        public long? OnuId { get; set; }
+        public long? DsFecEnabled { get; set; }
+        public long? UsFecEnabled { get; set; }
+        public long? OnuResponseTime { get; set; }
+        public long? SfpUptimeS { get; set; }
+        public long? BipErrors { get; set; }
+        public long? FecErrors { get; set; }
+        public long? FecCorrectedWords { get; set; }
+        public long? HecUncorrected { get; set; }
+        public long? GemTxFrames { get; set; }
+        public long? GemTxIdleFrames { get; set; }
+        public long? GemRxFrames { get; set; }
+        public long? GemRxDropped { get; set; }
+        public long? AllocLost { get; set; }
+        public long? LanRxFcsErrors { get; set; }
+        public long? LanTxDropEvents { get; set; }
+        public long? LanBufferOverflow { get; set; }
+    }
+
+    /// <summary>
+    /// Supplemental PON-layer time-series for a set of (device_mac, port_name) pairs.
+    /// Only modules with an attached ONT config have these fields; others return no rows.
+    /// Aggregates with fn: last (counters are cumulative - mean would distort deltas).
+    /// </summary>
+    public async Task<Dictionary<string, List<SfpPonPoint>>> QuerySfpPonByModulesAsync(
+        IReadOnlyList<(string DeviceMac, string PortName)> modules,
+        DateTime from,
+        DateTime to,
+        TimeSpan? aggregateWindow = null,
+        CancellationToken ct = default)
+    {
+        if (!IsConfigured) await ReconfigureAsync(ct);
+        if (!IsConfigured || modules.Count == 0) return new Dictionary<string, List<SfpPonPoint>>();
+        var window = aggregateWindow ?? PickAggregateWindow(to - from);
+
+        var macFilter = string.Join(" or ", modules.Select(m =>
+            $@"(r.device_mac == ""{NormalizeMac(m.DeviceMac)}"" and r.port_name == ""{SanitizeFluxString(m.PortName)}"")"));
+
+        var fields = new[]
+        {
+            "pon_link_status", "pon_link_status_prev", "onu_id", "ds_fec_enabled", "us_fec_enabled",
+            "onu_response_time", "sfp_uptime_s", "bip_errors", "fec_errors", "fec_corrected_words",
+            "hec_uncorrected", "gem_tx_frames", "gem_tx_idle_frames", "gem_rx_frames", "gem_rx_dropped",
+            "alloc_lost", "lan_rx_fcs_err", "lan_tx_drop_events", "lan_buffer_overflow",
+        };
+        var fieldFilter = string.Join(" or ", fields.Select(f => $@"r._field == ""{f}"""));
+
+        var flux = $@"
+from(bucket: ""{_longtermBucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""sfp"")
+  |> filter(fn: (r) => {macFilter})
+  |> filter(fn: (r) => {fieldFilter})
+  |> aggregateWindow(every: {ToFluxDuration(window)}, fn: last, createEmpty: false)
+  |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
+";
+        var results = new Dictionary<string, List<SfpPonPoint>>();
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            var mac = record.GetValueByKey("device_mac") as string ?? "";
+            var port = record.GetValueByKey("port_name") as string ?? "";
+            var key = $"{mac}:{port}";
+            if (!results.TryGetValue(key, out var list))
+            {
+                list = new List<SfpPonPoint>();
+                results[key] = list;
+            }
+            list.Add(new SfpPonPoint
+            {
+                Time = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow),
+                PonLinkStatus = record.GetValueByKey("pon_link_status") as string,
+                PonLinkStatusPrev = record.GetValueByKey("pon_link_status_prev") as string,
+                OnuId = AsLongOrNull(record.GetValueByKey("onu_id")),
+                DsFecEnabled = AsLongOrNull(record.GetValueByKey("ds_fec_enabled")),
+                UsFecEnabled = AsLongOrNull(record.GetValueByKey("us_fec_enabled")),
+                OnuResponseTime = AsLongOrNull(record.GetValueByKey("onu_response_time")),
+                SfpUptimeS = AsLongOrNull(record.GetValueByKey("sfp_uptime_s")),
+                BipErrors = AsLongOrNull(record.GetValueByKey("bip_errors")),
+                FecErrors = AsLongOrNull(record.GetValueByKey("fec_errors")),
+                FecCorrectedWords = AsLongOrNull(record.GetValueByKey("fec_corrected_words")),
+                HecUncorrected = AsLongOrNull(record.GetValueByKey("hec_uncorrected")),
+                GemTxFrames = AsLongOrNull(record.GetValueByKey("gem_tx_frames")),
+                GemTxIdleFrames = AsLongOrNull(record.GetValueByKey("gem_tx_idle_frames")),
+                GemRxFrames = AsLongOrNull(record.GetValueByKey("gem_rx_frames")),
+                GemRxDropped = AsLongOrNull(record.GetValueByKey("gem_rx_dropped")),
+                AllocLost = AsLongOrNull(record.GetValueByKey("alloc_lost")),
+                LanRxFcsErrors = AsLongOrNull(record.GetValueByKey("lan_rx_fcs_err")),
+                LanTxDropEvents = AsLongOrNull(record.GetValueByKey("lan_tx_drop_events")),
+                LanBufferOverflow = AsLongOrNull(record.GetValueByKey("lan_buffer_overflow")),
             });
         }
         return results;

@@ -209,6 +209,12 @@ public class OntMonitorService : IDisposable
 
             foreach (var config in configs)
             {
+                // Configs attached to a monitored SFP module are polled by that
+                // site's gateway SFP collection cycle (MonitoringCollectionAgent),
+                // which merges their PON stats into the module's sfp measurement.
+                if (config.AttachedSfpId.HasValue)
+                    continue;
+
                 if (!forceAll && config.LastPolled.HasValue)
                 {
                     var elapsed = DateTime.UtcNow - config.LastPolled.Value;
