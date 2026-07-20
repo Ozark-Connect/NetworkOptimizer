@@ -15,6 +15,29 @@ public class AgentTunnelRegistry
 {
     private readonly ConcurrentDictionary<int, AgentTunnelConnection> _connections = new();
 
+    // Last time each agent had an open tunnel (stamped on connect and on drop).
+    // Bridges the brief gap while a previously-connected tunnel reconnects, so a
+    // real reconnect doesn't flap the online status - without letting a tunnel
+    // that never connected count as live.
+    private readonly ConcurrentDictionary<int, DateTime> _lastTunnelActivity = new();
+
+    // Whether this server bound the agent tunnel listener. When it did, an agent
+    // that only ever REST-heartbeats has a dead or unpublished tunnel (e.g. the
+    // gRPC path isn't reverse-proxied) and its tunnel-dependent features are all
+    // down, so heartbeat freshness alone must NOT read as online.
+    private readonly bool _tunnelEnabled;
+
+    // How long after a tunnel drops an agent still counts as live, covering the
+    // agent's dial-out backoff so a genuine reconnect doesn't blink the status
+    // offline. Sized just over the agent heartbeat interval (30s) plus a dial
+    // attempt; a tunnel down longer than this is a real outage, not a reconnect.
+    private static readonly TimeSpan TunnelReconnectGrace = TimeSpan.FromSeconds(75);
+
+    public AgentTunnelRegistry(AgentTunnelOptions tunnelOptions)
+    {
+        _tunnelEnabled = tunnelOptions.Enabled;
+    }
+
     /// <summary>Registers a new live connection, displacing any stale one for the same agent.</summary>
     public AgentTunnelConnection Register(int agentId, string siteSlug, string agentName)
     {
@@ -24,6 +47,7 @@ public class AgentTunnelRegistry
             old.Complete();
             return connection;
         });
+        _lastTunnelActivity[agentId] = DateTime.UtcNow;
         return connection;
     }
 
@@ -34,6 +58,9 @@ public class AgentTunnelRegistry
     public void Unregister(AgentTunnelConnection connection)
     {
         connection.Complete();
+        // Stamp the drop time so the reconnect grace is measured from when the
+        // tunnel actually went away, not from when it first connected.
+        _lastTunnelActivity[connection.AgentId] = DateTime.UtcNow;
         ((ICollection<KeyValuePair<int, AgentTunnelConnection>>)_connections)
             .Remove(new KeyValuePair<int, AgentTunnelConnection>(connection.AgentId, connection));
     }
@@ -42,13 +69,35 @@ public class AgentTunnelRegistry
     public bool IsConnected(int agentId) => _connections.ContainsKey(agentId);
 
     /// <summary>
-    /// Whether an agent counts as online for status displays: an open tunnel is
-    /// authoritative and instant; otherwise a fresh heartbeat (REST-only agents,
-    /// or the gap while a tunnel reconnects) keeps it online. The single
-    /// definition every status surface (site dropdown, All Sites, Multi-Site
-    /// settings) shares, so they can't disagree on what "online" means.
+    /// Whether an agent counts as online for status displays. An open tunnel is
+    /// authoritative and instant. When this server offers no tunnel at all, a
+    /// fresh REST heartbeat is the best signal and keeps the agent online. But
+    /// when the server DOES offer a tunnel, a heartbeat-only agent has a dead or
+    /// unpublished tunnel (e.g. the gRPC path isn't reverse-proxied) with every
+    /// tunnel-dependent feature down - reporting it online off REST heartbeats
+    /// alone would be dishonest - so only an open tunnel, or the brief grace
+    /// while a previously-connected one reconnects, counts. The single definition
+    /// every status surface (site dropdown, All Sites, Multi-Site settings)
+    /// shares, so they can't disagree on what "online" means.
     /// </summary>
-    public bool IsAgentLive(NetworkOptimizer.Storage.Models.SiteAgent agent) =>
+    public bool IsAgentLive(NetworkOptimizer.Storage.Models.SiteAgent agent)
+    {
+        if (IsConnected(agent.Id))
+            return true;
+        if (_tunnelEnabled)
+            return _lastTunnelActivity.TryGetValue(agent.Id, out var last)
+                && DateTime.UtcNow - last < TunnelReconnectGrace;
+        return AgentEnrollmentService.IsOnline(agent.LastSeenAt);
+    }
+
+    /// <summary>
+    /// Whether the agent is reachable enough to hand its LAN IP to a site client
+    /// for a LAN speed test. Deliberately looser than <see cref="IsAgentLive"/>:
+    /// the LAN speed test hits the agent's own nginx directly, not the tunnel, so
+    /// an agent with a fresh REST heartbeat is a valid target even when its tunnel
+    /// is down or unpublished. Open tunnel or heartbeat freshness both qualify.
+    /// </summary>
+    public bool IsReachableForLanTest(NetworkOptimizer.Storage.Models.SiteAgent agent) =>
         IsConnected(agent.Id) || AgentEnrollmentService.IsOnline(agent.LastSeenAt);
 
     /// <summary>Live connections for a site (normally zero or one per agent).</summary>
