@@ -3848,7 +3848,7 @@
         if (_agentOnGateway.TryGetValue(site.Id, out var onGateway) && onGateway)
             return "none - the agent runs on the UniFi gateway; enter a separate box hosting the speed test";
         var lanIp = AgentsFor(site.Id)
-            .Where(a => a.Enabled && !string.IsNullOrEmpty(a.LanIp) && TunnelRegistry.IsReachableForLanTest(a))
+            .Where(a => a.Enabled && !string.IsNullOrEmpty(a.LanIp) && TunnelRegistry.IsReachable(a))
             .OrderByDescending(a => a.LastSeenAt)
             .Select(a => a.LanIp)
             .FirstOrDefault();

@@ -237,7 +237,7 @@ public class AgentEnrollmentService
             .OrderByDescending(a => a.LastSeenAt)
             .ToListAsync();
 
-        return agents.FirstOrDefault(a => _tunnelRegistry.IsReachableForLanTest(a))?.LanIp;
+        return agents.FirstOrDefault(a => _tunnelRegistry.IsReachable(a))?.LanIp;
     }
 
     /// <summary>Enables or disables an agent. Disabled agents cannot enroll or heartbeat.</summary>

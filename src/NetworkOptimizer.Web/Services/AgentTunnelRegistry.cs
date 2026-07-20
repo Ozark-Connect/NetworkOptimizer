@@ -91,13 +91,16 @@ public class AgentTunnelRegistry
     }
 
     /// <summary>
-    /// Whether the agent is reachable enough to hand its LAN IP to a site client
-    /// for a LAN speed test. Deliberately looser than <see cref="IsAgentLive"/>:
-    /// the LAN speed test hits the agent's own nginx directly, not the tunnel, so
-    /// an agent with a fresh REST heartbeat is a valid target even when its tunnel
-    /// is down or unpublished. Open tunnel or heartbeat freshness both qualify.
+    /// Whether we've heard from the agent recently by any means - open tunnel or a
+    /// fresh REST heartbeat. Deliberately looser than <see cref="IsAgentLive"/>,
+    /// which requires a working tunnel: this is the reachability signal used to
+    /// pick a site's LAN speed-test target, since that test hits the agent's own
+    /// nginx directly rather than the tunnel, so a heartbeat-only agent is still a
+    /// candidate. It does NOT verify the agent actually hosts a speed test (LAN
+    /// testing is an opt-in agent flag the server has no signal for yet); the
+    /// resolver's on-gateway check is the only capability gate today.
     /// </summary>
-    public bool IsReachableForLanTest(NetworkOptimizer.Storage.Models.SiteAgent agent) =>
+    public bool IsReachable(NetworkOptimizer.Storage.Models.SiteAgent agent) =>
         IsConnected(agent.Id) || AgentEnrollmentService.IsOnline(agent.LastSeenAt);
 
     /// <summary>Live connections for a site (normally zero or one per agent).</summary>

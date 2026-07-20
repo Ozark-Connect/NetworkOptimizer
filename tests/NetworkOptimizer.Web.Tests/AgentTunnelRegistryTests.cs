@@ -70,15 +70,15 @@ public class AgentTunnelRegistryTests
     }
 
     [Fact]
-    public void IsReachableForLanTest_HeartbeatFresh_ButBrokenTunnel_IsReachable()
+    public void IsReachable_HeartbeatFresh_ButBrokenTunnel_IsReachable()
     {
         // LAN speed tests hit the agent's nginx directly, so a heartbeat-only
-        // agent (tunnel enabled but never connected) is still a valid target -
-        // looser than IsAgentLive on purpose.
+        // agent (tunnel enabled but never connected) is still reachable - looser
+        // than IsAgentLive on purpose.
         var registry = Registry(tunnelEnabled: true);
         var agent = Agent(1, lastSeenAt: DateTime.UtcNow);
 
         registry.IsAgentLive(agent).Should().BeFalse();
-        registry.IsReachableForLanTest(agent).Should().BeTrue();
+        registry.IsReachable(agent).Should().BeTrue();
     }
 }
