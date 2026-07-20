@@ -17911,7 +17911,7 @@ body.kiosk-mode .status-indicators {
     flex-direction: column;
     gap: 0.85rem;
     margin: 0.25rem 0 0.75rem;
-    padding: 1rem;
+    padding: 2.5rem 1rem 1rem;
     background: var(--bg-tertiary);
     border-radius: var(--border-radius-lg);
 }
