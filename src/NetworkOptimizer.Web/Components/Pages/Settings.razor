@@ -3609,9 +3609,9 @@
             return;
         }
         _expandedSiteId = null;
-        // Clear the Add-a-Site wizard's completed screen too, same as opening a
-        // site's Configuration does, so it doesn't linger after a removal.
-        _setupWizard?.ResetIfComplete();
+        // Always reset the Add-a-Site wizard after a removal - unconditionally, since
+        // it may be sitting on the agent step for the very site just deleted.
+        _setupWizard?.Reset();
         _multiSiteMessage = $"Site \"{site.Name}\" was removed.";
         _multiSiteMessageClass = "success";
         await RefreshSites();
