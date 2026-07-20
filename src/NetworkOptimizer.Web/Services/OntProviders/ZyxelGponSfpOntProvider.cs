@@ -29,7 +29,7 @@ namespace NetworkOptimizer.Web.Services.OntProviders;
 public sealed class ZyxelGponSfpOntProvider : IOntProvider
 {
     public string ProviderKey => "zyxel-gpon-sfp";
-    public string DisplayName => "Zyxel GPON-SFP (PMG3000, HTTP)";
+    public string DisplayName => "Zyxel GPON-SFP PMG3000 (HTTP)";
 
     private const int TimeoutSeconds = 10;
     private const string SnPath = "/cgi/get_sn";

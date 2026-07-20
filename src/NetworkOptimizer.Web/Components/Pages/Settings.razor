@@ -1565,7 +1565,7 @@
                                 <option value="quantum-q1000k">Quantum Fiber Q1000K (HTTP)</option>
                                 <option value="telekom-modem2">Telekom Glasfaser-Modem 2 (HTTP)</option>
                                 <option value="nokia-xs010x-q">Nokia XS-010X-Q (HTTP)</option>
-                                <option value="zyxel-gpon-sfp">Zyxel GPON-SFP (PMG3000, HTTP)</option>
+                                <option value="zyxel-gpon-sfp">Zyxel GPON-SFP PMG3000 (HTTP)</option>
                                 <option value="netopt-custom">Network Optimizer Custom (HTTP JSON)</option>
                                 <option value="generic-http-ont">Generic HTTP ONT</option>
                             </select>
@@ -5913,7 +5913,15 @@
     // blank when there is no single sensible default (so nothing is prefilled).
     private static string GetOntProviderDefaultHost(string provider) => provider switch
     {
+        "att-gateway" => "192.168.1.254",
+        "8311" => "192.168.11.1",
+        "quantum-q1000k" => "192.168.0.1",
+        "telekom-modem2" => "192.168.100.1",
+        "nokia-xs010x-q" => "192.168.100.1",
         "zyxel-gpon-sfp" => "10.10.1.1",
+        // realtek-ont, netopt-custom and generic-http-ont have no single sensible
+        // default (vendor-dependent stick, gateway-served JSON, or generic), so nothing
+        // is prefilled and the generic example placeholder is shown.
         _ => "",
     };
 
@@ -5932,7 +5940,7 @@
         "quantum-q1000k" => "Quantum Fiber Q1000K (HTTP)",
         "telekom-modem2" => "Telekom Glasfaser-Modem 2 (HTTP)",
         "nokia-xs010x-q" => "Nokia XS-010X-Q (HTTP)",
-        "zyxel-gpon-sfp" => "Zyxel GPON-SFP (PMG3000, HTTP)",
+        "zyxel-gpon-sfp" => "Zyxel GPON-SFP PMG3000 (HTTP)",
         "netopt-custom" => "Network Optimizer Custom (HTTP JSON)",
         "generic-http-ont" => "Generic HTTP ONT",
         _ => provider,
