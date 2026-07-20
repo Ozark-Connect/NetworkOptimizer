@@ -59,39 +59,61 @@ _aa_denied_install_dir() {
         | grep -q "apparmor=\"DENIED\".*name=\"${INSTALL_DIR}" 2>/dev/null
 }
 
-# Path of the vendor AppArmor profile file confining nginx, discovered from the
-# denial record's profile name (falling back to the nginx binary path). Empty if
-# it can't be found. Cached after the first lookup.
-AA_NGINX_PROFILE_FILE=""
-_aa_nginx_profile_file() {
-    [ -n "$AA_NGINX_PROFILE_FILE" ] && { printf '%s' "$AA_NGINX_PROFILE_FILE"; return 0; }
-    local kern prof_name file
-    kern="$({ journalctl -k -n 400 --no-pager 2>/dev/null || dmesg 2>/dev/null || true; })"
-    prof_name="$(printf '%s\n' "$kern" \
+# The AppArmor profile NAME confining nginx (e.g. "/usr/bin/nginx"), read from the
+# denial record. Empty if none was logged.
+_aa_nginx_profile_name() {
+    { journalctl -k -n 400 --no-pager 2>/dev/null || dmesg 2>/dev/null || true; } \
         | grep "apparmor=\"DENIED\".*name=\"${INSTALL_DIR}" \
-        | grep -o 'profile="[^"]*"' | head -1 | sed 's/^profile="//; s/"$//' || true)"
-    [ -n "$prof_name" ] || prof_name="$NGINX_BIN"
-    # The .d file that DECLARES the profile (attachment path appears in it); never a
-    # file already under local/, which is the include-only drop-in dir.
-    file="$(grep -rslF "$prof_name" /etc/apparmor.d 2>/dev/null | grep -v '/local/' | head -1 || true)"
+        | grep -o 'profile="[^"]*"' | head -1 | sed 's/^profile="//; s/"$//' || true
+}
+
+# AppArmor's conventional on-disk filename for a profile name: drop the leading
+# '/', turn the remaining '/' into '.' - e.g. /usr/bin/nginx -> usr.bin.nginx.
+_aa_profile_filename() { local n="${1#/}"; printf '%s' "${n//\//.}"; }
+
+# Path of the vendor AppArmor profile file confining nginx: the conventionally-named
+# file first, else a content match, across the standard profile dirs. Empty when the
+# profile isn't file-backed there (e.g. a snap profile) - then a local/ override
+# can't apply and we fall back to the hint. Cached after the first lookup.
+AA_NGINX_PROFILE_FILE=""
+AA_NGINX_PROFILE_FILE_SET=""
+_aa_nginx_profile_file() {
+    [ -n "$AA_NGINX_PROFILE_FILE_SET" ] && { printf '%s' "$AA_NGINX_PROFILE_FILE"; return 0; }
+    AA_NGINX_PROFILE_FILE_SET=1
+    local pname fname dir cand file=""
+    pname="$(_aa_nginx_profile_name)"; [ -n "$pname" ] || pname="$NGINX_BIN"
+    fname="$(_aa_profile_filename "$pname")"
+    for dir in /etc/apparmor.d /var/lib/snapd/apparmor/profiles; do
+        [ -d "$dir" ] || continue
+        if [ -f "$dir/$fname" ]; then
+            cand="$dir/$fname"
+        else
+            cand="$(grep -rslF "$pname" "$dir" 2>/dev/null | grep -v '/local/' | head -1 || true)"
+        fi
+        [ -n "$cand" ] && { file="$cand"; break; }
+    done
     AA_NGINX_PROFILE_FILE="$file"
     printf '%s' "$file"
 }
 
 # Additive, local-only AppArmor override letting the confined nginx use the install
-# dir. Never edits the vendor profile; reloads only that one profile. A parse error
-# makes apparmor_parser abort and keep the running profile, so a bad override can't
-# unconfine the host's own nginx. Caller re-tests `nginx -t` to judge the result.
+# dir. Only attempted when the vendor profile is a file under /etc/apparmor.d (the
+# only place a local/ drop-in is consumed). Never edits the vendor profile; reloads
+# only that one profile. A parse error makes apparmor_parser abort and keep the
+# running profile, so a bad override can't unconfine the host's own nginx. Caller
+# re-tests `nginx -t` to judge the result.
 maybe_fix_apparmor_nginx() {
     command -v apparmor_parser >/dev/null 2>&1 || return 0
     _aa_denied_install_dir || return 0
 
     local file base
     file="$(_aa_nginx_profile_file)"
-    if [ -z "$file" ]; then
-        echo "AppArmor is blocking ${INSTALL_DIR}, but its nginx profile file wasn't found under /etc/apparmor.d - see the fix hint below."
-        return 0
-    fi
+    case "$file" in
+        /etc/apparmor.d/*) ;;
+        # Not file-backed under /etc/apparmor.d (non-standard or snap profile): a
+        # local/ override wouldn't be consumed. Leave it to the hint below.
+        *) return 0 ;;
+    esac
     base="$(basename "$file")"
 
     echo "AppArmor is blocking ${INSTALL_DIR}; adding a local override (/etc/apparmor.d/local/${base}) and reloading."
@@ -110,17 +132,29 @@ AAOVERRIDE
 }
 
 # Actionable manual remediation, printed only when the speed test nginx still fails
-# because of an AppArmor denial (so it never nags on unrelated failures).
+# because of an AppArmor denial (so it never nags on unrelated failures). Names the
+# real profile and picks the applicable fix: a local override when the profile is a
+# standard /etc/apparmor.d file, otherwise complain mode.
 print_speedtest_apparmor_hint() {
     _aa_denied_install_dir || return 0
-    local base="usr.sbin.nginx" file
+    local pname file base
+    pname="$(_aa_nginx_profile_name)"; [ -n "$pname" ] || pname="$NGINX_BIN"
     file="$(_aa_nginx_profile_file)"
-    [ -n "$file" ] && base="$(basename "$file")"
-    echo "  Cause: an AppArmor profile on nginx is blocking ${INSTALL_DIR}."
-    echo "  Fix (add a local override, then reload the profile):"
-    echo "    printf '%s\n%s\n' '${INSTALL_DIR}/ r,' '${INSTALL_DIR}/** rw,' | sudo tee /etc/apparmor.d/local/${base}"
-    echo "    sudo apparmor_parser -r /etc/apparmor.d/${base}"
-    echo "  Or set the nginx profile to complain mode: sudo aa-complain ${NGINX_BIN}"
+    echo "  Cause: AppArmor profile '${pname}' is blocking ${INSTALL_DIR}."
+    case "$file" in
+        /etc/apparmor.d/*)
+            base="$(basename "$file")"
+            echo "  Fix - add a local override, then reload the profile:"
+            echo "    printf '%s\n%s\n' '${INSTALL_DIR}/ r,' '${INSTALL_DIR}/** rw,' | sudo tee /etc/apparmor.d/local/${base}"
+            echo "    sudo apparmor_parser -r ${file}"
+            echo "  Or relax it (logs but allows): sudo aa-complain '${pname}'"
+            ;;
+        *)
+            echo "  Its profile isn't a standard file under /etc/apparmor.d, so relax it (logs but allows):"
+            echo "    sudo aa-complain '${pname}'"
+            ;;
+    esac
+    echo "  Then: sudo systemctl start netopt-speedtest-nginx"
 }
 
 [ "$(id -u)" -eq 0 ] || err "Run as root (needed to install the systemd service): sudo bash install-native.sh ..."
