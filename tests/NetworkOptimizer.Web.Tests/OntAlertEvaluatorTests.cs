@@ -99,19 +99,37 @@ public class OntAlertEvaluatorTests
     }
 
     [Fact]
-    public async Task BipDeltaAboveThreshold_PublishesBipSpike_AfterBaseline()
+    public async Task BipSpike_FecDisabled_UsesStrictThreshold()
     {
         var (evaluator, bus) = Create();
 
-        // First poll sets the baseline (no alert), second poll's +200 delta exceeds the 100 threshold.
-        await evaluator.EvaluateAsync(1, "ONT", SafeRx, PonLinkState.Operation, null, bipErrors: 0);
-        await evaluator.EvaluateAsync(1, "ONT", SafeRx, PonLinkState.Operation, null, bipErrors: 200);
+        // FEC off: BIP is uncorrected data loss, so the strict 25-error threshold applies.
+        await evaluator.EvaluateAsync(1, "ONT", SafeRx, PonLinkState.Operation, null, bipErrors: 0, fecEnabled: false);
+        await evaluator.EvaluateAsync(1, "ONT", SafeRx, PonLinkState.Operation, null, bipErrors: 50, fecEnabled: false);
 
         var bip = bus.Events.Where(e => e.EventType == "ont.bip_errors").ToList();
         bip.Should().HaveCount(1);
         bip[0].Source.Should().Be("ont");
-        bip[0].MetricValue.Should().Be(200);
-        bip[0].ThresholdValue.Should().Be(100);
+        bip[0].MetricValue.Should().Be(50);
+        bip[0].ThresholdValue.Should().Be(25);
+    }
+
+    [Fact]
+    public async Task BipSpike_FecEnabled_UsesRelaxedThreshold()
+    {
+        var (evaluator, bus) = Create();
+
+        // FEC on: BIP counts pre-FEC line errors FEC corrects, so a 300-error step (below the
+        // relaxed 1000 threshold) must NOT alert, while a larger 1100-error step does.
+        await evaluator.EvaluateAsync(1, "ONT", SafeRx, PonLinkState.Operation, null, bipErrors: 0, fecEnabled: true);
+        await evaluator.EvaluateAsync(1, "ONT", SafeRx, PonLinkState.Operation, null, bipErrors: 300, fecEnabled: true);
+        bus.Events.Should().NotContain(e => e.EventType == "ont.bip_errors");
+
+        await evaluator.EvaluateAsync(1, "ONT", SafeRx, PonLinkState.Operation, null, bipErrors: 1400, fecEnabled: true);
+        var bip = bus.Events.Where(e => e.EventType == "ont.bip_errors").ToList();
+        bip.Should().HaveCount(1);
+        bip[0].MetricValue.Should().Be(1100);
+        bip[0].ThresholdValue.Should().Be(1000);
     }
 
     [Fact]
@@ -119,9 +137,9 @@ public class OntAlertEvaluatorTests
     {
         var (evaluator, bus) = Create();
 
-        await evaluator.EvaluateAsync(1, "ONT", SafeRx, PonLinkState.Operation, null, bipErrors: 5000);
+        await evaluator.EvaluateAsync(1, "ONT", SafeRx, PonLinkState.Operation, null, bipErrors: 5000, fecEnabled: false);
         // ONT reboots; counter resets below the prior value -> negative step -> no alert.
-        await evaluator.EvaluateAsync(1, "ONT", SafeRx, PonLinkState.Operation, null, bipErrors: 10);
+        await evaluator.EvaluateAsync(1, "ONT", SafeRx, PonLinkState.Operation, null, bipErrors: 10, fecEnabled: false);
 
         bus.Events.Should().NotContain(e => e.EventType == "ont.bip_errors");
     }

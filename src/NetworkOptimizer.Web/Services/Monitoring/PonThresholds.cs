@@ -31,13 +31,19 @@ public static class PonThresholds
     /// <summary>Per-poll FEC corrected-error spike threshold. Corrected errors are benign in small
     /// numbers (the FEC is doing its job); a sustained rate above this corroborates a marginal optic.</summary>
     public const long PonFecErrorSpikePerPoll = 1000;
-    /// <summary>Per-poll BIP (bit-interleaved-parity) error threshold. BIP errors are uncorrected bit
-    /// errors, so this is stricter than the FEC corrected-error threshold.</summary>
-    public const long PonBipErrorSpikePerPoll = 100;
+    /// <summary>Per-poll BIP threshold on a link running with payload FEC DISABLED, where every BIP is
+    /// uncorrected bit corruption. A healthy link reads 0, so this is deliberately strict - low tens of
+    /// uncorrected bit errors per 5-minute poll is a real fault.</summary>
+    public const long PonBipErrorSpikePerPoll = 25;
+    /// <summary>Per-poll BIP threshold on a FEC-ENABLED (or unknown) link. There BIP counts pre-FEC line
+    /// errors that FEC silently corrects, so a link at the normal ITU operating point reads hundreds/poll
+    /// while data is perfect; only a gross rate (matching the FEC codeword line) is worth flagging.</summary>
+    public const long PonBipErrorSpikeFecOnPerPoll = 1000;
     /// <summary>Per-poll uncorrectable-HEC (header error control) threshold. HEC guards the GEM/GTC
-    /// framing headers and is always active regardless of payload FEC, so it's the live error signal
-    /// on a link running with FEC disabled. Uncorrected like BIP, so it shares BIP's stricter threshold.</summary>
-    public const long PonHecErrorSpikePerPoll = 100;
+    /// framing headers and is always active regardless of payload FEC, so it's the live error signal on a
+    /// FEC-disabled link. Uncorrectable header errors drop frames, and a healthy link reads ~0, so this is
+    /// strict.</summary>
+    public const long PonHecErrorSpikePerPoll = 10;
 
     // --- ONT error-count health for ISP Health (absolute count over the window, per-day). ---
     // A healthy PON link has a negligible BIP / uncorrectable-FEC count: 0 is ideal, a few per day

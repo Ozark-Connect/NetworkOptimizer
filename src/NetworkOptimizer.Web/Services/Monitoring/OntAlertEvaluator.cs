@@ -18,7 +18,8 @@ public class OntAlertEvaluator
     private const double RxPowerHysteresisDbm = PonThresholds.PowerHysteresisDbm;
     private const double TempHysteresisC = PonThresholds.TempHysteresisC;
     private const long FecErrorDeltaThreshold = PonThresholds.PonFecErrorSpikePerPoll;
-    private const long BipErrorDeltaThreshold = PonThresholds.PonBipErrorSpikePerPoll;
+    private const long BipErrorStrictThreshold = PonThresholds.PonBipErrorSpikePerPoll;
+    private const long BipErrorRelaxedThreshold = PonThresholds.PonBipErrorSpikeFecOnPerPoll;
     private const long HecErrorDeltaThreshold = PonThresholds.PonHecErrorSpikePerPoll;
 
     private readonly IAlertEventBus _eventBus;
@@ -66,7 +67,7 @@ public class OntAlertEvaluator
         // BIP is always-on regardless of FEC, so it's evaluated whenever reported.
         if (bipErrors.HasValue)
         {
-            await CheckBipErrors(state, ontId, ontName, bipErrors.Value, ct);
+            await CheckBipErrors(state, ontId, ontName, bipErrors.Value, fecEnabled, ct);
         }
 
         // The uncorrectable-codeword signal adapts to whether payload FEC is running:
@@ -202,10 +203,16 @@ public class OntAlertEvaluator
             v => state.PreviousFecErrors = v, ct);
 
     private ValueTask CheckBipErrors(
-        OntAlertState state, int ontId, string ontName, long bipErrors, CancellationToken ct) =>
-        CheckErrorSpike(ontId, ontName, bipErrors, state.PreviousBipErrors, BipErrorDeltaThreshold,
+        OntAlertState state, int ontId, string ontName, long bipErrors, bool? fecEnabled, CancellationToken ct)
+    {
+        // BIP is uncorrected data loss only when payload FEC is off; with FEC on (or unknown,
+        // the standalone-ONT default) it counts pre-FEC line errors FEC corrects, so relax the
+        // threshold to avoid flagging a healthy FEC-enabled link at its normal operating point.
+        var threshold = fecEnabled == false ? BipErrorStrictThreshold : BipErrorRelaxedThreshold;
+        return CheckErrorSpike(ontId, ontName, bipErrors, state.PreviousBipErrors, threshold,
             "ont.bip_errors", "BIP error", "BIP errors", "bip", "bip_delta",
             v => state.PreviousBipErrors = v, ct);
+    }
 
     private ValueTask CheckHecErrors(
         OntAlertState state, int ontId, string ontName, long hecErrors, CancellationToken ct) =>
