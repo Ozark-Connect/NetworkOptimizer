@@ -1939,7 +1939,7 @@ else
 
         var cmConfigs = await CmMonitorService.GetConfigsAsync();
         _cmHasDevices = cmConfigs.Count > 0;
-        var ontConfigs = await OntMonitorService.GetConfigsAsync();
+        var ontConfigs = await OntMonitorService.GetStandaloneConfigsAsync();
         _ontHasDevices = ontConfigs.Count > 0;
         var cellConfigs = await CellularModemService.GetModemsAsync();
         _cellularHasDevices = cellConfigs.Count > 0;

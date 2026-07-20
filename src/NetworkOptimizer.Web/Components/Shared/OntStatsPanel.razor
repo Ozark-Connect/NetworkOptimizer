@@ -378,7 +378,7 @@ else
             _fabricTargets = await db.MonitoringTargets.AsNoTracking()
                 .Where(t => t.TargetType == MonitoringTargetType.Fabric)
                 .ToListAsync();
-            _externalOnts = await ExternalOntService.GetConfigsAsync();
+            _externalOnts = await ExternalOntService.GetStandaloneConfigsAsync();
             if (_currentIndex >= TotalCount) _currentIndex = 0;
             RefreshExternalStats();
 

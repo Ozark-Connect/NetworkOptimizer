@@ -35,7 +35,9 @@ public static class OntChartEndpoints
 
             var data = await influx.QueryOntAsync(queryFrom, queryTo, ontId, ct: ct);
 
-            var configs = await ontService.GetConfigsAsync();
+            // Standalone configs only: an attached config writes to the sfp
+            // measurement, not ont, and must never appear as a standalone ONT series.
+            var configs = await ontService.GetStandaloneConfigsAsync();
             var nameMap = configs.ToDictionary(c => c.Id.ToString(), c => c.Name);
 
             // Only surface ONTs that still have a config. Deleting an ONT config

@@ -95,13 +95,26 @@ public class OntMonitorService : IDisposable
     }
 
     /// <summary>
-    /// Get all ONT configurations (for UI and chart endpoints).
+    /// Get all ONT configurations, including those attached to an SFP module
+    /// (for the Settings management list).
     /// </summary>
     public async Task<List<OntConfiguration>> GetConfigsAsync()
     {
         using var scope = CreateSiteScope();
         var repository = scope.ServiceProvider.GetRequiredService<IOntRepository>();
         return await repository.GetOntConfigurationsAsync();
+    }
+
+    /// <summary>
+    /// Standalone ONT configurations only - excludes configs attached to an SFP
+    /// module, which surface as PON data on that module (SFP Stats), not as their
+    /// own ONT device. Drives the ONT Stats tab, the Dashboard ONT card, and the
+    /// ONT chart endpoint so an attached config never appears as a standalone ONT.
+    /// </summary>
+    public async Task<List<OntConfiguration>> GetStandaloneConfigsAsync()
+    {
+        var configs = await GetConfigsAsync();
+        return configs.Where(c => c.AttachedSfpId == null).ToList();
     }
 
     /// <summary>
