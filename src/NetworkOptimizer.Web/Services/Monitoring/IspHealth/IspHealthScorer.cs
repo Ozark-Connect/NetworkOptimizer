@@ -1487,10 +1487,6 @@ public class IspHealthScorer
     /// </summary>
     private const double TransitInvolvementFloor = 0.25;
 
-    /// <summary>Neutral baseline the uninvolved fraction of a transit ASN's score blends toward: a
-    /// transit carrying none of your hosts can't hurt Transit Health (it contributes ~100).</summary>
-    private const double TransitNeutralBaseline = 100.0;
-
     /// <summary>
     /// A monitored internet destination is treated as reached over the access ISP's own peering/IX
     /// (rather than a transit provider) when BOTH hold: its forward path crosses no transit ASN, and
@@ -1508,12 +1504,14 @@ public class IspHealthScorer
     private const int IxPeeringAsn = -1;
 
     /// <summary>
-    /// Builds a transit-style ASN dimension. Each ASN carries its <see cref="IspAsnHealth.InvolvementWeight"/>
-    /// (0.25-1.0, set upstream from internet-host involvement); its effective contribution is
-    /// weight * own + (1 - weight) * <see cref="TransitNeutralBaseline"/>, and the dimension score is
-    /// the involvement-weighted average of those - so the transit you actually use dominates and a
-    /// side-path transit's problems don't drag the number. When no ASN has involvement set (no
-    /// attribution), it's the plain average and no fraction icon is shown.
+    /// Builds a transit-style ASN dimension: a plain involvement-weighted average of the entries' own
+    /// scores. Each carries its <see cref="IspAsnHealth.InvolvementWeight"/> (0.25-1.0, set upstream from
+    /// internet-host involvement), so the networks you actually use dominate and a side-path transit
+    /// counts only lightly - but its REAL score, never a neutral fill. The dimension therefore always
+    /// lands within the range of its entries (no synthetic baseline can lift it above every one), and a
+    /// congested off-path transit still dings it a little rather than being masked toward 100 - it may be
+    /// on your return path or a failover route. When no ASN has involvement set (no attribution), it's
+    /// the plain average and no fraction icon is shown.
     /// </summary>
     private static IspScoreDimension BuildAsnDimension(string name, double weight, List<IspAsnHealth> asns)
     {
@@ -1539,12 +1537,7 @@ public class IspHealthScorer
         {
             var wsum = scored.Sum(a => a.InvolvementWeight ?? 1.0);
             score = wsum > 0
-                ? (int)Math.Round(scored.Sum(a =>
-                {
-                    var w = a.InvolvementWeight ?? 1.0;
-                    var effective = w * a.OverallScore!.Value + (1 - w) * TransitNeutralBaseline;
-                    return w * effective;
-                }) / wsum)
+                ? (int)Math.Round(scored.Sum(a => (a.InvolvementWeight ?? 1.0) * a.OverallScore!.Value) / wsum)
                 : (int)Math.Round(scored.Average(a => a.OverallScore!.Value));
         }
         return new IspScoreDimension { Name = name, Score = score, Weight = weight, Factors = factors };

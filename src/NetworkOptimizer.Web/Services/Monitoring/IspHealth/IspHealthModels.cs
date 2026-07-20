@@ -124,9 +124,9 @@ public class IspAsnHealth
     public int InvolvementHostTotal { get; set; }
 
     /// <summary>
-    /// The 0.25-1.0 weight this ASN's own score carries in Transit Health; the remaining (1 - weight)
-    /// blends to a neutral 100, so a transit carrying none of your hosts can't drag the dimension.
-    /// Null when involvement isn't shown.
+    /// The 0.25-1.0 weight this ASN's own score carries in the involvement-weighted Transit Health
+    /// average. Floored at 0.25 so an off-path transit still counts - it may be on your return path or a
+    /// failover route - but only lightly. Null when involvement isn't shown.
     /// </summary>
     public double? InvolvementWeight { get; set; }
 
