@@ -514,6 +514,8 @@ public class ThirdPartyDnsDetector
         if (!IPAddress.TryParse(ipAddress, out var resolverIp))
             return false;
 
+        _logger.LogDebug("ControlD probe: querying verify.controld.com via {Resolver}", ipAddress);
+
         try
         {
             var lookup = new LookupClient(new LookupClientOptions(resolverIp)
@@ -532,24 +534,32 @@ public class ThirdPartyDnsDetector
                 return false;
             }
 
-            var hasCname = dnsResult.Answers
+            var cnameTargets = dnsResult.Answers
                 .OfType<DnsClient.Protocol.CNameRecord>()
-                .Any(r => r.CanonicalName.Value
-                    .TrimEnd('.')
-                    .EndsWith("controld.com", StringComparison.OrdinalIgnoreCase));
+                .Select(r => r.CanonicalName.Value.TrimEnd('.'))
+                .ToList();
+            var aRecords = dnsResult.Answers
+                .OfType<DnsClient.Protocol.ARecord>()
+                .Select(r => r.Address.ToString())
+                .ToList();
 
-            if (!hasCname)
-            {
-                var aRecords = dnsResult.Answers
-                    .OfType<DnsClient.Protocol.ARecord>()
-                    .Select(r => r.Address.ToString())
-                    .ToList();
-
-                hasCname = aRecords.Any(ip => ip.StartsWith("147.185.34."));
-            }
+            var hasCname = cnameTargets.Any(t => t.EndsWith("controld.com", StringComparison.OrdinalIgnoreCase))
+                || aRecords.Any(ip => ip.StartsWith("147.185.34."));
 
             if (hasCname)
+            {
                 _logger.LogDebug("ControlD probe: detected via verify.controld.com CNAME through {Resolver}", ipAddress);
+            }
+            else
+            {
+                // Log the actual answer so a reporter's logs show WHAT the resolver
+                // returned for verify.controld.com (it only carries the ControlD
+                // CNAME/A when the query actually traverses ControlD).
+                _logger.LogDebug("ControlD probe: no ControlD record via {Resolver} (CNAMEs: [{Cnames}], A: [{ARecords}])",
+                    ipAddress,
+                    cnameTargets.Count > 0 ? string.Join(", ", cnameTargets) : "none",
+                    aRecords.Count > 0 ? string.Join(", ", aRecords) : "none");
+            }
 
             return hasCname;
         }
