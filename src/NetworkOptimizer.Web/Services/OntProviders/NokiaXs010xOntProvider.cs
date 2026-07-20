@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Globalization;
+using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -23,14 +24,20 @@ namespace NetworkOptimizer.Web.Services.OntProviders;
 ///      -> {"CurrentPonPw","VendorID","VersionID","SerialNum","Mac","ActiveSwVer",
 ///          "StandbySwVer","RxOptPwr"}
 ///
-/// getUpdateinfo authorization differs by firmware, so two flows are tried and the winner is
-/// cached per config (see <see cref="AuthFlow"/>). <see cref="AuthFlow.Direct"/> calls
-/// getUpdateinfo with just the session cookie straight after login - the minimal request the one
-/// firmware confirmed working (@Liosnel's) accepts, kept untouched. <see cref="AuthFlow.PageWalk"/>
-/// handles a T-Fiber/Metronet CLEI variant that forces a PON-password page after login and gates
-/// getUpdateinfo behind walking through it: GET /ponpasswd.html, POST /GponForm/ponpasswd_GetConfig,
-/// GET /moreinfo.html, each carrying the session cookie and the browser's Referer/Origin/
-/// X-Requested-With headers, then getUpdateinfo with those headers too.
+/// Some firmware (a T-Fiber/Metronet CLEI variant) accepts this sequence from curl and from a
+/// browser but answers 401 -> /login.html when HttpClient sends the logically identical
+/// requests. The rejection is about wire framing, not auth logic: HttpClient omits User-Agent
+/// and Accept, appends "; charset=utf-8" to the Content-Type, emits content headers after the
+/// request headers (curl puts Content-Length before Content-Type) and adds Connection: close.
+/// None of that framing can be fully controlled through HttpClient, so two flows are tried and
+/// the winner is cached per config (see <see cref="AuthFlow"/>). <see cref="AuthFlow.Direct"/>
+/// is the plain HttpClient sequence exactly as shipped in v2.1.1/v2.2.0 - the one firmware
+/// confirmed working (@Liosnel's) accepts it, so its bytes are kept untouched.
+/// <see cref="AuthFlow.CurlReplay"/> writes the raw HTTP requests of the curl script proven on
+/// the picky firmware over a plain TCP socket, byte-for-byte (same headers, order and casing;
+/// fresh connection per request like separate curl invocations), including the forced
+/// PON-password page walk that firmware presents: GET /login.html, login, GET /ponpasswd.html,
+/// POST /GponForm/ponpasswd_GetConfig, GET /moreinfo.html, then getUpdateinfo.
 ///
 /// The device exposes no TX power, temperature, or explicit link state; the receive
 /// optical power (RxOptPwr, dBm) is the one health metric it reports. Login credentials
@@ -54,24 +61,26 @@ public sealed class NokiaXs010xOntProvider : IOntProvider
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36";
 
     /// <summary>
-    /// How a given firmware authorizes the getUpdateinfo call. Determined on first contact and
+    /// How a given firmware's getUpdateinfo is reached. Determined on first contact and
     /// cached per config in <see cref="_flowCache"/>; re-detected after a process restart.
     /// </summary>
     private enum AuthFlow
     {
-        /// <summary>getUpdateinfo with just the cookie, straight after login (@Liosnel's firmware).</summary>
+        /// <summary>Plain HttpClient login + cookie-only getUpdateinfo, byte-identical to the
+        /// shipped v2.1.1/v2.2.0 requests (@Liosnel's firmware accepts these).</summary>
         Direct,
 
-        /// <summary>Walk the forced PON-password pages before getUpdateinfo (T-Fiber/Metronet CLEI variant).</summary>
-        PageWalk,
+        /// <summary>Raw-socket byte-for-byte replay of the curl script the picky
+        /// (T-Fiber/Metronet CLEI) firmware is proven to accept.</summary>
+        CurlReplay,
     }
 
     private readonly ILogger<NokiaXs010xOntProvider> _logger;
 
     /// <summary>
-    /// Remembers the getUpdateinfo <see cref="AuthFlow"/> that last succeeded per
-    /// OntConfiguration.Id so later polls go straight to it instead of re-probing the wrong flow
-    /// (and, for the page walk, its extra requests) every interval. Re-detected after a restart.
+    /// Remembers the <see cref="AuthFlow"/> that last succeeded per OntConfiguration.Id so
+    /// later polls go straight to it instead of re-probing the wrong flow (and, for the curl
+    /// replay, its extra requests) every interval. Re-detected after a restart.
     /// </summary>
     private readonly ConcurrentDictionary<int, AuthFlow> _flowCache = new();
 
@@ -144,11 +153,11 @@ public sealed class NokiaXs010xOntProvider : IOntProvider
 
     /// <summary>
     /// Reads getUpdateinfo trying the resolved <see cref="AuthFlow"/> order, returning the first
-    /// result that carries an RX reading and caching the flow that produced it. Each flow gets its
-    /// own fresh login so a probe of the wrong flow (e.g. a Direct getUpdateinfo that 401s on the
-    /// CLEI variant, which forces a PON-password session state) can't poison the next flow's
-    /// session. Returns the last built stats (which may lack RX) if a flow logged in but returned
-    /// no data, or null if every login failed.
+    /// result that carries an RX reading and caching the flow that produced it. Each flow does its
+    /// own login so a probe of the wrong flow (e.g. a Direct getUpdateinfo that 401s on the CLEI
+    /// variant, which forces a PON-password session state) can't poison the next flow's session.
+    /// Returns the last built stats (which may lack RX) if a flow logged in but returned no data,
+    /// or null if every login failed.
     /// </summary>
     private async Task<OntStats?> FetchStatsAsync(
         HttpClient client, string baseUrl, OntPollContext context, CancellationToken ct)
@@ -156,13 +165,21 @@ public sealed class NokiaXs010xOntProvider : IOntProvider
         OntStats? last = null;
         foreach (var flow in ResolveFlows(context))
         {
-            var cookieId = await LoginAsync(client, baseUrl, context, ct);
-            if (cookieId is null)
-                continue;
+            string? infoJson;
+            if (flow == AuthFlow.CurlReplay)
+            {
+                infoJson = await GetUpdateInfoViaCurlReplayAsync(baseUrl, context, ct);
+            }
+            else
+            {
+                var cookieId = await LoginAsync(client, baseUrl, context, ct);
+                infoJson = cookieId is null
+                    ? null
+                    : await GetUpdateInfoAsync(client, baseUrl, cookieId, context.Name, ct);
+            }
 
-            var infoJson = flow == AuthFlow.PageWalk
-                ? await GetUpdateInfoViaWalkAsync(client, baseUrl, cookieId, context.Name, ct)
-                : await GetUpdateInfoAsync(client, baseUrl, cookieId, context.Name, MoreInfoPagePath, browserHeaders: false, ct);
+            if (infoJson is null)
+                continue;
 
             var stats = new OntStats
             {
@@ -188,25 +205,25 @@ public sealed class NokiaXs010xOntProvider : IOntProvider
     /// <summary>
     /// The getUpdateinfo flows to try, in order: the one cached for this config first (so a
     /// known-good firmware never re-probes), then the other as a fallback in case the cache is
-    /// empty or the firmware behavior changed. Uncached configs try Direct first - it's one
-    /// request and the only flow confirmed working on real hardware (@Liosnel's), so only a
-    /// variant that needs the walk pays for the extra probe, once, until it's cached.
+    /// empty or the firmware behavior changed. Uncached configs try Direct first - it's two
+    /// requests and the only flow confirmed working on real hardware (@Liosnel's), so only a
+    /// variant that needs the replay pays for the extra probe, once, until it's cached.
     /// </summary>
     private IReadOnlyList<AuthFlow> ResolveFlows(OntPollContext context)
     {
         if (context.Id > 0 && _flowCache.TryGetValue(context.Id, out var cached))
-            return cached == AuthFlow.PageWalk
-                ? new[] { AuthFlow.PageWalk, AuthFlow.Direct }
-                : new[] { AuthFlow.Direct, AuthFlow.PageWalk };
+            return cached == AuthFlow.CurlReplay
+                ? new[] { AuthFlow.CurlReplay, AuthFlow.Direct }
+                : new[] { AuthFlow.Direct, AuthFlow.CurlReplay };
 
-        return new[] { AuthFlow.Direct, AuthFlow.PageWalk };
+        return new[] { AuthFlow.Direct, AuthFlow.CurlReplay };
     }
 
     /// <summary>
     /// Runs the three-step GponForm login and returns the session cookie id, or null if
     /// authentication fails. The cookie is delivered inside the LoginForm JSON body (the
     /// page's script clears the Set-Cookie header), so it is threaded back manually as a
-    /// Cookie header on later requests rather than via a CookieContainer.
+    /// Cookie header on the data request rather than via a CookieContainer.
     /// </summary>
     private async Task<string?> LoginAsync(
         HttpClient client, string baseUrl, OntPollContext context, CancellationToken ct)
@@ -216,8 +233,8 @@ public sealed class NokiaXs010xOntProvider : IOntProvider
 
         string configJson;
         int configStatus;
-        using (var request = BuildRequest(HttpMethod.Post, $"{baseUrl}{LoginConfigPath}", "token=token", baseUrl, LoginPagePath, cookieId: null, browserHeaders: true))
-        using (var response = await client.SendAsync(request, ct))
+        using (var content = new StringContent("token=token", Encoding.UTF8, FormContentType))
+        using (var response = await client.PostAsync($"{baseUrl}{LoginConfigPath}", content, ct))
         {
             configStatus = (int)response.StatusCode;
             configJson = await response.Content.ReadAsStringAsync(ct);
@@ -235,8 +252,8 @@ public sealed class NokiaXs010xOntProvider : IOntProvider
         string loginJson;
         int loginStatus;
         string? setCookie;
-        using (var request = BuildRequest(HttpMethod.Post, $"{baseUrl}{LoginPath}", body, baseUrl, LoginPagePath, cookieId: null, browserHeaders: true))
-        using (var response = await client.SendAsync(request, ct))
+        using (var content = new StringContent(body, Encoding.UTF8, FormContentType))
+        using (var response = await client.PostAsync($"{baseUrl}{LoginPath}", content, ct))
         {
             loginStatus = (int)response.StatusCode;
             loginJson = await response.Content.ReadAsStringAsync(ct);
@@ -254,32 +271,14 @@ public sealed class NokiaXs010xOntProvider : IOntProvider
         return cookieId;
     }
 
-    /// <summary>
-    /// Walks the forced PON-password pages (GET /ponpasswd.html, POST ponpasswd_GetConfig,
-    /// GET /moreinfo.html) so firmware that gates the data call behind them advances the session,
-    /// then reads getUpdateinfo. The session cookie and browser headers ride every step. Walk
-    /// responses are discarded; a step that 404s on firmware without the page is harmless (that
-    /// firmware just uses the Direct flow instead).
-    /// </summary>
-    private async Task<string> GetUpdateInfoViaWalkAsync(
+    private async Task<string> GetUpdateInfoAsync(
         HttpClient client, string baseUrl, string cookieId, string deviceName, CancellationToken ct)
     {
-        await WalkStepAsync(client, BuildRequest(HttpMethod.Get, $"{baseUrl}{PonPasswdPagePath}", null, baseUrl, LoginPagePath, cookieId, browserHeaders: true), ct);
-        await WalkStepAsync(client, BuildRequest(HttpMethod.Post, $"{baseUrl}{PonPasswdConfigPath}", "token=token", baseUrl, PonPasswdPagePath, cookieId, browserHeaders: true), ct);
-        await WalkStepAsync(client, BuildRequest(HttpMethod.Get, $"{baseUrl}{MoreInfoPagePath}", null, baseUrl, PonPasswdPagePath, cookieId, browserHeaders: true), ct);
-        return await GetUpdateInfoAsync(client, baseUrl, cookieId, deviceName, PonPasswdPagePath, browserHeaders: true, ct);
-    }
-
-    private static async Task WalkStepAsync(HttpClient client, HttpRequestMessage request, CancellationToken ct)
-    {
-        using (request)
-        using (await client.SendAsync(request, ct)) { }
-    }
-
-    private async Task<string> GetUpdateInfoAsync(
-        HttpClient client, string baseUrl, string cookieId, string deviceName, string refererPath, bool browserHeaders, CancellationToken ct)
-    {
-        using var request = BuildRequest(HttpMethod.Post, $"{baseUrl}{UpdateInfoPath}", "token=token", baseUrl, refererPath, cookieId, browserHeaders);
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}{UpdateInfoPath}")
+        {
+            Content = new StringContent("token=token", Encoding.UTF8, FormContentType),
+        };
+        request.Headers.TryAddWithoutValidation("Cookie", $"sessionid={cookieId}");
 
         using var response = await client.SendAsync(request, ct);
         var body = await response.Content.ReadAsStringAsync(ct);
@@ -289,37 +288,262 @@ public sealed class NokiaXs010xOntProvider : IOntProvider
     }
 
     /// <summary>
-    /// Builds a GponForm request. The session cookie is attached whenever one is supplied. When
-    /// <paramref name="browserHeaders"/> is set the request also mirrors the device page's XHR
-    /// traffic - a browser User-Agent, a Referer of the page the call is made from and, for the
-    /// POSTs, Origin and X-Requested-With: XMLHttpRequest - which the T-Fiber/Metronet CLEI variant
-    /// needs. The Direct getUpdateinfo passes false to stay the bare cookie-only request that
-    /// shipped in v2.1.1/v2.2.0 (the one confirmed working, on @Liosnel's box). Pass
-    /// <paramref name="formBody"/> null for a GET (a page navigation).
+    /// Replays the tester-proven curl sequence over raw sockets: GET /login.html, the two login
+    /// POSTs, the PON-password page walk, then getUpdateinfo, every request framed byte-for-byte
+    /// like curl's. Walk-page failures are ignored (firmware without the forced page just 404s
+    /// them); returns the getUpdateinfo body, or null when login fails or the device is
+    /// unreachable.
     /// </summary>
-    private static HttpRequestMessage BuildRequest(
-        HttpMethod method, string url, string? formBody, string baseUrl, string refererPath, string? cookieId, bool browserHeaders)
+    private async Task<string?> GetUpdateInfoViaCurlReplayAsync(
+        string baseUrl, OntPollContext context, CancellationToken ct)
     {
-        var request = new HttpRequestMessage(method, url);
+        var username = string.IsNullOrWhiteSpace(context.Username) ? "admin" : context.Username;
+        var password = context.Password ?? "";
 
-        if (formBody is not null)
-            request.Content = new StringContent(formBody, Encoding.UTF8, FormContentType);
+        await SendCurlRequestAsync(baseUrl, context, LoginPagePath, cookieId: null, refererPath: null, formBody: null, ct);
 
-        if (browserHeaders)
+        var config = await SendCurlRequestAsync(baseUrl, context, LoginConfigPath, cookieId: null, LoginPagePath, "token=token", ct);
+        if (config is null)
+            return null;
+
+        var (nonce, saltval) = ParseLoginConfig(config.Value.Body);
+        if (string.IsNullOrEmpty(nonce))
         {
-            request.Headers.TryAddWithoutValidation("User-Agent", BrowserUserAgent);
-            request.Headers.TryAddWithoutValidation("Referer", $"{baseUrl}{refererPath}");
-            if (formBody is not null)
-            {
-                request.Headers.TryAddWithoutValidation("Origin", baseUrl);
-                request.Headers.TryAddWithoutValidation("X-Requested-With", "XMLHttpRequest");
-            }
+            _logger.LogDebug("Nokia XS-010X-Q ONT {Name}: curl-replay Login_GetConfig HTTP {Status} returned no nonce, body={Body}",
+                context.Name, config.Value.Status, Preview(config.Value.Body));
+            return null;
         }
 
-        if (!string.IsNullOrEmpty(cookieId))
-            request.Headers.TryAddWithoutValidation("Cookie", $"sessionid={cookieId}");
+        var cmt = ComputeCmt(username, saltval ?? "", password);
+        var loginBody = $"cmt={cmt}&nonce={Uri.EscapeDataString(nonce)}";
+        var login = await SendCurlRequestAsync(baseUrl, context, LoginPath, cookieId: null, LoginPagePath, loginBody, ct);
+        if (login is null)
+            return null;
 
-        return request;
+        var cookieId = ParseCookieId(login.Value.Body);
+        _logger.LogDebug("Nokia XS-010X-Q ONT {Name}: curl-replay LoginForm HTTP {Status}, gotCookie={HasCookie}, body={Body}",
+            context.Name, login.Value.Status, cookieId != null, Preview(login.Value.Body));
+        if (cookieId is null)
+            return null;
+
+        await SendCurlRequestAsync(baseUrl, context, PonPasswdPagePath, cookieId, LoginPagePath, formBody: null, ct);
+        await SendCurlRequestAsync(baseUrl, context, PonPasswdConfigPath, cookieId, PonPasswdPagePath, "token=token", ct);
+        await SendCurlRequestAsync(baseUrl, context, MoreInfoPagePath, cookieId, PonPasswdPagePath, formBody: null, ct);
+
+        var info = await SendCurlRequestAsync(baseUrl, context, UpdateInfoPath, cookieId, MoreInfoPagePath, "token=token", ct);
+        if (info is null)
+            return null;
+
+        _logger.LogDebug("Nokia XS-010X-Q ONT {Name}: curl-replay getUpdateinfo HTTP {Status}, body={Body}",
+            context.Name, info.Value.Status, Preview(info.Value.Body));
+        return info.Value.Body;
+    }
+
+    /// <summary>
+    /// Sends one curl-framed request on its own TCP connection (each curl invocation in the
+    /// reference script is a separate process and connection) and reads the response until the
+    /// device closes the connection or the body is provably complete. Returns null on network
+    /// errors or timeout so the caller can treat the step as failed without aborting the poll.
+    /// </summary>
+    private async Task<(int Status, string Body)?> SendCurlRequestAsync(
+        string baseUrl, OntPollContext context, string path, string? cookieId, string? refererPath,
+        string? formBody, CancellationToken ct)
+    {
+        var requestBytes = BuildCurlRequest(baseUrl, path, cookieId, refererPath, formBody);
+        var port = context.Port > 0 ? context.Port : 80;
+
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeoutCts.CancelAfter(TimeSpan.FromSeconds(TimeoutSeconds));
+        var token = timeoutCts.Token;
+
+        try
+        {
+            using var tcp = new TcpClient();
+            await tcp.ConnectAsync(context.Host, port, token);
+            var stream = tcp.GetStream();
+            await stream.WriteAsync(requestBytes, token);
+
+            using var memory = new MemoryStream();
+            var buffer = new byte[8192];
+            while (true)
+            {
+                var read = await stream.ReadAsync(buffer, token);
+                if (read == 0)
+                    break;
+                memory.Write(buffer, 0, read);
+                if (IsRawResponseComplete(new ReadOnlySpan<byte>(memory.GetBuffer(), 0, (int)memory.Length)))
+                    break;
+            }
+
+            return ParseRawHttpResponse(memory.ToArray());
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            _logger.LogDebug("Nokia XS-010X-Q ONT {Name}: curl-replay request to {Path} timed out", context.Name, path);
+            return null;
+        }
+        catch (Exception ex) when (ex is IOException or SocketException)
+        {
+            _logger.LogDebug(ex, "Nokia XS-010X-Q ONT {Name}: curl-replay request to {Path} failed", context.Name, path);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Builds one request of the curl replay, byte-for-byte as curl frames it (captured against a
+    /// local listener from the tester's script): request line, Host, User-Agent, Accept: */*,
+    /// then Cookie, then Referer, and for POSTs Origin, X-Requested-With, Content-Length before
+    /// Content-Type with no charset suffix. No Connection header (curl relies on HTTP/1.1
+    /// keep-alive; the device closes the connection itself). A null <paramref name="formBody"/>
+    /// makes it a GET page navigation, which carries none of the POST-only headers.
+    /// </summary>
+    internal static byte[] BuildCurlRequest(
+        string baseUrl, string path, string? cookieId, string? refererPath, string? formBody)
+    {
+        var host = baseUrl["http://".Length..];
+        var builder = new StringBuilder()
+            .Append(formBody is null ? "GET " : "POST ").Append(path).Append(" HTTP/1.1\r\n")
+            .Append("Host: ").Append(host).Append("\r\n")
+            .Append("User-Agent: ").Append(BrowserUserAgent).Append("\r\n")
+            .Append("Accept: */*\r\n");
+
+        if (cookieId is not null)
+            builder.Append("Cookie: sessionid=").Append(cookieId).Append("\r\n");
+
+        if (refererPath is not null)
+            builder.Append("Referer: ").Append(baseUrl).Append(refererPath).Append("\r\n");
+
+        if (formBody is not null)
+        {
+            builder.Append("Origin: ").Append(baseUrl).Append("\r\n")
+                .Append("X-Requested-With: XMLHttpRequest\r\n")
+                .Append("Content-Length: ").Append(Encoding.ASCII.GetByteCount(formBody).ToString(CultureInfo.InvariantCulture)).Append("\r\n")
+                .Append("Content-Type: ").Append(FormContentType).Append("\r\n");
+        }
+
+        builder.Append("\r\n");
+        if (formBody is not null)
+            builder.Append(formBody);
+
+        return Encoding.ASCII.GetBytes(builder.ToString());
+    }
+
+    /// <summary>
+    /// Whether a raw HTTP response buffered so far is provably complete: headers received and the
+    /// chunked body's terminating zero chunk seen, or the declared Content-Length satisfied. A
+    /// response with neither framing can only be completed by the device closing the connection,
+    /// so it reports false and the reader waits for EOF. The device answers GponForm calls with
+    /// Transfer-Encoding: chunked and Connection: close, making this an early-out; the EOF path
+    /// is the safety net.
+    /// </summary>
+    internal static bool IsRawResponseComplete(ReadOnlySpan<byte> data)
+    {
+        var headerEnd = data.IndexOf("\r\n\r\n"u8);
+        if (headerEnd < 0)
+            return false;
+
+        var headers = Encoding.ASCII.GetString(data[..headerEnd]);
+        var body = data[(headerEnd + 4)..];
+
+        if (headers.Contains("Transfer-Encoding: chunked", StringComparison.OrdinalIgnoreCase))
+            return TryDecodeChunked(body, out _);
+
+        var contentLength = ParseContentLength(headers);
+        return contentLength is not null && body.Length >= contentLength.Value;
+    }
+
+    /// <summary>
+    /// Splits a raw HTTP/1.1 response into status code and decoded body text, de-chunking when
+    /// the device uses Transfer-Encoding: chunked (it does, on every GponForm response) and
+    /// otherwise honoring Content-Length or taking everything after the headers. Best-effort on
+    /// truncated input: whatever body bytes arrived are returned.
+    /// </summary>
+    internal static (int StatusCode, string Body) ParseRawHttpResponse(byte[] raw)
+    {
+        var data = raw.AsSpan();
+        var headerEnd = data.IndexOf("\r\n\r\n"u8);
+        if (headerEnd < 0)
+            return (0, "");
+
+        var headers = Encoding.ASCII.GetString(data[..headerEnd]);
+        var body = data[(headerEnd + 4)..];
+
+        var statusCode = 0;
+        var statusLine = headers.Split("\r\n", 2)[0].Split(' ');
+        if (statusLine.Length >= 2)
+            int.TryParse(statusLine[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out statusCode);
+
+        if (headers.Contains("Transfer-Encoding: chunked", StringComparison.OrdinalIgnoreCase))
+        {
+            TryDecodeChunked(body, out var decoded);
+            return (statusCode, Encoding.UTF8.GetString(decoded));
+        }
+
+        var contentLength = ParseContentLength(headers);
+        if (contentLength is not null && body.Length > contentLength.Value)
+            body = body[..contentLength.Value];
+
+        return (statusCode, Encoding.UTF8.GetString(body));
+    }
+
+    /// <summary>
+    /// Walks a chunked transfer-coded body, collecting the chunk payloads received so far into
+    /// <paramref name="decoded"/>. Returns true only when the terminating zero-size chunk has
+    /// arrived; on truncated or malformed input it returns false with the chunks recovered up to
+    /// that point.
+    /// </summary>
+    private static bool TryDecodeChunked(ReadOnlySpan<byte> body, out byte[] decoded)
+    {
+        using var output = new MemoryStream();
+        var pos = 0;
+        while (true)
+        {
+            var lineEnd = body[pos..].IndexOf("\r\n"u8);
+            if (lineEnd < 0)
+                break;
+
+            var sizeText = Encoding.ASCII.GetString(body.Slice(pos, lineEnd));
+            var semicolon = sizeText.IndexOf(';');
+            if (semicolon >= 0)
+                sizeText = sizeText[..semicolon];
+
+            if (!int.TryParse(sizeText.Trim(), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var size) || size < 0)
+                break;
+
+            pos += lineEnd + 2;
+            if (size == 0)
+            {
+                decoded = output.ToArray();
+                return true;
+            }
+
+            if (pos + size > body.Length)
+            {
+                output.Write(body[pos..]);
+                break;
+            }
+
+            output.Write(body.Slice(pos, size));
+            pos += size + 2;
+            if (pos > body.Length)
+                break;
+        }
+
+        decoded = output.ToArray();
+        return false;
+    }
+
+    /// <summary>Reads the Content-Length header value out of a raw response's header block.</summary>
+    private static int? ParseContentLength(string headers)
+    {
+        foreach (var line in headers.Split("\r\n"))
+        {
+            if (line.StartsWith("Content-Length:", StringComparison.OrdinalIgnoreCase) &&
+                int.TryParse(line["Content-Length:".Length..].Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var length))
+                return length;
+        }
+
+        return null;
     }
 
     /// <summary>Trims a raw device response for diagnostic logging.</summary>
