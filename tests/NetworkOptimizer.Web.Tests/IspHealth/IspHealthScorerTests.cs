@@ -820,7 +820,7 @@ public class IspHealthScorerTests
 
         withJitteryTransit.IspAsnDimension.Score.Should().Be(noTransit.IspAsnDimension.Score,
             "a jittery transit ASN must not raise the ISP jitter (cap is min, not max)");
-        withJitteryTransit.IspAsns.Single().P95JitterMs.Should().BeApproximately(0.3, 0.05,
+        withJitteryTransit.IspAsns.Single().ScoredJitterMs.Should().BeApproximately(0.3, 0.05,
             "the displayed ISP jitter stays at the ISP mean when transit is not cleaner");
     }
 
@@ -1005,7 +1005,7 @@ public class IspHealthScorerTests
         graded.JitterScore.Should().BeGreaterThan(ungraded.JitterScore!.Value,
             "the clean farther cluster disproves the near hop's false jitter");
         graded.JitterScore.Should().BeGreaterThan(85);
-        graded.P95JitterMs.Should().BeApproximately(0.4, 0.1,
+        graded.ScoredJitterMs.Should().BeApproximately(0.4, 0.1,
             "the displayed jitter is the absolved value, not the near hop's 4 ms");
         graded.JitterAssimilated.Should().BeTrue("the farther cluster pulled the jitter down");
         graded.RawJitterMs.Should().BeApproximately(4.0, 0.1, "the raw near reading is kept for the tooltip");

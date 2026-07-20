@@ -363,9 +363,9 @@ else
                                 <div class="isp-hop-stats">
                                     <span class="isp-target-stat"><span class="isp-target-stat-label">RTT</span>@FormatRtt(target.RttMs)</span>
                                     <span class="isp-target-stat">
-                                        <span class="isp-target-stat-label">P95 Jitter</span>
+                                        <span class="isp-target-stat-label">P90 Jitter</span>
                                         <span class="isp-target-stat-value">
-                                            @FormatJitter(target.P95JitterMs)
+                                            @FormatJitter(target.ScoredJitterMs)
                                             @if (target.JitterAssimilated)
                                             {
                                                 <span class="tooltip-icon tooltip-icon-sm isp-jitter-tip" data-tooltip="@JitterAssimilationTooltip(target)">i</span>
@@ -515,9 +515,9 @@ else
                                     <div class="isp-asn-stat"><span class="detail-label">Mean RTT</span><span class="detail-value">@FormatRtt(asn.MeanRttMs)</span></div>
                                 }
                                 <div class="isp-asn-stat">
-                                    <span class="detail-label">P95 Jitter</span>
+                                    <span class="detail-label">P90 Jitter</span>
                                     <span class="detail-value">
-                                        @FormatJitter(asn.P95JitterMs)
+                                        @FormatJitter(asn.ScoredJitterMs)
                                         @if (asn.JitterAssimilated)
                                         {
                                             <span class="tooltip-icon tooltip-icon-sm isp-jitter-tip" data-tooltip="@JitterAssimilationTooltip(asn, isIspAsn)">i</span>
@@ -1400,11 +1400,11 @@ else
     private static string FormatJitter(double? ms) => ms.HasValue ? $"{ms.Value:0.00} ms" : "--";
 
     private static string JitterAssimilationTooltip(IspAsnHealth asn, bool isIsp) => isIsp
-        ? $"Showing {FormatJitter(asn.P95JitterMs)} from the cleanest network beyond your ISP, not your ISP routers' {FormatJitter(asn.RawJitterMs)}. All traffic crosses the ISP to reach it, so the ISP is no jitterier - its higher reading is likely ICMP deprioritization."
-        : $"Showing {FormatJitter(asn.P95JitterMs)} from a router deeper in this network, not the {FormatJitter(asn.RawJitterMs)} a closer router reported. Traffic passes through the closer router to reach it, so the lower value is the true path jitter - the closer router just deprioritizes ICMP.";
+        ? $"Showing {FormatJitter(asn.ScoredJitterMs)} from the cleanest network beyond your ISP, not your ISP routers' {FormatJitter(asn.RawJitterMs)}. All traffic crosses the ISP to reach it, so the ISP is no jitterier - its higher reading is likely ICMP deprioritization."
+        : $"Showing {FormatJitter(asn.ScoredJitterMs)} from a router deeper in this network, not the {FormatJitter(asn.RawJitterMs)} a closer router reported. Traffic passes through the closer router to reach it, so the lower value is the true path jitter - the closer router just deprioritizes ICMP.";
 
     private static string JitterAssimilationTooltip(IspTargetHealth target) =>
-        $"Showing {FormatJitter(target.P95JitterMs)} measured to a network reached through this router, not its own {FormatJitter(target.RawJitterMs)}. Traffic passes through it cleanly, so the higher reading is this router deprioritizing ICMP, not real jitter.";
+        $"Showing {FormatJitter(target.ScoredJitterMs)} measured to a network reached through this router, not its own {FormatJitter(target.RawJitterMs)}. Traffic passes through it cleanly, so the higher reading is this router deprioritizing ICMP, not real jitter.";
 
     private static string FormatRtt(double? ms) => ms.HasValue ? $"{ms.Value:0.00} ms" : "--";
 

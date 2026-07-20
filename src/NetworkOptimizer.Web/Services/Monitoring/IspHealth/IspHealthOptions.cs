@@ -564,6 +564,15 @@ public class IspHealthOptions
     /// <summary>Weight of jitter in the per-ASN quality blend.</summary>
     public double AsnJitterWeight { get; set; } = 0.25;
 
+    /// <summary>
+    /// Percentile of a series' effective jitter used as its scored/displayed jitter and for the
+    /// path jitter floor, the absolve/witness comparisons, and the ISP/transit cap. P90 rather than
+    /// P95 so a link's harshest 5-10% of samples don't dominate the quality arm - intermittent bursts
+    /// are already caught by the separate congestion detector, so the quality arm reads the typical
+    /// tail, not the extreme. Scoring is floor-relative, so numerator and floor both use this value.
+    /// </summary>
+    public double AsnJitterScoringPercentile { get; set; } = 0.90;
+
     /// <summary>Weight of packet loss in the per-ASN quality blend.</summary>
     public double AsnLossWeight { get; set; } = 0.2;
 

@@ -96,7 +96,7 @@ public class IspAsnHealth
 
     public double? P95RttMs { get; init; }
     public double? MedianJitterMs { get; init; }
-    public double? P95JitterMs { get; init; }
+    public double? ScoredJitterMs { get; init; }
 
     /// <summary>True when the displayed jitter was assimilated from elsewhere (a cleaner
     /// farther cluster for transit, or the cleanest transit ASN for the ISP) rather than
@@ -157,10 +157,10 @@ public class IspTargetHealth
     /// <summary>Displayed RTT: winsorized mean over the window.</summary>
     public double? RttMs { get; init; }
 
-    /// <summary>Effective (absolved) P95 jitter this hop is graded on.</summary>
-    public double? P95JitterMs { get; init; }
+    /// <summary>Effective (absolved) jitter this hop is graded on.</summary>
+    public double? ScoredJitterMs { get; init; }
 
-    /// <summary>This hop's own measured P95 jitter, before any absolve.</summary>
+    /// <summary>This hop's own measured jitter, before any absolve.</summary>
     public double? RawJitterMs { get; init; }
 
     /// <summary>True when a cleaner witness (transit/sibling/destination) pulled this hop's jitter below its own reading.</summary>

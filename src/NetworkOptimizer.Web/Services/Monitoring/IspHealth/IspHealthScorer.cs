@@ -959,7 +959,7 @@ public class IspHealthScorer
             // The effective jitter: absolve-only across clusters (transit) or the ISP-wide
             // bound (ISP). This is what the card shows and what the ISP cap reads, so the
             // displayed value reflects the assimilation rather than the raw near hop.
-            P95JitterMs = effectiveJitter,
+            ScoredJitterMs = effectiveJitter,
             RttMadMs = mad,
             LossPct = losses.Count > 0 ? losses.Average() : null,
             ReachDeltaMs = reachDelta,
@@ -975,7 +975,7 @@ public class IspHealthScorer
         };
     }
 
-    /// <summary>The path jitter floor: the lowest scoring (P95) jitter across all ISP hops
+    /// <summary>The path jitter floor: the lowest scoring (P90) jitter across all ISP hops
     /// and transit clusters. Null when no series carries jitter.</summary>
     private double? ComputeJitterFloor(IspHealthInputs inputs)
     {
@@ -995,15 +995,18 @@ public class IspHealthScorer
     }
 
     /// <summary>
-    /// The jitter statistic used for scoring, the ISP/transit cap, and the cards: P95 of
-    /// the effective jitter. P95 (not median) because the tail is what the cards show and
-    /// what users reason about, and what hurts real-time traffic. The ISP and transit
-    /// jitter shown and scored are the same value. Null when none reported jitter.
+    /// The jitter statistic used for scoring, the ISP/transit cap, and the cards: the
+    /// <see cref="IspHealthOptions.AsnJitterScoringPercentile"/> (P90) of the effective jitter.
+    /// A tail percentile - not the median - because the tail is what the cards show, what users
+    /// reason about, and what hurts real-time traffic; P90 rather than P95 so a link's harshest
+    /// few percent of samples don't dominate the quality arm (intermittent bursts are caught by
+    /// the separate congestion detector). The ISP and transit jitter shown and scored are the same
+    /// value. Null when none reported jitter.
     /// </summary>
-    private static double? ScoringJitterOf(IReadOnlyList<LatencySample> samples)
+    private double? ScoringJitterOf(IReadOnlyList<LatencySample> samples)
     {
         var js = samples.Select(s => s.EffectiveJitterMs).Where(j => j.HasValue).Select(j => j!.Value).ToList();
-        return js.Count > 0 ? SeriesStats.Percentile(js, 0.95) : null;
+        return js.Count > 0 ? SeriesStats.Percentile(js, _options.AsnJitterScoringPercentile) : null;
     }
 
     /// <summary>RTT stability ratio (MAD / median) of a sample set; lower is steadier. Null without RTT.</summary>
@@ -1105,8 +1108,8 @@ public class IspHealthScorer
                 .ToList()
             : new List<(List<string> AncestorIps, double Jitter)>();
         var transitWitnesses = baseGrades
-            .Where(b => b.Grade.P95JitterMs.HasValue)
-            .Select(b => (b.Series.AsnNumber, b.Series.AncestorIps, Jitter: b.Grade.P95JitterMs!.Value))
+            .Where(b => b.Grade.ScoredJitterMs.HasValue)
+            .Select(b => (b.Series.AsnNumber, b.Series.AncestorIps, Jitter: b.Grade.ScoredJitterMs!.Value))
             .ToList();
 
         var grades = new List<IspAsnHealth>();
@@ -1173,7 +1176,7 @@ public class IspHealthScorer
     /// jitter/loss/stability/reach basis as a real transit ASN, and the grades are AVERAGED - the series are
     /// never pooled. Pooling samples across targets at different RTT baselines (a flat ~2 ms peer beside a
     /// flat ~6 ms peer) manufactures cross-target variance that craters the stability sub-score, and lets a
-    /// single target's jitter tail dominate the pooled P95; per-peer grading keeps each target coherent and
+    /// single target's jitter tail dominate the pooled P90; per-peer grading keeps each target coherent and
     /// lets one degraded destination count only 1/N. Distance stays low (peered), so each reach ceiling
     /// barely bites and the grade is driven by jitter and loss. A proximity absolution then buys back a
     /// fraction of the jitter penalty when peering delivers the internet far closer than the transit
@@ -1194,8 +1197,8 @@ public class IspHealthScorer
         foreach (var p in perPeer)
         {
             _logger?.LogDebug(
-                "ISP Health: IX Peering member {Name} -> {Overall} (stability {Stab}, jitter {Jit} @ P95 {P95j} ms, loss {Loss} @ {LossPct}%, reach ceiling {Reach})",
-                p.AsnName, p.OverallScore, p.LatencyStabilityScore, p.JitterScore, FormatMsOrNull(p.P95JitterMs),
+                "ISP Health: IX Peering member {Name} -> {Overall} (stability {Stab}, jitter {Jit} @ P{Pct} {Pj} ms, loss {Loss} @ {LossPct}%, reach ceiling {Reach})",
+                p.AsnName, p.OverallScore, p.LatencyStabilityScore, p.JitterScore, (int)Math.Round(_options.AsnJitterScoringPercentile * 100), FormatMsOrNull(p.ScoredJitterMs),
                 p.LossScore, p.LossPct?.ToString("0.###", CultureInfo.InvariantCulture) ?? "n/a", p.ReachLatencyScore);
         }
 
@@ -1246,7 +1249,7 @@ public class IspHealthScorer
             MeanRttMs = meanRtt,
             P95RttMs = AvgOf(p => p.P95RttMs),
             MedianJitterMs = AvgOf(p => p.MedianJitterMs),
-            P95JitterMs = AvgOf(p => p.P95JitterMs),
+            ScoredJitterMs = AvgOf(p => p.ScoredJitterMs),
             LossPct = AvgOf(p => p.LossPct),
             ReachDeltaMs = AvgOf(p => p.ReachDeltaMs),
             RawJitterMs = AvgOf(p => p.RawJitterMs),
@@ -1275,9 +1278,9 @@ public class IspHealthScorer
     {
         // Transit witnesses: each transit ASN's ancestor IPs + its effective jitter.
         var transitJitterByAsn = transitAsns
-            .Where(a => a.P95JitterMs.HasValue)
+            .Where(a => a.ScoredJitterMs.HasValue)
             .GroupBy(a => a.AsnNumber)
-            .ToDictionary(g => g.Key, g => g.Min(a => a.P95JitterMs!.Value));
+            .ToDictionary(g => g.Key, g => g.Min(a => a.ScoredJitterMs!.Value));
         var transitWitnesses = transitSeries
             .Where(s => transitJitterByAsn.ContainsKey(s.AsnNumber))
             .Select(s => (Ancestors: s.AncestorIps, Jitter: transitJitterByAsn[s.AsnNumber]))
@@ -1341,7 +1344,7 @@ public class IspHealthScorer
                 _logger?.LogDebug(
                     "ISP Health: ISP hop {Target} (AS{Asn}) graded {Score} - measured jitter {Jitter} ms, effective {Eff} ms ({Witnesses} routes-through witnesses), reach +{Reach} ms",
                     hop.TargetIds.FirstOrDefault(), hop.AsnNumber, grade.OverallScore,
-                    FormatMsOrNull(measured), FormatMsOrNull(grade.P95JitterMs), witnesses.Count, FormatMsOrNull(grade.ReachDeltaMs));
+                    FormatMsOrNull(measured), FormatMsOrNull(grade.ScoredJitterMs), witnesses.Count, FormatMsOrNull(grade.ReachDeltaMs));
                 grades.Add(grade);
             }
         }
@@ -1390,10 +1393,10 @@ public class IspHealthScorer
                     && (e.TargetIds.Count == 0 || e.TargetIds.Any(t => targetSet.Contains(t))))
                 .ToList();
             var means = hops.Select(h => h.MeanRttMs).Where(m => m.HasValue).Select(m => m!.Value).ToList();
-            // Each hop's P95JitterMs is its per-hop effective (absolved) jitter; RawJitterMs
+            // Each hop's ScoredJitterMs is its per-hop effective (absolved) jitter; RawJitterMs
             // is its own measured reading. The card shows the mean effective and flags
             // assimilation when that fell below the mean measured.
-            var effJitters = hops.Select(h => h.P95JitterMs).Where(j => j.HasValue).Select(j => j!.Value).ToList();
+            var effJitters = hops.Select(h => h.ScoredJitterMs).Where(j => j.HasValue).Select(j => j!.Value).ToList();
             var rawJitters = hops.Select(h => h.RawJitterMs).Where(j => j.HasValue).Select(j => j!.Value).ToList();
             double? effMean = effJitters.Count > 0 ? effJitters.Average() : null;
             double? rawMean = rawJitters.Count > 0 ? rawJitters.Average() : null;
@@ -1410,7 +1413,7 @@ public class IspHealthScorer
                 // RTT range across the ISP hops, on the same winsorized mean the hops display.
                 MinRttMs = means.Count > 0 ? means.Min() : null,
                 MaxRttMs = means.Count > 0 ? means.Max() : null,
-                P95JitterMs = effMean,
+                ScoredJitterMs = effMean,
                 LossPct = lossVals.Count > 0 ? lossVals.Average() : null,
                 OverallScore = scored.Count > 0 ? (int)Math.Round(scored.Average()) : null,
                 CongestionEventCount = asnEvents.Count,
@@ -1435,8 +1438,8 @@ public class IspHealthScorer
         var targetId = series.TargetIds.FirstOrDefault() ?? "";
         var grade = hopGrades.FirstOrDefault(g => g.TargetIds.Contains(targetId));
         // Jitter comes from the grade (the effective/absolved value the hop is scored on), so
-        // the row matches the grade beside it. Fall back to the hop's own raw P95 when ungraded.
-        var rawP95 = jitters.Count > 0 ? SeriesStats.Percentile(jitters, 0.95) : null;
+        // the row matches the grade beside it. Fall back to the hop's own raw jitter percentile when ungraded.
+        var rawScored = jitters.Count > 0 ? SeriesStats.Percentile(jitters, _options.AsnJitterScoringPercentile) : null;
         var isGraded = targetId == firstHopTargetId;
         var notTraced = notTracedTargetIds.Contains(targetId);
         return new IspTargetHealth
@@ -1444,8 +1447,8 @@ public class IspHealthScorer
             TargetId = targetId,
             Name = series.AsnName ?? targetId,
             RttMs = SeriesStats.WinsorizedMean(rtts, winsorPercentile),
-            P95JitterMs = grade?.P95JitterMs ?? rawP95,
-            RawJitterMs = grade?.RawJitterMs ?? rawP95,
+            ScoredJitterMs = grade?.ScoredJitterMs ?? rawScored,
+            RawJitterMs = grade?.RawJitterMs ?? rawScored,
             JitterAssimilated = grade?.JitterAssimilated ?? false,
             LossPct = losses.Count > 0 ? losses.Average() : null,
             OverallScore = grade?.OverallScore,
