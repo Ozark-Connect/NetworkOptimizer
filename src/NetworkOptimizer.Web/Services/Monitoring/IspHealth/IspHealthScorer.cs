@@ -103,7 +103,12 @@ public class IspHealthScorer
         var peeringReached = SelectPeeringReachedDestinations(inputs);
         if (peeringReached.Count > 0)
         {
-            var ixGrade = GradeIxPeering(peeringReached, inputs.CongestionEvents, jitterFloor, accessMedianRtt, inputs.InternetMedianDeltaMs);
+            // Median RTT of the real transit ASNs (before the IX entry joins the list). Peering that
+            // delivers the internet far closer than this earns back some of its jitter - see GradeIxPeering.
+            var transitReferenceRtt = SeriesStats.Median(
+                transitAsns.Where(a => a.MeanRttMs.HasValue).Select(a => a.MeanRttMs!.Value).ToList());
+            var ixGrade = GradeIxPeering(peeringReached, inputs.CongestionEvents, jitterFloor, accessMedianRtt,
+                inputs.InternetMedianDeltaMs, transitReferenceRtt);
             transitAsns.Insert(0, ixGrade);
             _logger?.LogDebug(
                 "ISP Health: IX Peering entry from {N} direct-peered destination(s) [{Targets}] -> grade {Grade}",
@@ -147,6 +152,15 @@ public class IspHealthScorer
                     : TransitInvolvementFloor)
                 : null;
         }
+
+        // Display order for both the Transit Health factor list and the Networks on Your Path card:
+        // the IX Peering entry and the transit ASNs sorted by involvement weight descending (the
+        // networks carrying most of your traffic first), the nearer network breaking ties. The Access
+        // dimension renders separately and always leads the Networks card.
+        transitAsns = transitAsns
+            .OrderByDescending(a => a.InvolvementWeight ?? 0.0)
+            .ThenBy(a => a.MeanRttMs ?? double.MaxValue)
+            .ToList();
 
         // Every ISP hop is graded; the dimension averages them all. Each hop's jitter is
         // absolved per-hop and routes-through-gated (a transit ASN or deeper ISP hop only
@@ -1161,14 +1175,17 @@ public class IspHealthScorer
     /// flat ~6 ms peer) manufactures cross-target variance that craters the stability sub-score, and lets a
     /// single target's jitter tail dominate the pooled P95; per-peer grading keeps each target coherent and
     /// lets one degraded destination count only 1/N. Distance stays low (peered), so each reach ceiling
-    /// barely bites and the grade is driven by jitter and loss. Per-member grades are logged at Debug.
+    /// barely bites and the grade is driven by jitter and loss. A proximity absolution then buys back a
+    /// fraction of the jitter penalty when peering delivers the internet far closer than the transit
+    /// alternative (<paramref name="transitReferenceRttMs"/>). Per-member grades are logged at Debug.
     /// </summary>
     private IspAsnHealth GradeIxPeering(
         List<AsnSeries> peeringReached,
         List<CongestionEvent> congestionEvents,
         double? jitterFloorMs,
         double? accessBaselineRtt,
-        double? internetMedianDeltaMs)
+        double? internetMedianDeltaMs,
+        double? transitReferenceRttMs)
     {
         var perPeer = peeringReached
             .Select(d => GradeAsn(d, congestionEvents, jitterFloorMs, accessBaselineRtt, internetMedianDeltaMs))
@@ -1193,13 +1210,40 @@ public class IspHealthScorer
             return vals.Count > 0 ? (int?)Math.Round(vals.Average()) : null;
         }
 
+        var meanRtt = AvgOf(p => p.MeanRttMs);
+        var jitterScore = AvgIntOf(p => p.JitterScore);
+        var overall = AvgIntOf(p => p.OverallScore);
+
+        // Proximity jitter absolution. A few ms of jitter on a peered path that reaches the internet in a
+        // fraction of the transit RTT is cheap - the proximity is itself a quality win, and much of that
+        // jitter is anycast-endpoint ICMP handling, not path. Scale a give-back by how much closer peering
+        // is than the median transit ASN, and bound it to jitter's OWN weighted share of the grade, so it
+        // can only ever cancel jitter's cost - never loss, stability, or a real congestion penalty.
+        if (transitReferenceRttMs is double tr && meanRtt is double ix && ix > 0
+            && jitterScore is int js && js < 100 && overall is int baseOverall)
+        {
+            var advantage = tr / ix; // 2.0 => peering reaches the internet at half the transit RTT
+            var alpha = ScoreCurve.Interpolate(advantage, (1.0, 0), (1.5, 0.25), (2.0, 0.45), (3.0, 0.6));
+            if (alpha > 0)
+            {
+                var qualityWeight = _options.AsnLatencyStabilityWeight + _options.AsnJitterWeight
+                    + _options.AsnLossWeight + _options.AsnCongestionWeight;
+                var jitterShare = qualityWeight > 0 ? _options.AsnJitterWeight / qualityWeight : 0;
+                var recovered = alpha * jitterShare * (100 - js);
+                overall = Math.Min(100, (int)Math.Round(baseOverall + recovered));
+                _logger?.LogDebug(
+                    "ISP Health: IX Peering proximity absolution - peering {Ix:0.0} ms vs transit ~{Tr:0.0} ms ({Adv:0.0}x), alpha {A:0.00} -> +{Rec:0.0} pts ({Base} -> {Ov})",
+                    ix, tr, advantage, alpha, recovered, baseOverall, overall);
+            }
+        }
+
         return new IspAsnHealth
         {
             AsnNumber = IxPeeringAsn,
             AsnName = "IX Peering",
             TargetIds = peeringReached.SelectMany(d => d.TargetIds).Distinct().ToList(),
             MedianRttMs = AvgOf(p => p.MedianRttMs),
-            MeanRttMs = AvgOf(p => p.MeanRttMs),
+            MeanRttMs = meanRtt,
             P95RttMs = AvgOf(p => p.P95RttMs),
             MedianJitterMs = AvgOf(p => p.MedianJitterMs),
             P95JitterMs = AvgOf(p => p.P95JitterMs),
@@ -1207,13 +1251,13 @@ public class IspHealthScorer
             ReachDeltaMs = AvgOf(p => p.ReachDeltaMs),
             RawJitterMs = AvgOf(p => p.RawJitterMs),
             LatencyStabilityScore = AvgIntOf(p => p.LatencyStabilityScore),
-            JitterScore = AvgIntOf(p => p.JitterScore),
+            JitterScore = jitterScore,
             LossScore = AvgIntOf(p => p.LossScore),
             ReachLatencyScore = AvgIntOf(p => p.ReachLatencyScore),
             CongestionScore = AvgIntOf(p => p.CongestionScore),
-            // The entry's grade is the average of the per-member grades, so one flapping peer moves it 1/N
-            // rather than dominating a pooled series.
-            OverallScore = AvgIntOf(p => p.OverallScore),
+            // Average of the per-member grades (one flapping peer moves it 1/N), then lifted by the
+            // proximity absolution above.
+            OverallScore = overall,
             CongestionEventCount = perPeer.Sum(p => p.CongestionEventCount)
         };
     }
