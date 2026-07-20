@@ -1160,8 +1160,79 @@ public class IspHealthScorerTests
             BuildInputs(transit: Transits(), destinations: new List<AsnSeries> { peeredDest }, hopOrderKnown: true), Gpon)
             .TransitDimension;
 
-        dim.Factors.Should().OnlyContain(f => f.InvolvementTooltip != null && f.InvolvementTooltip.Contains("25%"),
-            "complete ancestry showing zero transit involvement floors and labels every transit ASN");
+        // The two transit ASNs carry zero hosts, so both are floored at 25% and labeled.
+        dim.Factors.Where(f => f.Name != "IX Peering").Should()
+            .OnlyContain(f => f.InvolvementTooltip != null && f.InvolvementTooltip.Contains("25%"),
+                "complete ancestry showing zero transit involvement floors and labels every transit ASN");
+        // And because the destination is reached directly (no transit, low delta), its measured quality
+        // is surfaced as the IX Peering entry carrying full weight - not the neutral-100 fill.
+        dim.Factors.Should().ContainSingle(f => f.Name == "IX Peering")
+            .Which.InvolvementTooltip.Should().Contain("100% weight");
+    }
+
+    [Fact]
+    public void Ix_peering_entry_requires_both_low_delta_and_no_transit_on_path()
+    {
+        // Only the direct-peered destination becomes the synthetic IX Peering entry. The other two are
+        // each excluded by one arm of the AND rule:
+        //   - ViaTransit: low RTT, but its path crosses a transit ASN (the "fast but not peering" case).
+        //   - FarPeer: crosses no transit, but a large best-case delta (peering behind a hidden L2 haul).
+        var transit = new List<AsnSeries>
+        {
+            new() { AsnNumber = 64500, AsnName = "Transit", TargetIds = { "t" },
+                Samples = TestSeries.Flat(TestSeries.Start, Day, 10, 0.5), HopIps = { "20.0.0.1" } }
+        };
+        var peered = new AsnSeries
+        {
+            AsnNumber = 13335, AsnName = "Peered", TargetIds = { "peered" },
+            Samples = TestSeries.Flat(TestSeries.Start, Day, 4, 0.3), HopIps = { "30.0.0.1" },
+            AncestorIps = { "10.0.0.1" } // access ISP hop only - crosses no transit
+        };
+        var viaTransit = new AsnSeries
+        {
+            AsnNumber = 15169, AsnName = "ViaTransit", TargetIds = { "via" },
+            Samples = TestSeries.Flat(TestSeries.Start, Day, 4, 0.3), HopIps = { "31.0.0.1" },
+            AncestorIps = { "10.0.0.1", "20.0.0.1" } // low RTT but routes through the transit ASN
+        };
+        var farPeer = new AsnSeries
+        {
+            AsnNumber = 54113, AsnName = "FarPeer", TargetIds = { "far" },
+            Samples = TestSeries.Flat(TestSeries.Start, Day, 20, 0.3), HopIps = { "32.0.0.1" },
+            AncestorIps = { "10.0.0.1" } // crosses no transit, but ~18 ms beyond the access hop
+        };
+
+        var dim = new IspHealthScorer(Options).Score(
+            BuildInputs(transit: transit, destinations: new List<AsnSeries> { peered, viaTransit, farPeer },
+                hopOrderKnown: true), Gpon).TransitDimension;
+
+        var ix = dim.Factors.Should().ContainSingle(f => f.Name == "IX Peering").Which;
+        ix.Score.Should().NotBeNull("the peered destination's own measured quality drives the entry");
+        ix.InvolvementTooltip.Should().Contain("1 of 3 internet targets",
+            "only the direct-peered destination qualifies; the transit-crossing and far ones are excluded");
+    }
+
+    [Fact]
+    public void Ix_peering_entry_is_absent_when_no_destination_is_directly_peered()
+    {
+        // Every destination crosses the transit ASN (a rural-style backhaul), so no IX Peering entry is
+        // synthesized and Transit Health grades on the real transit alone - the prior behavior stands.
+        var transit = new List<AsnSeries>
+        {
+            new() { AsnNumber = 64500, AsnName = "Transit", TargetIds = { "t" },
+                Samples = TestSeries.Flat(TestSeries.Start, Day, 10, 0.5), HopIps = { "20.0.0.1" } }
+        };
+        var viaTransit = new AsnSeries
+        {
+            AsnNumber = 15169, AsnName = "ViaTransit", TargetIds = { "via" },
+            Samples = TestSeries.Flat(TestSeries.Start, Day, 12, 0.3), HopIps = { "31.0.0.1" },
+            AncestorIps = { "10.0.0.1", "20.0.0.1" }
+        };
+
+        var dim = new IspHealthScorer(Options).Score(
+            BuildInputs(transit: transit, destinations: new List<AsnSeries> { viaTransit },
+                hopOrderKnown: true), Gpon).TransitDimension;
+
+        dim.Factors.Should().NotContain(f => f.Name == "IX Peering");
     }
 
     [Fact]

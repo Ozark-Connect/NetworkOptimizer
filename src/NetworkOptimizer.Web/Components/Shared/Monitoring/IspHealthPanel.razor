@@ -501,7 +501,7 @@ else
                                             @InvolvementPie(asn.InvolvementWeight ?? 1.0, asn.InvolvementTooltip!)
                                         }
                                     </div>
-                                    <div class="isp-asn-sub">@(isIspAsn ? "ISP network" : "Transit") @(asn.AsnNumber > 0 ? $"· AS{asn.AsnNumber}" : "")</div>
+                                    <div class="isp-asn-sub">@(isIspAsn ? "ISP network" : asn.AsnNumber < 0 ? "Direct peering" : "Transit") @(asn.AsnNumber > 0 ? $"· AS{asn.AsnNumber}" : "")</div>
                                 </div>
                                 <span class="isp-asn-grade @ScoreTextClass(asn.OverallScore)">@(asn.OverallScore?.ToString() ?? "--")</span>
                             </div>
