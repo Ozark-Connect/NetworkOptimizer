@@ -164,11 +164,19 @@ print_speedtest_apparmor_hint() {
     _aa_denied_install_dir || return 0
     local pname
     pname="$(_aa_nginx_profile_name)"; [ -n "$pname" ] || pname="$NGINX_BIN"
-    echo "  Cause: AppArmor profile '${pname}' is blocking ${INSTALL_DIR}, and an additive"
-    echo "  local override didn't clear it (the profile likely has no local/ include hook)."
-    echo "  Relax it (logs but still allows), then start the service:"
-    echo "    sudo aa-complain '${pname}'"
+    echo "  Cause: AppArmor profile '${pname}' is blocking ${INSTALL_DIR}, and a scoped"
+    echo "  local override didn't clear it (no findable profile source / local hook)."
+    echo "  To serve the speed test, relax the nginx profile, then start the service:"
+    if command -v aa-complain >/dev/null 2>&1; then
+        # Cleaner (complain mode: keeps the profile, just logs) - when apparmor-utils
+        # is present. Needs a profile source file, which appliance distros may lack.
+        echo "    sudo aa-complain '${pname}'"
+    else
+        # Tool-free and source-free: works by profile name on any confined box.
+        echo "    echo -n '${pname}' | sudo tee /sys/kernel/security/apparmor/.remove   # unload, until reboot"
+    fi
     echo "    sudo systemctl start ${SPEEDTEST_SERVICE}"
+    echo "  The agent and monitoring work regardless - only the LAN speed test needs this."
 }
 
 # Remove any AppArmor local override this installer added (marker-guarded, so a
@@ -185,6 +193,7 @@ remove_apparmor_override() {
         echo "  Removed AppArmor override from ${f}."
     done
     [ "$changed" = 1 ] && systemctl reload apparmor >/dev/null 2>&1 || true
+    AA_OVERRIDE_REMOVED="$changed"
     return 0
 }
 
@@ -209,9 +218,14 @@ _webroot_needs_root_worker() {
 
 # Stop and remove everything this installer created, in an order that never leaves a
 # running "ghost" unit (services are stopped before their unit files are deleted).
-# Leaves the host's own nginx and its AppArmor profile untouched.
+# Leaves the host's own nginx untouched; removes only the AppArmor override this
+# installer itself added (if any), reporting accordingly.
 uninstall_agent() {
     echo "Removing the Network Optimizer agent (${SERVICE_NAME}) and ${INSTALL_DIR}..."
+    # Whether this install ever set up the speed test (and thus borrowed nginx) - so
+    # the summary only mentions nginx/AppArmor when they were actually involved.
+    local had_speedtest=0
+    [ -f "/etc/systemd/system/${SPEEDTEST_SERVICE}.service" ] && had_speedtest=1
     systemctl disable --now "${SERVICE_NAME}.service" "${SPEEDTEST_SERVICE}.service" 2>/dev/null || true
     rm -f "/etc/systemd/system/${SERVICE_NAME}.service" \
           "/etc/systemd/system/${SPEEDTEST_SERVICE}.service" \
@@ -220,7 +234,13 @@ uninstall_agent() {
     systemctl reset-failed "${SERVICE_NAME}.service" "${SPEEDTEST_SERVICE}.service" 2>/dev/null || true
     remove_apparmor_override
     rm -rf "$INSTALL_DIR"
-    echo "Done - agent removed. The host's own nginx and AppArmor profile are untouched."
+    if [ "${AA_OVERRIDE_REMOVED:-0}" = 1 ]; then
+        echo "Done - agent removed, including the AppArmor override it had added. The host's own nginx is untouched."
+    elif [ "$had_speedtest" = 1 ]; then
+        echo "Done - agent removed. The host's own nginx is untouched."
+    else
+        echo "Done - agent removed."
+    fi
 }
 
 [ "$(id -u)" -eq 0 ] || err "Run as root (needed to manage the systemd service): sudo bash install-native.sh ..."
