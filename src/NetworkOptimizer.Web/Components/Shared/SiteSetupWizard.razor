@@ -446,6 +446,27 @@
     private async Task ResetAsync()
     {
         await RefreshLimitAsync();
+        ResetForm();
+        await OnSitesChanged.InvokeAsync();
+    }
+
+    /// <summary>
+    /// Clears the completed ("... is ready") success screen back to a fresh Add-a-Site
+    /// form. Called when the user opens a site's Configuration from the Sites table, so
+    /// the stale success state does not linger. No-op while a site is mid-setup, so
+    /// in-progress input is never discarded.
+    /// </summary>
+    public void ResetIfComplete()
+    {
+        if (_step != 4)
+            return;
+
+        ResetForm();
+        StateHasChanged();
+    }
+
+    private void ResetForm()
+    {
         _step = 1;
         _site = null;
         _name = "";
@@ -460,6 +481,5 @@
         _featureLanSpeedTest = false;
         _featureProxy = false;
         _message = "";
-        await OnSitesChanged.InvokeAsync();
     }
 }

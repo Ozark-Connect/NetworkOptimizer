@@ -3734,6 +3734,9 @@
         _newAgentToken = null;
         if (_expandedSiteId != null)
         {
+            // Opening a site's Configuration clears the Add-a-Site wizard's completed
+            // success screen so it does not linger next to the site being configured.
+            _setupWizard?.ResetIfComplete();
             await LoadAgentsAsync();
             var site = _sites.FirstOrDefault(s => s.Id == siteId);
             if (site != null)
@@ -3981,7 +3984,7 @@
     // External ONT Monitoring
     private List<OntConfiguration> _ontConfigs = new();
     private List<MonitoredSfp> _attachableSfps = new();
-    private OntConfiguration _editingOnt = new() { Provider = "att-gateway", Port = 80, PollingIntervalSeconds = 300, Enabled = true };
+    private OntConfiguration _editingOnt = NewDefaultOnt();
     private bool _ontFormVisible;
     private bool _savingOnt;
     private string? _ontTestResult;
@@ -5874,9 +5877,21 @@
 
     private void CancelEditOnt()
     {
-        _editingOnt = new OntConfiguration { Provider = "att-gateway", Port = 80, PollingIntervalSeconds = 300, Enabled = true };
+        _editingOnt = NewDefaultOnt();
         _ontFormVisible = false;
     }
+
+    // A fresh Add-ONT form. The default provider (att-gateway) never fires
+    // OnOntProviderChanged, so its known management host is prefilled here too -
+    // otherwise the default selection would show only the placeholder, not a value.
+    private static OntConfiguration NewDefaultOnt() => new()
+    {
+        Provider = "att-gateway",
+        Host = GetOntProviderDefaultHost("att-gateway"),
+        Port = GetOntProviderDefaultPort("att-gateway"),
+        PollingIntervalSeconds = 300,
+        Enabled = true,
+    };
 
     private void OnOntProviderChanged(ChangeEventArgs e)
     {
@@ -5929,7 +5944,7 @@
     private static string GetOntHostPlaceholder(string provider)
     {
         var suggested = GetOntProviderDefaultHost(provider);
-        return string.IsNullOrEmpty(suggested) ? "192.168.1.254" : suggested;
+        return string.IsNullOrEmpty(suggested) ? "192.168.100.1" : suggested;
     }
 
     private static string GetOntProviderDisplayName(string provider) => provider switch
