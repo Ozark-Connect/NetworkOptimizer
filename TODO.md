@@ -321,6 +321,23 @@ The following were implemented in the WiFi Optimizer feature:
 
 ## Monitoring
 
+### Upstream path discovery: DynamoDB regional endpoints for transit trace exposure (Setup tab)
+Transit Health involvement weighting and destination->transit jitter absolution both key off which
+monitored internet targets a transit ASN provably carries (trace ancestry). The current CDN/DNS
+targets peer at the local IX, so they cross no transit and give the attribution nothing to work with.
+AWS DynamoDB regional endpoints ARE ICMP-pingable and DO ride paid transit, so they're good extra
+trace targets (and can double as monitored targets):
+
+    dynamodb.<region>.amazonaws.com   (nearest region(s) first, e.g. us-west-2, us-west-1, us-east-2, us-east-1)
+
+- **Not anycast** - resolve + latency-rank to the nearest region(s), else you trace a transcontinental
+  path that misrepresents the transit.
+- **Attribution still needs work (observed in testing):** the endpoint pings and the path is NOT
+  peered, but the intermediate transit hops don't answer traceroute (all stars) - so the current
+  ancestry can't tell WHICH transit ASN it crossed. DynamoDB gives a clean AWS target that genuinely
+  transits; surfacing which transit still needs the responding-hop-ASN capture (record every
+  responding hop's ASN, not just monitored-target IPs), and pure-star segments recover nothing.
+
 ### Investigation Functions (Network Performance tab)
 The Investigate card currently jumps the latency charts to the most recent **packet-loss** and **loaded-loss** events and steps event-to-event (coalesced, peak-loss minute). Ideas to extend it:
 

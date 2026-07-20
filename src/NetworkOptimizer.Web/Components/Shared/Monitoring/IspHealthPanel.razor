@@ -1,5 +1,6 @@
 @using NetworkOptimizer.Web.Services.Monitoring.IspHealth
 @using NetworkOptimizer.Storage.Models
+@using System.Globalization
 @implements IDisposable
 @inject IspHealthService IspHealth
 @inject NavigationManager NavigationManager
@@ -344,7 +345,13 @@ else
                                             @target.Name
                                             @if (target.IsGradedHop)
                                             {
-                                                <span class="isp-target-graded" data-tooltip="The lowest-RTT ISP hop; access-layer idle latency is measured from it">Lowest RTT</span>
+                                                <span class="isp-target-badge isp-target-graded" data-tooltip="The lowest-RTT ISP hop; access-layer idle latency is measured from it">Lowest RTT</span>
+                                            }
+                                            @if (target.SuggestDisable)
+                                            {
+                                                <button type="button" class="isp-target-badge isp-target-disable-hint"
+                                                        data-tooltip="Not on your traced path but adding jitter - review in Latency targets to disable"
+                                                        @onclick="() => OnReviewTarget.InvokeAsync(target.TargetId)">Not on path &#9888;</button>
                                             }
                                         </div>
                                         <div class="isp-factor-bar-track">
@@ -420,15 +427,21 @@ else
                                             ? PhysicalLinkInvestigateTooltip(r.PhysicalLinkSelectedKey, r.PhysicalLinkMedium)
                                             : "Jump to the most recent matching loss event on the Network Performance charts";
                                     }
-                                    @if (investigateUrl != null)
-                                    {
-                                        <a class="isp-factor-name isp-factor-link" href="@investigateUrl"
-                                           data-tooltip="@investigateTooltip" data-tooltip-hover-only>@factor.Name</a>
-                                    }
-                                    else
-                                    {
-                                        <span class="isp-factor-name">@factor.Name</span>
-                                    }
+                                    <div class="isp-factor-name-row">
+                                        @if (investigateUrl != null)
+                                        {
+                                            <a class="isp-factor-name isp-factor-link" href="@investigateUrl"
+                                               data-tooltip="@investigateTooltip" data-tooltip-hover-only>@factor.Name</a>
+                                        }
+                                        else
+                                        {
+                                            <span class="isp-factor-name">@factor.Name</span>
+                                        }
+                                        @if (!string.IsNullOrEmpty(factor.InvolvementTooltip))
+                                        {
+                                            @InvolvementPie(factor.Weight, factor.InvolvementTooltip!)
+                                        }
+                                    </div>
                                     @if (!string.IsNullOrEmpty(factor.ValueText))
                                     {
                                         <span class="isp-factor-value">@factor.ValueText</span>
@@ -481,7 +494,13 @@ else
                         <div class="isp-asn-card">
                             <div class="isp-asn-card-header">
                                 <div>
-                                    <div class="isp-asn-name">@(string.IsNullOrEmpty(asn.AsnName) ? $"AS{asn.AsnNumber}" : asn.AsnName)</div>
+                                    <div class="isp-asn-name-row">
+                                        <div class="isp-asn-name">@(string.IsNullOrEmpty(asn.AsnName) ? $"AS{asn.AsnNumber}" : asn.AsnName)</div>
+                                        @if (!string.IsNullOrEmpty(asn.InvolvementTooltip))
+                                        {
+                                            @InvolvementPie(asn.InvolvementWeight ?? 1.0, asn.InvolvementTooltip!)
+                                        }
+                                    </div>
                                     <div class="isp-asn-sub">@(isIspAsn ? "ISP network" : "Transit") @(asn.AsnNumber > 0 ? $"· AS{asn.AsnNumber}" : "")</div>
                                 </div>
                                 <span class="isp-asn-grade @ScoreTextClass(asn.OverallScore)">@(asn.OverallScore?.ToString() ?? "--")</span>
@@ -649,6 +668,38 @@ else
 
 @code {
     private const int NetworkPreviewCount = 5;
+
+    // Raised when the user clicks the disable hint on an off-path, jittery ISP hop; the parent jumps
+    // to the Latency targets card so they can pause it. Argument is the hop's TargetId.
+    [Parameter] public EventCallback<string> OnReviewTarget { get; set; }
+
+    // Arm 4: pie-slice icon showing a transit ASN's internet-host involvement weight (0.25-1.0).
+    private RenderFragment InvolvementPie(double weight, string tooltip) => @<span class="isp-involvement-pie" data-tooltip="@tooltip">
+        <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">
+            <circle cx="8" cy="8" r="6" fill="var(--bg-tertiary)" stroke="var(--text-muted)" stroke-width="1"></circle>
+            @if (weight >= 0.999)
+            {
+                <circle cx="8" cy="8" r="6" fill="var(--primary-color)"></circle>
+            }
+            else
+            {
+                <path d="@PieSlicePath(weight)" fill="var(--primary-color)"></path>
+            }
+        </svg>
+    </span>;
+
+    // SVG path for a pie wedge filled from 12 o'clock clockwise by `fraction` of a full turn, on a
+    // 16x16 viewBox, radius 6. Empty for fraction <= 0; the full-circle case is handled by the caller.
+    private static string PieSlicePath(double fraction)
+    {
+        fraction = Math.Clamp(fraction, 0, 1);
+        if (fraction <= 0) return string.Empty;
+        var theta = 2 * Math.PI * fraction;
+        var ex = 8 + 6 * Math.Sin(theta);
+        var ey = 8 - 6 * Math.Cos(theta);
+        var large = fraction > 0.5 ? 1 : 0;
+        return string.Create(CultureInfo.InvariantCulture, $"M8,8 L8,2 A6,6 0 {large} 1 {ex:0.##},{ey:0.##} Z");
+    }
 
     private IspHealthReport? _report;
     private bool _loading = true;

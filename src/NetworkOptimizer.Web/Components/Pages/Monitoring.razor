@@ -369,7 +369,7 @@ else
         {
             @FlakyTargetsBanner
         }
-        <IspHealthPanel />
+        <IspHealthPanel OnReviewTarget="ReviewIspHopInLatencyTargets" />
     }
 
     @* ──────────────── Tab: Network Performance ──────────────── *@
@@ -2828,6 +2828,19 @@ else
             await _latencyTargetsCard.ExpandAndHighlightAsync(targetId);
     }
 
+    // ISP Health disable hint (off-path, jittery hop): switch to the Network Performance tab (where
+    // Latency targets lives, same as JumpToLatencyTargetAsync), then highlight the target once its
+    // card mounts (handled in OnAfterRenderAsync via _pendingLatencyJumpId).
+    private int? _pendingLatencyJumpId;
+
+    private void ReviewIspHopInLatencyTargets(string targetId)
+    {
+        var id = _targets.FirstOrDefault(t => t.TargetId == targetId)?.Id;
+        if (id == null) return;
+        _pendingLatencyJumpId = id;
+        SetActiveTab("performance");
+    }
+
     private async Task DismissLanFlakyHintAsync(MonitoringTarget target)
     {
         try
@@ -3516,6 +3529,14 @@ else
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        // Pending jump from the ISP Health disable hint: once the Network Performance tab's Latency
+        // targets card has mounted, expand + highlight the target, then clear so it fires once.
+        if (_pendingLatencyJumpId is int jumpId && _latencyTargetsCard != null)
+        {
+            _pendingLatencyJumpId = null;
+            await _latencyTargetsCard.ExpandAndHighlightAsync(jumpId);
+        }
+
         // The chart containers only exist while the console is connected - the whole
         // tab region renders behind the connection banner. Without this guard, a page
         // opened during a console outage (agent-backed site waiting for its tunnel,

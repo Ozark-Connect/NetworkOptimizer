@@ -1042,6 +1042,11 @@ public class IspHealthService
             SmartQueuesEnabled = smartQueuesEnabled,
             AdaptiveSqmEnabled = adaptiveSqmEnabled,
             HopOrderKnown = hopOrderKnown,
+            // Hops with a discovery row but HopNumber 0 answered pings yet never landed in a trace
+            // (OLT/CMTS ICMP-deprioritization); only meaningful once we have trace data at all.
+            NotTracedTargetIds = hopOrderKnown
+                ? hopNumberByTargetId.Where(kv => kv.Value == 0).Select(kv => kv.Key).ToHashSet(StringComparer.OrdinalIgnoreCase)
+                : new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             LoadExclusionWindows = loadExclusions,
             PhysicalLink = physical.Input
         };

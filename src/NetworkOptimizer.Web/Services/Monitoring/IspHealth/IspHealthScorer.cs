@@ -91,7 +91,39 @@ public class IspHealthScorer
         var accessMedianRtt = SeriesStats.Median(
             inputs.FirstHopSeries.Where(s => s.RttAvgMs.HasValue).Select(s => s.RttAvgMs!.Value).ToList());
 
-        var transitAsns = inputs.TransitAsnSeries.Select(s => GradeAsn(s, inputs.CongestionEvents, jitterFloor, accessMedianRtt, inputs.InternetMedianDeltaMs)).ToList();
+        var transitAsns = GradeTransitAsns(inputs.TransitAsnSeries, inputs.DestinationSeries, inputs.HopOrderKnown,
+            inputs.CongestionEvents, jitterFloor, accessMedianRtt, inputs.InternetMedianDeltaMs);
+
+        // Arm 4: each transit ASN's "internet host involvement" - how many monitored internet
+        // destinations are proven to route through it (routes-through gated on stored ancestry).
+        // Feeds the involvement-weighted Transit dimension below. Zero for every ASN when transit
+        // is traceroute-invisible on the destination paths, in which case the dimension falls back
+        // to an equal-weighted average (the prior behavior).
+        var transitHopIpsByAsn = inputs.TransitAsnSeries
+            .GroupBy(s => s.AsnNumber)
+            .ToDictionary(g => g.Key, g => g.SelectMany(s => s.HopIps).Distinct(StringComparer.OrdinalIgnoreCase).ToList());
+        var transitReachByAsn = transitHopIpsByAsn.ToDictionary(
+            kv => kv.Key,
+            kv => inputs.HopOrderKnown ? inputs.DestinationSeries.Count(d => RoutesThrough(d.AncestorIps, kv.Value)) : 0);
+        var transitMaxReach = transitReachByAsn.Count > 0 ? transitReachByAsn.Values.Max() : 0;
+
+        // Attribution is "known" when we have the ancestry to prove routes-through AND destinations to
+        // test against. Then reach == 0 is a TRUE zero (a peered site whose destinations cross no
+        // transit) and floors the ASN at 25% - distinct from "no ancestry at all", where we can't tell
+        // and leave involvement unset (equal weight). Attach the involvement to each transit ASN so
+        // both Transit Health and the Networks on Your Path card read from one source.
+        var transitAttributionKnown = inputs.HopOrderKnown && inputs.DestinationSeries.Count > 0;
+        foreach (var a in transitAsns)
+        {
+            a.ShowInvolvement = transitAttributionKnown;
+            a.InvolvementHostTotal = inputs.DestinationSeries.Count;
+            a.InvolvementReach = transitReachByAsn.TryGetValue(a.AsnNumber, out var rc) ? rc : 0;
+            a.InvolvementWeight = transitAttributionKnown
+                ? (transitMaxReach > 0
+                    ? TransitInvolvementFloor + (1 - TransitInvolvementFloor) * ((double)a.InvolvementReach / transitMaxReach)
+                    : TransitInvolvementFloor)
+                : null;
+        }
 
         // Every ISP hop is graded; the dimension averages them all. Each hop's jitter is
         // absolved per-hop and routes-through-gated (a transit ASN or deeper ISP hop only
@@ -197,7 +229,7 @@ public class IspHealthScorer
             IspAsnDimension = ispAsnDimension,
             TransitAsns = transitAsns,
             IspAsns = ispAsns,
-            IspTargets = inputs.IspTargetSeries.Select(s => BuildIspTargetHealth(s, inputs.FirstHopTargetId, ispHopGrades, _options.RttWinsorPercentile)).ToList(),
+            IspTargets = inputs.IspTargetSeries.Select(s => BuildIspTargetHealth(s, inputs.FirstHopTargetId, ispHopGrades, _options.RttWinsorPercentile, inputs.NotTracedTargetIds)).ToList(),
             CongestionEvents = inputs.CongestionEvents,
             PathShifts = inputs.PathShifts,
             Outages = inputs.Outages,
@@ -1000,6 +1032,70 @@ public class IspHealthScorer
     /// ICMP-deprioritized hop whose forwarded traffic actually reaches the destination cleanly.
     /// Hops are also scored against the intra-ASN reach floor (distance, not a fault).
     /// </summary>
+    /// <summary>
+    /// Grades every transit ASN. Beyond the within-ASN far-cluster absolution baked into each
+    /// series' <see cref="AsnSeries.JitterSourceSamples"/>, a transit ASN's jitter is additionally
+    /// absolved (Arm A) by any monitored destination - or any OTHER transit ASN - proven to route
+    /// through it (routes-through gated on stored ancestry): a clean end-to-end path across the ASN
+    /// is an upper bound on the ASN's true jitter, so an ICMP-deprioritized transit router isn't
+    /// penalized for control-plane noise its forwarded traffic never sees. Strict: with no ancestry
+    /// (hopOrderKnown false) nothing absolves, and a witness only counts where it provably routes
+    /// through the ASN - never on faith. Falls back to the base within-ASN grade when no witness
+    /// applies.
+    /// </summary>
+    private List<IspAsnHealth> GradeTransitAsns(
+        List<AsnSeries> transitSeries,
+        List<AsnSeries> destinationSeries,
+        bool hopOrderKnown,
+        List<CongestionEvent> congestionEvents,
+        double? jitterFloorMs,
+        double? accessBaselineRtt,
+        double? internetMedianDeltaMs)
+    {
+        // Base grade (within-ASN far-cluster absolution only) - the prior behavior. Serves as the
+        // fallback and as each ASN's own jitter when it witnesses another ASN.
+        var baseGrades = transitSeries
+            .Select(s => (Series: s, Grade: GradeAsn(s, congestionEvents, jitterFloorMs, accessBaselineRtt, internetMedianDeltaMs)))
+            .ToList();
+
+        // Destination end-to-end jitter + each transit ASN's base jitter, keyed by the ancestor IPs
+        // that prove what they route through. Destinations only when ancestry exists (strict).
+        var destWitnesses = hopOrderKnown
+            ? destinationSeries
+                .Select(d => (d.AncestorIps, Jitter: ScoringJitterOf(d.Samples)))
+                .Where(w => w.Jitter.HasValue)
+                .Select(w => (w.AncestorIps, Jitter: w.Jitter!.Value))
+                .ToList()
+            : new List<(List<string> AncestorIps, double Jitter)>();
+        var transitWitnesses = baseGrades
+            .Where(b => b.Grade.P95JitterMs.HasValue)
+            .Select(b => (b.Series.AsnNumber, b.Series.AncestorIps, Jitter: b.Grade.P95JitterMs!.Value))
+            .ToList();
+
+        var grades = new List<IspAsnHealth>();
+        foreach (var (series, baseGrade) in baseGrades)
+        {
+            // The jitter the base grade scored on: near vs this ASN's own farther cluster.
+            var within = EffectiveLower(series.Samples, series.JitterSourceSamples, ScoringJitterOf);
+            var witnesses = destWitnesses
+                .Where(w => hopOrderKnown && RoutesThrough(w.AncestorIps, series.HopIps))
+                .Select(w => w.Jitter)
+                .Concat(transitWitnesses
+                    .Where(w => hopOrderKnown && w.AsnNumber != series.AsnNumber && RoutesThrough(w.AncestorIps, series.HopIps))
+                    .Select(w => w.Jitter))
+                .ToList();
+            if (witnesses.Count == 0)
+            {
+                grades.Add(baseGrade);
+                continue;
+            }
+            var effective = within.HasValue ? Math.Min(within.Value, witnesses.Min()) : witnesses.Min();
+            grades.Add(GradeAsn(series, congestionEvents, jitterFloorMs, accessBaselineRtt, internetMedianDeltaMs,
+                jitterOverrideMs: effective));
+        }
+        return grades;
+    }
+
     private List<IspAsnHealth> GradeIspHops(
         List<AsnSeries> ispHopSeries,
         List<AsnSeries> transitSeries,
@@ -1159,7 +1255,13 @@ public class IspHealthScorer
         return result;
     }
 
-    private IspTargetHealth BuildIspTargetHealth(AsnSeries series, string? firstHopTargetId, List<IspAsnHealth> hopGrades, double winsorPercentile)
+    /// <summary>
+    /// A hop is suggested for disable when its jitter score is at or below this - i.e. jitter is a
+    /// real deficit, not noise. Combined with "off the traced path" to avoid nagging on clean hops.
+    /// </summary>
+    private const int DisableSuggestMaxJitterScore = 70;
+
+    private IspTargetHealth BuildIspTargetHealth(AsnSeries series, string? firstHopTargetId, List<IspAsnHealth> hopGrades, double winsorPercentile, IReadOnlySet<string> notTracedTargetIds)
     {
         var rtts = series.Samples.Where(s => s.RttAvgMs.HasValue).Select(s => s.RttAvgMs!.Value).ToList();
         var jitters = series.Samples.Select(s => s.EffectiveJitterMs).Where(j => j.HasValue).Select(j => j!.Value).ToList();
@@ -1169,6 +1271,8 @@ public class IspHealthScorer
         // Jitter comes from the grade (the effective/absolved value the hop is scored on), so
         // the row matches the grade beside it. Fall back to the hop's own raw P95 when ungraded.
         var rawP95 = jitters.Count > 0 ? SeriesStats.Percentile(jitters, 0.95) : null;
+        var isGraded = targetId == firstHopTargetId;
+        var notTraced = notTracedTargetIds.Contains(targetId);
         return new IspTargetHealth
         {
             TargetId = targetId,
@@ -1180,7 +1284,11 @@ public class IspHealthScorer
             LossPct = losses.Count > 0 ? losses.Average() : null,
             OverallScore = grade?.OverallScore,
             ReachDeltaMs = grade?.ReachDeltaMs,
-            IsGradedHop = targetId == firstHopTargetId
+            IsGradedHop = isGraded,
+            NotOnTracedPath = notTraced,
+            // Off the traced path AND its jitter is a real deficit - the "why am I still scoring this?"
+            // candidate. Never the graded nearest hop.
+            SuggestDisable = notTraced && !isGraded && grade?.JitterScore is int js && js <= DisableSuggestMaxJitterScore
         };
     }
 
@@ -1206,21 +1314,57 @@ public class IspHealthScorer
         return new IspScoreDimension { Name = name, Score = score, Weight = weight, Factors = factors };
     }
 
+    /// <summary>
+    /// Weight below which a graded transit ASN never falls: the least-involved transit still counts
+    /// at 25% relative to the most-involved (a 4x cap on the spread), so a bad-but-minor transit is
+    /// de-weighted but never escapes accountability. Arm 4.
+    /// </summary>
+    private const double TransitInvolvementFloor = 0.25;
+
+    /// <summary>Neutral baseline the uninvolved fraction of a transit ASN's score blends toward: a
+    /// transit carrying none of your hosts can't hurt Transit Health (it contributes ~100).</summary>
+    private const double TransitNeutralBaseline = 100.0;
+
+    /// <summary>
+    /// Builds a transit-style ASN dimension. Each ASN carries its <see cref="IspAsnHealth.InvolvementWeight"/>
+    /// (0.25-1.0, set upstream from internet-host involvement); its effective contribution is
+    /// weight * own + (1 - weight) * <see cref="TransitNeutralBaseline"/>, and the dimension score is
+    /// the involvement-weighted average of those - so the transit you actually use dominates and a
+    /// side-path transit's problems don't drag the number. When no ASN has involvement set (no
+    /// attribution), it's the plain average and no fraction icon is shown.
+    /// </summary>
     private static IspScoreDimension BuildAsnDimension(string name, double weight, List<IspAsnHealth> asns)
     {
         var factors = asns.Select(a => new IspScoreFactor
         {
             Name = string.IsNullOrEmpty(a.AsnName) ? $"AS{a.AsnNumber}" : a.AsnName,
             Score = a.OverallScore,
-            Weight = 1.0,
+            Weight = a.InvolvementWeight ?? 1.0,
             ValueText = a.MeanRttMs.HasValue ? FormatMsCoarse(a.MeanRttMs.Value) : null,
             Description = a.CongestionEventCount > 0
                 ? $"{a.CongestionEventCount} congestion event{(a.CongestionEventCount == 1 ? "" : "s")} in the window."
-                : null
+                : null,
+            InvolvementTooltip = a.InvolvementTooltip
         }).ToList();
 
         var scored = asns.Where(a => a.OverallScore.HasValue).ToList();
-        int? score = scored.Count > 0 ? (int)Math.Round(scored.Average(a => a.OverallScore!.Value)) : null;
+        int? score;
+        if (scored.Count == 0)
+            score = null;
+        else if (scored.All(a => a.InvolvementWeight is null))
+            score = (int)Math.Round(scored.Average(a => a.OverallScore!.Value));
+        else
+        {
+            var wsum = scored.Sum(a => a.InvolvementWeight ?? 1.0);
+            score = wsum > 0
+                ? (int)Math.Round(scored.Sum(a =>
+                {
+                    var w = a.InvolvementWeight ?? 1.0;
+                    var effective = w * a.OverallScore!.Value + (1 - w) * TransitNeutralBaseline;
+                    return w * effective;
+                }) / wsum)
+                : (int)Math.Round(scored.Average(a => a.OverallScore!.Value));
+        }
         return new IspScoreDimension { Name = name, Score = score, Weight = weight, Factors = factors };
     }
 
