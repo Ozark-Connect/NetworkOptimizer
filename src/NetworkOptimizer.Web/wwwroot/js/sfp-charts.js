@@ -241,7 +241,8 @@ async function loadAndUpdate() {
         powerChart.updateSeries(powerSeries, false);
     }
     if (tempChart) tempChart.updateSeries(tSeries, false);
-    await updatePonCharts(data);
+    // Never let a PON chart failure abort the rest of the refresh (badges, stats table).
+    try { await updatePonCharts(data); } catch (_) {}
 
     updateVisibility();
     lastData = data;

@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
@@ -27,10 +28,12 @@ public class NetOptCustomPonOntProvider : ISfpSupplementalOntProvider
 
     /// <summary>
     /// Reference endpoints are one-shot listeners (a netcat accept loop) that serve a
-    /// single connection at a time and re-gather stats per request, so requests must
-    /// never overlap. Serialized per provider instance (singleton).
+    /// single connection at a time and re-gather stats per request, so requests to the
+    /// same endpoint must never overlap. Gated per (host, port) so distinct endpoints -
+    /// different devices, different sites - still poll in parallel (this is a shared
+    /// singleton across all sites).
     /// </summary>
-    private readonly SemaphoreSlim _requestGate = new(1, 1);
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> _requestGates = new();
 
     private const int DefaultPort = 10012;
 
@@ -110,7 +113,8 @@ public class NetOptCustomPonOntProvider : ISfpSupplementalOntProvider
         var port = context.Port > 0 ? context.Port : DefaultPort;
         var url = $"http://{context.Host}:{port}/";
 
-        await _requestGate.WaitAsync(cancellationToken);
+        var gate = _requestGates.GetOrAdd($"{context.Host}:{port}", _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(cancellationToken);
         try
         {
             // Generous timeout: reference implementations gather stats on demand
@@ -145,7 +149,7 @@ public class NetOptCustomPonOntProvider : ISfpSupplementalOntProvider
         }
         finally
         {
-            _requestGate.Release();
+            gate.Release();
         }
     }
 

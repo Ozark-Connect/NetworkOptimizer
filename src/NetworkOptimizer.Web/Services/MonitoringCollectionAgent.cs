@@ -2150,13 +2150,23 @@ public class MonitoringCollectionAgent : BackgroundService
                     config.LastPolled = DateTime.UtcNow;
                     config.LastError = null;
 
-                    _ = _ontAlertEvaluator.EvaluateAsync(
-                        config.Id, config.Name,
-                        rxPowerDbm: null,
-                        NetOptCustomPonOntProvider.ToPonLinkState(stats.PloamStateRaw),
-                        stats.FecErrors,
-                        temperatureC: null,
-                        thresholds.PonRxPowerLowDbm, thresholds.PonTempHighC, ct);
+                    // Alert evaluation runs in its own try/catch so an alert failure is
+                    // logged but never marks the (successful) poll as errored - matching
+                    // the SFP/device-health evaluator call sites.
+                    try
+                    {
+                        await _ontAlertEvaluator.EvaluateAsync(
+                            config.Id, config.Name,
+                            rxPowerDbm: null,
+                            NetOptCustomPonOntProvider.ToPonLinkState(stats.PloamStateRaw),
+                            stats.FecErrors,
+                            temperatureC: null,
+                            thresholds.PonRxPowerLowDbm, thresholds.PonTempHighC, ct);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogDebug(ex, "PON alert evaluation failed for {Name}", config.Name);
+                    }
                 }
                 else
                 {

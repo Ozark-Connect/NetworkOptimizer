@@ -200,7 +200,8 @@ async function loadAndUpdate() {
         powerChart.updateSeries(powerSeries, false);
     }
     if (tempChart) tempChart.updateSeries(tempSeries, false);
-    await updateErrorsChart(data);
+    // Never let an errors-chart failure abort the rest of the refresh (badges, stats table).
+    try { await updateErrorsChart(data); } catch (_) {}
 
     updateVisibility();
     lastData = data;
