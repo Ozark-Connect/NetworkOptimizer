@@ -133,8 +133,8 @@ public class IspAsnHealth
     /// <summary>Fraction-icon tooltip built from the involvement fields; null when not shown.</summary>
     public string? InvolvementTooltip => !ShowInvolvement || InvolvementWeight is not double w ? null
         : InvolvementReach > 0
-            ? $"Carries {InvolvementReach}/{InvolvementHostTotal} hosts (forward path), {w * 100:0}% weight"
-            : $"Off the forward path; held at {w * 100:0}% (likely the return path from popular services)";
+            ? $"Carries {InvolvementReach} of {InvolvementHostTotal} internet targets (forward path), {w * 100:0}% weight"
+            : $"No internet target's forward path crosses this; held at {w * 100:0}% (likely their return path)";
 
     public int? LatencyStabilityScore { get; init; }
     public int? JitterScore { get; init; }
