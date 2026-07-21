@@ -204,6 +204,17 @@ public class LanFlowMapService
     /// </summary>
     private const double HistoricOnlineWindowSeconds = 60;
 
+    /// <summary>
+    /// Instants within this many seconds of now are the "live edge". The historic cache
+    /// fetches a window 5 min AHEAD of its fetch instant, but that ahead portion is empty
+    /// when fetched (the data isn't written yet), and an agent-run speed test can delay
+    /// writes ~2 min. Reusing the cached copy there froze the maps (all-offline / stuck
+    /// rates) while Port Stats - which queries fresh per instant - stayed accurate. So near
+    /// the live edge we bypass the cache and query fresh, matching Port Stats. Sized to the
+    /// worst observed agent-test write lag; older instants still use the cache.
+    /// </summary>
+    private const double HistoricLiveEdgeSettleSeconds = 150;
+
     /// <summary>Gateway / switch / AP - the fabric devices the map renders an explicit
     /// online/offline appearance for (clients track association, not device state).</summary>
     private static bool IsInfraKind(LanNodeKind kind) =>
@@ -559,11 +570,15 @@ public class LanFlowMapService
         }
         catch { }
 
-        // Reuse cached InfluxDB results when the requested time falls within
-        // the previously fetched window. Fetches 5 min ahead so forward
-        // playback goes ~4 min before needing another round-trip.
+        // Reuse cached InfluxDB results when the requested time falls within the
+        // previously fetched window. Fetches 5 min ahead so forward playback goes ~4 min
+        // before another round-trip. But never reuse for the live edge: the ahead portion
+        // was empty when fetched (data not written yet), so serving it there froze the maps
+        // while fresh queries (Port Stats) stayed accurate. Refetch when `at` is within the
+        // settle window of now so the live edge always reads freshly-written data.
+        var liveEdge = DateTime.UtcNow - TimeSpan.FromSeconds(HistoricLiveEdgeSettleSeconds);
         var cached = _cache.HistoricData;
-        if (cached == null || at < cached.From || at > cached.To - TimeSpan.FromSeconds(30))
+        if (cached == null || at < cached.From || at > cached.To - TimeSpan.FromSeconds(30) || at > liveEdge)
         {
             cached = await FetchHistoricDataAsync(at, snapshot, gwMac, ct);
             _cache.HistoricData = cached;
