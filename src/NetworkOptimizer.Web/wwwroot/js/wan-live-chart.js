@@ -3,7 +3,7 @@
 // /api/monitoring/live-stats for real-time updates.
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
-import * as flowData from './lan-flow-data.js?v=5';
+import * as flowData from './lan-flow-data.js?v=6';
 
 const HISTORY_MINUTES = 5;
 // Poll faster than the 5s SNMP fast tier so no sample is missed when the two
@@ -490,6 +490,20 @@ export async function mount(containerId, opts) {
         }
     };
     document.addEventListener('visibilitychange', visHandler);
+
+    // Converge to the 3D map's (the playback authority's) current state. This
+    // mount runs concurrently with the map's deep-link/scrub seeks, so the
+    // seekTime push from Blazor's OnMapTimeChanged can land before the chart is
+    // ready and be lost (or be wiped by the live polling started above). Pulling
+    // once at mount completion closes that race: pushes that already fired are
+    // recovered here, and pushes still pending find a fully mounted chart.
+    const mapInst = window.__lanFlowMap?.getInstance?.();
+    if (mapInst && mapInst._mode === 'historic') {
+        const at = mapInst._pendingScrubAt ?? mapInst._historicAt;
+        if (at) await seekTime(at.toISOString());
+    } else if (mapInst && mapInst._paused) {
+        pause();
+    }
 }
 
 export function pause() {

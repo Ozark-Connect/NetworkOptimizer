@@ -88,6 +88,23 @@ export function publishScrubberWindow(win) {
     _notify('scrubber-window');
 }
 
+// Restore live-mode playback defaults. Called by the 3D map (the playback
+// authority) at the start of each of its mounts, so state left behind by a
+// previous Live View session - historic mode, a paused flag, a parked
+// scrubber - can't leak into the new one. This module is a singleton that
+// outlives SPA navigations while the map instance itself is rebuilt fresh,
+// so without this every remount inherits whatever the last session left.
+// Notifies so any still-mounted consumer UI syncs to the clean state.
+export function resetPlayback() {
+    _paused = false;
+    _mode = 'live';
+    _scrubberValue = 10000;
+    _scrubberRight = 'Live';
+    _playbackSpeed = 1;
+    _notify('playstate');
+    _notify('scrubber');
+}
+
 // Render local-midnight tick marks onto a scrubber track overlay so multi-day
 // windows have day-boundary orientation. Shared by the 3D scrubber and its 2D
 // mirror. Windows under two days get no ticks; wide windows thin to ~12 ticks.

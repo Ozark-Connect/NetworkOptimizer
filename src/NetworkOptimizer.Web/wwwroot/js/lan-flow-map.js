@@ -15,7 +15,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { buildBuildings } from './lan-flow-buildings.js?v=1';
 // KEEP IN SYNC: lan-flow-map-2d.js imports the same module. Both must use the same ?v= or they get separate instances.
-import * as flowData from './lan-flow-data.js?v=5';
+import * as flowData from './lan-flow-data.js?v=6';
 
 const COLORS = {
     background: 0x202023,
@@ -2647,6 +2647,10 @@ export class LanFlowMap {
     _enterHistoricScrub() {
         this._mode = 'historic';
         this._paused = true;
+        // Mirror the transition into the shared store immediately. The debounced
+        // _onScrubberChange republishes 0-500ms later, but consumers mounting in
+        // that window must not read a stale 'live' state.
+        flowData.publishPlayState(this._paused, this._mode);
         this._syncPlayPauseIcon();
         this._stopHistoricPlayback();
         if (this._panels.modeBadge) {
@@ -4309,6 +4313,11 @@ export async function mount(canvasId, options = {}) {
     }
     const el = document.getElementById(canvasId);
     if (!el) throw new Error(`Canvas #${canvasId} not found`);
+    // The map is the playback authority and mounts before the other Live View
+    // consumers (2D map, WAN chart, port table). Clear playback state a prior
+    // session left in the shared store so every mount starts from Live; a
+    // deep-linked initialAt then re-enters historic through the normal seek path.
+    flowData.resetPlayback();
     _instance = new LanFlowMap(el, options);
     await _instance.start();
     return _instance;
