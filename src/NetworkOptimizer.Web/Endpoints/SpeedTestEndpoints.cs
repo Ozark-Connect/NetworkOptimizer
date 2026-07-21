@@ -194,13 +194,27 @@ public static class SpeedTestEndpoints
             NetworkOptimizer.Storage.Services.SiteDbContextFactory siteDbFactory,
             ILoggerFactory loggerFactory) =>
         {
-            // Same optional site routing as the results endpoint: a slug-tagged relay lands in that
-            // site's database; an invalid/unprovisioned slug falls back to the default site.
+            var logger = loggerFactory.CreateLogger("Iperf3ClientRelay");
+
+            // Site routing. This endpoint is used ONLY by on-site agents relaying a captured
+            // iperf3 -s result - the central server records its own default-site tests directly,
+            // never over HTTP. An empty slug is the default site's own relay and lands on the
+            // default site. A NON-empty slug that does not resolve to a provisioned site means a
+            // misconfigured, renamed, or removed agent site; recording it to the default site
+            // would silently pollute the main site, so log and drop it rather than falling back.
             var siteSlug = context.Request.Query["site"].ToString().Trim().ToLowerInvariant();
-            if (!string.IsNullOrEmpty(siteSlug) &&
-                (!NetworkOptimizer.Core.Helpers.StringUtilities.IsSlug(siteSlug) || !siteDbFactory.SiteDbExists(siteSlug)))
+            if (!string.IsNullOrEmpty(siteSlug))
             {
-                siteSlug = null;
+                if (!NetworkOptimizer.Core.Helpers.StringUtilities.IsSlug(siteSlug))
+                {
+                    logger.LogWarning("Dropping relayed iperf3 result: '{Slug}' is not a valid site slug", siteSlug);
+                    return Results.BadRequest(new { error = "Invalid site slug" });
+                }
+                if (!siteDbFactory.SiteDbExists(siteSlug))
+                {
+                    logger.LogWarning("Dropping relayed iperf3 result: site '{Slug}' is not provisioned on this server", siteSlug);
+                    return Results.NotFound(new { error = $"Site '{siteSlug}' is not provisioned" });
+                }
             }
 
             using var reader = new StreamReader(context.Request.Body);
@@ -209,10 +223,9 @@ public static class SpeedTestEndpoints
                 return Results.BadRequest(new { error = "Missing iperf3 JSON body" });
 
             var clientSpeedTest = speedTestRegistry
-                .GetFor(siteSlug ?? SiteManagementService.DefaultSiteSlug)
+                .GetFor(string.IsNullOrEmpty(siteSlug) ? SiteManagementService.DefaultSiteSlug : siteSlug)
                 .ClientSpeedTest;
-            await Iperf3ClientResultRecorder.RecordAsync(
-                clientSpeedTest, json, loggerFactory.CreateLogger("Iperf3ClientRelay"));
+            await Iperf3ClientResultRecorder.RecordAsync(clientSpeedTest, json, logger);
 
             return Results.Ok(new { success = true });
         }).RequireCors("SpeedTestCors").RequireRateLimiting("PublicSpeedTest");
