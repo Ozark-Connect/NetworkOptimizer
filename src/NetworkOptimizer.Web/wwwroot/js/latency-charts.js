@@ -282,6 +282,12 @@ function updateChartVisibility() {
 // abnormal, so even a fraction of a percent is worth flagging as a poor measurement target.
 const LAN_FLAKY_LOSS_PCT = 0.5;
 
+// A loss sample on the gateway fabric target at or above this marks that timestamp as a gateway
+// outage: with the gateway down, LAN targets behind it lose too, and that loss is the gateway's
+// fault, not the target's. High bar so an outage (near-total unreachability) is masked while a
+// merely-flaky gateway isn't - we only want to drop true outage windows.
+const GATEWAY_OUTAGE_LOSS_PCT = 50;
+
 // Report the current LAN (Fabric) category's flaky targets to Blazor so it can render the
 // "flaky LAN target" advisory. Detection only; the role/dismissed gating and the notice itself
 // live in Blazor (Monitoring.razor), which has the target metadata. Entirely best-effort:
@@ -293,8 +299,21 @@ function notifyLanFlakyHints(data) {
         if (!ref) return;
         let ids = [];
         if (currentCategory === 'Fabric' && data && Array.isArray(data.targets)) {
+            // Timestamps the gateway target itself was out (>= GATEWAY_OUTAGE_LOSS_PCT). Loss on
+            // any other LAN target at these times rode a gateway outage, so it's excluded from
+            // that target's average below. Union across gateways covers multi-gateway sites.
+            const gatewayOutageTimes = new Set();
+            data.targets.forEach(t => {
+                if (t.autoLabel !== 'gateway') return;
+                (t.loss || []).forEach(p => {
+                    if (p.value != null && p.value >= GATEWAY_OUTAGE_LOSS_PCT) gatewayOutageTimes.add(p.time);
+                });
+            });
             ids = data.targets.filter(t => {
-                const vals = (t.loss || []).map(p => p.value).filter(v => v != null);
+                if (t.autoLabel === 'gateway') return false;
+                const vals = (t.loss || [])
+                    .filter(p => p.value != null && !gatewayOutageTimes.has(p.time))
+                    .map(p => p.value);
                 if (!vals.length) return false;
                 const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
                 return mean >= LAN_FLAKY_LOSS_PCT;
