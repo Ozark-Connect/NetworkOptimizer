@@ -2067,16 +2067,16 @@ export class LanFlowMap {
         clearTimeout(this._scrubberInputDebounce);
         const pending = this._pendingScrubAt;
         this._pendingScrubAt = null;
-        // Otherwise seed from the exact parked instant when known - requantizing
-        // through the slider value can be minutes off on a wide window. But only
-        // when the thumb still agrees with it; if not, the thumb position is the
-        // user's intent, not the stale instant.
+        // Otherwise seed from the ABSOLUTE parked instant - never the slider-derived
+        // fromValue. The timeline window trails now, so a fixed slider value maps to a
+        // later time as the page sits; seeding from it added the whole sit-duration to
+        // the resume point (park at T, sit 2 min, play started at T+2 min). historicAt
+        // is an absolute Date kept current on every commit path (deep-link, drag,
+        // keyboard scrub), so it never drifts; pending covers an in-flight scrub not yet
+        // committed; fromValue is only a last-resort fallback if neither is set.
         const fromValue = this._scrubberValueToTime(
             Number(this._panels.scrubberRange?.value ?? 500));
-        const stepMs = this._scrubSpan / 10000;
-        this._playbackTime = pending
-            ?? ((this._historicAt && Math.abs(this._historicAt.getTime() - fromValue.getTime()) <= stepMs)
-                ? this._historicAt : fromValue);
+        this._playbackTime = pending ?? this._historicAt ?? fromValue;
         // Publish the seed position immediately instead of waiting for the first
         // 1s tick: consumers re-baseline their playhead on a confirmed seek, and
         // an adopted pending scrub gets its data loaded now rather than a tick late.
