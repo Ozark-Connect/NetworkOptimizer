@@ -437,12 +437,14 @@
     [Parameter] public bool ShowLiveViewLink { get; set; }
 
     /// <summary>TestTime as UTC epoch milliseconds, for the Live View deep link (?at=).</summary>
-    // Land Live View at the START of the test, not its stored timestamp. TestTime
-    // sits between the two directional phases (one per-direction duration in), so
-    // back off by DurationSeconds; a result without a stored duration offsets by 0.
+    // Land Live View at the START of the test, not its stored timestamp. Every
+    // result type stamps TestTime at the END of the full test (LAN iperf3 via the
+    // repository save, WAN/client types at result ingest) and stores DurationSeconds
+    // per direction, so the test spans roughly the two directional phases before
+    // TestTime - back off by both. A result without a stored duration offsets by 0.
     private long LiveViewAtMs =>
         new DateTimeOffset(DateTime.SpecifyKind(TestTime, DateTimeKind.Utc)).ToUnixTimeMilliseconds()
-        - DurationSeconds * 1000L;
+        - 2 * DurationSeconds * 1000L;
     [Parameter] public double? PingMs { get; set; }
     [Parameter] public double? JitterMs { get; set; }
     [Parameter] public double? DownloadLatencyMs { get; set; }
