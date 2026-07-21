@@ -73,31 +73,51 @@
                                 <td><code>@mi.GatewayLocalIp/@mi.SubnetPrefix</code></td>
                                 <td>@StatusBadge(mi)</td>
                                 <td>
-                                    <div class="btn-group-wrap">
+                                    <div class="btn-group-wrap mi-row-actions">
                                         <button class="btn btn-secondary btn-sm" @onclick="() => EditInterface(mi)" disabled="@(_busyId != null)">Edit</button>
-                                        <button class="btn btn-primary btn-sm" @onclick="() => DeployInterface(mi)" disabled="@(_busyId != null)">
-                                            @if (_busyId == mi.Id && _busyAction == "deploy")
-                                            {
-                                                <span class="spinner spinner-sm"></span>
-                                                <span>Deploying...</span>
-                                            }
-                                            else
-                                            {
-                                                <span>@(IsApplied(mi) ? "Re-apply" : "Deploy")</span>
-                                            }
-                                        </button>
-                                        <button class="btn btn-secondary btn-sm" @onclick="() => CheckStatus(mi)" disabled="@(_busyId != null)">Check status</button>
-                                        @if (ShowDisableToggle(mi))
+                                        @if (mi.Disabled)
                                         {
-                                            <button class="btn btn-outline-primary btn-sm" @onclick="() => ToggleDisable(mi)" disabled="@(_busyId != null)">
-                                                @if (_busyId == mi.Id && (_busyAction == "disable" || _busyAction == "enable"))
+                                            @* Disabled rows expose exactly one forward action - Enable - in the primary
+                                               slot (it redeploys), so Deploy/Re-apply (which would just hit the disabled
+                                               guard) and the separate Disable toggle are both omitted here. *@
+                                            <button class="btn btn-primary btn-sm" @onclick="() => ToggleDisable(mi)" disabled="@(_busyId != null)">
+                                                @if (_busyId == mi.Id && _busyAction == "enable")
                                                 {
                                                     <span class="spinner spinner-sm"></span>
-                                                    <span>@(mi.Disabled ? "Enabling..." : "Disabling...")</span>
+                                                    <span>Enabling...</span>
                                                 }
                                                 else
                                                 {
-                                                    <span>@(mi.Disabled ? "Enable" : "Disable")</span>
+                                                    <span>Enable</span>
+                                                }
+                                            </button>
+                                        }
+                                        else
+                                        {
+                                            <button class="btn btn-primary btn-sm" @onclick="() => DeployInterface(mi)" disabled="@(_busyId != null)">
+                                                @if (_busyId == mi.Id && _busyAction == "deploy")
+                                                {
+                                                    <span class="spinner spinner-sm"></span>
+                                                    <span>Deploying...</span>
+                                                }
+                                                else
+                                                {
+                                                    <span>@(IsApplied(mi) ? "Re-apply" : "Deploy")</span>
+                                                }
+                                            </button>
+                                        }
+                                        <button class="btn btn-secondary btn-sm" @onclick="() => CheckStatus(mi)" disabled="@(_busyId != null)">Check status</button>
+                                        @if (ShowDisableToggle(mi) && !mi.Disabled)
+                                        {
+                                            <button class="btn btn-outline-primary btn-sm" @onclick="() => ToggleDisable(mi)" disabled="@(_busyId != null)">
+                                                @if (_busyId == mi.Id && _busyAction == "disable")
+                                                {
+                                                    <span class="spinner spinner-sm"></span>
+                                                    <span>Disabling...</span>
+                                                }
+                                                else
+                                                {
+                                                    <span>Disable</span>
                                                 }
                                             </button>
                                         }
