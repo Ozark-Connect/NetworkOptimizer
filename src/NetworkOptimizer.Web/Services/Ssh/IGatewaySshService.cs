@@ -26,6 +26,14 @@ public interface IGatewaySshService
     Task<(bool success, string message)> TestConnectionAsync();
 
     /// <summary>
+    /// True when this site's gateway is reached through its on-site agent but no
+    /// agent is currently online, so an SSH attempt would just hit the refusing
+    /// tunnel proxy. Callers use this to show a "waiting for the agent" state
+    /// instead of a connection error. Always false for a directly-reached site.
+    /// </summary>
+    Task<bool> IsAwaitingAgentTunnelAsync();
+
+    /// <summary>
     /// Test SSH connection to the gateway using provided settings (for testing form values before save)
     /// </summary>
     /// <param name="host">Gateway hostname or IP</param>
