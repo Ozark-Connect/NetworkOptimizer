@@ -32,6 +32,14 @@ public class ApplicationUser : IdentityUser
     public string? LastLoginMethod { get; set; }
 
     /// <summary>
+    /// True when the account's password is the auto-generated first-run temporary password carried
+    /// over at migration (the "lazy homelabber" who never set their own). Drives the un-dismissable
+    /// "set a real password" nag; cleared the first time the user sets their own password. Preserves
+    /// the pre-Identity auto-generated-password UX (design doc 02 migration).
+    /// </summary>
+    public bool PasswordIsTemporary { get; set; }
+
+    /// <summary>
     /// Membership version stamp. Bumped whenever this user's site memberships, group
     /// assignments, or the groups they derive access from change, so cached authorized-slug
     /// sets and live Blazor circuits invalidate. Distinct from Identity's <see cref="IdentityUser.SecurityStamp"/>,

@@ -208,6 +208,9 @@ namespace NetworkOptimizer.Storage.Migrations.Auth
                     b.Property<string>("PasswordHash")
                         .HasColumnType("TEXT");
 
+                    b.Property<bool>("PasswordIsTemporary")
+                        .HasColumnType("INTEGER");
+
                     b.Property<string>("PhoneNumber")
                         .HasColumnType("TEXT");
 
