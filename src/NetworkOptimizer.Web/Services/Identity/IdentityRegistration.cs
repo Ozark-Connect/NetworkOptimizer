@@ -83,6 +83,8 @@ public static class IdentityRegistration
         services.AddScoped<IMfaService, MfaService>();
         services.AddScoped<IPasskeyService, PasskeyService>();
         services.AddScoped<ICurrentUserAccessor, CurrentUserAccessor>();
+        services.AddScoped<IExternalLoginService, ExternalLoginService>();
+        services.AddScoped<IFederationProviderService, FederationProviderService>();
 
         // Ambient caller context (user vs system) for authorization + audit attribution.
         services.AddScoped<ICallerContext, CallerContext>();

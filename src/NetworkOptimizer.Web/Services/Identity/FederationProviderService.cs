@@ -1,0 +1,141 @@
+using Microsoft.AspNetCore.DataProtection;
+using Microsoft.EntityFrameworkCore;
+using NetworkOptimizer.Storage.Models.Identity;
+using NetworkOptimizer.Web.Services.Auditing;
+
+namespace NetworkOptimizer.Web.Services.Identity;
+
+/// <summary>
+/// Manages configured federation providers (design doc 03). Secrets (OIDC client secret, SAML
+/// decryption cert) are encrypted at rest with Data Protection, are write-only in the UI (never
+/// returned after save), and are never logged. Provider changes are audited.
+/// </summary>
+public interface IFederationProviderService
+{
+    Task<IReadOnlyList<FederationProvider>> GetAllAsync();
+    Task<IReadOnlyList<FederationProvider>> GetEnabledAsync();
+    Task<FederationProvider?> GetBySchemeAsync(string scheme);
+    Task<int> SaveAsync(FederationProvider provider, string? newClientSecret);
+    Task SetEnabledAsync(int id, bool enabled);
+    Task DeleteAsync(int id);
+
+    /// <summary>Decrypts a stored client secret for handler configuration (never exposed to the UI).</summary>
+    string? UnprotectClientSecret(FederationProvider provider);
+}
+
+/// <inheritdoc />
+public sealed class FederationProviderService : IFederationProviderService
+{
+    private readonly IDbContextFactory<AuthDbContext> _dbFactory;
+    private readonly IDataProtector _protector;
+    private readonly IAuditLogger _audit;
+    private readonly ICallerContext _caller;
+
+    public FederationProviderService(
+        IDbContextFactory<AuthDbContext> dbFactory,
+        IDataProtectionProvider dp,
+        IAuditLogger audit,
+        ICallerContext caller)
+    {
+        _dbFactory = dbFactory;
+        _protector = dp.CreateProtector("federation.client_secret");
+        _audit = audit;
+        _caller = caller;
+    }
+
+    public async Task<IReadOnlyList<FederationProvider>> GetAllAsync()
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync();
+        return await Include(db.FederationProviders).OrderBy(p => p.SortOrder).ToListAsync();
+    }
+
+    public async Task<IReadOnlyList<FederationProvider>> GetEnabledAsync()
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync();
+        return await Include(db.FederationProviders).Where(p => p.Enabled).OrderBy(p => p.SortOrder).ToListAsync();
+    }
+
+    public async Task<FederationProvider?> GetBySchemeAsync(string scheme)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync();
+        return await Include(db.FederationProviders).FirstOrDefaultAsync(p => p.Scheme == scheme);
+    }
+
+    public async Task<int> SaveAsync(FederationProvider provider, string? newClientSecret)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync();
+        var isNew = provider.Id == 0;
+
+        if (!string.IsNullOrEmpty(newClientSecret))
+            provider.ClientSecretProtected = _protector.Protect(newClientSecret);
+
+        if (isNew)
+        {
+            provider.CreatedAt = DateTime.UtcNow;
+            provider.UpdatedAt = DateTime.UtcNow;
+            db.FederationProviders.Add(provider);
+        }
+        else
+        {
+            var existing = await Include(db.FederationProviders).FirstAsync(p => p.Id == provider.Id);
+            // Preserve the stored secret when the write-only field is left blank.
+            if (string.IsNullOrEmpty(newClientSecret))
+                provider.ClientSecretProtected = existing.ClientSecretProtected;
+            db.Entry(existing).CurrentValues.SetValues(provider);
+            existing.UpdatedAt = DateTime.UtcNow;
+            await SyncChildrenAsync(db, existing, provider);
+        }
+
+        await db.SaveChangesAsync();
+
+        _audit.Log(AuditEventBuilder.From(_caller.Current, AuditCategories.Federation,
+            isNew ? AuditActions.ProviderCreated : AuditActions.ProviderUpdated,
+            targetType: "provider", targetId: provider.Scheme, targetName: provider.DisplayName));
+        return provider.Id;
+    }
+
+    public async Task SetEnabledAsync(int id, bool enabled)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync();
+        var provider = await db.FederationProviders.FindAsync(id);
+        if (provider is null) return;
+        provider.Enabled = enabled;
+        provider.UpdatedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync();
+        _audit.Log(AuditEventBuilder.From(_caller.Current, AuditCategories.Federation,
+            enabled ? AuditActions.ProviderEnabled : AuditActions.ProviderDisabled,
+            targetType: "provider", targetId: provider.Scheme, targetName: provider.DisplayName));
+    }
+
+    public async Task DeleteAsync(int id)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync();
+        var provider = await db.FederationProviders.FindAsync(id);
+        if (provider is null) return;
+        db.FederationProviders.Remove(provider);
+        await db.SaveChangesAsync();
+        _audit.Log(AuditEventBuilder.From(_caller.Current, AuditCategories.Federation, AuditActions.ProviderUpdated,
+            targetType: "provider", targetId: provider.Scheme, targetName: provider.DisplayName,
+            details: new { deleted = true }));
+    }
+
+    public string? UnprotectClientSecret(FederationProvider provider)
+    {
+        if (string.IsNullOrEmpty(provider.ClientSecretProtected)) return null;
+        try { return _protector.Unprotect(provider.ClientSecretProtected); }
+        catch { return null; }
+    }
+
+    private static IQueryable<FederationProvider> Include(IQueryable<FederationProvider> q)
+        => q.Include(p => p.RoleMappings).Include(p => p.SiteMappings);
+
+    private static async Task SyncChildrenAsync(AuthDbContext db, FederationProvider existing, FederationProvider incoming)
+    {
+        await db.FederationRoleMappings.Where(m => m.ProviderId == existing.Id).ExecuteDeleteAsync();
+        await db.FederationSiteMappings.Where(m => m.ProviderId == existing.Id).ExecuteDeleteAsync();
+        foreach (var m in incoming.RoleMappings)
+            db.FederationRoleMappings.Add(new FederationRoleMapping { ProviderId = existing.Id, GroupOrClaimValue = m.GroupOrClaimValue, GlobalRole = m.GlobalRole });
+        foreach (var m in incoming.SiteMappings)
+            db.FederationSiteMappings.Add(new FederationSiteMapping { ProviderId = existing.Id, GroupOrClaimValue = m.GroupOrClaimValue, TargetType = m.TargetType, TargetValue = m.TargetValue, SiteRole = m.SiteRole });
+    }
+}

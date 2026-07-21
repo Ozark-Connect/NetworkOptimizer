@@ -37,6 +37,7 @@ public class ArchitectureTests
             nameof(MfaService),
             "PasskeyService",
             "CurrentUserAccessor",
+            "ExternalLoginService",
         };
 
         var managerTypes = new[]
