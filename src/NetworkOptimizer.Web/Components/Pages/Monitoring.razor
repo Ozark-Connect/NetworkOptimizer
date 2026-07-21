@@ -427,9 +427,13 @@ else
             <div class="card-header monitoring-chart-header">
                 <h2 class="card-title">Latency &amp; Packet Loss</h2>
                 <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+                    @* Default the category filter to ISP when there are no enabled LAN (Fabric)
+                       targets, so a monitoring-only/agent site opens on a populated chart. mount()
+                       in latency-charts.js seeds currentCategory from whichever button is active. *@
+                    @{ var hasLanTargets = HasUpstreamTargets(MonitoringTargetType.Fabric); }
                     <div class="time-range-selector">
-                        <button class="time-btn active" data-category="Fabric">LAN</button>
-                        <button class="time-btn" data-category="AccessIsp">ISP</button>
+                        <button class="time-btn @(hasLanTargets ? "active" : "")" data-category="Fabric">LAN</button>
+                        <button class="time-btn @(hasLanTargets ? "" : "active")" data-category="AccessIsp">ISP</button>
                         <button class="time-btn" data-category="Transit">Transit</button>
                         <button class="time-btn" data-category="InternetService">Internet</button>
                         <button class="time-btn" data-category="Custom">Custom</button>

@@ -563,6 +563,11 @@ export async function mount(elId) {
     const container = document.getElementById(elId);
     if (!container) return;
 
+    // Seed the category from whichever filter button the server rendered active (LAN by
+    // default, ISP when the site has no LAN targets), so the initial load matches the UI.
+    const activeCategoryBtn = container.querySelector('[data-category].active');
+    if (activeCategoryBtn) currentCategory = activeCategoryBtn.dataset.category;
+
     const rttEl = container.querySelector('.latency-rtt-chart');
     const lossEl = container.querySelector('.latency-loss-chart');
     if (!rttEl || !lossEl) return;
