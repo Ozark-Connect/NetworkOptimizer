@@ -91,7 +91,12 @@ public class IspHealthScorer
         var accessMedianRtt = SeriesStats.Median(
             inputs.FirstHopSeries.Where(s => s.RttAvgMs.HasValue).Select(s => s.RttAvgMs!.Value).ToList());
 
-        var transitAsns = GradeTransitAsns(inputs.TransitAsnSeries, inputs.DestinationSeries, inputs.HopOrderKnown,
+        // Absolution witnesses = internet destinations plus witness-only Custom targets. Peering
+        // selection and involvement counts below use inputs.DestinationSeries directly (internet
+        // only), so a witness-only CMTS/PoP never counts as an internet destination.
+        var witnessDestinations = inputs.DestinationSeries.Concat(inputs.WitnessSeries).ToList();
+
+        var transitAsns = GradeTransitAsns(inputs.TransitAsnSeries, witnessDestinations, inputs.HopOrderKnown,
             inputs.CongestionEvents, jitterFloor, accessMedianRtt, inputs.InternetMedianDeltaMs);
 
         // IX Peering: destinations reached over the access ISP's own peering/IX (see
@@ -167,7 +172,7 @@ public class IspHealthScorer
         // absolves a hop it is proven downstream of), so a divergent clean transit can't
         // clear a congested hop it never traverses. Hops further out on the same ISP also
         // get a soft intra-ASN reach ceiling. Access layer idle latency still uses FirstHopSeries.
-        var ispHopGrades = GradeIspHops(inputs.IspAsnSeries, inputs.TransitAsnSeries, transitAsns, inputs.DestinationSeries, inputs.CongestionEvents, jitterFloor, inputs.HopOrderKnown, accessMedianRtt, inputs.InternetMedianDeltaMs);
+        var ispHopGrades = GradeIspHops(inputs.IspAsnSeries, inputs.TransitAsnSeries, transitAsns, witnessDestinations, inputs.CongestionEvents, jitterFloor, inputs.HopOrderKnown, accessMedianRtt, inputs.InternetMedianDeltaMs);
         // Collapse the per-hop grades to one entry per ASN for the Networks on Your Path card.
         var ispAsns = AggregateIspAsns(ispHopGrades, inputs.CongestionEvents, _options.JitterAssimilationMinDeltaMs);
         var transitDimension = BuildAsnDimension("Transit Health", _options.TransitWeight, transitAsns);
