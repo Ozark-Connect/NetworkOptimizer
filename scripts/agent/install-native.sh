@@ -237,6 +237,47 @@ _webroot_needs_root_worker() {
 # running "ghost" unit (services are stopped before their unit files are deleted).
 # Leaves the host's own nginx untouched; removes only the AppArmor override this
 # installer itself added (if any), reporting accordingly.
+# PIDs of any agent still running from this install dir. Matches the binary path in
+# the process argv (which /proc keeps even after the binary file is deleted), so it
+# still finds a process an earlier broken uninstall reparented to init. Portable:
+# uses pgrep where present, else ps -ef - some NAS/embedded hosts ship neither
+# pgrep nor pkill (procps), but ps -ef is universal.
+agent_pids() {
+    if command -v pgrep >/dev/null 2>&1; then
+        pgrep -f "${INSTALL_DIR}/NetworkOptimizer.Agent" 2>/dev/null || true
+    else
+        ps -ef 2>/dev/null | grep "${INSTALL_DIR}/NetworkOptimizer.Agent" | grep -v grep | awk '{print $2}' || true
+    fi
+}
+
+agent_running() { [ -n "$(agent_pids)" ]; }
+
+# Stop and reap the agent (and the iperf3 -s it spawns) regardless of the unit's
+# state. 'systemctl disable --now' is NOT enough on its own: a prior partial
+# uninstall can leave the unit 'Loaded: not-found' but still 'active (running)', and
+# disable then aborts on the missing unit file and skips the '--now' stop, leaving
+# the cgroup running. A bare stop/kill still reaps the loaded runtime unit (its
+# cgroup is intact); a direct signal covers a process already orphaned to init.
+stop_and_reap_agent() {
+    systemctl stop "${SERVICE_NAME}.service" "${SPEEDTEST_SERVICE}.service" 2>/dev/null || true
+    systemctl kill --signal=SIGKILL "${SERVICE_NAME}.service" "${SPEEDTEST_SERVICE}.service" 2>/dev/null || true
+    systemctl disable "${SERVICE_NAME}.service" "${SPEEDTEST_SERVICE}.service" 2>/dev/null || true
+    agent_running || return 0
+    warn "Agent still running after systemctl stop; reaping the process directly"
+    if command -v pkill >/dev/null 2>&1; then
+        pkill -TERM -f "${INSTALL_DIR}/NetworkOptimizer.Agent" 2>/dev/null || true
+        for _ in 1 2 3 4 5; do agent_running || break; sleep 1; done
+        pkill -KILL -f "${INSTALL_DIR}/NetworkOptimizer.Agent" 2>/dev/null || true
+        # The iperf3 -s child can outlive a killed agent (reparented to init).
+        pkill -KILL -f 'iperf3 -s -p 5201' 2>/dev/null || true
+    else
+        local pids; pids="$(agent_pids)"
+        [ -n "$pids" ] && kill -TERM $pids 2>/dev/null || true
+        for _ in 1 2 3 4 5; do agent_running || break; sleep 1; done
+        pids="$(agent_pids)"; [ -n "$pids" ] && kill -KILL $pids 2>/dev/null || true
+    fi
+}
+
 uninstall_agent() {
     step "Removing the Network Optimizer agent"
     note "${SERVICE_NAME} + ${INSTALL_DIR}"
@@ -244,7 +285,7 @@ uninstall_agent() {
     # the summary only mentions nginx/AppArmor when they were actually involved.
     local had_speedtest=0
     [ -f "/etc/systemd/system/${SPEEDTEST_SERVICE}.service" ] && had_speedtest=1
-    systemctl disable --now "${SERVICE_NAME}.service" "${SPEEDTEST_SERVICE}.service" 2>/dev/null || true
+    stop_and_reap_agent
     rm -f "/etc/systemd/system/${SERVICE_NAME}.service" \
           "/etc/systemd/system/${SPEEDTEST_SERVICE}.service" \
           "/etc/systemd/system/multi-user.target.wants/${SERVICE_NAME}.service"
@@ -252,6 +293,11 @@ uninstall_agent() {
     systemctl reset-failed "${SERVICE_NAME}.service" "${SPEEDTEST_SERVICE}.service" 2>/dev/null || true
     remove_apparmor_override
     rm -rf "$INSTALL_DIR"
+    # Never report success while the agent is still alive - a survivor keeps serving
+    # iperf3 and relaying speed-test results to the central server.
+    if agent_running; then
+        err "Agent process is STILL running after teardown (PID(s): $(agent_pids | tr '\n' ' ')). Kill it manually (e.g. kill -9 <pid>) and re-run --uninstall."
+    fi
     if [ "${AA_OVERRIDE_REMOVED:-0}" = 1 ]; then
         ok "Agent removed, including the AppArmor override it had added. The host's own nginx is untouched."
     elif [ "$had_speedtest" = 1 ]; then

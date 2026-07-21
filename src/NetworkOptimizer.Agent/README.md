@@ -127,18 +127,31 @@ Both scripts accept:
 - `--insecure` - accept a self-signed cert on the server's reverse proxy
 - `--dir PATH` - override the install directory
 
-The bare-metal installer additionally accepts:
+The bare-metal installer additionally accepts `--configure-apparmor` - with
+`--lan-speed-test`, add a persistent AppArmor exception if the host's nginx profile
+blocks the speed test (off by default).
 
-- `--uninstall` - stop and remove the agent, its services, and install dir, then exit
-- `--configure-apparmor` - with `--lan-speed-test`, add a persistent AppArmor exception if the host's nginx profile blocks the speed test (off by default).
+#### Uninstall
 
-To remove a bare-metal agent (stops the services first, then removes the units,
-install dir, and any AppArmor override the installer added; the host's own nginx
-is left untouched):
+All three installers accept `--uninstall` for a clean, verified teardown. It stops
+and reaps the agent process (and its `iperf3 -s` child) even when a prior partial
+removal left the systemd unit in a `not-found` state, then removes the
+service/container, the install dir, and - on bare metal - any AppArmor override the
+installer added (the host's own nginx is left untouched). It refuses to report
+success while the agent is still running, so a teardown can never silently leave a
+stale agent holding a tunnel and relaying data.
 
 ```bash
+# Docker
+curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/agent/install-docker.sh | bash -s -- --uninstall
+
+# Bare metal (systemd)
 curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/agent/install-native.sh | sudo bash -s -- --uninstall
-# add --dir PATH if you installed somewhere other than /opt/netopt-agent
+
+# UniFi gateway (on-box)
+curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/agent/install-agent-gateway.sh | bash -s -- --uninstall
+
+# add --dir PATH if you installed somewhere other than the default
 ```
 
 ### On a UniFi gateway (on-box)

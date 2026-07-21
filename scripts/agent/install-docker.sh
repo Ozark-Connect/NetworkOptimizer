@@ -16,6 +16,7 @@
 #   --lan-speed-test Host the LAN speed test page (port 3000) and iperf3 (5201)
 #   --insecure       Accept a self-signed cert on the server's reverse proxy
 #   --dir PATH       Install directory (default: /opt/network-optimizer-agent)
+#   --uninstall      Stop and remove the agent container and install dir, then exit
 
 set -euo pipefail
 
@@ -23,7 +24,9 @@ SERVER=""
 TOKEN=""
 LAN_SPEED_TEST=false
 INSECURE=false
+UNINSTALL=false
 INSTALL_DIR="/opt/network-optimizer-agent"
+CONTAINER_NAME="network-optimizer-agent"
 COMPOSE_URL="https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/docker/agent/docker-compose.yml"
 
 while [ $# -gt 0 ]; do
@@ -32,6 +35,7 @@ while [ $# -gt 0 ]; do
         --token) TOKEN="$2"; shift 2 ;;
         --lan-speed-test) LAN_SPEED_TEST=true; shift ;;
         --insecure) INSECURE=true; shift ;;
+        --uninstall) UNINSTALL=true; shift ;;
         --dir) INSTALL_DIR="$2"; shift 2 ;;
         *) echo "Unknown option: $1" >&2; exit 1 ;;
     esac
@@ -52,11 +56,14 @@ note() { printf '  %s%s%s\n' "$_dim" "$*" "$_rst"; }
 warn() { printf '  %s\xe2\x9a\xa0%s  %s\n' "$_ylw" "$_rst" "$*"; }
 err()  { printf '%sError:%s %s\n' "${_red}${_b}" "$_rst" "$*" >&2; exit 1; }
 
-[ -n "$SERVER" ] || err "--server is required (the central server's HTTPS address)"
-case "$SERVER" in
-    https://*) ;;
-    *) err "--server must be an https:// URL (the agent refuses cleartext)" ;;
-esac
+# --uninstall needs neither --server nor a token; skip the install-only checks.
+if [ "$UNINSTALL" != true ]; then
+    [ -n "$SERVER" ] || err "--server is required (the central server's HTTPS address)"
+    case "$SERVER" in
+        https://*) ;;
+        *) err "--server must be an https:// URL (the agent refuses cleartext)" ;;
+    esac
+fi
 
 # Docker + compose plugin
 command -v docker >/dev/null 2>&1 || err "Docker is not installed. See https://docs.docker.com/engine/install/"
@@ -72,6 +79,36 @@ SUDO=""
 if [ "$(id -u)" -ne 0 ]; then
     command -v sudo >/dev/null 2>&1 || err "Run as root or install sudo"
     SUDO="sudo"
+fi
+
+# True if the agent container exists in any state (running, exited, created).
+container_exists() {
+    $SUDO docker ps -a --format '{{.Names}}' 2>/dev/null | grep -qx "$CONTAINER_NAME"
+}
+
+# --- Teardown --------------------------------------------------------------
+# 'compose down' stops and removes the container and its network - a clean,
+# idempotent teardown with none of the orphaned-process risk of a systemd unit.
+# A bind mount holds the data, so nothing lingers once the install dir is gone.
+if [ "$UNINSTALL" = true ]; then
+    step "Removing the Network Optimizer agent (Docker)"
+    note "${CONTAINER_NAME} + ${INSTALL_DIR}"
+    if [ -f "${INSTALL_DIR}/docker-compose.yml" ]; then
+        $SUDO $COMPOSE -f "${INSTALL_DIR}/docker-compose.yml" down 2>/dev/null || true
+    fi
+    # Fallback: the compose file may already be gone while the container lingers.
+    if container_exists; then
+        $SUDO docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
+    fi
+    $SUDO rm -rf "$INSTALL_DIR"
+    # Never report success while the container still exists - a survivor keeps the
+    # tunnel up and relays speed-test results to the central server.
+    if container_exists; then
+        err "Container ${CONTAINER_NAME} is STILL present after teardown. Remove it manually: ${SUDO} docker rm -f ${CONTAINER_NAME}"
+    fi
+    ok "Agent removed."
+    printf '\n'
+    exit 0
 fi
 
 printf '\n%sNetwork Optimizer on-site agent (Docker)%s\n' "$_b" "$_rst"

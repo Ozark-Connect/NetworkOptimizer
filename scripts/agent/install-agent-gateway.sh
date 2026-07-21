@@ -74,6 +74,20 @@ note() { printf '  %s%s%s\n' "$_dim" "$*" "$_rst"; }
 warn() { printf '  %s\xe2\x9a\xa0%s  %s\n' "$_ylw" "$_rst" "$*"; }
 err()  { printf '%sError:%s %s\n' "${_red}${_b}" "$_rst" "$*" >&2; exit 1; }
 
+# PIDs of any agent still running from this install dir. Matches the binary path in
+# the process argv (which /proc keeps even after the binary file is deleted), so it
+# still finds a process an earlier broken uninstall reparented to init. UniFi OS
+# ships pgrep, but fall back to ps -ef for robustness.
+agent_pids() {
+    if command -v pgrep >/dev/null 2>&1; then
+        pgrep -f "${INSTALL_DIR}/NetworkOptimizer.Agent" 2>/dev/null || true
+    else
+        ps -ef 2>/dev/null | grep "${INSTALL_DIR}/NetworkOptimizer.Agent" | grep -v grep | awk '{print $2}' || true
+    fi
+}
+
+agent_running() { [ -n "$(agent_pids)" ]; }
+
 [ "$(id -u)" -eq 0 ] || err "Run as root (the gateway's default SSH user is root)."
 command -v systemctl >/dev/null 2>&1 || err "systemd is required (systemctl not found)."
 
@@ -81,10 +95,33 @@ command -v systemctl >/dev/null 2>&1 || err "systemd is required (systemctl not 
 if [ "$UNINSTALL" = true ]; then
     step "Removing the Network Optimizer agent"
     note "${SERVICE_NAME} + ${INSTALL_DIR}"
-    systemctl disable --now "${SERVICE_NAME}.service" 2>/dev/null || true
+    # 'disable --now' alone is NOT enough: a prior partial uninstall can leave the
+    # unit 'Loaded: not-found' but still 'active (running)', and disable then aborts
+    # on the missing unit file and skips the '--now' stop, leaving the cgroup alive.
+    # Stop/kill the loaded runtime unit directly (its cgroup is intact), then reap
+    # any process orphaned to init, then verify nothing survived.
+    systemctl stop "${SERVICE_NAME}.service" 2>/dev/null || true
+    systemctl kill --signal=SIGKILL "${SERVICE_NAME}.service" 2>/dev/null || true
+    systemctl disable "${SERVICE_NAME}.service" 2>/dev/null || true
+    if agent_running; then
+        warn "Agent still running after systemctl stop; reaping the process directly"
+        if command -v pkill >/dev/null 2>&1; then
+            pkill -TERM -f "${INSTALL_DIR}/NetworkOptimizer.Agent" 2>/dev/null || true
+            for _ in 1 2 3 4 5; do agent_running || break; sleep 1; done
+            pkill -KILL -f "${INSTALL_DIR}/NetworkOptimizer.Agent" 2>/dev/null || true
+        else
+            pids="$(agent_pids)"; [ -n "$pids" ] && kill -TERM $pids 2>/dev/null || true
+            for _ in 1 2 3 4 5; do agent_running || break; sleep 1; done
+            pids="$(agent_pids)"; [ -n "$pids" ] && kill -KILL $pids 2>/dev/null || true
+        fi
+    fi
     rm -f "/etc/systemd/system/${SERVICE_NAME}.service"
     systemctl daemon-reload 2>/dev/null || true
+    systemctl reset-failed "${SERVICE_NAME}.service" 2>/dev/null || true
     rm -rf "$INSTALL_DIR"
+    if agent_running; then
+        err "Agent process is STILL running after teardown (PID(s): $(agent_pids | tr '\n' ' ')). Kill it manually (e.g. kill -9 <pid>) and re-run --uninstall."
+    fi
     ok "Removed - the gateway is back to stock."
     printf '\n'
     exit 0
