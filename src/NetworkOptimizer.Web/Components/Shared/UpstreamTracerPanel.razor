@@ -354,6 +354,7 @@
                                         <th>Label</th>
                                         <th>Endpoint</th>
                                         <th>ASN</th>
+                                        <th>Via</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -370,6 +371,16 @@
                                             </td>
                                             <td><code>@host.PathProxyTarget</code></td>
                                             <td><code>AS@(host.AsnNumber)</code> <span class="text-muted">@host.AsnName</span></td>
+                                            <td>
+                                                @if (host.ViaAsnNumber is int viaAsn)
+                                                {
+                                                    <code>AS@(viaAsn)</code> <span class="text-muted">@host.ViaAsnName</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="text-muted">peered</span>
+                                                }
+                                            </td>
                                         </tr>
                                     }
                                 </tbody>

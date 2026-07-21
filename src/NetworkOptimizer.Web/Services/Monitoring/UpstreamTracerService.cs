@@ -106,41 +106,74 @@ public class UpstreamTracerService
         "ap-south-1", "sa-east-1"
     };
     private const double AwsMaxRttMs = 80.0;
-    private const int AwsMaxRegions = 3;
 
-    // Per-run trace set: the static CDN/DNS rotation plus any resolved AWS regionals. Defaults to the
-    // rotation so callers are safe before TraceAccessIspAsync populates it.
+    // A resolved AWS regional: the hostname (what we persist as the target address, since AWS rotates
+    // the regional IPs and the hostname re-resolves to a live in-region IP each poll) and the concrete
+    // IP resolved this run (used for the discovery traceroute, RTT rank, and ASN lookup - deterministic).
+    private record AwsRegional(string Region, string Hostname, string Ip, long RttMs);
+
+    // Per-run trace set: the static CDN/DNS rotation plus resolved AWS regionals (traced by IP).
+    // Defaults to the rotation so callers are safe before TraceAccessIspAsync populates it.
     private List<TraceEndpoint> _traceEndpoints = CdnRotation.ToList();
+    private List<AwsRegional> _awsRegionals = new();
 
     /// <summary>
-    /// Resolves each AWS DynamoDB regional hostname, pings it, and returns the nearest sub-80ms
-    /// region(s) as trace endpoints (DestinationProbe). Not anycast, so this per-run resolve +
+    /// Resolves every AWS DynamoDB regional hostname, pings it, and returns ALL that answer under
+    /// <see cref="AwsMaxRttMs"/> (sorted nearest-first). Not anycast, so this per-run resolve +
     /// latency-rank is required - a far region would trace a transcontinental path and misrepresent
-    /// the transit. Best-effort: a region that won't resolve or answer ICMP is skipped.
+    /// the transit. Every sub-80ms region becomes a monitorable target (see the AWS persist block);
+    /// only those whose trace crosses transit are pre-enabled. Best-effort: a region that won't
+    /// resolve or answer ICMP is skipped.
     /// </summary>
-    private async Task<List<TraceEndpoint>> ResolveAwsRegionalsAsync(CancellationToken ct)
+    private async Task<List<AwsRegional>> ResolveAwsRegionalsAsync(CancellationToken ct)
     {
-        var ranked = new List<(TraceEndpoint Endpoint, long Rtt)>();
+        var found = new List<AwsRegional>();
         foreach (var region in AwsRegions)
         {
             if (ct.IsCancellationRequested) break;
             try
             {
-                var addrs = await System.Net.Dns.GetHostAddressesAsync($"dynamodb.{region}.amazonaws.com", ct);
+                var host = $"dynamodb.{region}.amazonaws.com";
+                var addrs = await System.Net.Dns.GetHostAddressesAsync(host, ct);
                 var ip = addrs.FirstOrDefault(a => a.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork);
                 if (ip == null) continue;
                 using var ping = new System.Net.NetworkInformation.Ping();
                 var reply = await ping.SendPingAsync(ip, 800);
                 if (reply.Status != System.Net.NetworkInformation.IPStatus.Success || reply.RoundtripTime > AwsMaxRttMs) continue;
-                ranked.Add((new TraceEndpoint($"AWS-{region}", ip.ToString()), reply.RoundtripTime));
+                found.Add(new AwsRegional(region, host, ip.ToString(), reply.RoundtripTime));
             }
             catch { /* region won't resolve or answer - skip */ }
         }
-        var chosen = ranked.OrderBy(r => r.Rtt).Take(AwsMaxRegions).Select(r => r.Endpoint).ToList();
+        var chosen = found.OrderBy(r => r.RttMs).ToList();
         if (chosen.Count > 0)
-            _logger.LogInformation("Tracer: added {Count} sub-{Max}ms AWS DynamoDB regional trace targets: {Regions}",
-                chosen.Count, AwsMaxRttMs, string.Join(", ", chosen.Select(e => e.Label)));
+            _logger.LogInformation("Tracer: {Count} sub-{Max}ms AWS DynamoDB regionals: {Regions}",
+                chosen.Count, AwsMaxRttMs, string.Join(", ", chosen.Select(r => r.Region)));
         return chosen;
+    }
+
+    /// <summary>
+    /// The farthest (deepest) transit ASN on the trace to <paramref name="destIp"/> - what a path-end
+    /// host connects "via" - with a cleaned name. Walks that destination's trace hops in order and
+    /// keeps the last hop whose attributed ASN is neither the destination's own nor an access ASN.
+    /// Null when the path crosses no transit (peered / IX). <paramref name="asnByHopIp"/> maps hop IP
+    /// to its attributed ASN from the merged pool, so no extra lookups are done here.
+    /// </summary>
+    private (int Asn, string Name)? FarthestTransitVia(string destIp, int destAsn,
+        HashSet<int> accessAsns, Dictionary<string, AsnLookup> asnByHopIp)
+    {
+        (int Asn, string Name)? via = null;
+        var hops = _lastTraces
+            .Where(t => string.Equals(t.Target.Address, destIp, StringComparison.OrdinalIgnoreCase))
+            .SelectMany(t => t.Hops)
+            .Where(h => h.Address != null)
+            .OrderBy(h => h.HopNumber);
+        foreach (var h in hops)
+        {
+            if (!asnByHopIp.TryGetValue(h.Address!, out var asn)) continue;
+            if (asn.Asn == destAsn || accessAsns.Contains(asn.Asn)) continue;
+            via = (asn.Asn, CleanAsnName(asn.Name)); // keep updating -> ends on the farthest transit
+        }
+        return via;
     }
 
     // Built per site by UpstreamTracerRegistry, which resolves the site's console,
@@ -925,9 +958,12 @@ public class UpstreamTracerService
         State.CurrentActivity = "Running parallel traceroutes to major internet endpoints...";
         State.Traces = new List<TraceSummary>();
 
-        // Build this run's endpoint set: the anycast rotation plus the nearest sub-80ms AWS
-        // regionals (resolved live), which surface paid-transit ASNs and seed clean witnesses.
-        _traceEndpoints = CdnRotation.Concat(await ResolveAwsRegionalsAsync(ct)).ToList();
+        // Build this run's endpoint set: the anycast rotation plus every sub-80ms AWS regional
+        // (resolved live, traced by IP), which surface paid-transit ASNs and seed clean witnesses.
+        _awsRegionals = await ResolveAwsRegionalsAsync(ct);
+        _traceEndpoints = CdnRotation
+            .Concat(_awsRegionals.Select(r => new TraceEndpoint($"AWS-{r.Region}", r.Ip)))
+            .ToList();
 
         // Spawn traceroutes (each endpoint × 2 modes) in parallel and merge once they all settle.
         // Each traceroute is capped at 10s, so wall-clock for the whole sweep is ~10s + overhead.
@@ -1323,9 +1359,17 @@ public class UpstreamTracerService
         var asnsInTrace = new HashSet<int>(_mergedHops
             .Where(h => h.Asn != null)
             .Select(h => h.Asn!.Asn));
+        // Hop IP -> attributed ASN, from the merged pool, for the "Via" (farthest transit) column.
+        var asnByHopIp = _mergedHops
+            .Where(h => h.Asn != null)
+            .GroupBy(h => h.Address, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.First().Asn!, StringComparer.OrdinalIgnoreCase);
         foreach (var endpoint in _traceEndpoints)
         {
             if (endpoint.IsTransitProbe) continue;
+            // AWS regionals are persisted per-region by the dedicated block below, not ASN-deduped
+            // here (they all share Amazon's ASN, which would collapse them to one target).
+            if (endpoint.Label.StartsWith("AWS-", StringComparison.Ordinal)) continue;
             var destAsn = await _asnResolution.ResolveAsync(endpoint.Address, ct);
             if (destAsn == null) continue;
             if (accessAsnNumbers.Contains(destAsn.Asn)) continue;
@@ -1335,6 +1379,7 @@ public class UpstreamTracerService
             if (!reachedOrTraversed) continue;
             if (!pathProxyAsnsSeen.Add(destAsn.Asn)) continue;
 
+            var via = FarthestTransitVia(endpoint.Address, destAsn.Asn, accessAsnNumbers, asnByHopIp);
             candidates.Add(new TransitAsnCandidate
             {
                 AsnNumber = destAsn.Asn,
@@ -1345,8 +1390,43 @@ public class UpstreamTracerService
                 HopAddress = endpoint.Address,
                 PathProxyTarget = endpoint.Address,
                 RespondedTo = ProbeMode.Icmp,
-                Enabled = true
+                Enabled = true,
+                ViaAsnNumber = via?.Asn,
+                ViaAsnName = via?.Name
             });
+        }
+
+        // AWS DynamoDB regionals: add EVERY sub-80ms region as its own path-end target (not
+        // ASN-deduped - they all share Amazon's ASN), so ops/SWE users can monitor any of them.
+        // Persist the HOSTNAME (AWS rotates the regional IPs; it re-resolves to a live in-region IP
+        // each poll) even though the trace/rank used the concrete IP. Pre-enable a region only if its
+        // trace crossed a transit ASN (surfacing transit is the point); the rest come in disabled for
+        // the user to tick on. Toggle survives re-discovery via the address-keyed reconcile below.
+        if (_awsRegionals.Count > 0)
+        {
+            var amazon = await _asnResolution.ResolveAsync(_awsRegionals[0].Ip, ct);
+            var amazonAsn = amazon?.Asn ?? 0;
+            var amazonName = string.IsNullOrEmpty(amazon?.Name) ? "Amazon" : CleanAsnName(amazon.Name);
+            foreach (var r in _awsRegionals)
+            {
+                // The via (farthest transit) both labels the row and decides pre-enable: a region is
+                // pre-checked only when its trace actually crosses transit.
+                var via = FarthestTransitVia(r.Ip, amazonAsn, accessAsnNumbers, asnByHopIp);
+                candidates.Add(new TransitAsnCandidate
+                {
+                    AsnNumber = amazonAsn,
+                    AsnName = amazonName,
+                    Label = $"AWS {r.Region}",
+                    Method = DiscoveryMethod.PathProxy,
+                    TargetId = $"aws-{r.Region}",
+                    HopAddress = r.Hostname,
+                    PathProxyTarget = r.Hostname,
+                    RespondedTo = ProbeMode.Icmp,
+                    Enabled = via != null,
+                    ViaAsnNumber = via?.Asn,
+                    ViaAsnName = via?.Name
+                });
+            }
         }
 
         // Reconcile ALL candidates (transit + path-end) and access hops against

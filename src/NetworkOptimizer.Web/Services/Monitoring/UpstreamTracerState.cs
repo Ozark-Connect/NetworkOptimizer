@@ -121,6 +121,12 @@ public class TransitAsnCandidate
     /// <summary>For PathProxy tier: the CDN endpoint we monitor as a proxy for this ASN.</summary>
     public string? PathProxyTarget { get; set; }
 
+    /// <summary>For PathProxy tier: the farthest (deepest) transit ASN the trace to this
+    /// path-end host crosses - i.e. what it connects "via" - or null when the path crosses no
+    /// transit (peered / IX). Shown in the path-end hosts table; drives AWS-region pre-enable.</summary>
+    public int? ViaAsnNumber { get; set; }
+    public string? ViaAsnName { get; set; }
+
     /// <summary>
     /// Trace hop number of this candidate, used by post-verification auto-selection
     /// to order an ASN's hops and split them into RTT clumps (an ASN's run typically
