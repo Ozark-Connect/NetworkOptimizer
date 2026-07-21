@@ -525,11 +525,12 @@ export function resume() {
 // Hovering holds redraws (same as live updateChart) so values can be inspected
 // without the chart shifting under the cursor - EXCEPT briefly after a click on
 // the chart, which must draw its playhead even though the pointer (and so the
-// tooltip) is still over the plot. `force` is for an explicit reposition (a
-// seek): its single draw must land even under the cursor, or a paused seek that
-// arrives mid-hover is swallowed and never retried (the interpolation timer only
-// redraws while playing). The continuous interpolation stays unforced so live
-// hover-inspection during playback is unchanged.
+// tooltip) is still over the plot. `force` bypasses the hover-hold for a discrete
+// paused seek (a deep-link or manual scrub) - its single draw must land even under
+// the cursor, or it's swallowed and never retried while paused. Callers must NOT
+// force during active playback: the per-tick seeks would then redraw through a
+// hover, kicking the user out of tooltip inspection while the background timeline
+// advances - the exact behavior the hover-hold exists to preserve.
 function renderHistoric(at, force = false) {
     if (!chart || buffer.length === 0) return;
     if (!force && Date.now() > clickRenderUntil) {
@@ -635,9 +636,11 @@ export async function seekTime(isoTimestamp) {
         }));
     } catch { return; }
     if (buffer.length === 0) return;
-    // Force: this is the seek's own reposition draw, which must land even if the
-    // pointer is over the plot (paused seeks otherwise never render).
-    renderHistoric(at, true);
+    // Force the reposition draw only for a discrete/paused seek (deep-link, manual
+    // scrub): it must land even under the cursor or it's never retried while paused.
+    // During active playback leave it unforced so a hover still holds the redraw for
+    // inspection while the background timeline (2D/3D maps) keeps advancing.
+    renderHistoric(at, mapPlaybackRate() <= 0);
     if (!histTimer) {
         histTimer = setInterval(() => {
             const rate = mapPlaybackRate();
