@@ -141,7 +141,7 @@ public class UniFiApiClient : IDisposable
     /// taken during teardown - never against a live client - so the happy path and
     /// single-site installs are behavior-identical.
     /// </summary>
-    private async Task<T> ExecuteRequestAsync<T>(Func<Task<T>> action)
+    internal async Task<T> ExecuteRequestAsync<T>(Func<Task<T>> action)
     {
         if (_disposed) return default!;
         try
