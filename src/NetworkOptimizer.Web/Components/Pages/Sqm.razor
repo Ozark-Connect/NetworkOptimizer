@@ -1557,6 +1557,10 @@
     // Cache settings
     private static readonly TimeSpan CacheDuration = TimeSpan.FromMinutes(5);
     private static DateTime _lastStatusCheck = DateTime.MinValue;
+    // Site the cache was populated for. The cache is static (shared across circuits),
+    // but a site switch is a full reload into the same static state - without this the
+    // new site would show the previous site's deployment status until the next refresh.
+    private static string? _cachedSlug;
     private static SqmDeploymentStatus? _cachedDeploymentStatus;
     private static List<TcInterfaceStats>? _cachedTcInterfaces;
     private static List<WanInterfaceInfo>? _cachedWanInterfaces;
@@ -1687,7 +1691,7 @@
         PtrState.NotifyStateChanged = StateHasChanged;
 
         // Check cache synchronously BEFORE first render to avoid loading flash
-        if (IsCacheValid())
+        if (IsCacheValid(SiteContext.Slug))
         {
             gatewayConnected = _cachedGatewayConnected;
             gatewayConfigured = _cachedGatewayConfigured;
@@ -2015,9 +2019,10 @@
         }
     }
 
-    private static bool IsCacheValid()
+    private static bool IsCacheValid(string slug)
     {
         return _cachedDeploymentStatus != null &&
+               _cachedSlug == slug &&
                DateTime.UtcNow - _lastStatusCheck < CacheDuration;
     }
 
@@ -2344,6 +2349,8 @@
 
     private async Task RefreshStatus(bool forceRefresh = true)
     {
+        // Every cache write below belongs to the site this refresh runs against.
+        _cachedSlug = SiteContext.Slug;
         // Mark that a refresh is in progress - if user navs away, next page load will re-fetch
         _refreshNeeded = true;
         isLoading = true;
