@@ -53,7 +53,8 @@ public static class SpeedTestEndpoints
         app.MapPost("/api/public/speedtest/results", async (HttpContext context,
             SpeedTestServiceRegistry speedTestRegistry,
             IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
-            NetworkOptimizer.Storage.Services.SiteDbContextFactory siteDbFactory) =>
+            NetworkOptimizer.Storage.Services.SiteDbContextFactory siteDbFactory,
+            ILoggerFactory loggerFactory) =>
         {
             // OpenSpeedTest sends data as URL query params: d, u, p, j, dd, ud, ua
             var query = context.Request.Query;
@@ -100,14 +101,27 @@ public static class SpeedTestEndpoints
             // External server identifier (WAN speed tests from remote OpenSpeedTest servers)
             var externalServerId = GetValue("srv");
 
-            // Optional site slug (multi-site: one WAN speed test server serving many sites).
-            // Cross-origin posts carry no site cookie, so the slug rides as a parameter.
-            // Invalid or unprovisioned slugs fall back to the default site.
+            // Optional site slug (multi-site: one WAN speed test server serving many sites, or an
+            // agent relaying a LAN client's test). Cross-origin posts carry no site cookie, so the
+            // slug rides as a parameter. An empty slug is the default site's own page. A non-empty
+            // slug that does not resolve to a provisioned site (a removed/renamed site, or a
+            // misconfigured/leftover relay) would silently pollute the main site if recorded there,
+            // so log and drop it rather than falling back.
             var siteSlug = GetValue("site")?.Trim().ToLowerInvariant();
-            if (!string.IsNullOrEmpty(siteSlug) &&
-                (!NetworkOptimizer.Core.Helpers.StringUtilities.IsSlug(siteSlug) || !siteDbFactory.SiteDbExists(siteSlug)))
+            if (!string.IsNullOrEmpty(siteSlug))
             {
-                siteSlug = null;
+                if (!NetworkOptimizer.Core.Helpers.StringUtilities.IsSlug(siteSlug))
+                {
+                    loggerFactory.CreateLogger("SpeedTestRelay")
+                        .LogWarning("Dropping relayed speed test result: '{Slug}' is not a valid site slug", siteSlug);
+                    return Results.BadRequest(new { error = "Invalid site slug" });
+                }
+                if (!siteDbFactory.SiteDbExists(siteSlug))
+                {
+                    loggerFactory.CreateLogger("SpeedTestRelay")
+                        .LogWarning("Dropping relayed speed test result: site '{Slug}' is not provisioned on this server", siteSlug);
+                    return Results.NotFound(new { error = $"Site '{siteSlug}' is not provisioned" });
+                }
             }
 
             // An agent relay posts on behalf of a LAN client and passes the real client
@@ -124,7 +138,7 @@ public static class SpeedTestEndpoints
             // enriches against that site's console. Cross-origin posts carry no site
             // cookie, so the slug parameter picks the instance here.
             var service = speedTestRegistry
-                .GetFor(siteSlug ?? SiteManagementService.DefaultSiteSlug)
+                .GetFor(string.IsNullOrEmpty(siteSlug) ? SiteManagementService.DefaultSiteSlug : siteSlug)
                 .ClientSpeedTest;
             var result = await service.RecordOpenSpeedTestResultAsync(
                 clientIp, download, upload, ping, jitter, downloadData, uploadData, userAgent,
@@ -234,14 +248,25 @@ public static class SpeedTestEndpoints
         // Called by OpenSpeedTest ~3 seconds into a test to capture wireless rates mid-test
         app.MapPost("/api/public/speedtest/topology-snapshots", (HttpContext context,
             SpeedTestServiceRegistry speedTestRegistry,
-            NetworkOptimizer.Storage.Services.SiteDbContextFactory siteDbFactory) =>
+            NetworkOptimizer.Storage.Services.SiteDbContextFactory siteDbFactory,
+            ILoggerFactory loggerFactory) =>
         {
             // Same optional site routing as the results endpoint: a slug-tagged test
             // captures the snapshot from that site's console.
             var siteSlug = context.Request.Query["site"].ToString().Trim().ToLowerInvariant();
-            var relayed = !string.IsNullOrEmpty(siteSlug)
-                && NetworkOptimizer.Core.Helpers.StringUtilities.IsSlug(siteSlug)
-                && siteDbFactory.SiteDbExists(siteSlug);
+            // A non-empty slug that does not resolve to a provisioned site is a stray/misconfigured
+            // relay. Capturing against the default site's console would leave an orphan snapshot (the
+            // paired result is dropped, see the results endpoint) and query the wrong console, so log
+            // and no-op. Fire-and-forget, so the browser ignores this response anyway.
+            if (!string.IsNullOrEmpty(siteSlug) &&
+                (!NetworkOptimizer.Core.Helpers.StringUtilities.IsSlug(siteSlug) || !siteDbFactory.SiteDbExists(siteSlug)))
+            {
+                loggerFactory.CreateLogger("SpeedTestRelay")
+                    .LogWarning("Skipping topology snapshot: site '{Slug}' is not provisioned on this server", siteSlug);
+                return Results.Ok(new { success = false, skipped = "unprovisioned site" });
+            }
+            // Empty slug = the default site's own page; a non-empty slug here is provisioned.
+            var relayed = !string.IsNullOrEmpty(siteSlug);
             if (!relayed)
             {
                 siteSlug = SiteManagementService.DefaultSiteSlug;
