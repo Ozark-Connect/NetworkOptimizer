@@ -1,31 +1,18 @@
-using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Alerts.Models;
-using NetworkOptimizer.Storage.Models.Identity;
 using NetworkOptimizer.Threats.Models;
 
 namespace NetworkOptimizer.Storage.Models;
 
 /// <summary>
-/// Entity Framework DbContext for NetworkOptimizer local storage. Inherits
-/// <see cref="IdentityDbContext{TUser,TRole,TKey}"/> so ASP.NET Core Identity's user/role/login/claim/
-/// token/passkey tables live alongside the product tables in the main database (design docs 02/04).
+/// Entity Framework DbContext for NetworkOptimizer local storage
 /// </summary>
-public class NetworkOptimizerDbContext : IdentityDbContext<ApplicationUser, ApplicationRole, string>
+public class NetworkOptimizerDbContext : DbContext
 {
     public NetworkOptimizerDbContext(DbContextOptions<NetworkOptimizerDbContext> options)
         : base(options)
     {
     }
-
-    // --- Identity / RBAC / audit (design docs 02-05) ---
-    public DbSet<SiteMembership> SiteMemberships { get; set; }
-    public DbSet<SiteGroup> SiteGroups { get; set; }
-    public DbSet<SiteGroupMember> SiteGroupMembers { get; set; }
-    public DbSet<FederationProvider> FederationProviders { get; set; }
-    public DbSet<FederationRoleMapping> FederationRoleMappings { get; set; }
-    public DbSet<FederationSiteMapping> FederationSiteMappings { get; set; }
-    public DbSet<AuditEvent> AuditEvents { get; set; }
 
     public DbSet<AuditResult> AuditResults { get; set; }
     public DbSet<SqmBaseline> SqmBaselines { get; set; }
@@ -88,8 +75,6 @@ public class NetworkOptimizerDbContext : IdentityDbContext<ApplicationUser, Appl
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
-
-        ConfigureIdentityModel(modelBuilder);
 
         modelBuilder.Entity<Site>(entity =>
         {
@@ -572,110 +557,6 @@ public class NetworkOptimizerDbContext : IdentityDbContext<ApplicationUser, Appl
             entity.ToTable("ApNeighborSightings");
             entity.HasIndex(e => new { e.ApMac, e.Band, e.Bssid, e.Channel }).IsUnique();
             entity.HasIndex(e => e.LastSeenUtc);
-        });
-    }
-
-    /// <summary>
-    /// Configures the identity/RBAC/audit tables (users/roles come from the Identity base model;
-    /// this adds our custom side tables and their indexes). See design docs 02-05.
-    /// </summary>
-    private static void ConfigureIdentityModel(ModelBuilder modelBuilder)
-    {
-        modelBuilder.Entity<ApplicationUser>(entity =>
-        {
-            entity.Property(e => e.DisplayName).HasMaxLength(200);
-            entity.Property(e => e.LastLoginMethod).HasMaxLength(64);
-        });
-
-        modelBuilder.Entity<ApplicationRole>(entity =>
-        {
-            entity.Property(e => e.Description).HasMaxLength(500);
-        });
-
-        modelBuilder.Entity<SiteMembership>(entity =>
-        {
-            entity.ToTable("SiteMemberships");
-            entity.Property(e => e.TargetId).HasMaxLength(64);
-            entity.HasIndex(e => e.UserId);
-            entity.HasIndex(e => new { e.UserId, e.TargetType, e.TargetId }).IsUnique();
-            entity.HasOne<ApplicationUser>()
-                .WithMany()
-                .HasForeignKey(e => e.UserId)
-                .OnDelete(DeleteBehavior.Cascade);
-        });
-
-        modelBuilder.Entity<SiteGroup>(entity =>
-        {
-            entity.ToTable("SiteGroups");
-            entity.Property(e => e.Name).HasMaxLength(100).IsRequired();
-            entity.HasIndex(e => e.Name).IsUnique();
-        });
-
-        modelBuilder.Entity<SiteGroupMember>(entity =>
-        {
-            entity.ToTable("SiteGroupMembers");
-            entity.Property(e => e.SiteSlug).HasMaxLength(64).IsRequired();
-            entity.HasIndex(e => new { e.GroupId, e.SiteSlug }).IsUnique();
-            entity.HasIndex(e => e.SiteSlug);
-            entity.HasOne<SiteGroup>()
-                .WithMany()
-                .HasForeignKey(e => e.GroupId)
-                .OnDelete(DeleteBehavior.Cascade);
-        });
-
-        modelBuilder.Entity<FederationProvider>(entity =>
-        {
-            entity.ToTable("FederationProviders");
-            entity.Property(e => e.Scheme).HasMaxLength(64).IsRequired();
-            entity.Property(e => e.DisplayName).HasMaxLength(200).IsRequired();
-            entity.Property(e => e.ButtonLabel).HasMaxLength(200);
-            entity.HasIndex(e => e.Scheme).IsUnique();
-            entity.HasMany(e => e.RoleMappings)
-                .WithOne()
-                .HasForeignKey(m => m.ProviderId)
-                .OnDelete(DeleteBehavior.Cascade);
-            entity.HasMany(e => e.SiteMappings)
-                .WithOne()
-                .HasForeignKey(m => m.ProviderId)
-                .OnDelete(DeleteBehavior.Cascade);
-        });
-
-        modelBuilder.Entity<FederationRoleMapping>(entity =>
-        {
-            entity.ToTable("FederationRoleMappings");
-            entity.Property(e => e.GroupOrClaimValue).HasMaxLength(256).IsRequired();
-            entity.Property(e => e.GlobalRole).HasMaxLength(64).IsRequired();
-            entity.HasIndex(e => e.ProviderId);
-        });
-
-        modelBuilder.Entity<FederationSiteMapping>(entity =>
-        {
-            entity.ToTable("FederationSiteMappings");
-            entity.Property(e => e.GroupOrClaimValue).HasMaxLength(256).IsRequired();
-            entity.Property(e => e.TargetValue).HasMaxLength(100);
-            entity.HasIndex(e => e.ProviderId);
-        });
-
-        modelBuilder.Entity<AuditEvent>(entity =>
-        {
-            entity.ToTable("AuditEvents");
-            entity.Property(e => e.Category).HasMaxLength(32).IsRequired();
-            entity.Property(e => e.Action).HasMaxLength(64).IsRequired();
-            entity.Property(e => e.Outcome).HasMaxLength(16).IsRequired();
-            entity.Property(e => e.ActorName).HasMaxLength(256);
-            entity.Property(e => e.ActorAuthMethod).HasMaxLength(64);
-            entity.Property(e => e.SourceIp).HasMaxLength(64);
-            entity.Property(e => e.UserAgent).HasMaxLength(512);
-            entity.Property(e => e.TargetType).HasMaxLength(64);
-            entity.Property(e => e.TargetId).HasMaxLength(256);
-            entity.Property(e => e.TargetName).HasMaxLength(256);
-            entity.Property(e => e.SiteSlug).HasMaxLength(64);
-            entity.Property(e => e.CorrelationId).HasMaxLength(64);
-            entity.HasIndex(e => e.TimestampUtc);
-            entity.HasIndex(e => e.Category);
-            entity.HasIndex(e => e.ActorUserId);
-            entity.HasIndex(e => e.SiteSlug);
-            entity.HasIndex(e => e.Action);
         });
     }
 }

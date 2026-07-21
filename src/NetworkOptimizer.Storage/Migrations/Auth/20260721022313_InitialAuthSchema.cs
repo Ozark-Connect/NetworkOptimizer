@@ -3,10 +3,10 @@ using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
 
-namespace NetworkOptimizer.Storage.Migrations
+namespace NetworkOptimizer.Storage.Migrations.Auth
 {
     /// <inheritdoc />
-    public partial class AddIdentityRbacAudit : Migration
+    public partial class InitialAuthSchema : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
