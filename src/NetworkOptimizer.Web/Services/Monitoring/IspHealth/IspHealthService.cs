@@ -1453,11 +1453,11 @@ public class IspHealthService
             .Select(t =>
             {
                 var resolvedAsn = t.AsnNumber ?? 0;
-                var asnName = t.AsnName;
+                var asnName = AsnNameCleanup.Clean(t.AsnName);
                 if (ispOverrides != null && ispOverrides.TryGetValue(t.TargetId, out var o))
                 {
                     resolvedAsn = o.Asn;
-                    asnName ??= o.Name;
+                    asnName ??= AsnNameCleanup.Clean(o.Name);
                 }
                 return new AsnSeries
                 {
