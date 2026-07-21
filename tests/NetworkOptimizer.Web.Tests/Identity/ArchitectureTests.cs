@@ -34,6 +34,9 @@ public class ArchitectureTests
             nameof(LegacyJwtBridgeMiddleware),
             nameof(AppUserClaimsPrincipalFactory),
             nameof(RevalidatingIdentityAuthenticationStateProvider),
+            nameof(MfaService),
+            "PasskeyService",
+            "CurrentUserAccessor",
         };
 
         var managerTypes = new[]

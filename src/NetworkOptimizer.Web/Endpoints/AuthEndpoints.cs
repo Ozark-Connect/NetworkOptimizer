@@ -53,9 +53,36 @@ public static class AuthEndpoints
                     ? await siteSwitch.StampSiteAsync(returnUrl)
                     : SiteContextService.WithSiteParam(returnUrl, site)),
                 SignInOutcome.RequiresTwoFactor => Results.Redirect(TwoFactorRedirect(returnUrl, site)),
+                SignInOutcome.RequiresMfaEnrollment => Results.Redirect("/account/security?setup=required"),
                 SignInOutcome.LockedOut => LoginRedirect("lockout", site),
                 SignInOutcome.LocalLoginDisabled => LoginRedirect("sso_only", site),
                 _ => LoginRedirect("invalid", site),
+            };
+        });
+
+        // Second-factor step (TOTP or recovery code), posted by the /login/2fa static-SSR page.
+        app.MapPost("/api/auth/2fa", async (
+            HttpContext context, IIdentitySignInService signInService, SiteSwitchService siteSwitch, IAntiforgery antiforgery) =>
+        {
+            var form = await context.Request.ReadFormAsync();
+            var site = form[SiteContextService.SiteQueryParam].ToString();
+            var returnUrl = SanitizeReturnUrl(form["returnUrl"].ToString());
+            try { await antiforgery.ValidateRequestAsync(context); }
+            catch (AntiforgeryValidationException) { return LoginRedirect("invalid", site); }
+
+            var rememberMachine = form["rememberMachine"].ToString() is "true" or "on";
+            var recoveryCode = form["recoveryCode"].ToString();
+            var outcome = string.IsNullOrEmpty(recoveryCode)
+                ? await signInService.TwoFactorSignInAsync(form["code"].ToString(), rememberMe: false, rememberMachine)
+                : await signInService.RecoveryCodeSignInAsync(recoveryCode);
+
+            return outcome switch
+            {
+                SignInOutcome.Success => Results.Redirect(string.IsNullOrEmpty(site)
+                    ? await siteSwitch.StampSiteAsync(returnUrl)
+                    : SiteContextService.WithSiteParam(returnUrl, site)),
+                SignInOutcome.LockedOut => LoginRedirect("lockout", site),
+                _ => Results.Redirect(TwoFactorRedirect(returnUrl, site) + "&error=invalid"),
             };
         });
 

@@ -1,0 +1,203 @@
+@page "/account/security"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Components.Authorization
+@using NetworkOptimizer.Storage.Models.Identity
+@using NetworkOptimizer.Web.Services.Identity
+@inject IMfaService Mfa
+@inject IPasskeyService Passkeys
+@inject ICurrentUserAccessor CurrentUser
+@inject AuthenticationStateProvider AuthState
+@inject IJSRuntime JS
+
+<PageTitle>Security - Network Optimizer</PageTitle>
+
+<div class="page-header">
+    <h1>Security</h1>
+    <p class="page-description">Two-factor authentication and passkeys for your account.</p>
+</div>
+
+@if (_setupRequired)
+{
+    <div class="alert alert-warning">Your role requires multi-factor authentication. Set it up to continue.</div>
+}
+
+<div class="card">
+    <div class="card-header"><span class="card-title">Authenticator app (TOTP)</span></div>
+    <div class="card-body">
+        @if (_user is null)
+        {
+            <div class="loading-container"><span class="spinner"></span></div>
+        }
+        else if (_mfaEnabled)
+        {
+            <p>Two-factor authentication is <strong>enabled</strong>.</p>
+            <button class="btn btn-secondary btn-sm" @onclick="RegenerateCodesAsync">Regenerate recovery codes</button>
+            <button class="btn btn-danger btn-sm" @onclick="DisableMfaAsync">Disable</button>
+        }
+        else if (_setup is not null)
+        {
+            <p>Scan this key in your authenticator app, then enter the 6-digit code to finish.</p>
+            <p class="detail-value"><code>@_setup.FormattedKey</code></p>
+            <div class="form-group" style="max-width: 220px;">
+                <input class="form-control" @bind="_verifyCode" placeholder="123456" inputmode="numeric" />
+            </div>
+            <button class="btn btn-primary btn-sm" @onclick="VerifyEnrollmentAsync">Verify &amp; enable</button>
+            @if (_enrollError) { <div class="alert alert-danger mt-3">That code wasn't valid.</div> }
+        }
+        else
+        {
+            <button class="btn btn-primary btn-sm" @onclick="BeginEnrollmentAsync">Set up authenticator</button>
+        }
+
+        @if (_recoveryCodes is not null)
+        {
+            <div class="alert alert-info mt-3">
+                <strong>Recovery codes</strong> - store these somewhere safe. Each can be used once.
+                <ul>@foreach (var c in _recoveryCodes) { <li><code>@c</code></li> }</ul>
+            </div>
+        }
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header"><span class="card-title">Passkeys</span></div>
+    <div class="card-body">
+        @if (!_secureContext)
+        {
+            <div class="alert alert-warning">
+                Passkeys require a secure (HTTPS) connection. This install is on plain HTTP - put Network
+                Optimizer behind a reverse proxy with TLS to use passkeys. TOTP still works over HTTP.
+            </div>
+        }
+        else
+        {
+            @if (_passkeys.Count == 0)
+            {
+                <p class="text-muted">No passkeys registered.</p>
+            }
+            else
+            {
+                <ul>
+                    @foreach (var pk in _passkeys)
+                    {
+                        <li>
+                            @(string.IsNullOrEmpty(pk.Name) ? "Passkey" : pk.Name)
+                            <button class="btn btn-danger btn-sm" @onclick="() => RemovePasskeyAsync(pk.CredentialId)">Remove</button>
+                        </li>
+                    }
+                </ul>
+            }
+            <div class="form-group" style="max-width: 260px;">
+                <input class="form-control" @bind="_passkeyName" placeholder="Passkey name (e.g. YubiKey 5)" />
+            </div>
+            <button class="btn btn-primary btn-sm" @onclick="RegisterPasskeyAsync">Register a passkey</button>
+            @if (!string.IsNullOrEmpty(_passkeyMessage)) { <div class="alert alert-info mt-3">@_passkeyMessage</div> }
+        }
+    </div>
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "setup")] private string? Setup { get; set; }
+
+    private ApplicationUser? _user;
+    private bool _mfaEnabled;
+    private bool _setupRequired;
+    private bool _secureContext = true;
+    private AuthenticatorSetup? _setup;
+    private string _verifyCode = "";
+    private bool _enrollError;
+    private IReadOnlyList<string>? _recoveryCodes;
+
+    private IReadOnlyList<PasskeySummary> _passkeys = new List<PasskeySummary>();
+    private string _passkeyName = "";
+    private string? _passkeyMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _setupRequired = Setup == "required";
+        var principal = (await AuthState.GetAuthenticationStateAsync()).User;
+        _user = await CurrentUser.GetAsync(principal);
+        if (_user is not null)
+        {
+            _mfaEnabled = await Mfa.IsEnabledAsync(_user);
+            _passkeys = await Passkeys.ListAsync(principal);
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _secureContext = await JS.InvokeAsync<bool>("eval", "window.isSecureContext === true");
+            StateHasChanged();
+        }
+    }
+
+    private async Task BeginEnrollmentAsync()
+    {
+        if (_user is null) return;
+        _setup = await Mfa.BeginEnrollmentAsync(_user);
+    }
+
+    private async Task VerifyEnrollmentAsync()
+    {
+        if (_user is null) return;
+        if (await Mfa.CompleteEnrollmentAsync(_user, _verifyCode))
+        {
+            _mfaEnabled = true;
+            _enrollError = false;
+            _setup = null;
+            _setupRequired = false;
+            _recoveryCodes = await Mfa.GenerateRecoveryCodesAsync(_user);
+        }
+        else
+        {
+            _enrollError = true;
+        }
+    }
+
+    private async Task RegenerateCodesAsync()
+    {
+        if (_user is null) return;
+        _recoveryCodes = await Mfa.GenerateRecoveryCodesAsync(_user);
+    }
+
+    private async Task DisableMfaAsync()
+    {
+        if (_user is null) return;
+        await Mfa.DisableAsync(_user);
+        _mfaEnabled = false;
+        _recoveryCodes = null;
+    }
+
+    private async Task RegisterPasskeyAsync()
+    {
+        _passkeyMessage = null;
+        try
+        {
+            var ok = await JS.InvokeAsync<bool>("netoptPasskey.register", _passkeyName);
+            if (ok)
+            {
+                var principal = (await AuthState.GetAuthenticationStateAsync()).User;
+                _passkeys = await Passkeys.ListAsync(principal);
+                _passkeyName = "";
+                _passkeyMessage = "Passkey registered.";
+            }
+            else
+            {
+                _passkeyMessage = "Passkey registration was cancelled or failed.";
+            }
+        }
+        catch
+        {
+            _passkeyMessage = "Passkey registration failed in the browser.";
+        }
+    }
+
+    private async Task RemovePasskeyAsync(string credentialId)
+    {
+        var principal = (await AuthState.GetAuthenticationStateAsync()).User;
+        await Passkeys.RemoveAsync(principal, credentialId);
+        _passkeys = await Passkeys.ListAsync(principal);
+    }
+}

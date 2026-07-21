@@ -1151,7 +1151,7 @@ app.Use(async (context, next) =>
     var path = context.Request.Path.Value?.ToLower() ?? "";
 
     // Only these paths are public (no auth required)
-    var publicPaths = new[] { "/login", "/login/2fa", "/api/auth/login", "/api/auth/logout", "/api/health" };
+    var publicPaths = new[] { "/login", "/login/2fa", "/api/auth/login", "/api/auth/2fa", "/api/auth/logout", "/api/health", "/api/passkey/request-options", "/api/passkey/assert" };
     var publicPrefixes = new[] { "/api/public/" };  // All /api/public/* endpoints are anonymous
     var staticPaths = new[] { "/_blazor", "/_framework", "/css", "/js", "/images", "/_content", "/downloads" };
 
@@ -1286,6 +1286,9 @@ app.MapAuthEndpoints();
 
 // Audit-log CSV/JSON export (Admin-only).
 app.MapAuditLogEndpoints();
+
+// WebAuthn passkey ceremonies (registration authenticated; assertion login anonymous).
+app.MapPasskeyEndpoints();
 
 // UPnP Notes API endpoints
 app.MapGet("/api/upnp/notes", async (NetworkOptimizerDbContext db) =>
