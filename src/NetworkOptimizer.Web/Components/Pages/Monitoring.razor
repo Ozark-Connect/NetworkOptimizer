@@ -1590,6 +1590,11 @@ else
     [SupplyParameterFromQuery(Name = "tab")]
     public string? TabParam { get; set; }
 
+    // Deep link from a speed-test result: absolute epoch-ms instant to open Live View
+    // at, in historic playback (paused). Consumed once when the 3D map first mounts.
+    [SupplyParameterFromQuery(Name = "at")]
+    public string? AtParam { get; set; }
+
     [SupplyParameterFromQuery(Name = "discover")]
     public string? DiscoverParam { get; set; }
 
@@ -1708,6 +1713,7 @@ else
     // Chart mount tracking
     private bool _mapMounted = false;
     private bool _map2dMounted = false;
+    private bool _initialAtApplied = false;
     private bool _wanLiveChartMounted = false;
     private bool _portStatsMounted = false;
     private bool _latencyChartsMounted;
@@ -3665,12 +3671,20 @@ else
             try
             {
                 _mapDotNetRef ??= DotNetObjectReference.Create(this);
+                // Deep-linked timestamp (?at=): applied only on this first mount, so
+                // switching tabs away and back doesn't yank the map back to the past.
+                var initialAtOpt = "";
+                if (!_initialAtApplied && long.TryParse(AtParam, out var atMs) && atMs > 0)
+                {
+                    _initialAtApplied = true;
+                    initialAtOpt = $", initialAt: {atMs}";
+                }
                 await JS.InvokeVoidAsync("eval",
                     "window.__mountLanFlowMap = async function(canvasId, ref) {" +
                     "  window.__monitoringRef = ref;" +
                     $"  const m = await import('{VersionedJs("/js/lan-flow-map.js")}');" +
                     "  window.__lanFlowMap = m;" +
-                    $"  await m.mount(canvasId, {{ storagePrefix: '{SiteCtx.ScopeStorageKey("lanFlowMap")}' }});" +
+                    $"  await m.mount(canvasId, {{ storagePrefix: '{SiteCtx.ScopeStorageKey("lanFlowMap")}'{initialAtOpt} }});" +
                     "}");
                 await JS.InvokeVoidAsync("__mountLanFlowMap", "lan-flow-map-canvas", _mapDotNetRef);
             }

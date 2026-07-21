@@ -8,6 +8,7 @@
 @using NetworkOptimizer.Core.Helpers
 @inject ClientSpeedTestService ClientSpeedTestService
 @inject SiteContextService SiteContext
+@inject SnmpDetectionService SnmpDetection
 @inject SiteSpeedTestTargetResolver SiteTarget
 @inject SystemSettingsService SettingsService
 @inject NavigationManager NavigationManager
@@ -381,7 +382,8 @@
                                                                           UseWanLabels="true"
                                                                           OnDelete="HandleDelete"
                                                                           OnNotesChanged="HandleNotesChanged"
-                                                                          IsInTableRow="true" />
+                                                                          IsInTableRow="true"
+                                                                          ShowLiveViewLink="_liveViewLinkEnabled" />
                                                     </div>
                                                 </div>
                                             </div>
@@ -787,10 +789,29 @@
     private int _totalPages => Math.Max(1, (int)Math.Ceiling(_filteredResults.Count / (double)PageSize));
     private IEnumerable<Iperf3Result> _pagedResults => _filteredResults.Skip((_page - 1) * PageSize).Take(PageSize);
 
+    private bool _liveViewLinkEnabled;
+
+    // Live View deep-link is offered only when monitoring is enabled AND InfluxDB is
+    // configured for this site (matches the Monitoring page's own readiness gate), so the
+    // link never lands on a Live View with no historic data to play back.
+    private async Task LoadLiveViewLinkStateAsync()
+    {
+        try
+        {
+            var s = await SnmpDetection.GetOrCreateSettingsAsync();
+            _liveViewLinkEnabled = s.Enabled
+                && !string.IsNullOrEmpty(s.InfluxDbToken)
+                && !string.IsNullOrEmpty(s.InfluxDbUrl);
+        }
+        catch { _liveViewLinkEnabled = false; }
+    }
+
     protected override async Task OnInitializedAsync()
     {
         PtrState.RefreshCallback = () => LoadResults();
         PtrState.NotifyStateChanged = StateHasChanged;
+
+        await LoadLiveViewLinkStateAsync();
 
         InitializeChartOptions();
 

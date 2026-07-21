@@ -211,6 +211,9 @@ export class LanFlowMap {
         // discovery hint to keep its compact chrome clean (it also hides the
         // scrubber/status). Full Monitoring page leaves it on.
         this._signalHintEnabled = options.signalHint ?? true;
+        // Deep-link entry point (e.g. from a speed-test result): an absolute epoch-ms
+        // instant to open in historic playback, paused. Applied once at the end of start().
+        this._initialAtMs = Number.isFinite(options.initialAt) ? options.initialAt : null;
 
         this._snapshot = null;
         this._deviceScale = 1;          // property-size factor for device radii (set in _layoutNodes)
@@ -513,6 +516,24 @@ export class LanFlowMap {
         await this._loadInitialSpeedTests();
         this._startAnimation();
         this._startPolling();
+        this._applyInitialSeek();
+    }
+
+    // Honor a deep-linked timestamp (options.initialAt) by dropping straight into
+    // historic playback, paused, at that instant. Widens the timeline window first
+    // if the target predates the current span so the instant is reachable rather
+    // than clamping to the left edge (an instant older than retention still clamps).
+    _applyInitialSeek() {
+        const ms = this._initialAtMs;
+        if (!Number.isFinite(ms)) return;
+        this._initialAtMs = null; // one-shot
+        const needed = Date.now() - ms;
+        if (needed > this._scrubSpan) {
+            const preset = flowData.SCRUBBER_PRESETS.find(p => (p.ms ?? Infinity) >= needed)
+                || flowData.SCRUBBER_PRESETS[flowData.SCRUBBER_PRESETS.length - 1];
+            this._setScrubSpan(preset.key);
+        }
+        this.seekTo(ms);
     }
 
     dispose() {

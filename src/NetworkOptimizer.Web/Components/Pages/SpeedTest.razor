@@ -15,6 +15,7 @@
 @inject GatewaySpeedTestService GatewaySpeedTestService
 @inject SpeedTestServiceRegistry SpeedTestRegistry
 @inject SiteContextService SiteContext
+@inject SnmpDetectionService SnmpDetection
 @inject NetworkOptimizer.Web.Services.Licensing.LicenseStateService LicenseState
 @inject SiteTunnelRouting TunnelRouting
 @inject AgentOnGatewayDetector OnGatewayDetector
@@ -239,7 +240,7 @@
                         </div>
                         <div class="result-box-details">
                             <div class="result-box-details-inner">
-                                <SpeedTestDetails GatewayResult="gatewayLastResult" />
+                                <SpeedTestDetails GatewayResult="gatewayLastResult" ShowLiveViewLink="_liveViewLinkEnabled" />
                             </div>
                         </div>
                     </div>
@@ -734,7 +735,7 @@
             <div class="card-body">
                 @if (currentResult.Success)
                 {
-                    <SpeedTestDetails Result="currentResult" OnTestAgain="HandleTestAgain" OnNotesChanged="HandleNotesChanged" />
+                    <SpeedTestDetails Result="currentResult" OnTestAgain="HandleTestAgain" OnNotesChanged="HandleNotesChanged" ShowLiveViewLink="_liveViewLinkEnabled" />
                 }
                 else
                 {
@@ -916,7 +917,7 @@
                                                         // Use stored path analysis if available, otherwise use result's analysis
                                                         var pathAnalysis = historyPathAnalysis.GetValueOrDefault(result.Id) ?? result.PathAnalysis;
                                                     }
-                                                    <SpeedTestDetails Result="result" PathAnalysis="pathAnalysis" OnTestAgain="HandleTestAgain" OnDelete="HandleDeleteResult" OnNotesChanged="HandleNotesChanged" IsInTableRow="true" />
+                                                    <SpeedTestDetails Result="result" PathAnalysis="pathAnalysis" OnTestAgain="HandleTestAgain" OnDelete="HandleDeleteResult" OnNotesChanged="HandleNotesChanged" IsInTableRow="true" ShowLiveViewLink="_liveViewLinkEnabled" />
 
                                                     @if (pathAnalysis == null && ConnectionService.IsConnected)
                                                     {
@@ -1480,10 +1481,29 @@
     private string testProgressPhaseVerbose = ""; // Verbose for alerts
     private System.Timers.Timer? progressTimer;
 
+    private bool _liveViewLinkEnabled;
+
+    // Live View deep-link is offered only when monitoring is enabled AND InfluxDB is
+    // configured for this site (matches the Monitoring page's own readiness gate), so the
+    // link never lands on a Live View with no historic data to play back.
+    private async Task LoadLiveViewLinkStateAsync()
+    {
+        try
+        {
+            var s = await SnmpDetection.GetOrCreateSettingsAsync();
+            _liveViewLinkEnabled = s.Enabled
+                && !string.IsNullOrEmpty(s.InfluxDbToken)
+                && !string.IsNullOrEmpty(s.InfluxDbUrl);
+        }
+        catch { _liveViewLinkEnabled = false; }
+    }
+
     protected override async Task OnInitializedAsync()
     {
         PtrState.RefreshCallback = () => LoadHistory();
         PtrState.NotifyStateChanged = StateHasChanged;
+
+        await LoadLiveViewLinkStateAsync();
 
         // Check schedule banner dismissal and local iperf3 availability
         _lanScheduleBannerDismissed = await SettingsService.GetAsync("banner.lan_schedule_dismissed") != null;

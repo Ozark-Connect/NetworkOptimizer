@@ -115,8 +115,20 @@
         </div>
     }
     <div class="test-details">
-        <span class="hide-mobile">@TestTime.ToLocalTime().ToString("g")</span>
-        <span class="show-mobile">@TimeFormatHelper.FormatRelativeTimeShort(TestTime)</span>
+        @if (ShowLiveViewLink)
+        {
+            <a href="/monitoring?tab=live&at=@LiveViewAtMs" class="settings-title-link speedtest-liveview-link"
+               @onclick:stopPropagation data-tooltip="View in Live View at this time">
+                <span class="hide-mobile">@TestTime.ToLocalTime().ToString("g")</span>
+                <span class="show-mobile">@TimeFormatHelper.FormatRelativeTimeShort(TestTime)</span>
+                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>
+            </a>
+        }
+        else
+        {
+            <span class="hide-mobile">@TestTime.ToLocalTime().ToString("g")</span>
+            <span class="show-mobile">@TimeFormatHelper.FormatRelativeTimeShort(TestTime)</span>
+        }
         @if (_isMultiServerWan)
         {
             @if (!IsInTableRow)
@@ -416,6 +428,16 @@
     [Parameter] public int ParallelStreams { get; set; }
     [Parameter] public bool IsInTableRow { get; set; }
     [Parameter] public DateTime TestTime { get; set; }
+
+    /// <summary>
+    /// When true, the test date/time links into Monitoring - Live View, opening
+    /// historic playback paused at this test's timestamp. Set by parent pages only
+    /// when monitoring is enabled for the current site.
+    /// </summary>
+    [Parameter] public bool ShowLiveViewLink { get; set; }
+
+    /// <summary>TestTime as UTC epoch milliseconds, for the Live View deep link (?at=).</summary>
+    private long LiveViewAtMs => new DateTimeOffset(DateTime.SpecifyKind(TestTime, DateTimeKind.Utc)).ToUnixTimeMilliseconds();
     [Parameter] public double? PingMs { get; set; }
     [Parameter] public double? JitterMs { get; set; }
     [Parameter] public double? DownloadLatencyMs { get; set; }
