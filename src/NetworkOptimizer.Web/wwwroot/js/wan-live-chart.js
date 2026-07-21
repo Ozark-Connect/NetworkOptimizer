@@ -525,10 +525,14 @@ export function resume() {
 // Hovering holds redraws (same as live updateChart) so values can be inspected
 // without the chart shifting under the cursor - EXCEPT briefly after a click on
 // the chart, which must draw its playhead even though the pointer (and so the
-// tooltip) is still over the plot.
-function renderHistoric(at) {
+// tooltip) is still over the plot. `force` is for an explicit reposition (a
+// seek): its single draw must land even under the cursor, or a paused seek that
+// arrives mid-hover is swallowed and never retried (the interpolation timer only
+// redraws while playing). The continuous interpolation stays unforced so live
+// hover-inspection during playback is unchanged.
+function renderHistoric(at, force = false) {
     if (!chart || buffer.length === 0) return;
-    if (Date.now() > clickRenderUntil) {
+    if (!force && Date.now() > clickRenderUntil) {
         const el = document.getElementById(elId);
         if (el?.classList.contains('apexcharts-tooltip-active')) return;
     }
@@ -631,7 +635,9 @@ export async function seekTime(isoTimestamp) {
         }));
     } catch { return; }
     if (buffer.length === 0) return;
-    renderHistoric(at);
+    // Force: this is the seek's own reposition draw, which must land even if the
+    // pointer is over the plot (paused seeks otherwise never render).
+    renderHistoric(at, true);
     if (!histTimer) {
         histTimer = setInterval(() => {
             const rate = mapPlaybackRate();

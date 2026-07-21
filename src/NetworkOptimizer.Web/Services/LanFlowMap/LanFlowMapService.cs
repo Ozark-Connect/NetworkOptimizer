@@ -879,6 +879,16 @@ public class LanFlowMapService
                 var onlineAtT = healthPt != null
                     && Math.Abs((healthPt.Time - at).TotalSeconds) <= HistoricOnlineWindowSeconds;
 
+                // A second liveness signal at the same proximity: interface rates are only
+                // recorded while a device is reachable and poll on a separate cadence from
+                // device_health, so a single health sample dropped to poll jitter must not
+                // dark a device that plainly had interface telemetry at T (the visible
+                // symptom was particle streams freezing mid-playback, then restoring).
+                // Bounded by the same window, so a genuine outage - no health AND no rate
+                // telemetry near T - still reads offline.
+                var rateNearT = ratesByDevice.TryGetValue(mac, out var rateHist) && rateHist.Count > 0
+                    && rateHist.Min(p => Math.Abs((p.Time - at).TotalSeconds)) <= HistoricOnlineWindowSeconds;
+
                 bool infraOnline = false;
                 if (isInfra)
                 {
@@ -890,7 +900,7 @@ public class LanFlowMapService
                     var hasHealthHistory =
                         cached.HealthByDevice.TryGetValue(mac, out var hh) && hh.Count > 0;
                     if (hasHealthHistory)
-                        infraOnline = onlineAtT;
+                        infraOnline = onlineAtT || rateNearT;
                     else
                         infraOnline = (fabIn != null || aggIn != null) || node.Online;
 
