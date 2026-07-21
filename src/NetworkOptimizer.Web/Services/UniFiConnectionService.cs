@@ -37,6 +37,13 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     private readonly ICredentialProtectionService _credentialProtection;
 
     private UniFiApiClient? _client;
+    // Serializes every connection-lifecycle mutation of _client (connect, reconnect,
+    // tunnel-drop, disconnect). Without it, concurrent connect attempts during the
+    // startup/tunnel-up window null _client out from under an in-flight login, which
+    // NPE'd when the failure branch read _client.LastLoginError. OnConnectionChanged
+    // is always fired AFTER the gate is released so a subscriber can't re-enter and
+    // deadlock.
+    private readonly SemaphoreSlim _connectGate = new(1, 1);
     private UniFiConnectionSettings? _settings;
     private bool _isConnected;
     private string? _lastError;
@@ -314,24 +321,35 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     public async Task OnAgentTunnelDroppedAsync()
     {
         if (IsAgentOnline()) return; // another agent still carries the site
-        if (!_isConnected && _client == null) return;
-        if (!await IsConsoleViaAgentAsync()) return;
 
-        // Re-check after the await: a fast agent bounce can reconnect (and the
-        // connected hook re-establish the console) while the DB read above was in
-        // flight - disposing the fresh client here would fabricate an up-to-60s
-        // "awaiting agent" outage on a healthy tunnel.
-        if (IsAgentOnline()) return;
+        await _connectGate.WaitAsync();
+        var notify = false;
+        try
+        {
+            if (!_isConnected && _client == null) return;
+            if (!await IsConsoleViaAgentAsync()) return;
 
-        _logger.LogInformation(
-            "Agent tunnel for site {Slug} dropped; marking its console as awaiting the agent", SiteSlug);
-        _client?.Dispose();
-        _client = null;
-        _isConnected = false;
-        _awaitingAgent = true;
-        _lastError = AwaitingAgentMessage;
-        ResetConsoleFailureCount();
-        OnConnectionChanged?.Invoke();
+            // Re-check after the await: a fast agent bounce can reconnect (and the
+            // connected hook re-establish the console) while the DB read above was in
+            // flight - disposing the fresh client here would fabricate an up-to-60s
+            // "awaiting agent" outage on a healthy tunnel.
+            if (IsAgentOnline()) return;
+
+            _logger.LogInformation(
+                "Agent tunnel for site {Slug} dropped; marking its console as awaiting the agent", SiteSlug);
+            _client?.Dispose();
+            _client = null;
+            _isConnected = false;
+            _awaitingAgent = true;
+            _lastError = AwaitingAgentMessage;
+            ResetConsoleFailureCount();
+            notify = true;
+        }
+        finally
+        {
+            _connectGate.Release();
+            if (notify) OnConnectionChanged?.Invoke();
+        }
     }
 
     /// <summary>
@@ -350,17 +368,27 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     /// </summary>
     public async Task NoteTunnelUnreachableAsync()
     {
-        if (!_isConnected && _client == null) return; // already down / awaiting - idempotent
-        if (!await IsConsoleViaAgentAsync()) return;   // only agent-routed consoles ride the tunnel
-        _logger.LogInformation(
-            "Site {Slug}'s agent tunnel is unreachable; flipping its console to awaiting-agent ahead of the watchdog", SiteSlug);
-        _client?.Dispose();
-        _client = null;
-        _isConnected = false;
-        _awaitingAgent = true;
-        _lastError = AwaitingAgentMessage;
-        ResetConsoleFailureCount();
-        OnConnectionChanged?.Invoke();
+        await _connectGate.WaitAsync();
+        var notify = false;
+        try
+        {
+            if (!_isConnected && _client == null) return; // already down / awaiting - idempotent
+            if (!await IsConsoleViaAgentAsync()) return;   // only agent-routed consoles ride the tunnel
+            _logger.LogInformation(
+                "Site {Slug}'s agent tunnel is unreachable; flipping its console to awaiting-agent ahead of the watchdog", SiteSlug);
+            _client?.Dispose();
+            _client = null;
+            _isConnected = false;
+            _awaitingAgent = true;
+            _lastError = AwaitingAgentMessage;
+            ResetConsoleFailureCount();
+            notify = true;
+        }
+        finally
+        {
+            _connectGate.Release();
+            if (notify) OnConnectionChanged?.Invoke();
+        }
     }
 
     /// <summary>
@@ -645,6 +673,8 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
 
         _logger.LogInformation("Connecting to UniFi controller at {Url}", config.ControllerUrl);
 
+        await _connectGate.WaitAsync();
+        var notify = false;
         try
         {
             // Dispose existing client
@@ -708,8 +738,8 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
 
                 _logger.LogInformation("Successfully connected to UniFi controller (UniFi OS: {IsUniFiOs})", _client.IsUniFiOs);
 
-                // Notify subscribers to refresh their data
-                OnConnectionChanged?.Invoke();
+                // Notify subscribers to refresh their data (fired after the gate releases)
+                notify = true;
 
                 return true;
             }
@@ -736,6 +766,11 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
             await PreferAwaitingAgentOnDeadTunnelAsync();
             return false;
         }
+        finally
+        {
+            _connectGate.Release();
+            if (notify) OnConnectionChanged?.Invoke();
+        }
     }
 
     /// <summary>
@@ -745,8 +780,13 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     {
         if (!settings.HasCredentials) return false;
 
+        await _connectGate.WaitAsync();
+        var notify = false;
+
         // Use a shorter timeout for startup auto-connect so the dashboard
-        // shows the "unreachable" banner quickly instead of waiting 60s+
+        // shows the "unreachable" banner quickly instead of waiting 60s+. Created
+        // after the gate so its 8s budget covers the connect itself, not time spent
+        // queued behind another in-flight connect.
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(8));
 
         try
@@ -850,7 +890,9 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
                 // Critical for agent-tunneled consoles: when a site's console was
                 // unreachable at initial load and the agent tunnel later comes up,
                 // this reconnect fires the event that triggers the dashboard refresh.
-                OnConnectionChanged?.Invoke();
+                // Fired after the gate releases (see finally) so a subscriber can't
+                // re-enter a gated connect and deadlock.
+                notify = true;
 
                 return true;
             }
@@ -884,6 +926,11 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
             _client = null;
             await PreferAwaitingAgentOnDeadTunnelAsync();
             return false;
+        }
+        finally
+        {
+            _connectGate.Release();
+            if (notify) OnConnectionChanged?.Invoke();
         }
     }
 
@@ -965,26 +1012,34 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     /// </summary>
     public async Task DisconnectAsync()
     {
-        if (_client != null)
+        await _connectGate.WaitAsync();
+        try
         {
-            try
+            if (_client != null)
             {
-                await _client.LogoutAsync();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Error during logout");
+                try
+                {
+                    await _client.LogoutAsync();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Error during logout");
+                }
+
+                _client.Dispose();
+                _client = null;
             }
 
-            _client.Dispose();
-            _client = null;
+            _isConnected = false;
+            ResetConsoleFailureCount();
+            ClearCaches();
+            _logger.LogInformation("Disconnected from UniFi controller");
         }
-
-        _isConnected = false;
-        ResetConsoleFailureCount();
-        ClearCaches();
-        _logger.LogInformation("Disconnected from UniFi controller");
-        OnConnectionChanged?.Invoke();
+        finally
+        {
+            _connectGate.Release();
+            OnConnectionChanged?.Invoke();
+        }
     }
 
     /// <summary>
@@ -1558,6 +1613,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     internal void DisposeOwned()
     {
         _client?.Dispose();
+        _connectGate.Dispose();
     }
 }
 
