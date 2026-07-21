@@ -682,10 +682,20 @@ public class MonitoringInterfaceDeploymentService
 
         // Drain any in-flight watchdog apply before tearing down: block on the boot script's
         // per-interface apply lock so an apply that started before the marker existed finishes and
-        // cannot recreate artifacts after our teardown/verify. New applies already bail at the
-        // marker check, so once the lock is free the teardown runs uncontended. Bounded wait; on
-        // timeout the verification inside RemoveAsync is the safety net.
-        await RunAsync($"flock -w 30 '/tmp/monitoring-iface-{mi.Name}.lock' true 2>/dev/null || true");
+        // cannot recreate artifacts after our teardown. Together with the boot script re-checking
+        // the marker AFTER it acquires this lock, this closes the resurrection race both ways
+        // (apply-already-holds-lock, and apply-takes-lock-after-the-marker). If the drain times
+        // out an apply is stuck holding the lock, so abort instead of tearing down underneath it -
+        // roll the marker back and leave the row enabled to retry.
+        var drain = await RunAsync($"flock -w 30 '/tmp/monitoring-iface-{mi.Name}.lock' true 2>/dev/null");
+        if (!drain.success)
+        {
+            await RunAsync($"rm -f '{marker}' 2>/dev/null || true");
+            return (false, new List<string>
+            {
+                "A gateway apply for this interface is still running (lock not released in time); try disabling again in a moment."
+            });
+        }
 
         var (removed, steps) = await RemoveAsync(mi);
         if (!removed)
@@ -988,6 +998,10 @@ fail=0
 # status check; non-blocking, so if another apply already holds the lock we skip this tick.
 exec 9>""/tmp/monitoring-iface-__IFACE__.lock""
 flock -n 9 || { log ""apply already running, skipping""; exit 0; }
+# Re-check the marker now that we hold the lock: Disable may have written it (and drained the
+# lock) while we were between the top-of-script check and acquiring this lock. Bail before
+# applying anything so a paused apply cannot resurrect artifacts after Disable's teardown.
+[ -f ""$MARKER"" ] && { log ""disabled marker appeared after lock, skipping""; exit 0; }
 
 # 0. resolve the macvlan parent. With a VLAN, the parent is the subinterface (e.g.
 # eth6.100) so frames are tagged; UniFi creates it for a VLAN WAN, but if it's absent

@@ -866,6 +866,48 @@ public class MonitoringInterfaceDeploymentServiceTests
     }
 
     [Fact]
+    public async Task DisableAsync_DrainTimesOut_AbortsAndRollsBackMarker()
+    {
+        // If an in-flight apply will not release the lock in time, Disable must abort (not tear
+        // down underneath it), roll the marker back, and leave the row enabled.
+        var mi = Valid();
+        mi.Id = 9;
+        var commands = new List<string>();
+        var ssh = new Mock<IGatewaySshService>();
+        ssh.Setup(s => s.RunCommandAsync(It.IsAny<string>(), It.IsAny<TimeSpan?>(), It.IsAny<CancellationToken>()))
+            .Callback<string, TimeSpan?, CancellationToken>((cmd, _, _) => commands.Add(cmd))
+            .ReturnsAsync((string cmd, TimeSpan? _, CancellationToken _) =>
+                cmd.Contains("flock -w 30") ? (false, "") : (true, ""));
+        var repo = new Mock<IMonitoringInterfaceRepository>();
+        var service = BuildService(ssh, repo);
+
+        var (success, _) = await service.DisableAsync(mi);
+
+        success.Should().BeFalse();
+        repo.Verify(r => r.SetDisabledAsync(mi.Id, true, It.IsAny<CancellationToken>()), Times.Never);
+        commands.Should().Contain(c => c.Contains("rm -f") &&
+            c.Contains(MonitoringInterfaceDeploymentService.DisabledMarkerPath(mi)));
+    }
+
+    [Fact]
+    public async Task RemoveAsync_VerificationFindsResidualAliasDnat_ReportsFailure()
+    {
+        // Aliased teardown "succeeds" per-command, but verification finds the DNAT rule still
+        // present - Remove must flip success and warn (covers the alias probes added to verify).
+        var mi = ValidAliased(id: 9);
+        var ssh = new Mock<IGatewaySshService>();
+        ssh.Setup(s => s.RunCommandAsync(It.IsAny<string>(), It.IsAny<TimeSpan?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((string cmd, TimeSpan? _, CancellationToken _) =>
+                cmd.Contains("echo IFACE") ? (true, "ADNAT\n") : (true, ""));
+        var service = BuildService(ssh);
+
+        var (success, steps) = await service.RemoveAsync(mi);
+
+        success.Should().BeFalse();
+        steps.Should().Contain(s => s.Contains("verification failed"));
+    }
+
+    [Fact]
     public async Task RemoveAsync_VerificationFindsResidualSnat_ReportsFailure()
     {
         // Every teardown command "succeeds", but the absence verification still finds the SNAT
