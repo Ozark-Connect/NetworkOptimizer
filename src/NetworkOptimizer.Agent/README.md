@@ -151,9 +151,10 @@ curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main
 # UniFi gateway (on-box)
 curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/agent/install-agent-gateway.sh | bash -s -- --uninstall
 
-# If you used --dir on install, pass the SAME --dir here - uninstall targets the
-# process and files under it. Defaults: Docker /opt/network-optimizer-agent,
-# bare metal /opt/netopt-agent, gateway /data/netopt-agent.
+# Docker and bare metal: if you installed with --dir, pass the SAME --dir here -
+# uninstall targets the process and files under it. Defaults: Docker
+# /opt/network-optimizer-agent, bare metal /opt/netopt-agent. The gateway
+# installer has no --dir; it is always /data/netopt-agent.
 ```
 
 ### On a UniFi gateway (on-box)
@@ -169,7 +170,9 @@ curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main
   --token  "noa_..."
 ```
 
-It accepts `--insecure`, `--dir PATH`, and `--uninstall` (clean teardown). See
+It accepts `--insecure` and `--uninstall` (clean teardown). The install directory
+is fixed at `/data/netopt-agent` (there is no `--dir`): only `/data` survives a
+UniFi OS firmware upgrade, so the gateway agent is deliberately not relocatable. See
 "Where to run it > On a UniFi gateway" for the footprint, firmware-upgrade
 persistence, and the isolation trade-off.
 

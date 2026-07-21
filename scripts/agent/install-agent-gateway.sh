@@ -25,8 +25,12 @@
 #   --server URL   Central server HTTPS address (required; the same URL as the app)
 #   --token  TOK   One-time enrollment token (required on first install)
 #   --insecure     Accept a self-signed cert on the server's reverse proxy
-#   --dir PATH     Install directory (default: /data/netopt-agent)
 #   --uninstall    Stop + remove the service and install dir, then exit
+#
+# The install directory is fixed at /data/netopt-agent and is intentionally NOT
+# configurable: on UniFi OS only /data survives a firmware upgrade (it is the
+# writable upper layer of the root overlay), so relocating the agent elsewhere
+# would silently make it disappear on the next upgrade.
 #
 # Re-running the installer upgrades the agent in place: it downloads the latest
 # release, keeps the enrolled key, and restarts the service on the new binary.
@@ -42,6 +46,8 @@ set -euo pipefail
 
 SERVER=""
 TOKEN=""
+# Fixed, not configurable: /data is the only path that survives a UniFi OS firmware
+# upgrade (writable upper layer of the root overlay). See the header note.
 INSTALL_DIR="/data/netopt-agent"
 SERVICE_NAME="netopt-agent"
 INSECURE=false
@@ -52,7 +58,6 @@ while [ $# -gt 0 ]; do
     case "$1" in
         --server) SERVER="$2"; shift 2 ;;
         --token) TOKEN="$2"; shift 2 ;;
-        --dir) INSTALL_DIR="$2"; shift 2 ;;
         --insecure) INSECURE=true; shift ;;
         --uninstall) UNINSTALL=true; shift ;;
         *) echo "Unknown option: $1" >&2; exit 1 ;;
