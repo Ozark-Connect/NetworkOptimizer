@@ -100,6 +100,31 @@ public class UniFiDeviceResponse
     [JsonPropertyName("displayable_version")]
     public string? DisplayableVersion { get; set; }
 
+    /// <summary>
+    /// Suricata (the CyberSecure IDS/IPS detection engine) version currently running on the
+    /// gateway. Absent until the engine has run a version; only present on CyberSecure-capable
+    /// gateways.
+    /// </summary>
+    [JsonPropertyName("suricata_version")]
+    [JsonConverter(typeof(FlexibleIntConverter))]
+    public int? SuricataVersion { get; set; }
+
+    /// <summary>
+    /// Highest Suricata engine version this gateway's firmware supports.
+    /// </summary>
+    [JsonPropertyName("supported_suricata_version")]
+    [JsonConverter(typeof(FlexibleIntConverter))]
+    public int? SupportedSuricataVersion { get; set; }
+
+    /// <summary>
+    /// Suricata engine version the gateway is offering to upgrade to. Present (and above the
+    /// running <see cref="SuricataVersion"/>) when an upgrade is available but not yet initiated
+    /// in UniFi Network -> Settings -> CyberSecure.
+    /// </summary>
+    [JsonPropertyName("suricata_upgrade_pending_target")]
+    [JsonConverter(typeof(FlexibleIntConverter))]
+    public int? SuricataUpgradePendingTarget { get; set; }
+
     [JsonPropertyName("adopted")]
     public bool Adopted { get; set; }
 

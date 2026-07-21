@@ -86,7 +86,8 @@ public class DashboardService : IDashboardService
                         IpAddress = d.DisplayIpAddress ?? "",
                         Model = d.FriendlyModelName,
                         Firmware = d.Firmware,
-                        Uptime = FormatUptime((long?)d.Uptime.TotalSeconds)
+                        Uptime = FormatUptime((long?)d.Uptime.TotalSeconds),
+                        SuricataUpgradeAvailable = d.SuricataUpgradeAvailable
                     };
                     // Merge live monitoring data when available. Stale data is dropped by the
                     // cache's prune step; here we just ignore an entry if no fresh values landed.
@@ -297,6 +298,13 @@ public class DeviceInfo
     public double? LiveCpuPercent { get; set; }
     public double? LiveMemoryPercent { get; set; }
     public double? LiveTemperatureC { get; set; }
+
+    /// <summary>
+    /// True when this device (a gateway) has a pending CyberSecure IDS/IPS (Suricata) engine
+    /// upgrade available but not yet initiated. Drives the Dashboard advisory banner and the
+    /// device card's upgrade bar.
+    /// </summary>
+    public bool SuricataUpgradeAvailable { get; set; }
 
     /// <summary>
     /// Get display name for the device type
