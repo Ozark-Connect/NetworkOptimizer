@@ -129,9 +129,11 @@ public static class NetworkFormatHelpers
         "Enterprises", "Services", "Technologies", "Networks", "Network",
         "Electric Cooperative", "Cooperative", "Co-op",
         "Corporation", "Incorporated", "Company", "Holdings", "Group", "Parent",
-        "LLC", "Inc", "Corp", "Ltd", "Limited", "Co", "L.P.", "LP",
-        "GmbH", "AG", "KG", "e.K.", "S.A.", "S.A.S.", "S.r.l.",
-        "B.V.", "B.V", "N.V.", "N.V", "Pty", "A/S", "AB", "Oy", "AS"
+        // Entries must NOT carry a trailing '.' - CleanOrgName TrimEnd's ',' and '.' off the
+        // input before matching, so a dotted entry (e.g. "L.P.") could never fire. Use "L.P".
+        "LLC", "L.C", "LC", "Inc", "Corp", "Ltd", "Limited", "Co", "L.P", "LP",
+        "GmbH", "AG", "KG", "e.K", "S.A", "S.A.S", "S.r.l",
+        "B.V", "N.V", "Pty", "A/S", "AB", "Oy", "AS"
     };
 
     /// <summary>

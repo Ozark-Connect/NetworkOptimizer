@@ -15,6 +15,17 @@ public class NetworkFormatHelpersTests
     // and "Zayo Group, LLC") both collapse to the same household name.
     [InlineData("Zayo Bandwidth", "Zayo")]
     [InlineData("Zayo Group, LLC", "Zayo")]
+    // "L.C." / "L.C" / "LC" legal forms (e.g. XMission registers as "XMission, L.C.").
+    [InlineData("XMission, L.C.", "XMission")]
+    [InlineData("XMission, L.C", "XMission")]
+    [InlineData("XMission LC", "XMission")]
+    // Dotted legal forms must strip even though the input's trailing '.' is trimmed first
+    // (OrgSuffixes entries are stored dotless so they still match the trimmed tail).
+    [InlineData("Orange S.A.", "Orange")]
+    [InlineData("KPN B.V.", "KPN")]
+    [InlineData("Ziggo N.V.", "Ziggo")]
+    [InlineData("Hurricane Electric, L.P.", "Hurricane Electric")]
+    [InlineData("Hurricane Electric LP", "Hurricane Electric")]
     public void CleanOrgName_strips_industry_and_legal_suffixes(string raw, string expected)
         => NetworkFormatHelpers.CleanOrgName(raw).Should().Be(expected);
 
