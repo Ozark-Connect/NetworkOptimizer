@@ -456,8 +456,8 @@
     //  - Client-initiated iperf3: arrives as separate single-direction runs merged into
     //    one record that keeps the FIRST run's ingest time, so TestTime marks the end of
     //    the measured phase. The recorded traffic (monitoring-vs-wall-clock skew) starts
-    //    around the phase midpoint, so land ~0.64 of a duration back - a hair before that
-    //    visible onset - for a short lead-in rather than opening mid-traffic. (An earlier
+    //    around the phase midpoint, so land just before that visible onset (~0.55 of a
+    //    duration back) for a short lead-in rather than opening mid-traffic. (An earlier
     //    larger back-off was compensating for a playback-seed drift that's since fixed;
     //    with play now resuming exactly at the marker, this reads right.)
     //  - Server-initiated LAN device iperf3 (gateway already handled above): end-stamped
@@ -475,7 +475,7 @@
             if (LiveViewTestTimeIsStart)
                 return stampMs + GatewaySshSetupMs;
             if (Result?.Direction == SpeedTestDirection.ClientToServer)
-                return stampMs - DurationSeconds * 640L;
+                return stampMs - DurationSeconds * 550L;
             if (Result?.Direction == SpeedTestDirection.ServerToDevice)
                 return stampMs - 2 * DurationSeconds * 1000L - 1000L;
             return stampMs - 2 * DurationSeconds * 1000L;
