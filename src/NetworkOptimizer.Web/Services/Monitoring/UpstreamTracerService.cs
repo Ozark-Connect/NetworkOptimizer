@@ -154,11 +154,13 @@ public class UpstreamTracerService
     /// <summary>
     /// The farthest (deepest) transit ASN on the trace to <paramref name="destIp"/> - what a path-end
     /// host connects "via" - with a cleaned name. Walks that destination's trace hops in order and
-    /// keeps the last hop whose attributed ASN is neither the destination's own nor an access ASN.
+    /// keeps the last hop whose attributed ASN is neither an access ASN nor the destination's own org.
+    /// The destination match is by cleaned NAME, not just ASN number, so a provider that appears under
+    /// sibling ASNs (Amazon's AS16509 / AS14618, a transit's multiple ASNs) isn't mistaken for transit.
     /// Null when the path crosses no transit (peered / IX). <paramref name="asnByHopIp"/> maps hop IP
     /// to its attributed ASN from the merged pool, so no extra lookups are done here.
     /// </summary>
-    private (int Asn, string Name)? FarthestTransitVia(string destIp, int destAsn,
+    private (int Asn, string Name)? FarthestTransitVia(string destIp, int destAsn, string destName,
         HashSet<int> accessAsns, Dictionary<string, AsnLookup> asnByHopIp)
     {
         (int Asn, string Name)? via = null;
@@ -170,8 +172,10 @@ public class UpstreamTracerService
         foreach (var h in hops)
         {
             if (!asnByHopIp.TryGetValue(h.Address!, out var asn)) continue;
-            if (asn.Asn == destAsn || accessAsns.Contains(asn.Asn)) continue;
-            via = (asn.Asn, CleanAsnName(asn.Name)); // keep updating -> ends on the farthest transit
+            if (accessAsns.Contains(asn.Asn)) continue;
+            var name = CleanAsnName(asn.Name);
+            if (asn.Asn == destAsn || string.Equals(name, destName, StringComparison.OrdinalIgnoreCase)) continue;
+            via = (asn.Asn, name); // keep updating -> ends on the farthest non-destination-org transit
         }
         return via;
     }
@@ -1379,11 +1383,12 @@ public class UpstreamTracerService
             if (!reachedOrTraversed) continue;
             if (!pathProxyAsnsSeen.Add(destAsn.Asn)) continue;
 
-            var via = FarthestTransitVia(endpoint.Address, destAsn.Asn, accessAsnNumbers, asnByHopIp);
+            var cdnName = CleanAsnName(destAsn.Name);
+            var via = FarthestTransitVia(endpoint.Address, destAsn.Asn, cdnName, accessAsnNumbers, asnByHopIp);
             candidates.Add(new TransitAsnCandidate
             {
                 AsnNumber = destAsn.Asn,
-                AsnName = CleanAsnName(destAsn.Name),
+                AsnName = cdnName,
                 Label = endpoint.Label,
                 Method = DiscoveryMethod.PathProxy,
                 TargetId = $"path-{endpoint.Label.ToLowerInvariant()}-as{destAsn.Asn}",
@@ -1411,7 +1416,7 @@ public class UpstreamTracerService
             {
                 // The via (farthest transit) both labels the row and decides pre-enable: a region is
                 // pre-checked only when its trace actually crosses transit.
-                var via = FarthestTransitVia(r.Ip, amazonAsn, accessAsnNumbers, asnByHopIp);
+                var via = FarthestTransitVia(r.Ip, amazonAsn, amazonName, accessAsnNumbers, asnByHopIp);
                 candidates.Add(new TransitAsnCandidate
                 {
                     AsnNumber = amazonAsn,
