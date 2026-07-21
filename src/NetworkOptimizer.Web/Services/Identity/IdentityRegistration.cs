@@ -1,3 +1,6 @@
+using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Components.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Storage.Models.Identity;
@@ -61,6 +64,8 @@ public static class IdentityRegistration
             })
             .AddRoles<ApplicationRole>()
             .AddEntityFrameworkStores<AuthDbContext>()
+            .AddSignInManager()
+            .AddClaimsPrincipalFactory<AppUserClaimsPrincipalFactory>()
             .AddDefaultTokenProviders();
 
         // Keep new hashes at the app's historical strength (framework default 100k is weaker).
@@ -70,6 +75,77 @@ public static class IdentityRegistration
         services.AddScoped<IPasswordHasher<ApplicationUser>, LegacyFallbackPasswordHasher>();
 
         services.AddScoped<IIdentityBootstrapService, IdentityBootstrapService>();
+        services.AddScoped<IIdentitySignInService, IdentitySignInService>();
+        services.AddScoped<IAuthPolicyOptions, AuthPolicyOptions>();
+
+        return services;
+    }
+
+    /// <summary>
+    /// Configures the interactive authentication pipeline: Identity application cookie (replacing the
+    /// legacy self-issued JWT-in-cookie), security-stamp revalidation, and the Blazor Server
+    /// revalidating auth-state provider. This is the cutover step - it sets the cookie schemes as the
+    /// default, so it must run in place of the old JWT scheme registration (design docs 02, 06).
+    /// </summary>
+    public static IServiceCollection AddNetOptIdentityAuthentication(this IServiceCollection services)
+    {
+        services.AddAuthentication(options =>
+            {
+                options.DefaultScheme = IdentityConstants.ApplicationScheme;
+                options.DefaultSignInScheme = IdentityConstants.ExternalScheme;
+            })
+            .AddIdentityCookies();
+
+        services.ConfigureApplicationCookie(options =>
+        {
+            options.Cookie.Name = "netopt_auth";
+            options.Cookie.HttpOnly = true;
+            options.Cookie.SameSite = SameSiteMode.Lax;
+            // Secure only over HTTPS - LAN installs on plain http://host:8042 must still work.
+            options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
+            options.SlidingExpiration = true;
+            options.ExpireTimeSpan = TimeSpan.FromDays(14);
+            options.LoginPath = "/login";
+            options.LogoutPath = "/api/auth/logout";
+            options.AccessDeniedPath = "/login";
+
+            // Preserve the pre-Identity behaviour: API calls get 401 (not a login redirect), and the
+            // tab's ?site= pin is carried through the login redirect so re-auth lands on the same site.
+            options.Events.OnRedirectToLogin = context =>
+            {
+                if (context.Request.Path.StartsWithSegments("/api"))
+                {
+                    context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                    return Task.CompletedTask;
+                }
+
+                var site = context.Request.Query[SiteContextService.SiteQueryParam].ToString();
+                context.Response.Redirect(string.IsNullOrEmpty(site)
+                    ? "/login"
+                    : $"/login?{SiteContextService.SiteQueryParam}={Uri.EscapeDataString(site)}");
+                return Task.CompletedTask;
+            };
+
+            options.Events.OnRedirectToAccessDenied = context =>
+            {
+                if (context.Request.Path.StartsWithSegments("/api"))
+                {
+                    context.Response.StatusCode = StatusCodes.Status403Forbidden;
+                    return Task.CompletedTask;
+                }
+                context.Response.Redirect(options.AccessDeniedPath);
+                return Task.CompletedTask;
+            };
+        });
+
+        // Rotate/revoke sessions within ~5 min of a stamp change (role/password/MFA/disable).
+        services.Configure<SecurityStampValidatorOptions>(options =>
+        {
+            options.ValidationInterval = TimeSpan.FromMinutes(5);
+        });
+
+        // Blazor Server circuit revalidation (security stamp + IsEnabled + membership version).
+        services.AddScoped<AuthenticationStateProvider, RevalidatingIdentityAuthenticationStateProvider>();
 
         return services;
     }

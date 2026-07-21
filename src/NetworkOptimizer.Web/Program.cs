@@ -526,46 +526,15 @@ builder.Services.AddSingleton<IJwtService, JwtService>();
 // Add HttpContextAccessor for accessing cookies in Blazor
 builder.Services.AddHttpContextAccessor();
 
-// ASP.NET Core Identity on the dedicated main-DB AuthDbContext (users, roles, RBAC, audit).
-// Additive: registers the stores/managers/hasher and the bootstrap seeder without changing the
-// authentication pipeline yet - the JWT-to-cookie cutover is applied separately (design doc 02).
+// ASP.NET Core Identity on the dedicated main-DB AuthDbContext (users, roles, RBAC, audit),
+// plus the interactive cookie authentication pipeline that REPLACES the legacy self-issued
+// JWT-in-cookie scheme. The Identity application cookie gains server-side revocation via security
+// stamps (which the JWT cookie fundamentally lacked). Sessions from before the upgrade survive via
+// the LegacyJwtBridgeMiddleware (added below). JwtService is retained only for that bridge and is
+// removed one release after the cutover (design docs 02, 06).
 builder.Services.AddNetOptIdentityCore(dbPath);
-
-// Configure JWT Authentication using standard ASP.NET Core pattern
-builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddJwtBearer(options =>
-    {
-        // Token validation will be configured after app build (needs JwtService)
-        options.Events = new JwtBearerEvents
-        {
-            // Read JWT from cookie instead of Authorization header
-            OnMessageReceived = context =>
-            {
-                if (context.Request.Cookies.TryGetValue("auth_token", out var token))
-                {
-                    context.Token = token;
-                }
-                return Task.CompletedTask;
-            },
-            // Redirect to login page instead of 401 for web requests
-            OnChallenge = context =>
-            {
-                // Skip default behavior for API requests
-                if (context.Request.Path.StartsWithSegments("/api"))
-                {
-                    return Task.CompletedTask;
-                }
-
-                context.HandleResponse();
-                // Carry the tab's ?site= pin through login (same as the auth middleware).
-                var challengeSite = context.Request.Query[SiteContextService.SiteQueryParam].ToString();
-                context.Response.Redirect(string.IsNullOrEmpty(challengeSite)
-                    ? "/login"
-                    : $"/login?{SiteContextService.SiteQueryParam}={Uri.EscapeDataString(challengeSite)}");
-                return Task.CompletedTask;
-            }
-        };
-    });
+builder.Services.AddNetOptIdentityAuthentication();
+builder.Services.AddCascadingAuthenticationState();
 
 builder.Services.AddAuthorization();
 
@@ -1158,16 +1127,16 @@ using (var startupScope = app.Services.CreateScope())
     await identityBootstrap.RunAsync();
 }
 
-// Configure JWT Bearer token validation parameters (requires JwtService from DI)
-var jwtService = app.Services.GetRequiredService<IJwtService>();
-var tokenValidationParams = await jwtService.GetTokenValidationParametersAsync();
-
-// Get the JwtBearerOptions and set the token validation parameters
-var jwtBearerOptions = app.Services.GetRequiredService<Microsoft.Extensions.Options.IOptionsMonitor<JwtBearerOptions>>();
-jwtBearerOptions.Get(JwtBearerDefaults.AuthenticationScheme).TokenValidationParameters = tokenValidationParams;
-
-// Standard ASP.NET Core authentication middleware (must come before auth check)
+// Standard ASP.NET Core authentication middleware (must come before auth check).
+// Authentication is now the Identity application cookie (see AddNetOptIdentityAuthentication).
 app.UseAuthentication();
+
+// Transitional bridge: upgrade a still-valid legacy auth_token JWT into an Identity cookie so
+// sessions from before the upgrade are not forced to re-login. Runs after UseAuthentication (so an
+// existing Identity cookie short-circuits it) and before authorization/the auth-required gate.
+// SUNSET: remove with JwtService one release after the cutover (30-day legacy token lifetime).
+app.UseMiddleware<NetworkOptimizer.Web.Services.Identity.LegacyJwtBridgeMiddleware>();
+
 app.UseAuthorization();
 
 // Auth middleware that checks if authentication is required and protects all endpoints
@@ -1176,7 +1145,7 @@ app.Use(async (context, next) =>
     var path = context.Request.Path.Value?.ToLower() ?? "";
 
     // Only these paths are public (no auth required)
-    var publicPaths = new[] { "/login", "/api/auth/set-cookie", "/api/auth/logout", "/api/health" };
+    var publicPaths = new[] { "/login", "/login/2fa", "/api/auth/login", "/api/auth/logout", "/api/health" };
     var publicPrefixes = new[] { "/api/public/" };  // All /api/public/* endpoints are anonymous
     var staticPaths = new[] { "/_blazor", "/_framework", "/css", "/js", "/images", "/_content", "/downloads" };
 
@@ -1306,63 +1275,8 @@ app.MapGet("/api/reports/latest/pdf", async (AuditService auditService) =>
 // Speed Test API endpoints
 app.MapSpeedTestEndpoints();
 
-// Auth API endpoints
-app.MapGet("/api/auth/set-cookie", (HttpContext context, string token, string returnUrl = "/") =>
-{
-    // Validate returnUrl to prevent open redirect attacks
-    // Only allow relative URLs that start with /
-    if (string.IsNullOrEmpty(returnUrl) ||
-        !returnUrl.StartsWith('/') ||
-        returnUrl.StartsWith("//") ||
-        returnUrl.Contains(':'))
-    {
-        returnUrl = "/";
-    }
-
-    // Only set Secure flag if actually using HTTPS
-    // (localhost/127.0.0.1 check was causing issues when accessed via IP over HTTP)
-    var isSecure = context.Request.IsHttps;
-
-    // Set HttpOnly cookie with the JWT token
-    context.Response.Cookies.Append("auth_token", token, new CookieOptions
-    {
-        HttpOnly = true,
-        Secure = isSecure,
-        SameSite = isSecure ? SameSiteMode.Strict : SameSiteMode.Lax,
-        Expires = DateTimeOffset.UtcNow.AddDays(30), // Match JWT expiration
-        Path = "/"
-    });
-
-    return Results.Redirect(returnUrl);
-});
-
-app.MapGet("/api/auth/logout", (HttpContext context) =>
-{
-    context.Response.Cookies.Delete("auth_token", new CookieOptions
-    {
-        Path = "/"
-    });
-
-    // Carry the tab's ?site= pin (stamped onto the logout link by site-context.js)
-    // through to the login page so logging back in returns to the same site.
-    var logoutSite = context.Request.Query[SiteContextService.SiteQueryParam].ToString();
-    return Results.Redirect(string.IsNullOrEmpty(logoutSite)
-        ? "/login"
-        : $"/login?{SiteContextService.SiteQueryParam}={Uri.EscapeDataString(logoutSite)}");
-});
-
-app.MapGet("/api/auth/check", async (HttpContext context, IJwtService jwt) =>
-{
-    if (context.Request.Cookies.TryGetValue("auth_token", out var token))
-    {
-        var principal = await jwt.ValidateTokenAsync(token);
-        if (principal != null)
-        {
-            return Results.Ok(new { authenticated = true, user = principal.Identity?.Name });
-        }
-    }
-    return Results.Unauthorized();
-});
+// Auth API endpoints (Identity cookie sign-in/out; SSR form posts - see AuthEndpoints).
+app.MapAuthEndpoints();
 
 // UPnP Notes API endpoints
 app.MapGet("/api/upnp/notes", async (NetworkOptimizerDbContext db) =>
