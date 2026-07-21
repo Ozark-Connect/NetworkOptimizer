@@ -14,6 +14,7 @@ using NetworkOptimizer.UniFi;
 using NetworkOptimizer.Web;
 using NetworkOptimizer.Web.Endpoints;
 using NetworkOptimizer.Web.Services;
+using NetworkOptimizer.Web.Services.Identity;
 using NetworkOptimizer.Web.Services.CableModemProviders;
 using NetworkOptimizer.Web.Services.Licensing;
 using NetworkOptimizer.Web.Services.OntProviders;
@@ -524,6 +525,11 @@ builder.Services.AddSingleton<IJwtService, JwtService>();
 
 // Add HttpContextAccessor for accessing cookies in Blazor
 builder.Services.AddHttpContextAccessor();
+
+// ASP.NET Core Identity on the dedicated main-DB AuthDbContext (users, roles, RBAC, audit).
+// Additive: registers the stores/managers/hasher and the bootstrap seeder without changing the
+// authentication pipeline yet - the JWT-to-cookie cutover is applied separately (design doc 02).
+builder.Services.AddNetOptIdentityCore(dbPath);
 
 // Configure JWT Authentication using standard ASP.NET Core pattern
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
@@ -1140,6 +1146,12 @@ using (var startupScope = app.Services.CreateScope())
 {
     var adminAuthService = startupScope.ServiceProvider.GetRequiredService<IAdminAuthService>();
     await adminAuthService.LogStartupConfigurationAsync();
+
+    // Apply the auth schema and seed/reconcile the local admin account from the install's current
+    // credential (runs after the first-run auto-generated password exists to transcode). Additive:
+    // the JWT session artifact is unchanged until the cutover wires cookie auth in.
+    var identityBootstrap = startupScope.ServiceProvider.GetRequiredService<IIdentityBootstrapService>();
+    await identityBootstrap.RunAsync();
 }
 
 // Configure JWT Bearer token validation parameters (requires JwtService from DI)

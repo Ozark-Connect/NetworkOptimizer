@@ -11,7 +11,7 @@ using NetworkOptimizer.Storage.Models.Identity;
 namespace NetworkOptimizer.Storage.Migrations.Auth
 {
     [DbContext(typeof(AuthDbContext))]
-    [Migration("20260721022313_InitialAuthSchema")]
+    [Migration("20260721024212_InitialAuthSchema")]
     partial class InitialAuthSchema
     {
         /// <inheritdoc />
@@ -210,6 +210,9 @@ namespace NetworkOptimizer.Storage.Migrations.Auth
 
                     b.Property<string>("PasswordHash")
                         .HasColumnType("TEXT");
+
+                    b.Property<bool>("PasswordIsTemporary")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("PhoneNumber")
                         .HasColumnType("TEXT");
