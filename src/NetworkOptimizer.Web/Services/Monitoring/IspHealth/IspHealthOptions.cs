@@ -601,6 +601,23 @@ public class IspHealthOptions
     public double JitterAssimilationMinDeltaMs { get; set; } = 0.05;
 
     /// <summary>
+    /// Dead-band for RTT-stability scoring: absolute median-absolute-deviation (MAD) at or below
+    /// this many ms counts as perfectly steady. Stability grades on MAD/median, which is scale-free,
+    /// so on a low-RTT fiber path (median ~2-3 ms) a few tenths of a ms of wander - operationally
+    /// trivial - becomes a large ratio and over-penalizes. The stability analog of
+    /// <see cref="JitterFloorMinMs"/>: the score reads off max(0, MAD - floor) / median, so sub-floor
+    /// wander is free and only the excess counts.
+    /// </summary>
+    public double StabilityMadFloorMs { get; set; } = 0.35;
+
+    /// <summary>
+    /// Minimum amount (absolute MAD, ms) a cleaner witness must sit below a hop's own RTT MAD before it
+    /// absolves the hop's stability. Within this band the difference is noise, so the hop keeps its own
+    /// wander. The stability analog of <see cref="JitterAssimilationMinDeltaMs"/>.
+    /// </summary>
+    public double StabilityAssimilationMinMadMs { get; set; } = 0.05;
+
+    /// <summary>
     /// Item D - how strongly the internet-relative reach ceiling absolves an ISP access hop's
     /// intra-ASN distance penalty. finalCeiling = C_intra + alpha * max(0, C_net - C_intra), so it
     /// only ever lifts (never lowers) and partially (alpha &lt; 1) - genuine distance/glass always

@@ -826,7 +826,14 @@ public class IspHealthScorer
             && rawEffectiveJitter.Value > nearJitter.Value - _options.JitterAssimilationMinDeltaMs
             ? nearJitter
             : rawEffectiveJitter;
-        var stabilityRatio = EffectiveLower(series.Samples, series.JitterSourceSamples, StabilityRatioOf);
+        // RTT stability: take the steadier (lower absolute MAD) of this ASN's near and far clusters,
+        // then apply the MAD dead-band and normalize by this hop's own median. Working in absolute
+        // MAD (not the ratio) keeps the near/far min honest and sets up cross-target witness
+        // absolution, which must compare MAD across targets sitting at different base RTTs.
+        var stabilityMad = EffectiveLower(series.Samples, series.JitterSourceSamples, RttMadOf);
+        double? stabilityRatio = stabilityMad.HasValue && medianRtt is > 0
+            ? Math.Max(0, stabilityMad.Value - _options.StabilityMadFloorMs) / medianRtt!.Value
+            : null;
 
         // Assimilated when a witness (a farther transit cluster, or - for an ISP hop via
         // the override - a downstream transit/deeper ISP hop) pulled this jitter below the
@@ -1009,14 +1016,15 @@ public class IspHealthScorer
         return js.Count > 0 ? SeriesStats.Percentile(js, _options.AsnJitterScoringPercentile) : null;
     }
 
-    /// <summary>RTT stability ratio (MAD / median) of a sample set; lower is steadier. Null without RTT.</summary>
-    private static double? StabilityRatioOf(IReadOnlyList<LatencySample> samples)
+    /// <summary>Absolute RTT MAD (median absolute deviation, ms) of a sample set; lower is steadier.
+    /// Null without RTT. Callers normalize by the hop's own median (scale-free stability ratio) and
+    /// apply the <see cref="IspHealthOptions.StabilityMadFloorMs"/> dead-band.</summary>
+    private static double? RttMadOf(IReadOnlyList<LatencySample> samples)
     {
         var rtts = samples.Where(s => s.RttAvgMs.HasValue).Select(s => s.RttAvgMs!.Value).ToArray();
         Array.Sort(rtts);
         var median = SeriesStats.MedianSorted(rtts);
-        var mad = median.HasValue ? SeriesStats.MadSorted(rtts, median.Value) : null;
-        return median is > 0 && mad.HasValue ? mad.Value / median.Value : null;
+        return median.HasValue ? SeriesStats.MadSorted(rtts, median.Value) : null;
     }
 
     /// <summary>
