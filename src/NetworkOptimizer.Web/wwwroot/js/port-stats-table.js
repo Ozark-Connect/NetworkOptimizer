@@ -502,6 +502,7 @@ export function mount(el, mountOpts = {}) {
     // seek/pause push from Blazor can race this mount and be lost (see the
     // matching pull in wan-live-chart.js).
     const mapInst = window.__lanFlowMap?.getInstance?.();
+    window.__lanFlowMap?._dbg?.(`portStats mount-end pull: inst=${!!mapInst} mode=${mapInst?._mode} paused=${mapInst?._paused} at=${(mapInst?._pendingScrubAt ?? mapInst?._historicAt)?.toISOString() ?? 'null'}`);
     if (mapInst && mapInst._mode === 'historic') {
         const at = mapInst._pendingScrubAt ?? mapInst._historicAt;
         if (at) api.seekTime(at.toISOString());

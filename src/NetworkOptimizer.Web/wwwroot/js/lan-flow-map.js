@@ -526,6 +526,7 @@ export class LanFlowMap {
     _applyInitialSeek() {
         const ms = this._initialAtMs;
         if (!Number.isFinite(ms)) return;
+        _dbg(`applyInitialSeek ms=${ms} (${new Date(ms).toISOString()})`);
         this._initialAtMs = null; // one-shot
         const needed = Date.now() - ms;
         if (needed > this._scrubSpan) {
@@ -2645,6 +2646,7 @@ export class LanFlowMap {
     // Flip Live -> Historic on the first scrub interaction: land paused with the
     // Historic badge up, and kill any running playback.
     _enterHistoricScrub() {
+        _dbg(`enterHistoricScrub src=${(new Error().stack || '').split('\n').slice(1, 3).join(' | ')}`);
         this._mode = 'historic';
         this._paused = true;
         // Mirror the transition into the shared store immediately. The debounced
@@ -2687,6 +2689,7 @@ export class LanFlowMap {
     // timeline at the instant (or snaps to Live at the right edge) and loads it
     // through the same debounced pipeline as slider/keyboard scrubbing.
     seekTo(ms) {
+        _dbg(`seekTo ms=${ms} (${Number.isFinite(ms) ? new Date(ms).toISOString() : '?'}) src=${(new Error().stack || '').split('\n').slice(1, 4).join(' | ')}`);
         const range = this._panels.scrubberRange;
         if (!range || !Number.isFinite(ms)) return;
         this._stopHistoricPlayback();
@@ -4303,6 +4306,13 @@ function makeRadialBackgroundTexture(width, height) {
     return tex;
 }
 
+// Diagnostic (LiveViewDbg): relay browser-side lifecycle events into the server
+// log via the Monitoring component's DotNet ref. Strip together with the
+// [LiveViewDbg] lines in Monitoring.razor once the deep-link issue is closed.
+export function _dbg(msg) {
+    try { window.__monitoringRef?.invokeMethodAsync('OnMapDebug', 'map: ' + msg).catch(() => {}); } catch { }
+}
+
 // Entry point used by Blazor JS interop.
 let _instance = null;
 
@@ -4313,6 +4323,7 @@ export async function mount(canvasId, options = {}) {
     }
     const el = document.getElementById(canvasId);
     if (!el) throw new Error(`Canvas #${canvasId} not found`);
+    _dbg(`mount opts=${JSON.stringify(options)} module=${import.meta.url} preReset={p:${flowData.isPaused()},m:${flowData.getMode()},v:${flowData.getScrubber().value}}`);
     // The map is the playback authority and mounts before the other Live View
     // consumers (2D map, WAN chart, port table). Clear playback state a prior
     // session left in the shared store so every mount starts from Live; a
@@ -4320,10 +4331,12 @@ export async function mount(canvasId, options = {}) {
     flowData.resetPlayback();
     _instance = new LanFlowMap(el, options);
     await _instance.start();
+    _dbg(`mount done mode=${_instance._mode} paused=${_instance._paused} historicAt=${_instance._historicAt?.toISOString() ?? 'null'}`);
     return _instance;
 }
 
 export function unmount() {
+    _dbg(`unmount hadInstance=${!!_instance}`);
     if (_instance) {
         _instance.dispose();
         _instance = null;

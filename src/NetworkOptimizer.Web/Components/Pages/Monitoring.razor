@@ -1715,6 +1715,14 @@ else
     private bool _mapMounted = false;
     private bool _map2dMounted = false;
     private bool _initialAtApplied = false;
+
+    // Diagnostic (LiveViewDbg): per-instance id so logs distinguish component
+    // reuse from recreation across navigations. Strip with the rest of the
+    // [LiveViewDbg] lines once the deep-link lifecycle issue is closed.
+    private readonly string _dbgId = Guid.NewGuid().ToString("N")[..6];
+
+    [JSInvokable]
+    public void OnMapDebug(string msg) => Logger.LogDebug("[LiveViewDbg:{Id}][js] {Msg}", _dbgId, msg);
     private bool _wanLiveChartMounted = false;
     private bool _portStatsMounted = false;
     private bool _latencyChartsMounted;
@@ -1798,6 +1806,7 @@ else
         _activeTab = tab;
         ResetThresholdSavedFlags();
         var uri = "/monitoring?tab=" + tab;
+        Logger.LogDebug("[LiveViewDbg:{Id}] SetActiveTab {Tab}: navigating {From} -> {To}", _dbgId, tab, NavigationManager.Uri, uri);
         NavigationManager.NavigateTo(uri, forceLoad: false, replace: false);
         _lastTabParam = tab;
     }
@@ -1819,6 +1828,8 @@ else
 
     protected override void OnParametersSet()
     {
+        Logger.LogDebug("[LiveViewDbg:{Id}] OnParametersSet: TabParam={TabParam} AtParam={AtParam} activeTab={ActiveTab} uri={Uri}",
+            _dbgId, TabParam, AtParam, _activeTab, NavigationManager.Uri);
         if (TabParam != _lastTabParam && _lastTabParam != null)
         {
             // Route through ResolveDefaultTab so the _monitoringReady guard applies to
@@ -1916,6 +1927,8 @@ else
 
     protected override async Task OnInitializedAsync()
     {
+        Logger.LogDebug("[LiveViewDbg:{Id}] OnInitializedAsync (new component): TabParam={TabParam} AtParam={AtParam} uri={Uri}",
+            _dbgId, TabParam, AtParam, NavigationManager.Uri);
         ConnectionService.OnConnectionChanged += OnConnectionChanged;
 
         // Restore tab visibility persisted from prerender so the interactive render
@@ -2893,6 +2906,8 @@ else
     [JSInvokable]
     public async Task OnMapTimeChanged(string? isoTimestamp)
     {
+        Logger.LogDebug("[LiveViewDbg:{Id}] OnMapTimeChanged {Iso} (wanMounted={Wan} portMounted={Port})",
+            _dbgId, isoTimestamp, _wanLiveChartMounted, _portStatsMounted);
         // Sync WAN live chart to the same timeline position
         if (_wanLiveChartMounted)
         {
@@ -3674,6 +3689,8 @@ else
                     _initialAtApplied = true;
                     initialAtOpt = $", initialAt: {atMs}";
                 }
+                Logger.LogDebug("[LiveViewDbg:{Id}] map mount block: AtParam={AtParam} applied={Applied} opt='{Opt}' uri={Uri}",
+                    _dbgId, AtParam, _initialAtApplied, initialAtOpt, NavigationManager.Uri);
                 await JS.InvokeVoidAsync("eval",
                     "window.__mountLanFlowMap = async function(canvasId, ref) {" +
                     "  window.__monitoringRef = ref;" +
@@ -3690,6 +3707,7 @@ else
             _mapMounted = false;
             _mapHistoricAt = null;
             _historicSnapshot = null;
+            Logger.LogDebug("[LiveViewDbg:{Id}] map unmount block: tab={Tab}", _dbgId, _activeTab);
             try { await JS.InvokeVoidAsync("eval", "window.__lanFlowMap?.unmount();"); }
             catch { }
         }
