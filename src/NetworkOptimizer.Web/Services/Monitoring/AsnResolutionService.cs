@@ -159,7 +159,7 @@ internal static class AsnNameCleanup
     // common US / EU / UK / Nordic forms. Run iteratively because some names
     // have stacked suffixes (e.g. "Foo Holdings Ltd LLC").
     private static readonly Regex SuffixPattern = new(
-        @"\s*,?\s+(LLC|L\.L\.C\.?|Inc\.?|Incorporated|Corp\.?|Corporation|Co\.?|Company|Ltd\.?|Limited|B\.V\.?|BV|AB|AG|GmbH|S\.A\.?S?\.?|S\.r\.l\.?|SA|PLC|Pte\.?|N\.V\.?|NV|OY|OYJ)\.?\s*$",
+        @"\s*,?\s+(LLC|L\.L\.C\.?|L\.C\.?|LC|L\.P\.?|LP|Inc\.?|Incorporated|Corp\.?|Corporation|Co\.?|Company|Ltd\.?|Limited|B\.V\.?|BV|AB|AG|GmbH|S\.A\.?S?\.?|S\.r\.l\.?|SA|PLC|Pte\.?|N\.V\.?|NV|OY|OYJ)\.?\s*$",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     // Specific brand overrides, applied AFTER suffix stripping. This is the ONLY place a name is

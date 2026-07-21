@@ -11,6 +11,13 @@ public class AsnNameCleanupTests
     [InlineData("Akamai International B.V.", "Akamai International")]
     [InlineData("Arelion Sweden AB", "Arelion")]
     [InlineData("Arelion Sweden", "Arelion")]
+    // "L.C." / "L.C" / "LC" legal forms (e.g. XMission registers as "XMission, L.C.").
+    [InlineData("XMission, L.C.", "XMission")]
+    [InlineData("XMission, L.C", "XMission")]
+    [InlineData("XMission LC", "XMission")]
+    // Limited partnership forms.
+    [InlineData("Hurricane Electric, L.P.", "Hurricane Electric")]
+    [InlineData("Hurricane Electric LP", "Hurricane Electric")]
     public void Strips_corporate_suffixes_and_applies_brand_overrides(string raw, string expected)
         => AsnNameCleanup.Clean(raw).Should().Be(expected);
 
