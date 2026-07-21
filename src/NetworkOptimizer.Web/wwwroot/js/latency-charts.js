@@ -282,11 +282,17 @@ function updateChartVisibility() {
 // abnormal, so even a fraction of a percent is worth flagging as a poor measurement target.
 const LAN_FLAKY_LOSS_PCT = 0.5;
 
-// A loss sample on the gateway fabric target at or above this marks that timestamp as a gateway
-// outage: with the gateway down, LAN targets behind it lose too, and that loss is the gateway's
-// fault, not the target's. High bar so an outage (near-total unreachability) is masked while a
-// merely-flaky gateway isn't - we only want to drop true outage windows.
-const GATEWAY_OUTAGE_LOSS_PCT = 50;
+// A loss sample at or above this marks a target as "down" in that timestamp. Used for both outage
+// masks below. High bar so only true unreachability counts, never the low-level flaky loss
+// (>= LAN_FLAKY_LOSS_PCT) we actually want to surface.
+const OUTAGE_LOSS_PCT = 50;
+// Fraction of the reporting fabric pool that must be down in a timestamp for it to read as a
+// systemic (gateway/shared-switch) outage rather than one target's own trouble.
+const SHARED_OUTAGE_POOL_FRACTION = 0.5;
+// The shared-outage test needs a real pool to infer "systemic": with only a target or two, one
+// down device is already "half the pool," so we lean on the gateway signal alone and never mask
+// a genuinely-down single target as shared loss.
+const SHARED_OUTAGE_MIN_TARGETS = 3;
 
 // Report the current LAN (Fabric) category's flaky targets to Blazor so it can render the
 // "flaky LAN target" advisory. Detection only; the role/dismissed gating and the notice itself
@@ -299,20 +305,38 @@ function notifyLanFlakyHints(data) {
         if (!ref) return;
         let ids = [];
         if (currentCategory === 'Fabric' && data && Array.isArray(data.targets)) {
-            // Timestamps the gateway target itself was out (>= GATEWAY_OUTAGE_LOSS_PCT). Loss on
-            // any other LAN target at these times rode a gateway outage, so it's excluded from
-            // that target's average below. Union across gateways covers multi-gateway sites.
-            const gatewayOutageTimes = new Set();
+            // Mask out timestamps whose loss rode an outage rather than one target's own flakiness,
+            // so a switch isn't flagged for loss the gateway (or a shared upstream) caused. A
+            // timestamp is an outage when EITHER holds:
+            //   - the gateway fabric target itself was down (>= OUTAGE_LOSS_PCT) - catches a gateway
+            //     outage even when it only downs some LAN targets, and
+            //   - most of the reporting fabric pool was down at once - catches a shared-switch
+            //     outage and covers sites with no monitored gateway target.
+            // Neither test trips on a single flaky target's solo loss, so it still surfaces.
+            const outageTimes = new Set();
+            const perTime = new Map(); // time -> { down, reporting }
             data.targets.forEach(t => {
-                if (t.autoLabel !== 'gateway') return;
+                const isGateway = t.autoLabel === 'gateway';
                 (t.loss || []).forEach(p => {
-                    if (p.value != null && p.value >= GATEWAY_OUTAGE_LOSS_PCT) gatewayOutageTimes.add(p.time);
+                    if (p.value == null) return;
+                    const down = p.value >= OUTAGE_LOSS_PCT;
+                    if (isGateway && down) outageTimes.add(p.time);
+                    const agg = perTime.get(p.time) || { down: 0, reporting: 0 };
+                    agg.reporting++;
+                    if (down) agg.down++;
+                    perTime.set(p.time, agg);
                 });
+            });
+            perTime.forEach((agg, time) => {
+                if (agg.reporting >= SHARED_OUTAGE_MIN_TARGETS
+                    && agg.down / agg.reporting >= SHARED_OUTAGE_POOL_FRACTION) {
+                    outageTimes.add(time);
+                }
             });
             ids = data.targets.filter(t => {
                 if (t.autoLabel === 'gateway') return false;
                 const vals = (t.loss || [])
-                    .filter(p => p.value != null && !gatewayOutageTimes.has(p.time))
+                    .filter(p => p.value != null && !outageTimes.has(p.time))
                     .map(p => p.value);
                 if (!vals.length) return false;
                 const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
