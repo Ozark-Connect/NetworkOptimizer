@@ -8,6 +8,7 @@
 @using NetworkOptimizer.Core.Helpers
 @inject ClientSpeedTestService ClientSpeedTestService
 @inject SiteContextService SiteContext
+@inject MonitoringReadinessService Readiness
 @inject SiteSpeedTestTargetResolver SiteTarget
 @inject SystemSettingsService SettingsService
 @inject NavigationManager NavigationManager
@@ -381,7 +382,8 @@
                                                                           UseWanLabels="true"
                                                                           OnDelete="HandleDelete"
                                                                           OnNotesChanged="HandleNotesChanged"
-                                                                          IsInTableRow="true" />
+                                                                          IsInTableRow="true"
+                                                                          ShowLiveViewLink="_liveViewLinkEnabled" />
                                                     </div>
                                                 </div>
                                             </div>
@@ -787,10 +789,14 @@
     private int _totalPages => Math.Max(1, (int)Math.Ceiling(_filteredResults.Count / (double)PageSize));
     private IEnumerable<Iperf3Result> _pagedResults => _filteredResults.Skip((_page - 1) * PageSize).Take(PageSize);
 
+    private bool _liveViewLinkEnabled;
+
     protected override async Task OnInitializedAsync()
     {
         PtrState.RefreshCallback = () => LoadResults();
         PtrState.NotifyStateChanged = StateHasChanged;
+
+        _liveViewLinkEnabled = await Readiness.IsHistoricPlaybackAvailableAsync();
 
         InitializeChartOptions();
 

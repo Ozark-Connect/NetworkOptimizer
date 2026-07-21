@@ -115,8 +115,20 @@
         </div>
     }
     <div class="test-details">
-        <span class="hide-mobile">@TestTime.ToLocalTime().ToString("g")</span>
-        <span class="show-mobile">@TimeFormatHelper.FormatRelativeTimeShort(TestTime)</span>
+        @if (ShowLiveViewLink)
+        {
+            <a href="/monitoring?tab=live&at=@LiveViewAtMs" class="settings-title-link speedtest-liveview-link"
+               @onclick:stopPropagation data-tooltip="View in Live View at this time">
+                <span class="hide-mobile">@TestTime.ToLocalTime().ToString("g")</span>
+                <span class="show-mobile">@TimeFormatHelper.FormatRelativeTimeShort(TestTime)</span>
+                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>
+            </a>
+        }
+        else
+        {
+            <span class="hide-mobile">@TestTime.ToLocalTime().ToString("g")</span>
+            <span class="show-mobile">@TimeFormatHelper.FormatRelativeTimeShort(TestTime)</span>
+        }
         @if (_isMultiServerWan)
         {
             @if (!IsInTableRow)
@@ -416,6 +428,59 @@
     [Parameter] public int ParallelStreams { get; set; }
     [Parameter] public bool IsInTableRow { get; set; }
     [Parameter] public DateTime TestTime { get; set; }
+
+    /// <summary>
+    /// When true, the test date/time links into Monitoring - Live View, opening
+    /// historic playback paused at this test's timestamp. Set by parent pages only
+    /// when monitoring is enabled for the current site.
+    /// </summary>
+    [Parameter] public bool ShowLiveViewLink { get; set; }
+
+    /// <summary>TestTime as UTC epoch milliseconds, for the Live View deep link (?at=).</summary>
+    // The gateway speed test (GatewaySpeedTestService) is the one type that stamps
+    // TestTime at the START of the test, before its legs run; every other type stamps
+    // at the END. Its results reach us either live via GatewayResult or, in history,
+    // as an Iperf3Result with DeviceType "Gateway" (the device-iperf3 path excludes
+    // gateways, so that string is unambiguous). We do not touch the recording - just
+    // pick the right compensation here.
+    private bool LiveViewTestTimeIsStart => GatewayResult != null || Result?.DeviceType == "Gateway";
+
+    // The gateway stamps TestTime before establishing its SSH connection, so the
+    // actual throughput starts a couple of seconds later - nudge forward past that
+    // setup gap (the opposite direction from the end-stamped back-off below).
+    private const long GatewaySshSetupMs = 2000L;
+
+    // Where to drop the Live View playhead for this test, as an offset from TestTime:
+    //  - Start-stamped (gateway): TestTime is the start, before its SSH connection, so
+    //    nudge forward past the setup gap.
+    //  - Client-initiated iperf3: arrives as separate single-direction runs merged into
+    //    one record that keeps the FIRST run's ingest time, so TestTime marks the end of
+    //    the measured phase. The recorded traffic (monitoring-vs-wall-clock skew) starts
+    //    around the phase midpoint, so land just before that visible onset (~0.55 of a
+    //    duration back) for a short lead-in rather than opening mid-traffic. (An earlier
+    //    larger back-off was compensating for a playback-seed drift that's since fixed;
+    //    with play now resuming exactly at the marker, this reads right.)
+    //  - Server-initiated LAN device iperf3 (gateway already handled above): end-stamped
+    //    after two sequential legs, so back off both - plus 1s. The two-leg-span start
+    //    sits a hair forward of true first-byte because of the inter-leg gap (and, for
+    //    SSH-managed devices, server-start setup); a flat 1s splits the difference between
+    //    the tight UniFi case (server already listening) and the SSH-managed case.
+    //  - Everything else is end-stamped after both directional phases, so back off both.
+    // A result without a stored duration backs off by 0 (1s for ServerToDevice).
+    private long LiveViewAtMs
+    {
+        get
+        {
+            var stampMs = new DateTimeOffset(DateTime.SpecifyKind(TestTime, DateTimeKind.Utc)).ToUnixTimeMilliseconds();
+            if (LiveViewTestTimeIsStart)
+                return stampMs + GatewaySshSetupMs;
+            if (Result?.Direction == SpeedTestDirection.ClientToServer)
+                return stampMs - DurationSeconds * 550L;
+            if (Result?.Direction == SpeedTestDirection.ServerToDevice)
+                return stampMs - 2 * DurationSeconds * 1000L - 1000L;
+            return stampMs - 2 * DurationSeconds * 1000L;
+        }
+    }
     [Parameter] public double? PingMs { get; set; }
     [Parameter] public double? JitterMs { get; set; }
     [Parameter] public double? DownloadLatencyMs { get; set; }

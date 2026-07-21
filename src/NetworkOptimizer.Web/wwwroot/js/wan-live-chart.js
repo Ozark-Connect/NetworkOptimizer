@@ -3,7 +3,7 @@
 // /api/monitoring/live-stats for real-time updates.
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
-import * as flowData from './lan-flow-data.js?v=5';
+import * as flowData from './lan-flow-data.js?v=6';
 
 const HISTORY_MINUTES = 5;
 // Poll faster than the 5s SNMP fast tier so no sample is missed when the two
@@ -490,6 +490,20 @@ export async function mount(containerId, opts) {
         }
     };
     document.addEventListener('visibilitychange', visHandler);
+
+    // Converge to the 3D map's (the playback authority's) current state. This
+    // mount runs concurrently with the map's deep-link/scrub seeks, so the
+    // seekTime push from Blazor's OnMapTimeChanged can land before the chart is
+    // ready and be lost (or be wiped by the live polling started above). Pulling
+    // once at mount completion closes that race: pushes that already fired are
+    // recovered here, and pushes still pending find a fully mounted chart.
+    const mapInst = window.__lanFlowMap?.getInstance?.();
+    if (mapInst && mapInst._mode === 'historic') {
+        const at = mapInst._pendingScrubAt ?? mapInst._historicAt;
+        if (at) await seekTime(at.toISOString());
+    } else if (mapInst && mapInst._paused) {
+        pause();
+    }
 }
 
 export function pause() {
@@ -511,10 +525,15 @@ export function resume() {
 // Hovering holds redraws (same as live updateChart) so values can be inspected
 // without the chart shifting under the cursor - EXCEPT briefly after a click on
 // the chart, which must draw its playhead even though the pointer (and so the
-// tooltip) is still over the plot.
-function renderHistoric(at) {
+// tooltip) is still over the plot. `force` bypasses the hover-hold for a discrete
+// paused seek (a deep-link or manual scrub) - its single draw must land even under
+// the cursor, or it's swallowed and never retried while paused. Callers must NOT
+// force during active playback: the per-tick seeks would then redraw through a
+// hover, kicking the user out of tooltip inspection while the background timeline
+// advances - the exact behavior the hover-hold exists to preserve.
+function renderHistoric(at, force = false) {
     if (!chart || buffer.length === 0) return;
-    if (Date.now() > clickRenderUntil) {
+    if (!force && Date.now() > clickRenderUntil) {
         const el = document.getElementById(elId);
         if (el?.classList.contains('apexcharts-tooltip-active')) return;
     }
@@ -617,7 +636,11 @@ export async function seekTime(isoTimestamp) {
         }));
     } catch { return; }
     if (buffer.length === 0) return;
-    renderHistoric(at);
+    // Force the reposition draw only for a discrete/paused seek (deep-link, manual
+    // scrub): it must land even under the cursor or it's never retried while paused.
+    // During active playback leave it unforced so a hover still holds the redraw for
+    // inspection while the background timeline (2D/3D maps) keeps advancing.
+    renderHistoric(at, mapPlaybackRate() <= 0);
     if (!histTimer) {
         histTimer = setInterval(() => {
             const rate = mapPlaybackRate();

@@ -15,7 +15,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { buildBuildings } from './lan-flow-buildings.js?v=1';
 // KEEP IN SYNC: lan-flow-map-2d.js imports the same module. Both must use the same ?v= or they get separate instances.
-import * as flowData from './lan-flow-data.js?v=5';
+import * as flowData from './lan-flow-data.js?v=6';
 
 const COLORS = {
     background: 0x202023,
@@ -211,6 +211,9 @@ export class LanFlowMap {
         // discovery hint to keep its compact chrome clean (it also hides the
         // scrubber/status). Full Monitoring page leaves it on.
         this._signalHintEnabled = options.signalHint ?? true;
+        // Deep-link entry point (e.g. from a speed-test result): an absolute epoch-ms
+        // instant to open in historic playback, paused. Applied once at the end of start().
+        this._initialAtMs = Number.isFinite(options.initialAt) ? options.initialAt : null;
 
         this._snapshot = null;
         this._deviceScale = 1;          // property-size factor for device radii (set in _layoutNodes)
@@ -513,6 +516,24 @@ export class LanFlowMap {
         await this._loadInitialSpeedTests();
         this._startAnimation();
         this._startPolling();
+        this._applyInitialSeek();
+    }
+
+    // Honor a deep-linked timestamp (options.initialAt) by dropping straight into
+    // historic playback, paused, at that instant. Widens the timeline window first
+    // if the target predates the current span so the instant is reachable rather
+    // than clamping to the left edge (an instant older than retention still clamps).
+    _applyInitialSeek() {
+        const ms = this._initialAtMs;
+        if (!Number.isFinite(ms)) return;
+        this._initialAtMs = null; // one-shot
+        const needed = Date.now() - ms;
+        if (needed > this._scrubSpan) {
+            const preset = flowData.SCRUBBER_PRESETS.find(p => (p.ms ?? Infinity) >= needed)
+                || flowData.SCRUBBER_PRESETS[flowData.SCRUBBER_PRESETS.length - 1];
+            this._setScrubSpan(preset.key);
+        }
+        this.seekTo(ms);
     }
 
     dispose() {
@@ -2046,16 +2067,16 @@ export class LanFlowMap {
         clearTimeout(this._scrubberInputDebounce);
         const pending = this._pendingScrubAt;
         this._pendingScrubAt = null;
-        // Otherwise seed from the exact parked instant when known - requantizing
-        // through the slider value can be minutes off on a wide window. But only
-        // when the thumb still agrees with it; if not, the thumb position is the
-        // user's intent, not the stale instant.
+        // Otherwise seed from the ABSOLUTE parked instant - never the slider-derived
+        // fromValue. The timeline window trails now, so a fixed slider value maps to a
+        // later time as the page sits; seeding from it added the whole sit-duration to
+        // the resume point (park at T, sit 2 min, play started at T+2 min). historicAt
+        // is an absolute Date kept current on every commit path (deep-link, drag,
+        // keyboard scrub), so it never drifts; pending covers an in-flight scrub not yet
+        // committed; fromValue is only a last-resort fallback if neither is set.
         const fromValue = this._scrubberValueToTime(
             Number(this._panels.scrubberRange?.value ?? 500));
-        const stepMs = this._scrubSpan / 10000;
-        this._playbackTime = pending
-            ?? ((this._historicAt && Math.abs(this._historicAt.getTime() - fromValue.getTime()) <= stepMs)
-                ? this._historicAt : fromValue);
+        this._playbackTime = pending ?? this._historicAt ?? fromValue;
         // Publish the seed position immediately instead of waiting for the first
         // 1s tick: consumers re-baseline their playhead on a confirmed seek, and
         // an adopted pending scrub gets its data loaded now rather than a tick late.
@@ -2626,6 +2647,10 @@ export class LanFlowMap {
     _enterHistoricScrub() {
         this._mode = 'historic';
         this._paused = true;
+        // Mirror the transition into the shared store immediately. The debounced
+        // _onScrubberChange republishes 0-500ms later, but consumers mounting in
+        // that window must not read a stale 'live' state.
+        flowData.publishPlayState(this._paused, this._mode);
         this._syncPlayPauseIcon();
         this._stopHistoricPlayback();
         if (this._panels.modeBadge) {
@@ -4288,6 +4313,11 @@ export async function mount(canvasId, options = {}) {
     }
     const el = document.getElementById(canvasId);
     if (!el) throw new Error(`Canvas #${canvasId} not found`);
+    // The map is the playback authority and mounts before the other Live View
+    // consumers (2D map, WAN chart, port table). Clear playback state a prior
+    // session left in the shared store so every mount starts from Live; a
+    // deep-linked initialAt then re-enters historic through the normal seek path.
+    flowData.resetPlayback();
     _instance = new LanFlowMap(el, options);
     await _instance.start();
     return _instance;
