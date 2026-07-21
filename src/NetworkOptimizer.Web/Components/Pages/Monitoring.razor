@@ -16,6 +16,7 @@
 @using NetworkOptimizer.Core.Enums
 @using Microsoft.EntityFrameworkCore
 @inject SnmpDetectionService SnmpDetection
+@inject MonitoringReadinessService Readiness
 @inject UniFiConnectionService ConnectionService
 @inject MonitoringInfluxClient InfluxClient
 @inject MonitoringLiveStats LiveStats
@@ -2061,13 +2062,7 @@ else
 
         _monitoringEnabled = settings.Enabled;
 
-        bool sharedConnection;
-        await using (var mainDb = SiteDb.CreateForSite(SiteManagementService.DefaultSiteSlug, isDefault: true))
-        {
-            var shared = await mainDb.MonitoringSettings.AsNoTracking().FirstOrDefaultAsync();
-            sharedConnection = !string.IsNullOrEmpty(shared?.InfluxDbToken)
-                && !string.IsNullOrEmpty(shared?.InfluxDbUrl);
-        }
+        bool sharedConnection = await Readiness.IsSharedInfluxConfiguredAsync();
 
         // A secondary site counts as configured only once its own buckets are reachable
         // on the shared InfluxDB. Until then report not-configured so the Setup tab drops

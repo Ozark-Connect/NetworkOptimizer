@@ -18,7 +18,7 @@
 @inject ApMapService ApMapService
 @inject PullToRefreshState PtrState
 @inject SiteContextService SiteContext
-@inject SnmpDetectionService SnmpDetection
+@inject MonitoringReadinessService Readiness
 @inject SiteSpeedTestTargetResolver SiteTarget
 
 @* Uses unified Iperf3Result model with Direction field to distinguish test sources *@
@@ -857,27 +857,12 @@
 
     private bool _liveViewLinkEnabled;
 
-    // Live View deep-link is offered only when monitoring is enabled AND InfluxDB is
-    // configured for this site (matches the Monitoring page's own readiness gate), so the
-    // link never lands on a Live View with no historic data to play back.
-    private async Task LoadLiveViewLinkStateAsync()
-    {
-        try
-        {
-            var s = await SnmpDetection.GetOrCreateSettingsAsync();
-            _liveViewLinkEnabled = s.Enabled
-                && !string.IsNullOrEmpty(s.InfluxDbToken)
-                && !string.IsNullOrEmpty(s.InfluxDbUrl);
-        }
-        catch { _liveViewLinkEnabled = false; }
-    }
-
     protected override async Task OnInitializedAsync()
     {
         PtrState.RefreshCallback = () => LoadHistory();
         PtrState.NotifyStateChanged = StateHasChanged;
 
-        await LoadLiveViewLinkStateAsync();
+        _liveViewLinkEnabled = await Readiness.IsHistoricPlaybackAvailableAsync();
 
         // Load networks for VPN detection
         _networks = await ConnectionService.GetNetworksAsync();
