@@ -26,6 +26,18 @@ public class MonitoringInterfaceDeploymentService
 
     private const string OnBootDir = "/data/on_boot.d";
 
+    /// <summary>
+    /// Directory (under <c>/data</c>, so it survives reboots and firmware updates like the boot
+    /// scripts) holding one marker file per disabled interface. The boot script and cron
+    /// watchdog early-out when this interface's marker is present, so a disabled interface stays
+    /// torn down without deleting its script. Deliberately NOT under <c>on_boot.d</c> - a file
+    /// there would be executed at boot.
+    /// </summary>
+    public const string DisabledMarkerDir = "/data/monitoring-ifaces.disabled";
+
+    /// <summary>Marker path for a given interface (see <see cref="DisabledMarkerDir"/>).</summary>
+    public static string DisabledMarkerPath(MonitoringInterface mi) => $"{DisabledMarkerDir}/{mi.Name}";
+
     public MonitoringInterfaceDeploymentService(
         ILogger<MonitoringInterfaceDeploymentService> logger,
         IGatewaySshService gatewaySsh,
@@ -841,6 +853,7 @@ MASK=""__MASK__""
 TABLE=""__TABLE__""
 WATCHDOG_MIN=""__WATCHDOG_MIN__""
 SCRIPT=""__SCRIPT_PATH__""
+MARKER=""/data/monitoring-ifaces.disabled/__IFACE__""
 LOG=""/tmp/netopt-moniface-__IFACE__.log""
 
 log() { echo ""$(date '+%Y-%m-%d %H:%M:%S') $1"" >> ""$LOG"" 2>/dev/null; }
@@ -861,11 +874,21 @@ cleanup_marked_rules() {
     rm -f ""$tmp""
 }
 
+# If disabled by the app, do nothing and do not (re)install cron. The marker lets a disabled
+# interface stay torn down across reboots without deleting this script.
+[ -f ""$MARKER"" ] && { log ""disabled marker present, skipping""; exit 0; }
+
 # The physical WAN port must exist; if not (boot race), let the watchdog retry later.
 ip link show ""$WAN_IF"" >/dev/null 2>&1 || { log ""wan $WAN_IF absent, deferring""; exit 0; }
 
 changed=0
 fail=0
+
+# Serialize a manual apply against the cron watchdog tick on a per-interface lock. flock holds
+# fd 9 in the CURRENT shell (not a subshell), so changed/fail set below still reach the final
+# status check; non-blocking, so if another apply already holds the lock we skip this tick.
+exec 9>""/tmp/monitoring-iface-__IFACE__.lock""
+flock -n 9 || { log ""apply already running, skipping""; exit 0; }
 
 # 0. resolve the macvlan parent. With a VLAN, the parent is the subinterface (e.g.
 # eth6.100) so frames are tagged; UniFi creates it for a VLAN WAN, but if it's absent
@@ -960,8 +983,10 @@ if [ ""$SNAT_ENABLED"" = ""1"" ]; then
     fi
 fi
 
-# 5. self-install the cron watchdog (re-applies after reprovision)
-if ! crontab -l 2>/dev/null | grep -qF ""$SCRIPT""; then
+# 5. self-install the cron watchdog (re-applies after reprovision). Re-check the marker first:
+# Disable may have written it after the top-of-script check but before we reached here, and we
+# must not reinstall the cron that would immediately re-apply the interface it just tore down.
+if [ ! -f ""$MARKER"" ] && ! crontab -l 2>/dev/null | grep -qF ""$SCRIPT""; then
     (crontab -l 2>/dev/null; echo ""*/$WATCHDOG_MIN * * * * $SCRIPT >/dev/null 2>&1"") | crontab -
     changed=1
 fi

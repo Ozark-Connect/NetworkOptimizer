@@ -608,6 +608,25 @@ public class MonitoringInterfaceDeploymentServiceTests
         script.Should().Contain("grep \"inet $LOCAL_IP/$PREFIX \" | grep -q noprefixroute");
     }
 
+    [Fact]
+    public void BootScript_HonoursDisabledMarkerAndLocksApply()
+    {
+        var script = MonitoringInterfaceDeploymentService.GenerateBootScript(Valid());
+
+        // Marker var + early-out before doing any work, so a disabled interface's boot script
+        // and cron watchdog become inert without needing to be deleted.
+        script.Should().Contain("MARKER=\"/data/monitoring-ifaces.disabled/modem0\"");
+        script.Should().Contain("[ -f \"$MARKER\" ] && { log \"disabled marker present, skipping\"; exit 0; }");
+
+        // Re-check the marker immediately before (re)installing the cron watchdog, closing the
+        // race where Disable writes the marker after the top check but before cron install.
+        script.Should().Contain("if [ ! -f \"$MARKER\" ] && ! crontab -l 2>/dev/null | grep -qF \"$SCRIPT\"; then");
+
+        // Per-interface flock serializes a manual apply against the cron watchdog tick.
+        script.Should().Contain("flock -n 9");
+        script.Should().Contain("/tmp/monitoring-iface-modem0.lock");
+    }
+
     private static NetworkInfo UniFiNet(string name, string subnet, bool wan = false, bool enabled = true) => new()
     {
         Name = name,
