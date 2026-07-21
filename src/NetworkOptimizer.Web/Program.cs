@@ -14,6 +14,7 @@ using NetworkOptimizer.UniFi;
 using NetworkOptimizer.Web;
 using NetworkOptimizer.Web.Endpoints;
 using NetworkOptimizer.Web.Services;
+using NetworkOptimizer.Web.Services.Authorization;
 using NetworkOptimizer.Web.Services.Identity;
 using NetworkOptimizer.Web.Services.CableModemProviders;
 using NetworkOptimizer.Web.Services.Licensing;
@@ -536,7 +537,8 @@ builder.Services.AddNetOptIdentityCore(dbPath);
 builder.Services.AddNetOptIdentityAuthentication();
 builder.Services.AddCascadingAuthenticationState();
 
-builder.Services.AddAuthorization();
+// RBAC policies (global + site-scoped), the single SiteRoleHandler, and the effective-role resolver.
+builder.Services.AddNetOptAuthorization();
 
 // Monitoring subsystem
 builder.Services.AddScoped<SnmpDetectionService>();
@@ -1134,6 +1136,10 @@ app.UseAuthentication();
 app.UseMiddleware<NetworkOptimizer.Web.Services.Identity.LegacyJwtBridgeMiddleware>();
 
 app.UseAuthorization();
+
+// Populate the ambient caller context (actor/IP/UA/correlation) for HTTP requests, after auth so the
+// principal is resolved. Circuit calls are populated separately by CallerContextCircuitHandler.
+app.UseMiddleware<NetworkOptimizer.Web.Services.Identity.CallerContextMiddleware>();
 
 // Auth middleware that checks if authentication is required and protects all endpoints
 app.Use(async (context, next) =>

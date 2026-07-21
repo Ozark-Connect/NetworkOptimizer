@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Storage.Models.Identity;
+using NetworkOptimizer.Web.Services.Auditing;
 
 namespace NetworkOptimizer.Web.Services.Identity;
 
@@ -77,6 +78,18 @@ public static class IdentityRegistration
         services.AddScoped<IIdentityBootstrapService, IdentityBootstrapService>();
         services.AddScoped<IIdentitySignInService, IdentitySignInService>();
         services.AddScoped<IAuthPolicyOptions, AuthPolicyOptions>();
+
+        services.AddScoped<IIdentityAdminService, IdentityAdminService>();
+
+        // Ambient caller context (user vs system) for authorization + audit attribution.
+        services.AddScoped<ICallerContext, CallerContext>();
+        services.AddScoped<Microsoft.AspNetCore.Components.Server.Circuits.CircuitHandler, CallerContextCircuitHandler>();
+
+        // Append-only audit sink + background writer (design doc 05).
+        services.AddSingleton(new AuditRetentionOptions());
+        services.AddSingleton<AuditWriterService>();
+        services.AddSingleton<IAuditLogger>(sp => sp.GetRequiredService<AuditWriterService>());
+        services.AddHostedService(sp => sp.GetRequiredService<AuditWriterService>());
 
         return services;
     }
