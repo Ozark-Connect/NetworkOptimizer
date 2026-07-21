@@ -461,54 +461,15 @@
     }
 
     /// <summary>
-    /// Traces a just-added Internet/Custom target from the server vantage and persists its hop
-    /// ancestry (the ordered responding hops before the destination) as an UpstreamDiscovery row, so
-    /// ISP Health can immediately use it as a routes-through witness to absolve the ISP/transit hops
-    /// it crosses. Best-effort: on any failure the target still picks up ancestry on the next
-    /// discovery cycle. Reads no component state - safe as fire-and-forget.
+    /// Traces a just-added Internet/Custom target over the site's server/agent vantage and persists
+    /// its hop ancestry as an UpstreamDiscovery row, so ISP Health can immediately use it as a
+    /// routes-through witness. Best-effort; fire-and-forget (reads no component state).
     /// </summary>
     private async Task TraceOnSaveForAncestryAsync(NetworkOptimizer.Monitoring.Probes.IProbeExecutor executor,
         int targetId, string address, string slug, bool isDefault)
     {
-        try
-        {
-            var result = await executor.TracerouteAsync(
-                new NetworkOptimizer.Monitoring.Probes.ProbeTarget(address, NetworkOptimizer.Core.Enums.ProbeMode.Icmp),
-                maxHops: 30, perHopTimeout: TimeSpan.FromSeconds(2), totalDeadline: TimeSpan.FromSeconds(20));
-            // Ordered responding hops before the destination = the ancestry it routes through.
-            var ancestors = result.Hops
-                .Where(h => h.Responded && !string.Equals(h.Address, address, StringComparison.OrdinalIgnoreCase))
-                .Select(h => h.Address!)
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList();
-            if (ancestors.Count == 0) return;
-
-            await using var db = SiteDb.CreateForSite(slug, isDefault);
-            var existing = await db.UpstreamDiscoveries.FirstOrDefaultAsync(d => d.MonitoringTargetId == targetId);
-            if (existing == null)
-            {
-                db.UpstreamDiscoveries.Add(new UpstreamDiscovery
-                {
-                    MonitoringTargetId = targetId,
-                    HopIp = address,
-                    HopNumber = ancestors.Count + 1,
-                    AncestorHopIps = string.Join(" ", ancestors),
-                    Role = UpstreamRole.PathProxy,
-                    IsActive = true,
-                    LastValidated = DateTime.UtcNow,
-                    LastTracerouteAt = DateTime.UtcNow
-                });
-            }
-            else
-            {
-                existing.AncestorHopIps = string.Join(" ", ancestors);
-                existing.HopNumber = ancestors.Count + 1;
-                existing.LastTracerouteAt = DateTime.UtcNow;
-                existing.IsActive = true;
-            }
-            await db.SaveChangesAsync();
-        }
-        catch { /* best-effort - target still gets ancestry on the next discovery cycle */ }
+        await using var db = SiteDb.CreateForSite(slug, isDefault);
+        await NetworkOptimizer.Web.Services.Monitoring.TargetAncestry.TraceAndPersistAsync(executor, db, targetId, address);
     }
 
     private static string TargetTypeBadgeClass(MonitoringTargetType type) => type switch

@@ -178,6 +178,55 @@ public class UpstreamTracerService
     private async Task<NetworkOptimizerDbContext> CreateDbAsync(CancellationToken ct = default) =>
         _isDefault ? await _dbFactory.CreateDbContextAsync(ct) : _siteDbFactory.CreateForSite(_siteSlug, isDefault: false);
 
+    private static readonly TimeSpan WitnessAncestryTtl = TimeSpan.FromHours(12);
+    private const int MaxWitnessTracesPerTick = 6;
+
+    /// <summary>
+    /// Fills and refreshes hop ancestry for this site's enabled Custom + InternetService targets.
+    /// They aren't part of the discovery sweep (only the built-in CDN/AWS probes and discovered
+    /// ISP/transit hops are), so without this they'd never become - or would go stale as -
+    /// routes-through witnesses. Traces those whose ancestry is missing or older than
+    /// <see cref="WitnessAncestryTtl"/> over this site's vantage (server or on-site agent),
+    /// rate-limited to <see cref="MaxWitnessTracesPerTick"/> per call. Called every re-discovery
+    /// tick (hourly), independent of the full re-discovery cadence. Best-effort.
+    /// </summary>
+    public async Task BackfillWitnessAncestryAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            await using var db = await CreateDbAsync(ct);
+            var targets = await db.MonitoringTargets.AsNoTracking()
+                .Where(t => t.Enabled && (t.TargetType == MonitoringTargetType.Custom
+                    || t.TargetType == MonitoringTargetType.InternetService))
+                .ToListAsync(ct);
+            if (targets.Count == 0) return;
+
+            var lastTraceById = await db.UpstreamDiscoveries.AsNoTracking()
+                .Where(d => d.MonitoringTargetId != null)
+                .GroupBy(d => d.MonitoringTargetId!.Value)
+                .Select(g => new { Id = g.Key, Last = g.Max(d => d.LastTracerouteAt) })
+                .ToDictionaryAsync(x => x.Id, x => x.Last, ct);
+
+            var now = DateTime.UtcNow;
+            var traced = 0;
+            foreach (var t in targets)
+            {
+                if (ct.IsCancellationRequested || traced >= MaxWitnessTracesPerTick) break;
+                var fresh = lastTraceById.TryGetValue(t.Id, out var last) && now - last < WitnessAncestryTtl;
+                if (fresh) continue;
+                await using var wdb = await CreateDbAsync(ct);
+                if (await TargetAncestry.TraceAndPersistAsync(_traceExecutor, wdb, t.Id, t.Address, _logger, ct))
+                    traced++;
+            }
+            if (traced > 0)
+                _logger.LogInformation("Tracer: backfilled/refreshed ancestry for {Count} witness target(s) on site {Site}", traced, _siteSlug);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Witness ancestry backfill failed for site {Site}", _siteSlug);
+        }
+    }
+
     /// <summary>
     /// Rehydrate the in-memory <see cref="State"/> from persisted DB rows when
     /// the service starts cold (process restart). Safe to call multiple times -
