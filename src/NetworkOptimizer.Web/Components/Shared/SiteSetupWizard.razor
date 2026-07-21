@@ -1,4 +1,5 @@
 @using NetworkOptimizer.Core.Helpers
+@using NetworkOptimizer.Core.Interfaces
 @using NetworkOptimizer.Storage.Models
 @using NetworkOptimizer.Web.Services
 @inject SiteManagementService SiteManagement
@@ -127,6 +128,35 @@
                 <input type="password" class="form-control" @bind="_apiKey" autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore />
             </div>
         }
+        <div class="form-group">
+            <label class="form-label">Site</label>
+            <div class="input-with-button">
+                @if (_availableSites.Count > 0)
+                {
+                    <select class="form-control" @bind="_consoleSite">
+                        @foreach (var site in _availableSites)
+                        {
+                            <option value="@site.Name">@site.Description (@site.Name) - @site.DeviceCount devices</option>
+                        }
+                    </select>
+                }
+                else
+                {
+                    <input type="text" class="form-control" @bind="_consoleSite" placeholder="default" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
+                }
+                <button type="button" class="btn btn-secondary btn-sm" @onclick="ListConsoleSitesAsync" disabled="@(_loadingSites || string.IsNullOrWhiteSpace(_consoleUrl))">
+                    @if (_loadingSites)
+                    {
+                        <span class="spinner"></span>
+                    }
+                    else
+                    {
+                        <span>List Sites</span>
+                    }
+                </button>
+            </div>
+            <small class="form-help">Leave as "default" for most local UniFi OS devices. If this console hosts multiple sites, click "List Sites" to fetch and pick one.</small>
+        </div>
         <div class="action-buttons">
             <button type="button" class="btn btn-primary" @onclick="ConnectAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_consoleUrl))">
                 @if (_busy)
@@ -264,6 +294,9 @@
     private string _username = "";
     private string _password = "";
     private string _apiKey = "";
+    private string _consoleSite = "default";
+    private List<UniFiSite> _availableSites = new();
+    private bool _loadingSites;
     private bool _connected;
     private string? _consoleName;
 
@@ -328,6 +361,71 @@
         }
     }
 
+    private UniFiConnectionConfig BuildConfig() => new()
+    {
+        ControllerUrl = _consoleUrl.Trim(),
+        Username = _username,
+        Password = _password,
+        ApiKey = _useApiKey ? _apiKey : null,
+        Site = string.IsNullOrWhiteSpace(_consoleSite) ? "default" : _consoleSite.Trim(),
+    };
+
+    /// <summary>
+    /// Fetches the sites hosted on the entered console and populates the Site
+    /// dropdown, mirroring "List Sites" on Settings - UniFi Console Connection.
+    /// Selecting a site is optional; leaving it as "default" keeps the pre-existing
+    /// behaviour of connecting to the console's default site.
+    /// </summary>
+    private async Task ListConsoleSitesAsync()
+    {
+        if (_site == null || string.IsNullOrWhiteSpace(_consoleUrl))
+            return;
+
+        _loadingSites = true;
+        _message = "";
+        StateHasChanged();
+
+        try
+        {
+            var connection = SiteConnections.GetFor(_site.Slug);
+            var (success, error, sites) = await connection.GetSitesAsync(BuildConfig());
+
+            if (success)
+            {
+                _availableSites = sites;
+                if (sites.Count == 1)
+                {
+                    _consoleSite = sites[0].Name;
+                    _message = $"Found 1 site: {sites[0].Description}";
+                }
+                else
+                {
+                    _message = $"Found {sites.Count} sites. Select one from the dropdown.";
+                    // Keep the current selection if the console still lists it; otherwise
+                    // fall back to the first site so the dropdown always has a valid value.
+                    if (!sites.Any(s => s.Name == _consoleSite) && sites.Count > 0)
+                        _consoleSite = sites[0].Name;
+                }
+                _messageClass = "success";
+            }
+            else
+            {
+                _message = $"Failed to list sites: {error}";
+                _messageClass = "danger";
+            }
+        }
+        catch (Exception ex)
+        {
+            _message = $"Error listing sites: {ex.Message}";
+            _messageClass = "danger";
+        }
+        finally
+        {
+            _loadingSites = false;
+            StateHasChanged();
+        }
+    }
+
     private async Task ConnectAsync()
     {
         if (_site == null)
@@ -340,15 +438,7 @@
         try
         {
             var connection = SiteConnections.GetFor(_site.Slug);
-            var config = new UniFiConnectionConfig
-            {
-                ControllerUrl = _consoleUrl.Trim(),
-                Username = _username,
-                Password = _password,
-                ApiKey = _useApiKey ? _apiKey : null,
-            };
-
-            _connected = await connection.ConnectAsync(config);
+            _connected = await connection.ConnectAsync(BuildConfig());
             if (_connected)
             {
                 _consoleName = await connection.GetCachedConsoleNameAsync();
@@ -486,6 +576,9 @@
         _password = "";
         _apiKey = "";
         _useApiKey = false;
+        _consoleSite = "default";
+        _availableSites = new();
+        _loadingSites = false;
         _connected = false;
         _wantAgent = false;
         _agentToken = null;
