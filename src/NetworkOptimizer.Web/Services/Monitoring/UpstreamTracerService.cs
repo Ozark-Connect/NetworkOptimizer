@@ -92,6 +92,57 @@ public class UpstreamTracerService
 
     private record TraceEndpoint(string Label, string Address, bool IsTransitProbe = false, bool EndpointIsTransitHop = false);
 
+    // The anycast rotation bans unicast regionals (they'd force transpacific/transatlantic paths).
+    // AWS DynamoDB regional endpoints are unicast BUT ride paid transit (unlike the CDN/DNS targets,
+    // which peer at the local IX and cross no transit), so they surface more transit ASNs and seed
+    // clean routes-through witnesses for jitter/stability absolution. Because they're unicast, they
+    // are resolved + latency-ranked at discovery time and only the nearest sub-80ms region(s) are
+    // kept - never hardcoded. Comprehensive/global list so a site anywhere keeps its local region(s).
+    private static readonly string[] AwsRegions =
+    {
+        "us-east-1", "us-east-2", "us-west-1", "us-west-2", "ca-central-1",
+        "eu-west-1", "eu-west-2", "eu-west-3", "eu-central-1", "eu-north-1",
+        "ap-northeast-1", "ap-northeast-2", "ap-southeast-1", "ap-southeast-2",
+        "ap-south-1", "sa-east-1"
+    };
+    private const double AwsMaxRttMs = 80.0;
+    private const int AwsMaxRegions = 3;
+
+    // Per-run trace set: the static CDN/DNS rotation plus any resolved AWS regionals. Defaults to the
+    // rotation so callers are safe before TraceAccessIspAsync populates it.
+    private List<TraceEndpoint> _traceEndpoints = CdnRotation.ToList();
+
+    /// <summary>
+    /// Resolves each AWS DynamoDB regional hostname, pings it, and returns the nearest sub-80ms
+    /// region(s) as trace endpoints (DestinationProbe). Not anycast, so this per-run resolve +
+    /// latency-rank is required - a far region would trace a transcontinental path and misrepresent
+    /// the transit. Best-effort: a region that won't resolve or answer ICMP is skipped.
+    /// </summary>
+    private async Task<List<TraceEndpoint>> ResolveAwsRegionalsAsync(CancellationToken ct)
+    {
+        var ranked = new List<(TraceEndpoint Endpoint, long Rtt)>();
+        foreach (var region in AwsRegions)
+        {
+            if (ct.IsCancellationRequested) break;
+            try
+            {
+                var addrs = await System.Net.Dns.GetHostAddressesAsync($"dynamodb.{region}.amazonaws.com", ct);
+                var ip = addrs.FirstOrDefault(a => a.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork);
+                if (ip == null) continue;
+                using var ping = new System.Net.NetworkInformation.Ping();
+                var reply = await ping.SendPingAsync(ip, 800);
+                if (reply.Status != System.Net.NetworkInformation.IPStatus.Success || reply.RoundtripTime > AwsMaxRttMs) continue;
+                ranked.Add((new TraceEndpoint($"AWS-{region}", ip.ToString()), reply.RoundtripTime));
+            }
+            catch { /* region won't resolve or answer - skip */ }
+        }
+        var chosen = ranked.OrderBy(r => r.Rtt).Take(AwsMaxRegions).Select(r => r.Endpoint).ToList();
+        if (chosen.Count > 0)
+            _logger.LogInformation("Tracer: added {Count} sub-{Max}ms AWS DynamoDB regional trace targets: {Regions}",
+                chosen.Count, AwsMaxRttMs, string.Join(", ", chosen.Select(e => e.Label)));
+        return chosen;
+    }
+
     // Built per site by UpstreamTracerRegistry, which resolves the site's console,
     // gateway SSH, ISP Health, and "server" probe vantage (local on the default site,
     // on-site agent on a secondary site).
@@ -825,11 +876,14 @@ public class UpstreamTracerService
         State.CurrentActivity = "Running parallel traceroutes to major internet endpoints...";
         State.Traces = new List<TraceSummary>();
 
-        // Spawn 10 traceroutes (5 endpoints × 2 modes) in parallel and merge once
-        // they all settle. Each traceroute is capped at 10s, so wall-clock for the
-        // whole sweep is ~10s + a bit of overhead.
+        // Build this run's endpoint set: the anycast rotation plus the nearest sub-80ms AWS
+        // regionals (resolved live), which surface paid-transit ASNs and seed clean witnesses.
+        _traceEndpoints = CdnRotation.Concat(await ResolveAwsRegionalsAsync(ct)).ToList();
+
+        // Spawn traceroutes (each endpoint × 2 modes) in parallel and merge once they all settle.
+        // Each traceroute is capped at 10s, so wall-clock for the whole sweep is ~10s + overhead.
         var tasks = new List<Task<(string Label, TracerouteResult Result)>>();
-        foreach (var endpoint in CdnRotation)
+        foreach (var endpoint in _traceEndpoints)
         {
             tasks.Add(TraceOneAsync(endpoint, ProbeMode.Icmp, ct));
             tasks.Add(TraceOneAsync(endpoint, ProbeMode.Udp, ct));
@@ -1220,7 +1274,7 @@ public class UpstreamTracerService
         var asnsInTrace = new HashSet<int>(_mergedHops
             .Where(h => h.Asn != null)
             .Select(h => h.Asn!.Asn));
-        foreach (var endpoint in CdnRotation)
+        foreach (var endpoint in _traceEndpoints)
         {
             if (endpoint.IsTransitProbe) continue;
             var destAsn = await _asnResolution.ResolveAsync(endpoint.Address, ct);
@@ -2262,7 +2316,7 @@ public class UpstreamTracerService
     {
         _destinationAsns.Clear();
         _destinationOrgs.Clear();
-        foreach (var endpoint in CdnRotation)
+        foreach (var endpoint in _traceEndpoints)
         {
             if (endpoint.IsTransitProbe) continue;
             var destAsn = await _asnResolution.ResolveAsync(endpoint.Address, ct);
