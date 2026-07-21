@@ -85,11 +85,14 @@ public static class IdentityRegistration
         services.AddScoped<ICallerContext, CallerContext>();
         services.AddScoped<Microsoft.AspNetCore.Components.Server.Circuits.CircuitHandler, CallerContextCircuitHandler>();
 
-        // Append-only audit sink + background writer (design doc 05).
+        // Append-only audit sink + background writer + SIEM forwarding + query (design doc 05).
         services.AddSingleton(new AuditRetentionOptions());
+        services.AddSingleton<IAuditForwardingConfig, AuditForwardingConfig>();
+        services.AddSingleton<IAuditForwarder, AuditForwarder>();
         services.AddSingleton<AuditWriterService>();
         services.AddSingleton<IAuditLogger>(sp => sp.GetRequiredService<AuditWriterService>());
         services.AddHostedService(sp => sp.GetRequiredService<AuditWriterService>());
+        services.AddScoped<IAuditQueryService, AuditQueryService>();
 
         return services;
     }

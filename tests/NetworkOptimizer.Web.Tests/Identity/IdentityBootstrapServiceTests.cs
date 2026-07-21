@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Models.Identity;
 using NetworkOptimizer.Web.Services;
+using NetworkOptimizer.Web.Services.Auditing;
 using NetworkOptimizer.Web.Services.Identity;
 using Xunit;
 
@@ -35,6 +36,9 @@ public sealed class IdentityBootstrapServiceTests : IDisposable
             new NetworkOptimizerDbContextFactory(mainOptions));
 
         services.AddNetOptIdentityCore(_dbPath);
+        // Override the channel-based audit logger (whose writer pulls in forwarding/settings deps
+        // not present in this minimal container) with a no-op; the seed path doesn't assert on audit.
+        services.AddSingleton<IAuditLogger>(new NoOpAuditLogger());
         return services.BuildServiceProvider();
     }
 
@@ -134,6 +138,11 @@ public sealed class IdentityBootstrapServiceTests : IDisposable
         using var scope = provider.CreateScope();
         var bootstrap = scope.ServiceProvider.GetRequiredService<IIdentityBootstrapService>();
         await bootstrap.RunAsync();
+    }
+
+    private sealed class NoOpAuditLogger : IAuditLogger
+    {
+        public void Log(AuditEvent auditEvent) { }
     }
 
     public void Dispose()

@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Identity;
 using NetworkOptimizer.Storage.Models.Identity;
+using NetworkOptimizer.Web.Services.Auditing;
 
 namespace NetworkOptimizer.Web.Services.Identity;
 
@@ -32,7 +33,8 @@ public sealed class LegacyJwtBridgeMiddleware
         HttpContext context,
         IJwtService jwtService,
         UserManager<ApplicationUser> userManager,
-        SignInManager<ApplicationUser> signInManager)
+        SignInManager<ApplicationUser> signInManager,
+        IAuditLogger audit)
     {
         // Already authenticated via the Identity cookie, or no legacy token to exchange: nothing to do.
         if (context.User.Identity?.IsAuthenticated == true ||
@@ -57,6 +59,13 @@ public sealed class LegacyJwtBridgeMiddleware
 
                 _logger.LogInformation(
                     "Session bridge: exchanged a legacy auth_token JWT for an Identity cookie for the admin account.");
+                audit.Log(AuditEventBuilder.From(
+                    CallerInfo.ForUser(context.User,
+                        context.Connection.RemoteIpAddress?.ToString(),
+                        context.Request.Headers.UserAgent.ToString(),
+                        context.TraceIdentifier),
+                    AuditCategories.Auth, AuditActions.BridgeExchange, AuditOutcomes.Success,
+                    targetType: "user", targetId: admin.Id, targetName: admin.UserName));
             }
             else
             {

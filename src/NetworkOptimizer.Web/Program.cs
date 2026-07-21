@@ -1288,6 +1288,9 @@ app.MapSpeedTestEndpoints();
 // Auth API endpoints (Identity cookie sign-in/out; SSR form posts - see AuthEndpoints).
 app.MapAuthEndpoints();
 
+// Audit-log CSV/JSON export (Admin-only).
+app.MapAuditLogEndpoints();
+
 // UPnP Notes API endpoints
 app.MapGet("/api/upnp/notes", async (NetworkOptimizerDbContext db) =>
 {

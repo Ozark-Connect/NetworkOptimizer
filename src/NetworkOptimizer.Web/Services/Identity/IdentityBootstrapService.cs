@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Models.Identity;
+using NetworkOptimizer.Web.Services.Auditing;
 
 namespace NetworkOptimizer.Web.Services.Identity;
 
@@ -27,6 +28,7 @@ public sealed class IdentityBootstrapService : IIdentityBootstrapService
     private readonly IDbContextFactory<NetworkOptimizerDbContext> _mainDbFactory;
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly RoleManager<ApplicationRole> _roleManager;
+    private readonly IAuditLogger _audit;
     private readonly ILogger<IdentityBootstrapService> _logger;
 
     public IdentityBootstrapService(
@@ -34,12 +36,14 @@ public sealed class IdentityBootstrapService : IIdentityBootstrapService
         IDbContextFactory<NetworkOptimizerDbContext> mainDbFactory,
         UserManager<ApplicationUser> userManager,
         RoleManager<ApplicationRole> roleManager,
+        IAuditLogger audit,
         ILogger<IdentityBootstrapService> logger)
     {
         _authDbFactory = authDbFactory;
         _mainDbFactory = mainDbFactory;
         _userManager = userManager;
         _roleManager = roleManager;
+        _audit = audit;
         _logger = logger;
     }
 
@@ -145,6 +149,13 @@ public sealed class IdentityBootstrapService : IIdentityBootstrapService
         _logger.LogInformation(
             "Identity bootstrap: seeded local admin user (source={Source}, temporaryPassword={Temp}).",
             credential.Source, credential.IsTemporary);
+
+        // The migration itself is an audited event (design doc 05).
+        _audit.Log(AuditEventBuilder.From(
+            CallerInfo.System("identity-migration"),
+            AuditCategories.Audit, AuditActions.MigrationPerformed, AuditOutcomes.Success,
+            targetType: "user", targetId: admin.Id, targetName: admin.UserName,
+            details: new { source = credential.Source.ToString(), temporaryPassword = credential.IsTemporary }));
     }
 
     private async Task ResyncEnvPasswordAsync(ApplicationUser admin, string envPassword)

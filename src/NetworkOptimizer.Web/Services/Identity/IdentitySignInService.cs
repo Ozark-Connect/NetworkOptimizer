@@ -1,5 +1,7 @@
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using NetworkOptimizer.Storage.Models.Identity;
+using NetworkOptimizer.Web.Services.Auditing;
 
 namespace NetworkOptimizer.Web.Services.Identity;
 
@@ -42,17 +44,23 @@ public sealed class IdentitySignInService : IIdentitySignInService
     private readonly SignInManager<ApplicationUser> _signInManager;
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly IAuthPolicyOptions _policy;
+    private readonly IAuditLogger _audit;
+    private readonly IHttpContextAccessor _httpContext;
     private readonly ILogger<IdentitySignInService> _logger;
 
     public IdentitySignInService(
         SignInManager<ApplicationUser> signInManager,
         UserManager<ApplicationUser> userManager,
         IAuthPolicyOptions policy,
+        IAuditLogger audit,
+        IHttpContextAccessor httpContext,
         ILogger<IdentitySignInService> logger)
     {
         _signInManager = signInManager;
         _userManager = userManager;
         _policy = policy;
+        _audit = audit;
+        _httpContext = httpContext;
         _logger = logger;
     }
 
@@ -65,6 +73,7 @@ public sealed class IdentitySignInService : IIdentitySignInService
         if (user is null || !user.IsEnabled)
         {
             _logger.LogInformation("Local sign-in failed for {User}: unknown or disabled account.", username);
+            EmitLogin(username, user?.Id, AuditActions.LoginFailed, AuditOutcomes.Failure, "password");
             return SignInOutcome.Failed;
         }
 
@@ -80,10 +89,14 @@ public sealed class IdentitySignInService : IIdentitySignInService
 
         if (result.Succeeded)
         {
+            var method = BreakGlass.IsRecoveryMode && isAdmin ? "recovery" : "password";
             user.LastLoginAt = DateTime.UtcNow;
-            user.LastLoginMethod = BreakGlass.IsRecoveryMode && isAdmin ? "recovery" : "password";
+            user.LastLoginMethod = method;
             await _userManager.UpdateAsync(user);
-            _logger.LogInformation("Local sign-in succeeded for {User} (method={Method}).", username, user.LastLoginMethod);
+            _logger.LogInformation("Local sign-in succeeded for {User} (method={Method}).", username, method);
+            EmitLogin(username, user.Id,
+                method == "recovery" ? AuditActions.BreakGlassUsed : AuditActions.LoginSuccess,
+                AuditOutcomes.Success, method);
             return SignInOutcome.Success;
         }
 
@@ -93,13 +106,32 @@ public sealed class IdentitySignInService : IIdentitySignInService
         if (result.IsLockedOut)
         {
             _logger.LogWarning("Local sign-in locked out for {User}.", username);
+            EmitLogin(username, user.Id, AuditActions.Lockout, AuditOutcomes.Failure, "password");
             return SignInOutcome.LockedOut;
         }
 
         _logger.LogInformation("Local sign-in failed for {User}: bad password.", username);
+        EmitLogin(username, user.Id, AuditActions.LoginFailed, AuditOutcomes.Failure, "password");
         return SignInOutcome.Failed;
     }
 
     /// <inheritdoc />
     public Task SignOutAsync() => _signInManager.SignOutAsync();
+
+    /// <summary>Emits a login-related audit event, attributing the attempt to the supplied username + request metadata.</summary>
+    private void EmitLogin(string username, string? userId, string action, string outcome, string method)
+    {
+        var http = _httpContext.HttpContext;
+        var caller = new CallerInfo
+        {
+            UserId = userId,
+            ActorName = username,
+            AuthMethod = method,
+            SourceIp = http?.Connection.RemoteIpAddress?.ToString(),
+            UserAgent = http?.Request.Headers.UserAgent.ToString(),
+            CorrelationId = http?.TraceIdentifier,
+        };
+        _audit.Log(AuditEventBuilder.From(caller, AuditCategories.Auth, action, outcome,
+            targetType: "user", targetId: userId, targetName: username));
+    }
 }
