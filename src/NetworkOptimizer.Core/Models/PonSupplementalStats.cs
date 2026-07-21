@@ -10,6 +10,23 @@ namespace NetworkOptimizer.Core.Models;
 /// </summary>
 public class PonSupplementalStats
 {
+    /// <summary>
+    /// Optional DDM optics readings supplied by the endpoint, in SFP DDM units
+    /// (dBm / degrees C / volts). These are a fallback: when the config is attached
+    /// to a monitored SFP module and the gateway's own DDM poll reads the module,
+    /// the gateway value wins and these fill only the gaps it leaves.
+    /// </summary>
+    public double? RxPowerDbm { get; set; }
+
+    /// <summary>Transmit optical power in dBm. Fallback; see <see cref="RxPowerDbm"/>.</summary>
+    public double? TxPowerDbm { get; set; }
+
+    /// <summary>Transceiver temperature in degrees Celsius. Fallback; see <see cref="RxPowerDbm"/>.</summary>
+    public double? TemperatureC { get; set; }
+
+    /// <summary>Supply voltage in volts. Fallback; see <see cref="RxPowerDbm"/>.</summary>
+    public double? VoltageV { get; set; }
+
     /// <summary>Raw ITU-T PLOAM state number (1-7 = O1-O7) for alert evaluation.</summary>
     public long? PloamStateRaw { get; set; }
 
