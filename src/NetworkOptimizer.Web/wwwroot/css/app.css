@@ -18232,6 +18232,20 @@ body.kiosk-mode .status-indicators {
     margin-top: 1.25rem;
 }
 
+.card .card .site-wizard .btn-secondary,
+.card .card .site-wizard .btn-ghost,
+.site-wizard .btn-secondary,
+.site-wizard .btn-ghost {
+    background: var(--bg-elevated);
+}
+
+.card .card .site-wizard .btn-secondary:hover:not(:disabled),
+.card .card .site-wizard .btn-ghost:hover:not(:disabled),
+.site-wizard .btn-secondary:hover:not(:disabled),
+.site-wizard .btn-ghost:hover:not(:disabled) {
+    background: var(--btn-map-hover);
+}
+
 .site-wizard pre {
     background: var(--bg-primary);
     padding: 0.75rem;
