@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using NetworkOptimizer.Storage.Models;
 
@@ -10,9 +11,11 @@ using NetworkOptimizer.Storage.Models;
 namespace NetworkOptimizer.Storage.Migrations
 {
     [DbContext(typeof(NetworkOptimizerDbContext))]
-    partial class NetworkOptimizerDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260721021258_AddIdentityRbacAudit")]
+    partial class AddIdentityRbacAudit
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.7");
@@ -412,14 +415,6 @@ namespace NetworkOptimizer.Storage.Migrations
 
                     b.Property<bool>("Enabled")
                         .HasColumnType("INTEGER");
-
-                    b.Property<string>("FirstSeenVersion")
-                        .HasMaxLength(32)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("LastSeenAppVersion")
-                        .HasMaxLength(32)
-                        .HasColumnType("TEXT");
 
                     b.Property<string>("Password")
                         .HasMaxLength(500)
@@ -2187,9 +2182,6 @@ namespace NetworkOptimizer.Storage.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("TEXT");
 
-                    b.Property<bool>("Disabled")
-                        .HasColumnType("INTEGER");
-
                     b.Property<string>("GatewayLocalIp")
                         .IsRequired()
                         .HasMaxLength(64)
@@ -3078,46 +3070,6 @@ namespace NetworkOptimizer.Storage.Migrations
                     b.HasKey("Key");
 
                     b.ToTable("SystemSettings", (string)null);
-                });
-
-            modelBuilder.Entity("NetworkOptimizer.Storage.Models.TourState", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("DismissedTours")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("SeenTourSteps")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Subject")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("TourOffers")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<bool>("ToursDisabled")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("TEXT");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("Subject")
-                        .IsUnique();
-
-                    b.ToTable("TourStates", (string)null);
                 });
 
             modelBuilder.Entity("NetworkOptimizer.Storage.Models.UniFiConnectionSettings", b =>
