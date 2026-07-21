@@ -530,7 +530,12 @@ public class IspHealthService
             targets = await db.MonitoringTargets.AsNoTracking()
                 .Where(t => t.Enabled && (t.TargetType == MonitoringTargetType.AccessIsp
                     || t.TargetType == MonitoringTargetType.Transit
-                    || t.TargetType == MonitoringTargetType.InternetService))
+                    || t.TargetType == MonitoringTargetType.InternetService
+                    // Custom targets a user added (e.g. a known-stable CMTS/PoP ping) join the
+                    // destination witness pool: once traced (ancestry), a clean end-to-end reading
+                    // absolves the on-path ISP/transit hops it routes through, same strict gate as
+                    // an Internet target. Not graded as an ISP/transit card themselves.
+                    || t.TargetType == MonitoringTargetType.Custom))
                 .ToListAsync(ct);
 
             fabricTargets = await db.MonitoringTargets.AsNoTracking()
@@ -614,13 +619,14 @@ public class IspHealthService
         var ispSeriesTask = _influx.QueryLatencyDetailByTargetTypeAsync(MonitoringTargetType.AccessIsp, outageQueryStart, windowEnd, aggregate, ct);
         var transitSeriesTask = _influx.QueryLatencyDetailByTargetTypeAsync(MonitoringTargetType.Transit, windowStart, windowEnd, aggregate, ct);
         var internetSeriesTask = _influx.QueryLatencyDetailByTargetTypeAsync(MonitoringTargetType.InternetService, outageQueryStart, windowEnd, aggregate, ct);
+        var customSeriesTask = _influx.QueryLatencyDetailByTargetTypeAsync(MonitoringTargetType.Custom, windowStart, windowEnd, aggregate, ct);
         var ratesTask = QueryWanRatesAsync(windowStart, windowEnd, aggregate, ct);
         var speedsTask = ResolveExpectedSpeedsAsync(ct);
         var speedTestsTask = LoadWanSpeedTestsAsync(windowStart, windowEnd, ct);
         var gatewaySeriesTask = gatewayTarget == null
             ? Task.FromResult(new List<MonitoringInfluxClient.LatencySeriesPoint>())
             : _influx.QueryLatencyDetailByTargetIdAsync(gatewayTarget.TargetId, outageQueryStart, windowEnd, aggregate, ct);
-        await Task.WhenAll(ispSeriesTask, transitSeriesTask, internetSeriesTask, ratesTask, speedsTask, speedTestsTask, gatewaySeriesTask);
+        await Task.WhenAll(ispSeriesTask, transitSeriesTask, internetSeriesTask, customSeriesTask, ratesTask, speedsTask, speedTestsTask, gatewaySeriesTask);
 
         // Extended (lead-in) series: used only to build the outage detector's trigger and hops below.
         var ispSeriesExt = ToSamples(await ispSeriesTask);
@@ -632,6 +638,7 @@ public class IspHealthService
         var ispSeries = TrimFrom(ispSeriesExt, windowStart);
         var transitSeries = ToSamples(await transitSeriesTask);
         var internetSeries = TrimFrom(internetSeriesExt, windowStart);
+        var customSeries = ToSamples(await customSeriesTask);
         var wanRates = await ratesTask;
         var (expectedDown, expectedUp, expectedSource, smartQueuesEnabled) = await speedsTask;
         var wanSpeedTests = await speedTestsTask;
@@ -747,6 +754,23 @@ public class IspHealthService
                 AncestorIps = ancestorIpsByTargetId.TryGetValue(t.TargetId, out var destAnc) ? destAnc : new List<string>(),
                 // Internet/CDN endpoint (by TargetType): path-shift correlation prefers an
                 // on-path ISP/transit hop over these as the event label.
+                IsDestination = true
+            })
+            .ToList();
+
+        // User-added Custom targets (e.g. a known-stable CMTS/PoP ping) as destination witnesses:
+        // a clean end-to-end reading absolves the ISP/transit hops in its traced ancestry (strict
+        // routes-through gate). Witness-only - kept out of charts, loss pool, and localizer.
+        var customWitnessSeries = targets
+            .Where(t => t.TargetType == MonitoringTargetType.Custom && customSeries.ContainsKey(t.TargetId))
+            .Select(t => new AsnSeries
+            {
+                AsnNumber = t.AsnNumber ?? 0,
+                AsnName = t.Name,
+                TargetIds = { t.TargetId },
+                Samples = customSeries[t.TargetId],
+                HopIps = { t.Address },
+                AncestorIps = ancestorIpsByTargetId.TryGetValue(t.TargetId, out var custAnc) ? custAnc : new List<string>(),
                 IsDestination = true
             })
             .ToList();
@@ -1030,6 +1054,7 @@ public class IspHealthService
             TransitAsnSeries = transitGrading,
             IspAsnSeries = ispGrading,
             DestinationSeries = internetTargetSeries,
+            WitnessSeries = customWitnessSeries,
             WanRates = wanRates,
             InternetMedianDeltaMs = internetMedianDelta,
             ExpectedDownloadMbps = expectedDown,
