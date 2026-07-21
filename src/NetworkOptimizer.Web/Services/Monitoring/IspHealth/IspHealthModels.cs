@@ -669,6 +669,15 @@ public class IspHealthInputs
     /// </summary>
     public List<AsnSeries> DestinationSeries { get; init; } = new();
 
+    /// <summary>
+    /// Witness-only series (user-added Custom targets, e.g. a known-stable CMTS/PoP ping). They join
+    /// the routes-through absolution witness pool alongside <see cref="DestinationSeries"/>, but are
+    /// deliberately NOT treated as internet destinations - they don't count toward transit
+    /// involvement and can't be selected as IX-peering-reached destinations (a nearby CMTS is
+    /// low-delta and crosses no transit, so it would otherwise be mistaken for a peered endpoint).
+    /// </summary>
+    public List<AsnSeries> WitnessSeries { get; init; } = new();
+
     /// <summary>WAN throughput over the window (primary WAN).</summary>
     public List<ThroughputSample> WanRates { get; init; } = new();
 

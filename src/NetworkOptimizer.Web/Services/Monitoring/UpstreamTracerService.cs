@@ -92,6 +92,109 @@ public class UpstreamTracerService
 
     private record TraceEndpoint(string Label, string Address, bool IsTransitProbe = false, bool EndpointIsTransitHop = false);
 
+    // The anycast rotation bans unicast regionals (they'd force transpacific/transatlantic paths).
+    // AWS DynamoDB regional endpoints are unicast BUT ride paid transit (unlike the CDN/DNS targets,
+    // which peer at the local IX and cross no transit), so they surface more transit ASNs and seed
+    // clean routes-through witnesses for jitter/stability absolution. Because they're unicast, they
+    // are resolved + latency-ranked at discovery time and only the nearest sub-80ms region(s) are
+    // kept - never hardcoded. Comprehensive/global list so a site anywhere keeps its local region(s).
+    private static readonly string[] AwsRegions =
+    {
+        "us-east-1", "us-east-2", "us-west-1", "us-west-2", "ca-central-1",
+        "eu-west-1", "eu-west-2", "eu-west-3", "eu-central-1", "eu-north-1",
+        "ap-northeast-1", "ap-northeast-2", "ap-southeast-1", "ap-southeast-2",
+        "ap-south-1", "sa-east-1"
+    };
+    private const double AwsMaxRttMs = 80.0;
+
+    // A resolved AWS regional: the hostname (what we persist as the target address, since AWS rotates
+    // the regional IPs and the hostname re-resolves to a live in-region IP each poll) and the concrete
+    // IP resolved this run (used for the discovery traceroute, RTT rank, and ASN lookup - deterministic).
+    private record AwsRegional(string Region, string Hostname, string Ip, long RttMs);
+
+    // Per-run trace set: the static CDN/DNS rotation plus resolved AWS regionals (traced by IP).
+    // Defaults to the rotation so callers are safe before TraceAccessIspAsync populates it.
+    private List<TraceEndpoint> _traceEndpoints = CdnRotation.ToList();
+    private List<AwsRegional> _awsRegionals = new();
+
+    /// <summary>
+    /// Resolves every AWS DynamoDB regional hostname, pings it, and returns ALL that answer under
+    /// <see cref="AwsMaxRttMs"/> (sorted nearest-first). Not anycast, so this per-run resolve +
+    /// latency-rank is required - a far region would trace a transcontinental path and misrepresent
+    /// the transit. Every sub-80ms region becomes a monitorable target (see the AWS persist block);
+    /// only those whose trace crosses transit are pre-enabled. Best-effort: a region that won't
+    /// resolve or answer ICMP is skipped.
+    /// </summary>
+    private async Task<List<AwsRegional>> ResolveAwsRegionalsAsync(CancellationToken ct)
+    {
+        var found = new List<AwsRegional>();
+        foreach (var region in AwsRegions)
+        {
+            if (ct.IsCancellationRequested) break;
+            try
+            {
+                var host = $"dynamodb.{region}.amazonaws.com";
+                var addrs = await System.Net.Dns.GetHostAddressesAsync(host, ct);
+                var ip = addrs.FirstOrDefault(a => a.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork);
+                if (ip == null) continue;
+                using var ping = new System.Net.NetworkInformation.Ping();
+                var reply = await ping.SendPingAsync(ip, 800);
+                if (reply.Status != System.Net.NetworkInformation.IPStatus.Success || reply.RoundtripTime > AwsMaxRttMs) continue;
+                found.Add(new AwsRegional(region, host, ip.ToString(), reply.RoundtripTime));
+            }
+            catch { /* region won't resolve or answer - skip */ }
+        }
+        var chosen = found.OrderBy(r => r.RttMs).ToList();
+        if (chosen.Count > 0)
+            _logger.LogInformation("Tracer: {Count} sub-{Max}ms AWS DynamoDB regionals: {Regions}",
+                chosen.Count, AwsMaxRttMs, string.Join(", ", chosen.Select(r => r.Region)));
+        return chosen;
+    }
+
+    /// <summary>
+    /// The farthest (deepest) transit ASN on the trace to <paramref name="destIp"/> - what a path-end
+    /// host connects "via" - with a cleaned name. Walks that destination's trace hops in order and
+    /// keeps the last hop whose attributed ASN is neither an access ASN nor the destination's own org.
+    /// The destination match is by cleaned NAME, not just ASN number, so a provider that appears under
+    /// sibling ASNs (Amazon's AS16509 / AS14618, a transit's multiple ASNs) isn't mistaken for transit.
+    /// Null when the path crosses no transit (peered / IX). <paramref name="asnByHopIp"/> maps hop IP
+    /// to its attributed ASN from the merged pool, so no extra lookups are done here.
+    /// </summary>
+    private (int Asn, string Name)? FarthestTransitVia(string destIp, int destAsn, string destName,
+        HashSet<int> accessAsns, Dictionary<string, AsnLookup> asnByHopIp, out bool pathComplete)
+    {
+        var responded = _lastTraces
+            .Where(t => string.Equals(t.Target.Address, destIp, StringComparison.OrdinalIgnoreCase))
+            .SelectMany(t => t.Hops)
+            .Where(h => h.Responded && h.Address != null)
+            .ToList();
+        var respondedHopNums = responded.Select(h => h.HopNumber).ToHashSet();
+
+        (int Asn, string Name)? via = null;
+        int? accessStartHop = null;
+        int? destOrgHop = null;
+        foreach (var h in responded.OrderBy(h => h.HopNumber))
+        {
+            if (!asnByHopIp.TryGetValue(h.Address!, out var asn)) continue;
+            if (accessAsns.Contains(asn.Asn)) { accessStartHop ??= h.HopNumber; continue; }
+            var name = CleanAsnName(asn.Name);
+            if (asn.Asn == destAsn || string.Equals(name, destName, StringComparison.OrdinalIgnoreCase))
+            {
+                destOrgHop ??= h.HopNumber;
+                continue;
+            }
+            if (destOrgHop == null) via = (asn.Asn, name); // farthest transit before we reach the dest org
+        }
+
+        // "Peered" is only provable when we reached the destination's org AND every hop from the
+        // access ASN to it responded - a star in between could be hiding transit. Otherwise the
+        // caller shows a dash (unknown), not "peered".
+        var from = accessStartHop ?? 1;
+        pathComplete = destOrgHop is int dh && dh >= from
+            && Enumerable.Range(from, dh - from + 1).All(n => respondedHopNums.Contains(n));
+        return via;
+    }
+
     // Built per site by UpstreamTracerRegistry, which resolves the site's console,
     // gateway SSH, ISP Health, and "server" probe vantage (local on the default site,
     // on-site agent on a secondary site).
@@ -126,6 +229,61 @@ public class UpstreamTracerService
     /// <summary>The site's own database for persisting upstream discovery state.</summary>
     private async Task<NetworkOptimizerDbContext> CreateDbAsync(CancellationToken ct = default) =>
         _isDefault ? await _dbFactory.CreateDbContextAsync(ct) : _siteDbFactory.CreateForSite(_siteSlug, isDefault: false);
+
+    private static readonly TimeSpan WitnessAncestryTtl = TimeSpan.FromHours(12);
+    private const int MaxWitnessTracesPerTick = 6;
+
+    /// <summary>
+    /// Fills and refreshes hop ancestry for this site's enabled Custom + InternetService targets.
+    /// They aren't part of the discovery sweep (only the built-in CDN/AWS probes and discovered
+    /// ISP/transit hops are), so without this they'd never become - or would go stale as -
+    /// routes-through witnesses. Traces those whose ancestry is missing or older than
+    /// <see cref="WitnessAncestryTtl"/> over this site's vantage (server or on-site agent),
+    /// rate-limited to <see cref="MaxWitnessTracesPerTick"/> per call. Called every re-discovery
+    /// tick (hourly), independent of the full re-discovery cadence. Best-effort.
+    /// </summary>
+    public async Task BackfillWitnessAncestryAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            await using var db = await CreateDbAsync(ct);
+            var targets = await db.MonitoringTargets.AsNoTracking()
+                .Where(t => t.Enabled && (t.TargetType == MonitoringTargetType.Custom
+                    || t.TargetType == MonitoringTargetType.InternetService))
+                .ToListAsync(ct);
+            if (targets.Count == 0) return;
+
+            // A target is "fresh" only when it has a NON-EMPTY ancestry row traced within the TTL. An
+            // empty row (e.g. a hostname-addressed AWS regional whose discovery same-path pass couldn't
+            // attribute it, but which stamped LastTracerouteAt) must NOT count as fresh, or it would
+            // never get real ancestry and would read as carrying no transit in ISP Health.
+            var cutoff = DateTime.UtcNow - WitnessAncestryTtl;
+            var freshIds = (await db.UpstreamDiscoveries.AsNoTracking()
+                .Where(d => d.MonitoringTargetId != null
+                    && d.AncestorHopIps != null && d.AncestorHopIps != ""
+                    && d.LastTracerouteAt > cutoff)
+                .Select(d => d.MonitoringTargetId!.Value)
+                .Distinct()
+                .ToListAsync(ct))
+                .ToHashSet();
+
+            var traced = 0;
+            foreach (var t in targets)
+            {
+                if (ct.IsCancellationRequested || traced >= MaxWitnessTracesPerTick) break;
+                if (freshIds.Contains(t.Id)) continue;
+                await using var wdb = await CreateDbAsync(ct);
+                if (await TargetAncestry.TraceAndPersistAsync(_traceExecutor, wdb, t.Id, t.Address, _logger, ct))
+                    traced++;
+            }
+            if (traced > 0)
+                _logger.LogInformation("Tracer: backfilled/refreshed ancestry for {Count} witness target(s) on site {Site}", traced, _siteSlug);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Witness ancestry backfill failed for site {Site}", _siteSlug);
+        }
+    }
 
     /// <summary>
     /// Rehydrate the in-memory <see cref="State"/> from persisted DB rows when
@@ -825,11 +983,17 @@ public class UpstreamTracerService
         State.CurrentActivity = "Running parallel traceroutes to major internet endpoints...";
         State.Traces = new List<TraceSummary>();
 
-        // Spawn 10 traceroutes (5 endpoints × 2 modes) in parallel and merge once
-        // they all settle. Each traceroute is capped at 10s, so wall-clock for the
-        // whole sweep is ~10s + a bit of overhead.
+        // Build this run's endpoint set: the anycast rotation plus every sub-80ms AWS regional
+        // (resolved live, traced by IP), which surface paid-transit ASNs and seed clean witnesses.
+        _awsRegionals = await ResolveAwsRegionalsAsync(ct);
+        _traceEndpoints = CdnRotation
+            .Concat(_awsRegionals.Select(r => new TraceEndpoint($"AWS-{r.Region}", r.Ip)))
+            .ToList();
+
+        // Spawn traceroutes (each endpoint × 2 modes) in parallel and merge once they all settle.
+        // Each traceroute is capped at 10s, so wall-clock for the whole sweep is ~10s + overhead.
         var tasks = new List<Task<(string Label, TracerouteResult Result)>>();
-        foreach (var endpoint in CdnRotation)
+        foreach (var endpoint in _traceEndpoints)
         {
             tasks.Add(TraceOneAsync(endpoint, ProbeMode.Icmp, ct));
             tasks.Add(TraceOneAsync(endpoint, ProbeMode.Udp, ct));
@@ -1220,9 +1384,17 @@ public class UpstreamTracerService
         var asnsInTrace = new HashSet<int>(_mergedHops
             .Where(h => h.Asn != null)
             .Select(h => h.Asn!.Asn));
-        foreach (var endpoint in CdnRotation)
+        // Hop IP -> attributed ASN, from the merged pool, for the "Via" (farthest transit) column.
+        var asnByHopIp = _mergedHops
+            .Where(h => h.Asn != null)
+            .GroupBy(h => h.Address, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.First().Asn!, StringComparer.OrdinalIgnoreCase);
+        foreach (var endpoint in _traceEndpoints)
         {
             if (endpoint.IsTransitProbe) continue;
+            // AWS regionals are persisted per-region by the dedicated block below, not ASN-deduped
+            // here (they all share Amazon's ASN, which would collapse them to one target).
+            if (endpoint.Label.StartsWith("AWS-", StringComparison.Ordinal)) continue;
             var destAsn = await _asnResolution.ResolveAsync(endpoint.Address, ct);
             if (destAsn == null) continue;
             if (accessAsnNumbers.Contains(destAsn.Asn)) continue;
@@ -1232,18 +1404,57 @@ public class UpstreamTracerService
             if (!reachedOrTraversed) continue;
             if (!pathProxyAsnsSeen.Add(destAsn.Asn)) continue;
 
+            var cdnName = CleanAsnName(destAsn.Name);
+            var via = FarthestTransitVia(endpoint.Address, destAsn.Asn, cdnName, accessAsnNumbers, asnByHopIp, out var cdnComplete);
             candidates.Add(new TransitAsnCandidate
             {
                 AsnNumber = destAsn.Asn,
-                AsnName = CleanAsnName(destAsn.Name),
+                AsnName = cdnName,
                 Label = endpoint.Label,
                 Method = DiscoveryMethod.PathProxy,
                 TargetId = $"path-{endpoint.Label.ToLowerInvariant()}-as{destAsn.Asn}",
                 HopAddress = endpoint.Address,
                 PathProxyTarget = endpoint.Address,
                 RespondedTo = ProbeMode.Icmp,
-                Enabled = true
+                Enabled = true,
+                ViaAsnNumber = via?.Asn,
+                ViaAsnName = via?.Name,
+                ViaPathComplete = cdnComplete
             });
+        }
+
+        // AWS DynamoDB regionals: add EVERY sub-80ms region as its own path-end target (not
+        // ASN-deduped - they all share Amazon's ASN), so ops/SWE users can monitor any of them.
+        // Persist the HOSTNAME (AWS rotates the regional IPs; it re-resolves to a live in-region IP
+        // each poll) even though the trace/rank used the concrete IP. Pre-enable a region only if its
+        // trace crossed a transit ASN (surfacing transit is the point); the rest come in disabled for
+        // the user to tick on. Toggle survives re-discovery via the address-keyed reconcile below.
+        if (_awsRegionals.Count > 0)
+        {
+            var amazon = await _asnResolution.ResolveAsync(_awsRegionals[0].Ip, ct);
+            var amazonAsn = amazon?.Asn ?? 0;
+            var amazonName = string.IsNullOrEmpty(amazon?.Name) ? "Amazon" : CleanAsnName(amazon.Name);
+            foreach (var r in _awsRegionals)
+            {
+                // The via (farthest transit) both labels the row and decides pre-enable: a region is
+                // pre-checked only when its trace actually crosses transit.
+                var via = FarthestTransitVia(r.Ip, amazonAsn, amazonName, accessAsnNumbers, asnByHopIp, out var awsComplete);
+                candidates.Add(new TransitAsnCandidate
+                {
+                    AsnNumber = amazonAsn,
+                    AsnName = amazonName,
+                    Label = $"AWS {r.Region}",
+                    Method = DiscoveryMethod.PathProxy,
+                    TargetId = $"aws-{r.Region}",
+                    HopAddress = r.Hostname,
+                    PathProxyTarget = r.Hostname,
+                    RespondedTo = ProbeMode.Icmp,
+                    Enabled = via != null,
+                    ViaAsnNumber = via?.Asn,
+                    ViaAsnName = via?.Name,
+                    ViaPathComplete = awsComplete
+                });
+            }
         }
 
         // Reconcile ALL candidates (transit + path-end) and access hops against
@@ -1910,6 +2121,15 @@ public class UpstreamTracerService
         }
         foreach (var transit in State.TransitAsns.Where(t => !t.Enabled))
         {
+            // Path-end Internet targets (AWS regionals, CDN/DNS) the user left unchecked are saved as
+            // PAUSED rows - so the decline sticks (re-discovery reconciles against the disabled row
+            // instead of re-suggesting them checked) and they appear in the target list to enable
+            // later. Transit ASNs stay on their off-path / miss-counter mechanism (update-only).
+            if (transit.Method == DiscoveryMethod.PathProxy)
+            {
+                await UpsertTransitTargetAsync(db, transit, wanInterface, ct, enabled: false);
+                continue;
+            }
             var addr = transit.HopAddress ?? transit.PathProxyTarget;
             if (string.IsNullOrEmpty(addr)) continue;
             var existing = await db.MonitoringTargets.FirstOrDefaultAsync(t => t.Address == addr, ct);
@@ -2030,6 +2250,12 @@ public class UpstreamTracerService
 
         var monitoredAddrs = targets.Select(t => t.Address).Where(a => !string.IsNullOrEmpty(a))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        // AWS regionals are persisted by hostname but were traced by IP, so the trace's AWS-endpoint
+        // hop (an IP) isn't recognized as monitored above. Register the traced IPs so the ancestry
+        // pass records the access/transit hops upstream of each AWS region; the persist loop below
+        // resolves each AWS target's ancestry via that IP.
+        foreach (var r in _awsRegionals)
+            if (!string.IsNullOrEmpty(r.Ip)) monitoredAddrs.Add(r.Ip);
 
         // Ancestor sets from ALL traces: for each monitored hop, the monitored hops that
         // appear before it on any trace it was seen on (its proven upstream). Every trace
@@ -2057,7 +2283,11 @@ public class UpstreamTracerService
         var written = 0;
         foreach (var t in targets)
         {
-            var ancestors = ancestorsByIp.TryGetValue(t.Address, out var anc)
+            // AWS regionals: resolve ancestry/hop distance via the IP we actually traced this run,
+            // not the persisted hostname (which the trace never saw).
+            var lookupAddr = _awsRegionals.FirstOrDefault(r => string.Equals(r.Hostname, t.Address, StringComparison.OrdinalIgnoreCase))?.Ip
+                ?? t.Address;
+            var ancestors = ancestorsByIp.TryGetValue(lookupAddr, out var anc)
                 ? anc.OrderBy(a => a).ToList()
                 : new List<string>();
             db.UpstreamDiscoveries.Add(new UpstreamDiscovery
@@ -2066,7 +2296,7 @@ public class UpstreamTracerService
                 AsnNumber = t.AsnNumber!.Value,
                 AsnName = t.AsnName,
                 HopIp = t.Address,
-                HopNumber = minTtlByIp.TryGetValue(t.Address, out var ttl) ? ttl : 0,
+                HopNumber = minTtlByIp.TryGetValue(lookupAddr, out var ttl) ? ttl : 0,
                 // Non-null (even if empty) marks that ancestor data exists, so ISP Health can
                 // tell "no discovery yet" (open gate) from "on-path but no ancestors" (a first hop).
                 AncestorHopIps = string.Join(" ", ancestors),
@@ -2150,7 +2380,7 @@ public class UpstreamTracerService
         }
     }
 
-    private static async Task UpsertTransitTargetAsync(NetworkOptimizerDbContext db, TransitAsnCandidate transit, string wanInterface, CancellationToken ct)
+    private static async Task UpsertTransitTargetAsync(NetworkOptimizerDbContext db, TransitAsnCandidate transit, string wanInterface, CancellationToken ct, bool enabled = true)
     {
         if (transit.Method == DiscoveryMethod.Unresolved || string.IsNullOrEmpty(transit.TargetId)) return;
 
@@ -2177,7 +2407,7 @@ public class UpstreamTracerService
                 VantagePoint = "server",
                 PollIntervalSeconds = 15,
                 PingCount = 5,
-                Enabled = true,
+                Enabled = enabled,
                 PtrHostname = transit.HopHostname,
                 AutoDiscovered = true,
                 DiscoveryMethod = transit.Method,
@@ -2188,7 +2418,7 @@ public class UpstreamTracerService
         }
         else
         {
-            existing.Enabled = true;
+            existing.Enabled = enabled;
             existing.Name = transit.Label ?? transit.AsnName;
             existing.Address = transit.HopAddress ?? transit.PathProxyTarget ?? existing.Address;
             existing.ProbeMode = transit.RespondedTo ?? existing.ProbeMode;
@@ -2262,7 +2492,7 @@ public class UpstreamTracerService
     {
         _destinationAsns.Clear();
         _destinationOrgs.Clear();
-        foreach (var endpoint in CdnRotation)
+        foreach (var endpoint in _traceEndpoints)
         {
             if (endpoint.IsTransitProbe) continue;
             var destAsn = await _asnResolution.ResolveAsync(endpoint.Address, ct);

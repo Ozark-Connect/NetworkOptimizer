@@ -412,7 +412,7 @@
                 : null;
 
             await using var db = CreateDb();
-            db.MonitoringTargets.Add(new MonitoringTarget
+            var entity = new MonitoringTarget
             {
                 TargetId = targetId,
                 Name = name,
@@ -429,8 +429,17 @@
                 CreatedAt = DateTime.UtcNow,
                 AsnNumber = asnNumber,
                 AsnName = asnName
-            });
+            };
+            db.MonitoringTargets.Add(entity);
             await db.SaveChangesAsync();
+
+            // Trace-on-save: an Internet/Custom target only absolves the ISP/transit hops it crosses
+            // once it has trace ancestry. Kick off an immediate trace so it can act as a witness now,
+            // instead of waiting for the next upstream discovery cycle. Resolve the "server" vantage
+            // executor here (synchronously, current site context) so external agent sites trace over
+            // the on-site agent tunnel and there's no scoped-context race in the fire-and-forget.
+            if (targetType is MonitoringTargetType.InternetService or MonitoringTargetType.Custom)
+                _ = TraceOnSaveForAncestryAsync(ExecutorFactory.GetServer(), entity.Id, address, SiteCtx.Slug, SiteCtx.IsDefault);
 
             _showAddTarget = false;
             _newTargetName = "";
@@ -449,6 +458,18 @@
         {
             _addingTarget = false;
         }
+    }
+
+    /// <summary>
+    /// Traces a just-added Internet/Custom target over the site's server/agent vantage and persists
+    /// its hop ancestry as an UpstreamDiscovery row, so ISP Health can immediately use it as a
+    /// routes-through witness. Best-effort; fire-and-forget (reads no component state).
+    /// </summary>
+    private async Task TraceOnSaveForAncestryAsync(NetworkOptimizer.Monitoring.Probes.IProbeExecutor executor,
+        int targetId, string address, string slug, bool isDefault)
+    {
+        await using var db = SiteDb.CreateForSite(slug, isDefault);
+        await NetworkOptimizer.Web.Services.Monitoring.TargetAncestry.TraceAndPersistAsync(executor, db, targetId, address);
     }
 
     private static string TargetTypeBadgeClass(MonitoringTargetType type) => type switch

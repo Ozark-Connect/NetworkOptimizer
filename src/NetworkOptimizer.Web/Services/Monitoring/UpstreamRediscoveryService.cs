@@ -106,6 +106,12 @@ public class UpstreamRediscoveryService : BackgroundService
             : _siteDbFactory.CreateForSite(slug, isDefault: false);
         var settings = await db.MonitoringSettings.FirstOrDefaultAsync(ct);
         if (settings == null || !settings.Enabled) return;
+
+        // Keep Custom/Internet witness targets' ancestry filled and fresh every tick (hourly),
+        // independent of the 7-day full re-discovery cadence below. They aren't part of the sweep,
+        // so this is what keeps them usable as routes-through witnesses.
+        await tracer.BackfillWitnessAncestryAsync(ct);
+
         if (settings.UpstreamDiscoveryNeedsReview) return; // already flagged - waiting for user
         if (!settings.LastUpstreamDiscoveryAt.HasValue) return; // never committed - nothing to re-discover
 

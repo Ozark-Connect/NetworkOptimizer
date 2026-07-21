@@ -601,6 +601,23 @@ public class IspHealthOptions
     public double JitterAssimilationMinDeltaMs { get; set; } = 0.05;
 
     /// <summary>
+    /// Dead-band for RTT-stability scoring: absolute median-absolute-deviation (MAD) at or below
+    /// this many ms counts as perfectly steady. Stability grades on MAD/median, which is scale-free,
+    /// so on a low-RTT fiber path (median ~2-3 ms) a few tenths of a ms of wander - operationally
+    /// trivial - becomes a large ratio and over-penalizes. The stability analog of
+    /// <see cref="JitterFloorMinMs"/>: the score reads off max(0, MAD - floor) / median, so sub-floor
+    /// wander is free and only the excess counts.
+    /// </summary>
+    public double StabilityMadFloorMs { get; set; } = 0.35;
+
+    /// <summary>
+    /// Minimum amount (absolute MAD, ms) a cleaner witness must sit below a hop's own RTT MAD before it
+    /// absolves the hop's stability. Within this band the difference is noise, so the hop keeps its own
+    /// wander. The stability analog of <see cref="JitterAssimilationMinDeltaMs"/>.
+    /// </summary>
+    public double StabilityAssimilationMinMadMs { get; set; } = 0.05;
+
+    /// <summary>
     /// Item D - how strongly the internet-relative reach ceiling absolves an ISP access hop's
     /// intra-ASN distance penalty. finalCeiling = C_intra + alpha * max(0, C_net - C_intra), so it
     /// only ever lifts (never lowers) and partially (alpha &lt; 1) - genuine distance/glass always
@@ -656,7 +673,16 @@ public sealed record AccessProfile(
     // to ISP and transit jitter, since every probe crosses the access medium.
     double? JitterIdealMs = null,
     double? JitterTypicalMs = null,
-    double? JitterPoorMs = null);
+    double? JitterPoorMs = null,
+    // Per-tech RTT-stability band (absolute median-absolute-deviation of RTT, ms). When set, stability
+    // is scored straight off the band - (ideal,100) (typical,90) (poor,25) (2*poor,0) - so a medium's
+    // inherent RTT wander reads as normal (fiber's sub-ms, Starlink's several-ms) instead of against a
+    // scale-free ratio that over-punishes low-RTT media. Null keeps the floored-ratio fallback. Applies
+    // path-wide (every probe crosses the access medium), after routes-through witness absolution has
+    // stripped per-hop ICMP-deprioritization artifact.
+    double? StabilityMadIdealMs = null,
+    double? StabilityMadTypicalMs = null,
+    double? StabilityMadPoorMs = null);
 
 /// <summary>
 /// Static catalog of access technology profiles. Returns null for
@@ -674,34 +700,47 @@ public static class IspHealthProfiles
             LoadedLossDownLowPct: 1.0, LoadedLossDownHighPct: 2.0,
             LoadedLossUpLowPct: 0.5, LoadedLossUpHighPct: 1.0,
             LoadedDeltaExcellentMs: 2.0, LoadedDeltaAcceptableMs: 10.0,
-            JitterIdealMs: 0.4, JitterTypicalMs: 0.7, JitterPoorMs: 3.0),
+            JitterIdealMs: 0.4, JitterTypicalMs: 0.7, JitterPoorMs: 3.0,
+            StabilityMadIdealMs: 0.15, StabilityMadTypicalMs: 0.4, StabilityMadPoorMs: 1.5),
 
-        // XGS-PON sits a notch below GPON on idle RTT: its low-latency DBA runs shorter upstream
-        // grant cycles than GPON's ~1-2 ms, and the 10G upstream cuts serialization, so the
-        // first-hop floor is lower. Loss/jitter/loaded bands stay as the optical defaults.
+        // XGS-PON is graded subtly stricter than GPON on idle RTT, jitter, AND stability. Same
+        // 125 us frame / DBA TDMA, but at a gig plan XGS uses ~10% of its 10G symmetric upstream vs
+        // GPON's ~80% of 1.244G - far less grant contention - and its 10G upstream cuts serialization
+        // ~8x. So its inherent wander is lower; the taper is gentle (most-distinguishable at the clean
+        // end, converging to GPON near "poor" where a fault is medium-agnostic). Measured: 4 optical
+        // NAS sites (research/monitoring/isp-health/stability-mad-calibration.md).
         AccessTechnology.XgsPon => new AccessProfile("XGS-PON",
             IdleRttIdealMs: 1.0, IdleRttNormalLowMs: 1.5, IdleRttNormalHighMs: 2.5, IdleRttPoorMs: 7.0,
             IdleLossIdealPct: 0.02, IdleLossAcceptablePct: 0.05,
             LoadedLossDownLowPct: 0.5, LoadedLossDownHighPct: 1.0,
             LoadedLossUpLowPct: 0.25, LoadedLossUpHighPct: 0.5,
             LoadedDeltaExcellentMs: 2.0, LoadedDeltaAcceptableMs: 10.0,
-            JitterIdealMs: 0.4, JitterTypicalMs: 0.7, JitterPoorMs: 3.0),
+            JitterIdealMs: 0.35, JitterTypicalMs: 0.6, JitterPoorMs: 2.8,
+            StabilityMadIdealMs: 0.12, StabilityMadTypicalMs: 0.33, StabilityMadPoorMs: 1.35),
 
+        // DOCSIS stability band is near-fiber: the CMTS access hop is measured rock-steady
+        // (~0.30 ms MAD, 2 real CMTS). DOCSIS's jitter reputation is a loaded / end-to-end
+        // request-grant phenomenon, not a property of the (short, lightly-loaded) access segment.
         AccessTechnology.Docsis => new AccessProfile("DOCSIS",
             IdleRttIdealMs: 7.0, IdleRttNormalLowMs: 9.0, IdleRttNormalHighMs: 12.0, IdleRttPoorMs: 25.0,
             IdleLossIdealPct: 0.02, IdleLossAcceptablePct: 0.2,
             LoadedLossDownLowPct: 3.0, LoadedLossDownHighPct: 5.0,
             LoadedLossUpLowPct: 3.0, LoadedLossUpHighPct: 5.0,
             LoadedDeltaExcellentMs: 5.0, LoadedDeltaAcceptableMs: 20.0,
-            JitterIdealMs: 1.75, JitterTypicalMs: 3.0, JitterPoorMs: 6.0),
+            JitterIdealMs: 1.75, JitterTypicalMs: 3.0, JitterPoorMs: 6.0,
+            StabilityMadIdealMs: 0.3, StabilityMadTypicalMs: 0.8, StabilityMadPoorMs: 3.0),
 
+        // Starlink stability band from real data: same dish/target across two plans - ideal
+        // (Local Priority) ~4.3 ms MAD, degraded backup ~9.2 ms. The several-ms steady-state wander
+        // is inherent LEO (handovers ~every 15 s); MAD is robust to the obstruction tail.
         AccessTechnology.Satellite => new AccessProfile("Satellite (LEO)",
             IdleRttIdealMs: 23.0, IdleRttNormalLowMs: 30.0, IdleRttNormalHighMs: 45.0, IdleRttPoorMs: 80.0,
             IdleLossIdealPct: 0.2, IdleLossAcceptablePct: 0.5,
             LoadedLossDownLowPct: 0.5, LoadedLossDownHighPct: 1.0,
             LoadedLossUpLowPct: 0.25, LoadedLossUpHighPct: 0.5,
             LoadedDeltaExcellentMs: 5.0, LoadedDeltaAcceptableMs: 25.0,
-            JitterIdealMs: 5.0, JitterTypicalMs: 6.5, JitterPoorMs: 15.0),
+            JitterIdealMs: 5.0, JitterTypicalMs: 6.5, JitterPoorMs: 15.0,
+            StabilityMadIdealMs: 5.0, StabilityMadTypicalMs: 9.0, StabilityMadPoorMs: 22.0),
 
         AccessTechnology.DirectEthernet => new AccessProfile("Active Ethernet",
             IdleRttIdealMs: 0.5, IdleRttNormalLowMs: 1.0, IdleRttNormalHighMs: 3.0, IdleRttPoorMs: 8.0,
@@ -710,15 +749,18 @@ public static class IspHealthProfiles
             LoadedLossUpLowPct: 0.5, LoadedLossUpHighPct: 1.0,
             LoadedDeltaExcellentMs: 2.0, LoadedDeltaAcceptableMs: 10.0,
             SharedMedium: false,
-            JitterIdealMs: 0.4, JitterTypicalMs: 0.7, JitterPoorMs: 3.0),
+            JitterIdealMs: 0.4, JitterTypicalMs: 0.7, JitterPoorMs: 3.0,
+            StabilityMadIdealMs: 0.15, StabilityMadTypicalMs: 0.4, StabilityMadPoorMs: 1.5),
 
+        // Common-sense (unvalidated) stability bands below - no real DSL/FW/Cellular sites yet.
         AccessTechnology.FixedWireless => new AccessProfile("Fixed Wireless",
             IdleRttIdealMs: 5.0, IdleRttNormalLowMs: 8.0, IdleRttNormalHighMs: 15.0, IdleRttPoorMs: 35.0,
             IdleLossIdealPct: 0.3, IdleLossAcceptablePct: 0.5,
             LoadedLossDownLowPct: 2.0, LoadedLossDownHighPct: 4.0,
             LoadedLossUpLowPct: 1.0, LoadedLossUpHighPct: 2.0,
             LoadedDeltaExcellentMs: 10.0, LoadedDeltaAcceptableMs: 20.0,
-            JitterIdealMs: 2.5, JitterTypicalMs: 4.0, JitterPoorMs: 12.0),
+            JitterIdealMs: 2.5, JitterTypicalMs: 4.0, JitterPoorMs: 12.0,
+            StabilityMadIdealMs: 0.8, StabilityMadTypicalMs: 2.0, StabilityMadPoorMs: 8.0),
 
         AccessTechnology.Cellular => new AccessProfile("Cellular",
             IdleRttIdealMs: 20.0, IdleRttNormalLowMs: 25.0, IdleRttNormalHighMs: 50.0, IdleRttPoorMs: 90.0,
@@ -726,8 +768,12 @@ public static class IspHealthProfiles
             LoadedLossDownLowPct: 2.0, LoadedLossDownHighPct: 4.0,
             LoadedLossUpLowPct: 2.0, LoadedLossUpHighPct: 4.0,
             LoadedDeltaExcellentMs: 20.0, LoadedDeltaAcceptableMs: 50.0,
-            JitterIdealMs: 4.0, JitterTypicalMs: 6.0, JitterPoorMs: 20.0),
+            JitterIdealMs: 4.0, JitterTypicalMs: 6.0, JitterPoorMs: 20.0,
+            StabilityMadIdealMs: 1.5, StabilityMadTypicalMs: 4.0, StabilityMadPoorMs: 15.0),
 
+        // DSL: a dedicated copper pair has no shared-medium contention, so a clean short loop can
+        // beat DOCSIS (tight ideal); aging DSLAM aggregation + old BNG (buffering, interleaving/FEC)
+        // drag the typical case, and a long/noisy loop pushes poor. Common-sense, unvalidated.
         AccessTechnology.Dsl => new AccessProfile("DSL",
             IdleRttIdealMs: 6.0, IdleRttNormalLowMs: 10.0, IdleRttNormalHighMs: 25.0, IdleRttPoorMs: 50.0,
             IdleLossIdealPct: 0.05, IdleLossAcceptablePct: 0.2,
@@ -735,7 +781,8 @@ public static class IspHealthProfiles
             LoadedLossUpLowPct: 3.0, LoadedLossUpHighPct: 5.0,
             LoadedDeltaExcellentMs: 5.0, LoadedDeltaAcceptableMs: 20.0,
             SharedMedium: false,
-            JitterIdealMs: 1.0, JitterTypicalMs: 2.0, JitterPoorMs: 5.0),
+            JitterIdealMs: 1.0, JitterTypicalMs: 2.0, JitterPoorMs: 5.0,
+            StabilityMadIdealMs: 0.35, StabilityMadTypicalMs: 0.9, StabilityMadPoorMs: 3.5),
 
         AccessTechnology.PppoE => NeutralProfile("PPPoE"),
         AccessTechnology.Other => NeutralProfile("Other"),
@@ -752,5 +799,8 @@ public static class IspHealthProfiles
         LoadedLossDownLowPct: 2.0, LoadedLossDownHighPct: 4.0,
         LoadedLossUpLowPct: 1.0, LoadedLossUpHighPct: 2.0,
         LoadedDeltaExcellentMs: 5.0, LoadedDeltaAcceptableMs: 20.0,
-        IsNeutral: true);
+        IsNeutral: true,
+        // Generic-conservative stability band so an unclassified medium isn't over-punished for
+        // sub-ms wander, but genuine ms-scale instability still grades down.
+        StabilityMadIdealMs: 0.3, StabilityMadTypicalMs: 0.8, StabilityMadPoorMs: 3.0);
 }
