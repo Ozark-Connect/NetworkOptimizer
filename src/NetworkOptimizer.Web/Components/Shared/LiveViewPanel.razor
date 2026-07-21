@@ -249,13 +249,18 @@ else
             {
                 if (MapMode == "3d")
                 {
+                    // storagePrefix is per-site and must be an argument, not baked into
+                    // the body: JS interop keeps invoking the first-resolved function
+                    // reference, so a re-eval'd definition with a different baked-in
+                    // prefix is ignored (see the matching note in Monitoring.razor).
                     await JS.InvokeVoidAsync("eval",
-                        "window.__dashMountMap3d = async function(canvasId) {" +
+                        "window.__dashMountMap3d = async function(canvasId, storagePrefix) {" +
                         $"  const m = await import('{VersionedJs("/js/lan-flow-map.js")}');" +
                         "  window.__dashLanFlowMap = m;" +
-                        $"  await m.mount(canvasId,{{storagePrefix:'{SiteCtx.ScopeStorageKey("dashLanFlowMap")}',signalHint:false}});" +
+                        "  await m.mount(canvasId,{storagePrefix:storagePrefix,signalHint:false});" +
                         "}");
-                    await JS.InvokeVoidAsync("__dashMountMap3d", "dashboard-lan-flow-map-canvas");
+                    await JS.InvokeVoidAsync("__dashMountMap3d", "dashboard-lan-flow-map-canvas",
+                        SiteCtx.ScopeStorageKey("dashLanFlowMap"));
                 }
                 else
                 {

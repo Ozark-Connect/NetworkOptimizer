@@ -3683,22 +3683,30 @@ else
                 _mapDotNetRef ??= DotNetObjectReference.Create(this);
                 // Deep-linked timestamp (?at=): applied only on this first mount, so
                 // switching tabs away and back doesn't yank the map back to the past.
-                var initialAtOpt = "";
+                long initialAtMs = 0;
                 if (!_initialAtApplied && long.TryParse(AtParam, out var atMs) && atMs > 0)
                 {
                     _initialAtApplied = true;
-                    initialAtOpt = $", initialAt: {atMs}";
+                    initialAtMs = atMs;
                 }
-                Logger.LogDebug("[LiveViewDbg:{Id}] map mount block: AtParam={AtParam} applied={Applied} opt='{Opt}' uri={Uri}",
-                    _dbgId, AtParam, _initialAtApplied, initialAtOpt, NavigationManager.Uri);
+                Logger.LogDebug("[LiveViewDbg:{Id}] map mount block: AtParam={AtParam} applied={Applied} initialAtMs={InitialAt} uri={Uri}",
+                    _dbgId, AtParam, _initialAtApplied, initialAtMs, NavigationManager.Uri);
+                // Per-mount values (storagePrefix, initialAt) MUST be arguments, never
+                // interpolated into the function body: JS interop resolves the
+                // identifier to a function reference once and keeps invoking that
+                // original closure, so a re-eval'd definition with different baked-in
+                // values is silently ignored on every mount after the first.
                 await JS.InvokeVoidAsync("eval",
-                    "window.__mountLanFlowMap = async function(canvasId, ref) {" +
+                    "window.__mountLanFlowMap = async function(canvasId, ref, storagePrefix, initialAt) {" +
                     "  window.__monitoringRef = ref;" +
                     $"  const m = await import('{VersionedJs("/js/lan-flow-map.js")}');" +
                     "  window.__lanFlowMap = m;" +
-                    $"  await m.mount(canvasId, {{ storagePrefix: '{SiteCtx.ScopeStorageKey("lanFlowMap")}'{initialAtOpt} }});" +
+                    "  const opts = { storagePrefix: storagePrefix };" +
+                    "  if (initialAt > 0) opts.initialAt = initialAt;" +
+                    "  await m.mount(canvasId, opts);" +
                     "}");
-                await JS.InvokeVoidAsync("__mountLanFlowMap", "lan-flow-map-canvas", _mapDotNetRef);
+                await JS.InvokeVoidAsync("__mountLanFlowMap", "lan-flow-map-canvas", _mapDotNetRef,
+                    SiteCtx.ScopeStorageKey("lanFlowMap"), initialAtMs);
             }
             catch (Exception ex) { _mapMounted = false; Logger.LogDebug(ex, "3D map mount failed; will retry on next render"); }
         }
