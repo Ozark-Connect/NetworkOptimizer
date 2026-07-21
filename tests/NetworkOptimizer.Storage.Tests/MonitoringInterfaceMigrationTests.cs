@@ -161,4 +161,16 @@ public class MonitoringInterfaceMigrationTests : IDisposable
                 .WithMessage("*change*");
         }
     }
+
+    [Fact]
+    public void Disabled_DefaultsToFalse_ForExistingAndNewRows()
+    {
+        using var context = CreateContext();
+        MigrationSafety.MigrateWithFriendlyErrors(context);
+        context.Database.ExecuteSqlRaw(
+            "INSERT INTO MonitoringInterfaces (Name, WanIfName, TargetIp, SubnetPrefix, GatewayLocalIp, SnatEnabled, WatchdogIntervalMinutes, IsManuallyDeployed, CreatedAt, UpdatedAt) " +
+            "VALUES ('modem0','eth4','192.168.100.1',24,'192.168.100.2',1,5,0,'2026-01-01','2026-01-01');");
+        var disabled = context.Database.SqlQueryRaw<bool>("SELECT Disabled FROM MonitoringInterfaces WHERE Name='modem0'").AsEnumerable().Single();
+        disabled.Should().BeFalse();
+    }
 }

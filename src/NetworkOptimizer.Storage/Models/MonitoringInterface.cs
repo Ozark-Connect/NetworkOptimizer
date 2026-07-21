@@ -89,6 +89,9 @@ public class MonitoringInterface
     /// </summary>
     public bool IsManuallyDeployed { get; set; }
 
+    /// <summary>True when the user disabled (un-deployed) this interface but kept its config for later re-enable.</summary>
+    public bool Disabled { get; set; }
+
     /// <summary>Last deployment/repair error message (null if last action succeeded).</summary>
     [MaxLength(1000)]
     public string? LastError { get; set; }

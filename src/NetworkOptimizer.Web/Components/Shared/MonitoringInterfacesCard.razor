@@ -73,20 +73,54 @@
                                 <td><code>@mi.GatewayLocalIp/@mi.SubnetPrefix</code></td>
                                 <td>@StatusBadge(mi)</td>
                                 <td>
-                                    <div class="btn-group-wrap">
+                                    <div class="btn-group-wrap mi-row-actions">
                                         <button class="btn btn-secondary btn-sm" @onclick="() => EditInterface(mi)" disabled="@(_busyId != null)">Edit</button>
-                                        <button class="btn btn-primary btn-sm" @onclick="() => DeployInterface(mi)" disabled="@(_busyId != null)">
-                                            @if (_busyId == mi.Id && _busyAction == "deploy")
-                                            {
-                                                <span class="spinner spinner-sm"></span>
-                                                <span>Deploying...</span>
-                                            }
-                                            else
-                                            {
-                                                <span>@(IsApplied(mi) ? "Re-apply" : "Deploy")</span>
-                                            }
-                                        </button>
+                                        @if (mi.Disabled)
+                                        {
+                                            @* Disabled rows expose exactly one forward action - Enable - in the primary
+                                               slot (it redeploys), so Deploy/Re-apply (which would just hit the disabled
+                                               guard) and the separate Disable toggle are both omitted here. *@
+                                            <button class="btn btn-primary btn-sm" @onclick="() => ToggleDisable(mi)" disabled="@(_busyId != null)">
+                                                @if (_busyId == mi.Id && _busyAction == "enable")
+                                                {
+                                                    <span class="spinner spinner-sm"></span>
+                                                    <span>Enabling...</span>
+                                                }
+                                                else
+                                                {
+                                                    <span>Enable</span>
+                                                }
+                                            </button>
+                                        }
+                                        else
+                                        {
+                                            <button class="btn btn-primary btn-sm" @onclick="() => DeployInterface(mi)" disabled="@(_busyId != null)">
+                                                @if (_busyId == mi.Id && _busyAction == "deploy")
+                                                {
+                                                    <span class="spinner spinner-sm"></span>
+                                                    <span>Deploying...</span>
+                                                }
+                                                else
+                                                {
+                                                    <span>@(IsApplied(mi) ? "Re-apply" : "Deploy")</span>
+                                                }
+                                            </button>
+                                        }
                                         <button class="btn btn-secondary btn-sm" @onclick="() => CheckStatus(mi)" disabled="@(_busyId != null)">Check status</button>
+                                        @if (ShowDisableToggle(mi) && !mi.Disabled)
+                                        {
+                                            <button class="btn btn-outline-primary btn-sm" @onclick="() => ToggleDisable(mi)" disabled="@(_busyId != null)">
+                                                @if (_busyId == mi.Id && _busyAction == "disable")
+                                                {
+                                                    <span class="spinner spinner-sm"></span>
+                                                    <span>Disabling...</span>
+                                                }
+                                                else
+                                                {
+                                                    <span>Disable</span>
+                                                }
+                                            </button>
+                                        }
                                         <button class="btn btn-danger btn-sm" @onclick="() => RemoveInterface(mi)" disabled="@(_busyId != null)">
                                             @if (_busyId == mi.Id && _busyAction == "remove")
                                             {
@@ -386,7 +420,11 @@
 
     private static MonitoringInterface NewInterface() => new() { Name = "modem0", SubnetPrefix = 24, SnatEnabled = true, WatchdogIntervalMinutes = 5 };
 
-    private static MonitoringInterface Snapshot(MonitoringInterface mi) => new()
+    /// <summary>
+    /// Test-visible (internal, see NetworkOptimizer.Web.csproj InternalsVisibleTo) so the
+    /// Disabled-copy can be verified without a Blazor component-test harness.
+    /// </summary>
+    internal static MonitoringInterface Snapshot(MonitoringInterface mi) => new()
     {
         Id = mi.Id,
         Name = mi.Name,
@@ -398,7 +436,9 @@
         GatewayLocalIp = mi.GatewayLocalIp,
         AliasIp = mi.AliasIp,
         SnatEnabled = mi.SnatEnabled,
-        WatchdogIntervalMinutes = mi.WatchdogIntervalMinutes
+        WatchdogIntervalMinutes = mi.WatchdogIntervalMinutes,
+        IsManuallyDeployed = mi.IsManuallyDeployed,
+        Disabled = mi.Disabled
     };
 
     // A gateway re-teardown is needed when an edit changes anything the boot script bakes
@@ -515,8 +555,14 @@
     }
 
     private string SummaryLabel()
-        => _interfaces.Count == 0 ? "None configured"
+    {
+        if (_interfaces.Count == 0)
+            return "None configured";
+        var paused = _interfaces.Count(i => i.Disabled);
+        return paused > 0
+            ? $"{_interfaces.Count} configured, {paused} paused"
             : $"{_interfaces.Count} configured";
+    }
 
     private async Task LoadAsync()
     {
@@ -695,7 +741,11 @@
             return;
         }
 
-        var deployResult = await DeployInterfaceReturningResult(saved);
+        // A disabled row that's edited and re-saved should come back enabled: route through
+        // Enable so the paused flag and gateway marker are cleared before redeploying.
+        var deployResult = saved.Disabled
+            ? await EnableInterfaceReturningResult(saved)
+            : await DeployInterfaceReturningResult(saved);
 
         // On a Gate 2 collision, re-enter edit mode on the row we just saved so the user can
         // see and fill in the suggested Alias IP - SaveAndDeploy would otherwise leave the
@@ -760,17 +810,27 @@
         }
     }
 
-    private async Task<MonitoringInterfaceDeploymentService.DeployResult> DeployInterfaceReturningResult(MonitoringInterface mi)
+    private Task<MonitoringInterfaceDeploymentService.DeployResult> DeployInterfaceReturningResult(MonitoringInterface mi)
+        => RunDeployAsync(mi, "deploy", () => Deploy.DeployAsync(mi));
+
+    // "Save & Deploy" on a disabled row means "Save & Enable": Enable clears the paused flag and
+    // marker first, then redeploys - going through DeployAsync directly would hit its disabled
+    // guard and Skip.
+    private Task<MonitoringInterfaceDeploymentService.DeployResult> EnableInterfaceReturningResult(MonitoringInterface mi)
+        => RunDeployAsync(mi, "enable", () => Deploy.EnableAsync(mi));
+
+    private async Task<MonitoringInterfaceDeploymentService.DeployResult> RunDeployAsync(
+        MonitoringInterface mi, string action, Func<Task<MonitoringInterfaceDeploymentService.DeployResult>> operation)
     {
         _busyId = mi.Id;
-        _busyAction = "deploy";
+        _busyAction = action;
         _message = null;
         _deploySteps.Clear();
         DisarmAllForceRemove();
         StateHasChanged();
         try
         {
-            var result = await Deploy.DeployAsync(mi);
+            var result = await operation();
             _deploySteps = result.Steps;
             _message = result.Message;
             _messageSuccess = result.Success;
@@ -787,8 +847,8 @@
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Deploy failed for monitoring interface {Id}", mi.Id);
-            _message = $"Deploy failed: {ex.Message}";
+            Logger.LogError(ex, "{Action} failed for monitoring interface {Id}", action, mi.Id);
+            _message = $"{char.ToUpper(action[0]) + action[1..]} failed: {ex.Message}";
             _messageSuccess = false;
             return new MonitoringInterfaceDeploymentService.DeployResult(
                 false, MonitoringInterfaceDeploymentService.PreflightBlock.GatewayUnreachable, _message, _deploySteps);
@@ -802,6 +862,62 @@
     }
 
     private Task DeployInterface(MonitoringInterface mi) => DeployInterfaceReturningResult(mi);
+
+    /// <summary>
+    /// Toggle a row between disabled (torn down on the gateway, config kept) and enabled
+    /// (redeployed). Mirrors the deploy/remove busy pattern so the button spins and every other
+    /// action is disabled while it runs, then reloads to reflect the new persisted flag.
+    /// </summary>
+    private async Task ToggleDisable(MonitoringInterface mi)
+    {
+        _busyId = mi.Id;
+        _busyAction = mi.Disabled ? "enable" : "disable";
+        _message = null;
+        _deploySteps.Clear();
+        DisarmAllForceRemove();
+        StateHasChanged();
+        try
+        {
+            var enabledOk = false;
+            if (mi.Disabled)
+            {
+                var result = await Deploy.EnableAsync(mi);
+                _deploySteps = result.Steps;
+                _message = result.Message;
+                _messageSuccess = result.Success;
+                enabledOk = result.Success;
+            }
+            else
+            {
+                var (success, steps) = await Deploy.DisableAsync(mi);
+                _deploySteps = steps;
+                _message = success
+                    ? $"Monitoring interface {mi.Name} disabled. Its config is kept - click Enable to redeploy it."
+                    : $"Couldn't disable {mi.Name}. {(steps.Count > 0 ? steps[^1] : "")}".Trim();
+                _messageSuccess = success;
+            }
+            _statuses.Remove(mi.Id);
+            await LoadAsync();
+            // A successful Enable just (re)deployed the interface, so refresh its status silently -
+            // otherwise the badge sits at "Unknown" until a manual Check status, even though the
+            // deploy succeeded (mirrors the Deploy button's post-deploy refresh). After a Disable
+            // the badge reads "Disabled" straight from the flag and needs no probe.
+            if (enabledOk)
+                await CheckStatus(mi, silent: true);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Disable/Enable toggle failed for monitoring interface {Id}", mi.Id);
+            _message = $"Action failed: {ex.Message}";
+            _messageSuccess = false;
+        }
+        finally
+        {
+            _busyId = null;
+            _busyAction = null;
+            StateHasChanged();
+        }
+    }
 
     /// <summary>
     /// What a Remove click should do, given whether this row already had a failed attempt
@@ -913,37 +1029,40 @@
 
     private RenderFragment StatusBadge(MonitoringInterface mi) => builder =>
     {
-        string cls, text;
-        if (!_statuses.TryGetValue(mi.Id, out var s))
-        {
-            cls = "status-disconnected";
-            text = "Unknown";
-        }
-        else if (!s.GatewayReachable)
-        {
-            cls = "status-disconnected";
-            text = "Gateway unreachable";
-        }
-        else if (s.IsFullyApplied(mi))
-        {
-            cls = "status-connected";
-            text = "Active";
-        }
-        else if (s.InterfaceExists || s.BootScriptPresent)
-        {
-            cls = "status-disconnected";
-            text = "Needs re-apply";
-        }
-        else
-        {
-            cls = "status-disconnected";
-            text = "Not deployed";
-        }
+        var (cls, text) = StatusBadgeContent(mi, _statuses.TryGetValue(mi.Id, out var s) ? s : null);
         builder.OpenElement(0, "span");
         builder.AddAttribute(1, "class", $"status-badge {cls}");
         builder.AddContent(2, text);
         builder.CloseElement();
     };
+
+    /// <summary>
+    /// Pure badge decision (class + label) for a row given its last live status (null when never
+    /// probed). Extracted as internal (see NetworkOptimizer.Web.csproj InternalsVisibleTo) so it
+    /// can be unit-tested without a Blazor renderer, mirroring DecideRemoveOutcome. A disabled
+    /// row reads "Disabled" regardless of any stale status - it's paused by the user's choice.
+    /// </summary>
+    internal static (string cls, string text) StatusBadgeContent(
+        MonitoringInterface mi, MonitoringInterfaceDeploymentService.InterfaceStatus? s)
+    {
+        if (mi.Disabled)
+            return ("status-disconnected", "Disabled");
+        if (s == null)
+            return ("status-disconnected", "Unknown");
+        if (!s.GatewayReachable)
+            return ("status-disconnected", "Gateway unreachable");
+        if (s.IsFullyApplied(mi))
+            return ("status-connected", "Active");
+        if (s.InterfaceExists || s.BootScriptPresent)
+            return ("status-disconnected", "Needs re-apply");
+        return ("status-disconnected", "Not deployed");
+    }
+
+    /// <summary>
+    /// Whether the Disable/Enable toggle is shown for a row. Hidden for manually-deployed rows:
+    /// Disable/Enable operate on gateway artifacts this app deploys, not a hand-built config.
+    /// </summary>
+    internal static bool ShowDisableToggle(MonitoringInterface mi) => !mi.IsManuallyDeployed;
 
     private string WanLabelFor(MonitoringInterface mi)
     {

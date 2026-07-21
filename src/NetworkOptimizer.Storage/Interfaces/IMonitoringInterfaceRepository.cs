@@ -21,4 +21,10 @@ public interface IMonitoringInterfaceRepository
 
     Task SaveMonitoringInterfaceAsync(MonitoringInterface config, CancellationToken cancellationToken = default);
     Task DeleteMonitoringInterfaceAsync(int id, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Flips the Disabled flag on a single row without touching any other field (targeted
+    /// update). Used by Disable/Enable so a paused interface keeps its full config.
+    /// </summary>
+    Task SetDisabledAsync(int id, bool disabled, CancellationToken cancellationToken = default);
 }
