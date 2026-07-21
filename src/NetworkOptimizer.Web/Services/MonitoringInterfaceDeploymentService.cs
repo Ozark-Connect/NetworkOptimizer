@@ -687,7 +687,12 @@ public class MonitoringInterfaceDeploymentService
         // (apply-already-holds-lock, and apply-takes-lock-after-the-marker). If the drain times
         // out an apply is stuck holding the lock, so abort instead of tearing down underneath it -
         // roll the marker back and leave the row enabled to retry.
-        var drain = await RunAsync($"flock -w 30 '/tmp/monitoring-iface-{mi.Name}.lock' true 2>/dev/null");
+        // Guard on flock's presence (see the boot script's note): a gateway without it skips the
+        // drain (the if is a no-op success) and proceeds straight to teardown - RemoveAsync
+        // physically removes cron+script and verifies absence, which is the real resurrection
+        // guard; the lock only closed the narrow in-flight-apply window.
+        var drain = await RunAsync(
+            $"if command -v flock >/dev/null 2>&1; then flock -w 30 '/tmp/monitoring-iface-{mi.Name}.lock' true 2>/dev/null; fi");
         if (!drain.success)
         {
             await RunAsync($"rm -f '{marker}' 2>/dev/null || true");
@@ -996,8 +1001,14 @@ fail=0
 # Serialize a manual apply against the cron watchdog tick on a per-interface lock. flock holds
 # fd 9 in the CURRENT shell (not a subshell), so changed/fail set below still reach the final
 # status check; non-blocking, so if another apply already holds the lock we skip this tick.
-exec 9>""/tmp/monitoring-iface-__IFACE__.lock""
-flock -n 9 || { log ""apply already running, skipping""; exit 0; }
+# Guard on flock's presence (standard on UniFi OS via util-linux, but be safe): a gateway that
+# lacked it would hit the || early-out and skip the apply ENTIRELY - fail-closed. Guarding
+# degrades a flock-less box to an unlocked apply (pre-lock behaviour) instead, keeping the
+# feature working; the lock only closed the narrow apply-vs-watchdog race.
+if command -v flock >/dev/null 2>&1; then
+    exec 9>""/tmp/monitoring-iface-__IFACE__.lock""
+    flock -n 9 || { log ""apply already running, skipping""; exit 0; }
+fi
 # Re-check the marker now that we hold the lock: Disable may have written it (and drained the
 # lock) while we were between the top-of-script check and acquiring this lock. Bail before
 # applying anything so a paused apply cannot resurrect artifacts after Disable's teardown.
