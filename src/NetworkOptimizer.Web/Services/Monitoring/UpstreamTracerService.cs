@@ -2115,6 +2115,15 @@ public class UpstreamTracerService
         }
         foreach (var transit in State.TransitAsns.Where(t => !t.Enabled))
         {
+            // Path-end Internet targets (AWS regionals, CDN/DNS) the user left unchecked are saved as
+            // PAUSED rows - so the decline sticks (re-discovery reconciles against the disabled row
+            // instead of re-suggesting them checked) and they appear in the target list to enable
+            // later. Transit ASNs stay on their off-path / miss-counter mechanism (update-only).
+            if (transit.Method == DiscoveryMethod.PathProxy)
+            {
+                await UpsertTransitTargetAsync(db, transit, wanInterface, ct, enabled: false);
+                continue;
+            }
             var addr = transit.HopAddress ?? transit.PathProxyTarget;
             if (string.IsNullOrEmpty(addr)) continue;
             var existing = await db.MonitoringTargets.FirstOrDefaultAsync(t => t.Address == addr, ct);
@@ -2355,7 +2364,7 @@ public class UpstreamTracerService
         }
     }
 
-    private static async Task UpsertTransitTargetAsync(NetworkOptimizerDbContext db, TransitAsnCandidate transit, string wanInterface, CancellationToken ct)
+    private static async Task UpsertTransitTargetAsync(NetworkOptimizerDbContext db, TransitAsnCandidate transit, string wanInterface, CancellationToken ct, bool enabled = true)
     {
         if (transit.Method == DiscoveryMethod.Unresolved || string.IsNullOrEmpty(transit.TargetId)) return;
 
@@ -2382,7 +2391,7 @@ public class UpstreamTracerService
                 VantagePoint = "server",
                 PollIntervalSeconds = 15,
                 PingCount = 5,
-                Enabled = true,
+                Enabled = enabled,
                 PtrHostname = transit.HopHostname,
                 AutoDiscovered = true,
                 DiscoveryMethod = transit.Method,
@@ -2393,7 +2402,7 @@ public class UpstreamTracerService
         }
         else
         {
-            existing.Enabled = true;
+            existing.Enabled = enabled;
             existing.Name = transit.Label ?? transit.AsnName;
             existing.Address = transit.HopAddress ?? transit.PathProxyTarget ?? existing.Address;
             existing.ProbeMode = transit.RespondedTo ?? existing.ProbeMode;
