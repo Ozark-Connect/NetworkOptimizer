@@ -576,12 +576,18 @@ public class LanFlowMapService
         // was empty when fetched (data not written yet), so serving it there froze the maps
         // while fresh queries (Port Stats) stayed accurate. Refetch when `at` is within the
         // settle window of now so the live edge always reads freshly-written data.
-        var liveEdge = DateTime.UtcNow - TimeSpan.FromSeconds(HistoricLiveEdgeSettleSeconds);
+        var atLiveEdge = at > DateTime.UtcNow - TimeSpan.FromSeconds(HistoricLiveEdgeSettleSeconds);
         var cached = _cache.HistoricData;
-        if (cached == null || at < cached.From || at > cached.To - TimeSpan.FromSeconds(30) || at > liveEdge)
+        if (cached == null || at < cached.From || at > cached.To - TimeSpan.FromSeconds(30) || atLiveEdge)
         {
             cached = await FetchHistoricDataAsync(at, snapshot, gwMac, ct);
-            _cache.HistoricData = cached;
+            // Only promote a fetch to the reusable singleton when it is NOT a live-edge
+            // fetch. A live-edge window's near-present portion is still-arriving/incomplete;
+            // storing it poisons the cache so instants that later age past the settle window
+            // fall inside that stale window and keep reading empty (the "test didn't show for
+            // minutes, then appeared once the window rolled" symptom). Live-edge fetches are
+            // used for this response only and always re-fetched fresh next time.
+            if (!atLiveEdge) _cache.HistoricData = cached;
         }
 
         var ratesByDevice = cached.RatesByDevice;
