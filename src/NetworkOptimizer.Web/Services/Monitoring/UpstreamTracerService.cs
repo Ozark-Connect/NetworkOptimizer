@@ -253,19 +253,25 @@ public class UpstreamTracerService
                 .ToListAsync(ct);
             if (targets.Count == 0) return;
 
-            var lastTraceById = await db.UpstreamDiscoveries.AsNoTracking()
-                .Where(d => d.MonitoringTargetId != null)
-                .GroupBy(d => d.MonitoringTargetId!.Value)
-                .Select(g => new { Id = g.Key, Last = g.Max(d => d.LastTracerouteAt) })
-                .ToDictionaryAsync(x => x.Id, x => x.Last, ct);
+            // A target is "fresh" only when it has a NON-EMPTY ancestry row traced within the TTL. An
+            // empty row (e.g. a hostname-addressed AWS regional whose discovery same-path pass couldn't
+            // attribute it, but which stamped LastTracerouteAt) must NOT count as fresh, or it would
+            // never get real ancestry and would read as carrying no transit in ISP Health.
+            var cutoff = DateTime.UtcNow - WitnessAncestryTtl;
+            var freshIds = (await db.UpstreamDiscoveries.AsNoTracking()
+                .Where(d => d.MonitoringTargetId != null
+                    && d.AncestorHopIps != null && d.AncestorHopIps != ""
+                    && d.LastTracerouteAt > cutoff)
+                .Select(d => d.MonitoringTargetId!.Value)
+                .Distinct()
+                .ToListAsync(ct))
+                .ToHashSet();
 
-            var now = DateTime.UtcNow;
             var traced = 0;
             foreach (var t in targets)
             {
                 if (ct.IsCancellationRequested || traced >= MaxWitnessTracesPerTick) break;
-                var fresh = lastTraceById.TryGetValue(t.Id, out var last) && now - last < WitnessAncestryTtl;
-                if (fresh) continue;
+                if (freshIds.Contains(t.Id)) continue;
                 await using var wdb = await CreateDbAsync(ct);
                 if (await TargetAncestry.TraceAndPersistAsync(_traceExecutor, wdb, t.Id, t.Address, _logger, ct))
                     traced++;
@@ -2244,6 +2250,12 @@ public class UpstreamTracerService
 
         var monitoredAddrs = targets.Select(t => t.Address).Where(a => !string.IsNullOrEmpty(a))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        // AWS regionals are persisted by hostname but were traced by IP, so the trace's AWS-endpoint
+        // hop (an IP) isn't recognized as monitored above. Register the traced IPs so the ancestry
+        // pass records the access/transit hops upstream of each AWS region; the persist loop below
+        // resolves each AWS target's ancestry via that IP.
+        foreach (var r in _awsRegionals)
+            if (!string.IsNullOrEmpty(r.Ip)) monitoredAddrs.Add(r.Ip);
 
         // Ancestor sets from ALL traces: for each monitored hop, the monitored hops that
         // appear before it on any trace it was seen on (its proven upstream). Every trace
@@ -2271,7 +2283,11 @@ public class UpstreamTracerService
         var written = 0;
         foreach (var t in targets)
         {
-            var ancestors = ancestorsByIp.TryGetValue(t.Address, out var anc)
+            // AWS regionals: resolve ancestry/hop distance via the IP we actually traced this run,
+            // not the persisted hostname (which the trace never saw).
+            var lookupAddr = _awsRegionals.FirstOrDefault(r => string.Equals(r.Hostname, t.Address, StringComparison.OrdinalIgnoreCase))?.Ip
+                ?? t.Address;
+            var ancestors = ancestorsByIp.TryGetValue(lookupAddr, out var anc)
                 ? anc.OrderBy(a => a).ToList()
                 : new List<string>();
             db.UpstreamDiscoveries.Add(new UpstreamDiscovery
@@ -2280,7 +2296,7 @@ public class UpstreamTracerService
                 AsnNumber = t.AsnNumber!.Value,
                 AsnName = t.AsnName,
                 HopIp = t.Address,
-                HopNumber = minTtlByIp.TryGetValue(t.Address, out var ttl) ? ttl : 0,
+                HopNumber = minTtlByIp.TryGetValue(lookupAddr, out var ttl) ? ttl : 0,
                 // Non-null (even if empty) marks that ancestor data exists, so ISP Health can
                 // tell "no discovery yet" (open gate) from "on-path but no ancestors" (a first hop).
                 AncestorHopIps = string.Join(" ", ancestors),
