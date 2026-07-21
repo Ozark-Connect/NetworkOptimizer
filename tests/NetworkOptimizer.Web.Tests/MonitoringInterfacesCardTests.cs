@@ -140,4 +140,26 @@ public class MonitoringInterfacesCardTests
 
         card._forceRemoveArmed.Should().BeEmpty();
     }
+
+    [Fact]
+    public void Snapshot_CopiesIsManuallyDeployedAndDisabled()
+    {
+        // Codex review: Snapshot omitting IsManuallyDeployed made editing a manually-deployed
+        // row silently flip it to app-managed (its hidden Disable/Enable toggle then reappeared).
+        var mi = new MonitoringInterface
+        {
+            Id = 3,
+            Name = "modem0",
+            WanIfName = "eth1",
+            TargetIp = "192.168.100.1",
+            GatewayLocalIp = "192.168.100.2",
+            IsManuallyDeployed = true,
+            Disabled = true,
+        };
+
+        var snap = MonitoringInterfacesCard.Snapshot(mi);
+
+        snap.IsManuallyDeployed.Should().BeTrue();
+        snap.Disabled.Should().BeTrue();
+    }
 }

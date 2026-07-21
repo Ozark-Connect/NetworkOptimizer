@@ -829,6 +829,24 @@ public class MonitoringInterfaceDeploymentServiceTests
     }
 
     [Fact]
+    public async Task EnableAsync_UnsafeName_ThrowsBeforeTouchingGatewayOrDb()
+    {
+        // Enable must validate up front like Disable/Remove (Codex review): a name that fails
+        // shell-safety has to throw before any SSH command or DB write, not later in DeployAsync.
+        var mi = Valid();
+        mi.Id = 5;
+        mi.Name = "bad name"; // the space fails the shell-safe regex
+        var ssh = new Mock<IGatewaySshService>();
+        var repo = new Mock<IMonitoringInterfaceRepository>();
+        var service = BuildService(ssh, repo);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.EnableAsync(mi));
+
+        ssh.Verify(s => s.RunCommandAsync(It.IsAny<string>(), It.IsAny<TimeSpan?>(), It.IsAny<CancellationToken>()), Times.Never);
+        repo.Verify(r => r.SetDisabledAsync(It.IsAny<int>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
     public async Task CheckStatusAsync_AliasedRowWithOutOfRangeId_ReportsAliasFlagsAbsentWithoutThrowing()
     {
         var mi = ValidAliased(id: MonitoringInterfaceDeploymentService.MaxAliasableId + 1);

@@ -418,6 +418,9 @@ public class MonitoringInterfaceDeploymentService
         if (mi.Disabled)
             return new DeployResult(false, PreflightBlock.Skipped, "Interface is disabled; enable it first.", steps);
 
+        // Validate before building any SSH command from mi (boot script, marker path, gates).
+        EnsureShellSafeStrings(mi);
+
         var preflight = await PreflightAsync(mi, ct);
         if (!preflight.Ok)
             return new DeployResult(false, preflight.Block, preflight.Message, steps);
@@ -479,7 +482,12 @@ public class MonitoringInterfaceDeploymentService
         // We are (re)deploying, so this interface must not carry a stale disabled marker - a
         // leftover one (e.g. from a Disable whose marker rollback could not reach the gateway)
         // would make the boot script we write below early-out and silently no-op the deploy.
-        await RunAsync($"rm -f '{DisabledMarkerPath(mi)}' 2>/dev/null || true");
+        // Check the result: if the marker cannot be cleared the script would bail, so fail
+        // loudly rather than reporting a deploy that did nothing.
+        var markerClear = await RunAsync($"rm -f '{DisabledMarkerPath(mi)}' 2>/dev/null");
+        if (!markerClear.success)
+            return new DeployResult(false, PreflightBlock.GatewayUnreachable,
+                "Could not clear the disabled marker on the gateway; the boot script would no-op. Retry when the gateway is reachable.", steps);
 
         // Write and run the idempotent boot script.
         var script = GenerateBootScript(mi);
@@ -674,9 +682,19 @@ public class MonitoringInterfaceDeploymentService
     /// </summary>
     public async Task<DeployResult> EnableAsync(MonitoringInterface mi, CancellationToken ct = default)
     {
+        // Validate up front so a corrupt name fails before we mutate DB state or build any SSH
+        // command from it (Codex review: Enable previously skipped this).
+        EnsureShellSafeStrings(mi);
         await _repo.SetDisabledAsync(mi.Id, false);
         mi.Disabled = false;
-        await RunAsync($"rm -f '{DisabledMarkerPath(mi)}' 2>/dev/null || true");
+        // Clear the marker up front (checked) so Enable un-pauses the interface even if the
+        // deploy below fails. If the marker cannot be cleared the boot script would no-op, so
+        // surface that instead of the unchecked "|| true" the review flagged.
+        var markerClear = await RunAsync($"rm -f '{DisabledMarkerPath(mi)}' 2>/dev/null");
+        if (!markerClear.success)
+            return new DeployResult(false, PreflightBlock.GatewayUnreachable,
+                "Could not clear the disabled marker on the gateway; retry when it is reachable.",
+                new List<string>());
         return await DeployAsync(mi, ct);
     }
 
