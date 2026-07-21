@@ -15,6 +15,7 @@ using NetworkOptimizer.Web;
 using NetworkOptimizer.Web.Endpoints;
 using NetworkOptimizer.Web.Services;
 using NetworkOptimizer.Web.Services.Authorization;
+using NetworkOptimizer.Web.Services.Gates;
 using NetworkOptimizer.Web.Services.Identity;
 using NetworkOptimizer.Web.Services.CableModemProviders;
 using NetworkOptimizer.Web.Services.Licensing;
@@ -539,6 +540,9 @@ builder.Services.AddCascadingAuthenticationState();
 
 // RBAC policies (global + site-scoped), the single SiteRoleHandler, and the effective-role resolver.
 builder.Services.AddNetOptAuthorization();
+
+// Declarative service-layer gate: Castle DynamicProxy interceptor doing authz + audit envelope.
+builder.Services.AddNetOptGates();
 
 // Monitoring subsystem
 builder.Services.AddScoped<SnmpDetectionService>();

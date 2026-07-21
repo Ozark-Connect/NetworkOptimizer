@@ -12,6 +12,9 @@ public sealed record CallerInfo
     /// <summary>True for scheduler/poller/background work; such calls skip authorization.</summary>
     public bool IsSystem { get; init; }
 
+    /// <summary>The signed-in principal for a user caller (used by the gated interceptor for authorization); null for system.</summary>
+    public ClaimsPrincipal? Principal { get; init; }
+
     /// <summary>Local user id for a user caller; null for system.</summary>
     public string? UserId { get; init; }
 
@@ -38,6 +41,7 @@ public sealed record CallerInfo
         => new()
         {
             IsSystem = false,
+            Principal = user,
             UserId = user.FindFirstValue(ClaimTypes.NameIdentifier),
             ActorName = user.Identity?.Name ?? "unknown",
             AuthMethod = user.FindFirstValue(NetOptClaims.AuthMethod) ?? "password",
