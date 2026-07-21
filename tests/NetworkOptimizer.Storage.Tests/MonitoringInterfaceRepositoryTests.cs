@@ -163,4 +163,29 @@ public class MonitoringInterfaceRepositoryTests : IDisposable
         byTarget!.Name.Should().Be("ont0");
         byAlias!.Name.Should().Be("starlink0");
     }
+
+    [Fact]
+    public async Task SetDisabledAsync_TogglesFlagAndBumpsUpdatedAt()
+    {
+        var mi = Valid("modem0", "eth4", "192.168.100.1", "192.168.100.2");
+        await _repository.SaveMonitoringInterfaceAsync(mi);
+        var before = (await _repository.GetMonitoringInterfaceAsync(mi.Id))!.UpdatedAt;
+        await _repository.SetDisabledAsync(mi.Id, true);
+        var after = (await _repository.GetMonitoringInterfaceAsync(mi.Id))!;
+        after.Disabled.Should().BeTrue();
+        after.UpdatedAt.Should().BeOnOrAfter(before);
+        after.TargetIp.Should().Be(mi.TargetIp);
+    }
+
+    [Fact]
+    public async Task SaveMonitoringInterfaceAsync_PreservesDisabledOnEdit()
+    {
+        var mi = Valid("modem0", "eth4", "192.168.100.1", "192.168.100.2");
+        await _repository.SaveMonitoringInterfaceAsync(mi);
+        await _repository.SetDisabledAsync(mi.Id, true);
+        var edit = (await _repository.GetMonitoringInterfaceAsync(mi.Id))!;
+        edit.WatchdogIntervalMinutes = 7;
+        await _repository.SaveMonitoringInterfaceAsync(edit);
+        (await _repository.GetMonitoringInterfaceAsync(mi.Id))!.Disabled.Should().BeTrue();
+    }
 }

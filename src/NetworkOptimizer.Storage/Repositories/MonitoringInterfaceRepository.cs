@@ -143,6 +143,7 @@ public class MonitoringInterfaceRepository : IMonitoringInterfaceRepository
                     existing.SnatEnabled = config.SnatEnabled;
                     existing.WatchdogIntervalMinutes = config.WatchdogIntervalMinutes;
                     existing.IsManuallyDeployed = config.IsManuallyDeployed;
+                    existing.Disabled = config.Disabled;
                     existing.LastError = config.LastError;
                     existing.UpdatedAt = DateTime.UtcNow;
                 }
@@ -167,6 +168,15 @@ public class MonitoringInterfaceRepository : IMonitoringInterfaceRepository
             _logger.LogError(ex, "Failed to save monitoring interface {Name}", config.Name);
             throw;
         }
+    }
+
+    public async Task SetDisabledAsync(int id, bool disabled, CancellationToken cancellationToken = default)
+    {
+        var existing = await _context.MonitoringInterfaces.FirstOrDefaultAsync(m => m.Id == id, cancellationToken);
+        if (existing == null) return;
+        existing.Disabled = disabled;
+        existing.UpdatedAt = DateTime.UtcNow;
+        await _context.SaveChangesAsync(cancellationToken);
     }
 
     public async Task DeleteMonitoringInterfaceAsync(int id, CancellationToken cancellationToken = default)
