@@ -532,18 +532,82 @@ public class MonitoringInterfaceDeploymentService
             steps.Add("Alias id is outside the aliasable range - no alias mark/DNAT/policy-route artifacts existed to remove.");
         }
 
+        // Base teardown: guard-check-then-act and capture each result (mirroring the alias
+        // block above), so "nothing to remove" stays a clean success while a genuine removal
+        // failure flips success - rather than the old fire-and-forget "|| true" that swallowed
+        // every failure. Each guard confirms the artifact is present before deleting it, so an
+        // aliased row (no main-table route/SNAT to remove) or a never-fully-deployed one simply
+        // finds nothing and succeeds.
         if (mi.SnatEnabled)
         {
-            await RunAsync($"iptables -w 5 -t nat -D POSTROUTING -o {mi.Name} -d {mi.TargetIp} -j SNAT --to-source {mi.GatewayLocalIp} 2>/dev/null || true");
-            steps.Add("Removed SNAT rule.");
+            var snatDel = await RunAsync(
+                $"if iptables -w 5 -t nat -C POSTROUTING -o {mi.Name} -d {mi.TargetIp} -j SNAT --to-source {mi.GatewayLocalIp} 2>/dev/null; " +
+                $"then iptables -w 5 -t nat -D POSTROUTING -o {mi.Name} -d {mi.TargetIp} -j SNAT --to-source {mi.GatewayLocalIp} 2>/dev/null; fi");
+            if (!snatDel.success)
+            {
+                success = false;
+                steps.Add("WARNING: failed to remove SNAT rule - check the gateway manually.");
+            }
+            else
+            {
+                steps.Add("Removed SNAT rule.");
+            }
         }
 
-        await RunAsync($"ip route del {mi.TargetIp}/32 dev {mi.Name} 2>/dev/null || true");
-        await RunAsync($"ip link del {mi.Name} 2>/dev/null || true");
-        steps.Add("Removed route and macvlan interface.");
+        var routeDel = await RunAsync(
+            $"if ip route show {mi.TargetIp}/32 dev {mi.Name} 2>/dev/null | grep -q .; " +
+            $"then ip route del {mi.TargetIp}/32 dev {mi.Name} 2>/dev/null; fi");
+        var linkDel = await RunAsync(
+            $"if ip link show {mi.Name} >/dev/null 2>&1; then ip link del {mi.Name} 2>/dev/null; fi");
+        if (!routeDel.success || !linkDel.success)
+        {
+            success = false;
+            steps.Add("WARNING: failed to remove route/macvlan - check the gateway manually.");
+        }
+        else
+        {
+            steps.Add("Removed route and macvlan interface.");
+        }
 
-        await RunAsync($"rm -f '{path}' /tmp/netopt-moniface-{mi.Name}.log 2>/dev/null || true");
-        steps.Add("Removed boot script.");
+        // rm -f is a no-op success for an absent file; a nonzero here is a real error (e.g. a
+        // read-only /data), so capture it instead of masking it with "|| true".
+        var scriptDel = await RunAsync($"rm -f '{path}' /tmp/netopt-moniface-{mi.Name}.log 2>/dev/null");
+        if (!scriptDel.success)
+        {
+            success = false;
+            steps.Add("WARNING: failed to remove boot script - check the gateway manually.");
+        }
+        else
+        {
+            steps.Add("Removed boot script.");
+        }
+
+        // Absence verification: re-probe the interface, main-table route, cron entry, and boot
+        // script. If any is still present after teardown, the cron watchdog may have re-applied
+        // it mid-teardown (a race Disable closes with the marker, Task 4) - flag it rather than
+        // reporting a clean removal. Trailing "true" keeps the SSH exit code tied to reachability,
+        // not to whether a probe matched.
+        var verify = await RunAsync(
+            $"ip link show {mi.Name} >/dev/null 2>&1 && echo IFACE; " +
+            $"ip route show {mi.TargetIp}/32 2>/dev/null | grep -q \"dev {mi.Name}\" && echo ROUTE; " +
+            $"crontab -l 2>/dev/null | grep -qF '{path}' && echo CRON; " +
+            $"test -f '{path}' && echo SCRIPT; " +
+            "true");
+        if (!verify.success)
+        {
+            success = false;
+            steps.Add("WARNING: could not verify teardown (gateway unreachable) - check the gateway manually.");
+        }
+        else if (verify.output.Contains("IFACE") || verify.output.Contains("ROUTE") ||
+                 verify.output.Contains("CRON") || verify.output.Contains("SCRIPT"))
+        {
+            success = false;
+            steps.Add("WARNING: teardown verification failed - artifacts still present (watchdog resurrection?). Check the gateway manually.");
+        }
+        else
+        {
+            steps.Add("Verified teardown: no residual artifacts.");
+        }
 
         return (success, steps);
     }

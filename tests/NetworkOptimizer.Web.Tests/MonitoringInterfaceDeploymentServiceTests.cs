@@ -678,6 +678,41 @@ public class MonitoringInterfaceDeploymentServiceTests
     }
 
     [Fact]
+    public async Task RemoveAsync_NonAliased_AllTeardownStepsSucceedAndNothingLingers_ReportsSuccess()
+    {
+        // Happy path: every teardown command succeeds and the absence verification finds no
+        // residual artifacts (empty probe output) - Remove reports success with no WARNING.
+        var mi = Valid();
+        var ssh = new Mock<IGatewaySshService>();
+        ssh.Setup(s => s.RunCommandAsync(It.IsAny<string>(), It.IsAny<TimeSpan?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((true, ""));
+        var service = BuildService(ssh);
+
+        var (success, steps) = await service.RemoveAsync(mi);
+
+        success.Should().BeTrue();
+        steps.Should().NotContain(s => s.Contains("WARNING"));
+    }
+
+    [Fact]
+    public async Task RemoveAsync_NonAliased_RouteDeleteFails_ReportsFailureWithWarning()
+    {
+        // A genuine base-teardown failure (the guarded route delete returns nonzero) must flip
+        // success to false and surface a WARNING step - not be swallowed by fire-and-forget.
+        var mi = Valid();
+        var ssh = new Mock<IGatewaySshService>();
+        ssh.Setup(s => s.RunCommandAsync(It.IsAny<string>(), It.IsAny<TimeSpan?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((string cmd, TimeSpan? _, CancellationToken _) =>
+                cmd.Contains("ip route del") ? (false, "route del failed") : (true, ""));
+        var service = BuildService(ssh);
+
+        var (success, steps) = await service.RemoveAsync(mi);
+
+        success.Should().BeFalse();
+        steps.Should().Contain(s => s.Contains("WARNING") && s.Contains("route"));
+    }
+
+    [Fact]
     public async Task CheckStatusAsync_AliasedRowWithOutOfRangeId_ReportsAliasFlagsAbsentWithoutThrowing()
     {
         var mi = ValidAliased(id: MonitoringInterfaceDeploymentService.MaxAliasableId + 1);
