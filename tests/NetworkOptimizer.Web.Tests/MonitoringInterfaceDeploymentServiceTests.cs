@@ -847,6 +847,44 @@ public class MonitoringInterfaceDeploymentServiceTests
     }
 
     [Fact]
+    public async Task DisableAsync_DrainsApplyLockBeforeTeardown()
+    {
+        // Watchdog-resurrection guard: after writing the marker, Disable blocks on the boot
+        // script's per-interface apply lock so an in-flight apply finishes before teardown.
+        var mi = Valid();
+        mi.Id = 8;
+        var commands = new List<string>();
+        var ssh = new Mock<IGatewaySshService>();
+        ssh.Setup(s => s.RunCommandAsync(It.IsAny<string>(), It.IsAny<TimeSpan?>(), It.IsAny<CancellationToken>()))
+            .Callback<string, TimeSpan?, CancellationToken>((cmd, _, _) => commands.Add(cmd))
+            .ReturnsAsync((true, ""));
+        var service = BuildService(ssh, new Mock<IMonitoringInterfaceRepository>());
+
+        await service.DisableAsync(mi);
+
+        commands.Should().Contain(c => c.Contains("flock -w 30") && c.Contains($"/tmp/monitoring-iface-{mi.Name}.lock"));
+    }
+
+    [Fact]
+    public async Task RemoveAsync_VerificationFindsResidualSnat_ReportsFailure()
+    {
+        // Every teardown command "succeeds", but the absence verification still finds the SNAT
+        // rule present (a silently-failed removal or a watchdog resurrection) - Remove must flip
+        // success and warn rather than reporting a clean teardown.
+        var mi = Valid(); // SnatEnabled defaults to true, so the verify includes the SNAT probe
+        var ssh = new Mock<IGatewaySshService>();
+        ssh.Setup(s => s.RunCommandAsync(It.IsAny<string>(), It.IsAny<TimeSpan?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((string cmd, TimeSpan? _, CancellationToken _) =>
+                cmd.Contains("echo IFACE") ? (true, "SNAT\n") : (true, ""));
+        var service = BuildService(ssh);
+
+        var (success, steps) = await service.RemoveAsync(mi);
+
+        success.Should().BeFalse();
+        steps.Should().Contain(s => s.Contains("verification failed"));
+    }
+
+    [Fact]
     public async Task CheckStatusAsync_AliasedRowWithOutOfRangeId_ReportsAliasFlagsAbsentWithoutThrowing()
     {
         var mi = ValidAliased(id: MonitoringInterfaceDeploymentService.MaxAliasableId + 1);

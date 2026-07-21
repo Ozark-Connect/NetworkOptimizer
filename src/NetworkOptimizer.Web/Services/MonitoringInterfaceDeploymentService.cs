@@ -622,19 +622,37 @@ public class MonitoringInterfaceDeploymentService
         // it mid-teardown (a race Disable closes with the marker, Task 4) - flag it rather than
         // reporting a clean removal. Trailing "true" keeps the SSH exit code tied to reachability,
         // not to whether a probe matched.
-        var verify = await RunAsync(
+        var verifyProbes =
             $"ip link show {mi.Name} >/dev/null 2>&1 && echo IFACE; " +
             $"ip route show {mi.TargetIp}/32 2>/dev/null | grep -q \"dev {mi.Name}\" && echo ROUTE; " +
             $"crontab -l 2>/dev/null | grep -qF '{path}' && echo CRON; " +
-            $"test -f '{path}' && echo SCRIPT; " +
-            "true");
+            $"test -f '{path}' && echo SCRIPT; ";
+        // Also verify the SNAT rule and (for an aliased row) the mangle mark, nat DNAT, policy
+        // rule, and private route table are gone - a teardown step that silently failed to remove
+        // one of these would otherwise coexist with a "clean" result.
+        if (mi.SnatEnabled)
+            verifyProbes += $"iptables -w 5 -t nat -C POSTROUTING -o {mi.Name} -d {mi.TargetIp} -j SNAT --to-source {mi.GatewayLocalIp} 2>/dev/null && echo SNAT; ";
+        if (mi.AliasIp != null && IsAliasableId(mi.Id))
+        {
+            var vmark = AliasMark(mi.Id);
+            var vtable = AliasTable(mi.Id);
+            verifyProbes +=
+                $"iptables -w 5 -t mangle -C PREROUTING -d {mi.AliasIp} -j MARK --set-xmark {vmark}/{AliasMarkMask} 2>/dev/null && echo AMARK; " +
+                $"iptables -w 5 -t nat -C PREROUTING -m mark --mark {vmark}/{AliasMarkMask} -j DNAT --to-destination {mi.TargetIp} 2>/dev/null && echo ADNAT; " +
+                $"ip rule show 2>/dev/null | grep -qF 'fwmark {vmark}/{AliasMarkMask} lookup {vtable}' && echo ARULE; " +
+                $"ip route show table {vtable} 2>/dev/null | grep -q . && echo ATABLE; ";
+        }
+        var verify = await RunAsync(verifyProbes + "true");
         if (!verify.success)
         {
             success = false;
             steps.Add("WARNING: could not verify teardown (gateway unreachable) - check the gateway manually.");
         }
         else if (verify.output.Contains("IFACE") || verify.output.Contains("ROUTE") ||
-                 verify.output.Contains("CRON") || verify.output.Contains("SCRIPT"))
+                 verify.output.Contains("CRON") || verify.output.Contains("SCRIPT") ||
+                 verify.output.Contains("SNAT") || verify.output.Contains("AMARK") ||
+                 verify.output.Contains("ADNAT") || verify.output.Contains("ARULE") ||
+                 verify.output.Contains("ATABLE"))
         {
             success = false;
             steps.Add("WARNING: teardown verification failed - artifacts still present (watchdog resurrection?). Check the gateway manually.");
@@ -661,6 +679,13 @@ public class MonitoringInterfaceDeploymentService
         var write = await RunAsync($"mkdir -p '{DisabledMarkerDir}' && : > '{marker}'");
         if (!write.success)
             return (false, new List<string> { "Could not reach the gateway to disable (marker write failed)." });
+
+        // Drain any in-flight watchdog apply before tearing down: block on the boot script's
+        // per-interface apply lock so an apply that started before the marker existed finishes and
+        // cannot recreate artifacts after our teardown/verify. New applies already bail at the
+        // marker check, so once the lock is free the teardown runs uncontended. Bounded wait; on
+        // timeout the verification inside RemoveAsync is the safety net.
+        await RunAsync($"flock -w 30 '/tmp/monitoring-iface-{mi.Name}.lock' true 2>/dev/null || true");
 
         var (removed, steps) = await RemoveAsync(mi);
         if (!removed)
