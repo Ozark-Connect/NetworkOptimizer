@@ -39,6 +39,11 @@ public class UniFiApiClient : IDisposable
     private string? _csrfToken;
     private readonly AsyncRetryPolicy _retryPolicy;
     private readonly SemaphoreSlim _authLock = new(1, 1);
+    // Set in Dispose() before the HttpClient is torn down. A concurrent reconnect
+    // can dispose this client while a data call is in flight; the flag and the
+    // ObjectDisposedException catch in ExecuteRequestAsync turn that into a benign
+    // skip instead of a disposed-object crash.
+    private volatile bool _disposed;
     private List<UniFiDeviceResponse>? _cachedDeviceResponses;
     private DateTime _deviceResponseCacheTime = DateTime.MinValue;
     private static readonly TimeSpan DeviceResponseCacheTtl = TimeSpan.FromSeconds(15);
@@ -124,6 +129,30 @@ public class UniFiApiClient : IDisposable
                 });
 
         InitializeHttpClient();
+    }
+
+    /// <summary>
+    /// Runs an HTTP request through the shared retry policy, treating a disposed
+    /// client as a benign no-op. When a concurrent reconnect disposes this client's
+    /// <see cref="_httpClient"/> before or during the request, there is no live
+    /// client to complete against, so we return the same "couldn't complete" value
+    /// these methods already yield on failure (null / false / default) instead of
+    /// surfacing an <see cref="ObjectDisposedException"/> to the caller. Only ever
+    /// taken during teardown - never against a live client - so the happy path and
+    /// single-site installs are behavior-identical.
+    /// </summary>
+    private async Task<T> ExecuteRequestAsync<T>(Func<Task<T>> action)
+    {
+        if (_disposed) return default!;
+        try
+        {
+            return await _retryPolicy.ExecuteAsync(action);
+        }
+        catch (ObjectDisposedException)
+        {
+            _logger.LogDebug("UniFi API request skipped: client was disposed by a concurrent reconnect");
+            return default!;
+        }
     }
 
     private void InitializeHttpClient()
@@ -690,7 +719,7 @@ public class UniFiApiClient : IDisposable
             return null;
         }
 
-        return await _retryPolicy.ExecuteAsync(async () =>
+        return await ExecuteRequestAsync(async () =>
         {
             var response = await apiCall();
 
@@ -802,7 +831,7 @@ public class UniFiApiClient : IDisposable
             return null;
         }
 
-        return await _retryPolicy.ExecuteAsync(async () =>
+        return await ExecuteRequestAsync(async () =>
         {
             var response = await _httpClient!.GetAsync(BuildApiPath("stat/device"), cancellationToken);
 
@@ -877,7 +906,7 @@ public class UniFiApiClient : IDisposable
 
         var url = BuildV2ApiPath($"site/{_site}/device");
 
-        return await _retryPolicy.ExecuteAsync(async () =>
+        return await ExecuteRequestAsync(async () =>
         {
             var response = await _httpClient!.GetAsync(url, cancellationToken);
 
@@ -1069,7 +1098,7 @@ public class UniFiApiClient : IDisposable
             return new List<UniFiClientDetailResponse>();
         }
 
-        return await _retryPolicy.ExecuteAsync(async () =>
+        return await ExecuteRequestAsync(async () =>
         {
             var url = BuildV2ApiPath($"site/{_site}/clients/active");
             var response = await _httpClient!.GetAsync(url, cancellationToken);
@@ -1115,7 +1144,7 @@ public class UniFiApiClient : IDisposable
             return new List<UniFiClientDetailResponse>();
         }
 
-        return await _retryPolicy.ExecuteAsync(async () =>
+        return await ExecuteRequestAsync(async () =>
         {
             var url = BuildV2ApiPath($"site/{_site}/clients/history?withinHours={withinHours}");
             var response = await _httpClient!.GetAsync(url, cancellationToken);
@@ -1475,7 +1504,7 @@ public class UniFiApiClient : IDisposable
             return null;
         }
 
-        return await _retryPolicy.ExecuteAsync(async () =>
+        return await ExecuteRequestAsync(async () =>
         {
             var response = await _httpClient!.GetAsync($"{_controllerUrl}/api/self", cancellationToken);
 
@@ -1501,7 +1530,7 @@ public class UniFiApiClient : IDisposable
             return null;
         }
 
-        return await _retryPolicy.ExecuteAsync(async () =>
+        return await ExecuteRequestAsync(async () =>
         {
             var response = await _httpClient!.GetAsync(BuildApiPath("stat/health"), cancellationToken);
 
@@ -1547,7 +1576,7 @@ public class UniFiApiClient : IDisposable
             return null;
         }
 
-        return await _retryPolicy.ExecuteAsync(async () =>
+        return await ExecuteRequestAsync(async () =>
         {
             var response = await _httpClient!.GetAsync(
                 BuildV2ApiPath($"site/{_site}/trafficroutes"),
@@ -1578,7 +1607,7 @@ public class UniFiApiClient : IDisposable
             return false;
         }
 
-        return await _retryPolicy.ExecuteAsync(async () =>
+        return await ExecuteRequestAsync(async () =>
         {
             var content = new StringContent(
                 route.RootElement.GetRawText(),
@@ -1629,7 +1658,7 @@ public class UniFiApiClient : IDisposable
 
         var url = $"{BuildApiPath("stat/report/hourly.site")}?start={startMs}&end={endMs}";
 
-        return await _retryPolicy.ExecuteAsync(async () =>
+        return await ExecuteRequestAsync(async () =>
         {
             var response = await _httpClient!.GetAsync(url, cancellationToken);
 
@@ -1665,7 +1694,7 @@ public class UniFiApiClient : IDisposable
             ? $"{_controllerUrl}/proxy/network/api/self/sites"
             : $"{_controllerUrl}/api/self/sites";
 
-        return await _retryPolicy.ExecuteAsync(async () =>
+        return await ExecuteRequestAsync(async () =>
         {
             var response = await _httpClient!.GetAsync(url, cancellationToken);
 
@@ -1695,7 +1724,7 @@ public class UniFiApiClient : IDisposable
             return null;
         }
 
-        return await _retryPolicy.ExecuteAsync(async () =>
+        return await ExecuteRequestAsync(async () =>
         {
             var response = await _httpClient!.GetAsync(BuildApiPath("rest/setting"), cancellationToken);
 
@@ -1739,7 +1768,7 @@ public class UniFiApiClient : IDisposable
             return null;
         }
 
-        return await _retryPolicy.ExecuteAsync(async () =>
+        return await ExecuteRequestAsync(async () =>
         {
             var response = await _httpClient!.GetAsync(BuildApiPath("stat/current-channel"), cancellationToken);
 
@@ -1815,7 +1844,7 @@ public class UniFiApiClient : IDisposable
             return null;
         }
 
-        return await _retryPolicy.ExecuteAsync(async () =>
+        return await ExecuteRequestAsync(async () =>
         {
             var url = BuildV2ApiPath($"site/{_site}/qos-rules");
             var response = await _httpClient!.GetAsync(url, cancellationToken);
@@ -1845,7 +1874,7 @@ public class UniFiApiClient : IDisposable
             return null;
         }
 
-        return await _retryPolicy.ExecuteAsync(async () =>
+        return await ExecuteRequestAsync(async () =>
         {
             var url = BuildV2ApiPath($"site/{_site}/wan/enriched-configuration");
             var response = await _httpClient!.GetAsync(url, cancellationToken);
@@ -1875,7 +1904,7 @@ public class UniFiApiClient : IDisposable
             return null;
         }
 
-        return await _retryPolicy.ExecuteAsync(async () =>
+        return await ExecuteRequestAsync(async () =>
         {
             var url = BuildV2ApiPath($"site/{_site}/firewall-policies");
             var response = await _httpClient!.GetAsync(url, cancellationToken);
@@ -1905,7 +1934,7 @@ public class UniFiApiClient : IDisposable
             return null;
         }
 
-        return await _retryPolicy.ExecuteAsync(async () =>
+        return await ExecuteRequestAsync(async () =>
         {
             var url = BuildV2ApiPath($"site/{_site}/nat");
             var response = await _httpClient!.GetAsync(url, cancellationToken);
@@ -1937,7 +1966,7 @@ public class UniFiApiClient : IDisposable
             return null;
         }
 
-        return await _retryPolicy.ExecuteAsync(async () =>
+        return await ExecuteRequestAsync(async () =>
         {
             var url = BuildV2ApiPath($"site/{_site}/firewall-rules/combined-traffic-firewall-rules?originType=all");
             var response = await _httpClient!.GetAsync(url, cancellationToken);
@@ -1973,7 +2002,7 @@ public class UniFiApiClient : IDisposable
             return null;
         }
 
-        return await _retryPolicy.ExecuteAsync(async () =>
+        return await ExecuteRequestAsync(async () =>
         {
             var url = BuildV2ApiPath($"fingerprint_devices/{index}");
             var response = await _httpClient!.GetAsync(url, cancellationToken);
@@ -2165,7 +2194,7 @@ public class UniFiApiClient : IDisposable
             end = endMs
         };
 
-        return await _retryPolicy.ExecuteAsync(async () =>
+        return await ExecuteRequestAsync(async () =>
         {
             var content = new StringContent(
                 JsonSerializer.Serialize(payload),
@@ -2226,7 +2255,7 @@ public class UniFiApiClient : IDisposable
             end = endMs
         };
 
-        return await _retryPolicy.ExecuteAsync(async () =>
+        return await ExecuteRequestAsync(async () =>
         {
             var content = new StringContent(
                 JsonSerializer.Serialize(payload),
@@ -2288,7 +2317,7 @@ public class UniFiApiClient : IDisposable
             end = endMs
         };
 
-        return await _retryPolicy.ExecuteAsync(async () =>
+        return await ExecuteRequestAsync(async () =>
         {
             var content = new StringContent(
                 JsonSerializer.Serialize(payload),
@@ -2331,7 +2360,7 @@ public class UniFiApiClient : IDisposable
 
         var url = BuildV2ApiPath($"site/{_site}/wlan/enriched-configuration");
 
-        return await _retryPolicy.ExecuteAsync(async () =>
+        return await ExecuteRequestAsync(async () =>
         {
             var response = await _httpClient!.GetAsync(url, cancellationToken);
 
@@ -2366,7 +2395,7 @@ public class UniFiApiClient : IDisposable
 
         var url = BuildV2ApiPath($"site/{_site}/wifi-connectivity/roaming/topology");
 
-        return await _retryPolicy.ExecuteAsync(async () =>
+        return await ExecuteRequestAsync(async () =>
         {
             // This endpoint requires POST with empty body
             var content = new StringContent("{}", System.Text.Encoding.UTF8, "application/json");
@@ -2408,7 +2437,7 @@ public class UniFiApiClient : IDisposable
 
         var url = BuildV2ApiPath($"site/{_site}/system-log/client-connection/{clientMac}?mac={clientMac}&separateConnectionSignalParam=false&limit={limit}");
 
-        return await _retryPolicy.ExecuteAsync(async () =>
+        return await ExecuteRequestAsync(async () =>
         {
             var response = await _httpClient!.GetAsync(url, cancellationToken);
 
@@ -2463,7 +2492,7 @@ public class UniFiApiClient : IDisposable
             ["clientDeviceMacs"] = apMac != null ? new[] { apMac } : Array.Empty<string>()
         };
 
-        return await _retryPolicy.ExecuteAsync(async () =>
+        return await ExecuteRequestAsync(async () =>
         {
             var content = new StringContent(
                 JsonSerializer.Serialize(body),
@@ -2664,7 +2693,7 @@ public class UniFiApiClient : IDisposable
             ["clientDeviceMacs"] = Array.Empty<string>()
         };
 
-        return await _retryPolicy.ExecuteAsync(async () =>
+        return await ExecuteRequestAsync(async () =>
         {
             var content = new StringContent(
                 JsonSerializer.Serialize(body),
@@ -2750,7 +2779,7 @@ public class UniFiApiClient : IDisposable
             ["skip_count"] = pageNumber > 0 // only count on first page
         };
 
-        return await _retryPolicy.ExecuteAsync(async () =>
+        return await ExecuteRequestAsync(async () =>
         {
             var content = new StringContent(
                 JsonSerializer.Serialize(body),
@@ -2780,6 +2809,9 @@ public class UniFiApiClient : IDisposable
 
     public void Dispose()
     {
+        // Flag first so any in-flight/queued request skips instead of racing the
+        // HttpClient teardown (see ExecuteRequestAsync).
+        _disposed = true;
         _authLock?.Dispose();
         _httpClient?.Dispose();
         GC.SuppressFinalize(this);
