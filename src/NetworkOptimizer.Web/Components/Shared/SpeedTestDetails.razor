@@ -445,16 +445,21 @@
     // pick the right compensation here.
     private bool LiveViewTestTimeIsStart => GatewayResult != null || Result?.DeviceType == "Gateway";
 
-    // Land Live View at the START of the test. For start-stamped results TestTime is
-    // already the start (offset 0). For end-stamped results TestTime sits after both
-    // directional phases (DurationSeconds is per direction), so back off by both. A
-    // result without a stored duration offsets by 0.
+    // The gateway stamps TestTime before establishing its SSH connection, so the
+    // actual throughput starts a couple of seconds later - nudge forward past that
+    // setup gap (the opposite direction from the end-stamped back-off below).
+    private const long GatewaySshSetupMs = 2000L;
+
+    // Land Live View at the START of the test. Start-stamped (gateway) results push
+    // forward past the SSH setup gap; end-stamped results sit after both directional
+    // phases (DurationSeconds is per direction), so back off by both. A result without
+    // a stored duration backs off by 0.
     private long LiveViewAtMs
     {
         get
         {
             var stampMs = new DateTimeOffset(DateTime.SpecifyKind(TestTime, DateTimeKind.Utc)).ToUnixTimeMilliseconds();
-            return LiveViewTestTimeIsStart ? stampMs : stampMs - 2 * DurationSeconds * 1000L;
+            return LiveViewTestTimeIsStart ? stampMs + GatewaySshSetupMs : stampMs - 2 * DurationSeconds * 1000L;
         }
     }
     [Parameter] public double? PingMs { get; set; }
