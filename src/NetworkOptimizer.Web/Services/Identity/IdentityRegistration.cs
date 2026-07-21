@@ -80,6 +80,9 @@ public static class IdentityRegistration
         services.AddScoped<IAuthPolicyOptions, AuthPolicyOptions>();
 
         services.AddScoped<IIdentityAdminService, IdentityAdminService>();
+        services.AddScoped<IMfaService, MfaService>();
+        services.AddScoped<IPasskeyService, PasskeyService>();
+        services.AddScoped<ICurrentUserAccessor, CurrentUserAccessor>();
 
         // Ambient caller context (user vs system) for authorization + audit attribution.
         services.AddScoped<ICallerContext, CallerContext>();

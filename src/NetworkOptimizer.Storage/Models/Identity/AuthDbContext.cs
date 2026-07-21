@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 
@@ -42,9 +43,23 @@ public class AuthDbContext : IdentityDbContext<ApplicationUser, ApplicationRole,
     /// <summary>Append-only audit log (main DB, site-filterable via <see cref="AuditEvent.SiteSlug"/>).</summary>
     public DbSet<AuditEvent> AuditEvents { get; set; }
 
+    /// <summary>WebAuthn passkey credentials (.NET 10 Identity passkey store; design doc 02).</summary>
+    public DbSet<IdentityUserPasskey<string>> Passkeys { get; set; }
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+
+        // .NET 10 Identity passkey credential store. The base model does not map it by default in this
+        // version, so map it explicitly (design doc 02 - passkeys).
+        modelBuilder.Entity<IdentityUserPasskey<string>>(entity =>
+        {
+            entity.ToTable("AspNetUserPasskeys");
+            entity.HasKey(p => p.CredentialId);
+            entity.HasIndex(p => p.UserId);
+            // The credential's binary + metadata payload is stored as a JSON column.
+            entity.OwnsOne(p => p.Data, d => d.ToJson());
+        });
 
         modelBuilder.Entity<ApplicationUser>(entity =>
         {

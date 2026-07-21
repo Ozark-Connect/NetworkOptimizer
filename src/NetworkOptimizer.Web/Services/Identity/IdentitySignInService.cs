@@ -20,6 +20,9 @@ public enum SignInOutcome
     /// <summary>Credentials were correct but a second factor is required (redirect to the 2FA step).</summary>
     RequiresTwoFactor,
 
+    /// <summary>Signed in, but the user's role requires MFA and none is enrolled - force step-up enrollment.</summary>
+    RequiresMfaEnrollment,
+
     /// <summary>Local password login is disabled (SSO-only) and this attempt is not a break-glass admin login.</summary>
     LocalLoginDisabled,
 }
@@ -34,6 +37,12 @@ public interface IIdentitySignInService
     /// <summary>Attempts a local username/password sign-in, issuing the application cookie on success.</summary>
     Task<SignInOutcome> PasswordSignInAsync(string username, string password, bool rememberMe);
 
+    /// <summary>Completes the second-factor step with a TOTP authenticator code.</summary>
+    Task<SignInOutcome> TwoFactorSignInAsync(string code, bool rememberMe, bool rememberMachine);
+
+    /// <summary>Completes the second-factor step with a single-use recovery code.</summary>
+    Task<SignInOutcome> RecoveryCodeSignInAsync(string recoveryCode);
+
     /// <summary>Signs the current user out of the application cookie.</summary>
     Task SignOutAsync();
 }
@@ -44,6 +53,7 @@ public sealed class IdentitySignInService : IIdentitySignInService
     private readonly SignInManager<ApplicationUser> _signInManager;
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly IAuthPolicyOptions _policy;
+    private readonly IMfaService _mfa;
     private readonly IAuditLogger _audit;
     private readonly IHttpContextAccessor _httpContext;
     private readonly ILogger<IdentitySignInService> _logger;
@@ -52,6 +62,7 @@ public sealed class IdentitySignInService : IIdentitySignInService
         SignInManager<ApplicationUser> signInManager,
         UserManager<ApplicationUser> userManager,
         IAuthPolicyOptions policy,
+        IMfaService mfa,
         IAuditLogger audit,
         IHttpContextAccessor httpContext,
         ILogger<IdentitySignInService> logger)
@@ -59,6 +70,7 @@ public sealed class IdentitySignInService : IIdentitySignInService
         _signInManager = signInManager;
         _userManager = userManager;
         _policy = policy;
+        _mfa = mfa;
         _audit = audit;
         _httpContext = httpContext;
         _logger = logger;
@@ -97,6 +109,16 @@ public sealed class IdentitySignInService : IIdentitySignInService
             EmitLogin(username, user.Id,
                 method == "recovery" ? AuditActions.BreakGlassUsed : AuditActions.LoginSuccess,
                 AuditOutcomes.Success, method);
+
+            // Step-up-to-enrollment: a role that requires MFA, with none enrolled, must enroll before
+            // proceeding (design doc 02 - enforced, not a banner). Recovery boots are exempt.
+            if (method != "recovery"
+                && await _mfa.RoleRequiresMfaAsync(user)
+                && !await _mfa.IsEnabledAsync(user))
+            {
+                return SignInOutcome.RequiresMfaEnrollment;
+            }
+
             return SignInOutcome.Success;
         }
 
@@ -112,6 +134,42 @@ public sealed class IdentitySignInService : IIdentitySignInService
 
         _logger.LogInformation("Local sign-in failed for {User}: bad password.", username);
         EmitLogin(username, user.Id, AuditActions.LoginFailed, AuditOutcomes.Failure, "password");
+        return SignInOutcome.Failed;
+    }
+
+    /// <inheritdoc />
+    public async Task<SignInOutcome> TwoFactorSignInAsync(string code, bool rememberMe, bool rememberMachine)
+    {
+        var normalized = code.Replace(" ", string.Empty).Replace("-", string.Empty);
+        var result = await _signInManager.TwoFactorAuthenticatorSignInAsync(normalized, rememberMe, rememberMachine);
+        var user = await _signInManager.GetTwoFactorAuthenticationUserAsync();
+        if (result.Succeeded)
+        {
+            if (user is not null)
+                EmitLogin(user.UserName ?? "", user.Id, AuditActions.LoginSuccess, AuditOutcomes.Success, "totp");
+            return SignInOutcome.Success;
+        }
+        if (result.IsLockedOut)
+            return SignInOutcome.LockedOut;
+        if (user is not null)
+            EmitLogin(user.UserName ?? "", user.Id, AuditActions.LoginFailed, AuditOutcomes.Failure, "totp");
+        return SignInOutcome.Failed;
+    }
+
+    /// <inheritdoc />
+    public async Task<SignInOutcome> RecoveryCodeSignInAsync(string recoveryCode)
+    {
+        var normalized = recoveryCode.Replace(" ", string.Empty).Replace("-", string.Empty);
+        var result = await _signInManager.TwoFactorRecoveryCodeSignInAsync(normalized);
+        var user = await _signInManager.GetTwoFactorAuthenticationUserAsync();
+        if (result.Succeeded)
+        {
+            if (user is not null)
+                EmitLogin(user.UserName ?? "", user.Id, AuditActions.RecoveryCodeUsed, AuditOutcomes.Success, "recovery_code");
+            return SignInOutcome.Success;
+        }
+        if (result.IsLockedOut)
+            return SignInOutcome.LockedOut;
         return SignInOutcome.Failed;
     }
 
