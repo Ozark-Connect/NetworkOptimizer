@@ -94,6 +94,15 @@
                 </div>
             }
         </div>
+        @if (Device.SuricataUpgradeAvailable)
+        {
+            <div class="device-upgrade-bar"
+                 data-tooltip="A newer CyberSecure IDS/IPS engine (Suricata) is available. In the UniFi Network app, go to Settings &gt; CyberSecure to initiate the upgrade. Benefits: security fixes, and better, more efficient detections."
+                 data-tooltip-hover-only>
+                <span class="device-upgrade-icon">i</span>
+                <span>CyberSecure upgrade available</span>
+            </div>
+        }
     </a>
 }
 
@@ -155,6 +164,32 @@
         gap: 0.75rem;
         color: var(--text-muted);
         font-size: 0.8rem;
+    }
+
+    .device-upgrade-bar {
+        margin-top: 0.5rem;
+        padding: 0.35rem 0.5rem;
+        border-radius: var(--border-radius);
+        background: rgba(71, 151, 255, 0.12);
+        color: var(--info-color);
+        font-size: 0.75rem;
+        font-weight: 500;
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+    }
+    .device-upgrade-icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 15px;
+        height: 15px;
+        border-radius: 50%;
+        background: var(--info-color);
+        color: var(--text-primary);
+        font-size: 0.65rem;
+        font-weight: 700;
+        flex-shrink: 0;
     }
 </style>
 

@@ -119,6 +119,23 @@
 <NetworkOptimizer.Web.Components.Shared.SponsorshipBanner />
 <NetworkOptimizer.Web.Components.Shared.PwaBanner />
 
+@if (devices.Any(d => d.SuricataUpgradeAvailable))
+{
+    <div class="alert alert-info" style="margin-bottom: 1.5rem;">
+        <div class="banner-content">
+            <span class="banner-icon banner-icon-info">i</span>
+            <div class="banner-text" style="flex: 1;">
+                <strong>CyberSecure engine upgrade available</strong>
+                <span>
+                    Your gateway can upgrade its CyberSecure IDS/IPS detection engine (Suricata) to a newer
+                    version, bringing security fixes and better, more efficient threat detection. To initiate it,
+                    open the UniFi Network app and go to Settings &gt; CyberSecure.
+                </span>
+            </div>
+        </div>
+    </div>
+}
+
 <div class="dashboard-grid">
     @if (_layout != null)
     {

@@ -78,6 +78,9 @@ public class UniFiDiscovery
                 LastSeen = DateTimeOffset.FromUnixTimeSeconds(d.LastSeen).DateTime,
                 Upgradable = d.Upgradable,
                 UpgradeToFirmware = d.UpgradeToFirmware,
+                SuricataVersion = d.SuricataVersion,
+                SupportedSuricataVersion = d.SupportedSuricataVersion,
+                SuricataUpgradePendingTarget = d.SuricataUpgradePendingTarget,
                 UplinkMac = d.Uplink?.UplinkMac,
                 UplinkPort = d.Uplink?.UplinkRemotePort,
                 LocalUplinkPort = d.Uplink?.PortIdx,
@@ -768,6 +771,22 @@ public class DiscoveredDevice
     public DateTime LastSeen { get; set; }
     public bool Upgradable { get; set; }
     public string? UpgradeToFirmware { get; set; }
+
+    /// <summary>Running Suricata (CyberSecure IDS/IPS) engine version. Null until it has run one.</summary>
+    public int? SuricataVersion { get; set; }
+    /// <summary>Highest Suricata engine version this gateway's firmware supports.</summary>
+    public int? SupportedSuricataVersion { get; set; }
+    /// <summary>Suricata engine version the gateway is offering to upgrade to, when one is pending.</summary>
+    public int? SuricataUpgradePendingTarget { get; set; }
+
+    /// <summary>
+    /// True when the gateway is advertising a Suricata (CyberSecure IDS/IPS) engine upgrade it
+    /// hasn't taken yet: a pending target is set and above the running version (or the engine
+    /// isn't running any version yet). The upgrade is initiated in UniFi Network -> Settings -> CyberSecure.
+    /// </summary>
+    public bool SuricataUpgradeAvailable =>
+        SuricataUpgradePendingTarget is int target && target > (SuricataVersion ?? 0);
+
     public string? UplinkMac { get; set; }
     /// <summary>Remote port on the upstream device that this device connects to.</summary>
     public int? UplinkPort { get; set; }
