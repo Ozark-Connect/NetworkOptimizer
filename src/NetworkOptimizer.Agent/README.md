@@ -151,7 +151,9 @@ curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main
 # UniFi gateway (on-box)
 curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/agent/install-agent-gateway.sh | bash -s -- --uninstall
 
-# add --dir PATH if you installed somewhere other than the default
+# If you used --dir on install, pass the SAME --dir here - uninstall targets the
+# process and files under it. Defaults: Docker /opt/network-optimizer-agent,
+# bare metal /opt/netopt-agent, gateway /data/netopt-agent.
 ```
 
 ### On a UniFi gateway (on-box)
