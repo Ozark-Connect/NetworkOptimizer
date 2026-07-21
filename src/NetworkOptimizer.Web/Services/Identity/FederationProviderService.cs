@@ -30,17 +30,20 @@ public sealed class FederationProviderService : IFederationProviderService
     private readonly IDataProtector _protector;
     private readonly IAuditLogger _audit;
     private readonly ICallerContext _caller;
+    private readonly DynamicSchemeManager _schemes;
 
     public FederationProviderService(
         IDbContextFactory<AuthDbContext> dbFactory,
         IDataProtectionProvider dp,
         IAuditLogger audit,
-        ICallerContext caller)
+        ICallerContext caller,
+        DynamicSchemeManager schemes)
     {
         _dbFactory = dbFactory;
         _protector = dp.CreateProtector("federation.client_secret");
         _audit = audit;
         _caller = caller;
+        _schemes = schemes;
     }
 
     public async Task<IReadOnlyList<FederationProvider>> GetAllAsync()
@@ -91,6 +94,7 @@ public sealed class FederationProviderService : IFederationProviderService
         _audit.Log(AuditEventBuilder.From(_caller.Current, AuditCategories.Federation,
             isNew ? AuditActions.ProviderCreated : AuditActions.ProviderUpdated,
             targetType: "provider", targetId: provider.Scheme, targetName: provider.DisplayName));
+        await _schemes.SyncAsync(); // register/refresh the scheme at runtime (no restart)
         return provider.Id;
     }
 
@@ -114,6 +118,7 @@ public sealed class FederationProviderService : IFederationProviderService
         if (provider is null) return;
         db.FederationProviders.Remove(provider);
         await db.SaveChangesAsync();
+        await _schemes.RemoveAsync(provider.Scheme);
         _audit.Log(AuditEventBuilder.From(_caller.Current, AuditCategories.Federation, AuditActions.ProviderUpdated,
             targetType: "provider", targetId: provider.Scheme, targetName: provider.DisplayName,
             details: new { deleted = true }));

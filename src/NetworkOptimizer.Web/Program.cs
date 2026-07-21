@@ -1131,7 +1131,13 @@ using (var startupScope = app.Services.CreateScope())
     // the JWT session artifact is unchanged until the cutover wires cookie auth in.
     var identityBootstrap = startupScope.ServiceProvider.GetRequiredService<IIdentityBootstrapService>();
     await identityBootstrap.RunAsync();
+
+    // Upsert IaC-declared federation providers (mounted JSON + env), then register their schemes.
+    await startupScope.ServiceProvider.GetRequiredService<IIdentityConfigLoader>().ApplyAsync();
 }
+
+// Register authentication schemes for any enabled OIDC federation providers (runtime-dynamic).
+await app.Services.GetRequiredService<DynamicSchemeManager>().SyncAsync();
 
 // Standard ASP.NET Core authentication middleware (must come before auth check).
 // Authentication is now the Identity application cookie (see AddNetOptIdentityAuthentication).
@@ -1156,7 +1162,8 @@ app.Use(async (context, next) =>
 
     // Only these paths are public (no auth required)
     var publicPaths = new[] { "/login", "/login/2fa", "/api/auth/login", "/api/auth/2fa", "/api/auth/logout", "/api/health", "/api/passkey/request-options", "/api/passkey/assert" };
-    var publicPrefixes = new[] { "/api/public/" };  // All /api/public/* endpoints are anonymous
+    // /api/public/*, plus the federation login/callback surface (OIDC challenge, IdP callbacks, SAML ACS).
+    var publicPrefixes = new[] { "/api/public/", "/login/external", "/login/saml/", "/signin-oidc/", "/signout-oidc/", "/signout-callback-oidc/", "/saml/" };
     var staticPaths = new[] { "/_blazor", "/_framework", "/css", "/js", "/images", "/_content", "/downloads" };
 
     // Allow public endpoints
@@ -1293,6 +1300,12 @@ app.MapAuditLogEndpoints();
 
 // WebAuthn passkey ceremonies (registration authenticated; assertion login anonymous).
 app.MapPasskeyEndpoints();
+
+// OIDC relying-party challenge/callback (federation).
+app.MapFederationEndpoints();
+
+// SAML service-provider metadata / ACS / SP-initiated login.
+app.MapSamlEndpoints();
 
 // UPnP Notes API endpoints
 app.MapGet("/api/upnp/notes", async (NetworkOptimizerDbContext db) =>
