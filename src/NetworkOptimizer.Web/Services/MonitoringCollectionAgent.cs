@@ -2216,23 +2216,34 @@ public class MonitoringCollectionAgent : BackgroundService
                 : (port.Name ?? string.Empty);
             if (string.IsNullOrEmpty(portName)) continue;
 
+            // Supplemental PON-layer stats from an attached ONT config, if any. Looked
+            // up before the DDM write so the endpoint's optional optics readings can
+            // fill DDM gaps the gateway slot can't read (GPON sticks often expose no
+            // DDM). The gateway's own reading always takes precedence over the
+            // contract-supplied fallback.
+            ponSupplemental.TryGetValue((mac, portName), out var ponStats);
+            var rxDbm = port.SfpRxPower ?? ponStats?.RxPowerDbm;
+            var txDbm = port.SfpTxPower ?? ponStats?.TxPowerDbm;
+            var tempC = port.SfpTemperature ?? ponStats?.TemperatureC;
+            var voltageV = port.SfpVoltage ?? ponStats?.VoltageV;
+
             // Write the DDM values to InfluxDB regardless of whether the user has
             // promoted this SFP to a monitored ONT — having the data is what enables
             // promotion later, and the longterm bucket keeps it cheap.
             _ = _influx.WriteSfpAsync(
                 deviceMac: mac,
                 portName: portName,
-                rxPowerDbm: port.SfpRxPower,
-                txPowerDbm: port.SfpTxPower,
+                rxPowerDbm: rxDbm,
+                txPowerDbm: txDbm,
                 txBiasMa: port.SfpCurrent,
-                temperatureC: port.SfpTemperature,
-                voltageV: port.SfpVoltage,
+                temperatureC: tempC,
+                voltageV: voltageV,
                 sfpLinkSpeedMbps: port.Speed > 0 ? port.Speed : null,
                 timestamp: timestamp);
 
-            // Supplemental PON-layer stats from an attached ONT config merge onto the
-            // same series and timestamp (field union with the DDM point above).
-            if (ponSupplemental.TryGetValue((mac, portName), out var ponStats))
+            // Supplemental PON-layer stats merge onto the same series and timestamp
+            // (field union with the DDM point above).
+            if (ponStats != null)
             {
                 _ = _influx.WriteSfpPonAsync(mac, portName, ponStats, timestamp);
                 // Mirror the key PON values into live stats so the SFP ONT card can show
@@ -2250,11 +2261,11 @@ public class MonitoringCollectionAgent : BackgroundService
             _liveStats.RecordSfp(
                 deviceMac: mac,
                 portName: portName,
-                rxDbm: port.SfpRxPower,
-                txDbm: port.SfpTxPower,
+                rxDbm: rxDbm,
+                txDbm: txDbm,
                 biasMa: port.SfpCurrent,
-                tempC: port.SfpTemperature,
-                voltageV: port.SfpVoltage,
+                tempC: tempC,
+                voltageV: voltageV,
                 timestamp: timestamp);
 
             // Reconcile the relational row so the UI knows the SFP exists and can offer
