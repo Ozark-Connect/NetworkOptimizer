@@ -40,6 +40,8 @@
 
   <ItemGroup>
     <PackageReference Include="Blazor-ApexCharts" Version="6.1.1-ozarkconnect.2" />
+    <PackageReference Include="Castle.Core" Version="5.1.1" />
+    <PackageReference Include="Castle.Core.AsyncInterceptor" Version="2.1.0" />
     <PackageReference Include="Grpc.AspNetCore" Version="2.80.0" />
     <PackageReference Include="Grpc.Net.Client" Version="2.80.0" />
     <PackageReference Include="HtmlAgilityPack" Version="1.12.4" />
