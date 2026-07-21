@@ -24,16 +24,19 @@ public sealed class AuditWriterService : BackgroundService, IAuditLogger
 
     private readonly IDbContextFactory<AuthDbContext> _dbFactory;
     private readonly AuditRetentionOptions _retention;
+    private readonly IAuditForwarder _forwarder;
     private readonly ILogger<AuditWriterService> _logger;
     private DateTime _lastPruneUtc = DateTime.MinValue;
 
     public AuditWriterService(
         IDbContextFactory<AuthDbContext> dbFactory,
         AuditRetentionOptions retention,
+        IAuditForwarder forwarder,
         ILogger<AuditWriterService> logger)
     {
         _dbFactory = dbFactory;
         _retention = retention;
+        _forwarder = forwarder;
         _logger = logger;
     }
 
@@ -52,6 +55,7 @@ public sealed class AuditWriterService : BackgroundService, IAuditLogger
                     batch.Add(next);
 
                 await PersistAsync(batch, stoppingToken);
+                await _forwarder.ForwardAsync(batch, stoppingToken);
                 await MaybePruneAsync(stoppingToken);
             }
         }
