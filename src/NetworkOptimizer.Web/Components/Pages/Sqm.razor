@@ -2035,7 +2035,7 @@
     /// Tracks SmartQ disabled→enabled transitions to enforce a settle-time delay before deployment.
     /// The IFB virtual device takes ~45s to initialize after Smart Queues is enabled.
     /// </summary>
-    private static void TrackSmartqTransitions(List<WanInterfaceInfo>? oldInterfaces, List<WanInterfaceInfo> newInterfaces)
+    private static void TrackSmartqTransitions(string siteSlug, List<WanInterfaceInfo>? oldInterfaces, List<WanInterfaceInfo> newInterfaces)
     {
         // First load (no old data) - don't record anything to avoid false positives
         if (oldInterfaces == null)
@@ -2047,19 +2047,24 @@
         {
             oldLookup.TryGetValue(wan.Interface, out var wasEnabled);
 
+            // The timestamps dictionary is static (shared across sites), so key by
+            // site to keep same-named interfaces (e.g. "eth8") on different sites
+            // from sharing a settle timer.
+            var key = SmartqKey(siteSlug, wan.Interface);
+
             if (!wasEnabled && wan.SmartqEnabled)
             {
                 // Disabled → enabled: record transition time
-                _smartqEnabledTimestamps[wan.Interface] = DateTime.UtcNow;
+                _smartqEnabledTimestamps[key] = DateTime.UtcNow;
             }
             else if (wasEnabled && !wan.SmartqEnabled)
             {
                 // Enabled → disabled: remove entry
-                _smartqEnabledTimestamps.Remove(wan.Interface);
+                _smartqEnabledTimestamps.Remove(key);
             }
         }
 
-        // Clean up stale entries (>45s old)
+        // Clean up stale entries (>45s old) - age-based, so it prunes across all sites.
         var staleKeys = _smartqEnabledTimestamps
             .Where(kv => (DateTime.UtcNow - kv.Value).TotalSeconds > SmartqSettleSeconds)
             .Select(kv => kv.Key)
@@ -2067,6 +2072,9 @@
         foreach (var key in staleKeys)
             _smartqEnabledTimestamps.Remove(key);
     }
+
+    // Site-scoped key for the static SmartQ settle-timer dictionary.
+    private static string SmartqKey(string siteSlug, string iface) => $"{siteSlug}:{iface}";
 
     private void ApplyDetectedWanInterfaces()
     {
@@ -2410,7 +2418,7 @@
                 try
                 {
                     wanInterfaces = await wanInterfacesTask;
-                    TrackSmartqTransitions(_cachedWanInterfaces, wanInterfaces);
+                    TrackSmartqTransitions(SiteContext.Slug, _cachedWanInterfaces, wanInterfaces);
                     // Only apply detected interfaces if we don't have saved configs
                     if (!hasSavedConfigs)
                         ApplyDetectedWanInterfaces();
@@ -2628,7 +2636,7 @@
             deploymentSteps.Add("Checking Smart Queue configuration...");
             await ScrollDeploymentLog();
             wanInterfaces = await SqmService.GetWanInterfacesFromControllerAsync();
-            TrackSmartqTransitions(_cachedWanInterfaces, wanInterfaces);
+            TrackSmartqTransitions(SiteContext.Slug, _cachedWanInterfaces, wanInterfaces);
             _cachedWanInterfaces = wanInterfaces;
 
             // Validate WANs still have Smart Queues enabled - disable any that don't
@@ -2677,7 +2685,7 @@
             {
                 if (!wanConfig.Enabled) continue;
 
-                if (_smartqEnabledTimestamps.TryGetValue(wanConfig.Interface, out var enabledAt))
+                if (_smartqEnabledTimestamps.TryGetValue(SmartqKey(SiteContext.Slug, wanConfig.Interface), out var enabledAt))
                 {
                     var elapsed = (DateTime.UtcNow - enabledAt).TotalSeconds;
                     if (elapsed < SmartqSettleSeconds)
