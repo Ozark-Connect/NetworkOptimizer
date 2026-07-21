@@ -1172,8 +1172,14 @@ public class IspHealthScorer
             double? jitterOverride = witnesses.Count > 0
                 ? (within.HasValue ? Math.Min(within.Value, witnesses.Min()) : witnesses.Min())
                 : null;
-            grades.Add(GradeAsn(series, congestionEvents, jitterFloorMs, accessBaselineRtt, internetMedianDeltaMs,
-                jitterOverrideMs: jitterOverride, stabilityMadOverrideMs: stabOverride));
+            var transitGrade = GradeAsn(series, congestionEvents, jitterFloorMs, accessBaselineRtt, internetMedianDeltaMs,
+                jitterOverrideMs: jitterOverride, stabilityMadOverrideMs: stabOverride);
+            _logger?.LogDebug(
+                "ISP Health: transit AS{Asn} ({Name}) graded {Score} - jitter within {Within} ms -> effective {Eff} ms ({JWit} witnesses); stability MAD measured {Mad} ms -> witness-floor {StabWit} ms ({SWit} witnesses) score {StabScore}",
+                series.AsnNumber, series.AsnName, transitGrade.OverallScore,
+                FormatMsOrNull(within), FormatMsOrNull(transitGrade.ScoredJitterMs), witnesses.Count,
+                FormatMsOrNull(RttMadOf(series.Samples)), FormatMsOrNull(stabOverride), stabWitnesses.Count, transitGrade.LatencyStabilityScore);
+            grades.Add(transitGrade);
         }
         return grades;
     }
@@ -1416,12 +1422,16 @@ public class IspHealthScorer
 
                 var grade = GradeAsn(hop, congestionEvents, jitterFloorMs, accessBaselineRtt, internetMedianDeltaMs,
                     intraAsnFloorRttMs: intraFloor, jitterOverrideMs: effective, stabilityMadOverrideMs: stabOverride);
-                // Log the graded effective (post sub-0.05 ms assimilation snap in GradeAsn),
-                // not the raw witness min, so the log matches what the hop is actually scored on.
+                // Log the graded effective (post sub-0.05 ms assimilation snap in GradeAsn), not the
+                // raw witness min, so the log matches what the hop is actually scored on. Stability is
+                // logged alongside jitter: its own measured RTT MAD, the witness-floor it was absolved
+                // to (n/a when no routes-through witness), the witness count, and the resulting score.
                 _logger?.LogDebug(
-                    "ISP Health: ISP hop {Target} (AS{Asn}) graded {Score} - measured jitter {Jitter} ms, effective {Eff} ms ({Witnesses} routes-through witnesses), reach +{Reach} ms",
+                    "ISP Health: ISP hop {Target} (AS{Asn}) graded {Score} - jitter measured {Jitter} ms -> effective {Eff} ms ({JWit} witnesses); stability MAD measured {Mad} ms -> witness-floor {StabWit} ms ({SWit} witnesses) score {StabScore}; reach +{Reach} ms",
                     hop.TargetIds.FirstOrDefault(), hop.AsnNumber, grade.OverallScore,
-                    FormatMsOrNull(measured), FormatMsOrNull(grade.ScoredJitterMs), witnesses.Count, FormatMsOrNull(grade.ReachDeltaMs));
+                    FormatMsOrNull(measured), FormatMsOrNull(grade.ScoredJitterMs), witnesses.Count,
+                    FormatMsOrNull(RttMadOf(hop.Samples)), FormatMsOrNull(stabOverride), stabWitnesses.Count, grade.LatencyStabilityScore,
+                    FormatMsOrNull(grade.ReachDeltaMs));
                 grades.Add(grade);
             }
         }

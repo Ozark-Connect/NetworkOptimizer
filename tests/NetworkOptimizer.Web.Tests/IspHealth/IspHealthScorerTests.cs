@@ -700,6 +700,43 @@ public class IspHealthScorerTests
         RoleTargetIds = { targetId }
     };
 
+    // TestSeries.Flat holds RttAvgMs constant (MAD 0); this alternates the per-minute RTT by
+    // +/- madMs around rttMs so the sample set has a median of rttMs and an RTT MAD of exactly
+    // madMs, while EffectiveJitterMs stays at a low fixed value (so jitter scoring is out of the way
+    // and only stability moves). Used to exercise the MAD floor and stability witness absolution.
+    private static List<LatencySample> Wander(double rttMs, double madMs, double jitterMs = 0.3, double lossPct = 0)
+    {
+        var samples = new List<LatencySample>();
+        var i = 0;
+        for (var t = TestSeries.Start; t < TestSeries.Start + Day; t = t.AddMinutes(1))
+        {
+            var rtt = rttMs + (i++ % 2 == 0 ? -madMs : madMs);
+            samples.Add(new LatencySample(t, rtt, rtt + jitterMs, jitterMs, lossPct));
+        }
+        return samples;
+    }
+
+    private static AsnSeries IspHopMad(string targetId, string name, double rttMs, double madMs, string hopIp) => new()
+    {
+        AsnNumber = 64496,
+        AsnName = name,
+        TargetIds = { targetId },
+        RoleTargetIds = { targetId },
+        HopIps = { hopIp },
+        Samples = Wander(rttMs, madMs)
+    };
+
+    private static AsnSeries DestMad(string ip, double rttMs, double madMs, params string[] ancestors) => new()
+    {
+        AsnNumber = 0,
+        AsnName = ip,
+        TargetIds = { $"dest-{ip}" },
+        HopIps = { ip },
+        AncestorIps = ancestors.ToList(),
+        Samples = Wander(rttMs, madMs),
+        IsDestination = true
+    };
+
     [Fact]
     public void All_isp_hops_are_graded_independently()
     {
@@ -822,6 +859,63 @@ public class IspHealthScorerTests
             "a jittery transit ASN must not raise the ISP jitter (cap is min, not max)");
         withJitteryTransit.IspAsns.Single().ScoredJitterMs.Should().BeApproximately(0.3, 0.05,
             "the displayed ISP jitter stays at the ISP mean when transit is not cleaner");
+    }
+
+    [Fact]
+    public void Sub_floor_rtt_wander_is_scored_as_perfectly_stable()
+    {
+        // MAD below the dead-band (0.35 ms default) is operationally trivial on a low-RTT path, so
+        // it scores a perfect stability. Above the floor, only the excess over the floor is penalized.
+        var steady = IspHopMad("h", "H", 3.0, 0.2, "192.0.2.1");
+        var wobbly = IspHopMad("h", "H", 3.0, 0.8, "192.0.2.1");
+
+        var steadyScore = new IspHealthScorer(Options)
+            .Score(BuildInputs(ispAsn: new() { steady }, ispTargets: new() { steady }, firstHopTargetId: "h"), Gpon)
+            .IspTargets.Single().OverallScore;
+        var wobblyScore = new IspHealthScorer(Options)
+            .Score(BuildInputs(ispAsn: new() { wobbly }, ispTargets: new() { wobbly }, firstHopTargetId: "h"), Gpon)
+            .IspTargets.Single().OverallScore;
+
+        steadyScore.Should().Be(100, "0.2 ms MAD is below the dead-band floor");
+        wobblyScore.Should().BeLessThan(100, "0.8 ms MAD clears the floor and the excess is penalized");
+    }
+
+    [Fact]
+    public void Clean_destination_routing_through_a_hop_absolves_its_rtt_wander()
+    {
+        // The ISP hop's own RTT wanders (0.8 ms MAD - ICMP-deprioritized control plane), but a
+        // monitored destination proven to route through it is steady end-to-end (0.15 ms MAD). That
+        // upper-bounds the hop's true wander, so its stability is absolved to perfect.
+        const string hopIp = "192.0.2.1";
+        var wobbly = IspHopMad("isp", "ISP", 3.0, 0.8, hopIp);
+        var cleanDest = DestMad("203.0.113.9", 3.0, 0.15, hopIp);
+
+        var absolved = new IspHealthScorer(Options).Score(
+            BuildInputs(ispAsn: new() { wobbly }, ispTargets: new() { wobbly }, destinations: new() { cleanDest },
+                firstHopTargetId: "isp", hopOrderKnown: true), Gpon);
+        var alone = new IspHealthScorer(Options).Score(
+            BuildInputs(ispAsn: new() { wobbly }, ispTargets: new() { wobbly }, firstHopTargetId: "isp"), Gpon);
+
+        absolved.IspTargets.Single().OverallScore.Should().Be(100,
+            "a steadier forwarded path proves the hop's own wander is a per-hop artifact");
+        absolved.IspTargets.Single().OverallScore.Should().BeGreaterThan(
+            alone.IspTargets.Single().OverallScore!.Value);
+    }
+
+    [Fact]
+    public void A_clean_destination_that_does_not_cross_a_hop_does_not_absolve_it()
+    {
+        // Same wobbly hop, but the clean destination routes through a DIFFERENT hop. The
+        // routes-through gate must block it - a clean path says nothing about a hop it doesn't cross.
+        var wobbly = IspHopMad("isp", "ISP", 3.0, 0.8, "192.0.2.1");
+        var offPathDest = DestMad("203.0.113.9", 3.0, 0.15, "198.51.100.7");
+
+        var report = new IspHealthScorer(Options).Score(
+            BuildInputs(ispAsn: new() { wobbly }, ispTargets: new() { wobbly }, destinations: new() { offPathDest },
+                firstHopTargetId: "isp", hopOrderKnown: true), Gpon);
+
+        report.IspTargets.Single().OverallScore.Should().BeLessThan(100,
+            "a clean path that does not cross the hop must not absolve its wander");
     }
 
     [Fact]
