@@ -3103,7 +3103,7 @@
                             <tbody>
                                 @foreach (var site in _sites)
                                 {
-                                    <tr>
+                                    <tr class="@(_expandedSiteId == site.Id ? "site-row-selected" : null)">
                                         <td>
                                             @if (_editingSiteId == site.Id)
                                             {
@@ -3118,7 +3118,7 @@
                                             else
                                             {
                                                 <span class="site-name-cell">
-                                                    <span>@site.Name</span>
+                                                    <span class="@(_expandedSiteId == site.Id ? "site-name-selected" : null)">@site.Name</span>
                                                     <button type="button" class="site-name-edit-btn" data-tooltip="Rename site"
                                                             aria-label="Rename site" @onclick="() => StartSiteNameEdit(site)">
                                                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">

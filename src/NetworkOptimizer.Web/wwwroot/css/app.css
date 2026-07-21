@@ -17914,6 +17914,14 @@ body.kiosk-mode .status-indicators {
     background: transparent;
 }
 
+.data-table tr.site-row-selected {
+    background: var(--bg-hover);
+}
+
+.site-name-selected {
+    font-weight: 600;
+}
+
 .site-config-panel {
     position: relative;
     display: flex;
