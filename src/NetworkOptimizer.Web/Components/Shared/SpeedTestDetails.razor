@@ -455,10 +455,10 @@
     //    nudge forward past the setup gap.
     //  - Client-initiated iperf3: arrives as separate single-direction runs merged into
     //    one record that keeps the FIRST run's ingest time, so TestTime marks the end of
-    //    the measured phase. The recorded throughput bump sits in the back of that phase
-    //    window (monitoring-vs-wall-clock skew), so a half-duration back landed several
-    //    seconds into flat pre-traffic. A quarter-duration back lands just ahead of the
-    //    bump, so playback ramps in rather than starting on dead air.
+    //    the measured phase. Land just BEFORE the test so playback opens on the run
+    //    starting rather than partway through it. The recorded bump sits late in the
+    //    phase window (monitoring-vs-wall-clock skew), so a full duration back was a hair
+    //    too far into dead air; three-quarters of a duration lands just ahead of the run.
     //  - Server-initiated LAN device iperf3 (gateway already handled above): end-stamped
     //    after two sequential legs, so back off both - plus 1s. The two-leg-span start
     //    sits a hair forward of true first-byte because of the inter-leg gap (and, for
@@ -474,7 +474,7 @@
             if (LiveViewTestTimeIsStart)
                 return stampMs + GatewaySshSetupMs;
             if (Result?.Direction == SpeedTestDirection.ClientToServer)
-                return stampMs - DurationSeconds * 250L;
+                return stampMs - DurationSeconds * 750L;
             if (Result?.Direction == SpeedTestDirection.ServerToDevice)
                 return stampMs - 2 * DurationSeconds * 1000L - 1000L;
             return stampMs - 2 * DurationSeconds * 1000L;
