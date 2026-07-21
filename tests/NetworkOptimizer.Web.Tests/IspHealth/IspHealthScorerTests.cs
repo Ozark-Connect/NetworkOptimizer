@@ -862,11 +862,12 @@ public class IspHealthScorerTests
     }
 
     [Fact]
-    public void Sub_floor_rtt_wander_is_scored_as_perfectly_stable()
+    public void Rtt_wander_below_the_tech_ideal_scores_perfect_stability()
     {
-        // MAD below the dead-band (0.35 ms default) is operationally trivial on a low-RTT path, so
-        // it scores a perfect stability. Above the floor, only the excess over the floor is penalized.
-        var steady = IspHopMad("h", "H", 3.0, 0.2, "192.0.2.1");
+        // Everything else held equal (same RTT, jitter, no loss, single hop so reach is 0), OverallScore
+        // isolates stability. MAD at/below the tech's ideal MAD band anchor (GPON 0.15 ms) is perfect;
+        // MAD out toward the poor anchor is penalized - the per-tech absolute-MAD band, not a ratio.
+        var steady = IspHopMad("h", "H", 3.0, 0.1, "192.0.2.1");
         var wobbly = IspHopMad("h", "H", 3.0, 0.8, "192.0.2.1");
 
         var steadyScore = new IspHealthScorer(Options)
@@ -876,19 +877,38 @@ public class IspHealthScorerTests
             .Score(BuildInputs(ispAsn: new() { wobbly }, ispTargets: new() { wobbly }, firstHopTargetId: "h"), Gpon)
             .IspTargets.Single().OverallScore;
 
-        steadyScore.Should().Be(100, "0.2 ms MAD is below the dead-band floor");
-        wobblyScore.Should().BeLessThan(100, "0.8 ms MAD clears the floor and the excess is penalized");
+        steadyScore.Should().Be(100, "0.1 ms MAD is below the GPON ideal (0.15 ms)");
+        wobblyScore.Should().BeLessThan(100, "0.8 ms MAD is well past the GPON typical (0.4 ms)");
+    }
+
+    [Fact]
+    public void Same_rtt_wander_grades_by_access_tech()
+    {
+        // The band is tech-aware: 3 ms MAD is a disaster on fiber but normal on LEO. The same hop
+        // scores near-zero stability on GPON and near-perfect on the Satellite (Starlink) profile.
+        var satellite = IspHealthProfiles.GetProfile(AccessTechnology.Satellite)!;
+        var hop = IspHopMad("s", "S", 30.0, 3.0, "192.0.2.1");
+
+        var onGpon = new IspHealthScorer(Options)
+            .Score(BuildInputs(ispAsn: new() { hop }, ispTargets: new() { hop }, firstHopTargetId: "s"), Gpon)
+            .IspTargets.Single().OverallScore;
+        var onSatellite = new IspHealthScorer(Options)
+            .Score(BuildInputs(ispAsn: new() { hop }, ispTargets: new() { hop }, firstHopTargetId: "s"), satellite)
+            .IspTargets.Single().OverallScore;
+
+        onSatellite.Should().BeGreaterThan(onGpon!.Value + 20,
+            "3 ms RTT MAD is normal LEO wander but far past fiber's poor anchor");
     }
 
     [Fact]
     public void Clean_destination_routing_through_a_hop_absolves_its_rtt_wander()
     {
         // The ISP hop's own RTT wanders (0.8 ms MAD - ICMP-deprioritized control plane), but a
-        // monitored destination proven to route through it is steady end-to-end (0.15 ms MAD). That
-        // upper-bounds the hop's true wander, so its stability is absolved to perfect.
+        // monitored destination proven to route through it is steady end-to-end (0.10 ms MAD). That
+        // upper-bounds the hop's true wander, so its stability is absolved to perfect (below GPON ideal).
         const string hopIp = "192.0.2.1";
         var wobbly = IspHopMad("isp", "ISP", 3.0, 0.8, hopIp);
-        var cleanDest = DestMad("203.0.113.9", 3.0, 0.15, hopIp);
+        var cleanDest = DestMad("203.0.113.9", 3.0, 0.10, hopIp);
 
         var absolved = new IspHealthScorer(Options).Score(
             BuildInputs(ispAsn: new() { wobbly }, ispTargets: new() { wobbly }, destinations: new() { cleanDest },

@@ -827,21 +827,18 @@ public class IspHealthScorer
             && rawEffectiveJitter.Value > nearJitter.Value - _options.JitterAssimilationMinDeltaMs
             ? nearJitter
             : rawEffectiveJitter;
-        // RTT stability: take the steadier (lower absolute MAD) of this ASN's near and far clusters,
-        // then apply the MAD dead-band and normalize by this hop's own median. Working in absolute
-        // MAD (not the ratio) keeps the near/far min honest and lets cross-target witness absolution
-        // (stabilityMadOverrideMs) compare MAD across targets sitting at different base RTTs. A witness
-        // proven to route through this hop that carries steadier end-to-end RTT proves the hop's own
-        // wander is a per-hop artifact (ICMP-deprioritized control plane), so it pulls the MAD down -
-        // absolve-only, and only past the assimilation band so a trivially-lower witness doesn't snap it.
+        // RTT stability: take the steadier (lower absolute MAD) of this ASN's near and far clusters.
+        // Working in absolute MAD (not the ratio) keeps the near/far min honest and lets cross-target
+        // witness absolution (stabilityMadOverrideMs) compare MAD across targets sitting at different
+        // base RTTs. A witness proven to route through this hop that carries steadier end-to-end RTT
+        // proves the hop's own wander is a per-hop artifact (ICMP-deprioritized control plane), so it
+        // pulls the MAD down - absolve-only, and only past the assimilation band so a trivially-lower
+        // witness doesn't snap it. The resulting absolute MAD is graded against the per-tech band below.
         var withinMad = EffectiveLower(series.Samples, series.JitterSourceSamples, RttMadOf);
         var stabilityMad = withinMad;
         if (stabilityMadOverrideMs.HasValue
             && (!withinMad.HasValue || stabilityMadOverrideMs.Value < withinMad.Value - _options.StabilityAssimilationMinMadMs))
             stabilityMad = stabilityMadOverrideMs.Value;
-        double? stabilityRatio = stabilityMad.HasValue && medianRtt is > 0
-            ? Math.Max(0, stabilityMad.Value - _options.StabilityMadFloorMs) / medianRtt!.Value
-            : null;
 
         // Assimilated when a witness (a farther transit cluster, or - for an ISP hop via
         // the override - a downstream transit/deeper ISP hop) pulled this jitter below the
@@ -857,9 +854,8 @@ public class IspHealthScorer
                 FormatMsOrNull(ScoringJitterOf(series.JitterSourceSamples)), FormatMsOrNull(effectiveJitter));
         }
 
-        int? stabilityScore = stabilityRatio.HasValue
-            ? (int)Math.Round(ScoreCurve.Interpolate(stabilityRatio.Value,
-                (0.02, 100), (0.10, 80), (0.25, 55), (0.5, 25), (1.0, 0)))
+        int? stabilityScore = stabilityMad.HasValue
+            ? (int)Math.Round(ScoreStabilityMad(stabilityMad.Value, medianRtt))
             : null;
 
         int? jitterScore = effectiveJitter.HasValue
@@ -1074,6 +1070,28 @@ public class IspHealthScorer
         var f = Math.Clamp(floorMs ?? 0.4, _options.JitterFloorMinMs, _options.JitterFloorMaxMs);
         return ScoreCurve.Interpolate(jitterMs,
             (f, 100), (1.25 * f, 96), (1.5 * f, 91), (2.0 * f, 70), (5.0, 22), (12.0, 0));
+    }
+
+    /// <summary>
+    /// Scores RTT stability (absolute MAD, ms) against the per-tech band. The stability analog of
+    /// <see cref="ScoreJitterVsFloor"/>: a medium's inherent RTT wander reads as normal (fiber's
+    /// sub-ms, Starlink's several-ms) instead of being punished by the scale-free MAD/median ratio,
+    /// which over-weights proportional variation on low-RTT media. The MAD here is post-absolution,
+    /// so per-hop ICMP-deprioritization artifact has already been stripped. Techs with no band
+    /// (Unknown) fall back to the floored ratio, so we never over-punish sub-ms wander on a fast
+    /// line we can't classify.
+    /// </summary>
+    private double ScoreStabilityMad(double madMs, double? medianRttMs)
+    {
+        if (_profile is { StabilityMadIdealMs: { } ideal, StabilityMadTypicalMs: { } typical, StabilityMadPoorMs: { } poor })
+            return ScoreCurve.Interpolate(madMs, (ideal, 100), (typical, 90), (poor, 25), (2.0 * poor, 0));
+
+        if (medianRttMs is > 0)
+        {
+            var ratio = Math.Max(0, madMs - _options.StabilityMadFloorMs) / medianRttMs.Value;
+            return ScoreCurve.Interpolate(ratio, (0.02, 100), (0.10, 80), (0.25, 55), (0.5, 25), (1.0, 0));
+        }
+        return 100;
     }
 
     /// <summary>
