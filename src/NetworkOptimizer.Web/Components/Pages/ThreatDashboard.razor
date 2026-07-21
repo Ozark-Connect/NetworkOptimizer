@@ -2244,6 +2244,10 @@ else
     // IP to client name lookup for local devices (cached 30s)
     private static Dictionary<string, string> _clientNamesCache = new();
     private static DateTime _clientNamesCacheExpiry = DateTime.MinValue;
+    // Site the cache was populated for. The cache is static (shared across circuits),
+    // so a site switch (full reload into the same static state) would otherwise resolve
+    // IPs to the previous site's client names until the TTL expired.
+    private static string? _clientNamesCacheSlug;
     private static readonly object _clientNamesCacheLock = new();
     private Dictionary<string, string> _clientNames = new();
 
@@ -2510,7 +2514,8 @@ else
         // Check static cache first (shared across Blazor circuits, 30s TTL)
         lock (_clientNamesCacheLock)
         {
-            if (_clientNamesCacheExpiry > DateTime.UtcNow && _clientNamesCache.Count > 0)
+            if (_clientNamesCacheExpiry > DateTime.UtcNow && _clientNamesCache.Count > 0
+                && _clientNamesCacheSlug == SiteContext.Slug)
             {
                 _clientNames = _clientNamesCache;
                 return;
@@ -2542,6 +2547,7 @@ else
             {
                 _clientNamesCache = names;
                 _clientNamesCacheExpiry = DateTime.UtcNow.AddSeconds(30);
+                _clientNamesCacheSlug = SiteContext.Slug;
             }
             _clientNames = names;
         }
