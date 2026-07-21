@@ -85,6 +85,10 @@ public static class IdentityRegistration
         services.AddScoped<ICurrentUserAccessor, CurrentUserAccessor>();
         services.AddScoped<IExternalLoginService, ExternalLoginService>();
         services.AddScoped<IFederationProviderService, FederationProviderService>();
+        services.AddScoped<ICanonicalOrigin, CanonicalOrigin>();
+        services.AddScoped<IIdentityConfigLoader, IdentityConfigLoader>();
+        services.AddHttpClient();
+        services.AddScoped<ISamlServiceProvider, SamlServiceProvider>();
 
         // Ambient caller context (user vs system) for authorization + audit attribution.
         services.AddScoped<ICallerContext, CallerContext>();
@@ -110,12 +114,19 @@ public static class IdentityRegistration
     /// </summary>
     public static IServiceCollection AddNetOptIdentityAuthentication(this IServiceCollection services)
     {
-        services.AddAuthentication(options =>
-            {
-                options.DefaultScheme = IdentityConstants.ApplicationScheme;
-                options.DefaultSignInScheme = IdentityConstants.ExternalScheme;
-            })
-            .AddIdentityCookies();
+        var authBuilder = services.AddAuthentication(options =>
+        {
+            options.DefaultScheme = IdentityConstants.ApplicationScheme;
+            options.DefaultSignInScheme = IdentityConstants.ExternalScheme;
+        });
+        authBuilder.AddIdentityCookies();
+
+        // Register the shared OpenID Connect handler infrastructure once (via a placeholder scheme);
+        // per-provider schemes are added at runtime by DynamicSchemeManager and configured by
+        // ConfigureOidcOptions (design doc 03 - dynamic providers, no restart).
+        authBuilder.AddOpenIdConnect(ConfigureOidcOptions.Prefix + "__template__", _ => { });
+        services.AddSingleton<Microsoft.Extensions.Options.IConfigureOptions<Microsoft.AspNetCore.Authentication.OpenIdConnect.OpenIdConnectOptions>, ConfigureOidcOptions>();
+        services.AddSingleton<DynamicSchemeManager>();
 
         services.ConfigureApplicationCookie(options =>
         {
