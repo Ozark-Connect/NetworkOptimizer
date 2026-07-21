@@ -167,13 +167,12 @@ public static class MonitoringChartEndpoints
                 .Where(t => t.TargetType == targetType && t.Enabled
                     && (t.AsnNumber == null || !WellKnownAsns.NonTransitInfrastructure.Contains(t.AsnNumber.Value)))
                 .OrderBy(t => t.Name)
-                .Select(t => new { t.TargetId, t.Name })
+                .Select(t => new { t.TargetId, t.Name, t.AutoLabel })
                 .ToListAsync(ct);
 
             if (targets.Count == 0)
                 return Results.Ok(new { targets = Array.Empty<object>() });
 
-            var targetLookup = targets.ToDictionary(t => t.TargetId, t => t.Name);
             var data = await influx.QueryLatencyByTargetTypeAsync(targetType, queryFrom, queryTo, ct: ct);
 
             var result = targets.Select(t =>
@@ -184,6 +183,9 @@ public static class MonitoringChartEndpoints
                 {
                     targetId = t.TargetId,
                     name = t.Name,
+                    // Role label ("gateway"/"switch"/"ap"/...) so the LAN flaky detector can
+                    // identify the gateway target and mask out gateway-outage windows.
+                    autoLabel = t.AutoLabel,
                     rtt = pts.Select(p => new { time = p.Time.ToString("o"), value = p.RttAvgMs }),
                     loss = pts.Select(p => new { time = p.Time.ToString("o"), value = p.LossPercent }),
                 };
