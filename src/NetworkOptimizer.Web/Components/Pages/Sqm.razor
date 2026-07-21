@@ -122,6 +122,12 @@
                             Go to <a href="/settings#gateway-ssh">Settings</a> to configure Gateway SSH credentials before using Adaptive SQM.
                         </div>
                     }
+                    else if (deploymentStatus?.AwaitingAgent == true)
+                    {
+                        <div class="alert alert-info" style="margin-top: 1rem;">
+                            <span class="alert-text">@deploymentStatus.Error</span>
+                        </div>
+                    }
                     else if (!string.IsNullOrEmpty(deploymentStatus?.Error))
                     {
                         <div class="alert alert-danger alert-with-tooltip" style="margin-top: 1rem;">
@@ -2446,7 +2452,11 @@
                 // Gateway not connected - clear stale data and update cache
                 _cachedGatewayConfigured = gatewayConfigured;
                 _cachedGatewayConnected = false;
-                deploymentStatus = new SqmDeploymentStatus { Error = connectionResult.message };
+                // Distinguish a transient "agent not online yet" state (agent-routed
+                // sites at startup) from a real connection failure, so the UI can show
+                // a neutral waiting note rather than a red connection error.
+                var awaitingAgent = await DeploymentService.IsAwaitingAgentAsync();
+                deploymentStatus = new SqmDeploymentStatus { AwaitingAgent = awaitingAgent, Error = connectionResult.message };
                 _cachedDeploymentStatus = deploymentStatus;
                 sqmMonitorData = null;
                 tcInterfaces = null;

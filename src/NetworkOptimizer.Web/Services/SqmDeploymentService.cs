@@ -52,6 +52,9 @@ public class SqmDeploymentService : ISqmDeploymentService
     private Task<(bool success, string output)> RunCommandAsync(string command, TimeSpan? timeout = null)
         => _gatewaySsh.RunCommandAsync(command, timeout);
 
+    /// <inheritdoc />
+    public Task<bool> IsAwaitingAgentAsync() => _gatewaySsh.IsAwaitingAgentTunnelAsync();
+
     /// <summary>
     /// Test SSH connection to the gateway
     /// </summary>
@@ -1369,6 +1372,14 @@ public class SqmDeploymentStatus
     public bool SpeedtestCliInstalled { get; set; }
     public bool BcInstalled { get; set; }
     public string? Error { get; set; }
+
+    /// <summary>
+    /// True when the gateway is unreachable only because this site's on-site agent
+    /// isn't online yet (a transient startup state on an agent-routed site), not a
+    /// real connection failure. The UI shows a neutral "waiting" note rather than a
+    /// connection error. Always false for a directly-reached site.
+    /// </summary>
+    public bool AwaitingAgent { get; set; }
 }
 
 /// <summary>

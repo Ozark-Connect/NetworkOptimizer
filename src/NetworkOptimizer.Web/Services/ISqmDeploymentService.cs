@@ -15,6 +15,13 @@ public interface ISqmDeploymentService
     Task<(bool success, string message)> TestConnectionAsync();
 
     /// <summary>
+    /// True when the gateway is unreachable only because this site's on-site agent
+    /// isn't online yet, rather than a real connection failure. Always false for a
+    /// directly-reached site.
+    /// </summary>
+    Task<bool> IsAwaitingAgentAsync();
+
+    /// <summary>
     /// Install udm-boot package on the gateway.
     /// This enables scripts in /data/on_boot.d/ to run automatically on boot
     /// and persist across firmware updates.

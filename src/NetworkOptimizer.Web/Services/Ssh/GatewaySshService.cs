@@ -25,6 +25,15 @@ public class GatewaySshService : IGatewaySshService
     private DateTime _cacheTime = DateTime.MinValue;
     private readonly TimeSpan _cacheExpiry = TimeSpan.FromMinutes(5);
 
+    /// <summary>
+    /// Shown when the gateway is reached through this site's on-site agent, which
+    /// isn't online yet - dialing the loopback tunnel proxy now would just get a
+    /// closed socket that SSH.NET reports as a raw "no identification string"
+    /// protocol error. Mirrors the console's awaiting-agent message.
+    /// </summary>
+    public const string AwaitingAgentMessage =
+        "Waiting for the on-site agent to connect. This site's gateway is reached through its agent; SQM will connect automatically once the agent is online.";
+
     public GatewaySshService(
         ILogger<GatewaySshService> logger,
         IServiceProvider serviceProvider,
@@ -76,6 +85,23 @@ public class GatewaySshService : IGatewaySshService
         (connection.Host, connection.Port) = await routing.RouteAsync(_siteSlug, connection.Host, connection.Port);
         return connection;
     }
+
+    /// <summary>
+    /// True when this site's gateway is reached through its on-site agent but no
+    /// agent is currently online. Callers short-circuit on this so they report a
+    /// clear "waiting for the agent" state (see <see cref="AwaitingAgentMessage"/>)
+    /// instead of dialing the refusing loopback proxy - which surfaces a bogus SSH
+    /// protocol error to the user and logs a warning for a transient startup state.
+    /// </summary>
+    private async Task<bool> IsAwaitingAgentAsync()
+    {
+        var routing = _serviceProvider.GetService<SiteTunnelRouting>();
+        if (routing == null) return false;
+        return await routing.IsViaAgentAsync(_siteSlug) && !routing.IsAgentOnline(_siteSlug);
+    }
+
+    /// <inheritdoc />
+    public Task<bool> IsAwaitingAgentTunnelAsync() => IsAwaitingAgentAsync();
 
     /// <inheritdoc />
     public async Task<GatewaySshSettings> GetSettingsAsync(bool forceRefresh = false)
@@ -157,6 +183,11 @@ public class GatewaySshService : IGatewaySshService
             return (false, "SSH credentials not configured");
         }
 
+        if (await IsAwaitingAgentAsync())
+        {
+            return (false, AwaitingAgentMessage);
+        }
+
         try
         {
             var connection = await CreateConnectionInfoAsync(settings);
@@ -203,6 +234,11 @@ public class GatewaySshService : IGatewaySshService
         if (string.IsNullOrEmpty(password) && string.IsNullOrEmpty(privateKeyPath))
         {
             return (false, "SSH credentials not configured");
+        }
+
+        if (await IsAwaitingAgentAsync())
+        {
+            return (false, AwaitingAgentMessage);
         }
 
         try
@@ -262,6 +298,11 @@ public class GatewaySshService : IGatewaySshService
             return (false, "SSH credentials not configured");
         }
 
+        if (await IsAwaitingAgentAsync())
+        {
+            return (false, AwaitingAgentMessage);
+        }
+
         var connection = await CreateConnectionInfoAsync(settings);
         var result = await _sshClient.ExecuteCommandAsync(connection, command, timeout, cancellationToken);
 
@@ -273,6 +314,8 @@ public class GatewaySshService : IGatewaySshService
     {
         var settings = await GetSettingsAsync();
         if (!settings.Enabled || string.IsNullOrEmpty(settings.Host) || !settings.HasCredentials)
+            return null;
+        if (await IsAwaitingAgentAsync())
             return null;
         return await CreateConnectionInfoAsync(settings);
     }
