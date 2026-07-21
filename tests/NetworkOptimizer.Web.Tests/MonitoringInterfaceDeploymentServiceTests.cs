@@ -1,6 +1,7 @@
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using Moq;
+using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.UniFi;
 using NetworkOptimizer.Web.Services;
@@ -13,8 +14,10 @@ public class MonitoringInterfaceDeploymentServiceTests
 {
     // RemoveAsync/CheckStatusAsync only depend on IGatewaySshService (UniFiConnectionService is
     // only touched by PreflightAsync's UniFi-overlap gate, which these tests never exercise).
-    private static MonitoringInterfaceDeploymentService BuildService(Mock<IGatewaySshService> ssh)
-        => new(Mock.Of<ILogger<MonitoringInterfaceDeploymentService>>(), ssh.Object, Mock.Of<IUdmBootService>(), null!);
+    private static MonitoringInterfaceDeploymentService BuildService(
+        Mock<IGatewaySshService> ssh, Mock<IMonitoringInterfaceRepository>? repo = null)
+        => new(Mock.Of<ILogger<MonitoringInterfaceDeploymentService>>(), ssh.Object, Mock.Of<IUdmBootService>(),
+            null!, (repo ?? new Mock<IMonitoringInterfaceRepository>()).Object);
     private static MonitoringInterface Valid(int? vlan = null) => new()
     {
         Name = "modem0",
@@ -606,6 +609,100 @@ public class MonitoringInterfaceDeploymentServiceTests
         // "already applied" on every watchdog run and never get migrated off its phantom route.
         var script = MonitoringInterfaceDeploymentService.GenerateBootScript(Valid());
         script.Should().Contain("grep \"inet $LOCAL_IP/$PREFIX \" | grep -q noprefixroute");
+    }
+
+    [Fact]
+    public async Task DisableAsync_WritesMarkerBeforeTeardownAndFlagsDisabledOnSuccess()
+    {
+        var mi = Valid();
+        mi.Id = 5;
+        var commands = new List<string>();
+        var ssh = new Mock<IGatewaySshService>();
+        ssh.Setup(s => s.RunCommandAsync(It.IsAny<string>(), It.IsAny<TimeSpan?>(), It.IsAny<CancellationToken>()))
+            .Callback<string, TimeSpan?, CancellationToken>((cmd, _, _) => commands.Add(cmd))
+            .ReturnsAsync((true, ""));
+        var repo = new Mock<IMonitoringInterfaceRepository>();
+        var service = BuildService(ssh, repo);
+
+        var (success, steps) = await service.DisableAsync(mi);
+
+        success.Should().BeTrue();
+        // The marker must be written first - before any teardown command - so the cron watchdog
+        // cannot re-apply the interface between teardown steps.
+        commands.Should().NotBeEmpty();
+        commands[0].Should().Contain(MonitoringInterfaceDeploymentService.DisabledMarkerPath(mi));
+        commands[0].Should().Contain(": >");
+        var firstTeardown = commands.FindIndex(c => c.Contains("crontab"));
+        firstTeardown.Should().BeGreaterThan(0);
+        // On a clean teardown the DB flag is set.
+        repo.Verify(r => r.SetDisabledAsync(mi.Id, true, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task DisableAsync_TeardownFails_LeavesEnabledAndRemovesMarker()
+    {
+        var mi = Valid();
+        mi.Id = 5;
+        var commands = new List<string>();
+        var ssh = new Mock<IGatewaySshService>();
+        ssh.Setup(s => s.RunCommandAsync(It.IsAny<string>(), It.IsAny<TimeSpan?>(), It.IsAny<CancellationToken>()))
+            .Callback<string, TimeSpan?, CancellationToken>((cmd, _, _) => commands.Add(cmd))
+            .ReturnsAsync((string cmd, TimeSpan? _, CancellationToken _) =>
+                cmd.Contains("ip route del") ? (false, "err") : (true, ""));
+        var repo = new Mock<IMonitoringInterfaceRepository>();
+        var service = BuildService(ssh, repo);
+
+        var (success, _) = await service.DisableAsync(mi);
+
+        success.Should().BeFalse();
+        // A failed teardown must NOT flag the row disabled, and must roll the marker back so the
+        // interface isn't left half-paused (marker present but artifacts still up).
+        repo.Verify(r => r.SetDisabledAsync(mi.Id, true, It.IsAny<CancellationToken>()), Times.Never);
+        commands.Should().Contain(c => c.Contains("rm -f") &&
+            c.Contains(MonitoringInterfaceDeploymentService.DisabledMarkerPath(mi)));
+    }
+
+    [Fact]
+    public async Task EnableAsync_ClearsFlagAndMarkerThenDeploys_NoReDisableOnDeployFailure()
+    {
+        var mi = Valid();
+        mi.Id = 5;
+        mi.Disabled = true;
+        var commands = new List<string>();
+        var ssh = new Mock<IGatewaySshService>();
+        ssh.Setup(s => s.RunCommandAsync(It.IsAny<string>(), It.IsAny<TimeSpan?>(), It.IsAny<CancellationToken>()))
+            .Callback<string, TimeSpan?, CancellationToken>((cmd, _, _) => commands.Add(cmd))
+            .ReturnsAsync((true, ""));
+        var repo = new Mock<IMonitoringInterfaceRepository>();
+        var service = BuildService(ssh, repo);
+
+        var result = await service.EnableAsync(mi);
+
+        // Enable clears the flag and marker up front, then deploys. A deploy failure (no real
+        // gateway behind the mocks) must NOT silently re-disable - the row stays enabled and the
+        // failed DeployResult surfaces.
+        repo.Verify(r => r.SetDisabledAsync(mi.Id, false, It.IsAny<CancellationToken>()), Times.Once);
+        repo.Verify(r => r.SetDisabledAsync(mi.Id, true, It.IsAny<CancellationToken>()), Times.Never);
+        commands.Should().Contain(c => c.Contains("rm -f") &&
+            c.Contains(MonitoringInterfaceDeploymentService.DisabledMarkerPath(mi)));
+        mi.Disabled.Should().BeFalse();
+        result.Success.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task DeployAsync_DisabledInterface_ReturnsSkippedWithoutTouchingGateway()
+    {
+        var mi = Valid();
+        mi.Disabled = true;
+        var ssh = new Mock<IGatewaySshService>();
+        var service = BuildService(ssh);
+
+        var result = await service.DeployAsync(mi);
+
+        result.Success.Should().BeFalse();
+        result.Block.Should().Be(MonitoringInterfaceDeploymentService.PreflightBlock.Skipped);
+        ssh.Verify(s => s.RunCommandAsync(It.IsAny<string>(), It.IsAny<TimeSpan?>(), It.IsAny<CancellationToken>()),
+            Times.Never);
     }
 
     [Fact]

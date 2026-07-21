@@ -3,6 +3,7 @@ using System.Net.NetworkInformation;
 using System.Security.Cryptography;
 using System.Text;
 using NetworkOptimizer.Core.Helpers;
+using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.UniFi;
 using NetworkOptimizer.Web.Services.Ssh;
@@ -23,6 +24,7 @@ public class MonitoringInterfaceDeploymentService
     private readonly IGatewaySshService _gatewaySsh;
     private readonly IUdmBootService _udmBoot;
     private readonly UniFiConnectionService _connection;
+    private readonly IMonitoringInterfaceRepository _repo;
 
     private const string OnBootDir = "/data/on_boot.d";
 
@@ -42,12 +44,14 @@ public class MonitoringInterfaceDeploymentService
         ILogger<MonitoringInterfaceDeploymentService> logger,
         IGatewaySshService gatewaySsh,
         IUdmBootService udmBoot,
-        UniFiConnectionService connection)
+        UniFiConnectionService connection,
+        IMonitoringInterfaceRepository repo)
     {
         _logger = logger;
         _gatewaySsh = gatewaySsh;
         _udmBoot = udmBoot;
         _connection = connection;
+        _repo = repo;
     }
 
     private static string ScriptName(MonitoringInterface mi) => $"30-monitoring-iface-{mi.Name}.sh";
@@ -408,6 +412,12 @@ public class MonitoringInterfaceDeploymentService
     {
         var steps = new List<string>();
 
+        // A disabled interface must never (re)deploy - Enable clears the flag first (and sets
+        // mi.Disabled=false on the instance it passes here). Guards both the UI path and any
+        // direct caller that hands us a still-disabled row.
+        if (mi.Disabled)
+            return new DeployResult(false, PreflightBlock.Skipped, "Interface is disabled; enable it first.", steps);
+
         var preflight = await PreflightAsync(mi, ct);
         if (!preflight.Ok)
             return new DeployResult(false, preflight.Block, preflight.Message, steps);
@@ -622,6 +632,47 @@ public class MonitoringInterfaceDeploymentService
         }
 
         return (success, steps);
+    }
+
+    /// <summary>
+    /// Disable a monitoring interface: write the gateway marker FIRST (so the cron watchdog and
+    /// a boot run early-out and can't re-apply mid-teardown), then run the hardened+verified
+    /// teardown. Only on a clean teardown is the DB flag set. A teardown failure rolls the marker
+    /// back and leaves the row enabled, so the interface is never left half-paused. The config
+    /// row is kept for later <see cref="EnableAsync"/>.
+    /// </summary>
+    public async Task<(bool success, List<string> steps)> DisableAsync(MonitoringInterface mi)
+    {
+        EnsureShellSafeStrings(mi);
+        var marker = DisabledMarkerPath(mi);
+        var write = await RunAsync($"mkdir -p '{DisabledMarkerDir}' && : > '{marker}'");
+        if (!write.success)
+            return (false, new List<string> { "Could not reach the gateway to disable (marker write failed)." });
+
+        var (removed, steps) = await RemoveAsync(mi);
+        if (!removed)
+        {
+            await RunAsync($"rm -f '{marker}' 2>/dev/null || true");
+            steps.Add("Teardown failed; interface left enabled.");
+            return (false, steps);
+        }
+
+        await _repo.SetDisabledAsync(mi.Id, true);
+        steps.Add("Interface disabled (config kept).");
+        return (true, steps);
+    }
+
+    /// <summary>
+    /// Enable a previously disabled interface: clear the DB flag and remove the gateway marker
+    /// first, then redeploy. A deploy failure does not re-disable the row - the failed
+    /// <see cref="DeployResult"/> is returned as-is so the user sees the real reason.
+    /// </summary>
+    public async Task<DeployResult> EnableAsync(MonitoringInterface mi, CancellationToken ct = default)
+    {
+        await _repo.SetDisabledAsync(mi.Id, false);
+        mi.Disabled = false;
+        await RunAsync($"rm -f '{DisabledMarkerPath(mi)}' 2>/dev/null || true");
+        return await DeployAsync(mi, ct);
     }
 
     /// <summary>
