@@ -450,16 +450,26 @@
     // setup gap (the opposite direction from the end-stamped back-off below).
     private const long GatewaySshSetupMs = 2000L;
 
+    // How many directional phases run BEFORE the recorded TestTime, i.e. how far back
+    // the test's start sits. Most end-stamped tests record TestTime after both phases.
+    // Client-initiated iperf3 is the exception: it arrives as two separate single-
+    // direction runs merged into one record that keeps the FIRST run's ingest time, so
+    // TestTime lands one phase in, not two - back off by a single duration.
+    private int LiveViewPhasesBeforeStamp =>
+        Result?.Direction == SpeedTestDirection.ClientToServer ? 1 : 2;
+
     // Land Live View at the START of the test. Start-stamped (gateway) results push
-    // forward past the SSH setup gap; end-stamped results sit after both directional
-    // phases (DurationSeconds is per direction), so back off by both. A result without
+    // forward past the SSH setup gap; end-stamped results sit after their directional
+    // phase(s) (DurationSeconds is per direction), so back off by them. A result without
     // a stored duration backs off by 0.
     private long LiveViewAtMs
     {
         get
         {
             var stampMs = new DateTimeOffset(DateTime.SpecifyKind(TestTime, DateTimeKind.Utc)).ToUnixTimeMilliseconds();
-            return LiveViewTestTimeIsStart ? stampMs + GatewaySshSetupMs : stampMs - 2 * DurationSeconds * 1000L;
+            return LiveViewTestTimeIsStart
+                ? stampMs + GatewaySshSetupMs
+                : stampMs - LiveViewPhasesBeforeStamp * DurationSeconds * 1000L;
         }
     }
     [Parameter] public double? PingMs { get; set; }
