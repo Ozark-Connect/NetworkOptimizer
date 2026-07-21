@@ -455,11 +455,17 @@
     //    nudge forward past the setup gap.
     //  - Client-initiated iperf3: arrives as separate single-direction runs merged into
     //    one record that keeps the FIRST run's ingest time, so TestTime marks the end of
-    //    the measured phase. Landing at the phase start (a full duration back) put the
-    //    playhead in the TCP slow-start ramp and read as "too far in the past", so land
-    //    at the phase MIDPOINT instead - a half-duration back, squarely in the traffic.
+    //    the measured phase. The recorded throughput bump sits in the back of that phase
+    //    window (monitoring-vs-wall-clock skew), so a half-duration back landed several
+    //    seconds into flat pre-traffic. A quarter-duration back lands just ahead of the
+    //    bump, so playback ramps in rather than starting on dead air.
+    //  - Server-initiated LAN device iperf3 (gateway already handled above): end-stamped
+    //    after two sequential legs, so back off both - plus 1s. The two-leg-span start
+    //    sits a hair forward of true first-byte because of the inter-leg gap (and, for
+    //    SSH-managed devices, server-start setup); a flat 1s splits the difference between
+    //    the tight UniFi case (server already listening) and the SSH-managed case.
     //  - Everything else is end-stamped after both directional phases, so back off both.
-    // A result without a stored duration backs off by 0.
+    // A result without a stored duration backs off by 0 (1s for ServerToDevice).
     private long LiveViewAtMs
     {
         get
@@ -468,7 +474,9 @@
             if (LiveViewTestTimeIsStart)
                 return stampMs + GatewaySshSetupMs;
             if (Result?.Direction == SpeedTestDirection.ClientToServer)
-                return stampMs - DurationSeconds * 500L;
+                return stampMs - DurationSeconds * 250L;
+            if (Result?.Direction == SpeedTestDirection.ServerToDevice)
+                return stampMs - 2 * DurationSeconds * 1000L - 1000L;
             return stampMs - 2 * DurationSeconds * 1000L;
         }
     }
