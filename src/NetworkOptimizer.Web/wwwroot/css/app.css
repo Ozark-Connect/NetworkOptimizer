@@ -2245,6 +2245,19 @@ a.btn-sm {
     gap: 0.5rem;
 }
 
+/* Monitoring Interfaces row actions: keep the action buttons on one line by overriding the
+   global .btn min-width and tightening spacing. The table-responsive wrapper provides
+   horizontal scroll on very narrow screens. */
+.mi-row-actions {
+    flex-wrap: nowrap;
+    gap: 0.375rem;
+}
+
+.mi-row-actions .btn {
+    min-width: 0;
+    padding: 0 12px;
+}
+
 .btn-lg {
     height: 44px;
     padding: 0 24px;

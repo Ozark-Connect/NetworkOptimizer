@@ -1,6 +1,7 @@
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using Moq;
+using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.UniFi;
 using NetworkOptimizer.Web.Services;
@@ -13,8 +14,10 @@ public class MonitoringInterfaceDeploymentServiceTests
 {
     // RemoveAsync/CheckStatusAsync only depend on IGatewaySshService (UniFiConnectionService is
     // only touched by PreflightAsync's UniFi-overlap gate, which these tests never exercise).
-    private static MonitoringInterfaceDeploymentService BuildService(Mock<IGatewaySshService> ssh)
-        => new(Mock.Of<ILogger<MonitoringInterfaceDeploymentService>>(), ssh.Object, Mock.Of<IUdmBootService>(), null!);
+    private static MonitoringInterfaceDeploymentService BuildService(
+        Mock<IGatewaySshService> ssh, Mock<IMonitoringInterfaceRepository>? repo = null)
+        => new(Mock.Of<ILogger<MonitoringInterfaceDeploymentService>>(), ssh.Object, Mock.Of<IUdmBootService>(),
+            null!, (repo ?? new Mock<IMonitoringInterfaceRepository>()).Object);
     private static MonitoringInterface Valid(int? vlan = null) => new()
     {
         Name = "modem0",
@@ -608,6 +611,119 @@ public class MonitoringInterfaceDeploymentServiceTests
         script.Should().Contain("grep \"inet $LOCAL_IP/$PREFIX \" | grep -q noprefixroute");
     }
 
+    [Fact]
+    public async Task DisableAsync_WritesMarkerBeforeTeardownAndFlagsDisabledOnSuccess()
+    {
+        var mi = Valid();
+        mi.Id = 5;
+        var commands = new List<string>();
+        var ssh = new Mock<IGatewaySshService>();
+        ssh.Setup(s => s.RunCommandAsync(It.IsAny<string>(), It.IsAny<TimeSpan?>(), It.IsAny<CancellationToken>()))
+            .Callback<string, TimeSpan?, CancellationToken>((cmd, _, _) => commands.Add(cmd))
+            .ReturnsAsync((true, ""));
+        var repo = new Mock<IMonitoringInterfaceRepository>();
+        var service = BuildService(ssh, repo);
+
+        var (success, steps) = await service.DisableAsync(mi);
+
+        success.Should().BeTrue();
+        // The marker must be written first - before any teardown command - so the cron watchdog
+        // cannot re-apply the interface between teardown steps.
+        commands.Should().NotBeEmpty();
+        commands[0].Should().Contain(MonitoringInterfaceDeploymentService.DisabledMarkerPath(mi));
+        commands[0].Should().Contain(": >");
+        var firstTeardown = commands.FindIndex(c => c.Contains("crontab"));
+        firstTeardown.Should().BeGreaterThan(0);
+        // On a clean teardown the DB flag is set.
+        repo.Verify(r => r.SetDisabledAsync(mi.Id, true, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task DisableAsync_TeardownFails_LeavesEnabledAndRemovesMarker()
+    {
+        var mi = Valid();
+        mi.Id = 5;
+        var commands = new List<string>();
+        var ssh = new Mock<IGatewaySshService>();
+        ssh.Setup(s => s.RunCommandAsync(It.IsAny<string>(), It.IsAny<TimeSpan?>(), It.IsAny<CancellationToken>()))
+            .Callback<string, TimeSpan?, CancellationToken>((cmd, _, _) => commands.Add(cmd))
+            .ReturnsAsync((string cmd, TimeSpan? _, CancellationToken _) =>
+                cmd.Contains("ip route del") ? (false, "err") : (true, ""));
+        var repo = new Mock<IMonitoringInterfaceRepository>();
+        var service = BuildService(ssh, repo);
+
+        var (success, _) = await service.DisableAsync(mi);
+
+        success.Should().BeFalse();
+        // A failed teardown must NOT flag the row disabled, and must roll the marker back so the
+        // interface isn't left half-paused (marker present but artifacts still up).
+        repo.Verify(r => r.SetDisabledAsync(mi.Id, true, It.IsAny<CancellationToken>()), Times.Never);
+        commands.Should().Contain(c => c.Contains("rm -f") &&
+            c.Contains(MonitoringInterfaceDeploymentService.DisabledMarkerPath(mi)));
+    }
+
+    [Fact]
+    public async Task EnableAsync_ClearsFlagAndMarkerThenDeploys_NoReDisableOnDeployFailure()
+    {
+        var mi = Valid();
+        mi.Id = 5;
+        mi.Disabled = true;
+        var commands = new List<string>();
+        var ssh = new Mock<IGatewaySshService>();
+        ssh.Setup(s => s.RunCommandAsync(It.IsAny<string>(), It.IsAny<TimeSpan?>(), It.IsAny<CancellationToken>()))
+            .Callback<string, TimeSpan?, CancellationToken>((cmd, _, _) => commands.Add(cmd))
+            .ReturnsAsync((true, ""));
+        var repo = new Mock<IMonitoringInterfaceRepository>();
+        var service = BuildService(ssh, repo);
+
+        var result = await service.EnableAsync(mi);
+
+        // Enable clears the flag and marker up front, then deploys. A deploy failure (no real
+        // gateway behind the mocks) must NOT silently re-disable - the row stays enabled and the
+        // failed DeployResult surfaces.
+        repo.Verify(r => r.SetDisabledAsync(mi.Id, false, It.IsAny<CancellationToken>()), Times.Once);
+        repo.Verify(r => r.SetDisabledAsync(mi.Id, true, It.IsAny<CancellationToken>()), Times.Never);
+        commands.Should().Contain(c => c.Contains("rm -f") &&
+            c.Contains(MonitoringInterfaceDeploymentService.DisabledMarkerPath(mi)));
+        mi.Disabled.Should().BeFalse();
+        result.Success.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task DeployAsync_DisabledInterface_ReturnsSkippedWithoutTouchingGateway()
+    {
+        var mi = Valid();
+        mi.Disabled = true;
+        var ssh = new Mock<IGatewaySshService>();
+        var service = BuildService(ssh);
+
+        var result = await service.DeployAsync(mi);
+
+        result.Success.Should().BeFalse();
+        result.Block.Should().Be(MonitoringInterfaceDeploymentService.PreflightBlock.Skipped);
+        ssh.Verify(s => s.RunCommandAsync(It.IsAny<string>(), It.IsAny<TimeSpan?>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public void BootScript_HonoursDisabledMarkerAndLocksApply()
+    {
+        var script = MonitoringInterfaceDeploymentService.GenerateBootScript(Valid());
+
+        // Marker var + early-out before doing any work, so a disabled interface's boot script
+        // and cron watchdog become inert without needing to be deleted.
+        script.Should().Contain("MARKER=\"/data/monitoring-ifaces.disabled/modem0\"");
+        script.Should().Contain("[ -f \"$MARKER\" ] && { log \"disabled marker present, skipping\"; exit 0; }");
+
+        // Re-check the marker immediately before (re)installing the cron watchdog, closing the
+        // race where Disable writes the marker after the top check but before cron install.
+        script.Should().Contain("if [ ! -f \"$MARKER\" ] && ! crontab -l 2>/dev/null | grep -qF \"$SCRIPT\"; then");
+
+        // Per-interface flock serializes a manual apply against the cron watchdog tick.
+        script.Should().Contain("flock -n 9");
+        script.Should().Contain("/tmp/monitoring-iface-modem0.lock");
+    }
+
     private static NetworkInfo UniFiNet(string name, string subnet, bool wan = false, bool enabled = true) => new()
     {
         Name = name,
@@ -675,6 +791,139 @@ public class MonitoringInterfaceDeploymentServiceTests
         steps.Should().Contain(s => s.Contains("outside the aliasable range"));
         steps.Should().NotContain(s => s.Contains("WARNING"));
         steps.Should().NotContain(s => s.Contains("Removed alias mark/DNAT rules"));
+    }
+
+    [Fact]
+    public async Task RemoveAsync_NonAliased_AllTeardownStepsSucceedAndNothingLingers_ReportsSuccess()
+    {
+        // Happy path: every teardown command succeeds and the absence verification finds no
+        // residual artifacts (empty probe output) - Remove reports success with no WARNING.
+        var mi = Valid();
+        var ssh = new Mock<IGatewaySshService>();
+        ssh.Setup(s => s.RunCommandAsync(It.IsAny<string>(), It.IsAny<TimeSpan?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((true, ""));
+        var service = BuildService(ssh);
+
+        var (success, steps) = await service.RemoveAsync(mi);
+
+        success.Should().BeTrue();
+        steps.Should().NotContain(s => s.Contains("WARNING"));
+    }
+
+    [Fact]
+    public async Task RemoveAsync_NonAliased_RouteDeleteFails_ReportsFailureWithWarning()
+    {
+        // A genuine base-teardown failure (the guarded route delete returns nonzero) must flip
+        // success to false and surface a WARNING step - not be swallowed by fire-and-forget.
+        var mi = Valid();
+        var ssh = new Mock<IGatewaySshService>();
+        ssh.Setup(s => s.RunCommandAsync(It.IsAny<string>(), It.IsAny<TimeSpan?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((string cmd, TimeSpan? _, CancellationToken _) =>
+                cmd.Contains("ip route del") ? (false, "route del failed") : (true, ""));
+        var service = BuildService(ssh);
+
+        var (success, steps) = await service.RemoveAsync(mi);
+
+        success.Should().BeFalse();
+        steps.Should().Contain(s => s.Contains("WARNING") && s.Contains("route"));
+    }
+
+    [Fact]
+    public async Task EnableAsync_UnsafeName_ThrowsBeforeTouchingGatewayOrDb()
+    {
+        // Enable must validate up front like Disable/Remove (Codex review): a name that fails
+        // shell-safety has to throw before any SSH command or DB write, not later in DeployAsync.
+        var mi = Valid();
+        mi.Id = 5;
+        mi.Name = "bad name"; // the space fails the shell-safe regex
+        var ssh = new Mock<IGatewaySshService>();
+        var repo = new Mock<IMonitoringInterfaceRepository>();
+        var service = BuildService(ssh, repo);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.EnableAsync(mi));
+
+        ssh.Verify(s => s.RunCommandAsync(It.IsAny<string>(), It.IsAny<TimeSpan?>(), It.IsAny<CancellationToken>()), Times.Never);
+        repo.Verify(r => r.SetDisabledAsync(It.IsAny<int>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task DisableAsync_DrainsApplyLockBeforeTeardown()
+    {
+        // Watchdog-resurrection guard: after writing the marker, Disable blocks on the boot
+        // script's per-interface apply lock so an in-flight apply finishes before teardown.
+        var mi = Valid();
+        mi.Id = 8;
+        var commands = new List<string>();
+        var ssh = new Mock<IGatewaySshService>();
+        ssh.Setup(s => s.RunCommandAsync(It.IsAny<string>(), It.IsAny<TimeSpan?>(), It.IsAny<CancellationToken>()))
+            .Callback<string, TimeSpan?, CancellationToken>((cmd, _, _) => commands.Add(cmd))
+            .ReturnsAsync((true, ""));
+        var service = BuildService(ssh, new Mock<IMonitoringInterfaceRepository>());
+
+        await service.DisableAsync(mi);
+
+        commands.Should().Contain(c => c.Contains("flock -w 30") && c.Contains($"/tmp/monitoring-iface-{mi.Name}.lock"));
+    }
+
+    [Fact]
+    public async Task DisableAsync_DrainTimesOut_AbortsAndRollsBackMarker()
+    {
+        // If an in-flight apply will not release the lock in time, Disable must abort (not tear
+        // down underneath it), roll the marker back, and leave the row enabled.
+        var mi = Valid();
+        mi.Id = 9;
+        var commands = new List<string>();
+        var ssh = new Mock<IGatewaySshService>();
+        ssh.Setup(s => s.RunCommandAsync(It.IsAny<string>(), It.IsAny<TimeSpan?>(), It.IsAny<CancellationToken>()))
+            .Callback<string, TimeSpan?, CancellationToken>((cmd, _, _) => commands.Add(cmd))
+            .ReturnsAsync((string cmd, TimeSpan? _, CancellationToken _) =>
+                cmd.Contains("flock -w 30") ? (false, "") : (true, ""));
+        var repo = new Mock<IMonitoringInterfaceRepository>();
+        var service = BuildService(ssh, repo);
+
+        var (success, _) = await service.DisableAsync(mi);
+
+        success.Should().BeFalse();
+        repo.Verify(r => r.SetDisabledAsync(mi.Id, true, It.IsAny<CancellationToken>()), Times.Never);
+        commands.Should().Contain(c => c.Contains("rm -f") &&
+            c.Contains(MonitoringInterfaceDeploymentService.DisabledMarkerPath(mi)));
+    }
+
+    [Fact]
+    public async Task RemoveAsync_VerificationFindsResidualAliasDnat_ReportsFailure()
+    {
+        // Aliased teardown "succeeds" per-command, but verification finds the DNAT rule still
+        // present - Remove must flip success and warn (covers the alias probes added to verify).
+        var mi = ValidAliased(id: 9);
+        var ssh = new Mock<IGatewaySshService>();
+        ssh.Setup(s => s.RunCommandAsync(It.IsAny<string>(), It.IsAny<TimeSpan?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((string cmd, TimeSpan? _, CancellationToken _) =>
+                cmd.Contains("echo IFACE") ? (true, "ADNAT\n") : (true, ""));
+        var service = BuildService(ssh);
+
+        var (success, steps) = await service.RemoveAsync(mi);
+
+        success.Should().BeFalse();
+        steps.Should().Contain(s => s.Contains("verification failed"));
+    }
+
+    [Fact]
+    public async Task RemoveAsync_VerificationFindsResidualSnat_ReportsFailure()
+    {
+        // Every teardown command "succeeds", but the absence verification still finds the SNAT
+        // rule present (a silently-failed removal or a watchdog resurrection) - Remove must flip
+        // success and warn rather than reporting a clean teardown.
+        var mi = Valid(); // SnatEnabled defaults to true, so the verify includes the SNAT probe
+        var ssh = new Mock<IGatewaySshService>();
+        ssh.Setup(s => s.RunCommandAsync(It.IsAny<string>(), It.IsAny<TimeSpan?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((string cmd, TimeSpan? _, CancellationToken _) =>
+                cmd.Contains("echo IFACE") ? (true, "SNAT\n") : (true, ""));
+        var service = BuildService(ssh);
+
+        var (success, steps) = await service.RemoveAsync(mi);
+
+        success.Should().BeFalse();
+        steps.Should().Contain(s => s.Contains("verification failed"));
     }
 
     [Fact]

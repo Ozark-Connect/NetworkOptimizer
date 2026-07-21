@@ -3,6 +3,7 @@ using System.Net.NetworkInformation;
 using System.Security.Cryptography;
 using System.Text;
 using NetworkOptimizer.Core.Helpers;
+using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.UniFi;
 using NetworkOptimizer.Web.Services.Ssh;
@@ -23,19 +24,34 @@ public class MonitoringInterfaceDeploymentService
     private readonly IGatewaySshService _gatewaySsh;
     private readonly IUdmBootService _udmBoot;
     private readonly UniFiConnectionService _connection;
+    private readonly IMonitoringInterfaceRepository _repo;
 
     private const string OnBootDir = "/data/on_boot.d";
+
+    /// <summary>
+    /// Directory (under <c>/data</c>, so it survives reboots and firmware updates like the boot
+    /// scripts) holding one marker file per disabled interface. The boot script and cron
+    /// watchdog early-out when this interface's marker is present, so a disabled interface stays
+    /// torn down without deleting its script. Deliberately NOT under <c>on_boot.d</c> - a file
+    /// there would be executed at boot.
+    /// </summary>
+    public const string DisabledMarkerDir = "/data/monitoring-ifaces.disabled";
+
+    /// <summary>Marker path for a given interface (see <see cref="DisabledMarkerDir"/>).</summary>
+    public static string DisabledMarkerPath(MonitoringInterface mi) => $"{DisabledMarkerDir}/{mi.Name}";
 
     public MonitoringInterfaceDeploymentService(
         ILogger<MonitoringInterfaceDeploymentService> logger,
         IGatewaySshService gatewaySsh,
         IUdmBootService udmBoot,
-        UniFiConnectionService connection)
+        UniFiConnectionService connection,
+        IMonitoringInterfaceRepository repo)
     {
         _logger = logger;
         _gatewaySsh = gatewaySsh;
         _udmBoot = udmBoot;
         _connection = connection;
+        _repo = repo;
     }
 
     private static string ScriptName(MonitoringInterface mi) => $"30-monitoring-iface-{mi.Name}.sh";
@@ -396,6 +412,15 @@ public class MonitoringInterfaceDeploymentService
     {
         var steps = new List<string>();
 
+        // A disabled interface must never (re)deploy - Enable clears the flag first (and sets
+        // mi.Disabled=false on the instance it passes here). Guards both the UI path and any
+        // direct caller that hands us a still-disabled row.
+        if (mi.Disabled)
+            return new DeployResult(false, PreflightBlock.Skipped, "Interface is disabled; enable it first.", steps);
+
+        // Validate before building any SSH command from mi (boot script, marker path, gates).
+        EnsureShellSafeStrings(mi);
+
         var preflight = await PreflightAsync(mi, ct);
         if (!preflight.Ok)
             return new DeployResult(false, preflight.Block, preflight.Message, steps);
@@ -453,6 +478,16 @@ public class MonitoringInterfaceDeploymentService
                 : "Skipped mark/table range check (gateway unreachable) - deploying without it risks the " +
                   "boot script sweeping or overwriting a foreign rule in this range undetected.");
         }
+
+        // We are (re)deploying, so this interface must not carry a stale disabled marker - a
+        // leftover one (e.g. from a Disable whose marker rollback could not reach the gateway)
+        // would make the boot script we write below early-out and silently no-op the deploy.
+        // Check the result: if the marker cannot be cleared the script would bail, so fail
+        // loudly rather than reporting a deploy that did nothing.
+        var markerClear = await RunAsync($"rm -f '{DisabledMarkerPath(mi)}' 2>/dev/null");
+        if (!markerClear.success)
+            return new DeployResult(false, PreflightBlock.GatewayUnreachable,
+                "Could not clear the disabled marker on the gateway; the boot script would no-op. Retry when the gateway is reachable.", steps);
 
         // Write and run the idempotent boot script.
         var script = GenerateBootScript(mi);
@@ -532,20 +567,170 @@ public class MonitoringInterfaceDeploymentService
             steps.Add("Alias id is outside the aliasable range - no alias mark/DNAT/policy-route artifacts existed to remove.");
         }
 
+        // Base teardown: guard-check-then-act and capture each result (mirroring the alias
+        // block above), so "nothing to remove" stays a clean success while a genuine removal
+        // failure flips success - rather than the old fire-and-forget "|| true" that swallowed
+        // every failure. Each guard confirms the artifact is present before deleting it, so an
+        // aliased row (no main-table route/SNAT to remove) or a never-fully-deployed one simply
+        // finds nothing and succeeds.
         if (mi.SnatEnabled)
         {
-            await RunAsync($"iptables -w 5 -t nat -D POSTROUTING -o {mi.Name} -d {mi.TargetIp} -j SNAT --to-source {mi.GatewayLocalIp} 2>/dev/null || true");
-            steps.Add("Removed SNAT rule.");
+            var snatDel = await RunAsync(
+                $"if iptables -w 5 -t nat -C POSTROUTING -o {mi.Name} -d {mi.TargetIp} -j SNAT --to-source {mi.GatewayLocalIp} 2>/dev/null; " +
+                $"then iptables -w 5 -t nat -D POSTROUTING -o {mi.Name} -d {mi.TargetIp} -j SNAT --to-source {mi.GatewayLocalIp} 2>/dev/null; fi");
+            if (!snatDel.success)
+            {
+                success = false;
+                steps.Add("WARNING: failed to remove SNAT rule - check the gateway manually.");
+            }
+            else
+            {
+                steps.Add("Removed SNAT rule.");
+            }
         }
 
-        await RunAsync($"ip route del {mi.TargetIp}/32 dev {mi.Name} 2>/dev/null || true");
-        await RunAsync($"ip link del {mi.Name} 2>/dev/null || true");
-        steps.Add("Removed route and macvlan interface.");
+        var routeDel = await RunAsync(
+            $"if ip route show {mi.TargetIp}/32 dev {mi.Name} 2>/dev/null | grep -q .; " +
+            $"then ip route del {mi.TargetIp}/32 dev {mi.Name} 2>/dev/null; fi");
+        var linkDel = await RunAsync(
+            $"if ip link show {mi.Name} >/dev/null 2>&1; then ip link del {mi.Name} 2>/dev/null; fi");
+        if (!routeDel.success || !linkDel.success)
+        {
+            success = false;
+            steps.Add("WARNING: failed to remove route/macvlan - check the gateway manually.");
+        }
+        else
+        {
+            steps.Add("Removed route and macvlan interface.");
+        }
 
-        await RunAsync($"rm -f '{path}' /tmp/netopt-moniface-{mi.Name}.log 2>/dev/null || true");
-        steps.Add("Removed boot script.");
+        // rm -f is a no-op success for an absent file; a nonzero here is a real error (e.g. a
+        // read-only /data), so capture it instead of masking it with "|| true".
+        var scriptDel = await RunAsync($"rm -f '{path}' /tmp/netopt-moniface-{mi.Name}.log 2>/dev/null");
+        if (!scriptDel.success)
+        {
+            success = false;
+            steps.Add("WARNING: failed to remove boot script - check the gateway manually.");
+        }
+        else
+        {
+            steps.Add("Removed boot script.");
+        }
+
+        // Absence verification: re-probe the interface, main-table route, cron entry, and boot
+        // script. If any is still present after teardown, the cron watchdog may have re-applied
+        // it mid-teardown (a race Disable closes with the marker, Task 4) - flag it rather than
+        // reporting a clean removal. Trailing "true" keeps the SSH exit code tied to reachability,
+        // not to whether a probe matched.
+        var verifyProbes =
+            $"ip link show {mi.Name} >/dev/null 2>&1 && echo IFACE; " +
+            $"ip route show {mi.TargetIp}/32 2>/dev/null | grep -q \"dev {mi.Name}\" && echo ROUTE; " +
+            $"crontab -l 2>/dev/null | grep -qF '{path}' && echo CRON; " +
+            $"test -f '{path}' && echo SCRIPT; ";
+        // Also verify the SNAT rule and (for an aliased row) the mangle mark, nat DNAT, policy
+        // rule, and private route table are gone - a teardown step that silently failed to remove
+        // one of these would otherwise coexist with a "clean" result.
+        if (mi.SnatEnabled)
+            verifyProbes += $"iptables -w 5 -t nat -C POSTROUTING -o {mi.Name} -d {mi.TargetIp} -j SNAT --to-source {mi.GatewayLocalIp} 2>/dev/null && echo SNAT; ";
+        if (mi.AliasIp != null && IsAliasableId(mi.Id))
+        {
+            var vmark = AliasMark(mi.Id);
+            var vtable = AliasTable(mi.Id);
+            verifyProbes +=
+                $"iptables -w 5 -t mangle -C PREROUTING -d {mi.AliasIp} -j MARK --set-xmark {vmark}/{AliasMarkMask} 2>/dev/null && echo AMARK; " +
+                $"iptables -w 5 -t nat -C PREROUTING -m mark --mark {vmark}/{AliasMarkMask} -j DNAT --to-destination {mi.TargetIp} 2>/dev/null && echo ADNAT; " +
+                $"ip rule show 2>/dev/null | grep -qF 'fwmark {vmark}/{AliasMarkMask} lookup {vtable}' && echo ARULE; " +
+                $"ip route show table {vtable} 2>/dev/null | grep -q . && echo ATABLE; ";
+        }
+        var verify = await RunAsync(verifyProbes + "true");
+        if (!verify.success)
+        {
+            success = false;
+            steps.Add("WARNING: could not verify teardown (gateway unreachable) - check the gateway manually.");
+        }
+        else if (verify.output.Contains("IFACE") || verify.output.Contains("ROUTE") ||
+                 verify.output.Contains("CRON") || verify.output.Contains("SCRIPT") ||
+                 verify.output.Contains("SNAT") || verify.output.Contains("AMARK") ||
+                 verify.output.Contains("ADNAT") || verify.output.Contains("ARULE") ||
+                 verify.output.Contains("ATABLE"))
+        {
+            success = false;
+            steps.Add("WARNING: teardown verification failed - artifacts still present (watchdog resurrection?). Check the gateway manually.");
+        }
+        else
+        {
+            steps.Add("Verified teardown: no residual artifacts.");
+        }
 
         return (success, steps);
+    }
+
+    /// <summary>
+    /// Disable a monitoring interface: write the gateway marker FIRST (so the cron watchdog and
+    /// a boot run early-out and can't re-apply mid-teardown), then run the hardened+verified
+    /// teardown. Only on a clean teardown is the DB flag set. A teardown failure rolls the marker
+    /// back and leaves the row enabled, so the interface is never left half-paused. The config
+    /// row is kept for later <see cref="EnableAsync"/>.
+    /// </summary>
+    public async Task<(bool success, List<string> steps)> DisableAsync(MonitoringInterface mi)
+    {
+        EnsureShellSafeStrings(mi);
+        var marker = DisabledMarkerPath(mi);
+        var write = await RunAsync($"mkdir -p '{DisabledMarkerDir}' && : > '{marker}'");
+        if (!write.success)
+            return (false, new List<string> { "Could not reach the gateway to disable (marker write failed)." });
+
+        // Drain any in-flight watchdog apply before tearing down: block on the boot script's
+        // per-interface apply lock so an apply that started before the marker existed finishes and
+        // cannot recreate artifacts after our teardown. Together with the boot script re-checking
+        // the marker AFTER it acquires this lock, this closes the resurrection race both ways
+        // (apply-already-holds-lock, and apply-takes-lock-after-the-marker). If the drain times
+        // out an apply is stuck holding the lock, so abort instead of tearing down underneath it -
+        // roll the marker back and leave the row enabled to retry.
+        var drain = await RunAsync($"flock -w 30 '/tmp/monitoring-iface-{mi.Name}.lock' true 2>/dev/null");
+        if (!drain.success)
+        {
+            await RunAsync($"rm -f '{marker}' 2>/dev/null || true");
+            return (false, new List<string>
+            {
+                "A gateway apply for this interface is still running (lock not released in time); try disabling again in a moment."
+            });
+        }
+
+        var (removed, steps) = await RemoveAsync(mi);
+        if (!removed)
+        {
+            await RunAsync($"rm -f '{marker}' 2>/dev/null || true");
+            steps.Add("Teardown failed; interface left enabled.");
+            return (false, steps);
+        }
+
+        await _repo.SetDisabledAsync(mi.Id, true);
+        steps.Add("Interface disabled (config kept).");
+        return (true, steps);
+    }
+
+    /// <summary>
+    /// Enable a previously disabled interface: clear the DB flag and remove the gateway marker
+    /// first, then redeploy. A deploy failure does not re-disable the row - the failed
+    /// <see cref="DeployResult"/> is returned as-is so the user sees the real reason.
+    /// </summary>
+    public async Task<DeployResult> EnableAsync(MonitoringInterface mi, CancellationToken ct = default)
+    {
+        // Validate up front so a corrupt name fails before we mutate DB state or build any SSH
+        // command from it (Codex review: Enable previously skipped this).
+        EnsureShellSafeStrings(mi);
+        await _repo.SetDisabledAsync(mi.Id, false);
+        mi.Disabled = false;
+        // Clear the marker up front (checked) so Enable un-pauses the interface even if the
+        // deploy below fails. If the marker cannot be cleared the boot script would no-op, so
+        // surface that instead of the unchecked "|| true" the review flagged.
+        var markerClear = await RunAsync($"rm -f '{DisabledMarkerPath(mi)}' 2>/dev/null");
+        if (!markerClear.success)
+            return new DeployResult(false, PreflightBlock.GatewayUnreachable,
+                "Could not clear the disabled marker on the gateway; retry when it is reachable.",
+                new List<string>());
+        return await DeployAsync(mi, ct);
     }
 
     /// <summary>
@@ -777,6 +962,7 @@ MASK=""__MASK__""
 TABLE=""__TABLE__""
 WATCHDOG_MIN=""__WATCHDOG_MIN__""
 SCRIPT=""__SCRIPT_PATH__""
+MARKER=""/data/monitoring-ifaces.disabled/__IFACE__""
 LOG=""/tmp/netopt-moniface-__IFACE__.log""
 
 log() { echo ""$(date '+%Y-%m-%d %H:%M:%S') $1"" >> ""$LOG"" 2>/dev/null; }
@@ -797,11 +983,25 @@ cleanup_marked_rules() {
     rm -f ""$tmp""
 }
 
+# If disabled by the app, do nothing and do not (re)install cron. The marker lets a disabled
+# interface stay torn down across reboots without deleting this script.
+[ -f ""$MARKER"" ] && { log ""disabled marker present, skipping""; exit 0; }
+
 # The physical WAN port must exist; if not (boot race), let the watchdog retry later.
 ip link show ""$WAN_IF"" >/dev/null 2>&1 || { log ""wan $WAN_IF absent, deferring""; exit 0; }
 
 changed=0
 fail=0
+
+# Serialize a manual apply against the cron watchdog tick on a per-interface lock. flock holds
+# fd 9 in the CURRENT shell (not a subshell), so changed/fail set below still reach the final
+# status check; non-blocking, so if another apply already holds the lock we skip this tick.
+exec 9>""/tmp/monitoring-iface-__IFACE__.lock""
+flock -n 9 || { log ""apply already running, skipping""; exit 0; }
+# Re-check the marker now that we hold the lock: Disable may have written it (and drained the
+# lock) while we were between the top-of-script check and acquiring this lock. Bail before
+# applying anything so a paused apply cannot resurrect artifacts after Disable's teardown.
+[ -f ""$MARKER"" ] && { log ""disabled marker appeared after lock, skipping""; exit 0; }
 
 # 0. resolve the macvlan parent. With a VLAN, the parent is the subinterface (e.g.
 # eth6.100) so frames are tagged; UniFi creates it for a VLAN WAN, but if it's absent
@@ -896,8 +1096,10 @@ if [ ""$SNAT_ENABLED"" = ""1"" ]; then
     fi
 fi
 
-# 5. self-install the cron watchdog (re-applies after reprovision)
-if ! crontab -l 2>/dev/null | grep -qF ""$SCRIPT""; then
+# 5. self-install the cron watchdog (re-applies after reprovision). Re-check the marker first:
+# Disable may have written it after the top-of-script check but before we reached here, and we
+# must not reinstall the cron that would immediately re-apply the interface it just tore down.
+if [ ! -f ""$MARKER"" ] && ! crontab -l 2>/dev/null | grep -qF ""$SCRIPT""; then
     (crontab -l 2>/dev/null; echo ""*/$WATCHDOG_MIN * * * * $SCRIPT >/dev/null 2>&1"") | crontab -
     changed=1
 fi

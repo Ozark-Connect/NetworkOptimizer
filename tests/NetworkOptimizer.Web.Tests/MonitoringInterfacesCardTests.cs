@@ -1,5 +1,7 @@
 using FluentAssertions;
+using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Web.Components.Shared;
+using NetworkOptimizer.Web.Services;
 using Xunit;
 
 namespace NetworkOptimizer.Web.Tests;
@@ -68,6 +70,60 @@ public class MonitoringInterfacesCardTests
     }
 
     [Fact]
+    public void StatusBadgeContent_DisabledRow_ShowsDisabledRegardlessOfLiveStatus()
+    {
+        // A disabled interface reads "Disabled" no matter what the last live probe found - even
+        // a fully-applied status (a probe taken before Disable finished) must not override it.
+        var mi = new MonitoringInterface { Name = "modem0", Disabled = true };
+        var fullyApplied = new MonitoringInterfaceDeploymentService.InterfaceStatus
+        {
+            GatewayReachable = true,
+            InterfaceExists = true,
+            LocalIpAssigned = true,
+            RoutePresent = true,
+            SnatPresent = true,
+            WatchdogCronPresent = true,
+            BootScriptPresent = true,
+        };
+
+        var withStatus = MonitoringInterfacesCard.StatusBadgeContent(mi, fullyApplied);
+        withStatus.text.Should().Be("Disabled");
+        withStatus.cls.Should().Contain("status-disconnected");
+
+        MonitoringInterfacesCard.StatusBadgeContent(mi, null).text.Should().Be("Disabled");
+    }
+
+    [Fact]
+    public void StatusBadgeContent_EnabledRow_KeepsStatusDrivenLabels()
+    {
+        // Regression guard: a non-disabled row keeps the existing status-driven labels.
+        var mi = new MonitoringInterface { Name = "modem0" };
+        MonitoringInterfacesCard.StatusBadgeContent(mi, null).text.Should().Be("Unknown");
+    }
+
+    [Fact]
+    public void Snapshot_CopiesDisabledFlag()
+    {
+        var mi = new MonitoringInterface { Name = "modem0", TargetIp = "192.168.100.1", Disabled = true };
+
+        var copy = MonitoringInterfacesCard.Snapshot(mi);
+
+        copy.Disabled.Should().BeTrue();
+        copy.TargetIp.Should().Be("192.168.100.1");
+    }
+
+    [Fact]
+    public void ShowDisableToggle_HiddenForManuallyDeployedRows()
+    {
+        // Disable/Enable tears down and redeploys gateway artifacts we own; a manually-deployed
+        // row is the user's own hand-built config, so the toggle must not appear for it.
+        MonitoringInterfacesCard.ShowDisableToggle(new MonitoringInterface { IsManuallyDeployed = false })
+            .Should().BeTrue();
+        MonitoringInterfacesCard.ShowDisableToggle(new MonitoringInterface { IsManuallyDeployed = true })
+            .Should().BeFalse();
+    }
+
+    [Fact]
     public void DisarmAllForceRemove_ClearsEntireArmedSet_NotJustOneRow()
     {
         // The armed flag is a transient "you just saw this error" confirmation - any edit,
@@ -83,5 +139,27 @@ public class MonitoringInterfacesCardTests
         card.DisarmAllForceRemove();
 
         card._forceRemoveArmed.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Snapshot_CopiesIsManuallyDeployedAndDisabled()
+    {
+        // Codex review: Snapshot omitting IsManuallyDeployed made editing a manually-deployed
+        // row silently flip it to app-managed (its hidden Disable/Enable toggle then reappeared).
+        var mi = new MonitoringInterface
+        {
+            Id = 3,
+            Name = "modem0",
+            WanIfName = "eth1",
+            TargetIp = "192.168.100.1",
+            GatewayLocalIp = "192.168.100.2",
+            IsManuallyDeployed = true,
+            Disabled = true,
+        };
+
+        var snap = MonitoringInterfacesCard.Snapshot(mi);
+
+        snap.IsManuallyDeployed.Should().BeTrue();
+        snap.Disabled.Should().BeTrue();
     }
 }
