@@ -878,12 +878,14 @@
         StateHasChanged();
         try
         {
+            var enabledOk = false;
             if (mi.Disabled)
             {
                 var result = await Deploy.EnableAsync(mi);
                 _deploySteps = result.Steps;
                 _message = result.Message;
                 _messageSuccess = result.Success;
+                enabledOk = result.Success;
             }
             else
             {
@@ -896,6 +898,12 @@
             }
             _statuses.Remove(mi.Id);
             await LoadAsync();
+            // A successful Enable just (re)deployed the interface, so refresh its status silently -
+            // otherwise the badge sits at "Unknown" until a manual Check status, even though the
+            // deploy succeeded (mirrors the Deploy button's post-deploy refresh). After a Disable
+            // the badge reads "Disabled" straight from the flag and needs no probe.
+            if (enabledOk)
+                await CheckStatus(mi, silent: true);
         }
         catch (Exception ex)
         {
