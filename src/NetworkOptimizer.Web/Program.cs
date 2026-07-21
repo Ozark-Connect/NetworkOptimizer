@@ -557,6 +557,7 @@ builder.Services.AddAuthorization();
 
 // Monitoring subsystem
 builder.Services.AddScoped<SnmpDetectionService>();
+builder.Services.AddScoped<MonitoringReadinessService>();
 // Per-site Influx clients (D1: bucket-per-site) live in the registry - the
 // default site's included. Scoped resolution forwards to the current site's
 // client so chart endpoints and pages read that site's buckets; singleton

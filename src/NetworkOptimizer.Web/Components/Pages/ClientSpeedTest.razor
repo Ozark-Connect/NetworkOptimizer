@@ -18,6 +18,7 @@
 @inject ApMapService ApMapService
 @inject PullToRefreshState PtrState
 @inject SiteContextService SiteContext
+@inject MonitoringReadinessService Readiness
 @inject SiteSpeedTestTargetResolver SiteTarget
 
 @* Uses unified Iperf3Result model with Direction field to distinguish test sources *@
@@ -368,7 +369,7 @@
                                         <div class="expand-wrapper @(isExpanded ? "expanded" : "")">
                                             <div class="expand-content">
                                                 <div class="history-details">
-                                                    <SpeedTestDetails Result="result" PathAnalysis="result.PathAnalysis" OnDelete="HandleDeleteResult" OnNotesChanged="HandleNotesChanged" IsInTableRow="true" />
+                                                    <SpeedTestDetails Result="result" PathAnalysis="result.PathAnalysis" OnDelete="HandleDeleteResult" OnNotesChanged="HandleNotesChanged" IsInTableRow="true" ShowLiveViewLink="_liveViewLinkEnabled" />
                                                 </div>
                                             </div>
                                         </div>
@@ -854,10 +855,14 @@
     private int? expandedHistoryId = null;
     private int? _collapsingHistoryId = null; // Track row being collapsed for smooth transition
 
+    private bool _liveViewLinkEnabled;
+
     protected override async Task OnInitializedAsync()
     {
         PtrState.RefreshCallback = () => LoadHistory();
         PtrState.NotifyStateChanged = StateHasChanged;
+
+        _liveViewLinkEnabled = await Readiness.IsHistoricPlaybackAvailableAsync();
 
         // Load networks for VPN detection
         _networks = await ConnectionService.GetNetworksAsync();

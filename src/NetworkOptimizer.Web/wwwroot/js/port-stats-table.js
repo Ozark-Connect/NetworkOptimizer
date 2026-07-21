@@ -490,10 +490,24 @@ export function mount(el, mountOpts = {}) {
     if (Array.isArray(mountOpts.deviceMeta)) {
         for (const d of mountOpts.deviceMeta) if (d && d.mac && d.name) nameOverrides[d.mac] = d.name;
     }
+    // Playback state is module-level and outlives unmount; a paused or historic
+    // state left by a previous session would silently block startPoll() below.
     currentAt = null;
+    paused = false;
     window.__portStatsTable = api;
     loadAndRender();
     startPoll();
+
+    // Converge to the 3D map's (the playback authority's) current state - the
+    // seek/pause push from Blazor can race this mount and be lost (see the
+    // matching pull in wan-live-chart.js).
+    const mapInst = window.__lanFlowMap?.getInstance?.();
+    if (mapInst && mapInst._mode === 'historic') {
+        const at = mapInst._pendingScrubAt ?? mapInst._historicAt;
+        if (at) api.seekTime(at.toISOString());
+    } else if (mapInst && mapInst._paused) {
+        api.pause();
+    }
 }
 
 export const seekTime = (...a) => api.seekTime(...a);

@@ -546,6 +546,10 @@ h1:focus {
     color: var(--primary-color);
 }
 
+.speedtest-liveview-link {
+    gap: 4px;
+}
+
 .card-header-right {
     display: flex;
     align-items: center;

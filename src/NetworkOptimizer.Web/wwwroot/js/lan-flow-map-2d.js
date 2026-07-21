@@ -3,7 +3,7 @@
 // zero duplicate API calls. GPU-composited canvas for smooth particle animation.
 
 // KEEP IN SYNC: lan-flow-map.js imports the same module. Both must use the same ?v= or they get separate instances.
-import * as flowData from './lan-flow-data.js?v=5';
+import * as flowData from './lan-flow-data.js?v=6';
 
 function demoMask(text) {
     const dm = window.DemoMask;
@@ -274,7 +274,12 @@ class LanFlowMap2D {
     }
 
     async start(){
-        if(flowData.isPaused())flowData.publishPlayState(false,'live');
+        // Standalone (dashboard) mounts have no 3D map to reset stale playback
+        // state a previous Monitoring session left in the shared store, so do it
+        // here. On the Monitoring page the 3D map (the playback authority) has
+        // already reset the store - and may have re-entered historic for a
+        // deep-linked timestamp - so a full mount must never force it back live.
+        if(this._liveOnly&&flowData.isPaused())flowData.publishPlayState(false,'live');
         this._createCanvas();
         const snap=flowData.getSnapshot();
         if(snap){

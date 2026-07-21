@@ -16,6 +16,7 @@
 @inject IGatewaySshService GatewaySshService
 @inject SpeedTestServiceRegistry SpeedTestRegistry
 @inject SiteContextService SiteContext
+@inject MonitoringReadinessService Readiness
 @inject NetworkOptimizer.Web.Services.Licensing.LicenseStateService LicenseState
 @inject SiteTunnelRouting TunnelRouting
 @inject AgentOnGatewayDetector OnGatewayDetector
@@ -252,7 +253,8 @@
                                   OnTestAgain="HandleTestAgain"
                                   OnNotesChanged="HandleNotesChanged"
                                   AvailableWans="_availableWans"
-                                  OnWanReassigned="HandleWanReassigned" />
+                                  OnWanReassigned="HandleWanReassigned"
+                                  ShowLiveViewLink="_liveViewLinkEnabled" />
             </div>
         </div>
     }
@@ -562,7 +564,8 @@
                                                                           OnNotesChanged="HandleNotesChanged"
                                                                           AvailableWans="_availableWans"
                                                                           OnWanReassigned="HandleWanReassigned"
-                                                                          IsInTableRow="true" />
+                                                                          IsInTableRow="true"
+                                                                          ShowLiveViewLink="_liveViewLinkEnabled" />
 
                                                         @if (pathAnalysis == null && ConnectionService.IsConnected)
                                                         {
@@ -794,10 +797,14 @@
 
     private bool IsWanVisible(WanSeriesInfo wan) => wan.IsSelected;
 
+    private bool _liveViewLinkEnabled;
+
     protected override async Task OnInitializedAsync()
     {
         PtrState.RefreshCallback = () => LoadHistory();
         PtrState.NotifyStateChanged = StateHasChanged;
+
+        _liveViewLinkEnabled = await Readiness.IsHistoricPlaybackAvailableAsync();
 
         _wanScheduleBannerDismissed = await SettingsService.GetAsync("banner.wan_schedule_dismissed") != null;
         InitializeChartOptions();

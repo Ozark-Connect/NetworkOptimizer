@@ -16,6 +16,7 @@
 @using NetworkOptimizer.Core.Enums
 @using Microsoft.EntityFrameworkCore
 @inject SnmpDetectionService SnmpDetection
+@inject MonitoringReadinessService Readiness
 @inject UniFiConnectionService ConnectionService
 @inject MonitoringInfluxClient InfluxClient
 @inject MonitoringLiveStats LiveStats
@@ -1590,6 +1591,11 @@ else
     [SupplyParameterFromQuery(Name = "tab")]
     public string? TabParam { get; set; }
 
+    // Deep link from a speed-test result: absolute epoch-ms instant to open Live View
+    // at, in historic playback (paused). Consumed once when the 3D map first mounts.
+    [SupplyParameterFromQuery(Name = "at")]
+    public string? AtParam { get; set; }
+
     [SupplyParameterFromQuery(Name = "discover")]
     public string? DiscoverParam { get; set; }
 
@@ -1708,6 +1714,7 @@ else
     // Chart mount tracking
     private bool _mapMounted = false;
     private bool _map2dMounted = false;
+    private bool _initialAtApplied = false;
     private bool _wanLiveChartMounted = false;
     private bool _portStatsMounted = false;
     private bool _latencyChartsMounted;
@@ -2055,13 +2062,7 @@ else
 
         _monitoringEnabled = settings.Enabled;
 
-        bool sharedConnection;
-        await using (var mainDb = SiteDb.CreateForSite(SiteManagementService.DefaultSiteSlug, isDefault: true))
-        {
-            var shared = await mainDb.MonitoringSettings.AsNoTracking().FirstOrDefaultAsync();
-            sharedConnection = !string.IsNullOrEmpty(shared?.InfluxDbToken)
-                && !string.IsNullOrEmpty(shared?.InfluxDbUrl);
-        }
+        bool sharedConnection = await Readiness.IsSharedInfluxConfiguredAsync();
 
         // A secondary site counts as configured only once its own buckets are reachable
         // on the shared InfluxDB. Until then report not-configured so the Setup tab drops
@@ -3665,14 +3666,30 @@ else
             try
             {
                 _mapDotNetRef ??= DotNetObjectReference.Create(this);
+                // Deep-linked timestamp (?at=): applied only on this first mount, so
+                // switching tabs away and back doesn't yank the map back to the past.
+                long initialAtMs = 0;
+                if (!_initialAtApplied && long.TryParse(AtParam, out var atMs) && atMs > 0)
+                {
+                    _initialAtApplied = true;
+                    initialAtMs = atMs;
+                }
+                // Per-mount values (storagePrefix, initialAt) MUST be arguments, never
+                // interpolated into the function body: JS interop resolves the
+                // identifier to a function reference once and keeps invoking that
+                // original closure, so a re-eval'd definition with different baked-in
+                // values is silently ignored on every mount after the first.
                 await JS.InvokeVoidAsync("eval",
-                    "window.__mountLanFlowMap = async function(canvasId, ref) {" +
+                    "window.__mountLanFlowMap = async function(canvasId, ref, storagePrefix, initialAt) {" +
                     "  window.__monitoringRef = ref;" +
                     $"  const m = await import('{VersionedJs("/js/lan-flow-map.js")}');" +
                     "  window.__lanFlowMap = m;" +
-                    $"  await m.mount(canvasId, {{ storagePrefix: '{SiteCtx.ScopeStorageKey("lanFlowMap")}' }});" +
+                    "  const opts = { storagePrefix: storagePrefix };" +
+                    "  if (initialAt > 0) opts.initialAt = initialAt;" +
+                    "  await m.mount(canvasId, opts);" +
                     "}");
-                await JS.InvokeVoidAsync("__mountLanFlowMap", "lan-flow-map-canvas", _mapDotNetRef);
+                await JS.InvokeVoidAsync("__mountLanFlowMap", "lan-flow-map-canvas", _mapDotNetRef,
+                    SiteCtx.ScopeStorageKey("lanFlowMap"), initialAtMs);
             }
             catch (Exception ex) { _mapMounted = false; Logger.LogDebug(ex, "3D map mount failed; will retry on next render"); }
         }
