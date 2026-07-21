@@ -722,6 +722,10 @@ public class MonitoringInterfaceDeploymentServiceTests
         // Per-interface flock serializes a manual apply against the cron watchdog tick.
         script.Should().Contain("flock -n 9");
         script.Should().Contain("/tmp/monitoring-iface-modem0.lock");
+
+        // The lock is guarded on flock's presence so a gateway lacking it degrades to an unlocked
+        // apply rather than the || early-out skipping the apply entirely (fail-open, not fail-closed).
+        script.Should().Contain("if command -v flock >/dev/null 2>&1; then");
     }
 
     private static NetworkInfo UniFiNet(string name, string subnet, bool wan = false, bool enabled = true) => new()
@@ -863,6 +867,9 @@ public class MonitoringInterfaceDeploymentServiceTests
         await service.DisableAsync(mi);
 
         commands.Should().Contain(c => c.Contains("flock -w 30") && c.Contains($"/tmp/monitoring-iface-{mi.Name}.lock"));
+        // The drain is guarded on flock's presence so a flock-less gateway proceeds to teardown
+        // instead of aborting (teardown removes cron+script and verifies absence regardless).
+        commands.Should().Contain(c => c.Contains("command -v flock") && c.Contains("flock -w 30"));
     }
 
     [Fact]
