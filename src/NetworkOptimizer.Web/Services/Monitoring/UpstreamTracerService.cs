@@ -161,22 +161,37 @@ public class UpstreamTracerService
     /// to its attributed ASN from the merged pool, so no extra lookups are done here.
     /// </summary>
     private (int Asn, string Name)? FarthestTransitVia(string destIp, int destAsn, string destName,
-        HashSet<int> accessAsns, Dictionary<string, AsnLookup> asnByHopIp)
+        HashSet<int> accessAsns, Dictionary<string, AsnLookup> asnByHopIp, out bool pathComplete)
     {
-        (int Asn, string Name)? via = null;
-        var hops = _lastTraces
+        var responded = _lastTraces
             .Where(t => string.Equals(t.Target.Address, destIp, StringComparison.OrdinalIgnoreCase))
             .SelectMany(t => t.Hops)
-            .Where(h => h.Address != null)
-            .OrderBy(h => h.HopNumber);
-        foreach (var h in hops)
+            .Where(h => h.Responded && h.Address != null)
+            .ToList();
+        var respondedHopNums = responded.Select(h => h.HopNumber).ToHashSet();
+
+        (int Asn, string Name)? via = null;
+        int? accessStartHop = null;
+        int? destOrgHop = null;
+        foreach (var h in responded.OrderBy(h => h.HopNumber))
         {
             if (!asnByHopIp.TryGetValue(h.Address!, out var asn)) continue;
-            if (accessAsns.Contains(asn.Asn)) continue;
+            if (accessAsns.Contains(asn.Asn)) { accessStartHop ??= h.HopNumber; continue; }
             var name = CleanAsnName(asn.Name);
-            if (asn.Asn == destAsn || string.Equals(name, destName, StringComparison.OrdinalIgnoreCase)) continue;
-            via = (asn.Asn, name); // keep updating -> ends on the farthest non-destination-org transit
+            if (asn.Asn == destAsn || string.Equals(name, destName, StringComparison.OrdinalIgnoreCase))
+            {
+                destOrgHop ??= h.HopNumber;
+                continue;
+            }
+            if (destOrgHop == null) via = (asn.Asn, name); // farthest transit before we reach the dest org
         }
+
+        // "Peered" is only provable when we reached the destination's org AND every hop from the
+        // access ASN to it responded - a star in between could be hiding transit. Otherwise the
+        // caller shows a dash (unknown), not "peered".
+        var from = accessStartHop ?? 1;
+        pathComplete = destOrgHop is int dh && dh >= from
+            && Enumerable.Range(from, dh - from + 1).All(n => respondedHopNums.Contains(n));
         return via;
     }
 
@@ -1384,7 +1399,7 @@ public class UpstreamTracerService
             if (!pathProxyAsnsSeen.Add(destAsn.Asn)) continue;
 
             var cdnName = CleanAsnName(destAsn.Name);
-            var via = FarthestTransitVia(endpoint.Address, destAsn.Asn, cdnName, accessAsnNumbers, asnByHopIp);
+            var via = FarthestTransitVia(endpoint.Address, destAsn.Asn, cdnName, accessAsnNumbers, asnByHopIp, out var cdnComplete);
             candidates.Add(new TransitAsnCandidate
             {
                 AsnNumber = destAsn.Asn,
@@ -1397,7 +1412,8 @@ public class UpstreamTracerService
                 RespondedTo = ProbeMode.Icmp,
                 Enabled = true,
                 ViaAsnNumber = via?.Asn,
-                ViaAsnName = via?.Name
+                ViaAsnName = via?.Name,
+                ViaPathComplete = cdnComplete
             });
         }
 
@@ -1416,7 +1432,7 @@ public class UpstreamTracerService
             {
                 // The via (farthest transit) both labels the row and decides pre-enable: a region is
                 // pre-checked only when its trace actually crosses transit.
-                var via = FarthestTransitVia(r.Ip, amazonAsn, amazonName, accessAsnNumbers, asnByHopIp);
+                var via = FarthestTransitVia(r.Ip, amazonAsn, amazonName, accessAsnNumbers, asnByHopIp, out var awsComplete);
                 candidates.Add(new TransitAsnCandidate
                 {
                     AsnNumber = amazonAsn,
@@ -1429,7 +1445,8 @@ public class UpstreamTracerService
                     RespondedTo = ProbeMode.Icmp,
                     Enabled = via != null,
                     ViaAsnNumber = via?.Asn,
-                    ViaAsnName = via?.Name
+                    ViaAsnName = via?.Name,
+                    ViaPathComplete = awsComplete
                 });
             }
         }

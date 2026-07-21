@@ -127,6 +127,11 @@ public class TransitAsnCandidate
     public int? ViaAsnNumber { get; set; }
     public string? ViaAsnName { get; set; }
 
+    /// <summary>For PathProxy tier with no transit found: true only when we reached the destination's
+    /// org with no unresponsive hops in between (so "peered" is provable). False means the path had
+    /// gaps that could hide transit - shown as a dash, not "peered".</summary>
+    public bool ViaPathComplete { get; set; }
+
     /// <summary>
     /// Trace hop number of this candidate, used by post-verification auto-selection
     /// to order an ASN's hops and split them into RTT clumps (an ASN's run typically

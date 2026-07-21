@@ -376,9 +376,13 @@
                                                 {
                                                     <code>AS@(viaAsn)</code> <span class="text-muted">@host.ViaAsnName</span>
                                                 }
-                                                else
+                                                else if (host.ViaPathComplete)
                                                 {
                                                     <span class="text-muted">peered</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="text-muted">&mdash;</span>
                                                 }
                                             </td>
                                         </tr>
