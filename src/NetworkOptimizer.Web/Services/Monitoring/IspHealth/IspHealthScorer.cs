@@ -798,7 +798,8 @@ public class IspHealthScorer
         double? accessBaselineRtt,
         double? internetMedianDeltaMs,
         double? intraAsnFloorRttMs = null,
-        double? jitterOverrideMs = null)
+        double? jitterOverrideMs = null,
+        double? stabilityMadOverrideMs = null)
     {
         var rtts = series.Samples.Where(s => s.RttAvgMs.HasValue).Select(s => s.RttAvgMs!.Value).ToList();
         var losses = series.Samples.Where(s => s.LossPercent.HasValue && !InOutage(s.Time)).Select(s => s.LossPercent!.Value).ToList();
@@ -828,9 +829,16 @@ public class IspHealthScorer
             : rawEffectiveJitter;
         // RTT stability: take the steadier (lower absolute MAD) of this ASN's near and far clusters,
         // then apply the MAD dead-band and normalize by this hop's own median. Working in absolute
-        // MAD (not the ratio) keeps the near/far min honest and sets up cross-target witness
-        // absolution, which must compare MAD across targets sitting at different base RTTs.
-        var stabilityMad = EffectiveLower(series.Samples, series.JitterSourceSamples, RttMadOf);
+        // MAD (not the ratio) keeps the near/far min honest and lets cross-target witness absolution
+        // (stabilityMadOverrideMs) compare MAD across targets sitting at different base RTTs. A witness
+        // proven to route through this hop that carries steadier end-to-end RTT proves the hop's own
+        // wander is a per-hop artifact (ICMP-deprioritized control plane), so it pulls the MAD down -
+        // absolve-only, and only past the assimilation band so a trivially-lower witness doesn't snap it.
+        var withinMad = EffectiveLower(series.Samples, series.JitterSourceSamples, RttMadOf);
+        var stabilityMad = withinMad;
+        if (stabilityMadOverrideMs.HasValue
+            && (!withinMad.HasValue || stabilityMadOverrideMs.Value < withinMad.Value - _options.StabilityAssimilationMinMadMs))
+            stabilityMad = stabilityMadOverrideMs.Value;
         double? stabilityRatio = stabilityMad.HasValue && medianRtt is > 0
             ? Math.Max(0, stabilityMad.Value - _options.StabilityMadFloorMs) / medianRtt!.Value
             : null;
@@ -1120,6 +1128,22 @@ public class IspHealthScorer
             .Select(b => (b.Series.AsnNumber, b.Series.AncestorIps, Jitter: b.Grade.ScoredJitterMs!.Value))
             .ToList();
 
+        // Stability witnesses in absolute RTT MAD, same sources and routes-through gate as jitter:
+        // a destination or a different transit ASN proven to route through this ASN whose end-to-end
+        // RTT is steadier bounds this ASN's true wander (its own MAD is a per-hop artifact).
+        var destMadWitnesses = hopOrderKnown
+            ? destinationSeries
+                .Select(d => (d.AncestorIps, Mad: RttMadOf(d.Samples)))
+                .Where(w => w.Mad.HasValue)
+                .Select(w => (w.AncestorIps, Mad: w.Mad!.Value))
+                .ToList()
+            : new List<(List<string> AncestorIps, double Mad)>();
+        var transitMadWitnesses = transitSeries
+            .Select(s => (s.AsnNumber, s.AncestorIps, Mad: RttMadOf(s.Samples)))
+            .Where(w => w.Mad.HasValue)
+            .Select(w => (w.AsnNumber, w.AncestorIps, Mad: w.Mad!.Value))
+            .ToList();
+
         var grades = new List<IspAsnHealth>();
         foreach (var (series, baseGrade) in baseGrades)
         {
@@ -1132,14 +1156,24 @@ public class IspHealthScorer
                     .Where(w => hopOrderKnown && w.AsnNumber != series.AsnNumber && RoutesThrough(w.AncestorIps, series.HopIps))
                     .Select(w => w.Jitter))
                 .ToList();
-            if (witnesses.Count == 0)
+            var stabWitnesses = destMadWitnesses
+                .Where(w => hopOrderKnown && RoutesThrough(w.AncestorIps, series.HopIps))
+                .Select(w => w.Mad)
+                .Concat(transitMadWitnesses
+                    .Where(w => hopOrderKnown && w.AsnNumber != series.AsnNumber && RoutesThrough(w.AncestorIps, series.HopIps))
+                    .Select(w => w.Mad))
+                .ToList();
+            double? stabOverride = stabWitnesses.Count > 0 ? stabWitnesses.Min() : (double?)null;
+            if (witnesses.Count == 0 && stabOverride == null)
             {
                 grades.Add(baseGrade);
                 continue;
             }
-            var effective = within.HasValue ? Math.Min(within.Value, witnesses.Min()) : witnesses.Min();
+            double? jitterOverride = witnesses.Count > 0
+                ? (within.HasValue ? Math.Min(within.Value, witnesses.Min()) : witnesses.Min())
+                : null;
             grades.Add(GradeAsn(series, congestionEvents, jitterFloorMs, accessBaselineRtt, internetMedianDeltaMs,
-                jitterOverrideMs: effective));
+                jitterOverrideMs: jitterOverride, stabilityMadOverrideMs: stabOverride));
         }
         return grades;
     }
@@ -1312,6 +1346,27 @@ public class IspHealthScorer
             .Select(s => (Series: s, Jitter: ScoringJitterOf(s.Samples)))
             .ToList();
 
+        // Stability witnesses (parallel to the jitter witnesses above): the same three sources,
+        // each carrying its absolute RTT MAD. A witness proven to route through a hop bounds the
+        // hop's true RTT wander - a steadier forwarded path proves the hop's own MAD is a per-hop
+        // artifact (ICMP-deprioritized control plane). Transit gate opens without hop order (always
+        // downstream); destinations and ISP siblings stay strict.
+        var transitMadWitnesses = transitSeries
+            .Select(s => (Ancestors: s.AncestorIps, Mad: RttMadOf(s.Samples)))
+            .Where(w => w.Mad.HasValue)
+            .Select(w => (w.Ancestors, Mad: w.Mad!.Value))
+            .ToList();
+        var destinationMadWitnesses = hopOrderKnown
+            ? destinationSeries
+                .Select(s => (s.AncestorIps, Mad: RttMadOf(s.Samples)))
+                .Where(w => w.Mad.HasValue)
+                .Select(w => (w.AncestorIps, Mad: w.Mad!.Value))
+                .ToList()
+            : new List<(List<string> AncestorIps, double Mad)>();
+        var ispHopMad = ispHopSeries
+            .Select(s => (Series: s, Mad: RttMadOf(s.Samples)))
+            .ToList();
+
         var grades = new List<IspAsnHealth>();
         foreach (var asnGroup in ispHopSeries.GroupBy(s => s.AsnNumber))
         {
@@ -1345,8 +1400,22 @@ public class IspHealthScorer
                 if (witnesses.Count > 0)
                     effective = measured.HasValue ? Math.Min(measured.Value, witnesses.Min()) : witnesses.Min();
 
+                // Same routes-through gate, in absolute RTT MAD, for the hop's stability.
+                var stabWitnesses = transitMadWitnesses
+                    .Where(w => !hopOrderKnown || RoutesThrough(w.Ancestors, hop.HopIps))
+                    .Select(w => w.Mad)
+                    .Concat(ispHopMad
+                        .Where(h => hopOrderKnown && !ReferenceEquals(h.Series, hop) && h.Mad.HasValue
+                            && RoutesThrough(h.Series.AncestorIps, hop.HopIps))
+                        .Select(h => h.Mad!.Value))
+                    .Concat(destinationMadWitnesses
+                        .Where(w => hopOrderKnown && RoutesThrough(w.AncestorIps, hop.HopIps))
+                        .Select(w => w.Mad))
+                    .ToList();
+                double? stabOverride = stabWitnesses.Count > 0 ? stabWitnesses.Min() : (double?)null;
+
                 var grade = GradeAsn(hop, congestionEvents, jitterFloorMs, accessBaselineRtt, internetMedianDeltaMs,
-                    intraAsnFloorRttMs: intraFloor, jitterOverrideMs: effective);
+                    intraAsnFloorRttMs: intraFloor, jitterOverrideMs: effective, stabilityMadOverrideMs: stabOverride);
                 // Log the graded effective (post sub-0.05 ms assimilation snap in GradeAsn),
                 // not the raw witness min, so the log matches what the hop is actually scored on.
                 _logger?.LogDebug(
