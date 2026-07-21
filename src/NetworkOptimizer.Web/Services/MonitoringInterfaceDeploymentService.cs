@@ -476,6 +476,11 @@ public class MonitoringInterfaceDeploymentService
                   "boot script sweeping or overwriting a foreign rule in this range undetected.");
         }
 
+        // We are (re)deploying, so this interface must not carry a stale disabled marker - a
+        // leftover one (e.g. from a Disable whose marker rollback could not reach the gateway)
+        // would make the boot script we write below early-out and silently no-op the deploy.
+        await RunAsync($"rm -f '{DisabledMarkerPath(mi)}' 2>/dev/null || true");
+
         // Write and run the idempotent boot script.
         var script = GenerateBootScript(mi);
         var unix = script.Replace("\r\n", "\n").Replace("\r", "\n");
