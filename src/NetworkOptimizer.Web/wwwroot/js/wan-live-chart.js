@@ -498,7 +498,6 @@ export async function mount(containerId, opts) {
     // once at mount completion closes that race: pushes that already fired are
     // recovered here, and pushes still pending find a fully mounted chart.
     const mapInst = window.__lanFlowMap?.getInstance?.();
-    window.__lanFlowMap?._dbg?.(`wanChart mount-end pull: inst=${!!mapInst} mode=${mapInst?._mode} paused=${mapInst?._paused} at=${(mapInst?._pendingScrubAt ?? mapInst?._historicAt)?.toISOString() ?? 'null'}`);
     if (mapInst && mapInst._mode === 'historic') {
         const at = mapInst._pendingScrubAt ?? mapInst._historicAt;
         if (at) await seekTime(at.toISOString());
@@ -582,7 +581,6 @@ function stopHistInterpolation() {
 }
 
 export async function seekTime(isoTimestamp) {
-    window.__lanFlowMap?._dbg?.(`wanChart seekTime ${isoTimestamp} chart=${!!chart} polling=${!!pollTimer}`);
     if (!chart) return;
     seekGen++;
     if (!isoTimestamp) {
