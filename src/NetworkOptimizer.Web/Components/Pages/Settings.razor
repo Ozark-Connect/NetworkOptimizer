@@ -1534,6 +1534,16 @@
                                                 <span>Test</span>
                                             }
                                         </button>
+                                        <button class="btn @(ont.Enabled ? "btn-secondary" : "btn-primary") btn-sm" @onclick="() => ToggleOntEnabled(ont)" disabled="@(_ontTogglingId != null)">
+                                            @if (_ontTogglingId == ont.Id)
+                                            {
+                                                <span class="spinner"></span>
+                                            }
+                                            else
+                                            {
+                                                <span>@(ont.Enabled ? "Disable" : "Enable")</span>
+                                            }
+                                        </button>
                                         <button class="btn btn-danger btn-sm" @onclick="() => DeleteOnt(ont.Id)">Delete</button>
                                     </div>
                                 </td>
@@ -4029,6 +4039,7 @@
             || m.Contains("no such host") || m.Contains("actively refused") || m.Contains("connection attempt failed");
     }
     private int? _ontTestingId;
+    private int? _ontTogglingId;
     private string _ontStatus = "Inactive";
 
     // Starlink Monitoring
@@ -5861,6 +5872,27 @@
         finally
         {
             _ontTestingId = null;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ToggleOntEnabled(OntConfiguration config)
+    {
+        _ontTogglingId = config.Id;
+        StateHasChanged();
+        try
+        {
+            await OntMonitorService.SetOntEnabledAsync(config.Id, !config.Enabled);
+            await LoadOntSettings();
+        }
+        catch (Exception ex)
+        {
+            _ontTestResult = $"Error: {ex.Message}";
+            _ontTestResultClass = "danger";
+        }
+        finally
+        {
+            _ontTogglingId = null;
             StateHasChanged();
         }
     }

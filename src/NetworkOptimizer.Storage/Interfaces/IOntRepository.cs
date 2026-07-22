@@ -12,4 +12,20 @@ public interface IOntRepository
     Task<OntConfiguration?> GetOntConfigurationAsync(int id, CancellationToken cancellationToken = default);
     Task SaveOntConfigurationAsync(OntConfiguration config, CancellationToken cancellationToken = default);
     Task DeleteOntConfigurationAsync(int id, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Toggle only the <see cref="OntConfiguration.Enabled"/> flag of one config (the
+    /// row-level Disable/Enable button), without touching the rest of the entity. Bumps
+    /// UpdatedAt; when disabling, clears the stale LastError so a paused row does not keep
+    /// showing an old poll failure. No-op if the id does not exist.
+    /// </summary>
+    Task SetOntEnabledAsync(int id, bool enabled, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Persist a poll outcome for one config, updating only LastPolled (when provided),
+    /// LastError, and UpdatedAt - never Enabled. Skips (and returns false) when the config
+    /// was disabled meanwhile, so an in-flight poll can neither resurrect a paused ONT nor
+    /// overwrite its frozen state. Returns true when the result was persisted.
+    /// </summary>
+    Task<bool> UpdateOntPollResultAsync(int id, DateTime? lastPolled, string? lastError, CancellationToken cancellationToken = default);
 }
