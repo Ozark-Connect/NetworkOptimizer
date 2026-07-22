@@ -642,7 +642,7 @@ else
                     @foreach (var entry in timeline)
                     {
                         <div class="isp-event-item">
-                            <span class="isp-event-badge @entry.BadgeClass">@entry.Badge</span>
+                            <span class="isp-event-badge @entry.BadgeClass" data-tooltip="@entry.BadgeTooltip">@entry.Badge</span>
                             <span class="isp-event-time">@EventTimeLabel(entry.Time)</span>
                             <span class="isp-event-text">@entry.Text</span>
                         </div>
@@ -1201,7 +1201,7 @@ else
     private enum EventCategory { Congestion, Shift, Change }
 
     private record TimelineEntry(DateTime Time, string Badge, string BadgeClass, string Text, DateTime? End = null,
-        EventCategory Category = EventCategory.Congestion);
+        EventCategory Category = EventCategory.Congestion, string? BadgeTooltip = null);
 
     private bool CategoryVisible(TimelineEntry e) => e.Category switch
     {
@@ -1273,22 +1273,25 @@ else
                 && evt.BottleneckHopIp != null
                 ? " and the hops beyond" : "";
             var lead = $"{span} of elevated latency and jitter on {where}{beyond}{load} ({mag}).";
-            var (badge, badgeClass, text) = evt.Disposition switch
+            var (badge, badgeClass, text, tip) = evt.Disposition switch
             {
                 CongestionDisposition.SelfInflicted => ("Loaded Latency", "isp-event-badge-congestion-soft",
-                    $"{lead} Everything slowed together under load, so the limit was your access link, not one hop - bufferbloat or a congested shared-access network."),
+                    $"{lead} Everything slowed together under load, so the limit was your access link, not one hop - bufferbloat or a congested shared-access network.",
+                    (string?)"Latency rose under your own WAN load - likely your access link, not ISP congestion. Shown dimmed."),
                 CongestionDisposition.ControlPlaneNoise => ("Congestion", "isp-event-badge-congestion-soft",
-                    $"{lead} Its next hop stayed clean, so this is the hop's own ICMP handling, not a forwarding bottleneck."),
+                    $"{lead} Its next hop stayed clean, so this is the hop's own ICMP handling, not a forwarding bottleneck.",
+                    "This hop deprioritized ping replies while forwarding stayed clean - not confirmed as real congestion. Shown dimmed."),
                 CongestionDisposition.Unverifiable => ("Congestion", "isp-event-badge-congestion-soft",
-                    $"{lead}"),
+                    $"{lead}",
+                    "Seen on one path and couldn't be cross-checked, so it's unconfirmed. Shown dimmed."),
                 _ when evt.ConfirmedBySibling => ("Congestion", "isp-event-badge-congestion",
-                    $"{lead}"),
+                    $"{lead}", null),
                 _ when evt.LoadCoincident && evt.CleanParallelPaths > 0 => ("Congestion", "isp-event-badge-congestion",
-                    $"{lead} {evt.CleanParallelPaths} other monitored paths stayed clean under the same load, so it was this hop's own capacity, not your access link."),
+                    $"{lead} {evt.CleanParallelPaths} other monitored paths stayed clean under the same load, so it was this hop's own capacity, not your access link.", null),
                 _ => ("Congestion", "isp-event-badge-congestion",
-                    $"{lead}")
+                    $"{lead}", null)
             };
-            entries.Add(new TimelineEntry(evt.Start, badge, badgeClass, text, evt.End));
+            entries.Add(new TimelineEntry(evt.Start, badge, badgeClass, text, evt.End, BadgeTooltip: tip));
         }
         foreach (var shift in r.PathShifts)
         {
