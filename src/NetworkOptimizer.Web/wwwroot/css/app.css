@@ -17000,6 +17000,7 @@ a.isp-health-hero-speed:hover {
     text-transform: uppercase;
     letter-spacing: 0.04em;
     white-space: nowrap;
+    cursor: default;
 }
 
 .isp-event-badge[data-tooltip] {
