@@ -16,6 +16,8 @@
 #   --token  TOKEN   One-time enrollment token (required on first install)
 #   --lan-speed-test Host the LAN speed test page (port 3000) and iperf3 (5201)
 #   --insecure       Accept a self-signed cert on the server's reverse proxy
+#   --force-native   Skip the UniFi gateway refusal (this installer targets a
+#                    separate box; on a UniFi OS gateway use install-agent-gateway.sh)
 #   --dir PATH       Install directory (default: /opt/netopt-agent)
 #   --uninstall      Stop and remove the agent, its services, install dir, and any
 #                    AppArmor override this installer added, then exit
@@ -29,6 +31,7 @@ TOKEN=""
 LAN_SPEED_TEST=false
 INSECURE=false
 UNINSTALL=false
+FORCE_NATIVE=false
 CONFIGURE_APPARMOR=false
 INSTALL_DIR="/opt/netopt-agent"
 SERVICE_NAME="netopt-agent"
@@ -42,6 +45,7 @@ while [ $# -gt 0 ]; do
         --lan-speed-test) LAN_SPEED_TEST=true; shift ;;
         --insecure) INSECURE=true; shift ;;
         --uninstall) UNINSTALL=true; shift ;;
+        --force-native) FORCE_NATIVE=true; shift ;;
         --configure-apparmor) CONFIGURE_APPARMOR=true; shift ;;
         --dir) INSTALL_DIR="$2"; shift 2 ;;
         *) echo "Unknown option: $1" >&2; exit 1 ;;
@@ -315,6 +319,19 @@ command -v systemctl >/dev/null 2>&1 || err "systemd is required (systemctl not 
 if [ "$UNINSTALL" = true ]; then
     uninstall_agent
     exit 0
+fi
+
+# This is the separate-box installer: it targets /opt, installs an unfenced
+# service unit, and can host the LAN speed test - all wrong on a UniFi gateway,
+# where the identical unit name would clobber the memory-fenced on-gateway
+# install and re-enroll it as a new agent. ubnt-device-info ships on every
+# UniFi OS gateway and nowhere else, so its presence is the refusal signal.
+# (--uninstall above is deliberately NOT guarded: cleaning up a mistaken
+# install on a gateway must always be possible.)
+if [ "$FORCE_NATIVE" != true ] && command -v ubnt-device-info >/dev/null 2>&1; then
+    err "This host is a UniFi OS gateway ($(ubnt-device-info model 2>/dev/null || echo model unknown)) - use the on-gateway installer instead:
+  curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/agent/install-agent-gateway.sh | bash -s -- --server ... --token ...
+Re-run with --force-native to override (not recommended: no memory fence, and the LAN speed test does not belong on the router)."
 fi
 
 [ -n "$SERVER" ] || err "--server is required (the central server's HTTPS address)"
