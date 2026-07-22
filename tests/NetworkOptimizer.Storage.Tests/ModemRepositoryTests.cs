@@ -96,4 +96,128 @@ public class ModemRepositoryTests : IDisposable
         var deleted = await _context.ModemConfigurations.FindAsync(id);
         deleted.Should().BeNull();
     }
+
+    [Fact]
+    public async Task SetModemEnabledAsync_Disable_SetsFlagFalseAndClearsLastError()
+    {
+        var modem = new ModemConfiguration
+        {
+            Name = "UniFi 5G Max", Host = "192.168.1.1", Enabled = true,
+            LastError = "timeout after 10s", LastPolled = new DateTime(2026, 7, 22, 8, 0, 0, DateTimeKind.Utc),
+        };
+        _context.ModemConfigurations.Add(modem);
+        await _context.SaveChangesAsync();
+
+        await _repository.SetModemEnabledAsync(modem.Id, false);
+
+        var reloaded = await _repository.GetModemConfigurationAsync(modem.Id);
+        reloaded!.Enabled.Should().BeFalse();
+        reloaded.LastError.Should().BeNull("a paused modem should not keep showing a stale poll error");
+        reloaded.LastPolled.Should().Be(new DateTime(2026, 7, 22, 8, 0, 0, DateTimeKind.Utc),
+            "LastPolled is history and is preserved");
+    }
+
+    [Fact]
+    public async Task SetModemEnabledAsync_Enable_SetsFlagTrueAndLeavesLastErrorForNextPoll()
+    {
+        var modem = new ModemConfiguration
+        {
+            Name = "LTE Backup Pro", Host = "192.168.1.2", Enabled = false, LastError = "was unreachable",
+        };
+        _context.ModemConfigurations.Add(modem);
+        await _context.SaveChangesAsync();
+
+        await _repository.SetModemEnabledAsync(modem.Id, true);
+
+        var reloaded = await _repository.GetModemConfigurationAsync(modem.Id);
+        reloaded!.Enabled.Should().BeTrue();
+        reloaded.LastError.Should().Be("was unreachable",
+            "re-enabling does not fabricate a healthy state; the next poll overwrites LastError");
+    }
+
+    [Fact]
+    public async Task SetModemEnabledAsync_BumpsUpdatedAt()
+    {
+        var modem = new ModemConfiguration
+        {
+            Name = "Modem", Host = "192.168.1.1", Enabled = true,
+            UpdatedAt = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+        };
+        _context.ModemConfigurations.Add(modem);
+        await _context.SaveChangesAsync();
+
+        await _repository.SetModemEnabledAsync(modem.Id, false);
+
+        var reloaded = await _repository.GetModemConfigurationAsync(modem.Id);
+        reloaded!.UpdatedAt.Should().BeAfter(new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+    }
+
+    [Fact]
+    public async Task SetModemEnabledAsync_UnknownId_DoesNotThrow()
+    {
+        var act = async () => await _repository.SetModemEnabledAsync(9999, false);
+        await act.Should().NotThrowAsync();
+    }
+
+    [Fact]
+    public async Task UpdateModemPollResultAsync_EnabledConfig_WritesResultAndReturnsTrue()
+    {
+        var modem = new ModemConfiguration { Name = "Modem", Host = "192.168.1.1", Enabled = true };
+        _context.ModemConfigurations.Add(modem);
+        await _context.SaveChangesAsync();
+        var when = new DateTime(2026, 7, 22, 9, 0, 0, DateTimeKind.Utc);
+
+        var persisted = await _repository.UpdateModemPollResultAsync(modem.Id, when, null);
+
+        persisted.Should().BeTrue();
+        var reloaded = await _repository.GetModemConfigurationAsync(modem.Id);
+        reloaded!.LastPolled.Should().Be(when);
+        reloaded.LastError.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task UpdateModemPollResultAsync_ErrorPath_SetsErrorWithoutAdvancingLastPolled()
+    {
+        var lastSuccess = new DateTime(2026, 7, 22, 8, 0, 0, DateTimeKind.Utc);
+        var modem = new ModemConfiguration { Name = "Modem", Host = "192.168.1.1", Enabled = true, LastPolled = lastSuccess };
+        _context.ModemConfigurations.Add(modem);
+        await _context.SaveChangesAsync();
+
+        var persisted = await _repository.UpdateModemPollResultAsync(modem.Id, lastPolled: null, "boom");
+
+        persisted.Should().BeTrue();
+        var reloaded = await _repository.GetModemConfigurationAsync(modem.Id);
+        reloaded!.LastError.Should().Be("boom");
+        reloaded.LastPolled.Should().Be(lastSuccess, "an error must not advance LastPolled, which tracks the last success");
+    }
+
+    [Fact]
+    public async Task UpdateModemPollResultAsync_ConfigDisabledMidPoll_DoesNotResurrectOrOverwrite()
+    {
+        // Regression: an in-flight poll finishing after the user clicked Disable must not
+        // re-enable the modem or rewrite the LastError that Disable cleared.
+        var modem = new ModemConfiguration
+        {
+            Name = "UniFi 5G Max", Host = "192.168.1.1", Enabled = true, LastError = "timeout",
+            LastPolled = new DateTime(2026, 7, 22, 8, 0, 0, DateTimeKind.Utc),
+        };
+        _context.ModemConfigurations.Add(modem);
+        await _context.SaveChangesAsync();
+
+        await _repository.SetModemEnabledAsync(modem.Id, false);            // user pauses it
+        var persisted = await _repository.UpdateModemPollResultAsync(       // late poll result lands
+            modem.Id, new DateTime(2026, 7, 22, 8, 5, 0, DateTimeKind.Utc), "timeout again");
+
+        persisted.Should().BeFalse();
+        var reloaded = await _repository.GetModemConfigurationAsync(modem.Id);
+        reloaded!.Enabled.Should().BeFalse("the late poll must not re-enable a paused modem");
+        reloaded.LastError.Should().BeNull("the late poll must not overwrite the LastError that Disable cleared");
+        reloaded.LastPolled.Should().Be(new DateTime(2026, 7, 22, 8, 0, 0, DateTimeKind.Utc));
+    }
+
+    [Fact]
+    public async Task UpdateModemPollResultAsync_UnknownId_ReturnsFalse()
+    {
+        (await _repository.UpdateModemPollResultAsync(9999, DateTime.UtcNow, null)).Should().BeFalse();
+    }
 }

@@ -52,6 +52,13 @@ public interface ICellularModemService : IDisposable
     Task<List<ModemConfiguration>> GetModemsAsync();
 
     /// <summary>
+    /// Enable or disable polling for one modem while retaining its configuration.
+    /// </summary>
+    /// <param name="id">The modem configuration ID.</param>
+    /// <param name="enabled">Whether polling is enabled.</param>
+    Task SetModemEnabledAsync(int id, bool enabled);
+
+    /// <summary>
     /// Add or update a modem configuration.
     /// </summary>
     /// <param name="config">The modem configuration to save.</param>
