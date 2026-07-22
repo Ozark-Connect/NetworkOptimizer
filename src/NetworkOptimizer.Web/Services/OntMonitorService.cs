@@ -188,6 +188,18 @@ public class OntMonitorService : IDisposable
     }
 
     /// <summary>
+    /// Enable or disable polling for one ONT (the Settings row Disable/Enable toggle).
+    /// Disabled configs are skipped by the poll loop (GetEnabledOntConfigurationsAsync)
+    /// while their configuration is retained.
+    /// </summary>
+    public async Task SetOntEnabledAsync(int id, bool enabled)
+    {
+        using var scope = CreateSiteScope();
+        var repository = scope.ServiceProvider.GetRequiredService<IOntRepository>();
+        await repository.SetOntEnabledAsync(id, enabled);
+    }
+
+    /// <summary>
     /// Test connectivity to an ONT without persisting anything.
     /// Used by the Settings page Test button.
     /// </summary>
@@ -276,11 +288,11 @@ public class OntMonitorService : IDisposable
             var stats = await provider.PollAsync(context);
             if (stats != null)
             {
-                // Update last polled timestamp
-                config.LastPolled = DateTime.UtcNow;
-                config.LastError = null;
-                config.UpdatedAt = DateTime.UtcNow;
-                await repository.SaveOntConfigurationAsync(config);
+                // Persist only the poll result (never Enabled). If the config was disabled
+                // mid-poll this returns false, so a paused ONT neither records a fresh poll
+                // nor keeps caching/alerting/charting.
+                if (!await repository.UpdateOntPollResultAsync(config.Id, DateTime.UtcNow, null))
+                    return stats;
 
                 // Cache stats
                 _statsCache[config.Id] = stats;
@@ -318,9 +330,9 @@ public class OntMonitorService : IDisposable
     {
         try
         {
-            config.LastError = error;
-            config.UpdatedAt = DateTime.UtcNow;
-            await repository.SaveOntConfigurationAsync(config);
+            // lastPolled null: an error does not advance LastPolled (it tracks last success).
+            // Skips silently if the config was disabled meanwhile, so a paused row stays clean.
+            await repository.UpdateOntPollResultAsync(config.Id, null, error);
         }
         catch (Exception ex)
         {
