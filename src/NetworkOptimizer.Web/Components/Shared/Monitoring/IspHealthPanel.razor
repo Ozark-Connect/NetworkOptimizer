@@ -622,9 +622,9 @@ else
         <div class="card-header isp-events-header">
             <h2 class="card-title">Path &amp; Congestion Events (@EventsWindowLabel(r))</h2>
             <div class="time-range-selector isp-event-filter">
-                <button class="time-btn evt-congestion @(_showCongestion ? "active" : "")" @onclick="() => ToggleEventFilterAsync(EventCategory.Congestion)">Congestion</button>
-                <button class="time-btn evt-shift @(_showShifts ? "active" : "")" @onclick="() => ToggleEventFilterAsync(EventCategory.Shift)">Path shifts</button>
-                <button class="time-btn evt-change @(_showChanges ? "active" : "")" @onclick="() => ToggleEventFilterAsync(EventCategory.Change)">Path changes</button>
+                <button class="time-btn evt-congestion @(_visibleEventCats.Contains(EventCategory.Congestion) ? "active" : "")" @onclick="() => ToggleEventFilterAsync(EventCategory.Congestion)">Congestion</button>
+                <button class="time-btn evt-shift @(_visibleEventCats.Contains(EventCategory.Shift) ? "active" : "")" @onclick="() => ToggleEventFilterAsync(EventCategory.Shift)">Path shifts</button>
+                <button class="time-btn evt-change @(_visibleEventCats.Contains(EventCategory.Change) ? "active" : "")" @onclick="() => ToggleEventFilterAsync(EventCategory.Change)">Path changes</button>
             </div>
         </div>
         <div class="card-body">
@@ -641,7 +641,10 @@ else
                 <div class="isp-event-timeline">
                     @foreach (var entry in timeline)
                     {
-                        <div class="isp-event-item">
+                        @* Keyed so filter/report re-renders never reuse a badge span across entries -
+                           Tippy caches its content per node, so attribute-swapped reuse shows a stale
+                           tooltip (e.g. a congestion tooltip on a Path shift badge). *@
+                        <div class="isp-event-item" @key="entry">
                             <span class="isp-event-badge @entry.BadgeClass" data-tooltip="@entry.BadgeTooltip">@entry.Badge</span>
                             <span class="isp-event-time">@EventTimeLabel(entry.Time)</span>
                             <span class="isp-event-text">@entry.Text</span>
@@ -721,10 +724,12 @@ else
     private System.Threading.Timer? _ageTimer;
 
     // Path & Congestion Events category filters (display-only - scoring is untouched). All on by
-    // default; the hidden set persists per site in localStorage as a comma list.
-    private bool _showCongestion = true;
-    private bool _showShifts = true;
-    private bool _showChanges = true;
+    // default; the hidden set persists per site in localStorage as a comma list. Click semantics
+    // match the LAN flow map band chips: all on -> click solos that category, only-it-on -> click
+    // restores all, otherwise a plain toggle.
+    private static readonly EventCategory[] AllEventCategories =
+        { EventCategory.Congestion, EventCategory.Shift, EventCategory.Change };
+    private HashSet<EventCategory> _visibleEventCats = new(AllEventCategories);
     private const string EventFilterBaseKey = "isp-health-event-filters";
 
     // Date/time filter. Never persisted: OnInitializedAsync starts on the live window (the effective
@@ -1045,10 +1050,10 @@ else
             catch { /* persistence is best-effort */ }
             if (!string.IsNullOrEmpty(hidden))
             {
-                _showCongestion = !hidden.Contains("congestion");
-                _showShifts = !hidden.Contains("shift");
-                _showChanges = !hidden.Contains("change");
-                if (!_showCongestion || !_showShifts || !_showChanges) StateHasChanged();
+                if (hidden.Contains("congestion")) _visibleEventCats.Remove(EventCategory.Congestion);
+                if (hidden.Contains("shift")) _visibleEventCats.Remove(EventCategory.Shift);
+                if (hidden.Contains("change")) _visibleEventCats.Remove(EventCategory.Change);
+                if (_visibleEventCats.Count < AllEventCategories.Length) StateHasChanged();
             }
         }
         if (_scrollChartAfterRender)
@@ -1203,36 +1208,32 @@ else
     private record TimelineEntry(DateTime Time, string Badge, string BadgeClass, string Text, DateTime? End = null,
         EventCategory Category = EventCategory.Congestion, string? BadgeTooltip = null);
 
-    private bool CategoryVisible(TimelineEntry e) => e.Category switch
-    {
-        EventCategory.Shift => _showShifts,
-        EventCategory.Change => _showChanges,
-        _ => _showCongestion,
-    };
+    private bool CategoryVisible(TimelineEntry e) => _visibleEventCats.Contains(e.Category);
 
     // Hidden categories as the chart's annotation type names, as a JS array literal for the
     // mount/setHiddenTypes calls.
     private string HiddenChartTypesJson()
     {
         var hidden = new List<string>();
-        if (!_showCongestion) hidden.Add("'congestion'");
-        if (!_showShifts) hidden.Add("'path-shift'");
-        if (!_showChanges) hidden.Add("'unreachable'");
+        if (!_visibleEventCats.Contains(EventCategory.Congestion)) hidden.Add("'congestion'");
+        if (!_visibleEventCats.Contains(EventCategory.Shift)) hidden.Add("'path-shift'");
+        if (!_visibleEventCats.Contains(EventCategory.Change)) hidden.Add("'unreachable'");
         return "[" + string.Join(",", hidden) + "]";
     }
 
     private async Task ToggleEventFilterAsync(EventCategory cat)
     {
-        switch (cat)
-        {
-            case EventCategory.Congestion: _showCongestion = !_showCongestion; break;
-            case EventCategory.Shift: _showShifts = !_showShifts; break;
-            case EventCategory.Change: _showChanges = !_showChanges; break;
-        }
+        if (_visibleEventCats.Count == AllEventCategories.Length)
+            _visibleEventCats = new HashSet<EventCategory> { cat };
+        else if (_visibleEventCats.Count == 1 && _visibleEventCats.Contains(cat))
+            _visibleEventCats = new HashSet<EventCategory>(AllEventCategories);
+        else if (!_visibleEventCats.Remove(cat))
+            _visibleEventCats.Add(cat);
+
         var hidden = new List<string>();
-        if (!_showCongestion) hidden.Add("congestion");
-        if (!_showShifts) hidden.Add("shift");
-        if (!_showChanges) hidden.Add("change");
+        if (!_visibleEventCats.Contains(EventCategory.Congestion)) hidden.Add("congestion");
+        if (!_visibleEventCats.Contains(EventCategory.Shift)) hidden.Add("shift");
+        if (!_visibleEventCats.Contains(EventCategory.Change)) hidden.Add("change");
         try { await JS.InvokeVoidAsync("localStorage.setItem", SiteCtx.ScopeStorageKey(EventFilterBaseKey), string.Join(",", hidden)); }
         catch { /* persistence is best-effort */ }
         if (_chartMounted)
