@@ -133,16 +133,19 @@
         }
 
         <div class="sqm-actions">
-            <button class="btn btn-secondary" @onclick="RefreshStats" @onclick:stopPropagation disabled="@isRefreshing">
-                @if (isRefreshing)
-                {
-                    <span class="spinner-sm"></span>
-                }
-                else
-                {
-                    <span>Refresh</span>
-                }
-            </button>
+            @* Tooltip lives on the wrapper: a disabled button has pointer-events none and never fires the hover *@
+            <span data-tooltip="@(CurrentEnabled ? null : "Monitoring is disabled for this device. Enable it in Starlink Settings.")" @onclick:stopPropagation>
+                <button class="btn btn-secondary" @onclick="RefreshStats" @onclick:stopPropagation disabled="@(isRefreshing || !CurrentEnabled)">
+                    @if (isRefreshing)
+                    {
+                        <span class="spinner-sm"></span>
+                    }
+                    else
+                    {
+                        <span>Refresh</span>
+                    }
+                </button>
+            </span>
             <a href="/settings#starlink" class="btn btn-primary" @onclick:stopPropagation>Starlink Settings</a>
         </div>
     }
@@ -308,21 +311,30 @@
         await LoadStats();
         await OnDataLoaded.InvokeAsync();
 
-        // Pick up cached stats from background polling
+        // Picks up cached stats from background polling, and reloads the configs so a
+        // Disable/Enable toggle in Settings reaches the card without a page refresh.
         _refreshTimer = new System.Threading.Timer(
-            async _ => await InvokeAsync(() =>
+            async _ => await InvokeAsync(async () =>
             {
-                if (!isRefreshing && !isLoading && configuredTerminals.Count > 0 && currentIndex < configuredTerminals.Count)
+                try
                 {
-                    var terminal = configuredTerminals[currentIndex];
-                    var newStats = StarlinkService.GetCachedStats(terminal.Id);
-                    if (newStats != null)
+                    if (isRefreshing || isLoading) return;
+                    configuredTerminals = await StarlinkService.GetConfigsAsync();
+                    hasConfiguredTerminals = configuredTerminals.Any();
+                    if (currentIndex >= configuredTerminals.Count) currentIndex = 0;
+                    if (configuredTerminals.Count > 0)
                     {
-                        stats = newStats;
-                        obstructionMap = StarlinkService.GetCachedObstructionMap(terminal.Id);
-                        StateHasChanged();
+                        var terminal = configuredTerminals[currentIndex];
+                        var newStats = StarlinkService.GetCachedStats(terminal.Id);
+                        if (newStats != null)
+                        {
+                            stats = newStats;
+                            obstructionMap = StarlinkService.GetCachedObstructionMap(terminal.Id);
+                        }
                     }
+                    StateHasChanged();
                 }
+                catch { }
             }),
             null,
             TimeSpan.FromSeconds(15),
@@ -375,8 +387,15 @@
         }
     }
 
+    /// <summary>Whether polling is enabled for the currently shown terminal (disabled configs
+    /// keep their card but lose the manual Refresh - polling would be rejected anyway).</summary>
+    private bool CurrentEnabled => configuredTerminals.Count == 0
+        || currentIndex >= configuredTerminals.Count
+        || configuredTerminals[currentIndex].Enabled;
+
     private async Task RefreshStats()
     {
+        if (!CurrentEnabled) return;
         isRefreshing = true;
         StateHasChanged();
 
@@ -424,7 +443,9 @@
         obstructionMap = StarlinkService.GetCachedObstructionMap(terminal.Id);
         StateHasChanged();
 
-        if (stats == null && pollIfEmpty)
+        // Don't ping the dish of a paused terminal - the guarded poll write would
+        // refuse to cache the result anyway.
+        if (stats == null && pollIfEmpty && terminal.Enabled)
         {
             await StarlinkService.PollStarlinkAsync(terminal.Id);
             stats = StarlinkService.GetCachedStats(terminal.Id);
