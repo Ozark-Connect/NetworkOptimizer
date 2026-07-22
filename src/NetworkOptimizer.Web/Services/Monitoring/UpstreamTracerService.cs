@@ -98,12 +98,18 @@ public class UpstreamTracerService
     // clean routes-through witnesses for jitter/stability absolution. Because they're unicast, they
     // are resolved + latency-ranked at discovery time and only the nearest sub-80ms region(s) are
     // kept - never hardcoded. Comprehensive/global list so a site anywhere keeps its local region(s).
+    // Every commercial region whose endpoint answers ICMP (me-south-1 does not reply and is omitted).
     private static readonly string[] AwsRegions =
     {
-        "us-east-1", "us-east-2", "us-west-1", "us-west-2", "ca-central-1",
-        "eu-west-1", "eu-west-2", "eu-west-3", "eu-central-1", "eu-north-1",
-        "ap-northeast-1", "ap-northeast-2", "ap-southeast-1", "ap-southeast-2",
-        "ap-south-1", "sa-east-1"
+        "us-east-1", "us-east-2", "us-west-1", "us-west-2",
+        "ca-central-1", "ca-west-1", "mx-central-1", "sa-east-1",
+        "eu-west-1", "eu-west-2", "eu-west-3", "eu-central-1", "eu-central-2",
+        "eu-north-1", "eu-south-1", "eu-south-2",
+        "il-central-1", "me-central-1", "af-south-1",
+        "ap-east-1", "ap-east-2", "ap-south-1", "ap-south-2",
+        "ap-northeast-1", "ap-northeast-2", "ap-northeast-3",
+        "ap-southeast-1", "ap-southeast-2", "ap-southeast-3", "ap-southeast-4",
+        "ap-southeast-5", "ap-southeast-6", "ap-southeast-7"
     };
     private const double AwsMaxRttMs = 80.0;
 
