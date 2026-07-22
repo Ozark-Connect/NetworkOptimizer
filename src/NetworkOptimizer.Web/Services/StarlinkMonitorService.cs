@@ -132,6 +132,18 @@ public sealed class StarlinkMonitorService : IDisposable
     }
 
     /// <summary>
+    /// Enable or disable polling for one terminal (the Settings row Disable/Enable toggle).
+    /// Disabled configs are skipped by the poll loop (GetEnabledStarlinkConfigurationsAsync)
+    /// while their configuration is retained.
+    /// </summary>
+    public async Task SetStarlinkEnabledAsync(int id, bool enabled)
+    {
+        using var scope = CreateSiteScope();
+        var repo = scope.ServiceProvider.GetRequiredService<IStarlinkRepository>();
+        await repo.SetStarlinkEnabledAsync(id, enabled);
+    }
+
+    /// <summary>
     /// Get all Starlink terminal configurations (enabled and disabled).
     /// </summary>
     public async Task<List<StarlinkConfiguration>> GetConfigsAsync()
@@ -234,10 +246,15 @@ public sealed class StarlinkMonitorService : IDisposable
 
             if (stats != null)
             {
-                _statsCache[config.Id] = stats;
-                await UpdateConfigSuccessAsync(config.Id);
-                WriteToInflux(config, stats);
-                await RefreshObstructionMapAsync(provider, context, config.Id);
+                // Persist the poll result BEFORE caching/Influx: the guarded write returns
+                // false when the config was disabled mid-poll, so a paused terminal neither
+                // caches nor charts.
+                if (await UpdateConfigSuccessAsync(config.Id))
+                {
+                    _statsCache[config.Id] = stats;
+                    WriteToInflux(config, stats);
+                    await RefreshObstructionMapAsync(provider, context, config.Id);
+                }
             }
             else
             {
@@ -298,24 +315,22 @@ public sealed class StarlinkMonitorService : IDisposable
         };
     }
 
-    private async Task UpdateConfigSuccessAsync(int id)
+    /// <summary>
+    /// Guarded success write - returns false (and persists nothing) when the config was
+    /// disabled while the poll was in flight, so callers can skip caching/Influx too.
+    /// </summary>
+    private async Task<bool> UpdateConfigSuccessAsync(int id)
     {
         try
         {
             using var scope = CreateSiteScope();
             var repo = scope.ServiceProvider.GetRequiredService<IStarlinkRepository>();
-            var config = await repo.GetStarlinkConfigurationAsync(id);
-            if (config != null)
-            {
-                config.LastPolled = DateTime.UtcNow;
-                config.LastError = null;
-                config.UpdatedAt = DateTime.UtcNow;
-                await repo.SaveStarlinkConfigurationAsync(config);
-            }
+            return await repo.UpdateStarlinkPollResultAsync(id, DateTime.UtcNow, null);
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to update Starlink config {Id} after successful poll", id);
+            return false;
         }
     }
 
@@ -325,13 +340,8 @@ public sealed class StarlinkMonitorService : IDisposable
         {
             using var scope = CreateSiteScope();
             var repo = scope.ServiceProvider.GetRequiredService<IStarlinkRepository>();
-            var config = await repo.GetStarlinkConfigurationAsync(id);
-            if (config != null)
-            {
-                config.LastError = error.Length > 1000 ? error[..1000] : error;
-                config.UpdatedAt = DateTime.UtcNow;
-                await repo.SaveStarlinkConfigurationAsync(config);
-            }
+            await repo.UpdateStarlinkPollResultAsync(
+                id, lastPolled: null, error.Length > 1000 ? error[..1000] : error);
         }
         catch (Exception ex)
         {

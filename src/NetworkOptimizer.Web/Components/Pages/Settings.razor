@@ -1783,6 +1783,16 @@
                                                 <span>Test</span>
                                             }
                                         </button>
+                                        <button class="btn @(terminal.Enabled ? "btn-secondary" : "btn-primary") btn-sm" @onclick="() => ToggleStarlinkEnabled(terminal)" disabled="@(_starlinkTogglingId != null)">
+                                            @if (_starlinkTogglingId == terminal.Id)
+                                            {
+                                                <span class="spinner"></span>
+                                            }
+                                            else
+                                            {
+                                                <span>@(terminal.Enabled ? "Disable" : "Enable")</span>
+                                            }
+                                        </button>
                                         <button class="btn btn-danger btn-sm" @onclick="() => DeleteStarlink(terminal.Id)">Delete</button>
                                     </div>
                                 </td>
@@ -4072,6 +4082,7 @@
     private string? _starlinkTestResult;
     private string _starlinkTestResultClass = "info";
     private int? _starlinkTestingId;
+    private int? _starlinkTogglingId;
     private string? _starlinkTestedHost;
     private string _starlinkStatus = "Inactive";
 
@@ -6180,6 +6191,27 @@
         finally
         {
             _starlinkTestingId = null;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ToggleStarlinkEnabled(StarlinkConfiguration config)
+    {
+        _starlinkTogglingId = config.Id;
+        StateHasChanged();
+        try
+        {
+            await StarlinkMonitor.SetStarlinkEnabledAsync(config.Id, !config.Enabled);
+            await LoadStarlinkSettings();
+        }
+        catch (Exception ex)
+        {
+            _starlinkTestResult = $"Error: {ex.Message}";
+            _starlinkTestResultClass = "danger";
+        }
+        finally
+        {
+            _starlinkTogglingId = null;
             StateHasChanged();
         }
     }
