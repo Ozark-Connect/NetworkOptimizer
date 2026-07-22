@@ -107,9 +107,12 @@ else if (IsShowingExternal && _externalOntStats != null)
     </div>
 
     <div class="sqm-actions">
-        <button class="btn btn-secondary" @onclick="RefreshExternal" @onclick:stopPropagation disabled="@_isRefreshing">
-            @if (_isRefreshing) { <span class="spinner-sm"></span> } else { <span>Refresh</span> }
-        </button>
+        @* Tooltip lives on the wrapper: a disabled button has pointer-events none and never fires the hover *@
+        <span data-tooltip="@(CurrentExternalEnabled ? null : "Monitoring is disabled for this device. Enable it in ONT Settings.")" @onclick:stopPropagation>
+            <button class="btn btn-secondary" @onclick="RefreshExternal" @onclick:stopPropagation disabled="@(_isRefreshing || !CurrentExternalEnabled)">
+                @if (_isRefreshing) { <span class="spinner-sm"></span> } else { <span>Refresh</span> }
+            </button>
+        </span>
         <a href="/settings#ont-monitoring" class="btn btn-primary" @onclick:stopPropagation>ONT Settings</a>
     </div>
 }
@@ -158,9 +161,12 @@ else if (IsShowingExternal)
     </div>
 
     <div class="sqm-actions">
-        <button class="btn btn-secondary" @onclick="RefreshExternal" @onclick:stopPropagation disabled="@_isRefreshing">
-            @if (_isRefreshing) { <span class="spinner-sm"></span> } else { <span>Refresh</span> }
-        </button>
+        @* Tooltip lives on the wrapper: a disabled button has pointer-events none and never fires the hover *@
+        <span data-tooltip="@(CurrentExternalEnabled ? null : "Monitoring is disabled for this device. Enable it in ONT Settings.")" @onclick:stopPropagation>
+            <button class="btn btn-secondary" @onclick="RefreshExternal" @onclick:stopPropagation disabled="@(_isRefreshing || !CurrentExternalEnabled)">
+                @if (_isRefreshing) { <span class="spinner-sm"></span> } else { <span>Refresh</span> }
+            </button>
+        </span>
         <a href="/settings#ont-monitoring" class="btn btn-primary" @onclick:stopPropagation>ONT Settings</a>
     </div>
 }
@@ -385,12 +391,20 @@ else
     {
         await LoadOntsAsync();
         await OnDataLoaded.InvokeAsync();
+        // Each tick re-reads cached stats AND the external configs, so a Disable/Enable
+        // toggle in Settings reaches the card without a page refresh.
         _refreshTimer = new System.Threading.Timer(_ =>
         {
             try
             {
-                _ = InvokeAsync(() =>
+                _ = InvokeAsync(async () =>
                 {
+                    try
+                    {
+                        _externalOnts = await ExternalOntService.GetStandaloneConfigsAsync();
+                        if (_currentIndex >= TotalCount) _currentIndex = 0;
+                    }
+                    catch { }
                     RefreshExternalStats();
                     StateHasChanged();
                 });
@@ -466,10 +480,21 @@ else
         }
     }
 
+    /// <summary>Whether polling is enabled for the currently shown external ONT (disabled configs
+    /// keep their card but lose the manual Refresh - polling would be rejected anyway).</summary>
+    private bool CurrentExternalEnabled
+    {
+        get
+        {
+            var extIdx = _currentIndex - _monitoredOnts.Count;
+            return extIdx < 0 || extIdx >= _externalOnts.Count || _externalOnts[extIdx].Enabled;
+        }
+    }
+
     private async Task RefreshExternal()
     {
         var extIdx = _currentIndex - _monitoredOnts.Count;
-        if (extIdx < 0 || extIdx >= _externalOnts.Count || _isRefreshing) return;
+        if (extIdx < 0 || extIdx >= _externalOnts.Count || _isRefreshing || !CurrentExternalEnabled) return;
         _isRefreshing = true;
         StateHasChanged();
         try
