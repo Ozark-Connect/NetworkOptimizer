@@ -168,6 +168,16 @@ public sealed class CableModemMonitorService : IDisposable
         using var scope = CreateSiteScope();
         var repo = scope.ServiceProvider.GetRequiredService<ICmRepository>();
         await repo.SetCmEnabledAsync(id, enabled);
+
+        if (!enabled)
+        {
+            // Drop the correctable/uncorrectable running totals (as DeleteCmAsync does) so
+            // the first poll after re-enabling starts a fresh delta. Otherwise the errors
+            // accumulated by the modem while paused land in one poll as a huge spike and
+            // can trip the uncorrectables alert the moment the CM is resumed.
+            _previousTotalCorrectables.TryRemove(id, out _);
+            _previousTotalUncorrectables.TryRemove(id, out _);
+        }
     }
 
     /// <summary>
