@@ -1104,6 +1104,16 @@
                                     <div class="btn-group-wrap">
                                         <button class="btn btn-secondary btn-sm" @onclick="() => EditModem(modem)">Edit</button>
                                         <button class="btn btn-secondary btn-sm" @onclick="() => TestModemConnection(modem)">Refresh</button>
+                                        <button class="btn @(modem.Enabled ? "btn-secondary" : "btn-primary") btn-sm" @onclick="() => ToggleModemEnabled(modem)" disabled="@(_modemTogglingId != null)">
+                                            @if (_modemTogglingId == modem.Id)
+                                            {
+                                                <span class="spinner"></span>
+                                            }
+                                            else
+                                            {
+                                                <span>@(modem.Enabled ? "Disable" : "Enable")</span>
+                                            }
+                                        </button>
                                         <button class="btn btn-danger btn-sm" @onclick="() => DeleteModem(modem)">Delete</button>
                                     </div>
                                 </td>
@@ -3994,6 +4004,7 @@
     private string probeResult = "";
     private string probeResultClass = "";
     private string modemStatus = "Unknown";
+    private int? _modemTogglingId;
     private bool savingModem = false;
     private string modemMessage = "";
     private string modemMessageClass = "";
@@ -5563,6 +5574,27 @@
             modemMessageClass = "danger";
         }
         StateHasChanged();
+    }
+
+    private async Task ToggleModemEnabled(ModemConfiguration modem)
+    {
+        _modemTogglingId = modem.Id;
+        StateHasChanged();
+        try
+        {
+            await ModemService.SetModemEnabledAsync(modem.Id, !modem.Enabled);
+            await LoadModemConfigs();
+        }
+        catch (Exception ex)
+        {
+            modemMessage = $"Error: {ex.Message}";
+            modemMessageClass = "danger";
+        }
+        finally
+        {
+            _modemTogglingId = null;
+            StateHasChanged();
+        }
     }
 
     private async Task TestModemConnection(ModemConfiguration modem)

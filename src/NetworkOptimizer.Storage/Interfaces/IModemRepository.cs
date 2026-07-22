@@ -12,4 +12,20 @@ public interface IModemRepository
     Task<ModemConfiguration?> GetModemConfigurationAsync(int id, CancellationToken cancellationToken = default);
     Task SaveModemConfigurationAsync(ModemConfiguration config, CancellationToken cancellationToken = default);
     Task DeleteModemConfigurationAsync(int id, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Toggle only the <see cref="ModemConfiguration.Enabled"/> flag of one config (the
+    /// row-level Disable/Enable button), without touching the rest of the entity. Bumps
+    /// UpdatedAt; when disabling, clears the stale LastError so a paused row does not keep
+    /// showing an old poll failure. No-op if the id does not exist.
+    /// </summary>
+    Task SetModemEnabledAsync(int id, bool enabled, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Persist a poll outcome for one config, updating only LastPolled (when provided),
+    /// LastError, and UpdatedAt - never Enabled. Skips (and returns false) when the config
+    /// was disabled meanwhile, so an in-flight poll can neither resurrect a paused modem nor
+    /// overwrite its frozen state. Returns true when the result was persisted.
+    /// </summary>
+    Task<bool> UpdateModemPollResultAsync(int id, DateTime? lastPolled, string? lastError, CancellationToken cancellationToken = default);
 }
