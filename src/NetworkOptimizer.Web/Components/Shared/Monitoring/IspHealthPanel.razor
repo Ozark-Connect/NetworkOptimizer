@@ -621,9 +621,9 @@ else
         <div class="card-header isp-events-header">
             <h2 class="card-title">Path &amp; Congestion Events (@EventsWindowLabel(r))</h2>
             <div class="time-range-selector isp-event-filter">
-                <button class="time-btn evt-congestion @(_visibleEventCats.Contains(EventCategory.Congestion) ? "active" : "")" @onclick="() => ToggleEventFilterAsync(EventCategory.Congestion)">Congestion</button>
-                <button class="time-btn evt-shift @(_visibleEventCats.Contains(EventCategory.Shift) ? "active" : "")" @onclick="() => ToggleEventFilterAsync(EventCategory.Shift)">Path shifts</button>
-                <button class="time-btn evt-change @(_visibleEventCats.Contains(EventCategory.Change) ? "active" : "")" @onclick="() => ToggleEventFilterAsync(EventCategory.Change)">Path changes</button>
+                <button class="time-btn evt-congestion @(_visibleEventCats.Contains(EventCategory.Congestion) ? "active" : "")" @onclick="e => ToggleEventFilterAsync(EventCategory.Congestion, e)">Congestion</button>
+                <button class="time-btn evt-shift @(_visibleEventCats.Contains(EventCategory.Shift) ? "active" : "")" @onclick="e => ToggleEventFilterAsync(EventCategory.Shift, e)">Path shifts</button>
+                <button class="time-btn evt-change @(_visibleEventCats.Contains(EventCategory.Change) ? "active" : "")" @onclick="e => ToggleEventFilterAsync(EventCategory.Change, e)">Path changes</button>
             </div>
         </div>
         <div class="card-body">
@@ -1206,9 +1206,16 @@ else
         return "[" + string.Join(",", hidden) + "]";
     }
 
-    private async Task ToggleEventFilterAsync(EventCategory cat)
+    // Ctrl+Click (Cmd+Click on macOS) bypasses the solo/restore semantics and just toggles the one
+    // category, so a single category can be hidden straight from the all-on state.
+    private async Task ToggleEventFilterAsync(EventCategory cat, MouseEventArgs e)
     {
-        if (_visibleEventCats.Count == AllEventCategories.Length)
+        if (e.CtrlKey || e.MetaKey)
+        {
+            if (!_visibleEventCats.Remove(cat))
+                _visibleEventCats.Add(cat);
+        }
+        else if (_visibleEventCats.Count == AllEventCategories.Length)
             _visibleEventCats = new HashSet<EventCategory> { cat };
         else if (_visibleEventCats.Count == 1 && _visibleEventCats.Contains(cat))
             _visibleEventCats = new HashSet<EventCategory>(AllEventCategories);
