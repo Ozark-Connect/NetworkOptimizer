@@ -639,12 +639,13 @@ else
             else
             {
                 <div class="isp-event-timeline">
-                    @foreach (var entry in timeline)
+                    @foreach (var (entry, i) in timeline.Select((e, i) => (e, i)))
                     {
                         @* Keyed so filter/report re-renders never reuse a badge span across entries -
                            Tippy caches its content per node, so attribute-swapped reuse shows a stale
-                           tooltip (e.g. a congestion tooltip on a Path shift badge). *@
-                        <div class="isp-event-item" @key="entry">
+                           tooltip (e.g. a congestion tooltip on a Path shift badge). The index is part
+                           of the key because records compare by value and duplicate keys throw. *@
+                        <div class="isp-event-item" @key="(entry, i)">
                             <span class="isp-event-badge @entry.BadgeClass" data-tooltip="@entry.BadgeTooltip">@entry.Badge</span>
                             <span class="isp-event-time">@EventTimeLabel(entry.Time)</span>
                             <span class="isp-event-text">@entry.Text</span>
