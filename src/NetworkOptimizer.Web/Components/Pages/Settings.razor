@@ -1343,6 +1343,16 @@
                                                 <span>Test</span>
                                             }
                                         </button>
+                                        <button class="btn @(cm.Enabled ? "btn-secondary" : "btn-primary") btn-sm" @onclick="() => ToggleCmEnabled(cm)" disabled="@(_cmTogglingId != null)">
+                                            @if (_cmTogglingId == cm.Id)
+                                            {
+                                                <span class="spinner"></span>
+                                            }
+                                            else
+                                            {
+                                                <span>@(cm.Enabled ? "Disable" : "Enable")</span>
+                                            }
+                                        </button>
                                         <button class="btn btn-danger btn-sm" @onclick="() => DeleteCm(cm.Id)">Delete</button>
                                     </div>
                                 </td>
@@ -3990,6 +4000,7 @@
     private string? _cmTestResult;
     private string _cmTestResultClass = "info";
     private int? _cmTestingId;
+    private int? _cmTogglingId;
     private string? _cmTestedHost;
     private string _cmStatus = "Inactive";
 
@@ -5685,6 +5696,27 @@
         finally
         {
             _cmTestingId = null;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ToggleCmEnabled(CmConfiguration config)
+    {
+        _cmTogglingId = config.Id;
+        StateHasChanged();
+        try
+        {
+            await CmMonitorService.SetCmEnabledAsync(config.Id, !config.Enabled);
+            await LoadCmSettings();
+        }
+        catch (Exception ex)
+        {
+            _cmTestResult = $"Error: {ex.Message}";
+            _cmTestResultClass = "danger";
+        }
+        finally
+        {
+            _cmTogglingId = null;
             StateHasChanged();
         }
     }

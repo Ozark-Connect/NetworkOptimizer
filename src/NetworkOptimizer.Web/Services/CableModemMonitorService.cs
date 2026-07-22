@@ -159,6 +159,18 @@ public sealed class CableModemMonitorService : IDisposable
     }
 
     /// <summary>
+    /// Enable or disable polling for one cable modem (the Settings row Disable/Enable toggle).
+    /// Disabled configs are skipped by the poll loop (GetEnabledCmConfigurationsAsync)
+    /// while their configuration is retained.
+    /// </summary>
+    public async Task SetCmEnabledAsync(int id, bool enabled)
+    {
+        using var scope = CreateSiteScope();
+        var repo = scope.ServiceProvider.GetRequiredService<ICmRepository>();
+        await repo.SetCmEnabledAsync(id, enabled);
+    }
+
+    /// <summary>
     /// Test connectivity to a cable modem using the configured provider.
     /// </summary>
     public async Task<(bool Success, string Message)> ProbeAsync(CmConfiguration config)
@@ -238,9 +250,11 @@ public sealed class CableModemMonitorService : IDisposable
 
             if (stats != null)
             {
-                _statsCache[config.Id] = stats;
-                await UpdateConfigSuccessAsync(config.Id);
-                WriteToInflux(config, stats);
+                if (await UpdateConfigSuccessAsync(config.Id))
+                {
+                    _statsCache[config.Id] = stats;
+                    WriteToInflux(config, stats);
+                }
             }
             else
             {
@@ -296,44 +310,33 @@ public sealed class CableModemMonitorService : IDisposable
         };
     }
 
-    private async Task UpdateConfigSuccessAsync(int id)
+    private async Task<bool> UpdateConfigSuccessAsync(int id)
     {
         try
         {
             using var scope = CreateSiteScope();
             var repo = scope.ServiceProvider.GetRequiredService<ICmRepository>();
-            var config = await repo.GetCmConfigurationAsync(id);
-            if (config != null)
-            {
-                config.LastPolled = DateTime.UtcNow;
-                config.LastError = null;
-                config.UpdatedAt = DateTime.UtcNow;
-                await repo.SaveCmConfigurationAsync(config);
-            }
+            return await repo.UpdateCmPollResultAsync(id, DateTime.UtcNow, null);
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to update CM config {Id} after successful poll", id);
+            return false;
         }
     }
 
-    private async Task UpdateConfigErrorAsync(int id, string error)
+    private async Task<bool> UpdateConfigErrorAsync(int id, string error)
     {
         try
         {
             using var scope = CreateSiteScope();
             var repo = scope.ServiceProvider.GetRequiredService<ICmRepository>();
-            var config = await repo.GetCmConfigurationAsync(id);
-            if (config != null)
-            {
-                config.LastError = error.Length > 1000 ? error[..1000] : error;
-                config.UpdatedAt = DateTime.UtcNow;
-                await repo.SaveCmConfigurationAsync(config);
-            }
+            return await repo.UpdateCmPollResultAsync(id, null, error.Length > 1000 ? error[..1000] : error);
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to update CM config {Id} after error", id);
+            return false;
         }
     }
 
