@@ -61,9 +61,12 @@
         </div>
 
         <div class="sqm-actions">
-            <button class="btn btn-secondary" @onclick="RefreshStats" @onclick:stopPropagation disabled="@isRefreshing">
-                @if (isRefreshing) { <span class="spinner-sm"></span> } else { <span>Refresh</span> }
-            </button>
+            @* Tooltip lives on the wrapper: a disabled button has pointer-events none and never fires the hover *@
+            <span data-tooltip="@(CurrentEnabled ? null : "Monitoring is disabled for this device. Enable it in Modem Settings.")" @onclick:stopPropagation>
+                <button class="btn btn-secondary" @onclick="RefreshStats" @onclick:stopPropagation disabled="@(isRefreshing || !CurrentEnabled)">
+                    @if (isRefreshing) { <span class="spinner-sm"></span> } else { <span>Refresh</span> }
+                </button>
+            </span>
             <a href="/settings#cellular-modem" class="btn btn-primary" @onclick:stopPropagation>Modem Settings</a>
         </div>
     }
@@ -226,16 +229,19 @@
         }
 
         <div class="sqm-actions">
-            <button class="btn btn-secondary" @onclick="RefreshStats" @onclick:stopPropagation disabled="@isRefreshing">
-                @if (isRefreshing)
-                {
-                    <span class="spinner-sm"></span>
-                }
-                else
-                {
-                    <span>Refresh</span>
-                }
-            </button>
+            @* Tooltip lives on the wrapper: a disabled button has pointer-events none and never fires the hover *@
+            <span data-tooltip="@(CurrentEnabled ? null : "Monitoring is disabled for this device. Enable it in Modem Settings.")" @onclick:stopPropagation>
+                <button class="btn btn-secondary" @onclick="RefreshStats" @onclick:stopPropagation disabled="@(isRefreshing || !CurrentEnabled)">
+                    @if (isRefreshing)
+                    {
+                        <span class="spinner-sm"></span>
+                    }
+                    else
+                    {
+                        <span>Refresh</span>
+                    }
+                </button>
+            </span>
             <a href="/settings#cellular-modem" class="btn btn-primary" @onclick:stopPropagation>Modem Settings</a>
         </div>
     }
@@ -450,21 +456,27 @@
         await LoadStats();
         await OnDataLoaded.InvokeAsync();
 
-        // Start auto-refresh timer (every 30 seconds) to pick up cached stats from background polling
+        // Auto-refresh timer: picks up cached stats from background polling, and reloads the
+        // configs so a Disable/Enable toggle in Settings reaches the card without a page refresh.
         _refreshTimer = new System.Threading.Timer(
-            async _ => await InvokeAsync(() =>
+            async _ => await InvokeAsync(async () =>
             {
-                if (!isRefreshing && !isLoading && configuredModems.Count > 0 && currentModemIndex < configuredModems.Count)
+                try
                 {
-                    // Just fetch cached stats for current modem - don't force a poll
-                    var modem = configuredModems[currentModemIndex];
-                    var newStats = ModemService.GetCachedStats(modem.Id);
-                    if (newStats != null)
+                    if (isRefreshing || isLoading) return;
+                    configuredModems = (await ModemService.GetModemsAsync()).ToList();
+                    hasConfiguredModems = configuredModems.Any();
+                    if (currentModemIndex >= configuredModems.Count) currentModemIndex = 0;
+                    if (configuredModems.Count > 0)
                     {
-                        modemStats = newStats;
-                        StateHasChanged();
+                        // Just fetch cached stats for current modem - don't force a poll
+                        var modem = configuredModems[currentModemIndex];
+                        var newStats = ModemService.GetCachedStats(modem.Id);
+                        if (newStats != null) modemStats = newStats;
                     }
+                    StateHasChanged();
                 }
+                catch { }
             }),
             null,
             TimeSpan.FromSeconds(10),
@@ -510,8 +522,15 @@
         }
     }
 
+    /// <summary>Whether polling is enabled for the currently shown modem (disabled configs
+    /// keep their card but lose the manual Refresh - polling would be rejected anyway).</summary>
+    private bool CurrentEnabled => configuredModems.Count == 0
+        || currentModemIndex >= configuredModems.Count
+        || configuredModems[currentModemIndex].Enabled;
+
     private async Task RefreshStats()
     {
+        if (!CurrentEnabled) return;
         isRefreshing = true;
         StateHasChanged();
 
