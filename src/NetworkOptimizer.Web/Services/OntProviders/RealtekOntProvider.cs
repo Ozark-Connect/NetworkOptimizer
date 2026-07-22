@@ -209,7 +209,12 @@ public sealed class RealtekOntProvider : IOntProvider
         return false;
     }
 
-    private OntStats ParseStatusPon(string html, OntPollContext context)
+    /// <summary>
+    /// Parses a Realtek Boa <c>status_pon.asp</c> page (rendered server-side SSI) into
+    /// <see cref="OntStats"/>. Stateless and side-effect free, so tests can drive it with
+    /// captured device markup (see NetworkOptimizer.Web.csproj InternalsVisibleTo).
+    /// </summary>
+    internal static OntStats ParseStatusPon(string html, OntPollContext context)
     {
         var stats = new OntStats
         {
