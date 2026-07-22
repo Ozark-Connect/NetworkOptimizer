@@ -7,7 +7,6 @@
 @inject IJSRuntime JS
 @inject Microsoft.AspNetCore.Mvc.ViewFeatures.IFileVersionProvider FileVersionProvider
 @inject NetworkOptimizer.Web.Services.PullToRefreshState PtrState
-@inject SiteContextService SiteCtx
 
 @* Date/time filter (left) + Refresh. The live/cached view (the effective auto-computed window, which
    auto-fallback may have reduced below the configured target) is the only state where Refresh is
@@ -725,13 +724,13 @@ else
     private System.Threading.Timer? _ageTimer;
 
     // Path & Congestion Events category filters (display-only - scoring is untouched). All on by
-    // default; the hidden set persists per site in localStorage as a comma list. Click semantics
-    // match the LAN flow map band chips: all on -> click solos that category, only-it-on -> click
-    // restores all, otherwise a plain toggle.
+    // default and deliberately NOT persisted, like the date/time filter above: a saved filter would
+    // silently suppress new events on the next visit. Click semantics match the LAN flow map band
+    // chips: all on -> click solos that category, only-it-on -> click restores all, otherwise a
+    // plain toggle.
     private static readonly EventCategory[] AllEventCategories =
         { EventCategory.Congestion, EventCategory.Shift, EventCategory.Change };
     private HashSet<EventCategory> _visibleEventCats = new(AllEventCategories);
-    private const string EventFilterBaseKey = "isp-health-event-filters";
 
     // Date/time filter. Never persisted: OnInitializedAsync starts on the live window (the effective
     // auto-computed window, which auto-fallback may have reduced below the configured target), so
@@ -1042,21 +1041,6 @@ else
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (firstRender)
-        {
-            // Restore the per-site event-category filters before the chart mounts (the chart only
-            // mounts once a report has rendered, which is always after this first render).
-            string? hidden = null;
-            try { hidden = await JS.InvokeAsync<string>("localStorage.getItem", SiteCtx.ScopeStorageKey(EventFilterBaseKey)); }
-            catch { /* persistence is best-effort */ }
-            if (!string.IsNullOrEmpty(hidden))
-            {
-                if (hidden.Contains("congestion")) _visibleEventCats.Remove(EventCategory.Congestion);
-                if (hidden.Contains("shift")) _visibleEventCats.Remove(EventCategory.Shift);
-                if (hidden.Contains("change")) _visibleEventCats.Remove(EventCategory.Change);
-                if (_visibleEventCats.Count < AllEventCategories.Length) StateHasChanged();
-            }
-        }
         if (_scrollChartAfterRender)
         {
             _scrollChartAfterRender = false;
@@ -1231,12 +1215,6 @@ else
         else if (!_visibleEventCats.Remove(cat))
             _visibleEventCats.Add(cat);
 
-        var hidden = new List<string>();
-        if (!_visibleEventCats.Contains(EventCategory.Congestion)) hidden.Add("congestion");
-        if (!_visibleEventCats.Contains(EventCategory.Shift)) hidden.Add("shift");
-        if (!_visibleEventCats.Contains(EventCategory.Change)) hidden.Add("change");
-        try { await JS.InvokeVoidAsync("localStorage.setItem", SiteCtx.ScopeStorageKey(EventFilterBaseKey), string.Join(",", hidden)); }
-        catch { /* persistence is best-effort */ }
         if (_chartMounted)
         {
             try { await JS.InvokeVoidAsync("eval", $"window.__ispHealthCharts?.setHiddenTypes?.({HiddenChartTypesJson()});"); }
