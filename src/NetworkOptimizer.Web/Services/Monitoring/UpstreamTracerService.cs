@@ -99,6 +99,9 @@ public class UpstreamTracerService
     // are resolved + latency-ranked at discovery time and only the nearest sub-80ms region(s) are
     // kept - never hardcoded. Comprehensive/global list so a site anywhere keeps its local region(s).
     // Every commercial region whose endpoint answers ICMP (me-south-1 does not reply and is omitted).
+    // GEO-ORDERED for the batched probe's early bail: batch 1 (of AwsProbeBatchSize) is the
+    // Americas, batch 2 is Europe, batches 3+ are MEA/APAC - so once a site has found
+    // AwsEnoughRegionals nearby regions, the far-side-of-the-globe rounds are skipped entirely.
     private static readonly string[] AwsRegions =
     {
         "us-east-1", "us-east-2", "us-west-1", "us-west-2",
@@ -113,6 +116,15 @@ public class UpstreamTracerService
     };
     private const double AwsMaxRttMs = 80.0;
 
+    /// <summary>Regions probed concurrently per round (DNS resolve + rapid ping burst each).</summary>
+    internal const int AwsProbeBatchSize = 8;
+
+    /// <summary>Sub-80ms regionals that are "enough": once a probe round has found this many, later rounds are skipped.</summary>
+    internal const int AwsEnoughRegionals = 6;
+
+    /// <summary>Max AWS regionals surfaced as path-end candidates (transit-eliciting first, then lowest RTT).</summary>
+    internal const int MaxAwsPathEndTargets = 5;
+
     // A resolved AWS regional: the hostname (what we persist as the target address, since AWS rotates
     // the regional IPs and the hostname re-resolves to a live in-region IP each poll) and the concrete
     // IP resolved this run (used for the discovery traceroute, RTT rank, and ASN lookup - deterministic).
@@ -124,37 +136,53 @@ public class UpstreamTracerService
     private List<AwsRegional> _awsRegionals = new();
 
     /// <summary>
-    /// Resolves every AWS DynamoDB regional hostname, pings it, and returns ALL that answer under
-    /// <see cref="AwsMaxRttMs"/> (sorted nearest-first). Not anycast, so this per-run resolve +
-    /// latency-rank is required - a far region would trace a transcontinental path and misrepresent
-    /// the transit. Every sub-80ms region becomes a monitorable target (see the AWS persist block);
-    /// only those whose trace crosses transit are pre-enabled. Best-effort: a region that won't
-    /// resolve or answer ICMP is skipped.
+    /// Resolves + pings the AWS DynamoDB regional hostnames in parallel rounds of
+    /// <see cref="AwsProbeBatchSize"/> (the region list is geo-ordered, Americas -> EU -> MEA/APAC)
+    /// and returns those answering under <see cref="AwsMaxRttMs"/>, sorted nearest-first. Bails out
+    /// of later rounds once <see cref="AwsEnoughRegionals"/> sub-80ms regions are in hand - a site
+    /// that already found that many nearby never probes the far side of the globe. Not anycast, so
+    /// this per-run resolve + latency-rank is required - a far region would trace a transcontinental
+    /// path and misrepresent the transit. The persist block trims what's surfaced to
+    /// <see cref="MaxAwsPathEndTargets"/> (transit-eliciting first, then lowest RTT); only regions
+    /// whose trace crosses transit are pre-enabled. Best-effort: a region that won't resolve or
+    /// answer ICMP is skipped.
     /// </summary>
     private async Task<List<AwsRegional>> ResolveAwsRegionalsAsync(CancellationToken ct)
     {
         var found = new List<AwsRegional>();
-        foreach (var region in AwsRegions)
+        foreach (var batch in AwsRegions.Chunk(AwsProbeBatchSize))
         {
             if (ct.IsCancellationRequested) break;
-            try
-            {
-                var host = $"dynamodb.{region}.amazonaws.com";
-                var addrs = await System.Net.Dns.GetHostAddressesAsync(host, ct);
-                var ip = addrs.FirstOrDefault(a => a.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork);
-                if (ip == null) continue;
-                using var ping = new System.Net.NetworkInformation.Ping();
-                var reply = await ping.SendPingAsync(ip, 800);
-                if (reply.Status != System.Net.NetworkInformation.IPStatus.Success || reply.RoundtripTime > AwsMaxRttMs) continue;
-                found.Add(new AwsRegional(region, host, ip.ToString(), reply.RoundtripTime));
-            }
-            catch { /* region won't resolve or answer - skip */ }
+            var results = await Task.WhenAll(batch.Select(r => ProbeAwsRegionAsync(r, ct)));
+            found.AddRange(results.Where(r => r != null)!);
+            if (found.Count >= AwsEnoughRegionals) break;
         }
         var chosen = found.OrderBy(r => r.RttMs).ToList();
         if (chosen.Count > 0)
             _logger.LogInformation("Tracer: {Count} sub-{Max}ms AWS DynamoDB regionals: {Regions}",
                 chosen.Count, AwsMaxRttMs, string.Join(", ", chosen.Select(r => r.Region)));
         return chosen;
+    }
+
+    /// <summary>
+    /// One region's DNS resolve + rapid 3-ping burst via the vantage's probe executor (-i 0.2 where
+    /// the platform allows, agent vantage on secondary sites). Ranks/gates on the burst MINIMUM -
+    /// the standard path-distance estimator (one queued reply shouldn't push a nearby region over
+    /// the gate). Null when unresolvable, unreachable, or over the RTT gate.
+    /// </summary>
+    private async Task<AwsRegional?> ProbeAwsRegionAsync(string region, CancellationToken ct)
+    {
+        try
+        {
+            var host = $"dynamodb.{region}.amazonaws.com";
+            var addrs = await System.Net.Dns.GetHostAddressesAsync(host, ct);
+            var ip = addrs.FirstOrDefault(a => a.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork);
+            if (ip == null) return null;
+            var result = await ProbeReachabilityAsync(ip.ToString(), ProbeMode.Icmp, ct);
+            if (result.Received == 0 || (result.RttMinMs ?? result.RttAvgMs) is not double rtt || rtt > AwsMaxRttMs) return null;
+            return new AwsRegional(region, host, ip.ToString(), (long)Math.Round(rtt));
+        }
+        catch { return null; /* region won't resolve or answer - skip */ }
     }
 
     /// <summary>
@@ -1429,22 +1457,32 @@ public class UpstreamTracerService
             });
         }
 
-        // AWS DynamoDB regionals: add EVERY sub-80ms region as its own path-end target (not
-        // ASN-deduped - they all share Amazon's ASN), so ops/SWE users can monitor any of them.
-        // Persist the HOSTNAME (AWS rotates the regional IPs; it re-resolves to a live in-region IP
-        // each poll) even though the trace/rank used the concrete IP. Pre-enable a region only if its
-        // trace crossed a transit ASN (surfacing transit is the point); the rest come in disabled for
-        // the user to tick on. Toggle survives re-discovery via the address-keyed reconcile below.
+        // AWS DynamoDB regionals: each surfaced region is its own path-end target (not ASN-deduped -
+        // they all share Amazon's ASN, which would collapse them to one target). The surfaced set is
+        // trimmed to the MaxAwsPathEndTargets best: transit-eliciting regions first (surfacing
+        // transit is the point), then lowest RTT. Persist the HOSTNAME (AWS rotates the regional
+        // IPs; it re-resolves to a live in-region IP each poll) even though the trace/rank used the
+        // concrete IP. Pre-enable a region only if its trace crossed a transit ASN; the rest come in
+        // disabled for the user to tick on. Toggle survives re-discovery via the address-keyed
+        // reconcile below.
         if (_awsRegionals.Count > 0)
         {
             var amazon = await _asnResolution.ResolveAsync(_awsRegionals[0].Ip, ct);
             var amazonAsn = amazon?.Asn ?? 0;
             var amazonName = string.IsNullOrEmpty(amazon?.Name) ? "Amazon" : CleanAsnName(amazon.Name);
-            foreach (var r in _awsRegionals)
+            // The via (farthest transit) labels the row, decides pre-enable, and ranks the trim: a
+            // region is pre-checked only when its trace actually crosses transit.
+            var rankedAws = _awsRegionals
+                .Select(r =>
+                {
+                    var via = FarthestTransitVia(r.Ip, amazonAsn, amazonName, accessAsnNumbers, asnByHopIp, out var complete);
+                    return (Regional: r, Via: via, PathComplete: complete);
+                })
+                .OrderByDescending(x => x.Via != null)
+                .ThenBy(x => x.Regional.RttMs)
+                .Take(MaxAwsPathEndTargets);
+            foreach (var (r, via, awsComplete) in rankedAws)
             {
-                // The via (farthest transit) both labels the row and decides pre-enable: a region is
-                // pre-checked only when its trace actually crosses transit.
-                var via = FarthestTransitVia(r.Ip, amazonAsn, amazonName, accessAsnNumbers, asnByHopIp, out var awsComplete);
                 candidates.Add(new TransitAsnCandidate
                 {
                     AsnNumber = amazonAsn,
