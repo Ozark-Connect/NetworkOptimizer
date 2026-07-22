@@ -17002,6 +17002,10 @@ a.isp-health-hero-speed:hover {
     white-space: nowrap;
 }
 
+.isp-event-badge[data-tooltip] {
+    cursor: help;
+}
+
 .isp-event-badge-warning {
     color: var(--warning-color);
     background: rgba(245, 158, 11, 0.15);
