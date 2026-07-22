@@ -261,20 +261,21 @@ public class CellularModemService : ICellularModemService
 
             if (stats != null)
             {
-                await UpdateModemConfigAsync(modem.Id, null, success: true);
-
-                lock (_lock)
+                if (await UpdateModemConfigAsync(modem.Id, null, success: true))
                 {
-                    _lastStats = stats;
-                    _statsCache[modem.Id] = stats;
+                    lock (_lock)
+                    {
+                        _lastStats = stats;
+                        _statsCache[modem.Id] = stats;
+                    }
+
+                    // Write to InfluxDB for time-series charting
+                    WriteCellularToInflux(modem, stats);
+
+                    _ = _alertEvaluator.EvaluateAsync(
+                        modem.Id, modem.Name,
+                        stats.SignalQuality, stats.NetworkMode, stats.IsRoaming);
                 }
-
-                // Write to InfluxDB for time-series charting
-                WriteCellularToInflux(modem, stats);
-
-                _ = _alertEvaluator.EvaluateAsync(
-                    modem.Id, modem.Name,
-                    stats.SignalQuality, stats.NetworkMode, stats.IsRoaming);
 
                 return (true, $"Modem polled successfully. RSRP: {stats.Lte?.Rsrp ?? stats.Nr5g?.Rsrp}dBm");
             }
@@ -300,6 +301,18 @@ public class CellularModemService : ICellularModemService
         using var scope = CreateSiteScope();
         var repository = scope.ServiceProvider.GetRequiredService<IModemRepository>();
         return await repository.GetModemConfigurationsAsync();
+    }
+
+    /// <summary>
+    /// Enable or disable polling for one modem (the Settings row Disable/Enable toggle).
+    /// Disabled configs are skipped by the poll loop (GetEnabledModemConfigurationsAsync)
+    /// while their configuration is retained.
+    /// </summary>
+    public async Task SetModemEnabledAsync(int id, bool enabled)
+    {
+        using var scope = CreateSiteScope();
+        var repository = scope.ServiceProvider.GetRequiredService<IModemRepository>();
+        await repository.SetModemEnabledAsync(id, enabled);
     }
 
     /// <summary>
@@ -395,26 +408,19 @@ public class CellularModemService : ICellularModemService
         }
     }
 
-    private async Task UpdateModemConfigAsync(int modemId, string? error, bool success)
+    private async Task<bool> UpdateModemConfigAsync(int modemId, string? error, bool success)
     {
         try
         {
             using var scope = CreateSiteScope();
             var repository = scope.ServiceProvider.GetRequiredService<IModemRepository>();
-
-            var config = await repository.GetModemConfigurationAsync(modemId);
-            if (config != null)
-            {
-                if (success)
-                    config.LastPolled = DateTime.UtcNow;
-                config.LastError = error;
-                config.UpdatedAt = DateTime.UtcNow;
-                await repository.SaveModemConfigurationAsync(config);
-            }
+            return await repository.UpdateModemPollResultAsync(
+                modemId, success ? DateTime.UtcNow : (DateTime?)null, error);
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to update modem config after poll");
+            return false;
         }
     }
 

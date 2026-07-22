@@ -154,4 +154,52 @@ public class ModemRepository : IModemRepository
             throw;
         }
     }
+
+    public async Task SetModemEnabledAsync(int id, bool enabled, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var config = await _context.ModemConfigurations.FirstOrDefaultAsync(m => m.Id == id, cancellationToken);
+            if (config == null)
+                return;
+
+            config.Enabled = enabled;
+            config.UpdatedAt = DateTime.UtcNow;
+            if (!enabled)
+                config.LastError = null;
+
+            await _context.SaveChangesAsync(cancellationToken);
+            _logger.LogDebug("Set modem configuration {Id} Enabled={Enabled}", id, enabled);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to set Enabled on modem configuration {Id}", id);
+            throw;
+        }
+    }
+
+    public async Task<bool> UpdateModemPollResultAsync(int id, DateTime? lastPolled, string? lastError, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var config = await _context.ModemConfigurations.FirstOrDefaultAsync(m => m.Id == id, cancellationToken);
+            // Never resurrect or overwrite a config that was disabled while the poll was
+            // in flight - its frozen state (and cleared LastError) must stand.
+            if (config == null || !config.Enabled)
+                return false;
+
+            if (lastPolled.HasValue)
+                config.LastPolled = lastPolled.Value;
+            config.LastError = lastError;
+            config.UpdatedAt = DateTime.UtcNow;
+
+            await _context.SaveChangesAsync(cancellationToken);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to update modem poll result for {Id}", id);
+            throw;
+        }
+    }
 }
