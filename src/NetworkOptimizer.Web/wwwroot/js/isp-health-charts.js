@@ -15,6 +15,9 @@ let isZoomed = false;
 let dotNetRef = null;
 // null = default 48 h cached view; { from, to } ISO strings = a filter-selected window.
 let win = null;
+// Event annotation types hidden by the panel's category filter pills; display-only.
+let hiddenTypes = new Set();
+let lastEvents = [];
 
 function buildOpts() {
     return {
@@ -108,6 +111,7 @@ function buildOpts() {
 function buildAnnotations(events) {
     const xaxis = [];
     for (const e of events) {
+        if (hiddenTypes.has(e.type)) continue;
         if (e.type === 'congestion') {
             xaxis.push({
                 x: new Date(e.start).getTime(),
@@ -123,11 +127,11 @@ function buildAnnotations(events) {
             xaxis.push({
                 x: new Date(e.start).getTime(),
                 x2: e.end ? new Date(e.end).getTime() : undefined,
-                fillColor: '#4797ff',
+                fillColor: '#a78bfa',
                 opacity: 0.12,
                 label: {
                     text: e.label,
-                    style: { color: '#ededef', background: '#1e3a5f', fontSize: '10px' },
+                    style: { color: '#ededef', background: '#581c87', fontSize: '10px' },
                 },
             });
         } else {
@@ -184,7 +188,8 @@ async function loadAndUpdate() {
             data: (a.points || []).map(p => ({ x: new Date(p.time).getTime(), y: p.value })),
         }));
 
-        chart.updateOptions({ annotations: buildAnnotations(json.events || []) }, false, false);
+        lastEvents = json.events || [];
+        chart.updateOptions({ annotations: buildAnnotations(lastEvents) }, false, false);
         // Preserve the user's drag-zoom; a series refresh while zoomed would snap back
         if (!isZoomed) chart.updateSeries(series, false);
     } catch (e) {
@@ -192,10 +197,11 @@ async function loadAndUpdate() {
     }
 }
 
-export async function mount(elId, fromISO = null, toISO = null) {
+export async function mount(elId, fromISO = null, toISO = null, hidden = null) {
     const el = document.getElementById(elId);
     if (!el) return;
     win = (fromISO && toISO) ? { from: fromISO, to: toISO } : null;
+    hiddenTypes = new Set(hidden || []);
 
     resetBtn = document.createElement('button');
     resetBtn.type = 'button';
@@ -230,6 +236,13 @@ export function setDotNetRef(ref) {
     dotNetRef = ref;
 }
 
+// Re-render event annotations with the given types hidden (display-only category filter);
+// no refetch, the last-loaded events are re-applied.
+export function setHiddenTypes(types) {
+    hiddenTypes = new Set(types || []);
+    if (chart) chart.updateOptions({ annotations: buildAnnotations(lastEvents) }, false, false);
+}
+
 export function scrollChartIntoView() {
     document.getElementById('isp-health-asn-chart')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
@@ -241,5 +254,7 @@ export function unmount() {
     isZoomed = false;
     dotNetRef = null;
     win = null;
+    hiddenTypes = new Set();
+    lastEvents = [];
     if (chart) { chart.destroy(); chart = null; }
 }
