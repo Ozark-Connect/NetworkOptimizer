@@ -149,18 +149,30 @@ public class UpstreamTracerService
     /// </summary>
     private async Task<List<AwsRegional>> ResolveAwsRegionalsAsync(CancellationToken ct)
     {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
         var found = new List<AwsRegional>();
+        var round = 0;
         foreach (var batch in AwsRegions.Chunk(AwsProbeBatchSize))
         {
             if (ct.IsCancellationRequested) break;
+            round++;
             var results = await Task.WhenAll(batch.Select(r => ProbeAwsRegionAsync(r, ct)));
-            found.AddRange(results.Where(r => r != null)!);
-            if (found.Count >= AwsEnoughRegionals) break;
+            var hits = results.Where(r => r != null).Select(r => r!).ToList();
+            found.AddRange(hits);
+            _logger.LogDebug("Tracer: AWS probe round {Round} ({First}..{Last}): {Hits}/{Probed} sub-{Max}ms [{HitDetail}] - {Total} total, {Elapsed} ms elapsed",
+                round, batch[0], batch[^1], hits.Count, batch.Length, AwsMaxRttMs,
+                string.Join(", ", hits.Select(h => $"{h.Region} {h.RttMs}ms")), found.Count, sw.ElapsedMilliseconds);
+            if (found.Count >= AwsEnoughRegionals)
+            {
+                _logger.LogDebug("Tracer: AWS probe bail after round {Round} - {Count} regionals is enough, skipping {Skipped} remaining region(s) ({Elapsed} ms total)",
+                    round, found.Count, AwsRegions.Length - round * AwsProbeBatchSize, sw.ElapsedMilliseconds);
+                break;
+            }
         }
         var chosen = found.OrderBy(r => r.RttMs).ToList();
         if (chosen.Count > 0)
-            _logger.LogInformation("Tracer: {Count} sub-{Max}ms AWS DynamoDB regionals: {Regions}",
-                chosen.Count, AwsMaxRttMs, string.Join(", ", chosen.Select(r => r.Region)));
+            _logger.LogInformation("Tracer: {Count} sub-{Max}ms AWS DynamoDB regionals in {Elapsed} ms ({Rounds} round(s)): {Regions}",
+                chosen.Count, AwsMaxRttMs, sw.ElapsedMilliseconds, round, string.Join(", ", chosen.Select(r => r.Region)));
         return chosen;
     }
 
