@@ -3257,11 +3257,19 @@
                                                                 @if (_upgradeCommandAgentId == agent.Id)
                                                                 {
                                                                     <div class="agent-upgrade-cmd">
-                                                                        <p class="form-help">Bare metal (systemd) - enrollment is preserved, only the binaries update:</p>
-                                                                        <pre><code>@NativeUpgradeCommand()</code></pre>
-                                                                        <p class="form-help">
-                                                                            Docker agents instead: <code>cd /opt/network-optimizer-agent &amp;&amp; docker compose pull &amp;&amp; docker compose up -d</code>
-                                                                        </p>
+                                                                        @if (AgentOnGateway(site.Id))
+                                                                        {
+                                                                            <p class="form-help">On the UniFi gateway - enrollment is preserved, only the binary updates:</p>
+                                                                            <pre><code>@GatewayUpgradeCommand()</code></pre>
+                                                                        }
+                                                                        else
+                                                                        {
+                                                                            <p class="form-help">Bare metal (systemd) - enrollment is preserved, only the binaries update:</p>
+                                                                            <pre><code>@NativeUpgradeCommand()</code></pre>
+                                                                            <p class="form-help">
+                                                                                Docker agents instead: <code>cd /opt/network-optimizer-agent &amp;&amp; docker compose pull &amp;&amp; docker compose up -d</code>
+                                                                            </p>
+                                                                        }
                                                                     </div>
                                                                 }
                                                             }
@@ -3882,14 +3890,20 @@
     private void ToggleUpgradeCommand(int agentId) =>
         _upgradeCommandAgentId = _upgradeCommandAgentId == agentId ? null : agentId;
 
-    private string NativeUpgradeCommand()
-    {
-        var server = string.IsNullOrWhiteSpace(AgentServerUrl.Url)
+    private string AgentServerBase() =>
+        string.IsNullOrWhiteSpace(AgentServerUrl.Url)
             ? "https://your-network-optimizer" : AgentServerUrl.Url!.TrimEnd('/');
-        return "curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/agent/install-native.sh"
-            + $" | sudo bash -s -- --server \"{server}\""
-            + "\n# add --lan-speed-test if this agent hosts the LAN speed test page";
-    }
+
+    private string NativeUpgradeCommand() =>
+        "curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/agent/install-native.sh"
+        + $" | sudo bash -s -- --server \"{AgentServerBase()}\""
+        + "\n# add --lan-speed-test if this agent hosts the LAN speed test page";
+
+    // Monitoring-only gateway installer: no --lan-speed-test (the router must not
+    // host a speed-test server) and no sudo (UniFi gateways SSH in as root).
+    private string GatewayUpgradeCommand() =>
+        "curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/agent/install-agent-gateway.sh"
+        + $" | bash -s -- --server \"{AgentServerBase()}\"";
 
     // Placeholder shows what a blank override resolves to - the online agent's
     // detected LAN IP on the agent's https port (same pick as
@@ -3900,7 +3914,7 @@
     // example when no agent has reported in.
     private string ClientSpeedTestPlaceholder(Site site)
     {
-        if (_agentOnGateway.TryGetValue(site.Id, out var onGateway) && onGateway)
+        if (AgentOnGateway(site.Id))
             return "none - the agent runs on the UniFi gateway; enter a separate box hosting the speed test";
         var lanIp = AgentsFor(site.Id)
             .Where(a => a.Enabled && !string.IsNullOrEmpty(a.LanIp) && TunnelRegistry.IsReachable(a))
@@ -3915,6 +3929,9 @@
     // The site's agent runs on the UniFi gateway itself (per AgentOnGatewayDetector),
     // loaded when the site's agent panel expands.
     private readonly Dictionary<int, bool> _agentOnGateway = new();
+
+    private bool AgentOnGateway(int siteId) =>
+        _agentOnGateway.TryGetValue(siteId, out var onGateway) && onGateway;
 
     private async Task LoadClientSpeedTestTargetAsync(Site site)
     {
