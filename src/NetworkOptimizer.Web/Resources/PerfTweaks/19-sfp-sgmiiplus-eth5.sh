@@ -8,9 +8,13 @@
 # within the timeout, the module loads anyway — this handles SFPs that are
 # hard-locked at 2.5G and can't establish a 1G link without the host matching.
 #
-# UniFi OS 5.1.27 can fail to commit the first boot-time mode set. The script
-# retries up to three times, restoring stock SGMII 1G between attempts, and
-# verifies that the 312.5 MHz clock holds past one SSDK MAC-sync cycle.
+# The boot-time mode set does not always commit: uniphy2 can stay at 125 MHz
+# even though insmod succeeded, and early in boot a set that did commit can
+# still be reverted up to ~35s later. Which boots are affected is timing-
+# dependent, so a given firmware and SFP can boot cleanly and fail on the next
+# try. The script retries up to five times, restoring stock SGMII 1G between
+# attempts, and verifies that the 312.5 MHz clock holds for 45s before
+# declaring success.
 #
 # The module bypasses the SSDK's SFP EEPROM validation by calling the uniphy
 # mode set function directly. The SSDK's MAC sync polling loop re-reads the
@@ -31,7 +35,8 @@ MODULE_FILE="${MODULE_DIR}/${MODULE_NAME}.ko"
 CLOCK_PATH="/sys/kernel/debug/clk/uniphy2_gcc_tx_clk/clk_rate"
 IFACE="eth5"
 CARRIER_TIMEOUT=90
-MAX_ATTEMPTS=3
+MAX_ATTEMPTS=5
+HOLD_SECS=45
 
 log() {
     echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "${LOG_FILE}"
@@ -113,18 +118,24 @@ while [ $attempt -le $MAX_ATTEMPTS ]; do
 
     # Clock is the success criterion, not carrier, so no-link 2.5G SFPs work.
     if [ "${AFTER_CLOCK}" = "312500000" ]; then
-        log "Clock reached 312500000 Hz; verifying it holds past a sync cycle"
-        sleep 15
-        AFTER_CLOCK=$(cat "${CLOCK_PATH}" 2>/dev/null)
-        log "Clock rate after hold: ${AFTER_CLOCK} Hz"
+        log "Clock reached 312500000 Hz; verifying it holds for ${HOLD_SECS}s"
+        held=0
+        while [ $held -lt $HOLD_SECS ]; do
+            sleep 5
+            held=$((held + 5))
+            AFTER_CLOCK=$(cat "${CLOCK_PATH}" 2>/dev/null)
+            if [ "${AFTER_CLOCK}" != "312500000" ]; then
+                break
+            fi
+        done
 
         if [ "${AFTER_CLOCK}" = "312500000" ]; then
-            log "Verified: uniphy2 running at 312.5 MHz (SGMII+ 2.5G) and held past a sync cycle"
+            log "Verified: uniphy2 running at 312.5 MHz (SGMII+ 2.5G) and held for ${HOLD_SECS}s"
             verified=1
             break
         fi
 
-        log "WARNING: Attempt ${attempt} hold expected 312500000 Hz, got ${AFTER_CLOCK} Hz"
+        log "WARNING: Attempt ${attempt} clock reverted to ${AFTER_CLOCK} Hz after ${held}s of holding"
     else
         log "WARNING: Attempt ${attempt} expected 312500000 Hz, got ${AFTER_CLOCK} Hz"
     fi
