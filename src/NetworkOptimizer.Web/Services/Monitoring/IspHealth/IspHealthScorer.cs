@@ -51,7 +51,7 @@ public class IspHealthScorer
         var avgLoad = ComputeAverageLoad(inputs);
         var (speedVsPlan, bestSpeedTest, typicalDownMbps, typicalUpMbps) = ScoreSpeedVsPlan(inputs);
         var idleLatency = ScoreIdleLatency(idleBaseline, profile);
-        var idleLoss = ScoreIdleLoss(inputs.LossPoolSeries, profile, avgLoad);
+        var packetLoss = ScorePacketLoss(inputs.LossPoolSeries, profile, avgLoad);
         var loadedDeltas = ResolveLoadedDeltas(inputs, loadWindows);
 
         // The path jitter floor: the quietest median jitter measured anywhere along the
@@ -85,7 +85,7 @@ public class IspHealthScorer
             };
         }
 
-        var accessFactors = new List<IspScoreFactor> { speedVsPlan, idleLatency, idleLoss, loadedLatency, loadedLoss, physicalLink };
+        var accessFactors = new List<IspScoreFactor> { speedVsPlan, idleLatency, packetLoss, loadedLatency, loadedLoss, physicalLink };
         var accessDimension = BuildDimension("Access Layer", _options.AccessWeight, accessFactors);
 
         var accessMedianRtt = SeriesStats.Median(
@@ -507,15 +507,15 @@ public class IspHealthScorer
         };
     }
 
-    private IspScoreFactor ScoreIdleLoss(List<List<LatencySample>> lossPool, AccessProfile profile, double avgLoad)
+    private IspScoreFactor ScorePacketLoss(List<List<LatencySample>> lossPool, AccessProfile profile, double avgLoad)
     {
         // Steady loss is graded on samples OUTSIDE any outage span, so the number reflects
         // true physical-layer loss rather than a discrete internet-down event. Outages are
         // scored separately at the top level (see the outage severity penalty in Score).
-        // Despite the "idle" name, loaded samples are INCLUDED here, not filtered out (unlike
-        // Idle Latency, which selects a genuinely idle baseline) - the load-calibrated ceiling
-        // below compensates for load-driven loss instead. Loaded Loss then re-grades just the
-        // loaded subset against the profile's loaded band.
+        // Loaded samples are INCLUDED here, not filtered out (unlike Idle Latency, which
+        // selects a genuinely idle baseline) - the load-calibrated ceiling below compensates
+        // for load-driven loss instead. Loaded Loss then re-grades just the loaded subset
+        // against the profile's loaded band.
         var losses = lossPool.SelectMany(series => series)
             .Where(s => s.LossPercent.HasValue && !InOutage(s.Time))
             .Select(s => s.LossPercent!.Value)
@@ -525,7 +525,7 @@ public class IspHealthScorer
             return new IspScoreFactor
             {
                 Name = "Packet Loss",
-                Weight = _options.IdleLossWeight,
+                Weight = _options.PacketLossWeight,
                 Description = "No loss data in the window."
             };
         }
@@ -551,7 +551,7 @@ public class IspHealthScorer
         {
             Name = "Packet Loss",
             Score = (int)Math.Round(score),
-            Weight = _options.IdleLossWeight,
+            Weight = _options.PacketLossWeight,
             ValueText = FormatPct(meanLoss),
             Description = $"Average loss across ISP, transit, and anycast DNS targets vs the {FormatPct(acceptable)} ceiling for {profile.DisplayName} at {avgLoad.ToString("0%", CultureInfo.InvariantCulture)} average load."
         };
@@ -1866,8 +1866,8 @@ public class IspHealthScorer
             });
         }
 
-        var idleLossFactor = report.AccessDimension.Factors.FirstOrDefault(f => f.Name == "Packet Loss");
-        if (idleLossFactor?.Score is < 70)
+        var packetLossFactor = report.AccessDimension.Factors.FirstOrDefault(f => f.Name == "Packet Loss");
+        if (packetLossFactor?.Score is < 70)
         {
             // Dedicated point-to-point media (DSL pair, Active Ethernet / DIA) have no
             // contended segment, so persistent loss there is a physical-plant fault. On
@@ -1891,7 +1891,7 @@ public class IspHealthScorer
             {
                 Severity = IspIssueSeverity.Warning,
                 Title = "Packet loss above acceptable",
-                Description = $"Average packet loss of {idleLossFactor.ValueText} exceeds the {FormatPct(profile.IdleLossAcceptablePct)} acceptable ceiling for {profile.DisplayName}.",
+                Description = $"Average packet loss of {packetLossFactor.ValueText} exceeds the {FormatPct(profile.IdleLossAcceptablePct)} acceptable ceiling for {profile.DisplayName}.",
                 Recommendation = lossRecommendation,
                 InvestigateUrl = "/monitoring?tab=performance&investigate=packet-loss",
                 InvestigateText = "Investigate on the charts"
