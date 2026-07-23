@@ -512,6 +512,10 @@ public class IspHealthScorer
         // Steady loss is graded on samples OUTSIDE any outage span, so the number reflects
         // true physical-layer loss rather than a discrete internet-down event. Outages are
         // scored separately at the top level (see the outage severity penalty in Score).
+        // Despite the "idle" name, loaded samples are INCLUDED here, not filtered out (unlike
+        // Idle Latency, which selects a genuinely idle baseline) - the load-calibrated ceiling
+        // below compensates for load-driven loss instead. Loaded Loss then re-grades just the
+        // loaded subset against the profile's loaded band.
         var losses = lossPool.SelectMany(series => series)
             .Where(s => s.LossPercent.HasValue && !InOutage(s.Time))
             .Select(s => s.LossPercent!.Value)
