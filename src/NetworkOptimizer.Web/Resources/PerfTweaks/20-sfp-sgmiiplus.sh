@@ -8,6 +8,10 @@
 # within the timeout, the module loads anyway — this handles SFPs that are
 # hard-locked at 2.5G and can't establish a 1G link without the host matching.
 #
+# UniFi OS 5.1.27 can fail to commit the first boot-time mode set. The script
+# retries up to three times, restoring stock SGMII 1G between attempts, and
+# verifies that the 312.5 MHz clock holds past one SSDK MAC-sync cycle.
+#
 # The module bypasses the SSDK's SFP EEPROM validation by calling the uniphy
 # mode set function directly. The SSDK's MAC sync polling loop re-reads the
 # SFP EEPROM every ~12s and would revert the 2.5G change. The module (v3+)
@@ -27,6 +31,7 @@ MODULE_FILE="${MODULE_DIR}/${MODULE_NAME}.ko"
 CLOCK_PATH="/sys/kernel/debug/clk/uniphy1_gcc_tx_clk/clk_rate"
 IFACE="eth6"
 CARRIER_TIMEOUT=90
+MAX_ATTEMPTS=3
 
 log() {
     echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "${LOG_FILE}"
@@ -72,9 +77,7 @@ if [ "$carrier" != "1" ]; then
     log "${IFACE} no carrier after ${CARRIER_TIMEOUT}s — loading module anyway (SFP may be hard-locked at 2.5G)"
 fi
 
-# ─── Load module ───
-
-log "Loading ${MODULE_NAME}..."
+# ─── Load and verify module ───
 
 BEFORE_CLOCK=""
 if [ -f "${CLOCK_PATH}" ]; then
@@ -82,29 +85,95 @@ if [ -f "${CLOCK_PATH}" ]; then
     log "Clock rate before: ${BEFORE_CLOCK} Hz"
 fi
 
-insmod "${MODULE_FILE}" 2>> "${LOG_FILE}"
-RET=$?
+attempt=1
+verified=0
 
-if [ ${RET} -ne 0 ]; then
-    log "ERROR: insmod failed with exit code ${RET}"
-    exit 1
-fi
+while [ $attempt -le $MAX_ATTEMPTS ]; do
+    log "Loading ${MODULE_NAME} (attempt ${attempt}/${MAX_ATTEMPTS})..."
 
-# Give the mode set sequence time to complete (~300ms PLL relock + calibration)
-sleep 1
+    insmod "${MODULE_FILE}" 2>> "${LOG_FILE}"
+    RET=$?
 
-# ─── Verify ───
-
-if [ -f "${CLOCK_PATH}" ]; then
-    AFTER_CLOCK=$(cat "${CLOCK_PATH}")
-    log "Clock rate after: ${AFTER_CLOCK} Hz"
-    if [ "${AFTER_CLOCK}" = "312500000" ]; then
-        log "Verified: uniphy1 running at 312.5 MHz (SGMII+ 2.5G)"
-    else
-        log "WARNING: Expected 312500000 Hz, got ${AFTER_CLOCK} Hz"
+    if [ ${RET} -ne 0 ]; then
+        log "ERROR: insmod failed with exit code ${RET}"
+        exit 1
     fi
-else
-    log "WARNING: ${CLOCK_PATH} not found, cannot verify clock rate"
+
+    # Give the mode set sequence time to complete (~300ms PLL relock + calibration)
+    sleep 1
+
+    if [ ! -f "${CLOCK_PATH}" ]; then
+        log "WARNING: ${CLOCK_PATH} not found, cannot verify clock rate"
+        verified=1
+        break
+    fi
+
+    AFTER_CLOCK=$(cat "${CLOCK_PATH}")
+    log "Clock rate after attempt ${attempt}: ${AFTER_CLOCK} Hz"
+
+    # Clock is the success criterion, not carrier, so no-link 2.5G SFPs work.
+    if [ "${AFTER_CLOCK}" = "312500000" ]; then
+        log "Clock reached 312500000 Hz; verifying it holds past a sync cycle"
+        sleep 15
+        AFTER_CLOCK=$(cat "${CLOCK_PATH}" 2>/dev/null)
+        log "Clock rate after hold: ${AFTER_CLOCK} Hz"
+
+        if [ "${AFTER_CLOCK}" = "312500000" ]; then
+            log "Verified: uniphy1 running at 312.5 MHz (SGMII+ 2.5G) and held past a sync cycle"
+            verified=1
+            break
+        fi
+
+        log "WARNING: Attempt ${attempt} hold expected 312500000 Hz, got ${AFTER_CLOCK} Hz"
+    else
+        log "WARNING: Attempt ${attempt} expected 312500000 Hz, got ${AFTER_CLOCK} Hz"
+    fi
+
+    log "Removing ${MODULE_NAME} to restore stock SGMII 1G before retry"
+    rmmod "${MODULE_NAME}" 2>> "${LOG_FILE}"
+    RET=$?
+
+    if [ ${RET} -ne 0 ]; then
+        log "ERROR: rmmod failed with exit code ${RET}"
+        exit 1
+    fi
+
+    elapsed=0
+    carrier=""
+    while [ $elapsed -lt 30 ]; do
+        carrier=$(cat /sys/class/net/${IFACE}/carrier 2>/dev/null)
+        if [ "$carrier" = "1" ]; then
+            log "${IFACE} stock 1G carrier recovered after ${elapsed}s"
+            break
+        fi
+        sleep 2
+        elapsed=$((elapsed + 2))
+    done
+
+    if [ "$carrier" != "1" ]; then
+        log "WARNING: ${IFACE} stock 1G carrier did not recover after 30s; continuing anyway"
+    fi
+
+    if [ $attempt -lt $MAX_ATTEMPTS ]; then
+        backoff=$((attempt * 5))
+        log "Retrying after ${backoff}s backoff"
+        sleep $backoff
+    fi
+
+    attempt=$((attempt + 1))
+done
+
+if [ $verified -ne 1 ]; then
+    if lsmod | grep -q "${MODULE_NAME}"; then
+        rmmod "${MODULE_NAME}" 2>> "${LOG_FILE}"
+        RET=$?
+        if [ ${RET} -ne 0 ]; then
+            log "ERROR: final rmmod failed with exit code ${RET}"
+            exit 1
+        fi
+    fi
+    log "ERROR: 2.5G mode did not stick after ${MAX_ATTEMPTS} attempts; ${IFACE} was left in stock SGMII 1G state so the link still works at 1G"
+    exit 1
 fi
 
 if lsmod | grep -q "${MODULE_NAME}"; then
