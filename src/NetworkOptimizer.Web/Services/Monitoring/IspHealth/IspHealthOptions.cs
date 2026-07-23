@@ -58,7 +58,7 @@ public class IspHealthOptions
     /// after speed: it captures both steady physical-layer loss and (via the capped
     /// outage penalty) internet-unreachable outages, which users care about most.
     /// </summary>
-    public double IdleLossWeight { get; set; } = 0.2125;
+    public double PacketLossWeight { get; set; } = 0.2125;
 
     /// <summary>Weight of loaded latency delta within the access dimension.</summary>
     public double LoadedLatencyWeight { get; set; } = 0.14875;
