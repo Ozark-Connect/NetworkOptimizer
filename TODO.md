@@ -420,6 +420,29 @@ The duplicate-reachable-IP case shipped: `AliasIp` on `MonitoringInterface` with
 
 ## Multi-Tenant / Multi-Site Support
 
+### Agent SNMP Watchdog (detect wedged console snmpd, opt-in auto-restart)
+
+UniFi gateway `snmpd` recurrently wedges: process alive and idle in `select()`, sockets
+still bound, but answers nothing - not even `sysUpTime` from localhost (seen on multiple
+gateways; diagnosed live on the UDR7 test gateway 2026-07-24). Today this reads as silent
+stat gaps. Design in `research/multi-site/gateway-agent/snmp-watchdog.md`; summary:
+
+- [ ] **Detect (all agents, default on):** in `SnmpRunner`, count consecutive per-device
+  poll failures; when a device misses ~60 s of SNMP (12 misses at the 5 s tier) while its
+  ICMP probe still answers (ProbeRunner already knows), transition to `SnmpDown` and report
+  a distinct status over the tunnel instead of silent gaps.
+- [ ] **Surface (server):** Alert Rule "SNMP unresponsive on <device> while device is
+  online"; Device Stats shows "stale since" rather than a quiet flatline.
+- [ ] **Recover (on-gateway agents only, opt-in, default detect-only):** `pgrep snmpd` ->
+  `kill` and let `ubios-udapi-server` (its parent/supervisor) respawn it. Guard rails:
+  only after confirmed SnmpDown >= 60 s, max 1 restart per 10 min, Information-level log,
+  NEVER touch udapi itself. Off-gateway agents stay detect-only.
+- [ ] **Back off while down:** drop the device to the medium poll interval until it
+  answers again.
+- Plumbing: status/error field on the SNMP result message in `AgentProtocol` (proto change
+  -> NAS server + all test agents redeploy together), failure counter in `SnmpRunner`,
+  server alert rule, site-settings toggle for auto-restart.
+
 ### Multi-Tenant Architecture
 - Add multi-tenant support for single deployment serving multiple sites
 - Current architecture: Local console access with local UniFi API
