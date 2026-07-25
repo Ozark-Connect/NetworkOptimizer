@@ -859,6 +859,21 @@ public class UpstreamTracerService
             _logger.LogDebug(ex, "Tracer: OUI lookup failed");
         }
 
+        // With no technology set for this WAN, an unambiguous vendor is better evidence than
+        // nothing: the reachability gate and every role label key off the technology, and
+        // Unknown makes all of them fall back to generic. Only proposes into an empty slot -
+        // a user's (or an earlier run's) choice is never overwritten.
+        if (State.AccessTechnology == AccessTechnology.Unknown)
+        {
+            var inferred = TechnologyFromVendor(State.WanNeighborOuiVendor);
+            if (inferred != null)
+            {
+                State.AccessTechnology = inferred.Value;
+                _logger.LogDebug("Tracer: access technology inferred as {Tech} from L2 neighbor vendor {Vendor}",
+                    inferred.Value, State.WanNeighborOuiVendor);
+            }
+        }
+
         // Persist the WAN neighbor info to MonitoringSettings so the access cloud label
         // survives across discovery runs and is available to MonitoringPathView.
         try
@@ -2064,6 +2079,33 @@ public class UpstreamTracerService
         if (tech == AccessTechnology.PppoE && hop.HopNumber == 1)
             return UpstreamRole.Bng;
         return UpstreamRole.Aggregation;
+    }
+
+    /// <summary>
+    /// The access technology an L2 neighbor's OUI vendor proves on its own, or null when it
+    /// proves nothing. Only single-technology vendors qualify.
+    ///
+    /// Deliberately absent, because their gear spans technologies and the OUI alone can't
+    /// tell them apart: Arris / CommScope and Casa (CMTS and PON OLT both); Nokia, Calix,
+    /// Huawei, ZTE, Alcatel, Adtran and DZS/Dasan (PON and DSL both, often from one
+    /// chassis); Ubiquiti (UISP fiber, airMAX fixed wireless, and ordinary routers share
+    /// the OUI). Guessing from those would set a technology the user then has to notice and
+    /// correct, which is worse than leaving it unset - the selector is one click.
+    /// </summary>
+    internal static AccessTechnology? TechnologyFromVendor(string? ouiVendor)
+    {
+        if (string.IsNullOrWhiteSpace(ouiVendor)) return null;
+        var vendor = ouiVendor.ToLowerInvariant();
+
+        // Cadant built the C4 CMTS and nothing else; the line survives as Arris/CommScope
+        // hardware but keeps the original OUI, so this vendor string only ever means DOCSIS.
+        if (vendor.Contains("cadant")) return AccessTechnology.Docsis;
+
+        // Vecima and Harmonic's access lines are CMTS/vCMTS only.
+        if (vendor.Contains("vecima")) return AccessTechnology.Docsis;
+        if (vendor.Contains("harmonic")) return AccessTechnology.Docsis;
+
+        return null;
     }
 
     private static UpstreamRole InferL2NeighborRole(AccessTechnology tech, string? ouiVendor)
