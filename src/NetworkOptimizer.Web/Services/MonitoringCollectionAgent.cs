@@ -702,6 +702,10 @@ public class MonitoringCollectionAgent : BackgroundService
 
     private async Task MediumTierCollectAsync(MonitoringSettings settings, CancellationToken ct)
     {
+        // Before anything filtered: device-state alerting needs EVERY adopted device, offline ones
+        // included, and it has to run even when nothing is left to poll.
+        await EvaluateDeviceStatesAsync(ct);
+
         var devices = await GetMonitorableDevicesAsync(ct);
         if (devices.Count == 0) return;
 
@@ -813,21 +817,6 @@ public class MonitoringCollectionAgent : BackgroundService
         foreach (var device in devices)
         {
             var mac = NormalizeMac(device.Mac);
-
-            // Track upgrade/provisioning state for every device, before any SNMP short-circuit
-            // below: the offline path needs it regardless of how the device is polled. Fenced
-            // separately from the health work - alerting is advisory, and a bus failure here must
-            // not cost the remaining devices in this cycle their health data.
-            try
-            {
-                _deviceTransitions.Record(_siteSlug, device.Mac, device.State, now);
-                await _deviceStateAlertEvaluator.EvaluateAsync(
-                    device.Mac, device.Name, device.Ip, device.DeviceType, device.State, now);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Device state alert evaluation failed for {Device}", device.Mac);
-            }
 
             var snmpOn = Monitoring.SnmpDeviceRules.HasSnmpEnabled(device);
             if (snmpHandledElsewhere && snmpOn) continue;
@@ -2016,6 +2005,48 @@ public class MonitoringCollectionAgent : BackgroundService
     /// </summary>
     private static string ResolveSnmpAddress(UniFiDeviceResponse device, string? gatewayLanIp) =>
         Monitoring.SnmpDeviceRules.ResolvePollAddress(device, gatewayLanIp);
+
+    /// <summary>
+    /// Feeds upgrade/provisioning state and offline/recovered alerting for every adopted device.
+    ///
+    /// Deliberately NOT sourced from <see cref="GetMonitorableDevicesAsync"/>: that filters on
+    /// <c>IsMonitorable</c>, which requires the device to be online, so a device that drops does not
+    /// appear there as offline - it disappears from the list altogether, and an offline alert could
+    /// never fire. The raw list is behind the connection service's own 30 s cache, so asking for it
+    /// each medium cycle costs nothing extra.
+    /// </summary>
+    private async Task EvaluateDeviceStatesAsync(CancellationToken ct)
+    {
+        if (!_connectionService.IsConnected || _connectionService.Client == null) return;
+
+        List<UniFiDeviceResponse> all;
+        try
+        {
+            all = await _connectionService.Client.GetDevicesAsync(ct) ?? new List<UniFiDeviceResponse>();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Device state pass: device list fetch failed");
+            return;
+        }
+
+        var now = DateTime.UtcNow;
+        foreach (var device in all)
+        {
+            // Unadopted devices are not ours to alert on.
+            if (!device.Adopted || string.IsNullOrEmpty(device.Mac)) continue;
+            try
+            {
+                _deviceTransitions.Record(_siteSlug, device.Mac, device.State, now);
+                await _deviceStateAlertEvaluator.EvaluateAsync(
+                    device.Mac, device.Name, device.Ip, device.DeviceType, device.State, now, ct);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogDebug(ex, "Device state alert evaluation failed for {Device}", device.Mac);
+            }
+        }
+    }
 
     private async Task<List<UniFiDeviceResponse>> GetMonitorableDevicesAsync(CancellationToken ct)
     {
