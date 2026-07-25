@@ -376,6 +376,17 @@ public class LanFlowMapHistoricUpdate
 
     /// <summary>Speed tests whose TestTime falls within the scrub window (or just before it).</summary>
     public List<SpeedTestOverlayItem> SpeedTests { get; set; } = new();
+
+    /// <summary>
+    /// Clients that were connected at the scrub instant but are not in the live snapshot, so the
+    /// maps can render them for this instant. The snapshot is built from the currently-connected
+    /// client list, so without these a client that has since disconnected is invisible at every
+    /// instant even though its telemetry is right there. Empty in live mode.
+    /// </summary>
+    public List<LanNode> AddedClientNodes { get; set; } = new();
+
+    /// <summary>Leaf links for <see cref="AddedClientNodes"/>, same shape as the snapshot's.</summary>
+    public List<LanLink> AddedClientLinks { get; set; } = new();
 }
 
 public class LanBuilding

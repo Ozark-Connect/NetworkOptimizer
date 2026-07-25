@@ -152,6 +152,25 @@ public class LanFlowMapService
             .Where(d => !string.IsNullOrEmpty(d.Mac))
             .ToDictionary(d => NormalizeMac(d.Mac), d => d, StringComparer.OrdinalIgnoreCase);
 
+        // Names for clients that are not connected right now, so the timeline can label a client
+        // it rebuilds from telemetry. Advisory: a failure just means such a leaf shows its MAC.
+        try
+        {
+            var knownClients = await _connection.Client!.GetAllKnownClientsAsync(ct);
+            _knownClientNames = knownClients
+                .Where(c => !string.IsNullOrEmpty(c.Mac))
+                .GroupBy(c => NormalizeMac(c.Mac), StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(
+                    g => g.Key,
+                    g => g.Select(c => !string.IsNullOrWhiteSpace(c.Name) ? c.Name : c.Hostname)
+                          .FirstOrDefault(n => !string.IsNullOrWhiteSpace(n)) ?? g.Key,
+                    StringComparer.OrdinalIgnoreCase);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "LAN map: known-client name lookup failed");
+        }
+
         // Mount type lookup so AP nodes carry their mount position for 3D vertical offset
         var mountTypes = markers
             .Where(m => !string.IsNullOrEmpty(m.MountType))
@@ -631,6 +650,8 @@ public class LanFlowMapService
                 ApNodeId = apNodeId,
             };
         }
+
+        AddHistoricOnlyClients(snapshot, update, wifiClientRates, wiredClientRates);
 
         // Resolve each link, mirroring the live endpoint's kind-aware dispatch.
         foreach (var link in snapshot.Links)
@@ -1384,6 +1405,95 @@ public class LanFlowMapService
             }
         }
     }
+
+    /// <summary>
+    /// Adds leaves for clients that were connected at the scrub instant but are absent from the
+    /// live snapshot.
+    ///
+    /// The snapshot's client list is UniFi's currently-connected set, so a client that has since
+    /// disconnected has no node - and the historic pass only decorates nodes that exist. Its
+    /// telemetry is already in hand either way, so the leaf is rebuilt from the point itself:
+    /// <c>device_mac</c> is the AP for wifi_client and the switch for wired_client, giving the
+    /// parent it was actually on at that instant rather than a last-known guess, and the wired
+    /// points carry the port and the client name too.
+    ///
+    /// Only ever called for a historic instant, and only for MACs with no live node, so live mode
+    /// and every client already on the map are untouched. A client whose parent device is itself
+    /// missing from the topology is skipped rather than parented to a guess.
+    /// </summary>
+    private void AddHistoricOnlyClients(
+        LanFlowMapSnapshot snapshot,
+        LanFlowMapHistoricUpdate update,
+        Dictionary<string, MonitoringInfluxClient.ClientThroughputPoint> wifiClientRates,
+        Dictionary<string, MonitoringInfluxClient.ClientThroughputPoint> wiredClientRates)
+    {
+        var liveNodeIds = new HashSet<string>(snapshot.Nodes.Select(n => n.Id), StringComparer.OrdinalIgnoreCase);
+        // Infrastructure nodes are exactly the "dev-{mac}" ids, which is what a telemetry
+        // device_mac resolves to - matching on the id form avoids tracking the kind list.
+        var deviceNodeIds = new HashSet<string>(
+            snapshot.Nodes.Where(n => n.Id.StartsWith("dev-", StringComparison.OrdinalIgnoreCase))
+                          .Select(n => n.Id),
+            StringComparer.OrdinalIgnoreCase);
+
+        void Add(string mac, MonitoringInfluxClient.ClientThroughputPoint p, bool wired)
+        {
+            var clientMac = NormalizeMac(mac);
+            var nodeId = "cli-" + clientMac;
+            if (string.IsNullOrEmpty(clientMac) || liveNodeIds.Contains(nodeId)) return;
+
+            // Same MAC can appear in both point sets across a wired/wireless switch; first wins.
+            if (update.AddedClientNodes.Any(n => string.Equals(n.Id, nodeId, StringComparison.OrdinalIgnoreCase)))
+                return;
+
+            if (string.IsNullOrEmpty(p.ApMac)) return;
+            var parentId = "dev-" + NormalizeMac(p.ApMac);
+            if (!deviceNodeIds.Contains(parentId)) return;
+
+            var band = wired ? null : NormalizeBand(p.Band);
+            var node = new LanNode
+            {
+                Id = nodeId,
+                Kind = wired ? LanNodeKind.WiredClient : LanNodeKind.WifiClient,
+                Mac = clientMac,
+                Name = !string.IsNullOrWhiteSpace(p.ClientName)
+                    ? p.ClientName
+                    : (_knownClientNames.TryGetValue(clientMac, out var known) ? known : clientMac),
+                ParentId = parentId,
+                Band = band,
+                SignalDbm = wired ? null : p.SignalDbm,
+                PhyTxKbps = wired ? null : p.TxRateKbps,
+                PhyRxKbps = wired ? null : p.RxRateKbps,
+                SwitchPortName = wired && p.Port is > 0 ? $"Port {p.Port}" : null,
+            };
+
+            update.AddedClientNodes.Add(node);
+            update.AddedClientLinks.Add(new LanLink
+            {
+                Id = $"cli-link-{clientMac}",
+                FromNodeId = parentId,
+                ToNodeId = nodeId,
+                Kind = wired ? LanLinkKind.WiredClient : LanLinkKind.WifiClient,
+                Band = band,
+            });
+        }
+
+        foreach (var (mac, p) in wiredClientRates) Add(mac, p, wired: true);
+        foreach (var (mac, p) in wifiClientRates) Add(mac, p, wired: false);
+
+        if (update.AddedClientNodes.Count > 0)
+        {
+            _logger.LogDebug(
+                "LAN map: {Count} client(s) present at {At:u} but not connected now - rebuilt from telemetry",
+                update.AddedClientNodes.Count, update.At);
+        }
+    }
+
+    /// <summary>
+    /// MAC -> display name for every client UniFi knows about, refreshed with each snapshot.
+    /// Wireless telemetry carries no name, so a client rebuilt for a past instant would otherwise
+    /// read as a bare MAC; the console's known-client list keeps the label it had.
+    /// </summary>
+    private Dictionary<string, string> _knownClientNames = new(StringComparer.OrdinalIgnoreCase);
 
     private void BuildClientLeaves(
         NetworkTopology topology,

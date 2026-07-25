@@ -2352,8 +2352,17 @@ from(bucket: ""{_longtermBucket}"")
         public long? RxRateKbps { get; init; }
         /// <summary>Raw band tag ("2.4ghz"/"5ghz"/"6ghz"); caller normalizes for display.</summary>
         public string? Band { get; init; }
-        /// <summary>AP the client was associated with (device_mac tag).</summary>
+        /// <summary>
+        /// Device the client was attached to at this instant (device_mac tag): the AP for
+        /// wifi_client, the switch for wired_client. Named for its original wireless use.
+        /// </summary>
         public string? ApMac { get; init; }
+
+        /// <summary>Switch port the client was on (port tag); wired_client only.</summary>
+        public int? Port { get; init; }
+
+        /// <summary>Client name as recorded at this instant; wired_client only.</summary>
+        public string? ClientName { get; init; }
     }
 
     public async Task<IReadOnlyList<ClientThroughputPoint>> QueryAllClientThroughputAsync(
@@ -2363,13 +2372,13 @@ from(bucket: ""{_longtermBucket}"")
         CancellationToken ct = default)
     {
         if (!IsConfigured) return Array.Empty<ClientThroughputPoint>();
-        // signal_dbm / tx_rate_kbps / rx_rate_kbps only exist on wifi_client; harmless to
-        // request for wired_client (no rows match, columns come back absent -> null). band
-        // and device_mac are tags and survive the pivot as columns.
+        // signal_dbm / tx_rate_kbps / rx_rate_kbps only exist on wifi_client, and client_name
+        // only on wired_client; harmless to request either way (no rows match, columns come back
+        // absent -> null). band, device_mac and port are tags and survive the pivot as columns.
         var flux = $@"from(bucket: ""{_bucket}"")
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""{measurement}"")
-  |> filter(fn: (r) => r._field == ""tx_throughput_bps"" or r._field == ""rx_throughput_bps"" or r._field == ""client_mac"" or r._field == ""signal_dbm"" or r._field == ""tx_rate_kbps"" or r._field == ""rx_rate_kbps"")
+  |> filter(fn: (r) => r._field == ""tx_throughput_bps"" or r._field == ""rx_throughput_bps"" or r._field == ""client_mac"" or r._field == ""signal_dbm"" or r._field == ""tx_rate_kbps"" or r._field == ""rx_rate_kbps"" or r._field == ""client_name"")
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
   |> filter(fn: (r) => (exists r.tx_throughput_bps and r.tx_throughput_bps > 0.0) or (exists r.rx_throughput_bps and r.rx_throughput_bps > 0.0))";
 
@@ -2387,6 +2396,8 @@ from(bucket: ""{_longtermBucket}"")
                 RxRateKbps = (long?)AsDoubleOrNull(record.GetValueByKey("rx_rate_kbps")),
                 Band = record.GetValueByKey("band") as string,
                 ApMac = record.GetValueByKey("device_mac") as string,
+                Port = (int?)AsDoubleOrNull(record.GetValueByKey("port")),
+                ClientName = record.GetValueByKey("client_name") as string,
             });
         }
         return results;
