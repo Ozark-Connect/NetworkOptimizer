@@ -16871,6 +16871,7 @@ a.isp-health-hero-speed:hover {
 }
 
 .upstream-tech-inferred-help {
+    margin-top: 0.5rem;
     color: var(--warning-color);
 }
 
