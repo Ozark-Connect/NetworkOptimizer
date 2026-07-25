@@ -22,11 +22,11 @@
                 @foreach (var step in _offer.Steps.Take(6))
                 {
                     <li>
-                        @(step.Step.ListLabel ?? step.Step.Title)
                         @if (step.Step.IsImproved)
                         {
                             <span class="tour-badge tour-badge-improved">Improved</span>
                         }
+                        @(step.Step.ListLabel ?? step.Step.Title)
                     </li>
                 }
                 @if (_offer.Steps.Count > 6)
