@@ -50,7 +50,14 @@
             {
                 <div class="device-detail">
                     <span class="detail-label">Uptime:</span>
-                    <span class="detail-value">@Device.Uptime</span>
+                    <span class="detail-value" data-tooltip="@UptimeTooltip">@Device.Uptime</span>
+                    @* Icon only while the reboot is recent news; the hover above stays for good.
+                       Hover only, no click: the whole card already links to Device Stats. *@
+                    @if (ShowRebootIcon)
+                    {
+                        <span class="reboot-reason-icon @(Device.RebootWasUnexpected ? "reboot-unexpected" : "")"
+                              data-tooltip="@UptimeTooltip">@(Device.RebootWasUnexpected ? "⚠" : "↻")</span>
+                    }
                 </div>
             }
             @if (Device.ClientCount.HasValue)
@@ -107,6 +114,17 @@
 }
 
 <style>
+    .reboot-reason-icon {
+        margin-left: 0.35rem;
+        font-size: 0.85rem;
+        color: var(--text-muted);
+        cursor: help;
+    }
+
+    .reboot-reason-icon.reboot-unexpected {
+        color: var(--warning-color);
+    }
+
     .device-image {
         width: 48px;
         height: 48px;
@@ -206,6 +224,31 @@
             || Device.LiveRateOutBps.HasValue
             || Device.LiveLatencyMs.HasValue
             || Device.LiveCpuPercent.HasValue);
+
+    /// <summary>A reboot stops being news after a day, so the icon retires and only the hover stays.</summary>
+    private const long RecentRebootSeconds = 24 * 60 * 60;
+
+    private bool ShowRebootIcon => Device != null
+        && !string.IsNullOrEmpty(Device.RebootReason)
+        && Device.UptimeSeconds is > 0 and < RecentRebootSeconds;
+
+    /// <summary>
+    /// Hover text for the uptime value: the reason the device is on this boot, with the evidence
+    /// under it. Always available, even for long-running devices.
+    /// </summary>
+    private string UptimeTooltip
+    {
+        get
+        {
+            if (Device == null || string.IsNullOrEmpty(Device.RebootReason))
+                return "Time since this device last booted";
+
+            var reason = $"Last restart: {Device.RebootReason}";
+            return string.IsNullOrEmpty(Device.RebootReasonDetail)
+                ? reason
+                : $"{reason} - {Device.RebootReasonDetail}";
+        }
+    }
 
     private static string FormatBps(double? bps)
     {

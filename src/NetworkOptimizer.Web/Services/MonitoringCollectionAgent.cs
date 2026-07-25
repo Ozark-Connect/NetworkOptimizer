@@ -48,6 +48,7 @@ public class MonitoringCollectionAgent : BackgroundService
     private readonly UniFiConnectionService _connectionService;
     private readonly MonitoringInfluxClient _influx;
     private readonly MonitoringLiveStats _liveStats;
+    private readonly Monitoring.RebootReason.DeviceRebootTracker _rebootTracker;
     private readonly ICredentialProtectionService _credentialProtection;
     private readonly LocalProbeExecutor _localProbe;
     private readonly NetworkOptimizer.Web.Services.Monitoring.MonitoringAlertEvaluator _alertEvaluator;
@@ -127,6 +128,7 @@ public class MonitoringCollectionAgent : BackgroundService
         SiteConnectionRegistry siteConnections,
         MonitoringInfluxRegistry influxRegistry,
         MonitoringLiveStatsRegistry liveStatsRegistry,
+        Monitoring.RebootReason.DeviceRebootRegistry rebootRegistry,
         ICredentialProtectionService credentialProtection,
         LocalProbeExecutor localProbe,
         MonitoringAlertRegistry alertRegistry,
@@ -146,6 +148,7 @@ public class MonitoringCollectionAgent : BackgroundService
         _connectionService = siteConnections.GetFor(_siteSlug);
         _influx = influxRegistry.GetFor(_siteSlug);
         _liveStats = liveStatsRegistry.GetFor(_siteSlug);
+        _rebootTracker = rebootRegistry.GetFor(_siteSlug);
         _credentialProtection = credentialProtection;
         _localProbe = localProbe;
         var evaluators = alertRegistry.GetFor(_siteSlug);
@@ -248,6 +251,11 @@ public class MonitoringCollectionAgent : BackgroundService
         // seed never overwrites an entry the slow tier has already recorded.
         try { await SeedSfpLiveCacheAsync(stoppingToken); }
         catch (Exception ex) { _logger.LogDebug(ex, "SFP live-cache seeding failed (site {Site})", _siteSlug); }
+
+        // Load already-known reboot reasons so a restart neither loses them nor re-probes
+        // every device on the site over SSH.
+        try { await _rebootTracker.SeedFromHistoryAsync(stoppingToken); }
+        catch (Exception ex) { _logger.LogDebug(ex, "Reboot reason seeding failed (site {Site})", _siteSlug); }
 
         // Four independent loops, slightly staggered to avoid burst overlap.
         var fastTask = RunTierAsync("fast", GetFastInterval, FastTierCollectAsync, TimeSpan.FromSeconds(5), stoppingToken);
@@ -755,6 +763,8 @@ public class MonitoringCollectionAgent : BackgroundService
                     timestamp: DateTime.UtcNow);
 
                 _liveStats.RecordHealth(device.Mac, cpu, memPct, temp, uptime, DateTime.UtcNow);
+                _rebootTracker.RecordUptimeSample(device.Mac, device.Name, device.DeviceType,
+                    device.Ip, uptime, device.Version, DateTime.UtcNow);
 
                 if (customOids.TryGetValue(NormalizeMac(device.Mac), out var deviceCustomOids))
                     await PollCustomOidsAsync(poller, device.Mac, DescribeDeviceType(device.DeviceType), ip, deviceCustomOids, ct);
@@ -848,6 +858,8 @@ public class MonitoringCollectionAgent : BackgroundService
                     timestamp: now);
 
                 _liveStats.RecordHealth(device.Mac, cpu, mem, temp, uptime, now);
+                _rebootTracker.RecordUptimeSample(device.Mac, device.Name, device.DeviceType,
+                    device.Ip, uptime, device.Version, now);
 
                 await _deviceHealthAlertEvaluator.EvaluateAsync(
                     device.Mac, device.Name, DescribeDeviceType(device.DeviceType),

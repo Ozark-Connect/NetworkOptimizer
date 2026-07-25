@@ -1058,6 +1058,110 @@ from(bucket: ""{_longtermBucket}"")
         return Task.CompletedTask;
     }
 
+    /// <summary>
+    /// Event type tag used for device reboot records on the <c>events</c> measurement.
+    /// </summary>
+    public const string DeviceRebootEventType = "device_reboot";
+
+    /// <summary>
+    /// Record why a device rebooted, timestamped at the instant the device came up so the
+    /// record sits at the start of the current boot. Written to the long-term bucket because
+    /// a reason has to outlive the device's uptime, which can run for months.
+    /// </summary>
+    /// <param name="deviceMac">Device MAC.</param>
+    /// <param name="deviceType">Device type, matching the <c>device_health</c> tag values.</param>
+    /// <param name="category">Machine-readable classification (see RebootCategory).</param>
+    /// <param name="summary">Short user-facing reason.</param>
+    /// <param name="detail">Evidence behind the call.</param>
+    /// <param name="source">Which evidence source produced it.</param>
+    /// <param name="bootedAt">When the current boot started.</param>
+    public Task WriteDeviceRebootAsync(
+        string deviceMac,
+        string deviceType,
+        string category,
+        string summary,
+        string? detail,
+        string source,
+        DateTime bootedAt)
+    {
+        if (!IsConfigured) return Task.CompletedTask;
+
+        var point = PointData.Measurement("events")
+            .Tag("device_mac", NormalizeMac(deviceMac))
+            .Tag("event_type", DeviceRebootEventType)
+            .Tag("severity", "info")
+            .Tag("device_type", deviceType.ToLowerInvariant())
+            .Timestamp(bootedAt.ToUniversalTime(), WritePrecision.Ns)
+            .Field("detail", detail ?? string.Empty)
+            .Field("reason_category", category)
+            .Field("reason_summary", summary)
+            .Field("reason_source", source);
+
+        Enqueue(point, longterm: true);
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// A persisted device reboot record.
+    /// </summary>
+    public class DeviceRebootPoint
+    {
+        /// <summary>Device MAC (normalized).</summary>
+        public string DeviceMac { get; init; } = "";
+        /// <summary>Machine-readable classification.</summary>
+        public string Category { get; init; } = "";
+        /// <summary>Short user-facing reason.</summary>
+        public string Summary { get; init; } = "";
+        /// <summary>Evidence behind the call.</summary>
+        public string? Detail { get; init; }
+        /// <summary>Which evidence source produced it.</summary>
+        public string Source { get; init; } = "";
+        /// <summary>When the boot this record describes started.</summary>
+        public DateTime BootedAt { get; init; }
+    }
+
+    /// <summary>
+    /// Latest reboot record per device, used to warm the in-memory cache after a restart and
+    /// to decide which devices still need probing for their current boot.
+    /// </summary>
+    /// <param name="lookback">How far back to look. Devices up longer than this need a re-probe.</param>
+    /// <param name="ct">Cancellation token.</param>
+    public async Task<IReadOnlyList<DeviceRebootPoint>> QueryLatestDeviceRebootsAsync(
+        TimeSpan lookback,
+        CancellationToken ct = default)
+    {
+        if (!IsConfigured || string.IsNullOrEmpty(_longtermBucket))
+            return Array.Empty<DeviceRebootPoint>();
+
+        var flux = $@"
+from(bucket: ""{_longtermBucket}"")
+  |> range(start: -{(int)Math.Max(1, lookback.TotalHours)}h)
+  |> filter(fn: (r) => r._measurement == ""events"")
+  |> filter(fn: (r) => r.event_type == ""{DeviceRebootEventType}"")
+  |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
+  |> group(columns: [""device_mac""])
+  |> sort(columns: [""_time""])
+  |> last(column: ""_time"")
+";
+        var results = new List<DeviceRebootPoint>();
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            var deviceMac = record.GetValueByKey("device_mac") as string ?? "";
+            if (deviceMac.Length == 0) continue;
+
+            results.Add(new DeviceRebootPoint
+            {
+                DeviceMac = deviceMac,
+                Category = record.GetValueByKey("reason_category") as string ?? "",
+                Summary = record.GetValueByKey("reason_summary") as string ?? "",
+                Detail = record.GetValueByKey("detail") as string,
+                Source = record.GetValueByKey("reason_source") as string ?? "",
+                BootedAt = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow),
+            });
+        }
+        return results;
+    }
+
     // ---- Read API (Flux queries) ----
 
     /// <summary>

@@ -572,6 +572,11 @@ builder.Services.AddSingleton<MonitoringLiveStatsRegistry>();
 builder.Services.AddScoped(sp => sp.GetRequiredService<MonitoringLiveStatsRegistry>()
     .GetFor(sp.GetRequiredService<SiteContextService>().Slug));
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.WanSummaryCache>();
+// Per-site device reboot trackers: the collection tier feeds uptime samples in, the
+// dashboard reads the reason behind each device's current boot back out.
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.RebootReason.DeviceRebootRegistry>();
+builder.Services.AddScoped(sp => sp.GetRequiredService<NetworkOptimizer.Web.Services.Monitoring.RebootReason.DeviceRebootRegistry>()
+    .GetFor(sp.GetRequiredService<SiteContextService>().Slug));
 // ISP Health is per site: the registry owns one IspHealthService (with its own
 // PhysicalLinkResolver, report cache, and compute state) per site; scoped
 // resolution forwards to the current site's instance.

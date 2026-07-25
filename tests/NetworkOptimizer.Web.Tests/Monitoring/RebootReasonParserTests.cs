@@ -1,0 +1,261 @@
+using NetworkOptimizer.Web.Services.Monitoring.RebootReason;
+using Xunit;
+
+namespace NetworkOptimizer.Web.Tests.Monitoring;
+
+/// <summary>
+/// Fixtures are trimmed from real probe output captured over SSH from a UniFi OS console
+/// (IPQ gateway), a U7-Pro-XGS-B access point (IPQ) and USW-Pro-XG-8-PoE / USW-Lite-8-PoE
+/// switches (Realtek MIPS).
+/// </summary>
+public class RebootReasonParserTests
+{
+    [Fact]
+    public void ConsoleRebootLog_PowerOnReset_IsPowerLoss()
+    {
+        const string log = "2026-07-15T16:00:55-0500 Experience an improper shutdown(Power on Reset [0x20])";
+
+        var reason = RebootReasonParser.ParseConsoleRebootLog(log);
+
+        Assert.NotNull(reason);
+        Assert.Equal(RebootCategory.PowerLoss, reason!.Category);
+        Assert.Equal("Power loss", reason.Summary);
+        Assert.Contains("Power on Reset [0x20]", reason.Detail);
+        Assert.Equal(RebootReasonSource.ConsoleRebootLog, reason.Source);
+        Assert.True(reason.IsUnexpected);
+    }
+
+    [Fact]
+    public void ConsoleRebootLog_AhbTimeout_IsHardwareHang()
+    {
+        const string log = "2026-07-19T01:02:11-0500 Experience an improper shutdown(AHB Timeout [0x3])";
+
+        var reason = RebootReasonParser.ParseConsoleRebootLog(log);
+
+        Assert.Equal(RebootCategory.HardwareHang, reason!.Category);
+        Assert.Contains("AHB Timeout [0x3]", reason.Detail);
+        Assert.True(reason.IsUnexpected);
+    }
+
+    [Fact]
+    public void ConsoleRebootLog_UpgradeReboot_ReportsVersions()
+    {
+        const string log = "2026-07-21T15:34:35-0500 Experience an upgrade reboot from " +
+            "UXGA6AA.ipq9574.v5.1.17.b3a286b.260608.1701 to UXGA6AA.ipq9574.v5.1.26.0bc0fe4.260716.1128, " +
+            "and takes 203.943s (0:03:23.942869)";
+
+        var reason = RebootReasonParser.ParseConsoleRebootLog(log);
+
+        Assert.Equal(RebootCategory.FirmwareUpgrade, reason!.Category);
+        Assert.Contains("v5.1.17", reason.Detail);
+        Assert.Contains("v5.1.26", reason.Detail);
+        Assert.False(reason.IsUnexpected);
+    }
+
+    [Fact]
+    public void ConsoleRebootLog_NormalReboot_IsCommanded()
+    {
+        const string log = "2026-05-14T01:49:01-0500 Experience a normal reboot, and takes 91.590s (0:01:31.589680)";
+
+        var reason = RebootReasonParser.ParseConsoleRebootLog(log);
+
+        Assert.Equal(RebootCategory.CommandedReboot, reason!.Category);
+        Assert.False(reason.IsUnexpected);
+    }
+
+    [Fact]
+    public void ConsoleRebootLog_SystemResetRegister_IsCommanded()
+    {
+        const string log = "2026-07-23T03:53:02-0500 Experience a System reset or reboot [0x10]";
+
+        var reason = RebootReasonParser.ParseConsoleRebootLog(log);
+
+        Assert.Equal(RebootCategory.CommandedReboot, reason!.Category);
+        Assert.Contains("[0x10]", reason.Detail);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("cat: /var/log/reboot-time.log: No such file or directory")]
+    public void ConsoleRebootLog_NotAConsole_ReturnsNull(string? log)
+    {
+        Assert.Null(RebootReasonParser.ParseConsoleRebootLog(log));
+    }
+
+    [Fact]
+    public void Pstore_CrashDumpPresent_IsKernelPanic()
+    {
+        const string listing = "console-ramoops-0\ndmesg-ramoops-0";
+        const string crash = "Panic#1 Part1\nUnable to handle kernel paging request at virtual address 0000000c";
+
+        var reason = RebootReasonParser.ParsePstore(listing, consoleTail: "whatever", crashTail: crash);
+
+        Assert.Equal(RebootCategory.KernelPanic, reason!.Category);
+        Assert.Contains("Panic#1", reason.Detail);
+        Assert.Equal(RebootReasonSource.PstoreCrashDump, reason.Source);
+    }
+
+    [Fact]
+    public void Pstore_ApFirmwareFlash_IsFirmwareUpgrade()
+    {
+        // Captured from ap-tiny-home (U7-Pro-XGS-B)
+        const string tail = """
+            [    5.424560] preinit: running 'preinit_ubnt/start_fanctrl'
+            [    5.469425] preinit: running 'preinit_ubnt/perform_early_upgrade'
+            [    6.404426] Upgrading, please stand by...
+            [   19.278002] reboot: Restarting system
+
+            No errors detected
+            """;
+
+        var reason = RebootReasonParser.ParsePstore("console-ramoops-0", tail);
+
+        Assert.Equal(RebootCategory.FirmwareUpgrade, reason!.Category);
+        Assert.Equal(RebootReasonSource.PstoreConsole, reason.Source);
+        Assert.False(reason.IsUnexpected);
+    }
+
+    [Fact]
+    public void Pstore_RealtekCleanRestart_IsCommandedReboot()
+    {
+        // Captured from switch-tiny-home-1 (USW-Pro-XG-8-PoE, RTL9313)
+        const string tail = """
+            [747190.870000] Port 10 moving from Forwarding to Disabled
+            [747192.920000] reboot: Restarting system
+            [747192.920000] [RTK MS]System restart.
+            [747192.920000] [rtl9310_bspChip_reset]RESET
+
+            4 Corrected bytes, 0 unrecoverable blocks
+            """;
+
+        var reason = RebootReasonParser.ParsePstore("console-ramoops-0", tail);
+
+        Assert.Equal(RebootCategory.CommandedReboot, reason!.Category);
+        Assert.False(reason.IsUnexpected);
+    }
+
+    [Fact]
+    public void Pstore_RingStopsMidTraffic_IsAbruptStop()
+    {
+        // No shutdown line: the run was cut off (power loss or hang)
+        const string tail = """
+            [2026558.040000] Port 1 moving from Forwarding to Disabled
+            [2026558.340000] Port 3 link down
+            [2026559.010000] sh (15889): drop_caches: 3
+
+            No errors detected
+            """;
+
+        var reason = RebootReasonParser.ParsePstore("console-ramoops-0", tail);
+
+        Assert.Equal(RebootCategory.AbruptStop, reason!.Category);
+        Assert.Contains("no shutdown recorded", reason.Detail);
+        Assert.True(reason.IsUnexpected);
+    }
+
+    [Fact]
+    public void Pstore_WatchdogBeforeRestart_IsWatchdog()
+    {
+        const string tail = """
+            [   88.120000] hardware watchdog expired, resetting
+            [   88.130000] reboot: Restarting system
+            """;
+
+        var reason = RebootReasonParser.ParsePstore("console-ramoops-0", tail);
+
+        Assert.Equal(RebootCategory.Watchdog, reason!.Category);
+        Assert.True(reason.IsUnexpected);
+    }
+
+    [Fact]
+    public void Pstore_EccFooterOnly_ReturnsNull()
+    {
+        Assert.Null(RebootReasonParser.ParsePstore("console-ramoops-0", "No errors detected"));
+    }
+
+    [Fact]
+    public void Pstore_NoRecords_ReturnsNull()
+    {
+        Assert.Null(RebootReasonParser.ParsePstore(pstoreListing: "", consoleTail: null));
+    }
+
+    [Fact]
+    public void DeviceState_FirmwareChanged_IsFirmwareUpgrade()
+    {
+        var reason = RebootReasonParser.ParseDeviceState(hasPendingUpgradeMarker: false, firmwareChanged: true);
+
+        Assert.Equal(RebootCategory.FirmwareUpgrade, reason!.Category);
+        Assert.Equal(RebootReasonSource.DeviceState, reason.Source);
+    }
+
+    [Fact]
+    public void DeviceState_NothingKnown_ReturnsNull()
+    {
+        Assert.Null(RebootReasonParser.ParseDeviceState(false, false));
+    }
+
+    [Theory]
+    [InlineData("EVT_SW_Upgraded", RebootCategory.FirmwareUpgrade)]
+    [InlineData("EVT_AP_UPGRADED", RebootCategory.FirmwareUpgrade)]
+    [InlineData("EVT_GW_Restarted", RebootCategory.CommandedReboot)]
+    [InlineData("EVT_AP_RestartedUnknown", RebootCategory.Unknown)]
+    [InlineData("EVT_SW_RESTARTED_UNKNOWN", RebootCategory.Unknown)]
+    [InlineData("EVT_USP_OutletPowerCycle", RebootCategory.PowerCycle)]
+    public void UniFiEvent_MapsToCategory(string eventKey, RebootCategory expected)
+    {
+        var reason = RebootReasonParser.ParseUniFiEvent(eventKey);
+
+        Assert.NotNull(reason);
+        Assert.Equal(expected, reason!.Category);
+        Assert.Equal(RebootReasonSource.UniFiEvent, reason.Source);
+    }
+
+    [Fact]
+    public void UniFiEvent_NamedAdmin_IsCredited()
+    {
+        var reason = RebootReasonParser.ParseUniFiEvent("EVT_SW_Restarted", adminName: "Admin");
+
+        Assert.Contains("Restarted by Admin", reason!.Detail);
+    }
+
+    [Fact]
+    public void UniFiEvent_Unrelated_ReturnsNull()
+    {
+        Assert.Null(RebootReasonParser.ParseUniFiEvent("EVT_AP_ChannelChanged"));
+    }
+
+    [Fact]
+    public void Best_PrefersConsoleRegisterOverUniFiEvent()
+    {
+        var consoleLog = RebootReasonParser.ParseConsoleRebootLog(
+            "2026-07-15T16:00:55-0500 Experience an improper shutdown(Power on Reset [0x20])");
+        var unifiEvent = RebootReasonParser.ParseUniFiEvent("EVT_GW_RestartedUnknown");
+
+        var best = RebootReasonParser.Best(unifiEvent, consoleLog);
+
+        Assert.Equal(RebootCategory.PowerLoss, best.Category);
+        Assert.Equal(RebootReasonSource.ConsoleRebootLog, best.Source);
+    }
+
+    [Fact]
+    public void Best_PrefersConclusiveOverUnknown()
+    {
+        var vague = RebootReasonParser.ParseUniFiEvent("EVT_AP_RestartedUnknown");
+        var pstore = RebootReasonParser.ParsePstore("console-ramoops-0",
+            "[ 5.4] reboot: Restarting system");
+
+        var best = RebootReasonParser.Best(vague, pstore);
+
+        Assert.Equal(RebootCategory.CommandedReboot, best.Category);
+    }
+
+    [Fact]
+    public void Best_NothingFound_IsUnknownPlaceholder()
+    {
+        var best = RebootReasonParser.Best(null, null);
+
+        Assert.False(best.IsConclusive);
+        Assert.Equal("Reason unavailable", best.Summary);
+    }
+}
