@@ -30,16 +30,18 @@ public class DeviceRebootProbe
     /// Everything is a read: a listing, three tails and one file test. Nothing is written,
     /// no daemon is touched, and a missing path just yields an empty section.
     /// </summary>
+    /// The markers MUST stay single-quoted: unquoted, the shell reads the leading '#' as the start
+    /// of a comment and discards the whole rest of the line, which is every command after it.
     private static readonly string ProbeCommand = string.Join("; ",
-        $"echo {PstoreMarker}",
+        $"echo '{PstoreMarker}'",
         "ls /sys/fs/pstore/ 2>/dev/null",
-        $"echo {ConsoleMarker}",
+        $"echo '{ConsoleMarker}'",
         "tail -n 40 /sys/fs/pstore/console-ramoops-0 2>/dev/null",
-        $"echo {CrashMarker}",
+        $"echo '{CrashMarker}'",
         "head -n 12 /sys/fs/pstore/dmesg-ramoops-0 2>/dev/null",
-        $"echo {RebootLogMarker}",
+        $"echo '{RebootLogMarker}'",
         "tail -n 2 /var/log/reboot-time.log 2>/dev/null",
-        $"echo {UpgradeMarker}",
+        $"echo '{UpgradeMarker}'",
         "ls /etc/persistent/post_upgrade_pending 2>/dev/null");
 
     /// <summary>Creates the probe.</summary>
