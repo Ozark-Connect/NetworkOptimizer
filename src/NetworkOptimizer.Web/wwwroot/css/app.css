@@ -18605,8 +18605,13 @@ body.kiosk-mode .status-indicators {
     box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.6);
     border-radius: 8px;
     border: 2px solid var(--primary-hover);
-    transition: left 0.25s ease, top 0.25s ease, width 0.25s ease, height 0.25s ease;
+    transition: left 0.25s ease, top 0.25s ease, width 0.25s ease, height 0.25s ease, box-shadow 0.2s ease, border-color 0.2s ease;
     pointer-events: none;
+}
+
+.tour-overlay-clear .tour-hole {
+    box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0);
+    border-color: transparent;
 }
 
 .tour-card {

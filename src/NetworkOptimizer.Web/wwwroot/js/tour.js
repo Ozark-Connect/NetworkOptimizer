@@ -169,6 +169,19 @@ window.noTour = (function () {
             document.addEventListener('keydown', onKey, true);
             active.cleanup.push(() => document.removeEventListener('keydown', onKey, true));
 
+            // Interacting with the demo'd element lifts the dim so whatever it reveals
+            // (tooltips, expanded detail) is seen in full; leaving restores the spotlight.
+            const clearDim = () => overlay.classList.add('tour-overlay-clear');
+            const restoreDim = () => overlay.classList.remove('tour-overlay-clear');
+            el.addEventListener('mouseenter', clearDim);
+            el.addEventListener('mouseleave', restoreDim);
+            el.addEventListener('pointerdown', clearDim);
+            active.cleanup.push(() => {
+                el.removeEventListener('mouseenter', clearDim);
+                el.removeEventListener('mouseleave', restoreDim);
+                el.removeEventListener('pointerdown', clearDim);
+            });
+
             const onMove = () => position();
             window.addEventListener('resize', onMove);
             window.addEventListener('scroll', onMove, true);
