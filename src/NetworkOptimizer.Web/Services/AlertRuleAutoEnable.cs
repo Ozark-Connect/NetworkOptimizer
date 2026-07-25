@@ -79,6 +79,40 @@ public static class AlertRuleAutoEnable
     /// coverage its sibling rules provide. <paramref name="hasConfigs"/> is evaluated only when
     /// there is something to enable.
     /// </summary>
+    /// <summary>
+    /// Enables ONE named rule that shipped disabled only because nothing ever published its event,
+    /// at the moment the release that gives it a publisher lands. Its disabled state carried no
+    /// user intent: the rule could not fire, so nobody chose to silence it.
+    ///
+    /// The trigger is a paired new rule arriving in the same seed pass, which happens exactly once
+    /// per database - so this runs once and never again. A user who disables the rule afterwards is
+    /// never overridden, and no other rule is touched.
+    /// </summary>
+    /// <param name="db">Database whose rules to update (main or a site's).</param>
+    /// <param name="pattern">The single EventTypePattern to enable.</param>
+    /// <param name="pairedNewPattern">Pattern whose fresh insertion marks the upgrade moment.</param>
+    /// <param name="seededPatterns">Patterns inserted by this seed pass.</param>
+    /// <param name="logger">Logger.</param>
+    public static void EnableNowThatItHasAPublisher(
+        NetworkOptimizerDbContext db,
+        string pattern,
+        string pairedNewPattern,
+        ISet<string> seededPatterns,
+        ILogger logger)
+    {
+        if (!seededPatterns.Contains(pairedNewPattern)) return;
+
+        var rule = db.AlertRules.FirstOrDefault(r => r.EventTypePattern == pattern);
+        if (rule == null || rule.IsEnabled) return;
+
+        rule.IsEnabled = true;
+        db.SaveChanges();
+
+        logger.LogInformation(
+            "Enabled the '{Name}' alert rule: it shipped disabled while nothing published {Pattern}, which now has a publisher",
+            rule.Name, pattern);
+    }
+
     public static void EnableFreshlySeeded(
         NetworkOptimizerDbContext db, string source, ISet<string> seededPatterns, Func<bool> hasConfigs)
     {

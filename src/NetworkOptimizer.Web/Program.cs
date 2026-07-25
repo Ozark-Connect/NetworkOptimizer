@@ -904,6 +904,11 @@ using (var scope = app.Services.CreateScope())
                 // has the matching monitoring configured (mirrors the main-site seed below,
                 // which secondary sites otherwise never got - a new ONT rule landed disabled).
                 var siteSeededPatterns = siteMissingRules.Select(m => m.EventTypePattern).ToHashSet();
+
+                // Same one-time Device Offline enable as the main site, so managed sites match.
+                AlertRuleAutoEnable.EnableNowThatItHasAPublisher(
+                    siteDb, "device.offline", "device.recovered", siteSeededPatterns, app.Logger);
+
                 AlertRuleAutoEnable.EnableFreshlySeeded(siteDb, "cable_modem", siteSeededPatterns, () => siteDb.CmConfigurations.Any());
                 AlertRuleAutoEnable.EnableFreshlySeeded(siteDb, "ont", siteSeededPatterns, () => siteDb.OntConfigurations.Any());
                 AlertRuleAutoEnable.EnableFreshlySeeded(siteDb, "cellular", siteSeededPatterns, () => siteDb.ModemConfigurations.Any());
@@ -980,6 +985,13 @@ using (var scope = app.Services.CreateScope())
         if (missing.Count > 0)
         {
             var seededPatterns = missing.Select(m => m.EventTypePattern).ToHashSet();
+
+            // Device Offline shipped disabled because nothing published device.offline until this
+            // release. Enable that ONE rule as its publisher lands - keyed off the paired
+            // device.recovered rule arriving, so it happens once and overrides no later choice.
+            AlertRuleAutoEnable.EnableNowThatItHasAPublisher(
+                db, "device.offline", "device.recovered", seededPatterns, app.Logger);
+
             AlertRuleAutoEnable.EnableFreshlySeeded(db, "cable_modem", seededPatterns, () => db.CmConfigurations.Any());
             AlertRuleAutoEnable.EnableFreshlySeeded(db, "ont", seededPatterns, () => db.OntConfigurations.Any());
             AlertRuleAutoEnable.EnableFreshlySeeded(db, "cellular", seededPatterns, () => db.ModemConfigurations.Any());
