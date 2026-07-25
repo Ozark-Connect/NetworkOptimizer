@@ -54,16 +54,16 @@
                        good. It leads the value: left of a value reads as information about it,
                        right of it reads as an action. Both swallow the click - reading a tooltip
                        should not navigate away to Device Stats, which is what the card is for.
-                       data-tooltip-hover drops the click trigger: on touch the tap shows the
-                       tooltip through the synthesized mouseenter, and the click that follows would
-                       otherwise toggle it straight back off - it only flashed on iOS. *@
+                       data-tooltip-click makes these open on tap and stay: Safari gives no sticky
+                       hover to a link descendant, and the app's click cleanup deletes every popper
+                       on a click inside a /-href link, which together made them only flash. *@
                     @if (ShowRebootIcon)
                     {
                         <span class="reboot-reason-icon @(Device.RebootWasUnexpected ? "reboot-unexpected" : "")"
-                              data-tooltip="@UptimeTooltip" data-tooltip-hover
+                              data-tooltip="@UptimeTooltip" data-tooltip-click
                               @onclick:preventDefault @onclick:stopPropagation>@(Device.RebootWasUnexpected ? "⚠" : "↻")</span>
                     }
-                    <span class="detail-value uptime-value" data-tooltip="@UptimeTooltip" data-tooltip-hover
+                    <span class="detail-value uptime-value" data-tooltip="@UptimeTooltip" data-tooltip-click
                           @onclick:preventDefault @onclick:stopPropagation>@Device.Uptime</span>
                 </div>
             }

@@ -277,6 +277,13 @@
                     opts.trigger = 'mouseenter';
                     opts.touch = false;
                 }
+                // Touch-only override for references inside a link. Safari gives a link descendant
+                // no sticky hover, so a mouseenter trigger flashes; on touch use click alone.
+                // Hover devices keep the normal trigger, so the desktop hover is unchanged.
+                if (el.hasAttribute('data-tooltip-click') &&
+                    window.matchMedia && window.matchMedia('(hover: none)').matches) {
+                    opts.trigger = 'click';
+                }
                 var delayMs = parseInt(el.dataset.tooltipDelay, 10);
                 if (!isNaN(delayMs)) {
                     opts.delay = [delayMs, 200];
@@ -335,6 +342,13 @@
                     opts.trigger = 'mouseenter';
                     opts.touch = false;
                 }
+                // Touch-only override for references inside a link. Safari gives a link descendant
+                // no sticky hover, so a mouseenter trigger flashes; on touch use click alone.
+                // Hover devices keep the normal trigger, so the desktop hover is unchanged.
+                if (el.hasAttribute('data-tooltip-click') &&
+                    window.matchMedia && window.matchMedia('(hover: none)').matches) {
+                    opts.trigger = 'click';
+                }
                 var delayMs = parseInt(el.dataset.tooltipDelay, 10);
                 if (!isNaN(delayMs)) {
                     opts.delay = [delayMs, 200];
@@ -358,7 +372,9 @@
         // Clean up tippy elements before navigation (covers absolute /path and relative ./path links)
         document.addEventListener('click', function(e) {
             var link = e.target.closest('a[href^="/"], a[href^="./"]');
-            if (link) {
+            // A click-triggered tooltip inside a link swallows the click and does not navigate,
+            // so wiping the poppers here would delete the tooltip the tap just opened.
+            if (link && !e.target.closest('[data-tooltip-click]')) {
                 document.querySelectorAll('[data-tippy-root]').forEach(function(el) {
                     el.remove();
                 });
