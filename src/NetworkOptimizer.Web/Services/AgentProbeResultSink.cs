@@ -914,9 +914,18 @@ public class AgentProbeResultSink
                     apiDevice?.Name ?? "unknown", health.DeviceMac, connection.SiteSlug);
             }
 
+            // Same name cache the health alerts use, so a relayed device reads as its name rather
+            // than a bare MAC in logs and alerts.
+            string? rebootDeviceName = apiDevice?.Name;
+            if (string.IsNullOrEmpty(rebootDeviceName) &&
+                _deviceNamesBySite.TryGetValue(connection.SiteSlug, out var rebootNames))
+            {
+                rebootNames.TryGetValue(NormalizeMac(health.DeviceMac), out rebootDeviceName);
+            }
+
             rebootTracker.RecordUptimeSample(
                 health.DeviceMac,
-                apiDevice?.Name,
+                rebootDeviceName,
                 apiDevice?.DeviceType ?? DeviceType.Unknown,
                 apiDevice?.Ip,
                 uptimeForReboot,

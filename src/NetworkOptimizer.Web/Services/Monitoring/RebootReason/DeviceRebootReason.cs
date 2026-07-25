@@ -84,11 +84,13 @@ public enum RebootReasonSource
 /// marker shapes.
 /// v5: an empty pstore on a platform that configures a console ring is read as power loss, which
 /// is the only power-vs-warm-restart signal available to devices with no reset register.
+/// v6: details lead with a plain-language cause and keep the technical evidence in parentheses,
+/// and firmware upgrades name the version from the UniFi device data when the evidence cannot.
 /// </summary>
 public static class RebootClassifier
 {
     /// <summary>Current rule-set version.</summary>
-    public const int Version = 5;
+    public const int Version = 6;
 }
 
 /// <summary>

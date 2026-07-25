@@ -49,8 +49,8 @@ public static class RebootReasonParser
             };
 
             var detail = register != null
-                ? $"Restart register: {register.Value.Text}"
-                : "Console recorded an improper shutdown";
+                ? $"{PlainRegisterCause(category)} (reset register: {register.Value.Text})"
+                : PlainRegisterCause(category);
             return new DeviceRebootReason(category, summary, detail, RebootReasonSource.ConsoleRebootLog);
         }
 
@@ -60,7 +60,7 @@ public static class RebootReasonParser
             return new DeviceRebootReason(
                 RebootCategory.FirmwareUpgrade,
                 "Firmware upgrade",
-                ExtractUpgradeVersions(line) ?? "Console recorded an upgrade reboot",
+                ExtractUpgradeVersions(line) ?? "The device installed new firmware and restarted to run it",
                 RebootReasonSource.ConsoleRebootLog);
         }
 
@@ -72,7 +72,9 @@ public static class RebootReasonParser
             return new DeviceRebootReason(
                 RebootCategory.CommandedReboot,
                 "Restarted",
-                register != null ? $"Restart register: {register.Value.Text}" : "Console recorded a normal reboot",
+                register != null
+                    ? $"Something asked the device to restart (reset register: {register.Value.Text})"
+                    : "Something asked the device to restart",
                 RebootReasonSource.ConsoleRebootLog);
         }
 
@@ -94,7 +96,7 @@ public static class RebootReasonParser
             return new DeviceRebootReason(
                 RebootCategory.KernelPanic,
                 "Kernel panic",
-                FirstMeaningfulLine(crashTail) ?? "A kernel crash trace survived in pstore",
+                FirstMeaningfulLine(crashTail) ?? "The device software crashed",
                 RebootReasonSource.PstoreCrashDump);
         }
 
@@ -118,7 +120,7 @@ public static class RebootReasonParser
                 return new DeviceRebootReason(
                     RebootCategory.FirmwareUpgrade,
                     "Firmware upgrade",
-                    "Previous boot ran a firmware upgrade, then restarted",
+                    "The device installed new firmware and restarted to run it",
                     RebootReasonSource.PstoreConsole);
             }
 
@@ -127,14 +129,14 @@ public static class RebootReasonParser
                 return new DeviceRebootReason(
                     RebootCategory.Watchdog,
                     "Watchdog reset",
-                    "Watchdog fired before the restart",
+                    "The device stopped responding and reset itself (watchdog)",
                     RebootReasonSource.PstoreConsole);
             }
 
             return new DeviceRebootReason(
                 RebootCategory.CommandedReboot,
                 "Restarted",
-                "Previous boot shut down cleanly",
+                "The device shut down cleanly, so something asked it to restart",
                 RebootReasonSource.PstoreConsole);
         }
 
@@ -143,14 +145,14 @@ public static class RebootReasonParser
             return new DeviceRebootReason(
                 RebootCategory.Watchdog,
                 "Watchdog reset",
-                "Watchdog fired with no clean shutdown",
+                "The device stopped responding and reset itself (watchdog, no clean shutdown)",
                 RebootReasonSource.PstoreConsole);
         }
 
         return new DeviceRebootReason(
             RebootCategory.AbruptStop,
             "Unexpected stop",
-            "Previous boot stopped with no shutdown recorded - power loss or a hang",
+            "The device stopped without shutting down, so it either lost power or hung",
             RebootReasonSource.PstoreConsole);
     }
 
@@ -182,7 +184,7 @@ public static class RebootReasonParser
         return new DeviceRebootReason(
             RebootCategory.PowerLoss,
             "Power loss",
-            "No boot records survived in pstore, so the device lost power rather than restarting",
+            "The device lost power rather than being restarted (nothing from its previous run survived in memory)",
             RebootReasonSource.PstoreCleared);
     }
 
@@ -218,12 +220,12 @@ public static class RebootReasonParser
         {
             var image = ShortenFirmware(markerFirmware!.Trim());
             detail = string.IsNullOrWhiteSpace(image)
-                ? "Device flashed a new image on this boot"
+                ? "The device installed new firmware on this boot"
                 : $"Upgraded to {image}";
         }
         else
         {
-            detail = "Firmware version changed across the restart";
+            detail = "The device is running a different firmware version than before the restart";
         }
 
         return new DeviceRebootReason(
@@ -318,6 +320,51 @@ public static class RebootReasonParser
 
         return best;
     }
+
+    /// <summary>
+    /// Name the versions on a firmware upgrade using what the UniFi device data knows.
+    ///
+    /// The strongest upgrade evidence is often the least specific about versions: an AP's console
+    /// ring says a flash happened but never which image, so the reason would read "ran a firmware
+    /// upgrade" with no version. The console's own reason log DOES name both versions, and the
+    /// switch marker names the new one, so an existing from/to detail is left alone.
+    /// </summary>
+    /// <param name="reason">The chosen reason.</param>
+    /// <param name="previousFirmware">Firmware recorded on the device's previous boot, if known.</param>
+    /// <param name="currentFirmware">Firmware the device reports now.</param>
+    public static DeviceRebootReason WithFirmwareVersions(
+        DeviceRebootReason reason,
+        string? previousFirmware,
+        string? currentFirmware)
+    {
+        if (reason.Category != RebootCategory.FirmwareUpgrade)
+            return reason;
+
+        var current = ShortenFirmware(currentFirmware?.Trim() ?? "");
+        var previous = ShortenFirmware(previousFirmware?.Trim() ?? "");
+        var haveCurrent = current.Length > 0;
+        var havePrevious = previous.Length > 0 && !string.Equals(previous, current, StringComparison.OrdinalIgnoreCase);
+
+        // A detail that already spans both versions is the most specific thing available.
+        var detailNamesBoth = reason.Detail?.Contains(" to ", StringComparison.OrdinalIgnoreCase) == true &&
+            reason.Detail.Contains("from", StringComparison.OrdinalIgnoreCase);
+        if (detailNamesBoth || !haveCurrent)
+            return reason;
+
+        var detail = havePrevious
+            ? $"Upgraded from {previous} to {current}"
+            : $"Upgraded to {current}";
+
+        return reason with { Detail = detail };
+    }
+
+    /// <summary>Plain-language cause for a register-derived reason, before the register itself.</summary>
+    private static string PlainRegisterCause(RebootCategory category) => category switch
+    {
+        RebootCategory.PowerLoss => "Power was removed from the device",
+        RebootCategory.HardwareHang => "The device locked up internally and had to reset",
+        _ => "The device stopped unexpectedly"
+    };
 
     private static bool LooksLikeFirmwareFlash(string tail) =>
         tail.Contains("Upgrading, please stand by", StringComparison.OrdinalIgnoreCase) ||

@@ -161,7 +161,7 @@ public class RebootReasonParserTests
         var reason = RebootReasonParser.ParsePstore("console-ramoops-0", tail);
 
         Assert.Equal(RebootCategory.AbruptStop, reason!.Category);
-        Assert.Contains("no shutdown recorded", reason.Detail);
+        Assert.Contains("either lost power or hung", reason.Detail);
         Assert.True(reason.IsUnexpected);
     }
 
@@ -258,7 +258,7 @@ public class RebootReasonParserTests
 
         Assert.Equal(RebootCategory.FirmwareUpgrade, reason!.Category);
         Assert.Equal(RebootReasonSource.DeviceState, reason.Source);
-        Assert.Contains("changed across the restart", reason.Detail);
+        Assert.Contains("different firmware version", reason.Detail);
     }
 
     /// <summary>

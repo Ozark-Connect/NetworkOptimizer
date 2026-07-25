@@ -147,7 +147,8 @@ public class DeviceRebootTracker
             _lastProbeAttempt.TryRemove(mac, out _);
         }
 
-        _ = ResolveInBackgroundAsync(mac, deviceName, deviceType, host, bootedAt, firmwareChanged);
+        _ = ResolveInBackgroundAsync(mac, deviceName, deviceType, host, bootedAt, firmwareChanged,
+            previousFirmware: known?.FirmwareVersion, currentFirmware: firmwareVersion);
     }
 
     /// <summary>
@@ -223,7 +224,9 @@ public class DeviceRebootTracker
         DeviceType deviceType,
         string? host,
         DateTime bootedAt,
-        bool firmwareChanged)
+        bool firmwareChanged,
+        string? previousFirmware,
+        string? currentFirmware)
     {
         if (string.IsNullOrWhiteSpace(host))
         {
@@ -258,7 +261,14 @@ public class DeviceRebootTracker
                 "Probing {Device} ({Mac}, {DeviceType}) at {Host} for the reason behind its boot at {BootedAt:u}",
                 deviceName ?? "unknown", mac, deviceType, host, bootedAt);
 
-            var reason = await _probe.ProbeAsync(host, deviceType, firmwareChanged);
+            var probed = await _probe.ProbeAsync(host, deviceType, firmwareChanged);
+
+            // Name the versions from the UniFi device data. An AP's console ring proves a flash
+            // happened but never says which image, and that detail is what the tooltip shows.
+            var reason = probed == null
+                ? null
+                : RebootReasonParser.WithFirmwareVersions(probed, previousFirmware, currentFirmware);
+
             if (reason == null)
             {
                 // Probe logs why (unreachable vs. reachable but no evidence); this line ties it
