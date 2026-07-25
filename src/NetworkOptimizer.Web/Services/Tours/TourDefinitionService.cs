@@ -37,8 +37,10 @@ public class TourDefinitionService
     /// </summary>
     public Version CurrentEffectiveVersion()
     {
-        var release = TourVersions.Parse(AppVersionInfo.ReleaseVersion);
-        if (release != null)
+        // Gate on IsSourceBuild, not on ReleaseVersion being parseable: a git-checkout
+        // source build carries the NEXT version with prerelease height (2.3.2-alpha...),
+        // and judging tours against that base would hide the tour it was built to test.
+        if (!AppVersionInfo.IsSourceBuild && TourVersions.Parse(AppVersionInfo.ReleaseVersion) is { } release)
             return release;
         return GetTours().Select(t => t.ParsedVersion).Where(v => v != null).Max() ?? new Version(0, 0, 0);
     }
