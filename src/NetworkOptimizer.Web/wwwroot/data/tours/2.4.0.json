@@ -46,7 +46,7 @@
       "url": "/monitoring?tab=live",
       "selector": "[data-tour=\"live-view-timeline\"]",
       "title": "Live View timeline",
-      "listLabel": "Rewind the network to any moment",
+      "listLabel": "The Live View timeline now shows who was connected",
       "body": "**Drag** the timeline to any point in the past and the Live View map shows the network as it was then, including which clients were connected at that moment.",
       "placement": "top",
       "badge": "improved",
