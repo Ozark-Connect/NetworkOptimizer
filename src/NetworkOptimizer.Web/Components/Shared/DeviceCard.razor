@@ -52,16 +52,13 @@
                     <span class="detail-label">Uptime:</span>
                     @* Icon only while the reboot is recent news; the hover on the value stays for
                        good. It leads the value: left of a value reads as information about it,
-                       right of it reads as an action. Both swallow the click - reading a tooltip
-                       should not navigate away to Device Stats, which is what the card is for. *@
+                       right of it reads as an action. *@
                     @if (ShowRebootIcon)
                     {
                         <span class="reboot-reason-icon @(Device.RebootWasUnexpected ? "reboot-unexpected" : "")"
-                              data-tooltip="@UptimeTooltip" data-tooltip-click
-                              @onclick:preventDefault @onclick:stopPropagation>@(Device.RebootWasUnexpected ? "⚠" : "↻")</span>
+                              data-tooltip="@UptimeTooltip" data-tooltip-click>@(Device.RebootWasUnexpected ? "⚠" : "↻")</span>
                     }
-                    <span class="detail-value uptime-value" data-tooltip="@UptimeTooltip" data-tooltip-click
-                          @onclick:preventDefault @onclick:stopPropagation>@Device.Uptime</span>
+                    <span class="detail-value uptime-value" data-tooltip="@UptimeTooltip" data-tooltip-click>@Device.Uptime</span>
                 </div>
             }
             @if (Device.ClientCount.HasValue)
