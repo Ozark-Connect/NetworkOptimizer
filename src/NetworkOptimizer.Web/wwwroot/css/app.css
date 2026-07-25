@@ -18541,12 +18541,15 @@ body.kiosk-mode .status-indicators {
 
 .tour-modal-title {
     margin: 0 0 8px;
-    font-size: 1.15rem;
+    font-size: 1.05rem;
+    font-weight: 600;
     color: var(--text-primary);
 }
 
 .tour-modal-summary {
     color: var(--text-secondary);
+    font-size: 0.9rem;
+    line-height: 1.45;
     margin: 0 0 12px;
 }
 
@@ -18554,6 +18557,8 @@ body.kiosk-mode .status-indicators {
     margin: 0 0 12px;
     padding-left: 20px;
     color: var(--text-secondary);
+    font-size: 0.9rem;
+    line-height: 1.5;
 }
 
 .tour-modal-steps li {
@@ -18562,7 +18567,7 @@ body.kiosk-mode .status-indicators {
 
 .tour-modal-meta {
     color: var(--text-muted);
-    font-size: 0.85rem;
+    font-size: 0.8rem;
     margin: 0 0 16px;
 }
 
