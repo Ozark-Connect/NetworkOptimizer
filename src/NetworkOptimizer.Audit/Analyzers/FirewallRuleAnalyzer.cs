@@ -89,6 +89,31 @@ public class FirewallRuleAnalyzer
 
                     if (earlierIsAllow && !laterIsAllow)
                     {
+                        // Return-traffic allows never admit a new session, so they are intentional
+                        // exceptions to denies that block NEW traffic (#1019).
+                        if (earlierRule.AllowsOnlyReturnTraffic() && laterRule.BlocksNewConnections())
+                        {
+                            issues.Add(new AuditIssue
+                            {
+                                Type = IssueTypes.AllowExceptionPattern,
+                                Severity = AuditSeverity.Informational,
+                                Message = $"Return-traffic rule '{earlierRule.Name}' creates an intentional established/related exception to deny rule '{laterRule.Name}'",
+                                Description = GetExceptionPatternDescription(laterRule, earlierRule, externalZoneId, networks),
+                                Metadata = new Dictionary<string, object>
+                                {
+                                    { "allow_rule", earlierRule.Name ?? earlierRule.Id },
+                                    { "allow_index", earlierRule.Index },
+                                    { "deny_rule", laterRule.Name ?? laterRule.Id },
+                                    { "deny_index", laterRule.Index },
+                                    { "pattern", "return_traffic" }
+                                },
+                                RuleId = "FW-EXCEPTION-001",
+                                ScoreImpact = 0,
+                                RecommendedAction = "This rule only allows established/related return traffic and does not permit new connections - no action required."
+                            });
+                            continue;
+                        }
+
                         // Earlier ALLOW subverts later DENY
                         // Check if this is a "narrow exception before broad deny" pattern
                         var isNarrowException = FirewallRuleOverlapDetector.IsNarrowerScope(earlierRule, laterRule);
