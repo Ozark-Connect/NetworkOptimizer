@@ -153,10 +153,11 @@ public class LanFlowMapService
             .ToDictionary(d => NormalizeMac(d.Mac), d => d, StringComparer.OrdinalIgnoreCase);
 
         // Names for clients that are not connected right now, so the timeline can label a client it
-        // rebuilds from telemetry. Both endpoints are asked with no window: measured on a live
-        // console they each return everything it remembers (oldest last_seen 415 days), and passing
-        // a lookback only narrows that. rest/user goes second because a user-set alias should win.
-        // Advisory: a failure just means such a leaf shows its MAC.
+        // rebuilds from telemetry. rest/user is asked with no window and returns everything the
+        // console remembers - measured on a live console, 83 clients with the oldest last_seen 415
+        // days back. stat/alluser was tried alongside it and contributed nothing: identical MAC set,
+        // and zero names it supplied that rest/user lacked. Advisory: a failure just means such a
+        // leaf shows its MAC.
         try
         {
             var names = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -165,13 +166,6 @@ public class LanFlowMapService
                 !string.IsNullOrWhiteSpace(c.Name) ? c.Name
                 : !string.IsNullOrWhiteSpace(c.Hostname) ? c.Hostname
                 : null;
-
-            foreach (var c in await _connection.Client!.GetRecentClientsAsync(withinHours: null, ct))
-            {
-                var label = Label(c);
-                if (!string.IsNullOrEmpty(c.Mac) && label != null)
-                    names[NormalizeMac(c.Mac)] = label;
-            }
 
             foreach (var c in await _connection.Client!.GetAllKnownClientsAsync(ct))
             {

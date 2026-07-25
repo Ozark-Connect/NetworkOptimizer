@@ -1085,44 +1085,6 @@ public class UniFiApiClient : IDisposable
     }
 
     /// <summary>
-    /// POST stat/alluser - clients the console has seen, whether or not they are connected now.
-    ///
-    /// Measured against a live console: with no <c>within</c> this returns everything the console
-    /// remembers (83 clients, oldest last_seen 415 days), and passing a window NARROWS it
-    /// (<c>within=720</c> cut the same site to 52 clients / 30 days). So the window is left off by
-    /// default - a caller wanting names for a client that left long ago wants the full set, and
-    /// clamping is what would hide it.
-    /// </summary>
-    /// <param name="withinHours">Optional lookback in hours. Omit for everything the console keeps.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    public async Task<List<UniFiClientResponse>> GetRecentClientsAsync(
-        int? withinHours = null,
-        CancellationToken cancellationToken = default)
-    {
-        _logger.LogDebug("Fetching seen clients from site {Site} (within={Within})",
-            _site, withinHours?.ToString() ?? "all");
-
-        object payload = withinHours.HasValue
-            ? new { type = "all", conn = "all", within = withinHours.Value }
-            : new { type = "all", conn = "all" };
-        var content = new StringContent(
-            JsonSerializer.Serialize(payload), System.Text.Encoding.UTF8, "application/json");
-
-        var response = await ExecuteApiCallAsync<UniFiApiResponse<UniFiClientResponse>>(
-            () => _httpClient!.PostAsync(BuildApiPath("stat/alluser"), content, cancellationToken),
-            cancellationToken);
-
-        if (response?.Meta.Rc == "ok")
-        {
-            _logger.LogInformation("Retrieved {Count} seen clients", response.Data.Count);
-            return response.Data;
-        }
-
-        _logger.LogWarning("Failed to retrieve seen clients or received non-ok response");
-        return new List<UniFiClientResponse>();
-    }
-
-    /// <summary>
     /// GET v2/api/site/{site}/clients/active - Get currently active clients with full details
     /// This endpoint returns IP addresses even for UX/UX7 connected clients (unlike stat/sta)
     /// </summary>
