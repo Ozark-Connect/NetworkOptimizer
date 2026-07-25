@@ -23,6 +23,7 @@
 # continues to run for all other ports, so eth5 link recovery is unaffected.
 #
 # WARNING: This targets eth6 / Port 7 (the 2nd SFP+ port) ONLY.
+# For eth5 / Port 6, use 19-sfp-sgmiiplus-eth5.sh instead.
 #
 # Target: UCG-Fiber / UXG-Fiber (IPQ9574, kernel 5.4.213-ui-ipq9574)
 # Requires: qca-ssdk.ko loaded, module pre-deployed to /data/sfp-sgmiiplus/
