@@ -2564,9 +2564,12 @@ export class LanFlowMap {
             const hay = `${node.name || ''} ${node.mac || ''} ${node.ssid || ''}`.toLowerCase();
             if (!hay.includes(this._filter.text)) return false;
         }
-        // Band filter (WiFi only).
-        if (node.kind === NODE_KIND.WifiClient && node.band) {
-            if (this._filter.bands[node.band] === false) return false;
+        // Band filter (WiFi only). Follows the scrubbed instant like the tooltip and the node
+        // skin do, so filtering to 5 GHz keeps a client that was on 5 GHz then - the snapshot's
+        // band is "now". Live ticks carry no client stats, so this reads the snapshot value.
+        if (node.kind === NODE_KIND.WifiClient) {
+            const band = this._currentClientStats?.[node.id]?.band ?? node.band;
+            if (band && this._filter.bands[band] === false) return false;
         }
         return true;
     }
