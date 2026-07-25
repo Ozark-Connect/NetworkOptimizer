@@ -1085,25 +1085,26 @@ public class UniFiApiClient : IDisposable
     }
 
     /// <summary>
-    /// POST stat/alluser - clients seen within the last <paramref name="withinHours"/>, whether or
-    /// not they are connected now.
+    /// POST stat/alluser - clients the console has seen, whether or not they are connected now.
     ///
-    /// This is the only client endpoint with a lookback: <c>stat/sta</c> and v2
-    /// <c>clients/active</c> are connected-only, and <c>rest/user</c> holds just the records the
-    /// console keeps a user object for. Anything reading names for a client that left days ago has
-    /// to come through here, and the window must be passed explicitly - the console's own default
-    /// is short (a day), which is exactly how a client that has been away for a couple of days ends
-    /// up nameless.
+    /// Measured against a live console: with no <c>within</c> this returns everything the console
+    /// remembers (83 clients, oldest last_seen 415 days), and passing a window NARROWS it
+    /// (<c>within=720</c> cut the same site to 52 clients / 30 days). So the window is left off by
+    /// default - a caller wanting names for a client that left long ago wants the full set, and
+    /// clamping is what would hide it.
     /// </summary>
-    /// <param name="withinHours">Lookback window in hours.</param>
+    /// <param name="withinHours">Optional lookback in hours. Omit for everything the console keeps.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     public async Task<List<UniFiClientResponse>> GetRecentClientsAsync(
-        int withinHours = 720,
+        int? withinHours = null,
         CancellationToken cancellationToken = default)
     {
-        _logger.LogDebug("Fetching clients seen within {Hours}h from site {Site}", withinHours, _site);
+        _logger.LogDebug("Fetching seen clients from site {Site} (within={Within})",
+            _site, withinHours?.ToString() ?? "all");
 
-        var payload = new { type = "all", conn = "all", within = withinHours };
+        object payload = withinHours.HasValue
+            ? new { type = "all", conn = "all", within = withinHours.Value }
+            : new { type = "all", conn = "all" };
         var content = new StringContent(
             JsonSerializer.Serialize(payload), System.Text.Encoding.UTF8, "application/json");
 
@@ -1113,11 +1114,11 @@ public class UniFiApiClient : IDisposable
 
         if (response?.Meta.Rc == "ok")
         {
-            _logger.LogInformation("Retrieved {Count} clients seen within {Hours}h", response.Data.Count, withinHours);
+            _logger.LogInformation("Retrieved {Count} seen clients", response.Data.Count);
             return response.Data;
         }
 
-        _logger.LogWarning("Failed to retrieve recent clients or received non-ok response");
+        _logger.LogWarning("Failed to retrieve seen clients or received non-ok response");
         return new List<UniFiClientResponse>();
     }
 

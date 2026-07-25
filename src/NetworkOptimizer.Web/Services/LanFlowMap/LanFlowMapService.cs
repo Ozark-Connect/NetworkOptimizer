@@ -153,10 +153,10 @@ public class LanFlowMapService
             .ToDictionary(d => NormalizeMac(d.Mac), d => d, StringComparer.OrdinalIgnoreCase);
 
         // Names for clients that are not connected right now, so the timeline can label a client it
-        // rebuilds from telemetry. stat/alluser is the only client endpoint with a lookback, and the
-        // window has to be explicit: the console's own default is about a day, which left anything
-        // away longer than that nameless. rest/user is unioned on top because a user-set alias lives
-        // there and should win. Advisory: a failure just means such a leaf shows its MAC.
+        // rebuilds from telemetry. Both endpoints are asked with no window: measured on a live
+        // console they each return everything it remembers (oldest last_seen 415 days), and passing
+        // a lookback only narrows that. rest/user goes second because a user-set alias should win.
+        // Advisory: a failure just means such a leaf shows its MAC.
         try
         {
             var names = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -166,7 +166,7 @@ public class LanFlowMapService
                 : !string.IsNullOrWhiteSpace(c.Hostname) ? c.Hostname
                 : null;
 
-            foreach (var c in await _connection.Client!.GetRecentClientsAsync(ClientNameLookbackHours, ct))
+            foreach (var c in await _connection.Client!.GetRecentClientsAsync(withinHours: null, ct))
             {
                 var label = Label(c);
                 if (!string.IsNullOrEmpty(c.Mac) && label != null)
@@ -230,12 +230,6 @@ public class LanFlowMapService
 
         return snapshot;
     }
-
-    /// <summary>
-    /// How far back to ask the console for client names. Matches the 30 days the maps already use
-    /// for their speed-test overlay, so a client that has been away for weeks still reads as itself.
-    /// </summary>
-    private const int ClientNameLookbackHours = 720;
 
     /// <summary>
     /// Tolerance for deriving historic online state from telemetry proximity. There is
