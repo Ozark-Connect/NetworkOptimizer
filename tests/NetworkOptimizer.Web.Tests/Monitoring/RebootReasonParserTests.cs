@@ -107,6 +107,60 @@ public class RebootReasonParserTests
         Assert.Equal(RebootReasonSource.PstoreCrashDump, reason.Source);
     }
 
+    /// <summary>
+    /// Two sibling APs at the same site: both console rings show the same firmware upgrade, but one
+    /// also carries dmesg-ramoops dumps from eight weeks earlier. The stale dumps must not turn its
+    /// upgrade into a panic. Age measured on the real device: 56 days before the boot.
+    /// </summary>
+    [Fact]
+    public void Pstore_StaleCrashDumpWithCleanRing_IsNotAPanic()
+    {
+        const string upgradeRing = """
+            [    4.226054] preinit: running 'preinit_ubnt/perform_early_upgrade'
+            [    5.052846] Upgrading, please stand by...
+            [   23.753986] reboot: Restarting system
+
+            No errors detected
+            """;
+
+        var reason = RebootReasonParser.ParsePstore(
+            "console-ramoops-0\ndmesg-ramoops-0\ndmesg-ramoops-1",
+            upgradeRing,
+            crashTail: "Panic#1 Part1",
+            crashAgeVsBootSeconds: -4867279);
+
+        Assert.Equal(RebootCategory.FirmwareUpgrade, reason!.Category);
+    }
+
+    /// <summary>
+    /// Even with no way to date the dump, a ring that ends in a deliberate stop proves the previous
+    /// run chose to end, so the dump is older history.
+    /// </summary>
+    [Fact]
+    public void Pstore_CrashDumpButRingEndedDeliberately_IsNotAPanic()
+    {
+        var reason = RebootReasonParser.ParsePstore(
+            "console-ramoops-0\ndmesg-ramoops-0",
+            "[747192.920000] reboot: Restarting system",
+            crashTail: "Panic#1 Part1",
+            crashAgeVsBootSeconds: null);
+
+        Assert.Equal(RebootCategory.CommandedReboot, reason!.Category);
+    }
+
+    /// <summary>A dump dated to this boot, with a ring that was cut off, IS the panic.</summary>
+    [Fact]
+    public void Pstore_CrashDumpDatedToThisBoot_IsPanic()
+    {
+        var reason = RebootReasonParser.ParsePstore(
+            "console-ramoops-0\ndmesg-ramoops-0",
+            "[ 900.1] wlan: some traffic",
+            crashTail: "Panic#1 Part1\nUnable to handle kernel paging request",
+            crashAgeVsBootSeconds: -40);
+
+        Assert.Equal(RebootCategory.KernelPanic, reason!.Category);
+    }
+
     [Fact]
     public void Pstore_ApFirmwareFlash_IsFirmwareUpgrade()
     {

@@ -87,11 +87,38 @@ public static class RebootReasonParser
     /// <param name="pstoreListing">Output of listing <c>/sys/fs/pstore</c> (one name per line, or ls output).</param>
     /// <param name="consoleTail">Trailing lines of <c>console-ramoops-0</c>.</param>
     /// <param name="crashTail">First lines of <c>dmesg-ramoops-*</c> when one exists.</param>
+    /// <param name="crashAgeVsBootSeconds">
+    /// Crash record mtime minus this boot's start, in seconds, or null when the device could not
+    /// report it. Crash records outlive many boots, so their age is what ties one to this boot.
+    /// </param>
     /// <returns>The reason, or null when pstore held nothing usable.</returns>
-    public static DeviceRebootReason? ParsePstore(string? pstoreListing, string? consoleTail, string? crashTail = null)
+    public static DeviceRebootReason? ParsePstore(
+        string? pstoreListing,
+        string? consoleTail,
+        string? crashTail = null,
+        int? crashAgeVsBootSeconds = null)
     {
+        var lines = NonEmptyLines(consoleTail);
+
+        // The ECC footer ramoops appends ("No errors detected", "4 Corrected bytes, ...") is not
+        // console output, so drop it before looking at how the run ended.
+        var tail = string.Join("\n", lines.Where(l => !IsEccFooter(l)));
+
+        var stoppedOnPurpose = tail.Contains(RestartMarker, StringComparison.OrdinalIgnoreCase) ||
+                               tail.Contains(RealtekRestartMarker, StringComparison.OrdinalIgnoreCase);
+
+        // A crash record is NOT proof that this boot followed a panic. pstore keeps them until
+        // something erases them, so a device can carry a dump from months ago: one AP in the field
+        // held two dumps from eight weeks earlier while its console ring showed a firmware upgrade
+        // for the current boot, and its sibling with no dumps read correctly. Two independent checks
+        // keep that history out. A ring ending in a deliberate stop means the previous run chose to
+        // end, so any dump predates it. And where the device can date the dump - these carry real
+        // mtimes, unlike the ring - it has to sit near this boot.
         var hasCrashDump = pstoreListing?.Contains("dmesg-ramoops", StringComparison.OrdinalIgnoreCase) == true;
-        if (hasCrashDump)
+        var crashBelongsToThisBoot = !crashAgeVsBootSeconds.HasValue ||
+            Math.Abs(crashAgeVsBootSeconds.Value) <= CrashBootWindowSeconds;
+
+        if (hasCrashDump && !stoppedOnPurpose && crashBelongsToThisBoot)
         {
             return new DeviceRebootReason(
                 RebootCategory.KernelPanic,
@@ -100,18 +127,8 @@ public static class RebootReasonParser
                 RebootReasonSource.PstoreCrashDump);
         }
 
-        var lines = NonEmptyLines(consoleTail);
-        if (lines.Count == 0)
+        if (lines.Count == 0 || tail.Length == 0)
             return null;
-
-        // The ECC footer ramoops appends ("No errors detected", "4 Corrected bytes, ...") is not
-        // console output, so drop it before looking at how the run ended.
-        var tail = string.Join("\n", lines.Where(l => !IsEccFooter(l)));
-        if (tail.Length == 0)
-            return null;
-
-        var stoppedOnPurpose = tail.Contains(RestartMarker, StringComparison.OrdinalIgnoreCase) ||
-                               tail.Contains(RealtekRestartMarker, StringComparison.OrdinalIgnoreCase);
 
         if (stoppedOnPurpose)
         {
@@ -234,6 +251,9 @@ public static class RebootReasonParser
 
     /// <summary>How close the upgrade marker's mtime must sit to the boot to count as its cause.</summary>
     private const int MarkerBootWindowSeconds = 900;
+
+    /// <summary>How close a crash record's mtime must sit to the boot to be read as its cause.</summary>
+    private const int CrashBootWindowSeconds = 900;
 
     /// <summary>
     /// Last-resort mapping of a UniFi Network event key. These are generic: the "unknown reason"
