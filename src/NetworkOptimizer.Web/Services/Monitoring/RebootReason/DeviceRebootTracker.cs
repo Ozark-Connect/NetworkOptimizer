@@ -32,6 +32,18 @@ public class DeviceRebootTracker
     private static readonly TimeSpan ProbeRetryDelay = TimeSpan.FromHours(1);
 
     private readonly ConcurrentDictionary<string, DeviceBootRecord> _records = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Timestamp each device's stored record already occupies, including records dropped as stale.
+    ///
+    /// A record is one point per boot, keyed by the boot instant - but that instant is derived from
+    /// sampled uptime and wanders a few seconds between polls. Writing a re-probe at a freshly
+    /// derived instant therefore lands BESIDE the old point instead of replacing it, and since the
+    /// read takes the latest _time (the latest boot instant, not the latest write), the older row can
+    /// keep winning: the device then looks stale on every startup and re-probes forever. Reusing the
+    /// timestamp already on file makes the rewrite an overwrite.
+    /// </summary>
+    private readonly ConcurrentDictionary<string, DateTime> _storedBootAt = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, DateTime> _lastProbeAttempt = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, byte> _inFlight = new(StringComparer.OrdinalIgnoreCase);
 
@@ -167,6 +179,10 @@ public class DeviceRebootTracker
             {
                 // Records classified by older rules are dropped so the device is probed again and
                 // rewritten; otherwise a rules fix could never reach a boot already on file.
+                // Remember where this device's point sits even when its rules are stale, so the
+                // re-probe overwrites that point rather than adding a sibling next to it.
+                _storedBootAt[Normalize(point.DeviceMac)] = point.BootedAt;
+
                 if (point.ClassifierVersion < RebootClassifier.Version)
                 {
                     staleRules++;
@@ -327,6 +343,14 @@ public class DeviceRebootTracker
             _logger.LogWarning(ex, "Could not publish the reboot alert for {Mac}", mac);
         }
 
+        // Reuse the point already on file for this boot so the write replaces it instead of
+        // creating a second point a few seconds away; otherwise the read can keep returning the
+        // older row and the device re-probes on every startup.
+        var writeAt = _storedBootAt.TryGetValue(mac, out var stored) && WithinTolerance(stored, bootedAt)
+            ? stored
+            : bootedAt;
+        _storedBootAt[mac] = writeAt;
+
         _ = _influx.WriteDeviceRebootAsync(
             deviceMac: mac,
             deviceType: deviceType.ToString(),
@@ -334,7 +358,7 @@ public class DeviceRebootTracker
             summary: reason.Summary,
             detail: reason.Detail,
             source: reason.Source.ToString(),
-            bootedAt: bootedAt,
+            bootedAt: writeAt,
             firmwareVersion: firmware,
             classifierVersion: RebootClassifier.Version);
     }
