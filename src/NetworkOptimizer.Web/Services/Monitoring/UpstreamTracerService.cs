@@ -869,6 +869,7 @@ public class UpstreamTracerService
             if (inferred != null)
             {
                 State.AccessTechnology = inferred.Value;
+                State.AccessTechnologyInferred = true;
                 _logger.LogDebug("Tracer: access technology inferred as {Tech} from L2 neighbor vendor {Vendor}",
                     inferred.Value, State.WanNeighborOuiVendor);
             }

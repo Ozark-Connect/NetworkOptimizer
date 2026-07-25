@@ -16854,6 +16854,26 @@ a.isp-health-hero-speed:hover {
     color: var(--text-muted);
 }
 
+.upstream-tech-select {
+    max-width: 250px;
+}
+
+.upstream-tech-unset {
+    outline: 2px solid rgba(59, 130, 246, 0.5);
+    outline-offset: 2px;
+    border-radius: 6px;
+}
+
+.upstream-tech-inferred {
+    outline: 2px solid var(--warning-color);
+    outline-offset: 2px;
+    border-radius: 6px;
+}
+
+.upstream-tech-inferred-help {
+    color: var(--warning-color);
+}
+
 .isp-plan-hint-compact {
     margin-top: 0.4rem;
     padding: 0.5rem 0.6rem;
