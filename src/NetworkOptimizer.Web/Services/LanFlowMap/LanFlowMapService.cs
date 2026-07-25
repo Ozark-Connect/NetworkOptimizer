@@ -153,11 +153,10 @@ public class LanFlowMapService
             .ToDictionary(d => NormalizeMac(d.Mac), d => d, StringComparer.OrdinalIgnoreCase);
 
         // Names for clients that are not connected right now, so the timeline can label a client it
-        // rebuilds from telemetry. rest/user is asked with no window and returns everything the
-        // console remembers - measured on a live console, 83 clients with the oldest last_seen 415
-        // days back. stat/alluser was tried alongside it and contributed nothing: identical MAC set,
-        // and zero names it supplied that rest/user lacked. Advisory: a failure just means such a
-        // leaf shows its MAC.
+        // rebuilds from telemetry. Both endpoints are asked with no window: measured on a live
+        // console they each return everything it remembers (oldest last_seen 415 days), and passing
+        // a lookback only narrows that. rest/user goes second because a user-set alias should win.
+        // Advisory: a failure just means such a leaf shows its MAC.
         try
         {
             var names = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -167,15 +166,32 @@ public class LanFlowMapService
                 : !string.IsNullOrWhiteSpace(c.Hostname) ? c.Hostname
                 : null;
 
+            var seenCount = 0;
+            foreach (var c in await _connection.Client!.GetRecentClientsAsync(withinHours: null, ct))
+            {
+                var label = Label(c);
+                if (!string.IsNullOrEmpty(c.Mac) && label != null)
+                {
+                    names[NormalizeMac(c.Mac)] = label;
+                    seenCount++;
+                }
+            }
+
+            var knownCount = 0;
             foreach (var c in await _connection.Client!.GetAllKnownClientsAsync(ct))
             {
                 var label = Label(c);
                 if (!string.IsNullOrEmpty(c.Mac) && label != null)
+                {
                     names[NormalizeMac(c.Mac)] = label;
+                    knownCount++;
+                }
             }
 
             snapshot.RecentClientNames = names;
-            _logger.LogDebug("LAN map: {Count} client name(s) available for historic playback", names.Count);
+            _logger.LogDebug(
+                "LAN map [{Site}]: {Count} client name(s) for historic playback ({Seen} from seen-clients, {Known} from known-users)",
+                _siteContext.Slug, names.Count, seenCount, knownCount);
         }
         catch (Exception ex)
         {
@@ -1493,9 +1509,13 @@ public class LanFlowMapService
 
         if (update.AddedClientNodes.Count > 0)
         {
+            // Nameless count is the actionable number: it is exactly what renders as a raw MAC,
+            // and it says whether the shortfall is the name sources or this site's client records.
+            var nameless = update.AddedClientNodes.Count(
+                n => string.Equals(n.Name, n.Mac, StringComparison.OrdinalIgnoreCase));
             _logger.LogDebug(
-                "LAN map: {Count} client(s) present at {At:u} but not connected now - rebuilt from telemetry",
-                update.AddedClientNodes.Count, update.At);
+                "LAN map [{Site}]: {Count} client(s) present at {At:u} but not connected now - rebuilt from telemetry, {Nameless} without a name",
+                _siteContext.Slug, update.AddedClientNodes.Count, update.At, nameless);
         }
     }
 
