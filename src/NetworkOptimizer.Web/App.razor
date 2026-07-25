@@ -283,6 +283,15 @@
                 if (el.hasAttribute('data-tooltip-click') &&
                     window.matchMedia && window.matchMedia('(hover: none)').matches) {
                     opts.trigger = 'click';
+                    // The tap opens the tooltip instead of following the link it sits in. Only on
+                    // touch: a hover device shows the tooltip without clicking, so it keeps the link.
+                    if (!el.__tooltipClickGuard) {
+                        el.__tooltipClickGuard = true;
+                        el.addEventListener('click', function(e) {
+                            e.preventDefault();
+                            e.stopPropagation();
+                        });
+                    }
                 }
                 var delayMs = parseInt(el.dataset.tooltipDelay, 10);
                 if (!isNaN(delayMs)) {
@@ -348,6 +357,15 @@
                 if (el.hasAttribute('data-tooltip-click') &&
                     window.matchMedia && window.matchMedia('(hover: none)').matches) {
                     opts.trigger = 'click';
+                    // The tap opens the tooltip instead of following the link it sits in. Only on
+                    // touch: a hover device shows the tooltip without clicking, so it keeps the link.
+                    if (!el.__tooltipClickGuard) {
+                        el.__tooltipClickGuard = true;
+                        el.addEventListener('click', function(e) {
+                            e.preventDefault();
+                            e.stopPropagation();
+                        });
+                    }
                 }
                 var delayMs = parseInt(el.dataset.tooltipDelay, 10);
                 if (!isNaN(delayMs)) {
