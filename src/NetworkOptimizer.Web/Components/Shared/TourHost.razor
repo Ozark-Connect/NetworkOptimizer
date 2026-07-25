@@ -21,7 +21,13 @@
             <ul class="tour-modal-steps">
                 @foreach (var step in _offer.Steps.Take(6))
                 {
-                    <li>@(step.Step.ListLabel ?? step.Step.Title)</li>
+                    <li>
+                        @(step.Step.ListLabel ?? step.Step.Title)
+                        @if (step.Step.IsImproved)
+                        {
+                            <span class="tour-badge tour-badge-improved">Improved</span>
+                        }
+                    </li>
                 }
                 @if (_offer.Steps.Count > 6)
                 {
@@ -236,7 +242,7 @@
             title = resolved.Step.Title,
             body = resolved.Step.Body,
             placement = resolved.Step.Placement,
-            badge = string.Equals(resolved.Step.Badge, "improved", StringComparison.OrdinalIgnoreCase) ? "improved" : "new",
+            badge = resolved.Step.IsImproved ? "improved" : "new",
             index = _stepIndex,
             total = _offer.Steps.Count,
             hasBack = _stepIndex > 0,

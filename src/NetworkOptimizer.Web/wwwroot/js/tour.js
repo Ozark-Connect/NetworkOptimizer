@@ -92,7 +92,7 @@ window.noTour = (function () {
         counter.textContent = 'Step ' + (opts.index + 1) + ' of ' + opts.total;
         progress.appendChild(counter);
         const badge = document.createElement('span');
-        badge.className = 'tour-card-badge tour-card-badge-' + (opts.badge === 'improved' ? 'improved' : 'new');
+        badge.className = 'tour-badge tour-badge-' + (opts.badge === 'improved' ? 'improved' : 'new');
         badge.textContent = opts.badge === 'improved' ? 'Improved' : 'New';
         progress.appendChild(badge);
         card.appendChild(progress);

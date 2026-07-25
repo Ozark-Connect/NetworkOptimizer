@@ -101,6 +101,9 @@ public class TourStep
     public bool Optional { get; set; }
 
     [JsonIgnore]
+    public bool IsImproved => string.Equals(Badge, "improved", StringComparison.OrdinalIgnoreCase);
+
+    [JsonIgnore]
     public bool IsMinor => string.Equals(Level, TourLevels.Minor, StringComparison.OrdinalIgnoreCase);
 
     [JsonIgnore]
