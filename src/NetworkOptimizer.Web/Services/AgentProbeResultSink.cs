@@ -40,6 +40,18 @@ public class AgentProbeResultSink
     // agent carry only the MAC; this gives their alerts a human-readable label.
     private readonly ConcurrentDictionary<string, Dictionary<string, string>> _deviceNamesBySite = new();
 
+    /// <summary>
+    /// Per-site MAC -> (name, address, firmware) captured whenever the site's console IS
+    /// enumerable. The health batch's own console lookup is empty for the first moments after an
+    /// agent connects, because the console reconnects THROUGH that same tunnel seconds later - and
+    /// reboot detection needs an address to SSH to. Device IPs are stable, so a cached profile
+    /// closes that window instead of losing the sample to it.
+    /// </summary>
+    private readonly ConcurrentDictionary<string, Dictionary<string, DeviceProbeProfile>> _deviceProfilesBySite = new();
+
+    /// <summary>Cached identity for a relayed device: what to call it, where to reach it, what it runs.</summary>
+    private sealed record DeviceProbeProfile(string? Name, string? Address, string? Firmware, DeviceType DeviceType);
+
     // Console device list + networkconf per site, cached so the agent-relayed interface
     // name-map reconcile doesn't hit the controller on every batch. Fetched through the
     // tunneled console.
@@ -348,6 +360,21 @@ public class AgentProbeResultSink
                 catch (Exception ex) { _logger.LogDebug(ex, "Gateway LAN IP resolution failed for site {Slug}", connection.SiteSlug); }
 
                 var names = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+                // Every device, not just the SNMP-polled ones: the reboot probe reaches anything
+                // with SSH, and this is the only place the site's console is known to be readable.
+                var profiles = new Dictionary<string, DeviceProbeProfile>(StringComparer.OrdinalIgnoreCase);
+                foreach (var device in devices)
+                {
+                    if (string.IsNullOrEmpty(device.Mac)) continue;
+                    profiles[NormalizeMac(device.Mac)] = new DeviceProbeProfile(
+                        device.Name,
+                        Monitoring.SnmpDeviceRules.ResolvePollAddress(device, gatewayLanIp),
+                        device.Version,
+                        device.DeviceType);
+                }
+                _deviceProfilesBySite[connection.SiteSlug] = profiles;
+
                 foreach (var device in devices.Where(d =>
                              Monitoring.SnmpDeviceRules.IsMonitorable(d) && Monitoring.SnmpDeviceRules.HasSnmpEnabled(d)))
                 {
@@ -914,22 +941,30 @@ public class AgentProbeResultSink
                     apiDevice?.Name ?? "unknown", health.DeviceMac, connection.SiteSlug);
             }
 
-            // Same name cache the health alerts use, so a relayed device reads as its name rather
-            // than a bare MAC in logs and alerts.
-            string? rebootDeviceName = apiDevice?.Name;
+            // Fall back to the cached profile when the batch-time console lookup came up empty,
+            // which is the normal state for the first samples after an agent connects.
+            DeviceProbeProfile? profile = null;
+            if (_deviceProfilesBySite.TryGetValue(connection.SiteSlug, out var siteProfiles))
+                siteProfiles.TryGetValue(NormalizeMac(health.DeviceMac), out profile);
+
+            var rebootDeviceName = apiDevice?.Name ?? profile?.Name;
             if (string.IsNullOrEmpty(rebootDeviceName) &&
                 _deviceNamesBySite.TryGetValue(connection.SiteSlug, out var rebootNames))
             {
                 rebootNames.TryGetValue(NormalizeMac(health.DeviceMac), out rebootDeviceName);
             }
 
+            var rebootAddress = !string.IsNullOrEmpty(apiDevice?.Ip) ? apiDevice!.Ip : profile?.Address;
+            var rebootDeviceType = apiDevice?.DeviceType ?? profile?.DeviceType ?? DeviceType.Unknown;
+            var rebootFirmware = apiDevice?.Version ?? profile?.Firmware;
+
             rebootTracker.RecordUptimeSample(
                 health.DeviceMac,
                 rebootDeviceName,
-                apiDevice?.DeviceType ?? DeviceType.Unknown,
-                apiDevice?.Ip,
+                rebootDeviceType,
+                rebootAddress,
                 uptimeForReboot,
-                apiDevice?.Version,
+                rebootFirmware,
                 timestamp);
 
             // Threshold evaluation through the site's own evaluator instance, same
