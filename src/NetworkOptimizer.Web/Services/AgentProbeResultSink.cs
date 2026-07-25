@@ -633,12 +633,22 @@ public class AgentProbeResultSink
         // Upgrade/provisioning state for this site's devices, from the same console snapshot the
         // batch already uses, so an agent site's offline alerts stay quiet during a firmware run
         // exactly like a directly-monitored site's do.
+        // Fenced as a whole: alerting is advisory here, and a bus failure must not cost this batch
+        // its interface and health persistence.
         var stateObservedAt = DateTime.UtcNow;
-        foreach (var device in deviceByMac.Values)
+        try
         {
-            _deviceTransitions.Record(connection.SiteSlug, device.Mac, device.State, stateObservedAt);
-            await _alertRegistry.GetFor(connection.SiteSlug).DeviceState.EvaluateAsync(
-                device.Mac, device.Name, device.Ip, device.DeviceType, device.State, stateObservedAt, ct);
+            foreach (var device in deviceByMac.Values)
+            {
+                _deviceTransitions.Record(connection.SiteSlug, device.Mac, device.State, stateObservedAt);
+                await _alertRegistry.GetFor(connection.SiteSlug).DeviceState.EvaluateAsync(
+                    device.Mac, device.Name, device.Ip, device.DeviceType, device.State, stateObservedAt, ct);
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Cancellation still unwinds: the tunnel shutting down is not an alerting failure.
+            _logger.LogDebug(ex, "Device state alert evaluation failed for site {Slug}", connection.SiteSlug);
         }
 
         // Topology-boundary aggregates (fabric sums, AP backhaul, gateway WAN), shared

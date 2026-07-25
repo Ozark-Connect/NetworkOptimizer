@@ -815,10 +815,19 @@ public class MonitoringCollectionAgent : BackgroundService
             var mac = NormalizeMac(device.Mac);
 
             // Track upgrade/provisioning state for every device, before any SNMP short-circuit
-            // below: the offline path needs it regardless of how the device is polled.
-            _deviceTransitions.Record(_siteSlug, device.Mac, device.State, now);
-            await _deviceStateAlertEvaluator.EvaluateAsync(
-                device.Mac, device.Name, device.Ip, device.DeviceType, device.State, now);
+            // below: the offline path needs it regardless of how the device is polled. Fenced
+            // separately from the health work - alerting is advisory, and a bus failure here must
+            // not cost the remaining devices in this cycle their health data.
+            try
+            {
+                _deviceTransitions.Record(_siteSlug, device.Mac, device.State, now);
+                await _deviceStateAlertEvaluator.EvaluateAsync(
+                    device.Mac, device.Name, device.Ip, device.DeviceType, device.State, now);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Device state alert evaluation failed for {Device}", device.Mac);
+            }
 
             var snmpOn = Monitoring.SnmpDeviceRules.HasSnmpEnabled(device);
             if (snmpHandledElsewhere && snmpOn) continue;
