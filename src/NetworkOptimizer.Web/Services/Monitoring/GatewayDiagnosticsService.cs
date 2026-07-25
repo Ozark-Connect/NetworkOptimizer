@@ -48,6 +48,13 @@ public class GatewayDiagnosticsService
             return result;
         }
 
+        // The transceiver belongs to the physical port, so a tagged WAN ("ethN.100") has to
+        // ask its parent - the sub-interface itself only ever answers "Operation not
+        // supported". Addresses and neighbors stay on the requested interface: that is where
+        // the lease and the ARP entries actually live.
+        var sfpInterface = GatewayDiagnosticsParser.PhysicalInterfaceName(interfaceName);
+        result.SfpInterface = sfpInterface;
+
         // Every command is redirected to stdout so a failure message (no such device, no SFP
         // in the port, ethtool missing) comes back as section text instead of vanishing, and
         // the chain ends on `true` so a non-zero exit from the last command isn't reported as
@@ -55,7 +62,7 @@ public class GatewayDiagnosticsService
         var command =
             $"echo '{AddressMarker}'; ip -d addr show dev {interfaceName} 2>&1; " +
             $"echo '{RouteMarker}'; ip route show table all 2>/dev/null | grep '^default' | head -20; " +
-            $"echo '{SfpMarker}'; ethtool -m {interfaceName} 2>&1; " +
+            $"echo '{SfpMarker}'; ethtool -m {sfpInterface} 2>&1; " +
             $"echo '{NeighborMarker}'; ip neigh show dev {interfaceName} 2>&1; true";
 
         string output;
@@ -109,7 +116,7 @@ public class GatewayDiagnosticsService
     private void PopulateSfp(GatewayDiagnosticsResult result, IReadOnlyDictionary<string, string> sections)
     {
         var sfpOutput = sections.GetValueOrDefault(SfpMarker, string.Empty);
-        result.RawOutput[$"ethtool -m {result.Interface}"] = sfpOutput;
+        result.RawOutput[$"ethtool -m {result.SfpInterface ?? result.Interface}"] = sfpOutput;
 
         var module = GatewayDiagnosticsParser.ParseEthtoolModuleOutput(sfpOutput);
         if (module != null)

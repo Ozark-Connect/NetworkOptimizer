@@ -275,6 +275,19 @@ public class GatewayDiagnosticsParserTests
     }
 
     [Theory]
+    [InlineData("eth6.100", "eth6")]
+    [InlineData("eth6.100.7", "eth6")]
+    [InlineData("eth6", "eth6")]
+    [InlineData("br0", "br0")]
+    [InlineData("ppp0", "ppp0")]
+    [InlineData("", "")]
+    public void PhysicalInterfaceName_StripsTheVlanTag(string input, string expected)
+    {
+        // A tagged WAN has no transceiver of its own; ethtool has to ask the parent port.
+        GatewayDiagnosticsParser.PhysicalInterfaceName(input).Should().Be(expected);
+    }
+
+    [Theory]
     [InlineData("eth4")]
     [InlineData("eth4.201")]
     [InlineData("br0")]

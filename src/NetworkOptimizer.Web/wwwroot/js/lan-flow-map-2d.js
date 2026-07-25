@@ -306,11 +306,13 @@ class LanFlowMap2D {
                         if(newInfra!==prevInfra){
                             this._buildLayout(s);
                             this._loadImages(s).then(()=>{this._needsStaticRedraw=true;});
+                            this._refitIfScrubbing();
                         }else{
                             // Client churn or same topology: update data in place
-                            this._updateSnapshotData(s);
+                            const rebuilt=this._updateSnapshotData(s);
                             this._snapshot=s;
                             this._needsStaticRedraw=true;
+                            if(rebuilt)this._refitIfScrubbing();
                         }
                     }
                 }
@@ -1361,6 +1363,17 @@ class LanFlowMap2D {
             this._liveRates={...flowData.getLiveRates()};
             this._buildLayout(snap);
         }
+        return clientsChanged;
+    }
+
+    // Scrubbing to another instant can add or drop whole branches, so the tree's extent
+    // changes and part of it can end up off-screen. Re-fit when it does - but only while the
+    // view is still the fitted one; once the user has zoomed or panned, that framing is
+    // theirs to keep (same _isFitted rule the filter and overlay toggles use). Live churn is
+    // deliberately excluded so a client joining can't jog the zoom while someone is watching.
+    // The debounce is inherited: this only runs on published snapshots.
+    _refitIfScrubbing(){
+        if(this._isFitted&&flowData.getMode()==='historic')this._fitAll();
     }
 
     _placeClouds(){

@@ -165,6 +165,12 @@ public class GatewayDiagnosticsResult
     public SfpModuleInfo? SfpModule { get; set; }
     public string? SfpError { get; set; }
 
+    /// <summary>
+    /// The port the transceiver was actually read from. Differs from <see cref="Interface"/>
+    /// when a VLAN sub-interface was requested, since the module lives in its parent port.
+    /// </summary>
+    public string? SfpInterface { get; set; }
+
     public List<GatewayNeighbor> Neighbors { get; set; } = new();
     public string? NeighborError { get; set; }
 
@@ -190,6 +196,19 @@ public static class GatewayDiagnosticsParser
     /// <summary>True when the name is safe to interpolate into an SSH command.</summary>
     public static bool IsValidInterfaceName(string? name) =>
         !string.IsNullOrWhiteSpace(name) && InterfaceNamePattern.IsMatch(name);
+
+    /// <summary>
+    /// The physical port behind an interface name. A VLAN sub-interface ("ethN.100" for a
+    /// tagged WAN) is a logical device with no transceiver of its own - the module sits in
+    /// the parent port, and asking ethtool about the sub-interface only ever answers
+    /// "Operation not supported". Names with no VLAN tag come back unchanged.
+    /// </summary>
+    public static string PhysicalInterfaceName(string interfaceName)
+    {
+        if (string.IsNullOrEmpty(interfaceName)) return interfaceName;
+        var dot = interfaceName.IndexOf('.');
+        return dot > 0 ? interfaceName[..dot] : interfaceName;
+    }
 
     private static readonly Regex HeaderPattern = new(
         @"^\d+:\s+(?<name>[^:@]+)(@[^:]+)?:\s+<(?<flags>[^>]*)>(?<rest>.*)$",

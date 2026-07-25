@@ -387,7 +387,13 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
 @if (_diagResult != null)
 {
     <div class="card" style="margin-top: 1.5rem;">
-        <div class="card-header"><h2 class="card-title">SFP module</h2></div>
+        <div class="card-header">
+            <h2 class="card-title">SFP module</h2>
+            @if (!string.IsNullOrEmpty(_diagResult.SfpInterface) && _diagResult.SfpInterface != _diagResult.Interface)
+            {
+                <span class="status-badge status-active">read from @_diagResult.SfpInterface</span>
+            }
+        </div>
         <div class="card-body">
             @if (_diagResult.SfpModule != null)
             {
