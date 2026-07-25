@@ -101,8 +101,10 @@ public class DeviceRebootTracker
 
         if (sameBoot)
         {
-            // Already answered for this boot, nothing to do.
-            if (known!.Reason != null) return;
+            // Answered for this boot, nothing to do. An inconclusive answer (the UniFi Network
+            // fallback saying only "restarted") does NOT count: it is displayed, but the probe
+            // keeps retrying in case the device becomes reachable and can say what really happened.
+            if (known!.Reason?.IsConclusive == true) return;
         }
         else if (known != null)
         {

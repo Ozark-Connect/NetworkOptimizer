@@ -250,6 +250,47 @@ public class RebootReasonParserTests
         Assert.Equal(RebootCategory.CommandedReboot, best.Category);
     }
 
+    /// <summary>
+    /// The Honeybee gateway case: two AHB Timeout resets whose console ring held only early-boot
+    /// output and no shutdown line, and no panic record. pstore alone can only say "cut off";
+    /// the restart register is what names it, so the register has to win.
+    /// </summary>
+    [Fact]
+    public void Best_SilentHang_RegisterNamesItOverPstoreAndEvent()
+    {
+        const string silentRing = """
+            [   24.918000] br0: port 2(eth1) entered forwarding state
+            [   25.104000] ubnt-hald: fan control applied
+
+            No errors detected
+            """;
+
+        var best = RebootReasonParser.Best(
+            RebootReasonParser.ParseUniFiEvent("EVT_GW_RestartedUnknown"),
+            RebootReasonParser.ParsePstore("console-ramoops-0", silentRing),
+            RebootReasonParser.ParseConsoleRebootLog(
+                "2026-07-19T16:00:41-0500 Experience an improper shutdown(AHB Timeout [0x3])"));
+
+        Assert.Equal(RebootCategory.HardwareHang, best.Category);
+        Assert.Equal(RebootReasonSource.ConsoleRebootLog, best.Source);
+        Assert.Contains("AHB Timeout [0x3]", best.Detail);
+    }
+
+    /// <summary>
+    /// Same silent ring without a console reason log (an AP or switch): the honest answer is
+    /// "cut off, cause not recorded on the box", never a guess at power loss.
+    /// </summary>
+    [Fact]
+    public void Best_SilentHangWithoutRegister_ReportsAbruptStop()
+    {
+        var best = RebootReasonParser.Best(
+            RebootReasonParser.ParsePstore("console-ramoops-0", "[ 25.104000] ubnt-hald: started"),
+            RebootReasonParser.ParseConsoleRebootLog(null));
+
+        Assert.Equal(RebootCategory.AbruptStop, best.Category);
+        Assert.True(best.IsUnexpected);
+    }
+
     [Fact]
     public void Best_NothingFound_IsUnknownPlaceholder()
     {
