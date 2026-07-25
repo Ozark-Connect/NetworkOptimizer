@@ -2082,28 +2082,38 @@ public class UpstreamTracerService
     }
 
     /// <summary>
-    /// The access technology an L2 neighbor's OUI vendor proves on its own, or null when it
-    /// proves nothing. Only single-technology vendors qualify.
+    /// The access technology an L2 neighbor's OUI vendor points at, or null when it points
+    /// at nothing useful. Only consulted for a WAN with no technology set, and the user can
+    /// change it in one click, so a well-founded lean beats leaving it Unknown - Unknown
+    /// makes the reachability gate and every role label fall back to generic.
     ///
-    /// Deliberately absent, because their gear spans technologies and the OUI alone can't
-    /// tell them apart: Arris / CommScope and Casa (CMTS and PON OLT both); Nokia, Calix,
-    /// Huawei, ZTE, Alcatel, Adtran and DZS/Dasan (PON and DSL both, often from one
-    /// chassis); Ubiquiti (UISP fiber, airMAX fixed wireless, and ordinary routers share
-    /// the OUI). Guessing from those would set a technology the user then has to notice and
-    /// correct, which is worse than leaving it unset - the selector is one click.
+    /// Still excluded are the vendors whose OUI spans far more than access gear: Ubiquiti
+    /// (UISP-Fiber OLTs, airMAX fixed wireless, and ordinary ISP routers) and Cisco (the
+    /// uBR/cBR CMTS line shares an OUI with every switch and router they ship). Those are
+    /// splits with no majority, unlike the CMTS and PON vendors below.
     /// </summary>
     internal static AccessTechnology? TechnologyFromVendor(string? ouiVendor)
     {
         if (string.IsNullOrWhiteSpace(ouiVendor)) return null;
         var vendor = ouiVendor.ToLowerInvariant();
 
-        // Cadant built the C4 CMTS and nothing else; the line survives as Arris/CommScope
-        // hardware but keeps the original OUI, so this vendor string only ever means DOCSIS.
-        if (vendor.Contains("cadant")) return AccessTechnology.Docsis;
+        // CMTS/HFC vendors. Cadant (the C4, still shipping under Arris/CommScope but on the
+        // original OUI), Vecima, Harmonic and Teleste build access gear for cable and
+        // nothing else. Arris/CommScope and Casa do also sell PON OLTs, but their CMTS
+        // install base dwarfs it, so cable is the right lean on their OUI alone.
+        if (vendor.Contains("cadant") || vendor.Contains("vecima") || vendor.Contains("harmonic")
+            || vendor.Contains("teleste") || vendor.Contains("arris") || vendor.Contains("commscope")
+            || vendor.Contains("casa"))
+            return AccessTechnology.Docsis;
 
-        // Vecima and Harmonic's access lines are CMTS/vCMTS only.
-        if (vendor.Contains("vecima")) return AccessTechnology.Docsis;
-        if (vendor.Contains("harmonic")) return AccessTechnology.Docsis;
+        // These vendors ship both PON and DSL, but one of their boxes terminating a WAN is
+        // an OLT far more often than a DSLAM - DSL is a shrinking minority, and a DSL line
+        // usually presents PPPoE rather than the DSLAM as the L2 neighbor. GPON rather than
+        // XGS-PON: it is the larger install base, and the two differ only in thresholds.
+        if (vendor.Contains("calix") || vendor.Contains("nokia") || vendor.Contains("huawei")
+            || vendor.Contains("zte") || vendor.Contains("alcatel") || vendor.Contains("adtran")
+            || vendor.Contains("dzs") || vendor.Contains("dasan"))
+            return AccessTechnology.Gpon;
 
         return null;
     }

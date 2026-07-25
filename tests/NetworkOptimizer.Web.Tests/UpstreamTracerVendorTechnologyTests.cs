@@ -6,9 +6,9 @@ using Xunit;
 namespace NetworkOptimizer.Web.Tests;
 
 /// <summary>
-/// Only a vendor whose access gear is one technology may propose that technology. The
-/// negative cases matter more than the positive ones: a wrong guess sets a value the user
-/// has to notice and correct, which is worse than leaving the selector empty.
+/// A vendor's OUI proposes a technology only for a WAN that has none. Cable vendors lean
+/// DOCSIS, PON/DSL vendors lean GPON (an OLT is far likelier than a DSLAM on a modern WAN),
+/// and vendors whose OUI spans well beyond access gear propose nothing at all.
 /// </summary>
 public class UpstreamTracerVendorTechnologyTests
 {
@@ -18,16 +18,17 @@ public class UpstreamTracerVendorTechnologyTests
     [InlineData("cadant")]
     [InlineData("Vecima Networks")]
     [InlineData("Harmonic Inc")]
-    public void Cmts_only_vendors_propose_docsis(string vendor)
+    [InlineData("Teleste Corporation")]
+    [InlineData("ARRIS Group, Inc.")]
+    [InlineData("CommScope Inc")]
+    [InlineData("Casa Systems")]
+    public void Cable_vendors_propose_docsis(string vendor)
     {
         UpstreamTracerService.TechnologyFromVendor(vendor).Should().Be(AccessTechnology.Docsis);
     }
 
     [Theory]
-    [InlineData("ARRIS Group, Inc.")]        // CMTS and PON OLT both
-    [InlineData("CommScope Inc")]            // same line after the merger
-    [InlineData("Casa Systems")]             // CMTS, PON OLT, and 5G core
-    [InlineData("Nokia")]                    // PON and DSL from one chassis
+    [InlineData("Nokia")]
     [InlineData("Calix, Inc.")]
     [InlineData("Huawei Technologies Co.,Ltd")]
     [InlineData("ZTE Corporation")]
@@ -35,8 +36,16 @@ public class UpstreamTracerVendorTechnologyTests
     [InlineData("ADTRAN Inc")]
     [InlineData("DZS Inc")]
     [InlineData("Dasan Networks")]
+    public void Pon_vendors_propose_gpon(string vendor)
+    {
+        // These ship DSL too, but a DSL line rarely presents the DSLAM as the L2 neighbor.
+        UpstreamTracerService.TechnologyFromVendor(vendor).Should().Be(AccessTechnology.Gpon);
+    }
+
+    [Theory]
     [InlineData("Ubiquiti Inc")]             // fiber, fixed wireless, and plain routers
-    public void Multi_technology_vendors_propose_nothing(string vendor)
+    [InlineData("Cisco Systems, Inc")]       // uBR/cBR CMTS shares its OUI with everything else
+    public void Vendors_beyond_access_gear_propose_nothing(string vendor)
     {
         UpstreamTracerService.TechnologyFromVendor(vendor).Should().BeNull();
     }
