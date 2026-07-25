@@ -16443,6 +16443,23 @@ tr.stats-row-filtered {
     }
 }
 
+.isp-health-toolbar .btn-label-narrow {
+    display: none;
+}
+
+/* Below 400px the toolbar runs out of room, so the buttons drop to their short labels. The
+   busy words go too - .btn-state-stack sizes to the widest state, so leaving "Refreshing"
+   in would hold the width the short label just freed. */
+@media (max-width: 400px) {
+    .isp-health-toolbar .btn-label-wide {
+        display: none;
+    }
+
+    .isp-health-toolbar .btn-label-narrow {
+        display: inline;
+    }
+}
+
 .isp-window-reduced {
     display: inline-flex;
     align-items: center;

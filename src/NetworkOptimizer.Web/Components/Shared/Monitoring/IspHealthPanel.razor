@@ -72,16 +72,21 @@
             <span class="btn-state-stack">
                 <span class="@(refreshBusy ? "is-hidden" : "")">Refresh</span>
                 <span class="@(refreshBusy ? "" : "is-hidden")">
-                    <span class="spinner-sm"></span> @(_refreshing ? "Refreshing" : "Loading")
+                    <span class="spinner-sm"></span>
+                    <span class="btn-label-wide">@(_refreshing ? "Refreshing" : "Loading")</span>
                 </span>
             </span>
         </button>
         <button class="btn btn-sm btn-primary" @onclick="ExportPdfAsync"
                 disabled="@(_report == null || _exportingPdf || _refreshing || _windowComputing)">
             <span class="btn-state-stack">
-                <span class="@(_exportingPdf ? "is-hidden" : "")">Export PDF</span>
+                <span class="@(_exportingPdf ? "is-hidden" : "")">
+                    <span class="btn-label-wide">Export PDF</span>
+                    <span class="btn-label-narrow">Export</span>
+                </span>
                 <span class="@(_exportingPdf ? "" : "is-hidden")">
-                    <span class="spinner-sm"></span> Building
+                    <span class="spinner-sm"></span>
+                    <span class="btn-label-wide">Building</span>
                 </span>
             </span>
         </button>
