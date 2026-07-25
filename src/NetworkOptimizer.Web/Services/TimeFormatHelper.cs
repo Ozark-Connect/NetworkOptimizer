@@ -6,6 +6,44 @@ namespace NetworkOptimizer.Web.Services;
 public static class TimeFormatHelper
 {
     /// <summary>
+    /// Append the unit to a count, pluralized (e.g., "1 day", "2 days").
+    /// </summary>
+    public static string Pluralize(int value, string unit) =>
+        $"{value} {unit}{(value == 1 ? "" : "s")}";
+
+    /// <summary>
+    /// Format a duration in long form with the two largest meaningful units
+    /// (e.g., "1 day, 2 hours", "5 hours", "3 minutes").
+    /// </summary>
+    public static string FormatDuration(TimeSpan span)
+    {
+        if (span.TotalDays >= 1)
+        {
+            var dayPart = Pluralize((int)span.TotalDays, "day");
+            return span.Hours > 0 ? $"{dayPart}, {Pluralize(span.Hours, "hour")}" : dayPart;
+        }
+
+        if (span.TotalHours >= 1)
+            return Pluralize((int)span.TotalHours, "hour");
+
+        return Pluralize((int)span.TotalMinutes, "minute");
+    }
+
+    /// <summary>
+    /// Format a duration in compact form (e.g., "3d 4h", "5h 12m", "9m").
+    /// </summary>
+    public static string FormatDurationCompact(TimeSpan span)
+    {
+        if (span.TotalDays >= 1)
+            return $"{(int)span.TotalDays}d {span.Hours}h";
+
+        if (span.TotalHours >= 1)
+            return $"{(int)span.TotalHours}h {span.Minutes}m";
+
+        return $"{(int)span.TotalMinutes}m";
+    }
+
+    /// <summary>
     /// Format a UTC time as a relative string (e.g., "5 minutes ago", "1 hour ago").
     /// </summary>
     public static string FormatRelativeTime(DateTime utcTime)
@@ -16,22 +54,13 @@ public static class TimeFormatHelper
             return "Just now";
 
         if (elapsed.TotalMinutes < 60)
-        {
-            var mins = (int)elapsed.TotalMinutes;
-            return $"{mins} {(mins == 1 ? "minute" : "minutes")} ago";
-        }
+            return $"{Pluralize((int)elapsed.TotalMinutes, "minute")} ago";
 
         if (elapsed.TotalHours < 24)
-        {
-            var hours = (int)elapsed.TotalHours;
-            return $"{hours} {(hours == 1 ? "hour" : "hours")} ago";
-        }
+            return $"{Pluralize((int)elapsed.TotalHours, "hour")} ago";
 
         if (elapsed.TotalDays < 7)
-        {
-            var days = (int)elapsed.TotalDays;
-            return $"{days} {(days == 1 ? "day" : "days")} ago";
-        }
+            return $"{Pluralize((int)elapsed.TotalDays, "day")} ago";
 
         return utcTime.ToLocalTime().ToString("MMM dd, yyyy");
     }
@@ -53,13 +82,9 @@ public static class TimeFormatHelper
         }
 
         if (elapsed.TotalHours < 24)
-        {
-            var hours = (int)elapsed.TotalHours;
-            return $"{hours} {(hours == 1 ? "hr" : "hrs")} ago";
-        }
+            return $"{Pluralize((int)elapsed.TotalHours, "hr")} ago";
 
-        var days = (int)elapsed.TotalDays;
-        return $"{days} {(days == 1 ? "day" : "days")} ago";
+        return $"{Pluralize((int)elapsed.TotalDays, "day")} ago";
     }
 
     /// <summary>

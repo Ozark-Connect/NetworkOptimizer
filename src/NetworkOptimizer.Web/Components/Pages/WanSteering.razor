@@ -1167,12 +1167,7 @@
     private static string FormatUptime(DateTimeOffset startedAt)
     {
         if (startedAt == default) return "-";
-        var span = DateTimeOffset.UtcNow - startedAt;
-        if (span.TotalDays >= 1)
-            return $"{(int)span.TotalDays}d {span.Hours}h";
-        if (span.TotalHours >= 1)
-            return $"{(int)span.TotalHours}h {span.Minutes}m";
-        return $"{(int)span.TotalMinutes}m";
+        return TimeFormatHelper.FormatDurationCompact(DateTimeOffset.UtcNow - startedAt);
     }
 
     // --- Status JSON Parsing ---

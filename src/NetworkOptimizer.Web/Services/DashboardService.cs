@@ -212,22 +212,8 @@ public class DashboardService : IDashboardService
         if (!uptimeSeconds.HasValue || uptimeSeconds.Value <= 0)
             return "Unknown";
 
-        var ts = TimeSpan.FromSeconds(uptimeSeconds.Value);
-
-        if (ts.TotalDays >= 1)
-        {
-            var days = (int)ts.TotalDays;
-            var dayPart = $"{days} {(days == 1 ? "day" : "days")}";
-            return ts.Hours > 0 ? $"{dayPart}, {Pluralize(ts.Hours, "hour")}" : dayPart;
-        }
-        if (ts.TotalHours >= 1)
-            return Pluralize((int)ts.TotalHours, "hour");
-
-        return Pluralize((int)ts.TotalMinutes, "minute");
+        return TimeFormatHelper.FormatDuration(TimeSpan.FromSeconds(uptimeSeconds.Value));
     }
-
-    private static string Pluralize(int value, string unit) =>
-        $"{value} {unit}{(value == 1 ? "" : "s")}";
 
     /// <summary>
     /// Parse IP address into a sortable long value for proper numeric sorting
