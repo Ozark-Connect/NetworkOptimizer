@@ -1088,7 +1088,8 @@ from(bucket: ""{_longtermBucket}"")
         string? detail,
         string source,
         DateTime bootedAt,
-        string? firmwareVersion = null)
+        string? firmwareVersion = null,
+        int classifierVersion = 0)
     {
         if (!IsConfigured) return Task.CompletedTask;
 
@@ -1105,6 +1106,8 @@ from(bucket: ""{_longtermBucket}"")
 
         if (!string.IsNullOrWhiteSpace(firmwareVersion))
             point = point.Field("firmware_version", firmwareVersion);
+        if (classifierVersion > 0)
+            point = point.Field("classifier_version", classifierVersion);
 
         Enqueue(point, longterm: true);
         return Task.CompletedTask;
@@ -1129,6 +1132,8 @@ from(bucket: ""{_longtermBucket}"")
         public DateTime BootedAt { get; init; }
         /// <summary>Firmware the device reported on that boot, when it was recorded.</summary>
         public string? FirmwareVersion { get; init; }
+        /// <summary>Version of the rules that produced this reason; 0 for records written before versioning.</summary>
+        public int ClassifierVersion { get; init; }
     }
 
     /// <summary>
@@ -1168,6 +1173,7 @@ from(bucket: ""{_longtermBucket}"")
                 Detail = record.GetValueByKey("detail") as string,
                 Source = record.GetValueByKey("reason_source") as string ?? "",
                 FirmwareVersion = record.GetValueByKey("firmware_version") as string,
+                ClassifierVersion = (int)(AsDoubleOrNull(record.GetValueByKey("classifier_version")) ?? 0),
                 BootedAt = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow),
             });
         }

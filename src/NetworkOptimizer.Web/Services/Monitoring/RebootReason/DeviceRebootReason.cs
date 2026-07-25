@@ -62,6 +62,23 @@ public enum RebootReasonSource
 }
 
 /// <summary>
+/// Version of the evidence rules that produce a <see cref="DeviceRebootReason"/>.
+///
+/// Stored reasons are trusted on startup so devices are not re-probed over SSH every restart.
+/// That means a correction to the rules would never reach a device whose boot was already
+/// classified by the old ones. Bumping this invalidates those records: they are re-probed once
+/// and rewritten. Bump it whenever a change would classify the same evidence differently.
+///
+/// v2: upgrade evidence outranks a bare clean shutdown, and the pending-upgrade marker is
+/// matched to the boot it explains (switch upgrade reboots were reported as plain restarts).
+/// </summary>
+public static class RebootClassifier
+{
+    /// <summary>Current rule-set version.</summary>
+    public const int Version = 2;
+}
+
+/// <summary>
 /// A resolved reboot reason for one device boot.
 /// </summary>
 /// <param name="Category">Classification used for icon and colour choices.</param>

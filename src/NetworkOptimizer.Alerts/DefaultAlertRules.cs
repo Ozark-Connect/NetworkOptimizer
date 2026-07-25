@@ -53,6 +53,18 @@ public static class DefaultAlertRules
             MinSeverity = AlertSeverity.Error,
             CooldownSeconds = 300 // 5 minutes
         },
+        // Reboot reasons are published Info for a restart someone meant (commanded, firmware
+        // upgrade) and Warning for one nobody did (power loss, hang, panic, watchdog). Seeded at
+        // Warning so only the latter notify; drop it to Info to be told about every restart.
+        new AlertRule
+        {
+            Name = "Device Restarted",
+            IsEnabled = true,
+            EventTypePattern = "device.rebooted",
+            Source = "device",
+            MinSeverity = AlertSeverity.Warning,
+            CooldownSeconds = 300 // 5 minutes
+        },
 
         // --- Wi-Fi Optimizer (enabled, digest only - works automatically) ---
         new AlertRule

@@ -19,6 +19,7 @@ public class DeviceRebootTracker
 {
     private readonly DeviceRebootProbe _probe;
     private readonly MonitoringInfluxClient _influx;
+    private readonly DeviceRebootAlertEvaluator _alertEvaluator;
     private readonly ILogger<DeviceRebootTracker> _logger;
 
     /// <summary>Sampled uptime makes the derived boot instant wander; treat nearby values as one boot.</summary>
@@ -40,10 +41,12 @@ public class DeviceRebootTracker
     public DeviceRebootTracker(
         DeviceRebootProbe probe,
         MonitoringInfluxClient influx,
+        DeviceRebootAlertEvaluator alertEvaluator,
         ILogger<DeviceRebootTracker> logger)
     {
         _probe = probe;
         _influx = influx;
+        _alertEvaluator = alertEvaluator;
         _logger = logger;
     }
 
@@ -158,8 +161,17 @@ public class DeviceRebootTracker
         try
         {
             var stored = await _influx.QueryLatestDeviceRebootsAsync(HistoryLookback, ct);
+            var staleRules = 0;
             foreach (var point in stored)
             {
+                // Records classified by older rules are dropped so the device is probed again and
+                // rewritten; otherwise a rules fix could never reach a boot already on file.
+                if (point.ClassifierVersion < RebootClassifier.Version)
+                {
+                    staleRules++;
+                    continue;
+                }
+
                 if (!Enum.TryParse<RebootCategory>(point.Category, ignoreCase: true, out var category))
                     category = RebootCategory.Unknown;
                 if (!Enum.TryParse<RebootReasonSource>(point.Source, ignoreCase: true, out var source))
@@ -173,7 +185,9 @@ public class DeviceRebootTracker
                     new DeviceBootRecord(point.BootedAt, reason, point.FirmwareVersion);
             }
 
-            _logger.LogDebug("Seeded {Count} device reboot records from history", stored.Count);
+            _logger.LogDebug(
+                "Seeded {Count} device reboot records from history ({Stale} written by older rules, queued for re-probe)",
+                stored.Count - staleRules, staleRules);
         }
         catch (Exception ex)
         {
@@ -190,7 +204,7 @@ public class DeviceRebootTracker
     /// <param name="deviceMac">Device MAC.</param>
     /// <param name="eventKey">UniFi event key, e.g. <c>EVT_SW_RestartedUnknown</c>.</param>
     /// <param name="adminName">Admin the console credited, when it named one.</param>
-    public void ApplyUniFiEventFallback(string deviceMac, string? eventKey, string? adminName = null)
+    public async Task ApplyUniFiEventFallbackAsync(string deviceMac, string? eventKey, string? adminName = null)
     {
         if (string.IsNullOrWhiteSpace(deviceMac)) return;
 
@@ -200,7 +214,7 @@ public class DeviceRebootTracker
         var reason = RebootReasonParser.ParseUniFiEvent(eventKey, adminName);
         if (reason == null) return;
 
-        Store(mac, record.BootedAt, reason, DeviceType.Unknown);
+        await StoreAsync(mac, record.BootedAt, reason, DeviceType.Unknown);
     }
 
     private async Task ResolveInBackgroundAsync(
@@ -264,7 +278,7 @@ public class DeviceRebootTracker
                 return;
             }
 
-            Store(mac, bootedAt, reason, deviceType);
+            await StoreAsync(mac, bootedAt, reason, deviceType, deviceName, host);
 
             _logger.LogInformation(
                 "Reboot reason for {Device} ({Mac}): {Summary} [{Category}/{Source}] - {Detail}",
@@ -280,10 +294,28 @@ public class DeviceRebootTracker
         }
     }
 
-    private void Store(string mac, DateTime bootedAt, DeviceRebootReason reason, DeviceType deviceType)
+    private async Task StoreAsync(
+        string mac,
+        DateTime bootedAt,
+        DeviceRebootReason reason,
+        DeviceType deviceType,
+        string? deviceName = null,
+        string? deviceIp = null)
     {
         var firmware = _records.TryGetValue(mac, out var current) ? current.FirmwareVersion : null;
         _records[mac] = new DeviceBootRecord(bootedAt, reason, firmware);
+
+        // Alerting only knows about reasons resolved live. Seeding from history writes the cache
+        // directly and deliberately skips this, so a restart never re-alerts on every startup.
+        try
+        {
+            await _alertEvaluator.EvaluateAsync(mac, deviceName, deviceIp, reason, bootedAt, DateTime.UtcNow);
+        }
+        catch (Exception ex)
+        {
+            // The reason is still recorded; only the notification was lost.
+            _logger.LogWarning(ex, "Could not publish the reboot alert for {Mac}", mac);
+        }
 
         _ = _influx.WriteDeviceRebootAsync(
             deviceMac: mac,
@@ -293,7 +325,8 @@ public class DeviceRebootTracker
             detail: reason.Detail,
             source: reason.Source.ToString(),
             bootedAt: bootedAt,
-            firmwareVersion: firmware);
+            firmwareVersion: firmware,
+            classifierVersion: RebootClassifier.Version);
     }
 
     private static bool WithinTolerance(DateTime a, DateTime b) =>

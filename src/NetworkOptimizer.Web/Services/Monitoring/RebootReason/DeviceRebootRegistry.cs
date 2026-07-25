@@ -13,6 +13,7 @@ public class DeviceRebootRegistry
     private readonly UniFiSshRegistry _deviceSshRegistry;
     private readonly GatewaySshRegistry _gatewaySshRegistry;
     private readonly MonitoringInfluxRegistry _influxRegistry;
+    private readonly MonitoringAlertRegistry _alertRegistry;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ConcurrentDictionary<string, DeviceRebootTracker> _instances = new(StringComparer.OrdinalIgnoreCase);
 
@@ -22,12 +23,14 @@ public class DeviceRebootRegistry
         UniFiSshRegistry deviceSshRegistry,
         GatewaySshRegistry gatewaySshRegistry,
         MonitoringInfluxRegistry influxRegistry,
+        MonitoringAlertRegistry alertRegistry,
         ILoggerFactory loggerFactory)
     {
         _serviceProvider = serviceProvider;
         _deviceSshRegistry = deviceSshRegistry;
         _gatewaySshRegistry = gatewaySshRegistry;
         _influxRegistry = influxRegistry;
+        _alertRegistry = alertRegistry;
         _loggerFactory = loggerFactory;
     }
 
@@ -43,6 +46,7 @@ public class DeviceRebootRegistry
             return new DeviceRebootTracker(
                 probe,
                 _influxRegistry.GetFor(s),
+                _alertRegistry.GetFor(s).DeviceReboot,
                 _loggerFactory.CreateLogger<DeviceRebootTracker>());
         });
 
