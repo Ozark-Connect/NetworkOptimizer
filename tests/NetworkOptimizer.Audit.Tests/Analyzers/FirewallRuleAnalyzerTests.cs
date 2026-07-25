@@ -1867,6 +1867,358 @@ public class FirewallRuleAnalyzerTests
     }
 
     [Fact]
+    public void DetectShadowedRules_ReturnTrafficAllowBeforeBlockAll_ReturnsExceptionPattern()
+    {
+        // Issue #1019: a RESPOND_ONLY return rule above a zone-wide block-all cannot admit new
+        // sessions, so it is an informational return-traffic pattern, not FW-SUBVERT-001
+        var allowJson = System.Text.Json.JsonDocument.Parse(@"{
+            ""_id"": ""allow-iot-return"",
+            ""name"": ""Allow IoT to Internal Return"",
+            ""action"": ""ALLOW"",
+            ""enabled"": true,
+            ""index"": 10010,
+            ""protocol"": ""all"",
+            ""connection_state_type"": ""RESPOND_ONLY"",
+            ""connection_states"": [],
+            ""source"": {
+                ""matching_target"": ""ANY"",
+                ""zone_id"": ""iot-zone""
+            },
+            ""destination"": {
+                ""matching_target"": ""ANY"",
+                ""zone_id"": ""internal-zone""
+            }
+        }").RootElement;
+        var denyJson = System.Text.Json.JsonDocument.Parse(@"{
+            ""_id"": ""block-iot-internal"",
+            ""name"": ""Block IoT to Internal"",
+            ""action"": ""BLOCK"",
+            ""enabled"": true,
+            ""index"": 10011,
+            ""protocol"": ""all"",
+            ""connection_state_type"": ""ALL"",
+            ""connection_states"": [],
+            ""source"": {
+                ""matching_target"": ""ANY"",
+                ""zone_id"": ""iot-zone""
+            },
+            ""destination"": {
+                ""matching_target"": ""ANY"",
+                ""zone_id"": ""internal-zone""
+            }
+        }").RootElement;
+
+        var rules = new List<FirewallRule>
+        {
+            _analyzer.ParseFirewallPolicy(allowJson)!,
+            _analyzer.ParseFirewallPolicy(denyJson)!
+        };
+
+        var issues = _analyzer.DetectShadowedRules(rules);
+
+        issues.Should().NotContain(i => i.Type == "ALLOW_SUBVERTS_DENY");
+        var issue = issues.FirstOrDefault(i => i.Type == "ALLOW_EXCEPTION_PATTERN");
+        issue.Should().NotBeNull();
+        issue!.Severity.Should().Be(AuditSeverity.Informational);
+        issue.RuleId.Should().Be("FW-EXCEPTION-001");
+        issue.Metadata!["pattern"].Should().Be("return_traffic");
+        issue.Message.Should().Contain("intentional established/related exception");
+        issue.RecommendedAction!.Should().Contain("does not permit new connections");
+    }
+
+    [Fact]
+    public void DetectShadowedRules_LegacyReturnTrafficAllowBeforeBlockAll_ReturnsExceptionPattern()
+    {
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "allow-iot-return",
+                Name = "Allow IoT to Internal Return",
+                Action = "ALLOW",
+                Enabled = true,
+                Index = 10010,
+                Protocol = "all",
+                ConnectionStateType = "CUSTOM",
+                ConnectionStates = new List<string> { "ESTABLISHED", "RELATED" },
+                SourceMatchingTarget = "ANY",
+                SourceZoneId = "iot-zone",
+                DestinationMatchingTarget = "ANY",
+                DestinationZoneId = "internal-zone"
+            },
+            new FirewallRule
+            {
+                Id = "block-iot-internal",
+                Name = "Block IoT to Internal",
+                Action = "BLOCK",
+                Enabled = true,
+                Index = 10011,
+                Protocol = "all",
+                ConnectionStateType = "ALL",
+                SourceMatchingTarget = "ANY",
+                SourceZoneId = "iot-zone",
+                DestinationMatchingTarget = "ANY",
+                DestinationZoneId = "internal-zone"
+            }
+        };
+
+        var issues = _analyzer.DetectShadowedRules(rules);
+
+        issues.Should().ContainSingle();
+        issues.First().Metadata!["pattern"].Should().Be("return_traffic");
+    }
+
+    [Fact]
+    public void DetectShadowedRules_InvalidStateAllowBeforeBlockAll_StillReturnsSubvertIssue()
+    {
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "allow-invalid",
+                Name = "Allow Invalid Traffic",
+                Action = "ALLOW",
+                Enabled = true,
+                Index = 10010,
+                Protocol = "all",
+                ConnectionStateType = "CUSTOM",
+                ConnectionStates = new List<string> { "INVALID" },
+                SourceMatchingTarget = "ANY",
+                SourceZoneId = "iot-zone",
+                DestinationMatchingTarget = "ANY",
+                DestinationZoneId = "internal-zone"
+            },
+            new FirewallRule
+            {
+                Id = "block-iot-internal",
+                Name = "Block IoT to Internal",
+                Action = "BLOCK",
+                Enabled = true,
+                Index = 10011,
+                Protocol = "all",
+                ConnectionStateType = "ALL",
+                SourceMatchingTarget = "ANY",
+                SourceZoneId = "iot-zone",
+                DestinationMatchingTarget = "ANY",
+                DestinationZoneId = "internal-zone"
+            }
+        };
+
+        var issues = _analyzer.DetectShadowedRules(rules);
+
+        issues.Should().ContainSingle();
+        issues.First().Type.Should().Be("ALLOW_SUBVERTS_DENY");
+    }
+
+    [Fact]
+    public void DetectShadowedRules_NarrowBlockThenReturnAllowThenBlockAll_OnlyReturnsExceptionPattern()
+    {
+        // Real-world ordering: a port-specific block sits ABOVE the return rule, which in turn
+        // sits above the zone-wide block-all. The return rule is paired with both - the earlier
+        // narrow block (reverse direction) and the later block-all - and neither may be flagged.
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "block-dot",
+                Name = "Block IoT to Internal DoT",
+                Action = "BLOCK",
+                Enabled = true,
+                Index = 10009,
+                Protocol = "tcp",
+                DestinationPort = "853",
+                ConnectionStateType = "ALL",
+                SourceMatchingTarget = "ANY",
+                SourceZoneId = "iot-zone",
+                DestinationMatchingTarget = "ANY",
+                DestinationZoneId = "internal-zone"
+            },
+            new FirewallRule
+            {
+                Id = "allow-iot-return",
+                Name = "Allow IoT to Internal Return",
+                Action = "ALLOW",
+                Enabled = true,
+                Index = 10010,
+                Protocol = "all",
+                ConnectionStateType = "RESPOND_ONLY",
+                SourceMatchingTarget = "ANY",
+                SourceZoneId = "iot-zone",
+                DestinationMatchingTarget = "ANY",
+                DestinationZoneId = "internal-zone"
+            },
+            new FirewallRule
+            {
+                Id = "block-iot-internal",
+                Name = "Block IoT to Internal",
+                Action = "BLOCK",
+                Enabled = true,
+                Index = 10011,
+                Protocol = "all",
+                ConnectionStateType = "ALL",
+                SourceMatchingTarget = "ANY",
+                SourceZoneId = "iot-zone",
+                DestinationMatchingTarget = "ANY",
+                DestinationZoneId = "internal-zone"
+            }
+        };
+
+        var issues = _analyzer.DetectShadowedRules(rules);
+
+        issues.Should().NotContain(i => i.Type == "ALLOW_SUBVERTS_DENY");
+        issues.Should().NotContain(i => i.Type == "DENY_SHADOWS_ALLOW");
+        issues.Should().ContainSingle();
+        issues.First().Type.Should().Be("ALLOW_EXCEPTION_PATTERN");
+        issues.First().Metadata!["pattern"].Should().Be("return_traffic");
+    }
+
+    [Fact]
+    public void DetectShadowedRules_NewStateAllowBeforeBlockAll_StillReturnsSubvertIssue()
+    {
+        // A CUSTOM allow that includes NEW does admit new sessions, so it must keep
+        // reporting FW-SUBVERT-001 - only return-traffic allows are reclassified
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "allow-new",
+                Name = "Allow IoT to HA Callback",
+                Action = "ALLOW",
+                Enabled = true,
+                Index = 10007,
+                Protocol = "all",
+                ConnectionStateType = "CUSTOM",
+                ConnectionStates = new List<string> { "NEW" },
+                SourceMatchingTarget = "ANY",
+                SourceZoneId = "iot-zone",
+                DestinationMatchingTarget = "ANY",
+                DestinationZoneId = "internal-zone"
+            },
+            new FirewallRule
+            {
+                Id = "block-iot-internal",
+                Name = "Block IoT to Internal",
+                Action = "BLOCK",
+                Enabled = true,
+                Index = 10011,
+                Protocol = "all",
+                ConnectionStateType = "ALL",
+                SourceMatchingTarget = "ANY",
+                SourceZoneId = "iot-zone",
+                DestinationMatchingTarget = "ANY",
+                DestinationZoneId = "internal-zone"
+            }
+        };
+
+        var issues = _analyzer.DetectShadowedRules(rules);
+
+        issues.Should().ContainSingle();
+        issues.First().Type.Should().Be("ALLOW_SUBVERTS_DENY");
+    }
+
+    [Fact]
+    public void DetectShadowedRules_BlockAllBeforeReturnTrafficAllow_StillReturnsShadowedIssue()
+    {
+        // Reverse direction is untouched: a block-all ABOVE the return rule really does
+        // break return traffic, so it must still report DENY_SHADOWS_ALLOW
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "block-iot-internal",
+                Name = "Block IoT to Internal",
+                Action = "BLOCK",
+                Enabled = true,
+                Index = 10010,
+                Protocol = "all",
+                ConnectionStateType = "ALL",
+                SourceMatchingTarget = "ANY",
+                SourceZoneId = "iot-zone",
+                DestinationMatchingTarget = "ANY",
+                DestinationZoneId = "internal-zone"
+            },
+            new FirewallRule
+            {
+                Id = "allow-iot-return",
+                Name = "Allow IoT to Internal Return",
+                Action = "ALLOW",
+                Enabled = true,
+                Index = 10011,
+                Protocol = "all",
+                ConnectionStateType = "RESPOND_ONLY",
+                SourceMatchingTarget = "ANY",
+                SourceZoneId = "iot-zone",
+                DestinationMatchingTarget = "ANY",
+                DestinationZoneId = "internal-zone"
+            }
+        };
+
+        var issues = _analyzer.DetectShadowedRules(rules);
+
+        issues.Should().ContainSingle();
+        issues.First().Type.Should().Be("DENY_SHADOWS_ALLOW");
+    }
+
+    [Fact]
+    public void DetectShadowedRules_ReturnTrafficAllow_DoesNotMaskLaterBroadAllow()
+    {
+        // The subvert branch stops scanning after the first offending allow. A return rule at a
+        // lower index must not consume that slot, or a genuinely subverting allow above the same
+        // deny would never be reported.
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "allow-iot-return",
+                Name = "Allow IoT to Internal Return",
+                Action = "ALLOW",
+                Enabled = true,
+                Index = 10000,
+                Protocol = "all",
+                ConnectionStateType = "RESPOND_ONLY",
+                SourceMatchingTarget = "ANY",
+                SourceZoneId = "iot-zone",
+                DestinationMatchingTarget = "ANY",
+                DestinationZoneId = "internal-zone"
+            },
+            new FirewallRule
+            {
+                Id = "allow-everything",
+                Name = "Allow IoT to Internal Everything",
+                Action = "ALLOW",
+                Enabled = true,
+                Index = 10001,
+                Protocol = "all",
+                ConnectionStateType = "ALL",
+                SourceMatchingTarget = "ANY",
+                SourceZoneId = "iot-zone",
+                DestinationMatchingTarget = "ANY",
+                DestinationZoneId = "internal-zone"
+            },
+            new FirewallRule
+            {
+                Id = "block-iot-internal",
+                Name = "Block IoT to Internal",
+                Action = "BLOCK",
+                Enabled = true,
+                Index = 10002,
+                Protocol = "all",
+                ConnectionStateType = "ALL",
+                SourceMatchingTarget = "ANY",
+                SourceZoneId = "iot-zone",
+                DestinationMatchingTarget = "ANY",
+                DestinationZoneId = "internal-zone"
+            }
+        };
+
+        var issues = _analyzer.DetectShadowedRules(rules);
+
+        var subvert = issues.FirstOrDefault(i => i.Type == "ALLOW_SUBVERTS_DENY");
+        subvert.Should().NotBeNull();
+        subvert!.Metadata!["allow_rule"].Should().Be("Allow IoT to Internal Everything");
+    }
+
+    [Fact]
     public void DetectShadowedRules_BroadBlockToNetworkBeforeNarrowAllowToIp_ReturnsShadowedIssue()
     {
         // This tests the scenario where a broad BLOCK rule to NETWORKs eclipses

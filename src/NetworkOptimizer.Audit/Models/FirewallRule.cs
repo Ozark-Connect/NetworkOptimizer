@@ -303,6 +303,26 @@ public class FirewallRule
     }
 
     /// <summary>
+    /// Returns true if this rule allows only ESTABLISHED/RELATED return traffic.
+    /// Handles both zone-based RESPOND_ONLY and legacy CUSTOM state lists.
+    /// </summary>
+    public bool AllowsOnlyReturnTraffic()
+    {
+        if (ConnectionStateType?.Equals("RESPOND_ONLY", StringComparison.OrdinalIgnoreCase) == true)
+            return true;
+
+        if (ConnectionStateType?.Equals("CUSTOM", StringComparison.OrdinalIgnoreCase) != true ||
+            ConnectionStates == null || ConnectionStates.Count == 0)
+        {
+            return false;
+        }
+
+        return ConnectionStates.All(s =>
+            s.Equals("ESTABLISHED", StringComparison.OrdinalIgnoreCase) ||
+            s.Equals("RELATED", StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
     /// Returns true if this rule applies to traffic from a specific source network.
     /// Checks zone matching, network ID matching (with Match Opposite), and IP/CIDR coverage.
     /// Handles v2 API format (SourceMatchingTarget) and legacy format (Source).

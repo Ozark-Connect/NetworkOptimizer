@@ -295,5 +295,58 @@ public class FirewallRuleTests
         rule.AllowsNewConnections().Should().BeTrue();
     }
 
+    [Fact]
+    public void AllowsOnlyReturnTraffic_RespondOnly_ReturnsTrue()
+    {
+        var rule = new FirewallRule
+        {
+            Id = "test",
+            ConnectionStateType = "RESPOND_ONLY"
+        };
+
+        rule.AllowsOnlyReturnTraffic().Should().BeTrue();
+    }
+
+    [Fact]
+    public void AllowsOnlyReturnTraffic_CustomEstablishedRelated_ReturnsTrue()
+    {
+        var rule = new FirewallRule
+        {
+            Id = "test",
+            ConnectionStateType = "CUSTOM",
+            ConnectionStates = new List<string> { "ESTABLISHED", "RELATED" }
+        };
+
+        rule.AllowsOnlyReturnTraffic().Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData("NEW")]
+    [InlineData("INVALID")]
+    public void AllowsOnlyReturnTraffic_CustomNonReturnState_ReturnsFalse(string state)
+    {
+        var rule = new FirewallRule
+        {
+            Id = "test",
+            ConnectionStateType = "CUSTOM",
+            ConnectionStates = new List<string> { state }
+        };
+
+        rule.AllowsOnlyReturnTraffic().Should().BeFalse();
+    }
+
+    [Fact]
+    public void AllowsOnlyReturnTraffic_CustomWithNoStates_ReturnsFalse()
+    {
+        var rule = new FirewallRule
+        {
+            Id = "test",
+            ConnectionStateType = "CUSTOM",
+            ConnectionStates = []
+        };
+
+        rule.AllowsOnlyReturnTraffic().Should().BeFalse();
+    }
+
     #endregion
 }
