@@ -1,7 +1,5 @@
 @using NetworkOptimizer.Web.Services.Monitoring.IspHealth
-@* Wording, formatting, and the event feed live in IspHealthPresentation so this panel and
-   the PDF export render the same report identically. Imported statically so the call sites
-   below read as they always did. *@
+@* The PDF export renders from these same helpers - keep them shared, not inlined here. *@
 @using static NetworkOptimizer.Web.Services.Monitoring.IspHealth.IspHealthPresentation
 @using NetworkOptimizer.Storage.Models
 @using System.Globalization
@@ -78,8 +76,7 @@
             }
         </button>
         <button class="btn btn-sm btn-primary" @onclick="ExportPdfAsync"
-                disabled="@(_report == null || _exportingPdf || _refreshing || _windowComputing)"
-                data-tooltip="Download the full scorecard for the selected window as a PDF" data-tooltip-hover-only>
+                disabled="@(_report == null || _exportingPdf || _refreshing || _windowComputing)">
             @if (_exportingPdf)
             {
                 <span class="spinner-sm"></span> <span>Building</span>
@@ -266,8 +263,6 @@ else
     </div>
     }
 
-    @* Sits below the hero in both states - a recompute swaps the hero for a spinner, and
-       the hint blinking in and out with it would read as a glitch. *@
     @if (!_planHintDismissed)
     {
         <IspPlanSpeedHint OnDismiss="DismissPlanHintAsync" />
@@ -482,8 +477,6 @@ else
                             {
                                 <div class="isp-factor-description">@factor.Description</div>
                             }
-                            @* Same hint as under the hero, at the factor that actually grades
-                               against the plan; one dismissal clears both. *@
                             @if (factor.Name == "Speed vs Plan" && !_planHintDismissed)
                             {
                                 <IspPlanSpeedHint Compact="true" OnDismiss="DismissPlanHintAsync" />

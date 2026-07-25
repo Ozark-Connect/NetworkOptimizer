@@ -1,12 +1,3 @@
-@*
-    Says where the ISP plan speeds ISP Health grades against actually come from. The hero's
-    Speed vs Plan block became a link to WAN Speed Test, which made "Plan" read as something
-    Network Optimizer holds; it is read from the console, and this is the only pointer to
-    where it can be changed.
-
-    Shown in two places (under the hero and under the Access Layer Speed vs Plan factor)
-    from one dismissal, which the panel owns and persists - see IspHealthPanel.
-*@
 @if (Compact)
 {
     <div class="isp-plan-hint-compact">
@@ -21,7 +12,7 @@ else
             <span class="banner-icon banner-icon-info">i</span>
             <div class="banner-text" style="flex: 1;">@HintText</div>
             <div class="banner-actions">
-                <button class="btn btn-sm btn-secondary" @onclick="OnDismiss">Got it</button>
+                <button class="btn btn-sm btn-tertiary" @onclick="OnDismiss">Got it</button>
             </div>
         </div>
     </div>
