@@ -21,7 +21,7 @@
             <ul class="tour-modal-steps">
                 @foreach (var step in _offer.Steps.Take(6))
                 {
-                    <li>@step.Step.Title</li>
+                    <li>@(step.Step.ListLabel ?? step.Step.Title)</li>
                 }
                 @if (_offer.Steps.Count > 6)
                 {

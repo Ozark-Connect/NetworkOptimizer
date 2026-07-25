@@ -68,6 +68,13 @@ public class TourStep
     [JsonPropertyName("title")]
     public string Title { get; set; } = "";
 
+    /// <summary>
+    /// Optional label for the offer modal's step list; falls back to Title. For steps
+    /// where the card heading and the list entry want different wording.
+    /// </summary>
+    [JsonPropertyName("listLabel")]
+    public string? ListLabel { get; set; }
+
     [JsonPropertyName("body")]
     public string Body { get; set; } = "";
 

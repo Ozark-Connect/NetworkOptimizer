@@ -67,6 +67,21 @@ window.noTour = (function () {
         card.style.top = Math.max(m, Math.min(top, vh - ch - m)) + 'px';
     }
 
+    // Minimal inline markup for step copy: **bold** only. Built as DOM nodes so tour
+    // JSON can never inject HTML.
+    function renderInline(el, text) {
+        String(text || '').split(/\*\*([^*]+)\*\*/g).forEach((part, i) => {
+            if (!part) return;
+            if (i % 2) {
+                const b = document.createElement('strong');
+                b.textContent = part;
+                el.appendChild(b);
+            } else {
+                el.appendChild(document.createTextNode(part));
+            }
+        });
+    }
+
     function buildCard(opts) {
         const card = document.createElement('div');
         card.className = 'tour-card';
@@ -89,7 +104,7 @@ window.noTour = (function () {
 
         const body = document.createElement('div');
         body.className = 'tour-card-body';
-        body.textContent = opts.body;
+        renderInline(body, opts.body);
         card.appendChild(body);
 
         const actions = document.createElement('div');

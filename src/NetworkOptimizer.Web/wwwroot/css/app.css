@@ -18563,6 +18563,7 @@ body.kiosk-mode .status-indicators {
 
 .tour-modal-steps li {
     margin: 2px 0;
+    font-size: 0.85rem;
 }
 
 .tour-modal-meta {
@@ -18730,4 +18731,9 @@ body.kiosk-mode .status-indicators {
 .tour-card-badge-improved {
     color: var(--success-color);
     background: rgba(36, 188, 112, 0.15);
+}
+
+.tour-card-body strong {
+    color: var(--text-primary);
+    font-weight: 600;
 }
