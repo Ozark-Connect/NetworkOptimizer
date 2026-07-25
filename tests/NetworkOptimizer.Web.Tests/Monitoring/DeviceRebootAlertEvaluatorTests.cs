@@ -49,7 +49,7 @@ public class DeviceRebootAlertEvaluatorTests
         var (evaluator, bus) = Build();
 
         var published = await evaluator.EvaluateAsync(
-            "aabbccddeeff", "Switch A", "192.0.2.10", Reason(category),
+            "aabbccddeeff", "Switch 1", "192.0.2.10", Reason(category),
             bootedAt: Now.AddMinutes(-2), now: Now);
 
         Assert.True(published);
@@ -66,7 +66,7 @@ public class DeviceRebootAlertEvaluatorTests
         var (evaluator, bus) = Build();
 
         var published = await evaluator.EvaluateAsync(
-            "aabbccddeeff", "Switch A", "192.0.2.10", Reason(category),
+            "aabbccddeeff", "Switch 1", "192.0.2.10", Reason(category),
             bootedAt: Now.AddMinutes(-2), now: Now);
 
         Assert.True(published);
@@ -83,7 +83,7 @@ public class DeviceRebootAlertEvaluatorTests
         var (evaluator, bus) = Build();
 
         var published = await evaluator.EvaluateAsync(
-            "aabbccddeeff", "Switch A", "192.0.2.10", Reason(RebootCategory.PowerLoss),
+            "aabbccddeeff", "Switch 1", "192.0.2.10", Reason(RebootCategory.PowerLoss),
             bootedAt: Now.AddDays(-9), now: Now);
 
         Assert.False(published);
@@ -96,7 +96,7 @@ public class DeviceRebootAlertEvaluatorTests
         var (evaluator, bus) = Build();
 
         var published = await evaluator.EvaluateAsync(
-            "aabbccddeeff", "Switch A", "192.0.2.10", Reason(RebootCategory.PowerLoss),
+            "aabbccddeeff", "Switch 1", "192.0.2.10", Reason(RebootCategory.PowerLoss),
             bootedAt: Now.Add(-DeviceRebootAlertEvaluator.CurrentBootWindow).AddMinutes(1), now: Now);
 
         Assert.True(published);
@@ -109,7 +109,7 @@ public class DeviceRebootAlertEvaluatorTests
         var (evaluator, bus) = Build();
 
         var published = await evaluator.EvaluateAsync(
-            "aabbccddeeff", "Switch A", "192.0.2.10", DeviceRebootReason.Unknown(),
+            "aabbccddeeff", "Switch 1", "192.0.2.10", DeviceRebootReason.Unknown(),
             bootedAt: Now.AddMinutes(-2), now: Now);
 
         Assert.False(published);
@@ -122,16 +122,16 @@ public class DeviceRebootAlertEvaluatorTests
         var (evaluator, bus) = Build();
 
         await evaluator.EvaluateAsync(
-            "aabbccddeeff", "Switch A", "192.0.2.10",
+            "aabbccddeeff", "Switch 1", "192.0.2.10",
             new DeviceRebootReason(RebootCategory.PowerLoss, "Power loss",
                 "Restart register: Power on Reset [0x20]", RebootReasonSource.ConsoleRebootLog),
             bootedAt: Now.AddMinutes(-3), now: Now);
 
         var evt = bus.Published.Single();
         Assert.Equal("aabbccddeeff", evt.DeviceId);
-        Assert.Equal("Switch A", evt.DeviceName);
+        Assert.Equal("Switch 1", evt.DeviceName);
         Assert.Equal("192.0.2.10", evt.DeviceIp);
-        Assert.Contains("Switch A", evt.Title);
+        Assert.Contains("Switch 1", evt.Title);
         Assert.Contains("Power loss", evt.Message);
         Assert.Contains("0x20", evt.Message);
     }
@@ -141,12 +141,12 @@ public class DeviceRebootAlertEvaluatorTests
     {
         var bus = new CapturingBus();
         var evaluator = new DeviceRebootAlertEvaluator(
-            bus, NullLogger<DeviceRebootAlertEvaluator>.Instance, "atl-1365");
+            bus, NullLogger<DeviceRebootAlertEvaluator>.Instance, "branch-office");
 
         await evaluator.EvaluateAsync(
-            "aabbccddeeff", "Switch A", "192.0.2.10", Reason(RebootCategory.PowerLoss),
+            "aabbccddeeff", "Switch 1", "192.0.2.10", Reason(RebootCategory.PowerLoss),
             bootedAt: Now.AddMinutes(-1), now: Now);
 
-        Assert.Contains("(site atl-1365)", bus.Published.Single().Title);
+        Assert.Contains("(site branch-office)", bus.Published.Single().Title);
     }
 }

@@ -164,7 +164,7 @@ public class RebootReasonParserTests
     [Fact]
     public void Pstore_ApFirmwareFlash_IsFirmwareUpgrade()
     {
-        // Captured from ap-tiny-home (U7-Pro-XGS-B)
+        // Captured from a U7-Pro-XGS-B access point
         const string tail = """
             [    5.424560] preinit: running 'preinit_ubnt/start_fanctrl'
             [    5.469425] preinit: running 'preinit_ubnt/perform_early_upgrade'
@@ -184,7 +184,7 @@ public class RebootReasonParserTests
     [Fact]
     public void Pstore_RealtekCleanRestart_IsCommandedReboot()
     {
-        // Captured from switch-tiny-home-1 (USW-Pro-XG-8-PoE, RTL9313)
+        // Captured from a USW-Pro-XG-8-PoE switch (RTL9313)
         const string tail = """
             [747190.870000] Port 10 moving from Forwarding to Disabled
             [747192.920000] reboot: Restarting system
@@ -457,7 +457,7 @@ public class RebootReasonParserTests
     }
 
     /// <summary>
-    /// The Honeybee gateway case: two AHB Timeout resets whose console ring held only early-boot
+    /// A field case on a UXG-Fiber (IPQ9574): two AHB Timeout resets whose console ring held only early-boot
     /// output and no shutdown line, and no panic record. pstore alone can only say "cut off";
     /// the restart register is what names it, so the register has to win.
     /// </summary>

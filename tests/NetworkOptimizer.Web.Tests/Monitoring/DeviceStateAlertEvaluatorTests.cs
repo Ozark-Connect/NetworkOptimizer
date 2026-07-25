@@ -47,7 +47,7 @@ public class DeviceStateAlertEvaluatorTests
     }
 
     private static ValueTask Feed(DeviceStateAlertEvaluator e, int state, DateTime at) =>
-        e.EvaluateAsync(Mac, "Switch Garage", "192.0.2.10", DeviceType.Switch, state, at);
+        e.EvaluateAsync(Mac, "Switch 1", "192.0.2.10", DeviceType.Switch, state, at);
 
     [Fact]
     public async Task SustainedOffline_PublishesOffline()
@@ -62,7 +62,7 @@ public class DeviceStateAlertEvaluatorTests
         var evt = bus.Published.Single();
         Assert.Equal("device.offline", evt.EventType);
         Assert.Equal(AlertSeverity.Error, evt.Severity);
-        Assert.Contains("Switch Garage", evt.Title);
+        Assert.Contains("Switch 1", evt.Title);
         Assert.Equal(Mac, evt.DeviceId);
     }
 
@@ -107,8 +107,8 @@ public class DeviceStateAlertEvaluatorTests
     }
 
     /// <summary>
-    /// The case TJ asked for: UniFi flips a device to Offline partway through a firmware install,
-    /// after reporting it Upgrading. The recent transition has to keep that quiet.
+    /// The case this feature exists for: UniFi flips a device to Offline partway through a firmware
+    /// install, after reporting it Upgrading. The recent transition has to keep that quiet.
     /// </summary>
     [Fact]
     public async Task OfflineJustAfterAnUpgrade_IsNotAnOutage()
@@ -164,12 +164,12 @@ public class DeviceStateAlertEvaluatorTests
     {
         var bus = new CapturingBus();
         var evaluator = new DeviceStateAlertEvaluator(bus, new DeviceTransitionTracker(),
-            NullLogger<DeviceStateAlertEvaluator>.Instance, "honeybee-home");
+            NullLogger<DeviceStateAlertEvaluator>.Instance, "branch-office");
 
-        await evaluator.EvaluateAsync(Mac, "AP Mud Room", "192.0.2.11", DeviceType.AccessPoint, Disconnected, Now);
-        await evaluator.EvaluateAsync(Mac, "AP Mud Room", "192.0.2.11", DeviceType.AccessPoint, Disconnected, Now.AddSeconds(30));
+        await evaluator.EvaluateAsync(Mac, "AP 1", "192.0.2.11", DeviceType.AccessPoint, Disconnected, Now);
+        await evaluator.EvaluateAsync(Mac, "AP 1", "192.0.2.11", DeviceType.AccessPoint, Disconnected, Now.AddSeconds(30));
 
-        Assert.Contains("(site honeybee-home)", bus.Published.Single().Title);
+        Assert.Contains("(site branch-office)", bus.Published.Single().Title);
     }
 
     [Fact]
