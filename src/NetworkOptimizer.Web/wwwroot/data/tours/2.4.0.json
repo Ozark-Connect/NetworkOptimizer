@@ -2,7 +2,7 @@
   "id": "2.4.0",
   "kind": "whats-new",
   "title": "What's new in 2.4.0",
-  "summary": "Reboot reasons, gateway interface diagnostics, ISP Health PDF export, and the Live View timeline.",
+  "summary": "UniFi Device reboot reasons, gateway interface diagnostics, ISP Health PDF export, and the Live View timeline.",
   "steps": [
     {
       "id": "reboot-reasons",
