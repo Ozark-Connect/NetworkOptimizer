@@ -47,6 +47,16 @@ public class DeviceRebootTracker
     private readonly ConcurrentDictionary<string, DateTime> _lastProbeAttempt = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, byte> _inFlight = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// Caps concurrent probes for this site. Uptime samples arrive for every device in one pass, so
+    /// a first run - or any classifier bump, which re-probes the fleet - would otherwise open an SSH
+    /// session to every device at once, frequently through a single agent tunnel. Probes are rare
+    /// (once per boot per device) so a small gate costs nothing; queued probes still hold their
+    /// per-device _inFlight claim, so nothing double-probes while waiting. Mirrors the SNMP tier's
+    /// gate, and is per site so one busy site cannot starve another.
+    /// </summary>
+    private readonly SemaphoreSlim _probeGate = new(4);
+
     private int _seeded;
 
     /// <summary>Creates the tracker for one site.</summary>
@@ -269,8 +279,14 @@ public class DeviceRebootTracker
 
         if (!_inFlight.TryAdd(mac, 0)) return;
 
+        var gateHeld = false;
         try
         {
+            // Acquired inside the try so the per-device claim is always released, but tracked so a
+            // failed wait never releases a permit this call does not hold.
+            await _probeGate.WaitAsync();
+            gateHeld = true;
+
             _lastProbeAttempt[mac] = DateTime.UtcNow;
 
             _logger.LogDebug(
@@ -316,6 +332,7 @@ public class DeviceRebootTracker
         }
         finally
         {
+            if (gateHeld) _probeGate.Release();
             _inFlight.TryRemove(mac, out _);
         }
     }
