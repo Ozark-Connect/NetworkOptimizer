@@ -2747,6 +2747,11 @@ export class LanFlowMap {
             this._stopHistoricPlayback();
             this._mode = 'live';
             this._historicAt = null;
+            // Reset the rate BEFORE the publish inside _onScrubberInput, which carries
+            // _playbackSpeed to the 2D mirror. Resetting after it leaves the mirror showing
+            // the playback rate while the map is back on live data.
+            this._speedIndex = this._speedSteps.indexOf(1);
+            this._playbackSpeed = 1;
             this._onScrubberInput(10000);
             if (this._panels.modeBadge) {
                 this._panels.modeBadge.textContent = 'Live';
@@ -2755,9 +2760,7 @@ export class LanFlowMap {
                 this._panels.modeBadge.removeAttribute('data-tooltip');
                 if (this._panels.modeBadge._tippy) this._panels.modeBadge._tippy.destroy();
             }
-            // Returning to live: reset speed to 1x and resume polling.
-            this._speedIndex = this._speedSteps.indexOf(1);
-            this._playbackSpeed = 1;
+            // Returning to live: resume polling at the 1x rate set above.
             this._paused = false;
             this._syncPlayPauseIcon();
             this._syncSpeedLabel();
