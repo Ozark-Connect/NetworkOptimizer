@@ -17000,6 +17000,11 @@ a.isp-health-hero-speed:hover {
     text-transform: uppercase;
     letter-spacing: 0.04em;
     white-space: nowrap;
+    cursor: default;
+}
+
+.isp-event-badge[data-tooltip] {
+    cursor: help;
 }
 
 .isp-event-badge-warning {
@@ -17015,6 +17020,46 @@ a.isp-health-hero-speed:hover {
 .isp-event-badge-danger {
     color: var(--danger-color);
     background: rgba(238, 99, 104, 0.15);
+}
+
+.isp-event-badge-congestion {
+    color: var(--warning-color);
+    background: rgba(245, 158, 11, 0.15);
+}
+
+.isp-event-badge-congestion-soft {
+    color: rgba(231, 150, 19, 0.5);
+    background: rgba(245, 158, 11, 0.08);
+}
+
+.isp-event-badge-shift {
+    color: var(--info-color);
+    background: rgba(59, 130, 246, 0.15);
+}
+
+.isp-event-badge-change {
+    color: #a78bfa;
+    background: rgba(167, 139, 250, 0.15);
+}
+
+.isp-events-header {
+    flex-wrap: wrap;
+    gap: 0.4rem;
+}
+
+.isp-event-filter .time-btn.active.evt-congestion {
+    color: var(--warning-color);
+    background: rgba(245, 158, 11, 0.15);
+}
+
+.isp-event-filter .time-btn.active.evt-shift {
+    color: var(--info-color);
+    background: rgba(59, 130, 246, 0.15);
+}
+
+.isp-event-filter .time-btn.active.evt-change {
+    color: #a78bfa;
+    background: rgba(167, 139, 250, 0.15);
 }
 
 .isp-event-time {
