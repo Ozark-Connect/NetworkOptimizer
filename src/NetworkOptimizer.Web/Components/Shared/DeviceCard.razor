@@ -48,7 +48,7 @@
             }
             @if (!string.IsNullOrEmpty(Device.Uptime))
             {
-                <div class="device-detail">
+                <div class="device-detail" data-tour="device-uptime">
                     <span class="detail-label">Uptime:</span>
                     @* Icon only while the reboot is recent news; the hover on the value stays for
                        good. It leads the value: left of a value reads as information about it,

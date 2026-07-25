@@ -1,0 +1,87 @@
+@using NetworkOptimizer.Web.Services.Tours
+@inject TourService Tours
+@inject SiteManagementService SiteManagement
+@inject NavigationManager Navigation
+
+@* Settings - Application: the single launcher for guided tours. Lists every shipped
+   tour with its state and hosts the automatic-offer opt-out toggle. *@
+
+<div class="card settings-tab-application" id="guided-tours">
+    <div class="card-header">
+        <h2 class="card-title">Guided Tours</h2>
+        @if (_multiSiteEnabled)
+        {
+            <span class="status-badge global-badge" data-tooltip="Applies to all sites (instance-wide)">Global</span>
+        }
+    </div>
+    <div class="card-body">
+        <p class="section-description">
+            Short walkthroughs of what's new in each release. A tour can be replayed here
+            any time, whether or not it was taken when first offered.
+        </p>
+
+        <div class="form-group">
+            <label class="checkbox-label">
+                <input type="checkbox" @bind="_toursDisabled" @bind:after="SaveDisabledAsync" />
+                Don't offer tours automatically
+            </label>
+            <p class="form-help">No tour is ever offered on its own while this is set. Tours stay available below.</p>
+        </div>
+
+        @if (_statuses == null)
+        {
+            <div class="loading-container"><span class="spinner spinner-sm"></span></div>
+        }
+        else if (_statuses.Count == 0)
+        {
+            <p class="tour-list-empty">No tours are available in this build.</p>
+        }
+        else
+        {
+            <div class="tour-list">
+                @foreach (var info in _statuses)
+                {
+                    <div class="tour-list-item">
+                        <div class="tour-list-info">
+                            <span class="tour-list-title">@info.Tour.Title</span>
+                            <span class="tour-list-status">@StatusLabel(info)</span>
+                        </div>
+                        <button type="button" class="btn btn-secondary btn-sm" @onclick="() => Launch(info.Tour.Id)">
+                            @(info.Status is TourStatus.Completed or TourStatus.Skipped ? "Replay" : "Start")
+                        </button>
+                    </div>
+                }
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private List<TourStatusInfo>? _statuses;
+    private bool _toursDisabled;
+    private bool _multiSiteEnabled;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _multiSiteEnabled = await SiteManagement.IsMultiSiteEnabledAsync();
+        _toursDisabled = await Tours.GetToursDisabledAsync();
+        _statuses = await Tours.GetTourStatusesAsync();
+    }
+
+    private async Task SaveDisabledAsync() => await Tours.SetToursDisabledAsync(_toursDisabled);
+
+    private void Launch(string tourId)
+    {
+        // The TourHost in the layout owns playback; hand it the tour via the same
+        // deep link release notes use. It starts from the tour's first step URL.
+        Navigation.NavigateTo("/?tour=" + Uri.EscapeDataString(tourId));
+    }
+
+    private static string StatusLabel(TourStatusInfo info) => info.Status switch
+    {
+        TourStatus.Completed => "Completed",
+        TourStatus.Skipped => "Skipped",
+        TourStatus.Deferred => $"{info.SeenStepCount} of {info.EligibleStepCount} steps seen",
+        _ => "Not seen",
+    };
+}

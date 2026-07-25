@@ -1,0 +1,52 @@
+{
+  "id": "2.4.0",
+  "kind": "whats-new",
+  "title": "What's new in 2.4.0",
+  "summary": "Reboot reasons, gateway interface diagnostics, ISP Health PDF export, and the Live View timeline.",
+  "steps": [
+    {
+      "id": "reboot-reasons",
+      "level": "major",
+      "url": "/",
+      "selector": "[data-tour=\"device-uptime\"]",
+      "title": "Why a device restarted",
+      "body": "When a device has rebooted, its uptime now carries the reason: firmware upgrade, power loss, or a crash. Hover or tap the uptime on a device card to see what actually happened and the evidence behind it.",
+      "placement": "auto",
+      "requires": [],
+      "optional": true
+    },
+    {
+      "id": "isp-health-pdf-export",
+      "level": "major",
+      "url": "/monitoring?tab=isp-health",
+      "selector": "[data-tour=\"isp-health-pdf-export\"]",
+      "title": "Export ISP Health as a PDF",
+      "body": "The full ISP Health report exports to a PDF: scores, the per-provider breakdown, and the evidence behind them. Ready to attach when you open a ticket with your ISP.",
+      "placement": "bottom",
+      "requires": [],
+      "optional": false
+    },
+    {
+      "id": "gateway-interface",
+      "level": "advanced",
+      "url": "/network-tools",
+      "selector": "[data-tour=\"gateway-interface\"]",
+      "title": "Inspect a gateway interface",
+      "body": "Read-only detail straight off the gateway: interface addresses, how long a DHCP WAN lease has left, SFP transceiver readings, and the neighbors resolved on the link. Nothing here changes gateway state.",
+      "placement": "top",
+      "requires": ["gateway-ssh"],
+      "optional": false
+    },
+    {
+      "id": "live-view-timeline",
+      "level": "minor",
+      "url": "/monitoring?tab=live",
+      "selector": "[data-tour=\"live-view-timeline\"]",
+      "title": "Step back through the Live View",
+      "body": "Drag the timeline to any point in the past and the map shows the network as it was then, including which clients were connected at that moment.",
+      "placement": "top",
+      "requires": [],
+      "optional": true
+    }
+  ]
+}
