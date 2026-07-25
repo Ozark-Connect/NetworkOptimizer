@@ -1236,12 +1236,6 @@
                             }
                         }
 
-                        <div class="form-group">
-                            <label class="checkbox-label">
-                                <input type="checkbox" @bind="editingModem.Enabled" />
-                                <span>Enable polling</span>
-                            </label>
-                        </div>
                     }
 
                     <div class="action-buttons">
@@ -1436,13 +1430,6 @@
                             <label class="form-label">Polling Interval (sec)</label>
                             <input type="number" class="form-control" @bind="_editingCm.PollingIntervalSeconds" min="60" max="3600" />
                         </div>
-                    </div>
-
-                    <div class="form-group">
-                        <label class="checkbox-label">
-                            <input type="checkbox" @bind="_editingCm.Enabled" />
-                            <span>Enable polling</span>
-                        </label>
                     </div>
 
                     <div class="action-buttons">
@@ -1661,13 +1648,6 @@
                             <label class="form-label">Polling Interval (sec)</label>
                             <input type="number" class="form-control" @bind="_editingOnt.PollingIntervalSeconds" min="60" max="3600" />
                         </div>
-                    </div>
-
-                    <div class="form-group">
-                        <label class="checkbox-label">
-                            <input type="checkbox" @bind="_editingOnt.Enabled" />
-                            <span>Enable polling</span>
-                        </label>
                     </div>
 
                     <div class="action-buttons">

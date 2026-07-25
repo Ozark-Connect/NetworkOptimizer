@@ -505,7 +505,7 @@
                 {
                     modemStats = cachedStats;
                 }
-                else
+                else if (modem.Enabled)
                 {
                     // No cached stats - do initial poll
                     var (success, _) = await ModemService.PollModemAsync(modem);
@@ -580,7 +580,7 @@
             modemStats = cached;
             StateHasChanged();
 
-            if (cached == null)
+            if (cached == null && modem.Enabled)
             {
                 // No cached stats - try polling, but don't block paging
                 var (success, _) = await ModemService.PollModemAsync(modem);

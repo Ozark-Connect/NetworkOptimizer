@@ -1,4 +1,5 @@
 using FluentAssertions;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Moq;
@@ -10,16 +11,22 @@ namespace NetworkOptimizer.Storage.Tests;
 
 public class ModemRepositoryTests : IDisposable
 {
+    private readonly SqliteConnection _connection;
     private readonly NetworkOptimizerDbContext _context;
     private readonly ModemRepository _repository;
 
     public ModemRepositoryTests()
     {
+        // SQLite in-memory (not the EF InMemory provider): UpdateModemPollResultAsync uses
+        // ExecuteUpdate for an atomic guarded write, which only a relational provider supports.
+        _connection = new SqliteConnection("DataSource=:memory:");
+        _connection.Open();
         var options = new DbContextOptionsBuilder<NetworkOptimizerDbContext>()
-            .UseInMemoryDatabase(databaseName: Guid.NewGuid().ToString())
+            .UseSqlite(_connection)
             .Options;
 
         _context = new NetworkOptimizerDbContext(options);
+        _context.Database.EnsureCreated();
         var logger = new Mock<ILogger<ModemRepository>>();
         _repository = new ModemRepository(_context, logger.Object);
     }
@@ -27,6 +34,7 @@ public class ModemRepositoryTests : IDisposable
     public void Dispose()
     {
         _context.Dispose();
+        _connection.Dispose();
     }
 
     [Fact]
@@ -81,6 +89,27 @@ public class ModemRepositoryTests : IDisposable
 
         var saved = await _context.ModemConfigurations.FirstOrDefaultAsync(m => m.Name == "New Modem");
         saved.Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task SaveModemConfigurationAsync_ExistingConfig_PreservesDatabaseEnabledValue()
+    {
+        var modem = new ModemConfiguration
+        {
+            Name = "Paused Modem", Host = "192.168.1.1", Enabled = false,
+        };
+        _context.ModemConfigurations.Add(modem);
+        await _context.SaveChangesAsync();
+
+        await _repository.SaveModemConfigurationAsync(new ModemConfiguration
+        {
+            Id = modem.Id, Name = "Edited Modem", Host = modem.Host, Enabled = true,
+        });
+
+        _context.ChangeTracker.Clear();
+        var reloaded = await _repository.GetModemConfigurationAsync(modem.Id);
+        reloaded!.Name.Should().Be("Edited Modem");
+        reloaded.Enabled.Should().BeFalse("only SetModemEnabledAsync may change Enabled on an existing modem");
     }
 
     [Fact]
@@ -213,6 +242,38 @@ public class ModemRepositoryTests : IDisposable
         reloaded!.Enabled.Should().BeFalse("the late poll must not re-enable a paused modem");
         reloaded.LastError.Should().BeNull("the late poll must not overwrite the LastError that Disable cleared");
         reloaded.LastPolled.Should().Be(new DateTime(2026, 7, 22, 8, 0, 0, DateTimeKind.Utc));
+    }
+
+    [Fact]
+    public async Task UpdateModemPollResultAsync_SqliteDisabledBeforeLateResult_AtomicallySkipsUpdate()
+    {
+        await using var connection = new SqliteConnection("DataSource=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<NetworkOptimizerDbContext>()
+            .UseSqlite(connection)
+            .Options;
+        await using var context = new NetworkOptimizerDbContext(options);
+        await context.Database.EnsureCreatedAsync();
+        var repository = new ModemRepository(context, new Mock<ILogger<ModemRepository>>().Object);
+        var lastPolled = new DateTime(2026, 7, 22, 8, 0, 0, DateTimeKind.Utc);
+        var modem = new ModemConfiguration
+        {
+            Name = "Modem", Host = "192.168.1.1", Enabled = true, LastPolled = lastPolled,
+        };
+        context.ModemConfigurations.Add(modem);
+        await context.SaveChangesAsync();
+
+        await repository.SetModemEnabledAsync(modem.Id, false);
+        context.ChangeTracker.Clear();
+        var persisted = await repository.UpdateModemPollResultAsync(
+            modem.Id, new DateTime(2026, 7, 22, 8, 5, 0, DateTimeKind.Utc), "late");
+
+        persisted.Should().BeFalse();
+        context.ChangeTracker.Clear();
+        var reloaded = await repository.GetModemConfigurationAsync(modem.Id);
+        reloaded!.Enabled.Should().BeFalse();
+        reloaded.LastError.Should().BeNull();
+        reloaded.LastPolled.Should().Be(lastPolled);
     }
 
     [Fact]

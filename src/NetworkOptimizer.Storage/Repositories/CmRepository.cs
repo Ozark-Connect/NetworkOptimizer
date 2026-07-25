@@ -84,7 +84,6 @@ public class CmRepository : ICmRepository
                     existing.Username = config.Username;
                     existing.Password = config.Password;
                     existing.StatusPagePath = config.StatusPagePath;
-                    existing.Enabled = config.Enabled;
                     existing.PollingIntervalSeconds = config.PollingIntervalSeconds;
                     existing.LastPolled = config.LastPolled;
                     existing.LastError = config.LastError;
@@ -154,19 +153,20 @@ public class CmRepository : ICmRepository
     {
         try
         {
-            var config = await _context.CmConfigurations.FirstOrDefaultAsync(c => c.Id == id, cancellationToken);
-            // Never resurrect or overwrite a config that was disabled while the poll was
-            // in flight - its frozen state (and cleared LastError) must stand.
-            if (config == null || !config.Enabled)
-                return false;
-
+            var now = DateTime.UtcNow;
+            int rows;
             if (lastPolled.HasValue)
-                config.LastPolled = lastPolled.Value;
-            config.LastError = lastError;
-            config.UpdatedAt = DateTime.UtcNow;
-
-            await _context.SaveChangesAsync(cancellationToken);
-            return true;
+                rows = await _context.CmConfigurations.Where(c => c.Id == id && c.Enabled)
+                    .ExecuteUpdateAsync(s => s
+                        .SetProperty(c => c.LastPolled, lastPolled.Value)
+                        .SetProperty(c => c.LastError, lastError)
+                        .SetProperty(c => c.UpdatedAt, now), cancellationToken);
+            else
+                rows = await _context.CmConfigurations.Where(c => c.Id == id && c.Enabled)
+                    .ExecuteUpdateAsync(s => s
+                        .SetProperty(c => c.LastError, lastError)
+                        .SetProperty(c => c.UpdatedAt, now), cancellationToken);
+            return rows > 0;
         }
         catch (Exception ex)
         {

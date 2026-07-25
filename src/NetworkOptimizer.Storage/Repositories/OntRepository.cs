@@ -85,7 +85,6 @@ public class OntRepository : IOntRepository
                     existing.Password = config.Password;
                     existing.PrivateKeyPath = config.PrivateKeyPath;
                     existing.AttachedSfpId = config.AttachedSfpId;
-                    existing.Enabled = config.Enabled;
                     existing.PollingIntervalSeconds = config.PollingIntervalSeconds;
                     existing.LastPolled = config.LastPolled;
                     existing.LastError = config.LastError;
@@ -155,19 +154,20 @@ public class OntRepository : IOntRepository
     {
         try
         {
-            var config = await _context.OntConfigurations.FirstOrDefaultAsync(o => o.Id == id, cancellationToken);
-            // Never resurrect or overwrite a config that was disabled while the poll was
-            // in flight - its frozen state (and cleared LastError) must stand.
-            if (config == null || !config.Enabled)
-                return false;
-
+            var now = DateTime.UtcNow;
+            int rows;
             if (lastPolled.HasValue)
-                config.LastPolled = lastPolled.Value;
-            config.LastError = lastError;
-            config.UpdatedAt = DateTime.UtcNow;
-
-            await _context.SaveChangesAsync(cancellationToken);
-            return true;
+                rows = await _context.OntConfigurations.Where(o => o.Id == id && o.Enabled)
+                    .ExecuteUpdateAsync(s => s
+                        .SetProperty(o => o.LastPolled, lastPolled.Value)
+                        .SetProperty(o => o.LastError, lastError)
+                        .SetProperty(o => o.UpdatedAt, now), cancellationToken);
+            else
+                rows = await _context.OntConfigurations.Where(o => o.Id == id && o.Enabled)
+                    .ExecuteUpdateAsync(s => s
+                        .SetProperty(o => o.LastError, lastError)
+                        .SetProperty(o => o.UpdatedAt, now), cancellationToken);
+            return rows > 0;
         }
         catch (Exception ex)
         {
