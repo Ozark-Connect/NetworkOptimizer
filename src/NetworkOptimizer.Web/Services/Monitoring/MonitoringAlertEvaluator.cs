@@ -30,8 +30,10 @@ public class MonitoringAlertEvaluator
 
     private readonly IAlertEventBus _eventBus;
     private readonly ILogger<MonitoringAlertEvaluator> _logger;
+    private readonly DeviceTransitionTracker _transitions;
     private readonly ConcurrentDictionary<string, TargetAlertState> _states = new();
     private readonly string _siteSuffix;
+    private readonly string _siteSlug;
 
     /// <param name="siteSlug">
     /// Site this instance evaluates for (one instance per site, owned by
@@ -40,10 +42,13 @@ public class MonitoringAlertEvaluator
     /// alert titles; the default site reads exactly as before.
     /// </param>
     public MonitoringAlertEvaluator(IAlertEventBus eventBus, ILogger<MonitoringAlertEvaluator> logger,
+        DeviceTransitionTracker transitions,
         string siteSlug = SiteManagementService.DefaultSiteSlug)
     {
         _eventBus = eventBus;
         _logger = logger;
+        _transitions = transitions;
+        _siteSlug = siteSlug ?? SiteManagementService.DefaultSiteSlug;
         _siteSuffix = string.IsNullOrEmpty(siteSlug) || siteSlug == SiteManagementService.DefaultSiteSlug
             ? "" : $" (site {siteSlug})";
     }
@@ -56,6 +61,7 @@ public class MonitoringAlertEvaluator
         {
             state.ConsecutiveFailures = 0;
             state.ConsecutiveSuccesses++;
+            state.TransitionSuppressionLogged = false;
             state.LossWindow.Enqueue(result.LossPercent);
             while (state.LossWindow.Count > LossWindowSize) state.LossWindow.Dequeue();
 
@@ -89,9 +95,27 @@ public class MonitoringAlertEvaluator
 
             if (!state.IsOffline && state.ConsecutiveFailures >= FailuresToDeclareOffline)
             {
+                // A device that UniFi reports as upgrading or provisioning stops answering because
+                // someone asked it to. Stay silent for the transition, and deliberately leave
+                // IsOffline unset: failures keep accruing, so the moment the device is no longer
+                // in that state the next failed probe alerts immediately. Nothing is lost, and no
+                // "recovered" event fires for an outage that was never announced.
+                if (_transitions.IsInKnownTransition(_siteSlug, target.DeviceMac, DateTime.UtcNow))
+                {
+                    if (!state.TransitionSuppressionLogged)
+                    {
+                        state.TransitionSuppressionLogged = true;
+                        _logger.LogDebug(
+                            "Not declaring {Target} offline: UniFi reports its device ({Mac}) mid-transition (upgrade or provisioning)",
+                            target.Name, target.DeviceMac);
+                    }
+                    return;
+                }
+
                 state.IsOffline = true;
                 state.IsLossy = false; // offline supersedes lossy
                 state.LossWindow.Clear();
+                state.TransitionSuppressionLogged = false;
                 await _eventBus.PublishAsync(BuildOfflineEvent(target), ct);
             }
         }
@@ -180,6 +204,10 @@ public class MonitoringAlertEvaluator
         public int ConsecutiveSuccesses;
         public bool IsOffline;
         public bool IsLossy;
+
+        /// <summary>Keeps the mid-transition explanation to one log line per outage, not one per probe.</summary>
+        public bool TransitionSuppressionLogged;
+
         public Queue<double> LossWindow { get; } = new();
     }
 }

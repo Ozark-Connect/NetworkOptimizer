@@ -1,15 +1,52 @@
+using NetworkOptimizer.Web.Services;
 using NetworkOptimizer.Web.Services.Monitoring.IspHealth;
 
 namespace NetworkOptimizer.Web.Endpoints;
 
 /// <summary>
-/// Chart data for the ISP Health tab's ES-module chart. The Blazor panel itself
-/// reads IspHealthService directly; this exists only for JS-fetched series.
+/// Chart data for the ISP Health tab's ES-module chart, plus the PDF export. The Blazor
+/// panel itself reads IspHealthService directly; these exist for JS-fetched series and for
+/// a download the browser has to fetch as a file.
 /// </summary>
 public static class IspHealthEndpoints
 {
     public static void Map(WebApplication app)
     {
+        // Full ISP Health report for the selected window as a PDF. from/to mirror the tab's
+        // date/time filter: both present computes that window (served from the same
+        // custom-window cache the tab uses, so exporting what's on screen is a cache hit),
+        // absent exports the live cached report. The rendering is a pure projection of the
+        // scored report - the export can never disagree with the tab.
+        app.MapGet("/api/monitoring/isp-health/pdf", async (
+            DateTime? from,
+            DateTime? to,
+            IspHealthService ispHealth,
+            SiteContextService siteContext,
+            SiteManagementService siteManagement,
+            CancellationToken ct) =>
+        {
+            var report = from.HasValue && to.HasValue
+                ? await ispHealth.GetReportForWindowAsync(from.Value, to.Value, ct: ct)
+                : await ispHealth.GetReportAsync(ct: ct);
+
+            if (report == null)
+                return Results.NotFound(new { error = "ISP Health has no report to export yet" });
+
+            // Only a secondary site has a name worth putting in the title; the default site
+            // is just "this install" to its operator.
+            string? siteName = null;
+            if (!siteContext.IsDefault)
+            {
+                var sites = await siteManagement.GetSitesAsync();
+                siteName = sites.FirstOrDefault(s => s.Slug == siteContext.Slug)?.Name ?? siteContext.Slug;
+            }
+
+            var pdfBytes = new IspHealthPdfGenerator().GenerateReportBytes(report, siteName);
+            var sitePart = siteContext.IsDefault ? "" : $"_{siteContext.Slug}";
+            var fileName = $"ISPHealth{sitePart}_{report.WindowEnd.ToLocalTime():yyyyMMdd-HHmm}.pdf";
+            return Results.File(pdfBytes, "application/pdf", fileName);
+        });
+
         app.MapGet("/api/monitoring/isp-health/asn-series", async (
             DateTime? from,
             DateTime? to,

@@ -15,7 +15,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { buildBuildings } from './lan-flow-buildings.js?v=1';
 // KEEP IN SYNC: lan-flow-map-2d.js imports the same module. Both must use the same ?v= or they get separate instances.
-import * as flowData from './lan-flow-data.js?v=6';
+import * as flowData from './lan-flow-data.js?v=7';
 
 const COLORS = {
     background: 0x202023,
@@ -677,6 +677,8 @@ export class LanFlowMap {
             if (!res.ok) return;
             const update = await res.json();
             flowData.publishLive(update);
+            // Live ticks carry no historic clients, so this drops any still on the scene.
+            this._applyHistoricClients(update);
             this._currentBadges = update.nodeBadges || {};
             this._currentClientStats = update.clientStats || {};
             this._applyOnlineState();
@@ -1459,6 +1461,30 @@ export class LanFlowMap {
         }
     }
 
+    // Clients that were connected at the scrubbed instant but are not connected now. The
+    // snapshot's client list is UniFi's currently-connected set, so without this a client that
+    // has since disconnected is invisible at every instant even though its telemetry is right
+    // there. Reuses the same incremental add/remove the live snapshot poll uses, so these leaves
+    // are ordinary nodes once placed. Live ticks carry an empty set, which removes them all.
+    _applyHistoricClients(update) {
+        const nodes = update.addedClientNodes || [];
+        const links = update.addedClientLinks || [];
+        if (!this._historicClientIds) this._historicClientIds = new Set();
+        if (nodes.length === 0 && this._historicClientIds.size === 0) return;
+
+        const wanted = new Set(nodes.map(n => n.id));
+        for (const id of [...this._historicClientIds]) {
+            if (wanted.has(id)) continue;
+            if (this._nodeMeshes.has(id)) this._removeNodeIncremental(id);
+            this._historicClientIds.delete(id);
+        }
+        for (const node of nodes) {
+            if (this._historicClientIds.has(node.id) || this._nodeMeshes.has(node.id)) continue;
+            this._addNodeIncremental(node, { links });
+            this._historicClientIds.add(node.id);
+        }
+    }
+
     // Historic roam: re-point with baseline restore. On reset (newApId === the live
     // snapshot parent) the client returns to its exact original spot; otherwise it
     // scatters near the historic AP.
@@ -1890,6 +1916,8 @@ export class LanFlowMap {
                         || [...prevInfraIds].some(id => !newInfraIds.has(id));
 
                     if (infraChanged) {
+                        // Rebuilt from the snapshot, which carries no historic-only clients.
+                        this._historicClientIds = new Set();
                         await this._reloadSnapshot();
                     } else {
                         // Incremental client add/remove
@@ -2536,9 +2564,12 @@ export class LanFlowMap {
             const hay = `${node.name || ''} ${node.mac || ''} ${node.ssid || ''}`.toLowerCase();
             if (!hay.includes(this._filter.text)) return false;
         }
-        // Band filter (WiFi only).
-        if (node.kind === NODE_KIND.WifiClient && node.band) {
-            if (this._filter.bands[node.band] === false) return false;
+        // Band filter (WiFi only). Follows the scrubbed instant like the tooltip and the node
+        // skin do, so filtering to 5 GHz keeps a client that was on 5 GHz then - the snapshot's
+        // band is "now". Live ticks carry no client stats, so this reads the snapshot value.
+        if (node.kind === NODE_KIND.WifiClient) {
+            const band = this._currentClientStats?.[node.id]?.band ?? node.band;
+            if (band && this._filter.bands[band] === false) return false;
         }
         return true;
     }
@@ -2716,6 +2747,11 @@ export class LanFlowMap {
             this._stopHistoricPlayback();
             this._mode = 'live';
             this._historicAt = null;
+            // Reset the rate BEFORE the publish inside _onScrubberInput, which carries
+            // _playbackSpeed to the 2D mirror. Resetting after it leaves the mirror showing
+            // the playback rate while the map is back on live data.
+            this._speedIndex = this._speedSteps.indexOf(1);
+            this._playbackSpeed = 1;
             this._onScrubberInput(10000);
             if (this._panels.modeBadge) {
                 this._panels.modeBadge.textContent = 'Live';
@@ -2724,9 +2760,7 @@ export class LanFlowMap {
                 this._panels.modeBadge.removeAttribute('data-tooltip');
                 if (this._panels.modeBadge._tippy) this._panels.modeBadge._tippy.destroy();
             }
-            // Returning to live: reset speed to 1x and resume polling.
-            this._speedIndex = this._speedSteps.indexOf(1);
-            this._playbackSpeed = 1;
+            // Returning to live: resume polling at the 1x rate set above.
             this._paused = false;
             this._syncPlayPauseIcon();
             this._syncSpeedLabel();
@@ -2941,6 +2975,9 @@ export class LanFlowMap {
             const update = await res.json();
             if (gen !== this._historicGen) return;
             flowData.publishLive(update);
+            // Add the clients that were connected at this instant but are not now, before
+            // skinning and rates so they are treated like any other leaf.
+            this._applyHistoricClients(update);
             // Set badges before applying rates: _applyOnlineState re-skins the nodes and
             // _applyLiveRates reads the badges to force offline endpoints' pipes idle.
             this._currentBadges = update.nodeBadges || {};

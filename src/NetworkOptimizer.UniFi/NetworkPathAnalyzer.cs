@@ -907,8 +907,13 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
 
                 int ingressSpeed = GetPortSpeedFromRawDevices(rawDevices, currentMac, currentPort);
                 // If this device has no port table (e.g., AP with empty port_table),
-                // use the previous hop's egress speed (same physical link, same negotiated speed)
-                if (ingressSpeed == 0 && hops.Count > 0 && hops[^1].EgressSpeedMbps > 0)
+                // use the previous hop's egress speed (same physical link, same negotiated speed).
+                // Never borrow from a wireless client hop: that egress is a Wi-Fi rate, not a port
+                // speed, and it is read before the snapshot pass raises the client hop's rates, so
+                // a stale copy lands here with no wireless flags, wins bottleneck selection, and
+                // reports a ceiling the test itself can beat. The Wi-Fi link is the client hop's.
+                if (ingressSpeed == 0 && hops.Count > 0 && hops[^1].EgressSpeedMbps > 0
+                    && hops[^1].Type != HopType.WirelessClient)
                 {
                     ingressSpeed = hops[^1].EgressSpeedMbps;
                 }
@@ -2100,8 +2105,13 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                 // For APs after a wireless client, ingress is the client's wireless connection (handled by client hop's egress)
                 int ingressSpeed = GetPortSpeedFromRawDevices(rawDevices, currentMac, currentPort);
                 // If this device has no port table (e.g., AP with empty port_table),
-                // use the previous hop's egress speed (same physical link, same negotiated speed)
-                if (ingressSpeed == 0 && hops.Count > 0 && hops[^1].EgressSpeedMbps > 0)
+                // use the previous hop's egress speed (same physical link, same negotiated speed).
+                // Never borrow from a wireless client hop: that egress is a Wi-Fi rate, not a port
+                // speed, and it is read before the snapshot pass raises the client hop's rates, so
+                // a stale copy lands here with no wireless flags, wins bottleneck selection, and
+                // reports a ceiling the test itself can beat. The Wi-Fi link is the client hop's.
+                if (ingressSpeed == 0 && hops.Count > 0 && hops[^1].EgressSpeedMbps > 0
+                    && hops[^1].Type != HopType.WirelessClient)
                 {
                     ingressSpeed = hops[^1].EgressSpeedMbps;
                 }

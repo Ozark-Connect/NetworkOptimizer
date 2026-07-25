@@ -3,7 +3,7 @@
 // zero duplicate API calls. GPU-composited canvas for smooth particle animation.
 
 // KEEP IN SYNC: lan-flow-map.js imports the same module. Both must use the same ?v= or they get separate instances.
-import * as flowData from './lan-flow-data.js?v=6';
+import * as flowData from './lan-flow-data.js?v=7';
 
 function demoMask(text) {
     const dm = window.DemoMask;
@@ -76,6 +76,15 @@ function rgbHex(r,g,b) { return '#'+[r,g,b].map(c=>Math.round(Math.max(0,Math.mi
 function lerp(a,b,t) { return a+(b-a)*t; }
 function lerpColor(a,b,t) { const [r1,g1,b1]=hexRgb(a),[r2,g2,b2]=hexRgb(b); return rgbHex(lerp(r1,r2,t),lerp(g1,g2,t),lerp(b1,b2,t)); }
 function bandClr(b) { return b==='2.4'?C.band24:b==='5'?C.band5:b==='6'?C.band6:null; }
+// The band to paint a client's link with. The snapshot's link band is frozen at build
+// time (i.e. "now"), while the dot and the tooltip both read the band at the scrubbed
+// instant - so during playback the pipe disagreed with the dot it connects to. Live
+// ticks carry no client stats, so this falls back to the snapshot value untouched.
+function edgeBand(e) {
+    const clientNode = e && (isClient(e.tn?.d?.kind) ? e.tn : isClient(e.fn?.d?.kind) ? e.fn : null);
+    const cs = clientNode ? flowData.getClientStats()?.[clientNode.d.id] : null;
+    return cs?.band ?? e?.lk?.band;
+}
 function nodeClr(k,b) {
     if(k===NK.Gateway)return C.gateway; if(k===NK.Switch)return C.switchNode;
     if(k===NK.AP)return C.ap; if(k===NK.WiredClient)return C.wiredClient;
@@ -306,11 +315,13 @@ class LanFlowMap2D {
                         if(newInfra!==prevInfra){
                             this._buildLayout(s);
                             this._loadImages(s).then(()=>{this._needsStaticRedraw=true;});
+                            this._refitIfScrubbing();
                         }else{
                             // Client churn or same topology: update data in place
-                            this._updateSnapshotData(s);
+                            const rebuilt=this._updateSnapshotData(s);
                             this._snapshot=s;
                             this._needsStaticRedraw=true;
+                            if(rebuilt)this._refitIfScrubbing();
                         }
                     }
                 }
@@ -848,7 +859,8 @@ class LanFlowMap2D {
         const k=n.d.kind;
         if(k===NK.WifiClient){
             if(!this._overlays.wifiClients)return false;
-            if(n.d.band&&!this._filter.bands[n.d.band])return false;
+            const nBand=flowData.getClientStats()?.[n.d.id]?.band??n.d.band;
+            if(nBand&&!this._filter.bands[nBand])return false;
         }
         if(k===NK.WiredClient&&!this._overlays.wiredClients)return false;
         if(this._filter.text){
@@ -1361,6 +1373,17 @@ class LanFlowMap2D {
             this._liveRates={...flowData.getLiveRates()};
             this._buildLayout(snap);
         }
+        return clientsChanged;
+    }
+
+    // Scrubbing to another instant can add or drop whole branches, so the tree's extent
+    // changes and part of it can end up off-screen. Re-fit when it does - but only while the
+    // view is still the fitted one; once the user has zoomed or panned, that framing is
+    // theirs to keep (same _isFitted rule the filter and overlay toggles use). Live churn is
+    // deliberately excluded so a client joining can't jog the zoom while someone is watching.
+    // The debounce is inherited: this only runs on published snapshots.
+    _refitIfScrubbing(){
+        if(this._isFitted&&flowData.getMode()==='historic')this._fitAll();
     }
 
     _placeClouds(){
@@ -1418,7 +1441,7 @@ class LanFlowMap2D {
                 // edge must follow the tree without mutating the shared snapshot link.
                 // A client has exactly one tree edge (its uplink), so this is unambiguous.
                 const edge=this._edges.find(e=>e.tn===c||e.fn===c);
-                if(edge){edge._x1=n.x;edge._y1=pB;edge._x2=c.x;edge._y2=cT;edge._isCl=true;edge._band=edge.lk.band;sibEdges.push(edge);}
+                if(edge){edge._x1=n.x;edge._y1=pB;edge._x2=c.x;edge._y2=cT;edge._isCl=true;edge._band=edgeBand(edge);sibEdges.push(edge);}
             }
 
             // Stagger horizontal segments of siblings that share the same parent
@@ -1620,7 +1643,7 @@ class LanFlowMap2D {
             // load up to reach full - a lone saturated direction tops out amber.
             const dU=Math.min(dn/cap,1),uU=Math.min(up/cap,1);
             const u=0.75*Math.max(dU,uU)+0.25*Math.min(dU,uU);
-            const band=e.lk.band;
+            const band=edgeBand(e);
             ctx.strokeStyle=pipeClr(Math.min(u,1),band);
             ctx.lineWidth=pipeW(e.lk.capacityBps);
             ctx.lineCap='round';

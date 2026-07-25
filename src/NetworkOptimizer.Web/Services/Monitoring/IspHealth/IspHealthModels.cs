@@ -560,6 +560,21 @@ public class IspHealthReport
     /// <summary>True when multiple sources matched and the user has not yet picked one.</summary>
     public bool PhysicalLinkAmbiguous { get; set; }
 
+    /// <summary>
+    /// Which WAN this report scored, from the console's primary-WAN resolution. Display only,
+    /// and set by the service after scoring. ISP Health grades one WAN today; naming it means
+    /// a report stays unambiguous once multi-WAN scoring arrives, and an exported one is still
+    /// readable a month later. Null when the console did not report a WAN.
+    /// </summary>
+    public string? WanName { get; set; }
+
+    /// <summary>The WAN's console network group ("WAN", "WAN2"), which is what distinguishes
+    /// one WAN from another when both carry the same provider name.</summary>
+    public string? WanNetworkGroup { get; set; }
+
+    /// <summary>The OS interface backing the WAN (e.g. "eth4"), when the console reports it.</summary>
+    public string? WanInterface { get; set; }
+
     public static string GradeLabel(int score) => score switch
     {
         >= 90 => "Excellent",
