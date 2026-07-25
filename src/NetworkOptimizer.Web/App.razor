@@ -398,9 +398,7 @@
         // Clean up tippy elements before navigation (covers absolute /path and relative ./path links)
         document.addEventListener('click', function(e) {
             var link = e.target.closest('a[href^="/"], a[href^="./"]');
-            // A click-triggered tooltip inside a link swallows the click and does not navigate,
-            // so wiping the poppers here would delete the tooltip the tap just opened.
-            if (link && !e.target.closest('[data-tooltip-click]')) {
+            if (link) {
                 document.querySelectorAll('[data-tippy-root]').forEach(function(el) {
                     el.remove();
                 });
