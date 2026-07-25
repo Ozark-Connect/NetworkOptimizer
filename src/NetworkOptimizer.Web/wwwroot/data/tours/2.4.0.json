@@ -1,15 +1,15 @@
 {
   "id": "2.4.0",
   "kind": "whats-new",
-  "title": "What's new in 2.4.0",
-  "summary": "UniFi Device reboot reasons, gateway interface diagnostics, ISP Health PDF export, and the Live View timeline.",
+  "title": "What's new in v2.4.0",
+  "summary": "UniFi Network Device reboot reasons, gateway interface diagnostics, ISP Health PDF export, and the Live View timeline.",
   "steps": [
     {
       "id": "reboot-reasons",
       "level": "major",
       "url": "/",
       "selector": "[data-tour=\"device-uptime\"]",
-      "title": "Why a device restarted",
+      "title": "Why a UniFi Network Device restarted",
       "body": "When a device has rebooted, its uptime now carries the reason: firmware upgrade, power loss, or a crash. Hover or tap the uptime on a device card to see what actually happened and the evidence behind it.",
       "placement": "auto",
       "requires": [],
