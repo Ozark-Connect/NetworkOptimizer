@@ -153,45 +153,47 @@ public class LanFlowMapService
             .ToDictionary(d => NormalizeMac(d.Mac), d => d, StringComparer.OrdinalIgnoreCase);
 
         // Names for clients that are not connected right now, so the timeline can label a client it
-        // rebuilds from telemetry. Both endpoints are asked with no window: measured on a live
-        // console they each return everything it remembers (oldest last_seen 415 days), and passing
-        // a lookback only narrows that. rest/user goes second because a user-set alias should win.
-        // Advisory: a failure just means such a leaf shows its MAC.
+        // rebuilds from telemetry. v2 clients/history is the endpoint the UniFi UI itself uses for
+        // its client list: it includes offline devices and carries display_name, which is the auto
+        // name ("Vendor, Inc. a1:b2") the console shows for a client the user never renamed. That
+        // name exists nowhere else - rest/user leaves name empty for those and its hostname is the
+        // DHCP name ("iPhone"), and clients/active is connected-only. rest/user is still applied
+        // afterwards so a user-set alias wins. Advisory: a failure means such a leaf shows its MAC.
         try
         {
             var names = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
-            static string? Label(NetworkOptimizer.UniFi.Models.UniFiClientResponse c) =>
-                !string.IsNullOrWhiteSpace(c.Name) ? c.Name
-                : !string.IsNullOrWhiteSpace(c.Hostname) ? c.Hostname
-                : null;
-
-            var seenCount = 0;
-            foreach (var c in await _connection.Client!.GetRecentClientsAsync(withinHours: null, ct))
+            var history = await _connection.Client!.GetClientHistoryAsync(ClientNameLookbackHours, ct);
+            var fromHistory = 0;
+            foreach (var c in history)
             {
-                var label = Label(c);
+                var label = !string.IsNullOrWhiteSpace(c.DisplayName) ? c.DisplayName
+                    : !string.IsNullOrWhiteSpace(c.Name) ? c.Name
+                    : !string.IsNullOrWhiteSpace(c.Hostname) ? c.Hostname
+                    : null;
                 if (!string.IsNullOrEmpty(c.Mac) && label != null)
                 {
                     names[NormalizeMac(c.Mac)] = label;
-                    seenCount++;
+                    fromHistory++;
                 }
             }
 
-            var knownCount = 0;
+            var fromUserRecords = 0;
             foreach (var c in await _connection.Client!.GetAllKnownClientsAsync(ct))
             {
-                var label = Label(c);
-                if (!string.IsNullOrEmpty(c.Mac) && label != null)
+                // Only a real alias overrides the console's own label - not the DHCP hostname,
+                // which is how "iPhone" would beat "Apple, Inc. a1:b2".
+                if (!string.IsNullOrEmpty(c.Mac) && !string.IsNullOrWhiteSpace(c.Name))
                 {
-                    names[NormalizeMac(c.Mac)] = label;
-                    knownCount++;
+                    names[NormalizeMac(c.Mac)] = c.Name;
+                    fromUserRecords++;
                 }
             }
 
             snapshot.RecentClientNames = names;
             _logger.LogDebug(
-                "LAN map [{Site}]: {Count} client name(s) for historic playback ({Seen} from seen-clients, {Known} from known-users)",
-                _siteContext.Slug, names.Count, seenCount, knownCount);
+                "LAN map [{Site}]: {Count} client name(s) for historic playback ({History} from client history, {Alias} user aliases)",
+                _siteContext.Slug, names.Count, fromHistory, fromUserRecords);
         }
         catch (Exception ex)
         {
@@ -240,6 +242,12 @@ public class LanFlowMapService
 
         return snapshot;
     }
+
+    /// <summary>
+    /// How far back to ask the console for client names, matching the 30 days the maps already use
+    /// for their speed-test overlay.
+    /// </summary>
+    private const int ClientNameLookbackHours = 720;
 
     /// <summary>
     /// Tolerance for deriving historic online state from telemetry proximity. There is
