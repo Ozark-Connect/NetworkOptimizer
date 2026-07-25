@@ -35,7 +35,7 @@
       "selector": "[data-tour=\"gateway-interface\"]",
       "title": "Inspect a gateway interface",
       "listLabel": "Live gateway interface detail, no CLI needed",
-      "body": "Read-only detail straight off the gateway: interface addresses, how long a DHCP WAN lease has left, SFP transceiver readings, and the neighbors resolved on the link. Nothing here changes gateway state.",
+      "body": "**Pick** an interface and one SSH round trip returns four cards: link state, every address with its DHCP lease as a countdown, the SFP module's readings, and the neighbor table with vendors. The lease countdown is the reason this exists: an ISP that quietly stops renewing gives no warning, and UniFi shows the address but never how long it is good for.",
       "placement": "top",
       "requires": ["gateway-ssh"],
       "optional": false
