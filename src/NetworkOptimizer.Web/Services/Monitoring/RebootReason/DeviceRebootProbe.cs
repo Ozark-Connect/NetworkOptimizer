@@ -42,7 +42,10 @@ public class DeviceRebootProbe
         $"echo '{RebootLogMarker}'",
         "tail -n 2 /var/log/reboot-time.log 2>/dev/null",
         $"echo '{UpgradeMarker}'",
-        "ls /etc/persistent/post_upgrade_pending 2>/dev/null");
+        "ls /etc/persistent/post_upgrade_pending 2>/dev/null",
+        // Absent paths make the last command exit non-zero, which the SSH layer reports as a
+        // failed run even though the probe output is right there. Land on a success either way.
+        "true");
 
     /// <summary>Creates the probe.</summary>
     public DeviceRebootProbe(
