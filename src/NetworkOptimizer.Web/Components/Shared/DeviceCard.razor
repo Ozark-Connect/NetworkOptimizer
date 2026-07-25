@@ -53,10 +53,7 @@
                     @* Icon only while the reboot is recent news; the hover on the value stays for
                        good. It leads the value: left of a value reads as information about it,
                        right of it reads as an action. Both swallow the click - reading a tooltip
-                       should not navigate away to Device Stats, which is what the card is for.
-                       data-tooltip-click makes these open on tap and stay: Safari gives no sticky
-                       hover to a link descendant, and the app's click cleanup deletes every popper
-                       on a click inside a /-href link, which together made them only flash. *@
+                       should not navigate away to Device Stats, which is what the card is for. *@
                     @if (ShowRebootIcon)
                     {
                         <span class="reboot-reason-icon @(Device.RebootWasUnexpected ? "reboot-unexpected" : "")"

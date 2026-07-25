@@ -227,9 +227,6 @@ else
             </div>
             <a href="/wan-speedtest" class="isp-health-hero-speed">
                 <div class="isp-speed-label">Speed vs Plan</div>
-                @* The numbers open their tooltip on touch instead of following the hero link:
-                   without this the tap navigates to WAN Speed Test and the explanation of what
-                   "best" means is unreadable on a phone. The rest of the hero still navigates. *@
                 <div class="isp-speed-headline" data-tooltip="Best download and best upload from your recent WAN speed tests; each may come from a different test."
                      data-tooltip-click @onclick:preventDefault @onclick:stopPropagation>
                     <span class="isp-speed-measured">@FormatSpeed(r.MeasuredDownloadMbps) / @FormatSpeed(r.MeasuredUploadMbps)</span>
