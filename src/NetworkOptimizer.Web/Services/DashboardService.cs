@@ -215,12 +215,19 @@ public class DashboardService : IDashboardService
         var ts = TimeSpan.FromSeconds(uptimeSeconds.Value);
 
         if (ts.TotalDays >= 1)
-            return $"{(int)ts.TotalDays} days";
+        {
+            var days = (int)ts.TotalDays;
+            var dayPart = $"{days} {(days == 1 ? "day" : "days")}";
+            return ts.Hours > 0 ? $"{dayPart}, {Pluralize(ts.Hours, "hour")}" : dayPart;
+        }
         if (ts.TotalHours >= 1)
-            return $"{(int)ts.TotalHours} hours";
+            return Pluralize((int)ts.TotalHours, "hour");
 
-        return $"{(int)ts.TotalMinutes} minutes";
+        return Pluralize((int)ts.TotalMinutes, "minute");
     }
+
+    private static string Pluralize(int value, string unit) =>
+        $"{value} {unit}{(value == 1 ? "" : "s")}";
 
     /// <summary>
     /// Parse IP address into a sortable long value for proper numeric sorting

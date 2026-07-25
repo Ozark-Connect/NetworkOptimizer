@@ -325,7 +325,7 @@
         }
     </div>
 
-    @if (_showSignalData)
+    @if (_showSignalData && ShowSignalTimeSlider)
     {
         <div class="fp-signal-footer">
             <div class="fp-signal-time-slider">
@@ -1626,6 +1626,12 @@
     [Parameter] public EventCallback<int> OnSignalTimeRangeChanged { get; set; }
     /// <summary>External signal time filter in hours (syncs slider position from parent)</summary>
     [Parameter] public int? SignalTimeFilterHours { get; set; }
+    /// <summary>
+    /// Show the map's own signal time slider. Set false when the host page already has a
+    /// time range filter driving <see cref="SignalTimeFilterHours"/>, so a single control
+    /// owns the window.
+    /// </summary>
+    [Parameter] public bool ShowSignalTimeSlider { get; set; } = true;
     /// <summary>Initial heatmap/signal band ("2.4", "5", or "6"). Applied once when non-null and the user hasn't picked a band manually.</summary>
     [Parameter] public string? InitialBand { get; set; }
 
@@ -1698,6 +1704,11 @@
     private int _signalSliderValue = 4; // Default to 1 week (index 4)
     private int? _lastSignalTimeFilter;
 
+    // Window the signal data filters to: the slider when shown, otherwise the host page's filter
+    private int EffectiveSignalFilterHours => ShowSignalTimeSlider
+        ? SignalTimeBreakpoints[_signalSliderValue].hours
+        : SignalTimeFilterHours ?? 0;
+
     // Session state stored outside Blazor's parameter/render system.
     // TODO: Replace with per-circuit scoped service when app supports multiple users.
     // Static field works for single-user but is shared across all Blazor circuits.
@@ -1715,9 +1726,17 @@
         if (SignalTimeFilterHours.HasValue && SignalTimeFilterHours != _lastSignalTimeFilter)
         {
             _lastSignalTimeFilter = SignalTimeFilterHours;
-            var targetIndex = FindClosestSignalBreakpointIndex(SignalTimeFilterHours.Value);
-            if (targetIndex != _signalSliderValue)
-                _signalSliderValue = targetIndex;
+            if (ShowSignalTimeSlider)
+            {
+                var targetIndex = FindClosestSignalBreakpointIndex(SignalTimeFilterHours.Value);
+                if (targetIndex != _signalSliderValue)
+                    _signalSliderValue = targetIndex;
+            }
+            else if (_mapInitialized && _showSignalData)
+            {
+                // Without the slider the parent filter IS the window - re-render against it
+                await UpdateSignalDataMarkers();
+            }
         }
 
         // Auto-select band from the parent (e.g. the viewed client's connected band) until
@@ -3385,7 +3404,7 @@
                 measurements.Add(new { latitude = p.Latitude, longitude = p.Longitude, signalDbm = p.SignalDbm, band = p.Band, apMac = p.ApMac });
             }
 
-            var stHours = SignalTimeBreakpoints[_signalSliderValue].hours;
+            var stHours = EffectiveSignalFilterHours;
             var stCutoff = stHours > 0 ? DateTime.UtcNow.AddHours(-stHours) : DateTime.MinValue;
             foreach (var r in SpeedTestResults
                 .Where(r => r.Latitude.HasValue && r.Longitude.HasValue && r.WifiSignalDbm.HasValue)
@@ -3450,7 +3469,7 @@
         // Speed test results are shared with the Speed Map (different time range),
         // so filter them client-side to match the signal slider.
         var filteredSignalLogs = SignalLogMarkers;
-        var hours = SignalTimeBreakpoints[_signalSliderValue].hours;
+        var hours = EffectiveSignalFilterHours;
         var filteredSpeedTests = hours > 0
             ? SpeedTestResults.Where(r => r.TestTime >= DateTime.UtcNow.AddHours(-hours))
             : SpeedTestResults;
