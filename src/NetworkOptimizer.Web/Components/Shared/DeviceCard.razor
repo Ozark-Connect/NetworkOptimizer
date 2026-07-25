@@ -50,7 +50,15 @@
             {
                 <div class="device-detail">
                     <span class="detail-label">Uptime:</span>
-                    <span class="detail-value">@Device.Uptime</span>
+                    @* Icon only while the reboot is recent news; the hover on the value stays for
+                       good. It leads the value: left of a value reads as information about it,
+                       right of it reads as an action. *@
+                    @if (ShowRebootIcon)
+                    {
+                        <span class="reboot-reason-icon @(Device.RebootWasUnexpected ? "reboot-unexpected" : "")"
+                              data-tooltip="@UptimeTooltip" data-tooltip-click>@(Device.RebootWasUnexpected ? "⚠" : "↻")</span>
+                    }
+                    <span class="detail-value uptime-value" data-tooltip="@UptimeTooltip" data-tooltip-click>@Device.Uptime</span>
                 </div>
             }
             @if (Device.ClientCount.HasValue)
@@ -107,6 +115,22 @@
 }
 
 <style>
+    .uptime-value {
+        cursor: help;
+    }
+
+    .reboot-reason-icon {
+        margin-left: auto;
+        margin-right: 1rem;
+        font-size: 0.85rem;
+        color: var(--text-muted);
+        cursor: help;
+    }
+
+    .reboot-reason-icon.reboot-unexpected {
+        color: var(--warning-color);
+    }
+
     .device-image {
         width: 48px;
         height: 48px;
@@ -206,6 +230,32 @@
             || Device.LiveRateOutBps.HasValue
             || Device.LiveLatencyMs.HasValue
             || Device.LiveCpuPercent.HasValue);
+
+    /// <summary>A reboot stops being news after a day, so the icon retires and only the hover stays.</summary>
+    private const long RecentRebootSeconds = 24 * 60 * 60;
+
+    private bool ShowRebootIcon => Device != null
+        && !string.IsNullOrEmpty(Device.RebootReason)
+        && Device.UptimeSeconds is > 0 and < RecentRebootSeconds;
+
+    /// <summary>
+    /// Hover text for the uptime value: the reason the device is on this boot, with the evidence
+    /// under it. Null when no reason is known - the uptime speaks for itself, so there is nothing
+    /// worth a tooltip, and Blazor omits the attribute entirely.
+    /// </summary>
+    private string? UptimeTooltip
+    {
+        get
+        {
+            if (Device == null || string.IsNullOrEmpty(Device.RebootReason))
+                return null;
+
+            var reason = $"Last restart: {Device.RebootReason}";
+            return string.IsNullOrEmpty(Device.RebootReasonDetail)
+                ? reason
+                : $"{reason} - {Device.RebootReasonDetail}";
+        }
+    }
 
     private static string FormatBps(double? bps)
     {

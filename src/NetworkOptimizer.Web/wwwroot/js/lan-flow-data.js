@@ -53,10 +53,44 @@ function _notify(event) {
 export function publishSnapshot(snap) {
     const firstLoad = !_snapshot;
     _snapshot = snap;
+    // New object: any transient historic leaves are gone with the old one.
+    _addedClientIds = new Set();
+    _addedClientLinkIds = new Set();
+    _addedClientKey = '';
     // Only seed rates on first load. Subsequent refreshes must not clobber
     // the fresh 1s-polled rates with stale snapshot-time values.
     if (firstLoad) _liveRates = snap.liveRates || {};
     _notify('snapshot');
+}
+
+// Transient client leaves the historic pass rebuilt for the scrub instant. They are merged
+// into the local snapshot so both maps pick them up through their normal snapshot rebuild
+// rather than needing their own node-insertion path, and are stripped again the moment the
+// instant no longer has them - so live mode always renders the pristine snapshot.
+let _addedClientIds = new Set();
+let _addedClientLinkIds = new Set();
+let _addedClientKey = '';
+
+function _applyHistoricClients(update) {
+    const nodes = update.addedClientNodes || [];
+    const links = update.addedClientLinks || [];
+    const key = nodes.map(n => n.id).sort().join(',');
+    // Steady playback over a stable set costs nothing; only a change reshapes the graph.
+    if (key === _addedClientKey) return false;
+    if (!_snapshot || !_snapshot.nodes) return false;
+
+    if (_addedClientIds.size) {
+        _snapshot.nodes = _snapshot.nodes.filter(n => !_addedClientIds.has(n.id));
+        if (_snapshot.links) _snapshot.links = _snapshot.links.filter(l => !_addedClientLinkIds.has(l.id));
+    }
+    _addedClientIds = new Set(nodes.map(n => n.id));
+    _addedClientLinkIds = new Set(links.map(l => l.id));
+    if (nodes.length) {
+        _snapshot.nodes = _snapshot.nodes.concat(nodes);
+        if (_snapshot.links) _snapshot.links = _snapshot.links.concat(links);
+    }
+    _addedClientKey = key;
+    return true;
 }
 
 export function publishLive(update) {
@@ -67,6 +101,9 @@ export function publishLive(update) {
     // don't, so this clears them when returning to live - renderers then fall back to
     // the snapshot values, which live snapshot rebuilds keep current.
     _clientStats = update.clientStats || {};
+    // Rebuild first when the client set changed, so the rates below land on a graph that
+    // already contains the leaves they belong to.
+    if (_applyHistoricClients(update)) _notify('snapshot');
     _notify('live');
 }
 

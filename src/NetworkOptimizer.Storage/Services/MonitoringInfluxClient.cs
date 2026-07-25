@@ -1058,6 +1058,128 @@ from(bucket: ""{_longtermBucket}"")
         return Task.CompletedTask;
     }
 
+    /// <summary>
+    /// Event type tag used for device reboot records on the <c>events</c> measurement.
+    /// </summary>
+    public const string DeviceRebootEventType = "device_reboot";
+
+    /// <summary>
+    /// Record why a device rebooted, timestamped at the instant the device came up so the
+    /// record sits at the start of the current boot. Written to the long-term bucket because
+    /// a reason has to outlive the device's uptime, which can run for months.
+    /// </summary>
+    /// <param name="deviceMac">Device MAC.</param>
+    /// <param name="deviceType">Device type, matching the <c>device_health</c> tag values.</param>
+    /// <param name="category">Machine-readable classification (see RebootCategory).</param>
+    /// <param name="summary">Short user-facing reason.</param>
+    /// <param name="detail">Evidence behind the call.</param>
+    /// <param name="source">Which evidence source produced it.</param>
+    /// <param name="bootedAt">When the current boot started.</param>
+    /// <param name="firmwareVersion">
+    /// Firmware the device reported on this boot. Persisted so the next reboot can be compared
+    /// against it even if the server restarted in between, which is what lets an upgrade be
+    /// recognised from the UniFi device data alone.
+    /// </param>
+    public Task WriteDeviceRebootAsync(
+        string deviceMac,
+        string deviceType,
+        string category,
+        string summary,
+        string? detail,
+        string source,
+        DateTime bootedAt,
+        string? firmwareVersion = null,
+        int classifierVersion = 0)
+    {
+        if (!IsConfigured) return Task.CompletedTask;
+
+        var point = PointData.Measurement("events")
+            .Tag("device_mac", NormalizeMac(deviceMac))
+            .Tag("event_type", DeviceRebootEventType)
+            .Tag("severity", "info")
+            .Tag("device_type", deviceType.ToLowerInvariant())
+            .Timestamp(bootedAt.ToUniversalTime(), WritePrecision.Ns)
+            .Field("detail", detail ?? string.Empty)
+            .Field("reason_category", category)
+            .Field("reason_summary", summary)
+            .Field("reason_source", source);
+
+        if (!string.IsNullOrWhiteSpace(firmwareVersion))
+            point = point.Field("firmware_version", firmwareVersion);
+        if (classifierVersion > 0)
+            point = point.Field("classifier_version", classifierVersion);
+
+        Enqueue(point, longterm: true);
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// A persisted device reboot record.
+    /// </summary>
+    public class DeviceRebootPoint
+    {
+        /// <summary>Device MAC (normalized).</summary>
+        public string DeviceMac { get; init; } = "";
+        /// <summary>Machine-readable classification.</summary>
+        public string Category { get; init; } = "";
+        /// <summary>Short user-facing reason.</summary>
+        public string Summary { get; init; } = "";
+        /// <summary>Evidence behind the call.</summary>
+        public string? Detail { get; init; }
+        /// <summary>Which evidence source produced it.</summary>
+        public string Source { get; init; } = "";
+        /// <summary>When the boot this record describes started.</summary>
+        public DateTime BootedAt { get; init; }
+        /// <summary>Firmware the device reported on that boot, when it was recorded.</summary>
+        public string? FirmwareVersion { get; init; }
+        /// <summary>Version of the rules that produced this reason; 0 for records written before versioning.</summary>
+        public int ClassifierVersion { get; init; }
+    }
+
+    /// <summary>
+    /// Latest reboot record per device, used to warm the in-memory cache after a restart and
+    /// to decide which devices still need probing for their current boot.
+    /// </summary>
+    /// <param name="lookback">How far back to look. Devices up longer than this need a re-probe.</param>
+    /// <param name="ct">Cancellation token.</param>
+    public async Task<IReadOnlyList<DeviceRebootPoint>> QueryLatestDeviceRebootsAsync(
+        TimeSpan lookback,
+        CancellationToken ct = default)
+    {
+        if (!IsConfigured || string.IsNullOrEmpty(_longtermBucket))
+            return Array.Empty<DeviceRebootPoint>();
+
+        var flux = $@"
+from(bucket: ""{_longtermBucket}"")
+  |> range(start: -{(int)Math.Max(1, lookback.TotalHours)}h)
+  |> filter(fn: (r) => r._measurement == ""events"")
+  |> filter(fn: (r) => r.event_type == ""{DeviceRebootEventType}"")
+  |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
+  |> group(columns: [""device_mac""])
+  |> sort(columns: [""_time""])
+  |> last(column: ""_time"")
+";
+        var results = new List<DeviceRebootPoint>();
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            var deviceMac = record.GetValueByKey("device_mac") as string ?? "";
+            if (deviceMac.Length == 0) continue;
+
+            results.Add(new DeviceRebootPoint
+            {
+                DeviceMac = deviceMac,
+                Category = record.GetValueByKey("reason_category") as string ?? "",
+                Summary = record.GetValueByKey("reason_summary") as string ?? "",
+                Detail = record.GetValueByKey("detail") as string,
+                Source = record.GetValueByKey("reason_source") as string ?? "",
+                FirmwareVersion = record.GetValueByKey("firmware_version") as string,
+                ClassifierVersion = (int)(AsDoubleOrNull(record.GetValueByKey("classifier_version")) ?? 0),
+                BootedAt = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow),
+            });
+        }
+        return results;
+    }
+
     // ---- Read API (Flux queries) ----
 
     /// <summary>
@@ -2230,8 +2352,17 @@ from(bucket: ""{_longtermBucket}"")
         public long? RxRateKbps { get; init; }
         /// <summary>Raw band tag ("2.4ghz"/"5ghz"/"6ghz"); caller normalizes for display.</summary>
         public string? Band { get; init; }
-        /// <summary>AP the client was associated with (device_mac tag).</summary>
+        /// <summary>
+        /// Device the client was attached to at this instant (device_mac tag): the AP for
+        /// wifi_client, the switch for wired_client. Named for its original wireless use.
+        /// </summary>
         public string? ApMac { get; init; }
+
+        /// <summary>Switch port the client was on (port tag); wired_client only.</summary>
+        public int? Port { get; init; }
+
+        /// <summary>Client name as recorded at this instant; wired_client only.</summary>
+        public string? ClientName { get; init; }
     }
 
     public async Task<IReadOnlyList<ClientThroughputPoint>> QueryAllClientThroughputAsync(
@@ -2241,13 +2372,13 @@ from(bucket: ""{_longtermBucket}"")
         CancellationToken ct = default)
     {
         if (!IsConfigured) return Array.Empty<ClientThroughputPoint>();
-        // signal_dbm / tx_rate_kbps / rx_rate_kbps only exist on wifi_client; harmless to
-        // request for wired_client (no rows match, columns come back absent -> null). band
-        // and device_mac are tags and survive the pivot as columns.
+        // signal_dbm / tx_rate_kbps / rx_rate_kbps only exist on wifi_client, and client_name
+        // only on wired_client; harmless to request either way (no rows match, columns come back
+        // absent -> null). band, device_mac and port are tags and survive the pivot as columns.
         var flux = $@"from(bucket: ""{_bucket}"")
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""{measurement}"")
-  |> filter(fn: (r) => r._field == ""tx_throughput_bps"" or r._field == ""rx_throughput_bps"" or r._field == ""client_mac"" or r._field == ""signal_dbm"" or r._field == ""tx_rate_kbps"" or r._field == ""rx_rate_kbps"")
+  |> filter(fn: (r) => r._field == ""tx_throughput_bps"" or r._field == ""rx_throughput_bps"" or r._field == ""client_mac"" or r._field == ""signal_dbm"" or r._field == ""tx_rate_kbps"" or r._field == ""rx_rate_kbps"" or r._field == ""client_name"")
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
   |> filter(fn: (r) => (exists r.tx_throughput_bps and r.tx_throughput_bps > 0.0) or (exists r.rx_throughput_bps and r.rx_throughput_bps > 0.0))";
 
@@ -2265,6 +2396,8 @@ from(bucket: ""{_longtermBucket}"")
                 RxRateKbps = (long?)AsDoubleOrNull(record.GetValueByKey("rx_rate_kbps")),
                 Band = record.GetValueByKey("band") as string,
                 ApMac = record.GetValueByKey("device_mac") as string,
+                Port = (int?)AsDoubleOrNull(record.GetValueByKey("port")),
+                ClientName = record.GetValueByKey("client_name") as string,
             });
         }
         return results;

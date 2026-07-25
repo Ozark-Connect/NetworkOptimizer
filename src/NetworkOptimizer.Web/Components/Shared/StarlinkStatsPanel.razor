@@ -499,10 +499,7 @@
     private string FormatUptime()
     {
         if (stats?.UptimeSeconds is not long s) return "-";
-        var t = TimeSpan.FromSeconds(s);
-        if (t.TotalDays >= 1) return $"{(int)t.TotalDays}d {t.Hours}h";
-        if (t.TotalHours >= 1) return $"{(int)t.TotalHours}h {t.Minutes}m";
-        return $"{t.Minutes}m";
+        return TimeFormatHelper.FormatDurationCompact(TimeSpan.FromSeconds(s));
     }
 
     private string FormatLastOutage()

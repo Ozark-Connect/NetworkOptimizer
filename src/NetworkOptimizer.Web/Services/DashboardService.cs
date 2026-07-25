@@ -22,6 +22,7 @@ public class DashboardService : IDashboardService
     private readonly SiteContextService _siteContext;
     private readonly WiFiOptimizerService _wifiOptimizerService;
     private readonly MonitoringLiveStats _liveStats;
+    private readonly Monitoring.RebootReason.DeviceRebootTracker _rebootTracker;
 
     public DashboardService(
         ILogger<DashboardService> logger,
@@ -32,7 +33,8 @@ public class DashboardService : IDashboardService
         NetworkOptimizer.Storage.Services.SiteDbContextFactory siteDbFactory,
         SiteContextService siteContext,
         WiFiOptimizerService wifiOptimizerService,
-        MonitoringLiveStats liveStats)
+        MonitoringLiveStats liveStats,
+        Monitoring.RebootReason.DeviceRebootTracker rebootTracker)
     {
         _logger = logger;
         _connectionService = connectionService;
@@ -43,6 +45,7 @@ public class DashboardService : IDashboardService
         _siteContext = siteContext;
         _wifiOptimizerService = wifiOptimizerService;
         _liveStats = liveStats;
+        _rebootTracker = rebootTracker;
     }
 
     /// <summary>Context for the current site's database (SqmWanConfigurations are per-site).</summary>
@@ -87,8 +90,18 @@ public class DashboardService : IDashboardService
                         Model = d.FriendlyModelName,
                         Firmware = d.Firmware,
                         Uptime = FormatUptime((long?)d.Uptime.TotalSeconds),
+                        UptimeSeconds = d.Uptime.TotalSeconds > 0 ? (long)d.Uptime.TotalSeconds : null,
                         SuricataUpgradeAvailable = d.SuricataUpgradeAvailable
                     };
+
+                    var rebootReason = string.IsNullOrEmpty(d.Mac) ? null : _rebootTracker.GetReason(d.Mac);
+                    if (rebootReason != null)
+                    {
+                        info.RebootReason = rebootReason.Summary;
+                        info.RebootReasonDetail = rebootReason.Detail;
+                        info.RebootWasUnexpected = rebootReason.IsUnexpected;
+                    }
+
                     // Merge live monitoring data when available. Stale data is dropped by the
                     // cache's prune step; here we just ignore an entry if no fresh values landed.
                     var live = string.IsNullOrEmpty(d.Mac) ? null : _liveStats.GetForDevice(d.Mac);
@@ -212,14 +225,7 @@ public class DashboardService : IDashboardService
         if (!uptimeSeconds.HasValue || uptimeSeconds.Value <= 0)
             return "Unknown";
 
-        var ts = TimeSpan.FromSeconds(uptimeSeconds.Value);
-
-        if (ts.TotalDays >= 1)
-            return $"{(int)ts.TotalDays} days";
-        if (ts.TotalHours >= 1)
-            return $"{(int)ts.TotalHours} hours";
-
-        return $"{(int)ts.TotalMinutes} minutes";
+        return TimeFormatHelper.FormatDuration(TimeSpan.FromSeconds(uptimeSeconds.Value));
     }
 
     /// <summary>
@@ -288,6 +294,19 @@ public class DeviceInfo
     public string? Model { get; set; }
     public string? Firmware { get; set; }
     public string? Uptime { get; set; }
+
+    /// <summary>Raw uptime in seconds, used to decide how prominently to surface the reboot reason.</summary>
+    public long? UptimeSeconds { get; set; }
+
+    /// <summary>Short reason the device is on its current boot, when one has been established.</summary>
+    public string? RebootReason { get; set; }
+
+    /// <summary>Evidence behind <see cref="RebootReason"/>, shown under it in the tooltip.</summary>
+    public string? RebootReasonDetail { get; set; }
+
+    /// <summary>True when the device did not stop on purpose (power loss, hang, panic, watchdog).</summary>
+    public bool RebootWasUnexpected { get; set; }
+
     public int? ClientCount { get; set; }
 
     // Live monitoring data (populated from MonitoringLiveStats when available).

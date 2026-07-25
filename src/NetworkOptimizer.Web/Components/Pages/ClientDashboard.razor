@@ -539,7 +539,8 @@
                         <SpeedTestMap Results="_speedResults" MapHeight="400px"
                                      ApMarkers="_apMapMarkers" AllowApEditing="false"
                                      ShowExternalByDefault="_client?.IsVpn == true"
-                                     TimeFilterHours="_selectedTimeFilter" />
+                                     TimeFilterHours="_selectedTimeFilter"
+                                     ShowTimeSlider="false" />
                     }
                 </div>
             }
@@ -597,6 +598,8 @@
                                              SignalLogMarkers="_signalMapPoints"
                                              HideDashboardLinks="true"
                                              InitialBand="@ClientBandToPropagationBand(_client?.Band)"
+                                             SignalTimeFilterHours="_selectedTimeFilter"
+                                             ShowSignalTimeSlider="false"
                                              MapHeight="350px" />
                         </div>
                     }

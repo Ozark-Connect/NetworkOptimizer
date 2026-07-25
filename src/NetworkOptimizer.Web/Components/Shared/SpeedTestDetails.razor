@@ -1586,6 +1586,42 @@
     }
 
     /// <summary>
+    /// Check whether the path bottleneck is the client Wi-Fi link in the case where the
+    /// bottleneck flag landed on the upstream AP hop rather than the client hop.
+    /// The AP hop carries the Wi-Fi rate on its egress but no wireless flag, so
+    /// <see cref="IsBottleneckAsymmetric"/> misses it and the max box collapses to the
+    /// slower of the two Wi-Fi directions.
+    ///
+    /// NetworkPathAnalyzer no longer lets a Wi-Fi rate land on an AP hop, so new results
+    /// cannot hit this. Results recorded before that fix keep their stored path JSON
+    /// forever, which is what this reads correctly.
+    /// </summary>
+    private bool IsClientWifiLinkBottleneck()
+    {
+        if (PathAnalysis == null || !PathAnalysis.Path.HasRealBottleneck)
+            return false;
+
+        var hops = PathAnalysis.Path.Hops;
+        var index = hops.FindIndex(h => h.IsBottleneck);
+        if (index < 0)
+            return false;
+
+        // The Wi-Fi link spans the AP hop and the wireless client hop beside it.
+        // Hop order flips between LAN and WAN paths, so check both neighbours.
+        var clientHop = new[] { index - 1, index + 1 }
+            .Where(i => i >= 0 && i < hops.Count)
+            .Select(i => hops[i])
+            .FirstOrDefault(h => h.Type == HopType.WirelessClient);
+
+        if (clientHop == null || clientHop.IngressSpeedMbps <= 0 || clientHop.EgressSpeedMbps <= 0)
+            return false;
+
+        // Only when the path max IS one of the client's two Wi-Fi rates
+        var pathMax = PathAnalysis.Path.TheoreticalMaxMbps;
+        return clientHop.IngressSpeedMbps == pathMax || clientHop.EgressSpeedMbps == pathMax;
+    }
+
+    /// <summary>
     /// Format the path max speed display, showing directional speeds if asymmetric.
     /// Returns MarkupString for colored arrows.
     /// Only shows asymmetric rates when the bottleneck is a wireless link.
@@ -1597,7 +1633,7 @@
 
         // Only use asymmetric display when the bottleneck IS the wireless link
         // If bottleneck is wired (e.g., 1 GbE backhaul), show the wired bottleneck speed
-        if (!IsLinkAsymmetric() || !IsBottleneckAsymmetric())
+        if (!IsLinkAsymmetric() || (!IsBottleneckAsymmetric() && !IsClientWifiLinkBottleneck()))
         {
             // Use the path's theoretical max (which is the actual bottleneck speed)
             return new MarkupString(FormatSpeed(PathAnalysis.Path.TheoreticalMaxMbps));

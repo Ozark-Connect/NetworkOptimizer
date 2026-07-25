@@ -277,6 +277,26 @@
                     opts.trigger = 'mouseenter';
                     opts.touch = false;
                 }
+                // Touch-only override for references inside a link. Safari gives a link descendant
+                // no sticky hover, so a mouseenter trigger flashes; on touch use click alone.
+                // Hover devices keep the normal trigger, so the desktop hover is unchanged.
+                // Never on an anchor or button itself - swallowing their click would kill the
+                // navigation or action they exist for. This is for a plain element sitting inside
+                // one, where the tap has no job other than opening the tooltip.
+                if (el.hasAttribute('data-tooltip-click') &&
+                    el.tagName !== 'A' && el.tagName !== 'BUTTON' &&
+                    window.matchMedia && window.matchMedia('(hover: none)').matches) {
+                    opts.trigger = 'click';
+                    // The tap opens the tooltip instead of following the link it sits in. Only on
+                    // touch: a hover device shows the tooltip without clicking, so it keeps the link.
+                    if (!el.__tooltipClickGuard) {
+                        el.__tooltipClickGuard = true;
+                        el.addEventListener('click', function(e) {
+                            e.preventDefault();
+                            e.stopPropagation();
+                        });
+                    }
+                }
                 var delayMs = parseInt(el.dataset.tooltipDelay, 10);
                 if (!isNaN(delayMs)) {
                     opts.delay = [delayMs, 200];
@@ -334,6 +354,26 @@
                 if (el.hasAttribute('data-tooltip-hover-only') || el.tagName === 'BUTTON') {
                     opts.trigger = 'mouseenter';
                     opts.touch = false;
+                }
+                // Touch-only override for references inside a link. Safari gives a link descendant
+                // no sticky hover, so a mouseenter trigger flashes; on touch use click alone.
+                // Hover devices keep the normal trigger, so the desktop hover is unchanged.
+                // Never on an anchor or button itself - swallowing their click would kill the
+                // navigation or action they exist for. This is for a plain element sitting inside
+                // one, where the tap has no job other than opening the tooltip.
+                if (el.hasAttribute('data-tooltip-click') &&
+                    el.tagName !== 'A' && el.tagName !== 'BUTTON' &&
+                    window.matchMedia && window.matchMedia('(hover: none)').matches) {
+                    opts.trigger = 'click';
+                    // The tap opens the tooltip instead of following the link it sits in. Only on
+                    // touch: a hover device shows the tooltip without clicking, so it keeps the link.
+                    if (!el.__tooltipClickGuard) {
+                        el.__tooltipClickGuard = true;
+                        el.addEventListener('click', function(e) {
+                            e.preventDefault();
+                            e.stopPropagation();
+                        });
+                    }
                 }
                 var delayMs = parseInt(el.dataset.tooltipDelay, 10);
                 if (!isNaN(delayMs)) {

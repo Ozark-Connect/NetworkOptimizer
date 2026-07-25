@@ -26,6 +26,15 @@ public class UpstreamTracerState
     public string? WanNeighborOuiVendor { get; set; }
     public AccessTechnology AccessTechnology { get; set; } = AccessTechnology.Unknown;
 
+    /// <summary>
+    /// True when this run proposed <see cref="AccessTechnology"/> from the L2 neighbour's
+    /// OUI rather than reading a value the user had already set. The review highlights the
+    /// field so they confirm it, since a vendor lean is right most of the time but not
+    /// always. In-memory for the run only - once committed the value is theirs, and the
+    /// selector is one click either way.
+    /// </summary>
+    public bool AccessTechnologyInferred { get; set; }
+
     public List<AccessHopCandidate> AccessHops { get; set; } = new();
     public List<TransitAsnCandidate> TransitAsns { get; set; } = new();
 

@@ -572,6 +572,14 @@ builder.Services.AddSingleton<MonitoringLiveStatsRegistry>();
 builder.Services.AddScoped(sp => sp.GetRequiredService<MonitoringLiveStatsRegistry>()
     .GetFor(sp.GetRequiredService<SiteContextService>().Slug));
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.WanSummaryCache>();
+// Devices UniFi reports as upgrading/provisioning, so the offline path can stay quiet for a
+// restart that was asked for. Site-keyed internally, hence one singleton rather than a registry.
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.DeviceTransitionTracker>();
+// Per-site device reboot trackers: the collection tier feeds uptime samples in, the
+// dashboard reads the reason behind each device's current boot back out.
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.RebootReason.DeviceRebootRegistry>();
+builder.Services.AddScoped(sp => sp.GetRequiredService<NetworkOptimizer.Web.Services.Monitoring.RebootReason.DeviceRebootRegistry>()
+    .GetFor(sp.GetRequiredService<SiteContextService>().Slug));
 // ISP Health is per site: the registry owns one IspHealthService (with its own
 // PhysicalLinkResolver, report cache, and compute state) per site; scoped
 // resolution forwards to the current site's instance.
@@ -602,6 +610,9 @@ builder.Services.AddSingleton<NetworkOptimizer.Monitoring.Probes.LocalProbeExecu
 builder.Services.AddSingleton<NetworkOptimizer.Monitoring.Probes.IProbeExecutor>(
     sp => sp.GetRequiredService<NetworkOptimizer.Monitoring.Probes.LocalProbeExecutor>());
 builder.Services.AddScoped<NetworkOptimizer.Web.Services.Monitoring.ProbeExecutorFactory>();
+// Read-only gateway interface diagnostics (Network Tools). Scoped because it runs through
+// the current site's gateway SSH service.
+builder.Services.AddScoped<NetworkOptimizer.Web.Services.Monitoring.GatewayDiagnosticsService>();
 // Collection agents — drive SNMP polling on the three-tier cadence, write to InfluxDB.
 // Idle while monitoring is disabled or unconfigured; activate once both SNMP detection
 // succeeds and InfluxDB is reachable. One instance per site, owned by the registry
@@ -896,6 +907,11 @@ using (var scope = app.Services.CreateScope())
                 // has the matching monitoring configured (mirrors the main-site seed below,
                 // which secondary sites otherwise never got - a new ONT rule landed disabled).
                 var siteSeededPatterns = siteMissingRules.Select(m => m.EventTypePattern).ToHashSet();
+
+                // Same one-time Device Offline enable as the main site, so managed sites match.
+                AlertRuleAutoEnable.EnableNowThatItHasAPublisher(
+                    siteDb, "device.offline", "device.recovered", siteSeededPatterns, app.Logger);
+
                 AlertRuleAutoEnable.EnableFreshlySeeded(siteDb, "cable_modem", siteSeededPatterns, () => siteDb.CmConfigurations.Any());
                 AlertRuleAutoEnable.EnableFreshlySeeded(siteDb, "ont", siteSeededPatterns, () => siteDb.OntConfigurations.Any());
                 AlertRuleAutoEnable.EnableFreshlySeeded(siteDb, "cellular", siteSeededPatterns, () => siteDb.ModemConfigurations.Any());
@@ -972,6 +988,13 @@ using (var scope = app.Services.CreateScope())
         if (missing.Count > 0)
         {
             var seededPatterns = missing.Select(m => m.EventTypePattern).ToHashSet();
+
+            // Device Offline shipped disabled because nothing published device.offline until this
+            // release. Enable that ONE rule as its publisher lands - keyed off the paired
+            // device.recovered rule arriving, so it happens once and overrides no later choice.
+            AlertRuleAutoEnable.EnableNowThatItHasAPublisher(
+                db, "device.offline", "device.recovered", seededPatterns, app.Logger);
+
             AlertRuleAutoEnable.EnableFreshlySeeded(db, "cable_modem", seededPatterns, () => db.CmConfigurations.Any());
             AlertRuleAutoEnable.EnableFreshlySeeded(db, "ont", seededPatterns, () => db.OntConfigurations.Any());
             AlertRuleAutoEnable.EnableFreshlySeeded(db, "cellular", seededPatterns, () => db.ModemConfigurations.Any());

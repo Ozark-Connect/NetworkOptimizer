@@ -7,6 +7,14 @@ namespace NetworkOptimizer.Web.Services.LanFlowMap;
 /// </summary>
 public class LanFlowMapSnapshot
 {
+    /// <summary>
+    /// MAC -> display name for every client the console has seen recently, not just the connected
+    /// ones. Lives on the snapshot rather than on the service because the service is scoped: the
+    /// request that serves a historic instant is a different instance from the one that built the
+    /// snapshot, so instance state would read empty there.
+    /// </summary>
+    public Dictionary<string, string> RecentClientNames { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
     public DateTime GeneratedAt { get; set; }
     public List<LanNode> Nodes { get; set; } = new();
     public List<LanLink> Links { get; set; } = new();
@@ -376,6 +384,17 @@ public class LanFlowMapHistoricUpdate
 
     /// <summary>Speed tests whose TestTime falls within the scrub window (or just before it).</summary>
     public List<SpeedTestOverlayItem> SpeedTests { get; set; } = new();
+
+    /// <summary>
+    /// Clients that were connected at the scrub instant but are not in the live snapshot, so the
+    /// maps can render them for this instant. The snapshot is built from the currently-connected
+    /// client list, so without these a client that has since disconnected is invisible at every
+    /// instant even though its telemetry is right there. Empty in live mode.
+    /// </summary>
+    public List<LanNode> AddedClientNodes { get; set; } = new();
+
+    /// <summary>Leaf links for <see cref="AddedClientNodes"/>, same shape as the snapshot's.</summary>
+    public List<LanLink> AddedClientLinks { get; set; } = new();
 }
 
 public class LanBuilding

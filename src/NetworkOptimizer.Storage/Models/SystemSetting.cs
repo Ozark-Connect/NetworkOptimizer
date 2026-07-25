@@ -77,6 +77,11 @@ public static class SystemSettingKeys
     // Channel recommendation disclaimer
     public const string ChannelDisclaimerDismissed = "ui.channel_disclaimer_dismissed";
 
+    // ISP Health hint pointing at where the expected ISP plan speeds are configured
+    // (UniFi Network > Settings > Internet > Expected ISP Speeds). Global, not per-site:
+    // once the operator knows where the setting lives, they know it for every site.
+    public const string IspPlanSpeedHintDismissed = "ui.isp_plan_speed_hint_dismissed";
+
     // Dashboard layout preferences
     public const string DashboardLayout = "ui.dashboard_layout";
 

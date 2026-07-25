@@ -1,4 +1,6 @@
 @using NetworkOptimizer.Web.Services.Monitoring.IspHealth
+@* The PDF export renders from these same helpers - keep them shared, not inlined here. *@
+@using static NetworkOptimizer.Web.Services.Monitoring.IspHealth.IspHealthPresentation
 @using NetworkOptimizer.Storage.Models
 @using System.Globalization
 @implements IDisposable
@@ -7,6 +9,8 @@
 @inject IJSRuntime JS
 @inject Microsoft.AspNetCore.Mvc.ViewFeatures.IFileVersionProvider FileVersionProvider
 @inject NetworkOptimizer.Web.Services.PullToRefreshState PtrState
+@inject NetworkOptimizer.Web.Services.ISystemSettingsService SettingsService
+@inject NetworkOptimizer.Web.Services.SiteContextService SiteContext
 
 @* Date/time filter (left) + Refresh. The live/cached view (the effective auto-computed window, which
    auto-fallback may have reduced below the configured target) is the only state where Refresh is
@@ -60,16 +64,31 @@
                 </div>
             </div>
         </div>
-        <button class="btn btn-sm btn-secondary" @onclick="RefreshAsync" disabled="@(_refreshing || _windowComputing)"
+        @{
+            var refreshBusy = _refreshing || _windowComputing;
+        }
+        <button class="btn btn-sm btn-secondary" @onclick="RefreshAsync" disabled="@refreshBusy"
                 data-tooltip="Recompute ISP Health for the selected window" data-tooltip-hover-only>
-            @if (_refreshing || _windowComputing)
-            {
-                <span class="spinner-sm"></span> <span>@(_refreshing ? "Refreshing" : "Loading")</span>
-            }
-            else
-            {
-                <span>Refresh</span>
-            }
+            <span class="btn-state-stack">
+                <span class="@(refreshBusy ? "is-hidden" : "")">Refresh</span>
+                <span class="@(refreshBusy ? "" : "is-hidden")">
+                    <span class="spinner-sm"></span>
+                    <span class="btn-label-wide">@(_refreshing ? "Refreshing" : "Loading")</span>
+                </span>
+            </span>
+        </button>
+        <button class="btn btn-sm btn-primary" @onclick="ExportPdfAsync"
+                disabled="@(_report == null || _exportingPdf || _refreshing || _windowComputing)">
+            <span class="btn-state-stack">
+                <span class="@(_exportingPdf ? "is-hidden" : "")">
+                    <span class="btn-label-wide">Export PDF</span>
+                    <span class="btn-label-narrow">Export</span>
+                </span>
+                <span class="@(_exportingPdf ? "" : "is-hidden")">
+                    <span class="spinner-sm"></span>
+                    <span class="btn-label-wide">Building</span>
+                </span>
+            </span>
         </button>
     </div>
 }
@@ -208,7 +227,8 @@ else
             </div>
             <a href="/wan-speedtest" class="isp-health-hero-speed">
                 <div class="isp-speed-label">Speed vs Plan</div>
-                <div class="isp-speed-headline" data-tooltip="Best download and best upload from your recent WAN speed tests; each may come from a different test.">
+                <div class="isp-speed-headline" data-tooltip="Best download and best upload from your recent WAN speed tests; each may come from a different test."
+                     data-tooltip-click>
                     <span class="isp-speed-measured">@FormatSpeed(r.MeasuredDownloadMbps) / @FormatSpeed(r.MeasuredUploadMbps)</span>
                     <span class="isp-speed-unit">Mbps</span>
                 </div>
@@ -246,6 +266,11 @@ else
             </div>
         </div>
     </div>
+    }
+
+    @if (!_planHintDismissed)
+    {
+        <IspPlanSpeedHint OnDismiss="DismissPlanHintAsync" />
     }
 
     @if (r.Issues.Count > 0)
@@ -456,6 +481,10 @@ else
                                  && !(factor.Name == "Physical Link" && r.PhysicalLinkCandidates.Count > 1))
                             {
                                 <div class="isp-factor-description">@factor.Description</div>
+                            }
+                            @if (factor.Name == "Speed vs Plan" && !_planHintDismissed)
+                            {
+                                <IspPlanSpeedHint Compact="true" OnDismiss="DismissPlanHintAsync" />
                             }
                             @if (factor.Name == "Physical Link" && r.PhysicalLinkCandidates.Count > 1)
                             {
@@ -717,6 +746,11 @@ else
 
     private IspHealthReport? _report;
     private bool _loading = true;
+
+    // "Where do the plan speeds come from" hint. Starts hidden so it can't flash in and then
+    // vanish for someone who already dismissed it; the load below reveals it if they haven't.
+    // The dismissal is global rather than per-site: it's operator knowledge, not site state.
+    private bool _planHintDismissed = true;
     private bool _chartMounted;
     private bool _refreshing;
     private bool _autoReloading;
@@ -846,6 +880,8 @@ else
         // Highlight the button for the effective (possibly auto-reduced) live window.
         if (_followLive) _selectedPreset = LiveWindowHours;
 
+        await LoadPlanHintStateAsync();
+
         // Re-render every 30 s so "Last updated: N min ago" ages on its own, and - on the live
         // 48 h view - pull the latest cached snapshot so the tab follows the background recompute
         // instead of sitting on a stale "Last updated" until a manual refresh.
@@ -883,6 +919,80 @@ else
         }
         // Follow a background auto-fallback: keep the live button on the effective window.
         if (_followLive) _selectedPreset = LiveWindowHours;
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// Reads the persisted dismissal for the plan-speed hint. A read failure leaves the hint
+    /// hidden: a nag that can't remember being dismissed is worse than one nobody sees.
+    /// </summary>
+    private async Task LoadPlanHintStateAsync()
+    {
+        try
+        {
+            var dismissed = await SettingsService.GetGlobalAsync(SystemSettingKeys.IspPlanSpeedHintDismissed);
+            _planHintDismissed = string.Equals(dismissed, "true", StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            _planHintDismissed = true;
+        }
+    }
+
+    // True while the PDF is being built server-side. The interop below awaits the fetch, so
+    // the button's spinner tracks the real work rather than guessing at it.
+    private bool _exportingPdf;
+
+    /// <summary>
+    /// Downloads the scorecard for the window currently on screen. Fetched as a blob rather
+    /// than linked with `download`, because a Safari PWA opens a linked PDF inline instead of
+    /// saving it (same reason the Security Audit export does this).
+    /// </summary>
+    private async Task ExportPdfAsync()
+    {
+        if (_exportingPdf || _report == null) return;
+        _exportingPdf = true;
+        StateHasChanged();
+        try
+        {
+            var url = "/api/monitoring/isp-health/pdf";
+            // An explicit window exports exactly what's displayed; the live view exports the
+            // cached report, which is what the tab is showing.
+            if (_windowStart.HasValue && _windowEnd.HasValue)
+                url += $"?from={Uri.EscapeDataString(_windowStart.Value.ToString("o"))}&to={Uri.EscapeDataString(_windowEnd.Value.ToString("o"))}";
+            if (!SiteContext.IsDefault)
+                url = SiteContextService.WithSiteParam(url, SiteContext.Slug);
+
+            await JS.InvokeVoidAsync("eval",
+                "(async () => { const r = await fetch('" + url + "'); if (!r.ok) return; "
+                + "const b = await r.blob(); const d = r.headers.get('content-disposition') || ''; "
+                + "const m = d.match(/filename=\"?([^\";]+)\"?/); const a = document.createElement('a'); "
+                + "a.href = URL.createObjectURL(b); a.download = m ? m[1] : 'ISPHealth.pdf'; "
+                + "a.click(); URL.revokeObjectURL(a.href); })()");
+        }
+        catch
+        {
+            // A failed download is visible to the user in the browser; nothing to recover here.
+        }
+        finally
+        {
+            _exportingPdf = false;
+            StateHasChanged();
+        }
+    }
+
+    /// <summary>Hides the hint everywhere it appears and remembers that across sites and sessions.</summary>
+    private async Task DismissPlanHintAsync()
+    {
+        _planHintDismissed = true;
+        try
+        {
+            await SettingsService.SetGlobalAsync(SystemSettingKeys.IspPlanSpeedHintDismissed, "true");
+        }
+        catch
+        {
+            // Hidden for this session regardless; it comes back next visit if the write failed.
+        }
         StateHasChanged();
     }
 
@@ -1025,19 +1135,6 @@ else
         AccessTechnology.Cellular,
         AccessTechnology.Satellite
     ];
-
-    private static string FormatTechName(AccessTechnology tech) => tech switch
-    {
-        AccessTechnology.Gpon => "GPON",
-        AccessTechnology.XgsPon => "XGS-PON",
-        AccessTechnology.Docsis => "DOCSIS (Cable)",
-        AccessTechnology.DirectEthernet => "Active Ethernet",
-        AccessTechnology.FixedWireless => "Fixed Wireless",
-        AccessTechnology.Satellite => "Satellite",
-        AccessTechnology.Cellular => "Cellular",
-        AccessTechnology.Dsl => "DSL (ADSL/VDSL)",
-        _ => tech.ToString()
-    };
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -1188,11 +1285,6 @@ else
             ? $"zoomed: {_zoomFrom!.Value.ToLocalTime():MMM d, HH:mm} to {_zoomTo!.Value.ToLocalTime():MMM d, HH:mm}"
             : WindowLabel(r);
 
-    private enum EventCategory { Congestion, Shift, Change }
-
-    private record TimelineEntry(DateTime Time, string Badge, string BadgeClass, string Text, DateTime? End = null,
-        EventCategory Category = EventCategory.Congestion, string? BadgeTooltip = null);
-
     private bool CategoryVisible(TimelineEntry e) => _visibleEventCats.Contains(e.Category);
 
     // Hidden categories as the chart's annotation type names, as a JS array literal for the
@@ -1229,122 +1321,10 @@ else
         }
     }
 
-    private static IEnumerable<TimelineEntry> EventTimeline(IspHealthReport r)
-    {
-        var entries = new List<TimelineEntry>();
-        foreach (var evt in r.CongestionEvents)
-        {
-            var where = evt.IsShared
-                ? $"{evt.AsnNames.Count} networks at once (could not be localized)"
-                : (string.IsNullOrEmpty(evt.BottleneckLabel) ? string.Join(", ", evt.AsnNames) : evt.BottleneckLabel);
-            var span = FormatDuration(evt.Duration);
-            // Show both signals - congestion is detected on latency AND jitter together (or a
-            // jitter-driven p90 burst), so reporting only RTT reads as latency-only.
-            var mag = $"latency {evt.BaselineRttMs:0.#} to {evt.PeakRttMs:0.#} ms, jitter {evt.BaselineJitterMs:0.#} to {evt.PeakJitterMs:0.#} ms";
-            var load = evt.LoadCoincident ? " under heavy WAN load" : "";
-            // One shape for every line: "{duration} of elevated latency and jitter on {hop}{load}
-            // ({mag}). {one plain sentence}." The badge reads "Congestion" except for the line-wide
-            // self-inflicted case, which reads "Loaded Latency"; the disposition otherwise shows
-            // through colour (confirmed prominent, the rest muted) and that closing sentence, so the
-            // feed stays readable and still agrees with the cards (which badge only confirmed).
-            // A localized, propagated bottleneck names the hop AND the hops beyond it in the subject,
-            // which replaces the old trailing "it propagates ..." sentence. Sibling-confirmed,
-            // clean-parallel, and unlocalized events don't get it. Require a placed bottleneck hop
-            // (BottleneckHopIp) so an un-traced target that only surfaced as an unlocalized Confirmed
-            // event - e.g. an access-ISP leaf with no saved trace - is never described as a hop with
-            // topology beyond it; only genuinely localized hops and shared-incident owners carry a hop IP.
-            var beyond = evt.Disposition == CongestionDisposition.Confirmed
-                && !evt.ConfirmedBySibling
-                && !(evt.LoadCoincident && evt.CleanParallelPaths > 0)
-                && !evt.IsShared
-                && evt.BottleneckHopIp != null
-                ? " and the hops beyond" : "";
-            var lead = $"{span} of elevated latency and jitter on {where}{beyond}{load} ({mag}).";
-            var (badge, badgeClass, text, tip) = evt.Disposition switch
-            {
-                CongestionDisposition.SelfInflicted => ("Loaded Latency", "isp-event-badge-congestion-soft",
-                    $"{lead} Everything slowed together under load, so the limit was your access link, not one hop - bufferbloat or a congested shared-access network.",
-                    (string?)"Latency rose under your own WAN load - likely your access link, not ISP congestion. Shown dimmed."),
-                CongestionDisposition.ControlPlaneNoise => ("Congestion", "isp-event-badge-congestion-soft",
-                    $"{lead} Its next hop stayed clean, so this is the hop's own ICMP handling, not a forwarding bottleneck.",
-                    "This hop deprioritized ping replies while forwarding stayed clean - not confirmed as real congestion. Shown dimmed."),
-                CongestionDisposition.Unverifiable => ("Congestion", "isp-event-badge-congestion-soft",
-                    $"{lead}",
-                    "Seen on one path and couldn't be cross-checked, so it's unconfirmed. Shown dimmed."),
-                _ when evt.ConfirmedBySibling => ("Congestion", "isp-event-badge-congestion",
-                    $"{lead}", null),
-                _ when evt.LoadCoincident && evt.CleanParallelPaths > 0 => ("Congestion", "isp-event-badge-congestion",
-                    $"{lead} {evt.CleanParallelPaths} other monitored paths stayed clean under the same load, so it was this hop's own capacity, not your access link.", null),
-                _ => ("Congestion", "isp-event-badge-congestion",
-                    $"{lead}", null)
-            };
-            entries.Add(new TimelineEntry(evt.Start, badge, badgeClass, text, evt.End, BadgeTooltip: tip));
-        }
-        foreach (var shift in r.PathShifts)
-        {
-            var where = string.IsNullOrEmpty(shift.AsnName) ? (shift.TargetId ?? "path") : shift.AsnName;
-            if (shift.IsUnreachable)
-            {
-                var span = shift.UnreachableEnd.HasValue ? FormatDuration(shift.UnreachableEnd.Value - shift.Time) : "the window";
-                var hops = shift.CorrelatedTargetCount > 1 ? $" ({shift.CorrelatedTargetCount} monitored hops)" : "";
-                entries.Add(new TimelineEntry(shift.Time, "Path change", "isp-event-badge-change",
-                    $"{where} went fully unreachable for {span}{hops} - a routing (BGP) change, not access-layer loss. Excluded from the Packet Loss factor; still counted against {where}'s own network grade.",
-                    shift.UnreachableEnd, EventCategory.Change));
-                continue;
-            }
-            var direction = shift.Direction == PathShiftDirection.Up ? "up" : "down";
-            var correlated = shift.CorrelatedTargetCount > 1 ? $", seen on {shift.CorrelatedTargetCount} paths" : "";
-            entries.Add(new TimelineEntry(shift.Time, "Path shift", "isp-event-badge-shift",
-                $"RTT stepped {direction} {Math.Abs(shift.DeltaMs):0.#} ms on {where} ({shift.BeforeMedianMs:0.#} to {shift.AfterMedianMs:0.#} ms){correlated}. BGP or transport fabric change.",
-                Category: EventCategory.Shift));
-        }
-        return entries.OrderBy(e => e.Time);
-    }
-
-    private static string FormatDuration(TimeSpan d) =>
-        d.TotalHours >= 1 ? $"{d.TotalHours:0.#} h"
-        : d.TotalMinutes >= 1 ? $"{d.TotalMinutes:0} min"
-        : $"{d.TotalSeconds:0} sec";
-
-    // Event time in local time, prefixed with the date when it is not today so events in a
-    // multi-day (7d/30d/custom) window are unambiguous.
-    private static string EventTimeLabel(DateTime utc)
-    {
-        var local = utc.ToLocalTime();
-        return local.Date == DateTime.Now.Date ? $"Today, {local:HH:mm}" : local.ToString("MMM d, HH:mm");
-    }
-
     private static string OutageBadgeClass(OutageEvent o) =>
         o.IsPartial ? (o.IsNearTotal ? "isp-event-badge-warning" : "isp-event-badge-info")
         : o.IsBrief ? "isp-event-badge-warning"
         : "isp-event-badge-danger";
-
-    private static string OutageBadgeText(OutageEvent o) =>
-        o.IsPartial ? (o.IsNearTotal ? "Total loss" : "Partial loss") : o.IsBrief ? "Brief" : "Outage";
-
-    private static string OutageSectionTitle(IspHealthReport r) =>
-        r.Outages.Any(o => !o.IsPartial && !o.IsBrief) ? "Internet Outages"
-        : r.Outages.All(o => o.IsPartial) ? "Internet Disruptions"
-        : "Brief Internet Disruptions";
-
-    private static string OutageScopeLabel(OutageEvent o) => o.Scope switch
-    {
-        OutageScope.Local => "LAN / Gateway outage",
-        OutageScope.Upstream when !string.IsNullOrEmpty(o.LastReachableHop) => $"Break upstream of {o.LastReachableHop}",
-        OutageScope.Upstream when !string.IsNullOrEmpty(o.BrokenNetwork) => $"Break in {o.BrokenNetwork}",
-        _ when o.IsPartial && o.IsNearTotal => "Path-wide total loss",
-        _ when o.IsPartial => "Path-wide partial loss",
-        _ => "Whole-WAN outage"
-    };
-
-    private static string OutageScoreTooltip(OutageEvent o) =>
-        o.Acknowledged
-            ? "Not scored; you marked this as caused by your own work."
-            : o.Scope == OutageScope.Local
-                ? "Not scored; a LAN/gateway outage is your own network, not the ISP."
-                : o.ScorePenaltyPoints > 0
-                    ? $"Lowered your ISP Health score by {o.ScorePenaltyPoints} {(o.ScorePenaltyPoints == 1 ? "point" : "points")}."
-                    : "No score impact.";
 
     // Share of the outage window this hop spent dark (red), for the recovery-waterfall bar.
     // Capped at 95% so a sliver of the blue "up" track always shows on even the longest bars -
@@ -1356,44 +1336,6 @@ else
         if (span <= 0) return 95;
         var dark = t.RecoveredAt.HasValue ? (t.RecoveredAt.Value - o.Start).TotalSeconds : span;
         return Math.Clamp(dark / span * 100, 0, 95);
-    }
-
-    private static string OutageHopStatus(OutageTierState t) =>
-        !t.WentDark ? "stayed up"
-        : t.RecoveredAt.HasValue ? $"back @ {t.RecoveredAt.Value.ToLocalTime():HH:mm:ss}"
-        : "down";
-
-    private static string OutageHopTooltip(OutageTierState t) =>
-        t.WentDark ? $"Went dark; peak loss {t.PeakLossPct:0}%." : "Stayed reachable through the outage.";
-
-    /// <summary>
-    /// The hero pill's window phrase. "last {span}" only reads correctly when the window actually
-    /// ends at (about) now; a custom window ending in the past instead shows a compact span pointing
-    /// to its end date ("7d -> Jun 17") - kept short so it doesn't widen the pill and shift the layout.
-    /// </summary>
-    private static string ScoredWindowLabel(IspHealthReport r) =>
-        DateTime.UtcNow - r.WindowEnd < TimeSpan.FromHours(1)
-            ? $"last {WindowLabel(r)}"
-            : $"{ShortSpan(r)} → {r.WindowEnd.ToLocalTime():MMM d}";
-
-    /// <summary>Compact window span for the tight hero pill: "90m", "24h", "7d" - same tiering as
-    /// <see cref="WindowLabel"/>, abbreviated units, no space.</summary>
-    private static string ShortSpan(IspHealthReport r)
-    {
-        var span = r.WindowEnd - r.WindowStart;
-        if (span.TotalMinutes < 60) return $"{span.TotalMinutes:0}m";
-        if (span.TotalHours < 72) return $"{span.TotalHours:0.#}h";
-        return $"{span.TotalDays:0.#}d";
-    }
-
-    private static string WindowLabel(IspHealthReport r)
-    {
-        var span = r.WindowEnd - r.WindowStart;
-        if (span.TotalMinutes < 60)
-            return $"{span.TotalMinutes:0} min";
-        if (span.TotalHours < 72)
-            return $"{span.TotalHours:0.#} hr";
-        return $"{span.TotalDays:0.#} {(Math.Abs(span.TotalDays - 1) < 0.05 ? "day" : "days")}";
     }
 
     private static string? FactorInvestigateUrl(string factorName) => factorName switch
@@ -1458,26 +1400,6 @@ else
             _ => "Jump to the monitoring charts for this access link"
         };
     }
-
-    private static string FormatSpeed(double? mbps) => mbps.HasValue ? mbps.Value.ToString(mbps >= 100 ? "0" : "0.#") : "--";
-
-    private static string FormatMs(double? ms) => ms.HasValue ? $"{ms.Value:0.#} ms" : "--";
-
-    private static string FormatJitter(double? ms) => ms.HasValue ? $"{ms.Value:0.00} ms" : "--";
-
-    private static string JitterAssimilationTooltip(IspAsnHealth asn, bool isIsp) => isIsp
-        ? $"Showing {FormatJitter(asn.ScoredJitterMs)} from the cleanest network beyond your ISP, not your ISP routers' {FormatJitter(asn.RawJitterMs)}. All traffic crosses the ISP to reach it, so the ISP is no jitterier - its higher reading is likely ICMP deprioritization."
-        : $"Showing {FormatJitter(asn.ScoredJitterMs)} from a router deeper in this network, not the {FormatJitter(asn.RawJitterMs)} a closer router reported. Traffic passes through the closer router to reach it, so the lower value is the true path jitter - the closer router just deprioritizes ICMP.";
-
-    private static string JitterAssimilationTooltip(IspTargetHealth target) =>
-        $"Showing {FormatJitter(target.ScoredJitterMs)} measured to a network reached through this router, not its own {FormatJitter(target.RawJitterMs)}. Traffic passes through it cleanly, so the higher reading is this router deprioritizing ICMP, not real jitter.";
-
-    private static string FormatRtt(double? ms) => ms.HasValue ? $"{ms.Value:0.00} ms" : "--";
-
-    private static string FormatRttRange(double? min, double? max) =>
-        min.HasValue && max.HasValue ? $"{min.Value:0.00} - {max.Value:0.00} ms" : "--";
-
-    private static string FormatLossPct(double? pct) => pct switch { null => "--", 0 => "0%", _ => $"{pct.Value:0.##}%" };
 
     private static string IssueClass(IspIssueSeverity severity) => severity switch
     {

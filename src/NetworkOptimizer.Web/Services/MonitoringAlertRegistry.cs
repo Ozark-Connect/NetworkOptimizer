@@ -25,7 +25,9 @@ public class MonitoringAlertRegistry
         SfpAlertEvaluator Sfp,
         CableModemAlertEvaluator CableModem,
         OntAlertEvaluator Ont,
-        CellularAlertEvaluator Cellular);
+        CellularAlertEvaluator Cellular,
+        DeviceRebootAlertEvaluator DeviceReboot,
+        DeviceStateAlertEvaluator DeviceState);
 
     private readonly IServiceProvider _serviceProvider;
     private readonly ConcurrentDictionary<string, SiteAlertEvaluators> _instances = new();
@@ -48,7 +50,9 @@ public class MonitoringAlertRegistry
                 ActivatorUtilities.CreateInstance<SfpAlertEvaluator>(_serviceProvider, s, bus),
                 ActivatorUtilities.CreateInstance<CableModemAlertEvaluator>(_serviceProvider, s, bus),
                 ActivatorUtilities.CreateInstance<OntAlertEvaluator>(_serviceProvider, s, bus),
-                ActivatorUtilities.CreateInstance<CellularAlertEvaluator>(_serviceProvider, s, bus));
+                ActivatorUtilities.CreateInstance<CellularAlertEvaluator>(_serviceProvider, s, bus),
+                ActivatorUtilities.CreateInstance<DeviceRebootAlertEvaluator>(_serviceProvider, s, bus),
+                ActivatorUtilities.CreateInstance<DeviceStateAlertEvaluator>(_serviceProvider, s, bus));
         });
 
     /// <summary>The default site's evaluators.</summary>

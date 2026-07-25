@@ -2258,6 +2258,27 @@ a.btn-sm {
     padding: 0 12px;
 }
 
+/* Busy buttons: both states occupy the same grid cell, so the button is sized by its widest
+   state and never resizes mid-action. Do not collapse to an @if - swapping the label for a
+   spinner changes the width, which shifts the toolbar wherever .btn min-width is relaxed. */
+.btn-state-stack {
+    display: grid;
+    align-items: center;
+    justify-items: center;
+}
+
+.btn-state-stack > * {
+    grid-area: 1 / 1;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+}
+
+.btn-state-stack > .is-hidden {
+    visibility: hidden;
+}
+
 .btn-lg {
     height: 44px;
     padding: 0 24px;
@@ -7234,6 +7255,16 @@ a.path-hop.hop-clickable:hover {
     padding: 0.15rem 0.4rem;
     border-radius: var(--border-radius);
     font-size: 0.85em;
+}
+
+.gateway-diag-raw {
+    background: var(--bg-primary);
+    padding: 0.75rem;
+    border-radius: var(--border-radius);
+    overflow-x: auto;
+    max-width: 100%;
+    margin: 0.35rem 0 1rem;
+    font-size: 0.8125rem;
 }
 
 /* Audit page table minimum widths for mobile */
@@ -16405,6 +16436,30 @@ tr.stats-row-filtered {
     justify-content: center;
 }
 
+@media (max-width: 768px) {
+    .isp-health-toolbar .btn {
+        min-width: 0;
+        padding: 0 12px;
+    }
+}
+
+.isp-health-toolbar .btn-label-narrow {
+    display: none;
+}
+
+/* Below 400px the toolbar runs out of room, so the buttons drop to their short labels. The
+   busy words go too - .btn-state-stack sizes to the widest state, so leaving "Refreshing"
+   in would hold the width the short label just freed. */
+@media (max-width: 400px) {
+    .isp-health-toolbar .btn-label-wide {
+        display: none;
+    }
+
+    .isp-health-toolbar .btn-label-narrow {
+        display: inline;
+    }
+}
+
 .isp-window-reduced {
     display: inline-flex;
     align-items: center;
@@ -16835,6 +16890,42 @@ a.isp-health-hero-speed:hover {
     margin-top: 0.25rem;
     font-size: 0.75rem;
     color: var(--text-muted);
+}
+
+.upstream-tech-select {
+    max-width: 250px;
+}
+
+.upstream-tech-unset {
+    outline: 2px solid rgba(59, 130, 246, 0.5);
+    outline-offset: 2px;
+    border-radius: 6px;
+}
+
+.upstream-tech-inferred {
+    outline: 2px solid var(--warning-color);
+    outline-offset: 2px;
+    border-radius: 6px;
+}
+
+.upstream-tech-inferred-help {
+    margin-top: 0.5rem;
+    color: var(--warning-color);
+}
+
+.isp-plan-hint-compact {
+    margin-top: 0.4rem;
+    padding: 0.5rem 0.6rem;
+    border-left: 2px solid var(--info-color);
+    background: var(--bg-tertiary);
+    border-radius: var(--border-radius);
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+}
+
+.isp-plan-hint-compact a {
+    margin-left: 0.4rem;
+    white-space: nowrap;
 }
 
 .isp-asn-grid {

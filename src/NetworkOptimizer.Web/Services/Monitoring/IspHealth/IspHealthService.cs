@@ -640,7 +640,7 @@ public class IspHealthService
         var internetSeries = TrimFrom(internetSeriesExt, windowStart);
         var customSeries = ToSamples(await customSeriesTask);
         var wanRates = await ratesTask;
-        var (expectedDown, expectedUp, expectedSource, smartQueuesEnabled) = await speedsTask;
+        var (expectedDown, expectedUp, expectedSource, smartQueuesEnabled, scoredWan) = await speedsTask;
         var wanSpeedTests = await speedTestsTask;
         // Gateway samples feed only the outage waterfall's gateway hop, so they carry the full extended
         // window (the detector clips each hop's series to the detected event span anyway).
@@ -1083,6 +1083,9 @@ public class IspHealthService
         report.PhysicalLinkSelectedKey = physical.SelectedKey;
         report.PhysicalLinkMedium = physical.Input?.Medium;
         report.PhysicalLinkAmbiguous = physical.Ambiguous;
+        report.WanName = scoredWan?.Name;
+        report.WanNetworkGroup = scoredWan?.NetworkGroup;
+        report.WanInterface = scoredWan?.Interface;
         _logger.LogDebug("ISP Health computed: {Score} ({Tech}), {Events} congestion events, {Shifts} path shifts",
             report.OverallScore, profile.DisplayName, congestionEvents.Count, pathShifts.Count);
         return new ComputeOutcome(IspHealthStatus.Ready, report, chartClusters);
@@ -1223,7 +1226,7 @@ public class IspHealthService
     /// <summary>Expected plan speeds for callers outside the scoring pipeline (e.g. loaded-loss investigation).</summary>
     public async Task<(double? DownMbps, double? UpMbps)> GetExpectedWanSpeedsAsync(CancellationToken ct = default)
     {
-        var (down, up, _, _) = await ResolveExpectedSpeedsAsync(ct);
+        var (down, up, _, _, _) = await ResolveExpectedSpeedsAsync(ct);
         return (down, up);
     }
 
@@ -1252,16 +1255,21 @@ public class IspHealthService
             .ToList();
     }
 
+    /// <summary>Which WAN the report scored, as the console names it. Display only.</summary>
+    private record WanIdentity(string? Name, string? NetworkGroup, string? Interface);
+
     /// <summary>
     /// Expected speeds are configured values, never measured: the UniFi WAN provider
     /// capabilities (ISP speeds the user set in UniFi Network) with the Adaptive SQM
-    /// nominal speeds as fallback.
+    /// nominal speeds as fallback. The resolved WAN's identity rides along, since this is
+    /// already where the primary WAN is picked and the report labels which link it graded.
     /// </summary>
-    private async Task<(double? Down, double? Up, string? Source, bool SmartQueues)> ResolveExpectedSpeedsAsync(CancellationToken ct)
+    private async Task<(double? Down, double? Up, string? Source, bool SmartQueues, WanIdentity? Wan)> ResolveExpectedSpeedsAsync(CancellationToken ct)
     {
         double? down = null, up = null;
         string? source = null;
         var smartQueues = false;
+        WanIdentity? wan = null;
         try
         {
             var networks = await _connectionService.GetNetworksAsync(ct);
@@ -1272,6 +1280,7 @@ public class IspHealthService
                 if (primary.WanUploadMbps > 0) up = primary.WanUploadMbps;
                 if (down != null || up != null) source = "UniFi Network";
                 smartQueues = primary.WanSmartqEnabled;
+                wan = new WanIdentity(primary.Name, primary.WanNetworkgroup, primary.WanIfname);
             }
         }
         catch (Exception ex)
@@ -1292,7 +1301,7 @@ public class IspHealthService
                 source ??= "Adaptive SQM settings";
             }
         }
-        return (down, up, source, smartQueues);
+        return (down, up, source, smartQueues, wan);
     }
 
     private static readonly TimeSpan SqmProbeDuration = TimeSpan.FromSeconds(30);

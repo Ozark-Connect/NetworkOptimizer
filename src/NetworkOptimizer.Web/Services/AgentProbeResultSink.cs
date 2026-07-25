@@ -25,7 +25,9 @@ public class AgentProbeResultSink
     private readonly SiteDbContextFactory _siteDbFactory;
     private readonly MonitoringInfluxRegistry _influxRegistry;
     private readonly MonitoringLiveStatsRegistry _liveStatsRegistry;
+    private readonly Monitoring.RebootReason.DeviceRebootRegistry _rebootRegistry;
     private readonly SiteConnectionRegistry _siteConnections;
+    private readonly Monitoring.DeviceTransitionTracker _deviceTransitions;
     private readonly MonitoringAlertRegistry _alertRegistry;
     private readonly ICredentialProtectionService _credentialProtection;
     private readonly ILogger<AgentProbeResultSink> _logger;
@@ -38,6 +40,18 @@ public class AgentProbeResultSink
     // the device list each SNMP config push assembles. Health samples relayed by the
     // agent carry only the MAC; this gives their alerts a human-readable label.
     private readonly ConcurrentDictionary<string, Dictionary<string, string>> _deviceNamesBySite = new();
+
+    /// <summary>
+    /// Per-site MAC -> (name, address, firmware) captured whenever the site's console IS
+    /// enumerable. The health batch's own console lookup is empty for the first moments after an
+    /// agent connects, because the console reconnects THROUGH that same tunnel seconds later - and
+    /// reboot detection needs an address to SSH to. Device IPs are stable, so a cached profile
+    /// closes that window instead of losing the sample to it.
+    /// </summary>
+    private readonly ConcurrentDictionary<string, Dictionary<string, DeviceProbeProfile>> _deviceProfilesBySite = new();
+
+    /// <summary>Cached identity for a relayed device: what to call it, where to reach it, what it runs.</summary>
+    private sealed record DeviceProbeProfile(string? Name, string? Address, string? Firmware, DeviceType DeviceType);
 
     // Console device list + networkconf per site, cached so the agent-relayed interface
     // name-map reconcile doesn't hit the controller on every batch. Fetched through the
@@ -81,7 +95,9 @@ public class AgentProbeResultSink
         SiteDbContextFactory siteDbFactory,
         MonitoringInfluxRegistry influxRegistry,
         MonitoringLiveStatsRegistry liveStatsRegistry,
+        Monitoring.RebootReason.DeviceRebootRegistry rebootRegistry,
         SiteConnectionRegistry siteConnections,
+        Monitoring.DeviceTransitionTracker deviceTransitions,
         MonitoringAlertRegistry alertRegistry,
         ICredentialProtectionService credentialProtection,
         MonitoringCollectionRegistry collectionRegistry,
@@ -90,7 +106,9 @@ public class AgentProbeResultSink
         _siteDbFactory = siteDbFactory;
         _influxRegistry = influxRegistry;
         _liveStatsRegistry = liveStatsRegistry;
+        _rebootRegistry = rebootRegistry;
         _siteConnections = siteConnections;
+        _deviceTransitions = deviceTransitions;
         _alertRegistry = alertRegistry;
         _credentialProtection = credentialProtection;
         _collectionRegistry = collectionRegistry;
@@ -345,6 +363,30 @@ public class AgentProbeResultSink
                 catch (Exception ex) { _logger.LogDebug(ex, "Gateway LAN IP resolution failed for site {Slug}", connection.SiteSlug); }
 
                 var names = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+                // Every device, not just the SNMP-polled ones: the reboot probe reaches anything
+                // with SSH, and this is the only place the site's console is known to be readable.
+                // Fenced because this cache only feeds reboot-reason lookups - the SNMP config push
+                // below is the load-bearing work here and must not be affected by it.
+                try
+                {
+                    var profiles = new Dictionary<string, DeviceProbeProfile>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var device in devices)
+                    {
+                        if (string.IsNullOrEmpty(device.Mac)) continue;
+                        profiles[NormalizeMac(device.Mac)] = new DeviceProbeProfile(
+                            device.Name,
+                            Monitoring.SnmpDeviceRules.ResolvePollAddress(device, gatewayLanIp),
+                            device.Version,
+                            device.DeviceType);
+                    }
+                    _deviceProfilesBySite[connection.SiteSlug] = profiles;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "Device profile cache build failed for site {Slug}", connection.SiteSlug);
+                }
+
                 foreach (var device in devices.Where(d =>
                              Monitoring.SnmpDeviceRules.IsMonitorable(d) && Monitoring.SnmpDeviceRules.HasSnmpEnabled(d)))
                 {
@@ -555,6 +597,8 @@ public class AgentProbeResultSink
         var influx = _influxRegistry.GetFor(connection.SiteSlug);
         if (!influx.IsConfigured) await influx.ReconfigureAsync(ct);
         var liveStats = _liveStatsRegistry.GetFor(connection.SiteSlug);
+        var rebootTracker = _rebootRegistry.GetFor(connection.SiteSlug);
+        await rebootTracker.SeedFromHistoryAsync(ct);
 
         // Temperature thresholds for health alerting come from the site's own
         // MonitoringSettings, same as the local medium tier.
@@ -585,6 +629,27 @@ public class AgentProbeResultSink
             .Where(d => !string.IsNullOrEmpty(d.Mac))
             .GroupBy(d => NormalizeMac(d.Mac))
             .ToDictionary(g => g.Key, g => g.First());
+
+        // Upgrade/provisioning state for this site's devices, from the same console snapshot the
+        // batch already uses, so an agent site's offline alerts stay quiet during a firmware run
+        // exactly like a directly-monitored site's do.
+        // Fenced as a whole: alerting is advisory here, and a bus failure must not cost this batch
+        // its interface and health persistence.
+        var stateObservedAt = DateTime.UtcNow;
+        try
+        {
+            foreach (var device in deviceByMac.Values)
+            {
+                _deviceTransitions.Record(connection.SiteSlug, device.Mac, device.State, stateObservedAt);
+                await _alertRegistry.GetFor(connection.SiteSlug).DeviceState.EvaluateAsync(
+                    device.Mac, device.Name, device.Ip, device.DeviceType, device.State, stateObservedAt, ct);
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Cancellation still unwinds: the tunnel shutting down is not an alerting failure.
+            _logger.LogDebug(ex, "Device state alert evaluation failed for site {Slug}", connection.SiteSlug);
+        }
 
         // Topology-boundary aggregates (fabric sums, AP backhaul, gateway WAN), shared
         // verbatim with the directly-monitored fast tier via LanFabricAggregator so
@@ -889,6 +954,50 @@ public class AgentProbeResultSink
                 mem,
                 temp,
                 uptime,
+                timestamp);
+
+            // Agent-relayed sites get their reboot reasons the same way direct ones do. This is
+            // the only uptime feed for them: the server's own medium tier stands down while an
+            // agent covers collection, so without this the whole site shows no reasons at all.
+            // The probe's SSH reaches the site's devices back through the agent tunnel.
+            // Uptime for reboot detection has its own fallback to the console's cached device
+            // data. The health write above deliberately nulls uptime when SNMP already reported
+            // cpu/mem, which would leave agent sites with no uptime feed at all and therefore no
+            // reboot reasons - the console's value is perfectly good for spotting a restart.
+            var uptimeForReboot = uptime
+                ?? (apiDevice != null ? UniFiDeviceHealthReader.ExtractApiHealth(apiDevice).UptimeSeconds : null);
+
+            if (uptimeForReboot is null or <= 0)
+            {
+                _logger.LogDebug(
+                    "No uptime for {Device} ({Mac}) on site {Slug}: neither the relayed SNMP health nor the console's device data reported one, so no reboot reason can be established",
+                    apiDevice?.Name ?? "unknown", health.DeviceMac, connection.SiteSlug);
+            }
+
+            // Fall back to the cached profile when the batch-time console lookup came up empty,
+            // which is the normal state for the first samples after an agent connects.
+            DeviceProbeProfile? profile = null;
+            if (_deviceProfilesBySite.TryGetValue(connection.SiteSlug, out var siteProfiles))
+                siteProfiles.TryGetValue(NormalizeMac(health.DeviceMac), out profile);
+
+            var rebootDeviceName = apiDevice?.Name ?? profile?.Name;
+            if (string.IsNullOrEmpty(rebootDeviceName) &&
+                _deviceNamesBySite.TryGetValue(connection.SiteSlug, out var rebootNames))
+            {
+                rebootNames.TryGetValue(NormalizeMac(health.DeviceMac), out rebootDeviceName);
+            }
+
+            var rebootAddress = !string.IsNullOrEmpty(apiDevice?.Ip) ? apiDevice!.Ip : profile?.Address;
+            var rebootDeviceType = apiDevice?.DeviceType ?? profile?.DeviceType ?? DeviceType.Unknown;
+            var rebootFirmware = apiDevice?.Version ?? profile?.Firmware;
+
+            rebootTracker.RecordUptimeSample(
+                health.DeviceMac,
+                rebootDeviceName,
+                rebootDeviceType,
+                rebootAddress,
+                uptimeForReboot,
+                rebootFirmware,
                 timestamp);
 
             // Threshold evaluation through the site's own evaluator instance, same

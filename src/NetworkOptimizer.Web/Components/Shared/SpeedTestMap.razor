@@ -126,10 +126,13 @@
                     <span class="legend-item"><span class="legend-dot" style="background: #84cc16;"></span>200-500</span>
                     <span class="legend-item"><span class="legend-dot" style="background: #22c55e;"></span>&gt;500 Mbps</span>
                 </div>
-                <div class="map-time-slider">
-                    <input type="range" min="0" max="10" step="1" @bind="sliderValue" @bind:after="OnSliderChanged" />
-                    <span class="time-label">@GetTimeLabel()</span>
-                </div>
+                @if (ShowTimeSlider)
+                {
+                    <div class="map-time-slider">
+                        <input type="range" min="0" max="10" step="1" @bind="sliderValue" @bind:after="OnSliderChanged" />
+                        <span class="time-label">@GetTimeLabel()</span>
+                    </div>
+                }
             </div>
         </div>
     </div>
@@ -168,6 +171,13 @@
 
     [Parameter]
     public int? TimeFilterHours { get; set; }
+
+    /// <summary>
+    /// Show the map's own time slider. Set false when the host page already has a time
+    /// range filter driving <see cref="TimeFilterHours"/>, so a single control owns the window.
+    /// </summary>
+    [Parameter]
+    public bool ShowTimeSlider { get; set; } = true;
 
     /// <summary>
     /// Pre-select the External layer on first load. Used by the VPN client dashboard,
@@ -228,6 +238,11 @@
     };
     private int sliderValue = 6; // Default to 30 days (index 6)
 
+    // Window the map filters to: the slider when shown, otherwise the host page's filter
+    private int EffectiveFilterHours => ShowTimeSlider
+        ? TimeBreakpoints[sliderValue].hours
+        : TimeFilterHours ?? 0;
+
     // All tests with valid location data, filtered by time slider and search
     private IEnumerable<Iperf3Result> LocationResults
     {
@@ -237,8 +252,8 @@
                 .Where(r => r.Latitude.HasValue && r.Longitude.HasValue)
                 .Where(r => !HighAccuracyOnly || (r.LocationAccuracyMeters.HasValue && r.LocationAccuracyMeters.Value <= 15));
 
-            // Apply time filter from slider (0 = all time)
-            var hours = TimeBreakpoints[sliderValue].hours;
+            // Apply time filter from slider or host page filter (0 = all time)
+            var hours = EffectiveFilterHours;
             if (hours > 0)
             {
                 var cutoff = DateTime.UtcNow.AddHours(-hours);
@@ -522,10 +537,17 @@
             // pan/zoom so this filter change - and the new results that arrive under it -
             // auto-fit the visible set back into view.
             userHasZoomed = false;
-            var targetIndex = FindClosestBreakpointIndex(TimeFilterHours.Value);
-            if (targetIndex != sliderValue)
+            // With the slider hidden the filter IS the window, so every change matters.
+            // With it shown, only a change that moves the slider narrows or widens the map.
+            var windowChanged = !ShowTimeSlider;
+            if (ShowTimeSlider)
             {
+                var targetIndex = FindClosestBreakpointIndex(TimeFilterHours.Value);
+                windowChanged = targetIndex != sliderValue;
                 sliderValue = targetIndex;
+            }
+            if (windowChanged)
+            {
                 if (mapInitialized)
                 {
                     await UpdateMarkers(fitBounds: true);

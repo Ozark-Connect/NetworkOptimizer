@@ -48,6 +48,9 @@ public class MonitoringCollectionAgent : BackgroundService
     private readonly UniFiConnectionService _connectionService;
     private readonly MonitoringInfluxClient _influx;
     private readonly MonitoringLiveStats _liveStats;
+    private readonly Monitoring.RebootReason.DeviceRebootTracker _rebootTracker;
+    private readonly Monitoring.DeviceTransitionTracker _deviceTransitions;
+    private readonly Monitoring.DeviceStateAlertEvaluator _deviceStateAlertEvaluator;
     private readonly ICredentialProtectionService _credentialProtection;
     private readonly LocalProbeExecutor _localProbe;
     private readonly NetworkOptimizer.Web.Services.Monitoring.MonitoringAlertEvaluator _alertEvaluator;
@@ -127,6 +130,8 @@ public class MonitoringCollectionAgent : BackgroundService
         SiteConnectionRegistry siteConnections,
         MonitoringInfluxRegistry influxRegistry,
         MonitoringLiveStatsRegistry liveStatsRegistry,
+        Monitoring.RebootReason.DeviceRebootRegistry rebootRegistry,
+        Monitoring.DeviceTransitionTracker deviceTransitions,
         ICredentialProtectionService credentialProtection,
         LocalProbeExecutor localProbe,
         MonitoringAlertRegistry alertRegistry,
@@ -146,12 +151,15 @@ public class MonitoringCollectionAgent : BackgroundService
         _connectionService = siteConnections.GetFor(_siteSlug);
         _influx = influxRegistry.GetFor(_siteSlug);
         _liveStats = liveStatsRegistry.GetFor(_siteSlug);
+        _rebootTracker = rebootRegistry.GetFor(_siteSlug);
+        _deviceTransitions = deviceTransitions;
         _credentialProtection = credentialProtection;
         _localProbe = localProbe;
         var evaluators = alertRegistry.GetFor(_siteSlug);
         _alertEvaluator = evaluators.Targets;
         _sfpAlertEvaluator = evaluators.Sfp;
         _deviceHealthAlertEvaluator = evaluators.DeviceHealth;
+        _deviceStateAlertEvaluator = evaluators.DeviceState;
         _ontAlertEvaluator = evaluators.Ont;
         _supplementalOntProviders = ontProviders
             .OfType<ISfpSupplementalOntProvider>()
@@ -248,6 +256,11 @@ public class MonitoringCollectionAgent : BackgroundService
         // seed never overwrites an entry the slow tier has already recorded.
         try { await SeedSfpLiveCacheAsync(stoppingToken); }
         catch (Exception ex) { _logger.LogDebug(ex, "SFP live-cache seeding failed (site {Site})", _siteSlug); }
+
+        // Load already-known reboot reasons so a restart neither loses them nor re-probes
+        // every device on the site over SSH.
+        try { await _rebootTracker.SeedFromHistoryAsync(stoppingToken); }
+        catch (Exception ex) { _logger.LogDebug(ex, "Reboot reason seeding failed (site {Site})", _siteSlug); }
 
         // Four independent loops, slightly staggered to avoid burst overlap.
         var fastTask = RunTierAsync("fast", GetFastInterval, FastTierCollectAsync, TimeSpan.FromSeconds(5), stoppingToken);
@@ -689,6 +702,10 @@ public class MonitoringCollectionAgent : BackgroundService
 
     private async Task MediumTierCollectAsync(MonitoringSettings settings, CancellationToken ct)
     {
+        // Before anything filtered: device-state alerting needs EVERY adopted device, offline ones
+        // included, and it has to run even when nothing is left to poll.
+        await EvaluateDeviceStatesAsync(ct);
+
         var devices = await GetMonitorableDevicesAsync(ct);
         if (devices.Count == 0) return;
 
@@ -755,6 +772,8 @@ public class MonitoringCollectionAgent : BackgroundService
                     timestamp: DateTime.UtcNow);
 
                 _liveStats.RecordHealth(device.Mac, cpu, memPct, temp, uptime, DateTime.UtcNow);
+                _rebootTracker.RecordUptimeSample(device.Mac, device.Name, device.DeviceType,
+                    device.Ip, uptime, device.Version, DateTime.UtcNow);
 
                 if (customOids.TryGetValue(NormalizeMac(device.Mac), out var deviceCustomOids))
                     await PollCustomOidsAsync(poller, device.Mac, DescribeDeviceType(device.DeviceType), ip, deviceCustomOids, ct);
@@ -798,6 +817,7 @@ public class MonitoringCollectionAgent : BackgroundService
         foreach (var device in devices)
         {
             var mac = NormalizeMac(device.Mac);
+
             var snmpOn = Monitoring.SnmpDeviceRules.HasSnmpEnabled(device);
             if (snmpHandledElsewhere && snmpOn) continue;
             var snmpExcl = IsSnmpExcluded(mac);
@@ -848,6 +868,8 @@ public class MonitoringCollectionAgent : BackgroundService
                     timestamp: now);
 
                 _liveStats.RecordHealth(device.Mac, cpu, mem, temp, uptime, now);
+                _rebootTracker.RecordUptimeSample(device.Mac, device.Name, device.DeviceType,
+                    device.Ip, uptime, device.Version, now);
 
                 await _deviceHealthAlertEvaluator.EvaluateAsync(
                     device.Mac, device.Name, DescribeDeviceType(device.DeviceType),
@@ -1983,6 +2005,48 @@ public class MonitoringCollectionAgent : BackgroundService
     /// </summary>
     private static string ResolveSnmpAddress(UniFiDeviceResponse device, string? gatewayLanIp) =>
         Monitoring.SnmpDeviceRules.ResolvePollAddress(device, gatewayLanIp);
+
+    /// <summary>
+    /// Feeds upgrade/provisioning state and offline/recovered alerting for every adopted device.
+    ///
+    /// Deliberately NOT sourced from <see cref="GetMonitorableDevicesAsync"/>: that filters on
+    /// <c>IsMonitorable</c>, which requires the device to be online, so a device that drops does not
+    /// appear there as offline - it disappears from the list altogether, and an offline alert could
+    /// never fire. The raw list is behind the connection service's own 30 s cache, so asking for it
+    /// each medium cycle costs nothing extra.
+    /// </summary>
+    private async Task EvaluateDeviceStatesAsync(CancellationToken ct)
+    {
+        if (!_connectionService.IsConnected || _connectionService.Client == null) return;
+
+        List<UniFiDeviceResponse> all;
+        try
+        {
+            all = await _connectionService.Client.GetDevicesAsync(ct) ?? new List<UniFiDeviceResponse>();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Device state pass: device list fetch failed");
+            return;
+        }
+
+        var now = DateTime.UtcNow;
+        foreach (var device in all)
+        {
+            // Unadopted devices are not ours to alert on.
+            if (!device.Adopted || string.IsNullOrEmpty(device.Mac)) continue;
+            try
+            {
+                _deviceTransitions.Record(_siteSlug, device.Mac, device.State, now);
+                await _deviceStateAlertEvaluator.EvaluateAsync(
+                    device.Mac, device.Name, device.Ip, device.DeviceType, device.State, now, ct);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogDebug(ex, "Device state alert evaluation failed for {Device}", device.Mac);
+            }
+        }
+    }
 
     private async Task<List<UniFiDeviceResponse>> GetMonitorableDevicesAsync(CancellationToken ct)
     {

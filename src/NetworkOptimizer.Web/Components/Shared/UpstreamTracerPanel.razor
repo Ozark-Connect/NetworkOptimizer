@@ -143,7 +143,7 @@
 
                 <div class="form-group">
                     <label class="form-label">Access network technology</label>
-                    <select class="form-control" style="max-width: 250px;@(_state.AccessTechnology == AccessTechnology.Unknown ? " outline: 2px solid rgba(59, 130, 246, 0.5); outline-offset: 2px; border-radius: 6px;" : "")"
+                    <select class="form-control upstream-tech-select @AccessTechAttentionClass"
                             value="@((int)_state.AccessTechnology)"
                             @onchange="OnAccessTechChanged">
                         @foreach (var tech in AccessTechDisplayOrder)
@@ -151,6 +151,14 @@
                             <option value="@((int)tech)">@FormatTechName(tech)</option>
                         }
                     </select>
+                    @if (_state.AccessTechnologyInferred)
+                    {
+                        <p class="form-help upstream-tech-inferred-help">
+                            Guessed from the first upstream device
+                            (@(_state.WanNeighborOuiVendor ?? "its vendor")). Change it if that's wrong -
+                            it sets the thresholds your connection is graded against.
+                        </p>
+                    }
                 </div>
 
                 @if (_state.Traces.Count > 0)
@@ -563,9 +571,22 @@
         _ => "status-active"
     };
 
+    /// <summary>
+    /// Ring on the technology field: blue when nothing is set and the user has to pick one,
+    /// amber when this run guessed it from the upstream device's vendor and wants that
+    /// confirmed. Neither once the value is theirs.
+    /// </summary>
+    private string AccessTechAttentionClass =>
+        _state.AccessTechnologyInferred ? "upstream-tech-inferred"
+        : _state.AccessTechnology == AccessTechnology.Unknown ? "upstream-tech-unset"
+        : "";
+
     private void OnAccessTechChanged(ChangeEventArgs e)
     {
         _state.AccessTechnology = (AccessTechnology)int.Parse((string)e.Value!);
+        // Touching the field is the confirmation the highlight was asking for, whether they
+        // changed the value or re-picked the same one.
+        _state.AccessTechnologyInferred = false;
         Tracer.RecomputeL2NeighborLabel();
     }
 
