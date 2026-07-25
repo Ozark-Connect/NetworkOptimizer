@@ -289,7 +289,7 @@
         setInterval(function() {
             // Clean up orphaned tippy instances (elements that no longer have data-tooltip but still have _tippy)
             // This happens when Blazor reuses elements and removes the data-tooltip attribute
-            document.querySelectorAll('.path-connector, .wireless-icon').forEach(function(el) {
+            document.querySelectorAll('.path-connector, .wireless-icon, .isp-event-badge').forEach(function(el) {
                 if (el._tippy && !el.hasAttribute('data-tooltip')) {
                     el._tippy.destroy();
                 }

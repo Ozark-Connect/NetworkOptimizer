@@ -618,20 +618,34 @@ else
     }
 
     <div class="card isp-health-card">
-        <div class="card-header"><h2 class="card-title">Path &amp; Congestion Events (@EventsWindowLabel(r))</h2></div>
+        <div class="card-header isp-events-header">
+            <h2 class="card-title">Path &amp; Congestion Events (@EventsWindowLabel(r))</h2>
+            <div class="time-range-selector isp-event-filter">
+                <button class="time-btn evt-congestion @(_visibleEventCats.Contains(EventCategory.Congestion) ? "active" : "")" @onclick="e => ToggleEventFilterAsync(EventCategory.Congestion, e)">Congestion</button>
+                <button class="time-btn evt-shift @(_visibleEventCats.Contains(EventCategory.Shift) ? "active" : "")" @onclick="e => ToggleEventFilterAsync(EventCategory.Shift, e)">Path shifts</button>
+                <button class="time-btn evt-change @(_visibleEventCats.Contains(EventCategory.Change) ? "active" : "")" @onclick="e => ToggleEventFilterAsync(EventCategory.Change, e)">Path changes</button>
+            </div>
+        </div>
         <div class="card-body">
-            @{ var timeline = EventTimeline(r).Where(InZoomWindow).ToList(); }
+            @{
+                var allEvents = EventTimeline(r).Where(InZoomWindow).ToList();
+                var timeline = allEvents.Where(CategoryVisible).ToList();
+            }
             @if (timeline.Count == 0)
             {
-                <p class="page-description">@(IsZoomed ? "No congestion events or path shifts in this range. Reset the chart zoom to see the full window." : "No congestion events or path shifts detected in the window.")</p>
+                <p class="page-description">@(allEvents.Count > 0 ? "All events in this range are hidden by the filters above." : IsZoomed ? "No congestion events or path shifts in this range. Reset the chart zoom to see the full window." : "No congestion events or path shifts detected in the window.")</p>
             }
             else
             {
                 <div class="isp-event-timeline">
-                    @foreach (var entry in timeline)
+                    @foreach (var (entry, i) in timeline.Select((e, i) => (e, i)))
                     {
-                        <div class="isp-event-item">
-                            <span class="isp-event-badge @entry.BadgeClass">@entry.Badge</span>
+                        @* Keyed so filter/report re-renders never reuse a badge span across entries -
+                           Tippy caches its content per node, so attribute-swapped reuse shows a stale
+                           tooltip (e.g. a congestion tooltip on a Path shift badge). The index is part
+                           of the key because records compare by value and duplicate keys throw. *@
+                        <div class="isp-event-item" @key="(entry, i)">
+                            <span class="isp-event-badge @entry.BadgeClass" data-tooltip="@entry.BadgeTooltip">@entry.Badge</span>
                             <span class="isp-event-time">@EventTimeLabel(entry.Time)</span>
                             <span class="isp-event-text">@entry.Text</span>
                         </div>
@@ -708,6 +722,15 @@ else
     private bool _autoReloading;
     private bool _showAllIspHops;
     private System.Threading.Timer? _ageTimer;
+
+    // Path & Congestion Events category filters (display-only - scoring is untouched). All on by
+    // default and deliberately NOT persisted, like the date/time filter above: a saved filter would
+    // silently suppress new events on the next visit. Click semantics match the LAN flow map band
+    // chips: all on -> click solos that category, only-it-on -> click restores all, otherwise a
+    // plain toggle.
+    private static readonly EventCategory[] AllEventCategories =
+        { EventCategory.Congestion, EventCategory.Shift, EventCategory.Change };
+    private HashSet<EventCategory> _visibleEventCats = new(AllEventCategories);
 
     // Date/time filter. Never persisted: OnInitializedAsync starts on the live window (the effective
     // auto-computed window, which auto-fallback may have reduced below the configured target), so
@@ -1062,7 +1085,7 @@ else
             _selfRef ??= DotNetObjectReference.Create(this);
             await JS.InvokeVoidAsync("eval",
                 $"(async () => {{ const m = await import('{VersionedJs("/js/isp-health-charts.js")}'); " +
-                $"window.__ispHealthCharts = m; await m.mount('isp-health-asn-chart', {fromArg}, {toArg}); }})();");
+                $"window.__ispHealthCharts = m; await m.mount('isp-health-asn-chart', {fromArg}, {toArg}, {HiddenChartTypesJson()}); }})();");
             // Hand the chart a callback so its drag-zoom can filter the events list to the visible window.
             await JS.InvokeVoidAsync("__ispHealthCharts.setDotNetRef", _selfRef);
         }
@@ -1165,7 +1188,46 @@ else
             ? $"zoomed: {_zoomFrom!.Value.ToLocalTime():MMM d, HH:mm} to {_zoomTo!.Value.ToLocalTime():MMM d, HH:mm}"
             : WindowLabel(r);
 
-    private record TimelineEntry(DateTime Time, string Badge, string BadgeClass, string Text, DateTime? End = null);
+    private enum EventCategory { Congestion, Shift, Change }
+
+    private record TimelineEntry(DateTime Time, string Badge, string BadgeClass, string Text, DateTime? End = null,
+        EventCategory Category = EventCategory.Congestion, string? BadgeTooltip = null);
+
+    private bool CategoryVisible(TimelineEntry e) => _visibleEventCats.Contains(e.Category);
+
+    // Hidden categories as the chart's annotation type names, as a JS array literal for the
+    // mount/setHiddenTypes calls.
+    private string HiddenChartTypesJson()
+    {
+        var hidden = new List<string>();
+        if (!_visibleEventCats.Contains(EventCategory.Congestion)) hidden.Add("'congestion'");
+        if (!_visibleEventCats.Contains(EventCategory.Shift)) hidden.Add("'path-shift'");
+        if (!_visibleEventCats.Contains(EventCategory.Change)) hidden.Add("'unreachable'");
+        return "[" + string.Join(",", hidden) + "]";
+    }
+
+    // Ctrl+Click (Cmd+Click on macOS) bypasses the solo/restore semantics and just toggles the one
+    // category, so a single category can be hidden straight from the all-on state.
+    private async Task ToggleEventFilterAsync(EventCategory cat, MouseEventArgs e)
+    {
+        if (e.CtrlKey || e.MetaKey)
+        {
+            if (!_visibleEventCats.Remove(cat))
+                _visibleEventCats.Add(cat);
+        }
+        else if (_visibleEventCats.Count == AllEventCategories.Length)
+            _visibleEventCats = new HashSet<EventCategory> { cat };
+        else if (_visibleEventCats.Count == 1 && _visibleEventCats.Contains(cat))
+            _visibleEventCats = new HashSet<EventCategory>(AllEventCategories);
+        else if (!_visibleEventCats.Remove(cat))
+            _visibleEventCats.Add(cat);
+
+        if (_chartMounted)
+        {
+            try { await JS.InvokeVoidAsync("eval", $"window.__ispHealthCharts?.setHiddenTypes?.({HiddenChartTypesJson()});"); }
+            catch { /* chart not mounted yet */ }
+        }
+    }
 
     private static IEnumerable<TimelineEntry> EventTimeline(IspHealthReport r)
     {
@@ -1198,22 +1260,25 @@ else
                 && evt.BottleneckHopIp != null
                 ? " and the hops beyond" : "";
             var lead = $"{span} of elevated latency and jitter on {where}{beyond}{load} ({mag}).";
-            var (badge, badgeClass, text) = evt.Disposition switch
+            var (badge, badgeClass, text, tip) = evt.Disposition switch
             {
-                CongestionDisposition.SelfInflicted => ("Loaded Latency", "isp-event-badge-info",
-                    $"{lead} Everything slowed together under load, so the limit was your access link, not one hop - bufferbloat or a congested shared-access network."),
-                CongestionDisposition.ControlPlaneNoise => ("Congestion", "isp-event-badge-info",
-                    $"{lead} Its next hop stayed clean, so this is the hop's own ICMP handling, not a forwarding bottleneck."),
-                CongestionDisposition.Unverifiable => ("Congestion", "isp-event-badge-info",
-                    $"{lead}"),
-                _ when evt.ConfirmedBySibling => ("Congestion", "isp-event-badge-warning",
-                    $"{lead}"),
-                _ when evt.LoadCoincident && evt.CleanParallelPaths > 0 => ("Congestion", "isp-event-badge-warning",
-                    $"{lead} {evt.CleanParallelPaths} other monitored paths stayed clean under the same load, so it was this hop's own capacity, not your access link."),
-                _ => ("Congestion", "isp-event-badge-warning",
-                    $"{lead}")
+                CongestionDisposition.SelfInflicted => ("Loaded Latency", "isp-event-badge-congestion-soft",
+                    $"{lead} Everything slowed together under load, so the limit was your access link, not one hop - bufferbloat or a congested shared-access network.",
+                    (string?)"Latency rose under your own WAN load - likely your access link, not ISP congestion. Shown dimmed."),
+                CongestionDisposition.ControlPlaneNoise => ("Congestion", "isp-event-badge-congestion-soft",
+                    $"{lead} Its next hop stayed clean, so this is the hop's own ICMP handling, not a forwarding bottleneck.",
+                    "This hop deprioritized ping replies while forwarding stayed clean - not confirmed as real congestion. Shown dimmed."),
+                CongestionDisposition.Unverifiable => ("Congestion", "isp-event-badge-congestion-soft",
+                    $"{lead}",
+                    "Seen on one path and couldn't be cross-checked, so it's unconfirmed. Shown dimmed."),
+                _ when evt.ConfirmedBySibling => ("Congestion", "isp-event-badge-congestion",
+                    $"{lead}", null),
+                _ when evt.LoadCoincident && evt.CleanParallelPaths > 0 => ("Congestion", "isp-event-badge-congestion",
+                    $"{lead} {evt.CleanParallelPaths} other monitored paths stayed clean under the same load, so it was this hop's own capacity, not your access link.", null),
+                _ => ("Congestion", "isp-event-badge-congestion",
+                    $"{lead}", null)
             };
-            entries.Add(new TimelineEntry(evt.Start, badge, badgeClass, text, evt.End));
+            entries.Add(new TimelineEntry(evt.Start, badge, badgeClass, text, evt.End, BadgeTooltip: tip));
         }
         foreach (var shift in r.PathShifts)
         {
@@ -1222,15 +1287,16 @@ else
             {
                 var span = shift.UnreachableEnd.HasValue ? FormatDuration(shift.UnreachableEnd.Value - shift.Time) : "the window";
                 var hops = shift.CorrelatedTargetCount > 1 ? $" ({shift.CorrelatedTargetCount} monitored hops)" : "";
-                entries.Add(new TimelineEntry(shift.Time, "Path change", "isp-event-badge-info",
+                entries.Add(new TimelineEntry(shift.Time, "Path change", "isp-event-badge-change",
                     $"{where} went fully unreachable for {span}{hops} - a routing (BGP) change, not access-layer loss. Excluded from the Packet Loss factor; still counted against {where}'s own network grade.",
-                    shift.UnreachableEnd));
+                    shift.UnreachableEnd, EventCategory.Change));
                 continue;
             }
             var direction = shift.Direction == PathShiftDirection.Up ? "up" : "down";
             var correlated = shift.CorrelatedTargetCount > 1 ? $", seen on {shift.CorrelatedTargetCount} paths" : "";
-            entries.Add(new TimelineEntry(shift.Time, "Path shift", "isp-event-badge-info",
-                $"RTT stepped {direction} {Math.Abs(shift.DeltaMs):0.#} ms on {where} ({shift.BeforeMedianMs:0.#} to {shift.AfterMedianMs:0.#} ms){correlated}. BGP or transport fabric change."));
+            entries.Add(new TimelineEntry(shift.Time, "Path shift", "isp-event-badge-shift",
+                $"RTT stepped {direction} {Math.Abs(shift.DeltaMs):0.#} ms on {where} ({shift.BeforeMedianMs:0.#} to {shift.AfterMedianMs:0.#} ms){correlated}. BGP or transport fabric change.",
+                Category: EventCategory.Shift));
         }
         return entries.OrderBy(e => e.Time);
     }
