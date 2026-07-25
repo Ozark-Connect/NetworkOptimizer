@@ -71,11 +71,13 @@ public enum RebootReasonSource
 ///
 /// v2: upgrade evidence outranks a bare clean shutdown, and the pending-upgrade marker is
 /// matched to the boot it explains (switch upgrade reboots were reported as plain restarts).
+/// v3: the marker's boot correlation actually reaches the parser - v2 shipped with the age
+/// section unsplit, so the marker was still being discarded and switches kept reading "Restarted".
 /// </summary>
 public static class RebootClassifier
 {
     /// <summary>Current rule-set version.</summary>
-    public const int Version = 2;
+    public const int Version = 3;
 }
 
 /// <summary>

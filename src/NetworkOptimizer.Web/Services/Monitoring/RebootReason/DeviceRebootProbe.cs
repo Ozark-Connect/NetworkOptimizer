@@ -161,7 +161,8 @@ public class DeviceRebootProbe
             Describe(ConsoleMarker, "console-ramoops"),
             Describe(CrashMarker, "dmesg-ramoops"),
             Describe(RebootLogMarker, "reboot-time.log"),
-            Describe(UpgradeMarker, "post_upgrade_pending"));
+            Describe(UpgradeMarker, "post_upgrade_pending"),
+            $"marker-vs-boot={ParseSeconds(sections.GetValueOrDefault(UpgradeAgeMarker))?.ToString() ?? "unknown"}s");
     }
 
     private static int? ParseSeconds(string? section) =>
@@ -212,7 +213,8 @@ public class DeviceRebootProbe
             var line = raw.TrimEnd('\r');
             var trimmed = line.Trim();
 
-            if (trimmed is PstoreMarker or ConsoleMarker or CrashMarker or RebootLogMarker or UpgradeMarker)
+            if (trimmed is PstoreMarker or ConsoleMarker or CrashMarker or RebootLogMarker
+                or UpgradeMarker or UpgradeAgeMarker)
             {
                 Flush();
                 current = trimmed;
