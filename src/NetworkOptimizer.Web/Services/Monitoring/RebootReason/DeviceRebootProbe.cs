@@ -25,6 +25,7 @@ public class DeviceRebootProbe
     private const string RebootLogMarker = "###REBOOTLOG";
     private const string UpgradeMarker = "###UPGRADE";
     private const string UpgradeAgeMarker = "###UPGRADEAGE";
+    private const string ConsoleRingMarker = "###CONSOLERING";
 
     /// <summary>
     /// One shell line per evidence source, each behind a marker so the reply can be split.
@@ -42,6 +43,10 @@ public class DeviceRebootProbe
         "head -n 12 /sys/fs/pstore/dmesg-ramoops-0 2>/dev/null",
         $"echo '{RebootLogMarker}'",
         "tail -n 2 /var/log/reboot-time.log 2>/dev/null",
+        // Whether this platform writes a console ring at all. Without it an empty pstore is
+        // meaningless; with it, an empty pstore means the RAM was lost, i.e. power was removed.
+        $"echo '{ConsoleRingMarker}'",
+        "grep -o 'ramoops.console_size=[^ ]*' /proc/cmdline 2>/dev/null",
         $"echo '{UpgradeMarker}'",
         "cat /etc/persistent/post_upgrade_pending 2>/dev/null",
         // The marker persists, so its contents alone cannot say which boot it explains. Report its
@@ -124,7 +129,10 @@ public class DeviceRebootProbe
                     ? sections.GetValueOrDefault(UpgradeMarker)
                     : null,
                 markerAgeVsBootSeconds: ParseSeconds(sections.GetValueOrDefault(UpgradeAgeMarker)),
-                firmwareChanged: firmwareChanged));
+                firmwareChanged: firmwareChanged),
+            RebootReasonParser.ParseClearedPstore(
+                sections.GetValueOrDefault(PstoreMarker),
+                consoleRingConfigured: HasContent(sections.GetValueOrDefault(ConsoleRingMarker))));
 
         if (!reason.IsConclusive)
         {
@@ -162,6 +170,7 @@ public class DeviceRebootProbe
             Describe(CrashMarker, "dmesg-ramoops"),
             Describe(RebootLogMarker, "reboot-time.log"),
             Describe(UpgradeMarker, "post_upgrade_pending"),
+            Describe(ConsoleRingMarker, "console-ring-configured"),
             $"marker-vs-boot={ParseSeconds(sections.GetValueOrDefault(UpgradeAgeMarker))?.ToString() ?? "unknown"}s");
     }
 
@@ -214,7 +223,7 @@ public class DeviceRebootProbe
             var trimmed = line.Trim();
 
             if (trimmed is PstoreMarker or ConsoleMarker or CrashMarker or RebootLogMarker
-                or UpgradeMarker or UpgradeAgeMarker)
+                or UpgradeMarker or UpgradeAgeMarker or ConsoleRingMarker)
             {
                 Flush();
                 current = trimmed;

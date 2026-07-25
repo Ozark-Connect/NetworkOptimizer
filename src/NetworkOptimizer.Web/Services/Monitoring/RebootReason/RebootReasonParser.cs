@@ -155,6 +155,38 @@ public static class RebootReasonParser
     }
 
     /// <summary>
+    /// Infer power loss from pstore holding nothing on a device that does write a console ring.
+    ///
+    /// ramoops lives in reserved RAM. A warm reboot preserves it, so the previous run's console
+    /// ring is there; losing power clears it, so the store comes up empty. That makes an empty
+    /// pstore meaningful evidence on its own - and it is the only way a device with no reset
+    /// register (an AP, a modem) can tell power loss apart from a warm restart.
+    ///
+    /// It only holds where the platform actually configures a console ring: a device with no
+    /// <c>ramoops.console_size</c> never writes one, so its empty store says nothing. Verified
+    /// across the fleet: a 5G modem whose boot matches a known outage reads empty with the ring
+    /// configured, APs and switches that rebooted warm each hold a record, and a device bridge
+    /// with no console_size reads empty for the unrelated reason.
+    /// </summary>
+    /// <param name="pstoreListing">Listing of <c>/sys/fs/pstore</c>.</param>
+    /// <param name="consoleRingConfigured">Whether <c>ramoops.console_size</c> is on the kernel command line.</param>
+    public static DeviceRebootReason? ParseClearedPstore(string? pstoreListing, bool consoleRingConfigured)
+    {
+        if (!consoleRingConfigured)
+            return null;
+
+        // Any record at all means the RAM survived, so this inference does not apply.
+        if (NonEmptyLines(pstoreListing).Count > 0)
+            return null;
+
+        return new DeviceRebootReason(
+            RebootCategory.PowerLoss,
+            "Power loss",
+            "No boot records survived in pstore, so the device lost power rather than restarting",
+            RebootReasonSource.PstoreCleared);
+    }
+
+    /// <summary>
     /// Read the upgrade evidence a device leaves outside pstore.
     ///
     /// Switches write <c>/etc/persistent/post_upgrade_pending</c> naming the image they flashed,

@@ -900,12 +900,26 @@ public class AgentProbeResultSink
             // the only uptime feed for them: the server's own medium tier stands down while an
             // agent covers collection, so without this the whole site shows no reasons at all.
             // The probe's SSH reaches the site's devices back through the agent tunnel.
+            // Uptime for reboot detection has its own fallback to the console's cached device
+            // data. The health write above deliberately nulls uptime when SNMP already reported
+            // cpu/mem, which would leave agent sites with no uptime feed at all and therefore no
+            // reboot reasons - the console's value is perfectly good for spotting a restart.
+            var uptimeForReboot = uptime
+                ?? (apiDevice != null ? UniFiDeviceHealthReader.ExtractApiHealth(apiDevice).UptimeSeconds : null);
+
+            if (uptimeForReboot is null or <= 0)
+            {
+                _logger.LogDebug(
+                    "No uptime for {Device} ({Mac}) on site {Slug}: neither the relayed SNMP health nor the console's device data reported one, so no reboot reason can be established",
+                    apiDevice?.Name ?? "unknown", health.DeviceMac, connection.SiteSlug);
+            }
+
             rebootTracker.RecordUptimeSample(
                 health.DeviceMac,
                 apiDevice?.Name,
                 apiDevice?.DeviceType ?? DeviceType.Unknown,
                 apiDevice?.Ip,
-                uptime,
+                uptimeForReboot,
                 apiDevice?.Version,
                 timestamp);
 

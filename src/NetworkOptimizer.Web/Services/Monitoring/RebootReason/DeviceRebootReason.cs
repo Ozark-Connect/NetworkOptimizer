@@ -55,10 +55,17 @@ public enum RebootReasonSource
     DeviceState = 3,
 
     /// <summary>
+    /// Inferred from pstore holding no records on a device whose console ring IS configured:
+    /// the RAM did not survive, so power was removed. Ranks below <see cref="DeviceState"/> so
+    /// upgrade evidence (a flash can also clear the RAM) wins over the inference.
+    /// </summary>
+    PstoreCleared = 4,
+
+    /// <summary>
     /// The UniFi Network event log. Generic and frequently wrong (its "unknown reason" covers
     /// power loss, hangs and panics alike), so it is only used when nothing on the device answers.
     /// </summary>
-    UniFiEvent = 4
+    UniFiEvent = 5
 }
 
 /// <summary>
@@ -75,11 +82,13 @@ public enum RebootReasonSource
 /// section unsplit, so the marker was still being discarded and switches kept reading "Restarted".
 /// v4: firmware strings in the stored detail collapse to the version for both console and switch
 /// marker shapes.
+/// v5: an empty pstore on a platform that configures a console ring is read as power loss, which
+/// is the only power-vs-warm-restart signal available to devices with no reset register.
 /// </summary>
 public static class RebootClassifier
 {
     /// <summary>Current rule-set version.</summary>
-    public const int Version = 4;
+    public const int Version = 5;
 }
 
 /// <summary>

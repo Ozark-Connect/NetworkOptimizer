@@ -191,6 +191,65 @@ public class RebootReasonParserTests
         Assert.Null(RebootReasonParser.ParsePstore(pstoreListing: "", consoleTail: null));
     }
 
+    /// <summary>
+    /// A 5G modem (IPQ, ramoops.console_size configured) whose pstore came up empty, booting at the
+    /// site's known power outage. The RAM did not survive, so power was removed.
+    /// </summary>
+    [Fact]
+    public void ClearedPstore_RingConfiguredButEmpty_IsPowerLoss()
+    {
+        var reason = RebootReasonParser.ParseClearedPstore("", consoleRingConfigured: true);
+
+        Assert.Equal(RebootCategory.PowerLoss, reason!.Category);
+        Assert.Equal(RebootReasonSource.PstoreCleared, reason.Source);
+        Assert.True(reason.IsUnexpected);
+    }
+
+    /// <summary>
+    /// A device bridge with no ramoops.console_size never writes a ring, so its empty pstore is
+    /// not evidence of anything.
+    /// </summary>
+    [Fact]
+    public void ClearedPstore_NoRingConfigured_InfersNothing()
+    {
+        Assert.Null(RebootReasonParser.ParseClearedPstore("", consoleRingConfigured: false));
+    }
+
+    [Fact]
+    public void ClearedPstore_RecordSurvived_InfersNothing()
+    {
+        Assert.Null(RebootReasonParser.ParseClearedPstore("console-ramoops-0", consoleRingConfigured: true));
+    }
+
+    /// <summary>
+    /// A firmware flash can also clear the RAM, so upgrade evidence must outrank the inference.
+    /// </summary>
+    [Fact]
+    public void Best_UpgradeEvidenceOutranksClearedPstore()
+    {
+        var cleared = RebootReasonParser.ParseClearedPstore("", consoleRingConfigured: true);
+        var upgrade = RebootReasonParser.ParseDeviceState("US3.rtl93xx_7.5.6+17090", -90, false);
+
+        var best = RebootReasonParser.Best(cleared, upgrade);
+
+        Assert.Equal(RebootCategory.FirmwareUpgrade, best.Category);
+    }
+
+    /// <summary>
+    /// A surviving console ring is the better evidence, so it must win over the inference even
+    /// though both are conclusive.
+    /// </summary>
+    [Fact]
+    public void Best_SurvivingRingOutranksClearedPstore()
+    {
+        var ring = RebootReasonParser.ParsePstore("console-ramoops-0", "[ 5.4] reboot: Restarting system");
+        var cleared = RebootReasonParser.ParseClearedPstore("", consoleRingConfigured: true);
+
+        var best = RebootReasonParser.Best(cleared, ring);
+
+        Assert.Equal(RebootCategory.CommandedReboot, best.Category);
+    }
+
     [Fact]
     public void DeviceState_FirmwareChanged_IsFirmwareUpgrade()
     {

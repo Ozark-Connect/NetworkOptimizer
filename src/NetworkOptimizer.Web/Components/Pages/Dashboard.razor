@@ -285,6 +285,8 @@
 
         // Fire and forget - page renders immediately with spinners, data loads in background
         _ = LoadAllDataAsync();
+
+        StartDeviceRefreshTimer();
     }
 
     private RenderFragment RenderCard(string cardId) => cardId switch
@@ -1148,6 +1150,7 @@
         NavigationManager.LocationChanged -= OnLocationChanged;
         ConnectionService.OnConnectionChanged -= OnConnectionChanged;
         _toastTimer?.Dispose();
+        _deviceRefreshTimer?.Dispose();
     }
 
     private async Task LoadSpeedTestData()
@@ -1179,9 +1182,34 @@
         finally { _wanTestLoading = false; }
     }
 
-    private async Task LoadDashboardData()
+    // Matches UniFiConnectionService's device cache duration: refreshing faster would re-render
+    // the same cached devices, refreshing slower would leave the card staler than the data is.
+    private static readonly TimeSpan DeviceRefreshInterval = TimeSpan.FromSeconds(30);
+    private System.Threading.Timer? _deviceRefreshTimer;
+
+    /// <summary>
+    /// Keeps Device Status current while the user sits on the page. Refreshes without the loading
+    /// flag so the card updates in place instead of flashing its spinner every cycle.
+    /// </summary>
+    private void StartDeviceRefreshTimer()
     {
-        _loading = true;
+        _deviceRefreshTimer = new System.Threading.Timer(async _ =>
+        {
+            try
+            {
+                await InvokeAsync(async () =>
+                {
+                    await LoadDashboardData(showLoading: false);
+                    StateHasChanged();
+                });
+            }
+            catch { /* component disposed or circuit gone - never let the timer die */ }
+        }, null, DeviceRefreshInterval, DeviceRefreshInterval);
+    }
+
+    private async Task LoadDashboardData(bool showLoading = true)
+    {
+        if (showLoading) _loading = true;
         try
         {
             var data = await DashboardService.GetDashboardDataAsync();
@@ -1197,7 +1225,7 @@
             _wifiHealthGrade = data.WiFiHealthGrade;
             _wifiHealthIssues = data.WiFiHealthIssues;
         }
-        finally { _loading = false; }
+        finally { if (showLoading) _loading = false; }
     }
 
     private async Task OnAlertDismissed()
