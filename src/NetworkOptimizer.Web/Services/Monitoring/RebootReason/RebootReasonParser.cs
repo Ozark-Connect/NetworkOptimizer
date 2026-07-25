@@ -324,19 +324,27 @@ public static class RebootReasonParser
     }
 
     /// <summary>
-    /// Reduce a console firmware string to the part an operator reads. UniFi OS reports builds as
-    /// <c>UXGA6AA.ipq9574.v5.1.26.0bc0fe4.260716.1128</c>; the platform, git hash and build stamp
-    /// only make a tooltip unreadable, so keep the version.
+    /// Reduce a firmware string to the part an operator reads. The platform, git hash and build
+    /// stamp only make a tooltip unreadable. Both shapes in the fleet collapse to the version:
+    /// consoles report <c>UXGA6AA.ipq9574.v5.1.26.0bc0fe4.260716.1128</c> and the switch upgrade
+    /// marker reports <c>US3.rtl93xx_7.5.6+17090.260622.0846</c>; both become <c>5.1.26</c> /
+    /// <c>7.5.6</c>.
     /// </summary>
     internal static string ShortenFirmware(string firmware)
     {
         if (string.IsNullOrWhiteSpace(firmware))
             return firmware;
 
-        // v<major>.<minor>[.<patch>...]. The trailing lookahead stops the match running into the
-        // git hash: in "v5.1.26.0bc0fe4" the ".0" is the start of the hash, not a version part.
-        var match = Regex.Match(firmware, @"v(\d+(?:\.\d+)+)(?![0-9A-Za-z])", RegexOptions.IgnoreCase);
-        return match.Success ? match.Groups[1].Value : firmware;
+        // Three components is the version everywhere in the fleet; anything after it is build
+        // metadata, whatever separator it uses.
+        var threePart = Regex.Match(firmware, @"(\d+\.\d+\.\d+)");
+        if (threePart.Success)
+            return threePart.Groups[1].Value;
+
+        // Two-component versions exist on older builds. The lookahead keeps the match off a git
+        // hash: in "v5.1.b3a286b" the trailing part is not a version component.
+        var twoPart = Regex.Match(firmware, @"v?(\d+\.\d+)(?![0-9A-Za-z])", RegexOptions.IgnoreCase);
+        return twoPart.Success ? twoPart.Groups[1].Value : firmware;
     }
 
     private static string? LastNonEmptyLine(string? text) =>

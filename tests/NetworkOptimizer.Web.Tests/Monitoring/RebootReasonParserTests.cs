@@ -55,7 +55,9 @@ public class RebootReasonParserTests
     [InlineData("UXGA6AA.ipq9574.v5.1.26.0bc0fe4.260716.1128", "5.1.26")]
     [InlineData("UXGA6AA.ipq9574.v5.0.10.d29afb8.251229.1655", "5.0.10")]
     [InlineData("v7.5.6", "7.5.6")]
-    [InlineData("7.5.6.17090", "7.5.6.17090")]
+    [InlineData("7.5.6.17090", "7.5.6")]
+    [InlineData("US3.rtl93xx_7.5.6+17090.260622.0846", "7.5.6")]
+    [InlineData("UM.rtl838x_7.5.6+17090.260622.0842", "7.5.6")]
     public void ShortenFirmware_KeepsOnlyTheVersion(string firmware, string expected)
     {
         Assert.Equal(expected, RebootReasonParser.ShortenFirmware(firmware));

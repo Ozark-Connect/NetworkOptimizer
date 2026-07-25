@@ -73,11 +73,13 @@ public enum RebootReasonSource
 /// matched to the boot it explains (switch upgrade reboots were reported as plain restarts).
 /// v3: the marker's boot correlation actually reaches the parser - v2 shipped with the age
 /// section unsplit, so the marker was still being discarded and switches kept reading "Restarted".
+/// v4: firmware strings in the stored detail collapse to the version for both console and switch
+/// marker shapes.
 /// </summary>
 public static class RebootClassifier
 {
     /// <summary>Current rule-set version.</summary>
-    public const int Version = 3;
+    public const int Version = 4;
 }
 
 /// <summary>
