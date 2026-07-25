@@ -13,6 +13,8 @@
 @inject ISqmService SqmService
 @inject SiteContextService SiteContext
 @inject SiteTunnelRouting TunnelRouting
+@inject GatewayDiagnosticsService GatewayDiagnostics
+@inject NetworkOptimizer.Web.Services.Ssh.IGatewaySshService GatewaySsh
 
 <PageTitle>Network Tools - Network Optimizer</PageTitle>
 
@@ -23,6 +25,8 @@
         Run ping or traceroute from any vantage to any target. Picking a UniFi device
         as the source runs the probe over SSH on that device, which lets you isolate
         whether a problem is on the server's path or on a specific link of your LAN.
+        You can also read an interface straight off the gateway - addresses and DHCP
+        lease, SFP module diagnostics, and resolved neighbors.
     </p>
 </div>
 
@@ -30,7 +34,7 @@
 {
     <div class="alert alert-warning">
         This site's probes run through its on-site agent, which isn't connected right now.
-        Ping and traceroute can resume when the agent reconnects.
+        Ping, traceroute, and reading a gateway interface can resume when the agent reconnects.
     </div>
 }
 
@@ -246,6 +250,243 @@
     </div>
 }
 
+@if (_hasGateway)
+{
+    <div class="card" style="margin-top: 1.5rem;">
+        <div class="card-header">
+            <h2 class="card-title">Inspect a gateway interface</h2>
+        </div>
+        <div class="card-body">
+            <p class="page-description" style="margin-top: 0;">
+                Read-only detail straight off the gateway: the interface's addresses and, on a
+                DHCP WAN, how long the ISP lease has left; the SFP module's transceiver and
+                diagnostic readings; and the neighbors it has resolved on the link. Nothing here
+                changes gateway state or disturbs the connection.
+            </p>
+
+            @if (!_gatewaySshConfigured)
+            {
+                <div class="alert alert-warning">
+                    Gateway SSH isn't configured, so Network Optimizer can't read these.
+                    Set it up in <a href="/settings#gateway-ssh">Settings &gt; Gateway SSH</a>.
+                </div>
+            }
+
+            <div class="form-group">
+                <label class="form-label">Interface</label>
+                <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+                    <select class="form-control" style="max-width: 320px;" @onchange="OnDiagInterfacePresetChange">
+                        <option value="">Custom interface</option>
+                        @if (_wanInterfaces.Any())
+                        {
+                            <optgroup label="WAN">
+                                @foreach (var wan in _wanInterfaces)
+                                {
+                                    var wanLabel = !string.IsNullOrEmpty(wan.NetworkGroup)
+                                        ? $"{wan.Name} ({wan.NetworkGroup}) - {wan.Interface}"
+                                        : $"{wan.Name} - {wan.Interface}";
+                                    <option value="@wan.Interface" selected="@(wan.Interface == _diagInterface)">@wanLabel</option>
+                                }
+                            </optgroup>
+                        }
+                    </select>
+                    <input type="text" class="form-control" @bind="_diagInterface"
+                           placeholder="eth4" style="flex: 1; min-width: 180px;" />
+                </div>
+                <p class="form-help">
+                    Pick a WAN to see its ISP lease, or type any interface on the gateway
+                    (an SFP port, a LAN bridge) to inspect it.
+                </p>
+            </div>
+
+            @if (!string.IsNullOrEmpty(_diagError))
+            {
+                <div class="alert alert-danger">@_diagError</div>
+            }
+
+            <div class="action-buttons" style="margin-top: 1rem;">
+                <button class="btn btn-primary" @onclick="RunGatewayDiagnostics"
+                        disabled="@(_diagRunning || !CanRunDiagnostics)">
+                    @if (_diagRunning) { <span class="spinner-sm"></span> <span>Reading...</span> }
+                    else { <span>Read interface</span> }
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_diagResult?.InterfaceInfo != null)
+{
+    var iface = _diagResult.InterfaceInfo;
+    <div class="card" style="margin-top: 1.5rem;">
+        <div class="card-header">
+            <h2 class="card-title">Addresses and DHCP lease</h2>
+            <span class="status-badge @(string.Equals(iface.State, "UP", StringComparison.OrdinalIgnoreCase) ? "status-connected" : "status-error")">
+                @iface.Name · @(iface.State ?? "unknown")
+            </span>
+        </div>
+        <div class="card-body">
+            <div class="form-group">
+                <label class="form-label">Link</label>
+                <div class="form-value">
+                    @(iface.MacAddress ?? "-")
+                    @if (iface.Mtu.HasValue) { <span> · MTU @iface.Mtu</span> }
+                    @if (!string.IsNullOrEmpty(iface.DefaultGateway)) { <span> · default via @iface.DefaultGateway</span> }
+                </div>
+            </div>
+            @if (iface.Addresses.Count == 0)
+            {
+                <p class="page-description">No addresses configured on this interface.</p>
+            }
+            else
+            {
+                <div class="table-responsive">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Address</th>
+                            <th>Subnet</th>
+                            <th>Assignment</th>
+                            <th>Lease remaining</th>
+                            <th>Expires</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var addr in iface.Addresses)
+                        {
+                            <tr>
+                                <td>@addr.Cidr</td>
+                                <td>@(addr.SubnetMask ?? (addr.PrefixLength.HasValue ? $"/{addr.PrefixLength}" : "-"))</td>
+                                <td>@AssignmentLabel(addr)</td>
+                                <td>@LeaseRemainingLabel(addr)</td>
+                                <td>@LeaseExpiryLabel(addr, _diagResult.CollectedAt)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+                </div>
+                <p class="form-help">
+                    A dynamic address is a DHCP lease; the gateway renews it around halfway
+                    through. The remaining time is how long the address stays valid if no renewal
+                    succeeds.
+                </p>
+            }
+        </div>
+    </div>
+}
+else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError))
+{
+    <div class="card" style="margin-top: 1.5rem;">
+        <div class="card-header"><h2 class="card-title">Addresses and DHCP lease</h2></div>
+        <div class="card-body">
+            <div class="alert alert-warning">@_diagResult.InterfaceError</div>
+        </div>
+    </div>
+}
+
+@if (_diagResult != null)
+{
+    <div class="card" style="margin-top: 1.5rem;">
+        <div class="card-header"><h2 class="card-title">SFP module</h2></div>
+        <div class="card-body">
+            @if (_diagResult.SfpModule != null)
+            {
+                <div class="table-responsive">
+                <table class="data-table">
+                    <tbody>
+                        @foreach (var field in _diagResult.SfpModule.Highlights())
+                        {
+                            <tr>
+                                <td class="detail-label">@field.Name</td>
+                                <td class="detail-value">@field.Value</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+                </div>
+                <details class="setup-guide" style="margin-top: 1rem;">
+                    <summary>All transceiver fields</summary>
+                    <div class="setup-guide-content">
+                        <div class="table-responsive">
+                        <table class="data-table">
+                            <tbody>
+                                @foreach (var field in _diagResult.SfpModule.Fields)
+                                {
+                                    <tr>
+                                        <td class="detail-label">@field.Name</td>
+                                        <td class="detail-value">@field.Value</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                        </div>
+                    </div>
+                </details>
+            }
+            else
+            {
+                <p class="page-description">@(_diagResult.SfpError ?? "No transceiver data for this interface.")</p>
+            }
+        </div>
+    </div>
+
+    <div class="card" style="margin-top: 1.5rem;">
+        <div class="card-header"><h2 class="card-title">Neighbors</h2></div>
+        <div class="card-body">
+            @if (_diagResult.Neighbors.Count > 0)
+            {
+                <div class="table-responsive">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Address</th>
+                            <th>MAC</th>
+                            <th class="hide-mobile">Vendor</th>
+                            <th>State</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var neighbor in _diagResult.Neighbors)
+                        {
+                            <tr>
+                                <td>@neighbor.IpAddress</td>
+                                <td>@(neighbor.MacAddress ?? "-")</td>
+                                <td class="hide-mobile">@(neighbor.Vendor ?? "-")</td>
+                                <td>
+                                    @(neighbor.State ?? "-")
+                                    @if (neighbor.IsRouter)
+                                    {
+                                        <span class="status-badge status-active" style="margin-left: 0.4rem;">router</span>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+                </div>
+            }
+            else
+            {
+                <p class="page-description">@(_diagResult.NeighborError ?? "No neighbors in the table for this interface.")</p>
+            }
+
+            @if (_diagResult.RawOutput.Count > 0)
+            {
+                <details class="setup-guide" style="margin-top: 1.25rem;">
+                    <summary>Raw command output</summary>
+                    <div class="setup-guide-content">
+                        @foreach (var entry in _diagResult.RawOutput)
+                        {
+                            <p><strong>@entry.Key</strong></p>
+                            <pre class="gateway-diag-raw">@(string.IsNullOrWhiteSpace(entry.Value) ? "(no output)" : entry.Value.Trim())</pre>
+                        }
+                    </div>
+                </details>
+            }
+        </div>
+    </div>
+}
+
 @code {
     private string _fromKey = "server"; // "server" or "device:{mac}"
     private string _targetAddress = "1.1.1.1";
@@ -264,6 +505,19 @@
 
     private PingProbeResult? _pingResult;
     private TracerouteResult? _traceResult;
+
+    // Gateway interface diagnostics. The section only exists when the site has a gateway,
+    // since every command it runs is gateway-only; the SSH check drives the "configure
+    // credentials" hint rather than hiding the section, so the user can see what it offers.
+    private bool _hasGateway;
+    private bool _gatewaySshConfigured;
+    private string _diagInterface = "";
+    private GatewayDiagnosticsResult? _diagResult;
+    private bool _diagRunning;
+    private string? _diagError;
+
+    private bool CanRunDiagnostics =>
+        _gatewaySshConfigured && !_siteAgentOffline && !string.IsNullOrWhiteSpace(_diagInterface);
 
     private bool CanRun => !string.IsNullOrWhiteSpace(_targetAddress) && !_sshCredentialsMissing;
 
@@ -284,7 +538,8 @@
         var capTask = LocalProbe.GetCapabilityAsync();
         var devicesTask = LoadDevicesAsync();
         var wanTask = LoadWanInterfacesAsync();
-        await Task.WhenAll(capTask, devicesTask, wanTask);
+        var gatewaySshTask = LoadGatewaySshStateAsync();
+        await Task.WhenAll(capTask, devicesTask, wanTask, gatewaySshTask);
         _localCapabilities = capTask.Result.Describe();
         _consoleDataLoaded = ConnectionService.IsConnected;
 
@@ -355,6 +610,7 @@
                 .OrderBy(d => d.Type)
                 .ThenBy(d => d.Name)
                 .ToList() ?? new();
+            _hasGateway = _devices.Any(d => d.Type == DeviceType.Gateway);
         }
         catch { _devices = new(); }
     }
@@ -365,9 +621,80 @@
         {
             if (!ConnectionService.IsConnected) return;
             _wanInterfaces = await SqmService.GetWanInterfacesFromControllerAsync();
+            // Start on the primary WAN: the lease countdown that prompted this is a WAN
+            // question, and it saves typing an interface name nobody memorizes.
+            if (string.IsNullOrEmpty(_diagInterface))
+                _diagInterface = _wanInterfaces.OrderBy(w => w.WanIndex).FirstOrDefault()?.Interface ?? "";
         }
         catch { _wanInterfaces = new(); }
     }
+
+    /// <summary>
+    /// Whether gateway SSH is usable, which is what the diagnostics run needs. Only reads
+    /// the saved settings - it never opens a connection, so loading the page costs nothing.
+    /// </summary>
+    private async Task LoadGatewaySshStateAsync()
+    {
+        try
+        {
+            var settings = await GatewaySsh.GetSettingsAsync();
+            _gatewaySshConfigured = settings.Enabled
+                && !string.IsNullOrEmpty(settings.Username)
+                && settings.HasCredentials;
+        }
+        catch { _gatewaySshConfigured = false; }
+    }
+
+    private void OnDiagInterfacePresetChange(ChangeEventArgs e)
+    {
+        var value = e.Value?.ToString() ?? string.Empty;
+        // The blank "Custom interface" option leaves whatever is typed in the box alone.
+        if (!string.IsNullOrEmpty(value)) _diagInterface = value;
+    }
+
+    private async Task RunGatewayDiagnostics()
+    {
+        _diagRunning = true;
+        _diagError = null;
+        _diagResult = null;
+        StateHasChanged();
+        try
+        {
+            var result = await GatewayDiagnostics.RunAsync(_diagInterface.Trim());
+            if (!string.IsNullOrEmpty(result.RunError))
+                _diagError = result.RunError;
+            else
+                _diagResult = result;
+        }
+        catch (Exception ex)
+        {
+            _diagError = $"Couldn't read the interface: {ex.Message}";
+        }
+        finally
+        {
+            _diagRunning = false;
+            StateHasChanged();
+        }
+    }
+
+    /// <summary>How the address got there: a DHCP lease, or configured by hand.</summary>
+    private static string AssignmentLabel(GatewayInterfaceAddress addr) =>
+        addr.IsDynamic ? "DHCP" : "Static";
+
+    /// <summary>
+    /// Time left on the lease. A static address (or an IPv6 address with an infinite
+    /// lifetime) reports "forever" rather than a countdown, so it reads as "never expires".
+    /// </summary>
+    private static string LeaseRemainingLabel(GatewayInterfaceAddress addr) =>
+        addr.ValidLifetime is TimeSpan span
+            ? TimeFormatHelper.FormatDuration(span)
+            : "Never expires";
+
+    /// <summary>Absolute local expiry, counted from when the commands actually ran.</summary>
+    private static string LeaseExpiryLabel(GatewayInterfaceAddress addr, DateTime collectedAtUtc) =>
+        addr.ValidLifetime is TimeSpan span
+            ? collectedAtUtc.Add(span).ToLocalTime().ToString("MMM d, yyyy HH:mm")
+            : "-";
 
     private void OnVantageChanged(ChangeEventArgs e)
     {

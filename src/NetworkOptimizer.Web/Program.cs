@@ -610,6 +610,9 @@ builder.Services.AddSingleton<NetworkOptimizer.Monitoring.Probes.LocalProbeExecu
 builder.Services.AddSingleton<NetworkOptimizer.Monitoring.Probes.IProbeExecutor>(
     sp => sp.GetRequiredService<NetworkOptimizer.Monitoring.Probes.LocalProbeExecutor>());
 builder.Services.AddScoped<NetworkOptimizer.Web.Services.Monitoring.ProbeExecutorFactory>();
+// Read-only gateway interface diagnostics (Network Tools). Scoped because it runs through
+// the current site's gateway SSH service.
+builder.Services.AddScoped<NetworkOptimizer.Web.Services.Monitoring.GatewayDiagnosticsService>();
 // Collection agents — drive SNMP polling on the three-tier cadence, write to InfluxDB.
 // Idle while monitoring is disabled or unconfigured; activate once both SNMP detection
 // succeeds and InfluxDB is reachable. One instance per site, owned by the registry

@@ -7236,6 +7236,16 @@ a.path-hop.hop-clickable:hover {
     font-size: 0.85em;
 }
 
+.gateway-diag-raw {
+    background: var(--bg-primary);
+    padding: 0.75rem;
+    border-radius: var(--border-radius);
+    overflow-x: auto;
+    max-width: 100%;
+    margin: 0.35rem 0 1rem;
+    font-size: 0.8125rem;
+}
+
 /* Audit page table minimum widths for mobile */
 @media (max-width: 768px) {
     .port-table {
