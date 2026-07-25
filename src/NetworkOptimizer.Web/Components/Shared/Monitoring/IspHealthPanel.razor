@@ -7,6 +7,7 @@
 @inject IJSRuntime JS
 @inject Microsoft.AspNetCore.Mvc.ViewFeatures.IFileVersionProvider FileVersionProvider
 @inject NetworkOptimizer.Web.Services.PullToRefreshState PtrState
+@inject NetworkOptimizer.Web.Services.ISystemSettingsService SettingsService
 
 @* Date/time filter (left) + Refresh. The live/cached view (the effective auto-computed window, which
    auto-fallback may have reduced below the configured target) is the only state where Refresh is
@@ -248,6 +249,13 @@ else
     </div>
     }
 
+    @* Sits below the hero in both states - a recompute swaps the hero for a spinner, and
+       the hint blinking in and out with it would read as a glitch. *@
+    @if (!_planHintDismissed)
+    {
+        <IspPlanSpeedHint OnDismiss="DismissPlanHintAsync" />
+    }
+
     @if (r.Issues.Count > 0)
     {
         <div class="card isp-health-card">
@@ -456,6 +464,12 @@ else
                                  && !(factor.Name == "Physical Link" && r.PhysicalLinkCandidates.Count > 1))
                             {
                                 <div class="isp-factor-description">@factor.Description</div>
+                            }
+                            @* Same hint as under the hero, at the factor that actually grades
+                               against the plan; one dismissal clears both. *@
+                            @if (factor.Name == "Speed vs Plan" && !_planHintDismissed)
+                            {
+                                <IspPlanSpeedHint Compact="true" OnDismiss="DismissPlanHintAsync" />
                             }
                             @if (factor.Name == "Physical Link" && r.PhysicalLinkCandidates.Count > 1)
                             {
@@ -717,6 +731,11 @@ else
 
     private IspHealthReport? _report;
     private bool _loading = true;
+
+    // "Where do the plan speeds come from" hint. Starts hidden so it can't flash in and then
+    // vanish for someone who already dismissed it; the load below reveals it if they haven't.
+    // The dismissal is global rather than per-site: it's operator knowledge, not site state.
+    private bool _planHintDismissed = true;
     private bool _chartMounted;
     private bool _refreshing;
     private bool _autoReloading;
@@ -846,6 +865,8 @@ else
         // Highlight the button for the effective (possibly auto-reduced) live window.
         if (_followLive) _selectedPreset = LiveWindowHours;
 
+        await LoadPlanHintStateAsync();
+
         // Re-render every 30 s so "Last updated: N min ago" ages on its own, and - on the live
         // 48 h view - pull the latest cached snapshot so the tab follows the background recompute
         // instead of sitting on a stale "Last updated" until a manual refresh.
@@ -883,6 +904,38 @@ else
         }
         // Follow a background auto-fallback: keep the live button on the effective window.
         if (_followLive) _selectedPreset = LiveWindowHours;
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// Reads the persisted dismissal for the plan-speed hint. A read failure leaves the hint
+    /// hidden: a nag that can't remember being dismissed is worse than one nobody sees.
+    /// </summary>
+    private async Task LoadPlanHintStateAsync()
+    {
+        try
+        {
+            var dismissed = await SettingsService.GetGlobalAsync(SystemSettingKeys.IspPlanSpeedHintDismissed);
+            _planHintDismissed = string.Equals(dismissed, "true", StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            _planHintDismissed = true;
+        }
+    }
+
+    /// <summary>Hides the hint everywhere it appears and remembers that across sites and sessions.</summary>
+    private async Task DismissPlanHintAsync()
+    {
+        _planHintDismissed = true;
+        try
+        {
+            await SettingsService.SetGlobalAsync(SystemSettingKeys.IspPlanSpeedHintDismissed, "true");
+        }
+        catch
+        {
+            // Hidden for this session regardless; it comes back next visit if the write failed.
+        }
         StateHasChanged();
     }
 

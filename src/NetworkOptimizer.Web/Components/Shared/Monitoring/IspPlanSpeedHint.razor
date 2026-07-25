@@ -1,0 +1,44 @@
+@*
+    Says where the ISP plan speeds ISP Health grades against actually come from. The hero's
+    Speed vs Plan block became a link to WAN Speed Test, which made "Plan" read as something
+    Network Optimizer holds; it is read from the console, and this is the only pointer to
+    where it can be changed.
+
+    Shown in two places (under the hero and under the Access Layer Speed vs Plan factor)
+    from one dismissal, which the panel owns and persists - see IspHealthPanel.
+*@
+@if (Compact)
+{
+    <div class="isp-plan-hint-compact">
+        <span>@HintText</span>
+        <a href="javascript:void(0)" @onclick="OnDismiss">Got it</a>
+    </div>
+}
+else
+{
+    <div class="alert alert-info" style="margin-bottom: 0.75rem;">
+        <div class="banner-content">
+            <span class="banner-icon banner-icon-info">i</span>
+            <div class="banner-text" style="flex: 1;">@HintText</div>
+            <div class="banner-actions">
+                <button class="btn btn-sm btn-secondary" @onclick="OnDismiss">Got it</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    /// <summary>
+    /// Renders the tight one-line form for placement inside a scorecard, instead of the
+    /// full-width banner used above the hero.
+    /// </summary>
+    [Parameter] public bool Compact { get; set; }
+
+    /// <summary>Raised when the user dismisses; the panel persists it for both placements.</summary>
+    [Parameter] public EventCallback OnDismiss { get; set; }
+
+    private const string HintText =
+        "Your plan speeds come from the console: UniFi Network > Settings > Internet, "
+        + "select your WAN, then Expected ISP Speeds. ISP Health grades measured throughput "
+        + "against whatever is set there.";
+}

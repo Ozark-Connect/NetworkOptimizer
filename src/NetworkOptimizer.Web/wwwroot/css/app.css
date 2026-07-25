@@ -16847,6 +16847,21 @@ a.isp-health-hero-speed:hover {
     color: var(--text-muted);
 }
 
+.isp-plan-hint-compact {
+    margin-top: 0.4rem;
+    padding: 0.5rem 0.6rem;
+    border-left: 2px solid var(--info-color);
+    background: var(--bg-tertiary);
+    border-radius: var(--border-radius);
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+}
+
+.isp-plan-hint-compact a {
+    margin-left: 0.4rem;
+    white-space: nowrap;
+}
+
 .isp-asn-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
