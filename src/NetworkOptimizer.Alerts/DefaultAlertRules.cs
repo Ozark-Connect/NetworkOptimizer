@@ -43,15 +43,25 @@ public static class DefaultAlertRules
             CooldownSeconds = 0
         },
 
-        // --- Device monitoring (disabled - can be noisy until user configures which devices matter) ---
+        // --- Device monitoring (enabled - these only fire for changes nobody asked for: the
+        // evaluators stay silent while UniFi reports a device upgrading or provisioning) ---
         new AlertRule
         {
             Name = "Device Offline",
-            IsEnabled = false,
+            IsEnabled = true,
             EventTypePattern = "device.offline",
             Source = "device",
             MinSeverity = AlertSeverity.Error,
-            CooldownSeconds = 300 // 5 minutes
+            CooldownSeconds = 1800 // 30 minutes - the evaluator fires once per outage
+        },
+        new AlertRule
+        {
+            Name = "Device Recovered",
+            IsEnabled = true,
+            EventTypePattern = "device.recovered",
+            Source = "device",
+            MinSeverity = AlertSeverity.Info,
+            CooldownSeconds = 60 // 1 minute - recoveries are paired with offline events
         },
         // Reboot reasons are published Info for a restart someone meant (commanded, firmware
         // upgrade) and Warning for one nobody did (power loss, hang, panic, watchdog). Seeded at

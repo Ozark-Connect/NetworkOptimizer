@@ -572,6 +572,9 @@ builder.Services.AddSingleton<MonitoringLiveStatsRegistry>();
 builder.Services.AddScoped(sp => sp.GetRequiredService<MonitoringLiveStatsRegistry>()
     .GetFor(sp.GetRequiredService<SiteContextService>().Slug));
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.WanSummaryCache>();
+// Devices UniFi reports as upgrading/provisioning, so the offline path can stay quiet for a
+// restart that was asked for. Site-keyed internally, hence one singleton rather than a registry.
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.DeviceTransitionTracker>();
 // Per-site device reboot trackers: the collection tier feeds uptime samples in, the
 // dashboard reads the reason behind each device's current boot back out.
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.RebootReason.DeviceRebootRegistry>();

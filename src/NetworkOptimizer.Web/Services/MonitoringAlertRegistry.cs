@@ -26,7 +26,8 @@ public class MonitoringAlertRegistry
         CableModemAlertEvaluator CableModem,
         OntAlertEvaluator Ont,
         CellularAlertEvaluator Cellular,
-        DeviceRebootAlertEvaluator DeviceReboot);
+        DeviceRebootAlertEvaluator DeviceReboot,
+        DeviceStateAlertEvaluator DeviceState);
 
     private readonly IServiceProvider _serviceProvider;
     private readonly ConcurrentDictionary<string, SiteAlertEvaluators> _instances = new();
@@ -50,7 +51,8 @@ public class MonitoringAlertRegistry
                 ActivatorUtilities.CreateInstance<CableModemAlertEvaluator>(_serviceProvider, s, bus),
                 ActivatorUtilities.CreateInstance<OntAlertEvaluator>(_serviceProvider, s, bus),
                 ActivatorUtilities.CreateInstance<CellularAlertEvaluator>(_serviceProvider, s, bus),
-                ActivatorUtilities.CreateInstance<DeviceRebootAlertEvaluator>(_serviceProvider, s, bus));
+                ActivatorUtilities.CreateInstance<DeviceRebootAlertEvaluator>(_serviceProvider, s, bus),
+                ActivatorUtilities.CreateInstance<DeviceStateAlertEvaluator>(_serviceProvider, s, bus));
         });
 
     /// <summary>The default site's evaluators.</summary>

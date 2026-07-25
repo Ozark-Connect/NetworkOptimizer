@@ -27,6 +27,7 @@ public class AgentProbeResultSink
     private readonly MonitoringLiveStatsRegistry _liveStatsRegistry;
     private readonly Monitoring.RebootReason.DeviceRebootRegistry _rebootRegistry;
     private readonly SiteConnectionRegistry _siteConnections;
+    private readonly Monitoring.DeviceTransitionTracker _deviceTransitions;
     private readonly MonitoringAlertRegistry _alertRegistry;
     private readonly ICredentialProtectionService _credentialProtection;
     private readonly ILogger<AgentProbeResultSink> _logger;
@@ -96,6 +97,7 @@ public class AgentProbeResultSink
         MonitoringLiveStatsRegistry liveStatsRegistry,
         Monitoring.RebootReason.DeviceRebootRegistry rebootRegistry,
         SiteConnectionRegistry siteConnections,
+        Monitoring.DeviceTransitionTracker deviceTransitions,
         MonitoringAlertRegistry alertRegistry,
         ICredentialProtectionService credentialProtection,
         MonitoringCollectionRegistry collectionRegistry,
@@ -106,6 +108,7 @@ public class AgentProbeResultSink
         _liveStatsRegistry = liveStatsRegistry;
         _rebootRegistry = rebootRegistry;
         _siteConnections = siteConnections;
+        _deviceTransitions = deviceTransitions;
         _alertRegistry = alertRegistry;
         _credentialProtection = credentialProtection;
         _collectionRegistry = collectionRegistry;
@@ -626,6 +629,17 @@ public class AgentProbeResultSink
             .Where(d => !string.IsNullOrEmpty(d.Mac))
             .GroupBy(d => NormalizeMac(d.Mac))
             .ToDictionary(g => g.Key, g => g.First());
+
+        // Upgrade/provisioning state for this site's devices, from the same console snapshot the
+        // batch already uses, so an agent site's offline alerts stay quiet during a firmware run
+        // exactly like a directly-monitored site's do.
+        var stateObservedAt = DateTime.UtcNow;
+        foreach (var device in deviceByMac.Values)
+        {
+            _deviceTransitions.Record(connection.SiteSlug, device.Mac, device.State, stateObservedAt);
+            await _alertRegistry.GetFor(connection.SiteSlug).DeviceState.EvaluateAsync(
+                device.Mac, device.Name, device.Ip, device.DeviceType, device.State, stateObservedAt, ct);
+        }
 
         // Topology-boundary aggregates (fabric sums, AP backhaul, gateway WAN), shared
         // verbatim with the directly-monitored fast tier via LanFabricAggregator so

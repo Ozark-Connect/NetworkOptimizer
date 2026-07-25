@@ -49,6 +49,8 @@ public class MonitoringCollectionAgent : BackgroundService
     private readonly MonitoringInfluxClient _influx;
     private readonly MonitoringLiveStats _liveStats;
     private readonly Monitoring.RebootReason.DeviceRebootTracker _rebootTracker;
+    private readonly Monitoring.DeviceTransitionTracker _deviceTransitions;
+    private readonly Monitoring.DeviceStateAlertEvaluator _deviceStateAlertEvaluator;
     private readonly ICredentialProtectionService _credentialProtection;
     private readonly LocalProbeExecutor _localProbe;
     private readonly NetworkOptimizer.Web.Services.Monitoring.MonitoringAlertEvaluator _alertEvaluator;
@@ -129,6 +131,7 @@ public class MonitoringCollectionAgent : BackgroundService
         MonitoringInfluxRegistry influxRegistry,
         MonitoringLiveStatsRegistry liveStatsRegistry,
         Monitoring.RebootReason.DeviceRebootRegistry rebootRegistry,
+        Monitoring.DeviceTransitionTracker deviceTransitions,
         ICredentialProtectionService credentialProtection,
         LocalProbeExecutor localProbe,
         MonitoringAlertRegistry alertRegistry,
@@ -149,12 +152,14 @@ public class MonitoringCollectionAgent : BackgroundService
         _influx = influxRegistry.GetFor(_siteSlug);
         _liveStats = liveStatsRegistry.GetFor(_siteSlug);
         _rebootTracker = rebootRegistry.GetFor(_siteSlug);
+        _deviceTransitions = deviceTransitions;
         _credentialProtection = credentialProtection;
         _localProbe = localProbe;
         var evaluators = alertRegistry.GetFor(_siteSlug);
         _alertEvaluator = evaluators.Targets;
         _sfpAlertEvaluator = evaluators.Sfp;
         _deviceHealthAlertEvaluator = evaluators.DeviceHealth;
+        _deviceStateAlertEvaluator = evaluators.DeviceState;
         _ontAlertEvaluator = evaluators.Ont;
         _supplementalOntProviders = ontProviders
             .OfType<ISfpSupplementalOntProvider>()
@@ -808,6 +813,13 @@ public class MonitoringCollectionAgent : BackgroundService
         foreach (var device in devices)
         {
             var mac = NormalizeMac(device.Mac);
+
+            // Track upgrade/provisioning state for every device, before any SNMP short-circuit
+            // below: the offline path needs it regardless of how the device is polled.
+            _deviceTransitions.Record(_siteSlug, device.Mac, device.State, now);
+            await _deviceStateAlertEvaluator.EvaluateAsync(
+                device.Mac, device.Name, device.Ip, device.DeviceType, device.State, now);
+
             var snmpOn = Monitoring.SnmpDeviceRules.HasSnmpEnabled(device);
             if (snmpHandledElsewhere && snmpOn) continue;
             var snmpExcl = IsSnmpExcluded(mac);
