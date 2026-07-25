@@ -56,10 +56,7 @@ public class IspHealthPdfGenerator
         container.Column(column =>
         {
             if (_logoBytes is { Length: > 0 })
-            {
                 column.Item().AlignLeft().MaxWidth(1.5f, Unit.Inch).Image(_logoBytes);
-                column.Item().PaddingTop(10);
-            }
 
             var title = string.IsNullOrWhiteSpace(siteName)
                 ? "ISP Health Report"
