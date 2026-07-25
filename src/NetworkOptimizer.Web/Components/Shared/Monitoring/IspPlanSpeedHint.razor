@@ -1,7 +1,7 @@
 @if (Compact)
 {
     <div class="isp-plan-hint-compact">
-        <span>@HintText</span>
+        <span>@ShortHintText</span>
         <a href="javascript:void(0)" @onclick="OnDismiss">Got it</a>
     </div>
 }
@@ -31,5 +31,10 @@ else
     private const string HintText =
         "Your plan speeds come from the console: UniFi Network > Settings > Internet, "
         + "select your WAN, then Expected ISP Speeds. ISP Health grades measured throughput "
-        + "against whatever is set there.";
+        + "against whatever is set there. Worth knowing: running a speed test from the UniFi "
+        + "mobile app overwrites those values with its own result, so your plan quietly "
+        + "becomes your last measurement. WAN Speed Test here leaves them alone.";
+
+    private const string ShortHintText =
+        "Plan speeds come from UniFi Network > Settings > Internet > Expected ISP Speeds.";
 }
