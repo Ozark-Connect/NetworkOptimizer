@@ -67,7 +67,23 @@ public class IspHealthPdfGenerator
 
             column.Item().AlignCenter().Text(title).FontSize(22).Bold().FontColor(primaryColor);
 
-            column.Item().AlignLeft().PaddingTop(6)
+            // Which link and which network this report is about, named once here so no
+            // section below has to repeat it. Either half is dropped when unknown rather
+            // than printed as a placeholder.
+            var subject = new[]
+                {
+                    IspHealthPresentation.ScoredWanLabel(report) is string wan ? $"WAN: {wan}" : null,
+                    IspHealthPresentation.AccessIspLabel(report) is string isp ? $"ISP: {isp}" : null
+                }
+                .Where(part => part != null);
+            var subjectLine = string.Join("    ", subject);
+            if (subjectLine.Length > 0)
+            {
+                column.Item().AlignLeft().PaddingTop(6).Text(subjectLine)
+                    .FontSize(10).FontColor(Colors.Grey.Darken1);
+            }
+
+            column.Item().AlignLeft().PaddingTop(subjectLine.Length > 0 ? 2 : 6)
                 .Text($"Generated: {generatedAt:MMMM dd, yyyy HH:mm}    Window: {IspHealthPresentation.WindowRangeLabel(report)}")
                 .FontSize(10).FontColor(Colors.Grey.Medium);
 
@@ -137,13 +153,15 @@ public class IspHealthPdfGenerator
 
             column.Item().Row(row =>
             {
-                row.RelativeItem().Column(score =>
+                // Centred in its own third of the row so the score sits under the middle of
+                // its caption rather than hanging off the left margin.
+                row.RelativeItem().AlignMiddle().Column(score =>
                 {
-                    score.Item().Text($"{report.OverallScore}")
+                    score.Item().AlignCenter().Text($"{report.OverallScore}")
                         .FontSize(42).Bold().FontColor(ScoreColor(report.OverallScore));
-                    score.Item().Text(IspHealthReport.GradeLabel(report.OverallScore))
+                    score.Item().AlignCenter().Text(IspHealthReport.GradeLabel(report.OverallScore))
                         .FontSize(12).FontColor(ScoreColor(report.OverallScore));
-                    score.Item().PaddingTop(2).Text("Overall ISP Health")
+                    score.Item().AlignCenter().PaddingTop(2).Text("Overall ISP Health")
                         .FontSize(9).FontColor(Colors.Grey.Medium);
                 });
 
@@ -214,7 +232,7 @@ public class IspHealthPdfGenerator
                 Cell(table, $"{IspHealthPresentation.FormatSpeed(report.ExpectedDownloadMbps)} Mbps");
                 Cell(table, $"{IspHealthPresentation.FormatSpeed(report.ExpectedUploadMbps)} Mbps");
                 Cell(table, report.HasExpectedSpeeds
-                    ? report.ExpectedSpeedSource ?? "From the console"
+                    ? $"(from {report.ExpectedSpeedSource ?? "the console"})"
                     : "Not set in UniFi Network > Settings > Internet > Expected ISP Speeds");
             });
         });

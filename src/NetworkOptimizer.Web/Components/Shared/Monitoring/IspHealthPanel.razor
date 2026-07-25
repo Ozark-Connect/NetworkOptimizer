@@ -77,7 +77,7 @@
                 <span>Refresh</span>
             }
         </button>
-        <button class="btn btn-sm btn-secondary" @onclick="ExportPdfAsync"
+        <button class="btn btn-sm btn-primary" @onclick="ExportPdfAsync"
                 disabled="@(_report == null || _exportingPdf || _refreshing || _windowComputing)"
                 data-tooltip="Download the full scorecard for the selected window as a PDF" data-tooltip-hover-only>
             @if (_exportingPdf)

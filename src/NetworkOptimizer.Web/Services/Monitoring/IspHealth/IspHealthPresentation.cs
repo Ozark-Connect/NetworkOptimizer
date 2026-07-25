@@ -224,4 +224,42 @@ public static class IspHealthPresentation
     /// <summary>The role line under an ASN's name: its network, a direct peer, or transit.</summary>
     public static string AsnRoleLabel(IspAsnHealth asn, bool isIspAsn) =>
         isIspAsn ? "ISP network" : asn.AsnNumber < 0 ? "Direct peering" : "Transit";
+
+    /// <summary>
+    /// The access ISP's own ASN - the network the report is really about. Only a real
+    /// (positive) ASN qualifies; a synthetic entry names no operator. Null when discovery
+    /// has not identified one.
+    /// </summary>
+    public static IspAsnHealth? AccessIspAsn(IspHealthReport r) =>
+        r.IspAsns.FirstOrDefault(a => a.AsnNumber > 0);
+
+    /// <summary>
+    /// The ISP named for a report header: "Example Access (AS64500)". Null when no access
+    /// ASN is known, so callers can leave the line out rather than print a placeholder.
+    /// </summary>
+    public static string? AccessIspLabel(IspHealthReport r)
+    {
+        var asn = AccessIspAsn(r);
+        return asn == null ? null : $"{AsnDisplayName(asn)} (AS{asn.AsnNumber})";
+    }
+
+    /// <summary>
+    /// Which WAN the report scored, as the console names it: "Comcast (WAN2, eth5)". The
+    /// network group is what tells two WANs apart once more than one is scored, and the
+    /// interface pins it to a physical port. Null when the console reported no WAN.
+    /// </summary>
+    public static string? ScoredWanLabel(IspHealthReport r)
+    {
+        var qualifiers = new[] { r.WanNetworkGroup, r.WanInterface }
+            .Where(q => !string.IsNullOrWhiteSpace(q))
+            .ToList();
+        var suffix = qualifiers.Count > 0 ? $" ({string.Join(", ", qualifiers)})" : "";
+
+        if (!string.IsNullOrWhiteSpace(r.WanName))
+            return $"{r.WanName}{suffix}";
+        // No user label: the group alone still identifies the link ("WAN2 (eth5)").
+        return string.IsNullOrWhiteSpace(r.WanNetworkGroup)
+            ? (string.IsNullOrWhiteSpace(r.WanInterface) ? null : r.WanInterface)
+            : $"{r.WanNetworkGroup}{(string.IsNullOrWhiteSpace(r.WanInterface) ? "" : $" ({r.WanInterface})")}";
+    }
 }

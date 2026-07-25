@@ -206,6 +206,63 @@ public class IspHealthPdfGeneratorTests
     }
 
     [Fact]
+    public void ScoredWanLabel_NamesTheWanWithItsGroupAndInterface()
+    {
+        var report = MinimalReport();
+        report.WanName = "Example Fiber";
+        report.WanNetworkGroup = "WAN2";
+        report.WanInterface = "eth5";
+
+        // The group is what tells two WANs apart once more than one is scored.
+        IspHealthPresentation.ScoredWanLabel(report).Should().Be("Example Fiber (WAN2, eth5)");
+    }
+
+    [Fact]
+    public void ScoredWanLabel_FallsBackToTheGroupWhenTheWanIsUnnamed()
+    {
+        var report = MinimalReport();
+        report.WanNetworkGroup = "WAN";
+        report.WanInterface = "eth4";
+
+        IspHealthPresentation.ScoredWanLabel(report).Should().Be("WAN (eth4)");
+    }
+
+    [Fact]
+    public void ScoredWanLabel_IsNullWhenTheConsoleReportedNoWan()
+    {
+        IspHealthPresentation.ScoredWanLabel(MinimalReport()).Should().BeNull();
+    }
+
+    [Fact]
+    public void AccessIspLabel_NamesTheAccessAsn()
+    {
+        IspHealthPresentation.AccessIspLabel(FullReport()).Should().Be("Example Access (AS64500)");
+    }
+
+    [Fact]
+    public void AccessIspLabel_IsNullWhenDiscoveryFoundNoAccessAsn()
+    {
+        // A synthetic (negative) ASN names no operator, so it must not become the header ISP.
+        var report = MinimalReport();
+        report.IspAsns.Add(new IspAsnHealth { AsnNumber = -1, AsnName = "IX Peering" });
+
+        IspHealthPresentation.AccessIspLabel(report).Should().BeNull();
+    }
+
+    [Fact]
+    public void GenerateReportBytes_RendersWithTheWanAndIspNamed()
+    {
+        var report = FullReport();
+        report.WanName = "Example Fiber";
+        report.WanNetworkGroup = "WAN";
+        report.WanInterface = "eth4";
+
+        var pdf = new IspHealthPdfGenerator().GenerateReportBytes(report, "Test Site");
+
+        pdf.Length.Should().BeGreaterThan(1000);
+    }
+
+    [Fact]
     public void EventTimeline_DescribesEveryEventTheReportCarries()
     {
         // The PDF renders this feed verbatim, so a report with three events must produce
