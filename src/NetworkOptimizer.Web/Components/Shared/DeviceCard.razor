@@ -236,14 +236,15 @@
 
     /// <summary>
     /// Hover text for the uptime value: the reason the device is on this boot, with the evidence
-    /// under it. Always available, even for long-running devices.
+    /// under it. Null when no reason is known - the uptime speaks for itself, so there is nothing
+    /// worth a tooltip, and Blazor omits the attribute entirely.
     /// </summary>
-    private string UptimeTooltip
+    private string? UptimeTooltip
     {
         get
         {
             if (Device == null || string.IsNullOrEmpty(Device.RebootReason))
-                return "Time since this device last booted";
+                return null;
 
             var reason = $"Last restart: {Device.RebootReason}";
             return string.IsNullOrEmpty(Device.RebootReasonDetail)
