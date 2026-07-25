@@ -1,3 +1,4 @@
+using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Storage.Models;
 
 namespace NetworkOptimizer.Web.Services.Monitoring.IspHealth;
@@ -250,7 +251,11 @@ public static class IspHealthPresentation
     /// </summary>
     public static string? ScoredWanLabel(IspHealthReport r)
     {
-        var qualifiers = new[] { r.WanNetworkGroup, r.WanInterface }
+        var group = string.IsNullOrWhiteSpace(r.WanNetworkGroup)
+            ? null
+            : DisplayFormatters.NormalizeWanDisplay(r.WanNetworkGroup);
+
+        var qualifiers = new[] { group, r.WanInterface }
             .Where(q => !string.IsNullOrWhiteSpace(q))
             .ToList();
         var suffix = qualifiers.Count > 0 ? $" ({string.Join(", ", qualifiers)})" : "";
@@ -258,8 +263,8 @@ public static class IspHealthPresentation
         if (!string.IsNullOrWhiteSpace(r.WanName))
             return $"{r.WanName}{suffix}";
         // No user label: the group alone still identifies the link ("WAN2 (eth5)").
-        return string.IsNullOrWhiteSpace(r.WanNetworkGroup)
+        return group == null
             ? (string.IsNullOrWhiteSpace(r.WanInterface) ? null : r.WanInterface)
-            : $"{r.WanNetworkGroup}{(string.IsNullOrWhiteSpace(r.WanInterface) ? "" : $" ({r.WanInterface})")}";
+            : $"{group}{(string.IsNullOrWhiteSpace(r.WanInterface) ? "" : $" ({r.WanInterface})")}";
     }
 }

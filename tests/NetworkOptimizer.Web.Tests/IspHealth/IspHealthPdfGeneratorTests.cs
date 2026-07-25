@@ -224,7 +224,19 @@ public class IspHealthPdfGeneratorTests
         report.WanNetworkGroup = "WAN";
         report.WanInterface = "eth4";
 
-        IspHealthPresentation.ScoredWanLabel(report).Should().Be("WAN (eth4)");
+        // The console calls the first WAN "WAN"; every surface displays it as WAN1.
+        IspHealthPresentation.ScoredWanLabel(report).Should().Be("WAN1 (eth4)");
+    }
+
+    [Fact]
+    public void ScoredWanLabel_DisplaysTheFirstWanAsWan1()
+    {
+        var report = MinimalReport();
+        report.WanName = "Fiber Supplement";
+        report.WanNetworkGroup = "WAN";
+        report.WanInterface = "eth6";
+
+        IspHealthPresentation.ScoredWanLabel(report).Should().Be("Fiber Supplement (WAN1, eth6)");
     }
 
     [Fact]
