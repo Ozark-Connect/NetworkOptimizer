@@ -172,15 +172,6 @@
         }
 
         // Initialize Tippy.js tooltips
-        // Touch devices synthesize mouseenter on tap and then deliver the real click a moment
-        // later, so a 'mouseenter click' tooltip shows and is immediately toggled back off -
-        // it just flashes. Where there is no hover, click alone is the only working trigger.
-        function tooltipTrigger(hoverOnly) {
-            if (hoverOnly) return 'mouseenter';
-            var noHover = window.matchMedia && window.matchMedia('(hover: none)').matches;
-            return noHover ? 'click' : 'mouseenter click';
-        }
-
         function initTooltips() {
             // Find all tooltip icons with content siblings
             document.querySelectorAll('.tooltip-icon').forEach(function(icon) {
@@ -208,7 +199,7 @@
                     allowHTML: true,
                     interactive: true,
                     interactiveBorder: 10,
-                    trigger: tooltipTrigger(false),
+                    trigger: 'mouseenter click',
                     hideOnClick: true,
                     delay: [100, 200],
                     placement: 'top',
@@ -250,7 +241,7 @@
                 var opts = {
                     content: el.dataset.tooltip,
                     allowHTML: true,
-                    trigger: tooltipTrigger(el.hasAttribute('data-tooltip-hover')),
+                    trigger: el.hasAttribute('data-tooltip-hover') ? 'mouseenter' : 'mouseenter click',
                     hideOnClick: true,
                     delay: [100, 200],
                     placement: 'top',
@@ -309,7 +300,7 @@
                 var opts = {
                     content: el.dataset.tooltip,
                     allowHTML: true,
-                    trigger: tooltipTrigger(el.hasAttribute('data-tooltip-hover')),
+                    trigger: el.hasAttribute('data-tooltip-hover') ? 'mouseenter' : 'mouseenter click',
                     hideOnClick: true,
                     delay: [100, 200],
                     placement: 'top',

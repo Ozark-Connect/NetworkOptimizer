@@ -53,14 +53,17 @@
                     @* Icon only while the reboot is recent news; the hover on the value stays for
                        good. It leads the value: left of a value reads as information about it,
                        right of it reads as an action. Both swallow the click - reading a tooltip
-                       should not navigate away to Device Stats, which is what the card is for. *@
+                       should not navigate away to Device Stats, which is what the card is for.
+                       data-tooltip-hover drops the click trigger: on touch the tap shows the
+                       tooltip through the synthesized mouseenter, and the click that follows would
+                       otherwise toggle it straight back off - it only flashed on iOS. *@
                     @if (ShowRebootIcon)
                     {
                         <span class="reboot-reason-icon @(Device.RebootWasUnexpected ? "reboot-unexpected" : "")"
-                              data-tooltip="@UptimeTooltip"
+                              data-tooltip="@UptimeTooltip" data-tooltip-hover
                               @onclick:preventDefault @onclick:stopPropagation>@(Device.RebootWasUnexpected ? "⚠" : "↻")</span>
                     }
-                    <span class="detail-value uptime-value" data-tooltip="@UptimeTooltip"
+                    <span class="detail-value uptime-value" data-tooltip="@UptimeTooltip" data-tooltip-hover
                           @onclick:preventDefault @onclick:stopPropagation>@Device.Uptime</span>
                 </div>
             }
