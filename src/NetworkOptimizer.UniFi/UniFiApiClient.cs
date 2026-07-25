@@ -1085,6 +1085,43 @@ public class UniFiApiClient : IDisposable
     }
 
     /// <summary>
+    /// POST stat/alluser - clients seen within the last <paramref name="withinHours"/>, whether or
+    /// not they are connected now.
+    ///
+    /// This is the only client endpoint with a lookback: <c>stat/sta</c> and v2
+    /// <c>clients/active</c> are connected-only, and <c>rest/user</c> holds just the records the
+    /// console keeps a user object for. Anything reading names for a client that left days ago has
+    /// to come through here, and the window must be passed explicitly - the console's own default
+    /// is short (a day), which is exactly how a client that has been away for a couple of days ends
+    /// up nameless.
+    /// </summary>
+    /// <param name="withinHours">Lookback window in hours.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    public async Task<List<UniFiClientResponse>> GetRecentClientsAsync(
+        int withinHours = 720,
+        CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Fetching clients seen within {Hours}h from site {Site}", withinHours, _site);
+
+        var payload = new { type = "all", conn = "all", within = withinHours };
+        var content = new StringContent(
+            JsonSerializer.Serialize(payload), System.Text.Encoding.UTF8, "application/json");
+
+        var response = await ExecuteApiCallAsync<UniFiApiResponse<UniFiClientResponse>>(
+            () => _httpClient!.PostAsync(BuildApiPath("stat/alluser"), content, cancellationToken),
+            cancellationToken);
+
+        if (response?.Meta.Rc == "ok")
+        {
+            _logger.LogInformation("Retrieved {Count} clients seen within {Hours}h", response.Data.Count, withinHours);
+            return response.Data;
+        }
+
+        _logger.LogWarning("Failed to retrieve recent clients or received non-ok response");
+        return new List<UniFiClientResponse>();
+    }
+
+    /// <summary>
     /// GET v2/api/site/{site}/clients/active - Get currently active clients with full details
     /// This endpoint returns IP addresses even for UX/UX7 connected clients (unlike stat/sta)
     /// </summary>

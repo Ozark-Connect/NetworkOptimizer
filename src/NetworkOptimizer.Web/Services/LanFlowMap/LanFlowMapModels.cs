@@ -7,6 +7,14 @@ namespace NetworkOptimizer.Web.Services.LanFlowMap;
 /// </summary>
 public class LanFlowMapSnapshot
 {
+    /// <summary>
+    /// MAC -> display name for every client the console has seen recently, not just the connected
+    /// ones. Lives on the snapshot rather than on the service because the service is scoped: the
+    /// request that serves a historic instant is a different instance from the one that built the
+    /// snapshot, so instance state would read empty there.
+    /// </summary>
+    public Dictionary<string, string> RecentClientNames { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
     public DateTime GeneratedAt { get; set; }
     public List<LanNode> Nodes { get; set; } = new();
     public List<LanLink> Links { get; set; } = new();

@@ -152,23 +152,40 @@ public class LanFlowMapService
             .Where(d => !string.IsNullOrEmpty(d.Mac))
             .ToDictionary(d => NormalizeMac(d.Mac), d => d, StringComparer.OrdinalIgnoreCase);
 
-        // Names for clients that are not connected right now, so the timeline can label a client
-        // it rebuilds from telemetry. Advisory: a failure just means such a leaf shows its MAC.
+        // Names for clients that are not connected right now, so the timeline can label a client it
+        // rebuilds from telemetry. stat/alluser is the only client endpoint with a lookback, and the
+        // window has to be explicit: the console's own default is about a day, which left anything
+        // away longer than that nameless. rest/user is unioned on top because a user-set alias lives
+        // there and should win. Advisory: a failure just means such a leaf shows its MAC.
         try
         {
-            var knownClients = await _connection.Client!.GetAllKnownClientsAsync(ct);
-            _knownClientNames = knownClients
-                .Where(c => !string.IsNullOrEmpty(c.Mac))
-                .GroupBy(c => NormalizeMac(c.Mac), StringComparer.OrdinalIgnoreCase)
-                .ToDictionary(
-                    g => g.Key,
-                    g => g.Select(c => !string.IsNullOrWhiteSpace(c.Name) ? c.Name : c.Hostname)
-                          .FirstOrDefault(n => !string.IsNullOrWhiteSpace(n)) ?? g.Key,
-                    StringComparer.OrdinalIgnoreCase);
+            var names = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+            static string? Label(NetworkOptimizer.UniFi.Models.UniFiClientResponse c) =>
+                !string.IsNullOrWhiteSpace(c.Name) ? c.Name
+                : !string.IsNullOrWhiteSpace(c.Hostname) ? c.Hostname
+                : null;
+
+            foreach (var c in await _connection.Client!.GetRecentClientsAsync(ClientNameLookbackHours, ct))
+            {
+                var label = Label(c);
+                if (!string.IsNullOrEmpty(c.Mac) && label != null)
+                    names[NormalizeMac(c.Mac)] = label;
+            }
+
+            foreach (var c in await _connection.Client!.GetAllKnownClientsAsync(ct))
+            {
+                var label = Label(c);
+                if (!string.IsNullOrEmpty(c.Mac) && label != null)
+                    names[NormalizeMac(c.Mac)] = label;
+            }
+
+            snapshot.RecentClientNames = names;
+            _logger.LogDebug("LAN map: {Count} client name(s) available for historic playback", names.Count);
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "LAN map: known-client name lookup failed");
+            _logger.LogDebug(ex, "LAN map: client name lookup failed");
         }
 
         // Mount type lookup so AP nodes carry their mount position for 3D vertical offset
@@ -213,6 +230,12 @@ public class LanFlowMapService
 
         return snapshot;
     }
+
+    /// <summary>
+    /// How far back to ask the console for client names. Matches the 30 days the maps already use
+    /// for their speed-test overlay, so a client that has been away for weeks still reads as itself.
+    /// </summary>
+    private const int ClientNameLookbackHours = 720;
 
     /// <summary>
     /// Tolerance for deriving historic online state from telemetry proximity. There is
@@ -1457,7 +1480,7 @@ public class LanFlowMapService
                 Mac = clientMac,
                 Name = !string.IsNullOrWhiteSpace(p.ClientName)
                     ? p.ClientName
-                    : (_knownClientNames.TryGetValue(clientMac, out var known) ? known : clientMac),
+                    : (snapshot.RecentClientNames.TryGetValue(clientMac, out var known) ? known : clientMac),
                 ParentId = parentId,
                 Band = band,
                 SignalDbm = wired ? null : p.SignalDbm,
@@ -1487,13 +1510,6 @@ public class LanFlowMapService
                 update.AddedClientNodes.Count, update.At);
         }
     }
-
-    /// <summary>
-    /// MAC -> display name for every client UniFi knows about, refreshed with each snapshot.
-    /// Wireless telemetry carries no name, so a client rebuilt for a past instant would otherwise
-    /// read as a bare MAC; the console's known-client list keeps the label it had.
-    /// </summary>
-    private Dictionary<string, string> _knownClientNames = new(StringComparer.OrdinalIgnoreCase);
 
     private void BuildClientLeaves(
         NetworkTopology topology,
