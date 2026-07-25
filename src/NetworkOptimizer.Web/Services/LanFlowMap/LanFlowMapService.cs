@@ -244,10 +244,11 @@ public class LanFlowMapService
     }
 
     /// <summary>
-    /// How far back to ask the console for client names, matching the 30 days the maps already use
-    /// for their speed-test overlay.
+    /// How far back to ask the console for client names. 90 days so a client that left months ago
+    /// still reads as itself when the timeline reaches that far. Paid once per snapshot build, not
+    /// per historic request, so the cost is bounded by the snapshot cache rather than by playback.
     /// </summary>
-    private const int ClientNameLookbackHours = 720;
+    private const int ClientNameLookbackHours = 2160;
 
     /// <summary>
     /// Tolerance for deriving historic online state from telemetry proximity. There is
