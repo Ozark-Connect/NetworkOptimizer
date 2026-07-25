@@ -28,24 +28,9 @@ public class PdfReportGenerator
 
     private void LoadLogoFromResources()
     {
-        try
-        {
-            var assembly = Assembly.GetExecutingAssembly();
-            var resourceName = "NetworkOptimizer.Reports.Resources.logo.png";
-
-            using var stream = assembly.GetManifestResourceStream(resourceName);
-            if (stream != null)
-            {
-                using var ms = new MemoryStream();
-                stream.CopyTo(ms);
-                _logoBytes = ms.ToArray();
-            }
-        }
-        catch
-        {
-            // Logo not available - continue without it
-            _logoBytes = null;
-        }
+        // Shared with every other report generator; null when unavailable, and the header
+        // simply renders without it.
+        _logoBytes = ReportAssets.Logo();
     }
 
     /// <summary>
