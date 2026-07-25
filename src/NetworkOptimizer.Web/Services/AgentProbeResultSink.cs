@@ -363,17 +363,26 @@ public class AgentProbeResultSink
 
                 // Every device, not just the SNMP-polled ones: the reboot probe reaches anything
                 // with SSH, and this is the only place the site's console is known to be readable.
-                var profiles = new Dictionary<string, DeviceProbeProfile>(StringComparer.OrdinalIgnoreCase);
-                foreach (var device in devices)
+                // Fenced because this cache only feeds reboot-reason lookups - the SNMP config push
+                // below is the load-bearing work here and must not be affected by it.
+                try
                 {
-                    if (string.IsNullOrEmpty(device.Mac)) continue;
-                    profiles[NormalizeMac(device.Mac)] = new DeviceProbeProfile(
-                        device.Name,
-                        Monitoring.SnmpDeviceRules.ResolvePollAddress(device, gatewayLanIp),
-                        device.Version,
-                        device.DeviceType);
+                    var profiles = new Dictionary<string, DeviceProbeProfile>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var device in devices)
+                    {
+                        if (string.IsNullOrEmpty(device.Mac)) continue;
+                        profiles[NormalizeMac(device.Mac)] = new DeviceProbeProfile(
+                            device.Name,
+                            Monitoring.SnmpDeviceRules.ResolvePollAddress(device, gatewayLanIp),
+                            device.Version,
+                            device.DeviceType);
+                    }
+                    _deviceProfilesBySite[connection.SiteSlug] = profiles;
                 }
-                _deviceProfilesBySite[connection.SiteSlug] = profiles;
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "Device profile cache build failed for site {Slug}", connection.SiteSlug);
+                }
 
                 foreach (var device in devices.Where(d =>
                              Monitoring.SnmpDeviceRules.IsMonitorable(d) && Monitoring.SnmpDeviceRules.HasSnmpEnabled(d)))
