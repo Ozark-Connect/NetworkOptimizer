@@ -45,6 +45,7 @@
       "title": "Step back through the Live View",
       "body": "Drag the timeline to any point in the past and the map shows the network as it was then, including which clients were connected at that moment.",
       "placement": "top",
+      "badge": "improved",
       "requires": [],
       "optional": true
     }

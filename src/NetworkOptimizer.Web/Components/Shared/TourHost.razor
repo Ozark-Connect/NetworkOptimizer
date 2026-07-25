@@ -236,6 +236,7 @@
             title = resolved.Step.Title,
             body = resolved.Step.Body,
             placement = resolved.Step.Placement,
+            badge = string.Equals(resolved.Step.Badge, "improved", StringComparison.OrdinalIgnoreCase) ? "improved" : "new",
             index = _stepIndex,
             total = _offer.Steps.Count,
             hasBack = _stepIndex > 0,

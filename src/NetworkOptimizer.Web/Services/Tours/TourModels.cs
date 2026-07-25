@@ -75,6 +75,13 @@ public class TourStep
     [JsonPropertyName("placement")]
     public string? Placement { get; set; }
 
+    /// <summary>
+    /// "new" (default) or "improved" - shown as a badge on the step card so an
+    /// enhancement to an existing feature doesn't present itself as brand new.
+    /// </summary>
+    [JsonPropertyName("badge")]
+    public string? Badge { get; set; }
+
     /// <summary>Named predicates that must all hold (on at least one visible site) for the step to render.</summary>
     [JsonPropertyName("requires")]
     public List<string> Requires { get; set; } = new();

@@ -73,7 +73,13 @@ window.noTour = (function () {
 
         const progress = document.createElement('div');
         progress.className = 'tour-card-progress';
-        progress.textContent = 'Step ' + (opts.index + 1) + ' of ' + opts.total;
+        const counter = document.createElement('span');
+        counter.textContent = 'Step ' + (opts.index + 1) + ' of ' + opts.total;
+        progress.appendChild(counter);
+        const badge = document.createElement('span');
+        badge.className = 'tour-card-badge tour-card-badge-' + (opts.badge === 'improved' ? 'improved' : 'new');
+        badge.textContent = opts.badge === 'improved' ? 'Improved' : 'New';
+        progress.appendChild(badge);
         card.appendChild(progress);
 
         const title = document.createElement('div');

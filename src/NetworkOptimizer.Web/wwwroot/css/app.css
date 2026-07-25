@@ -18700,3 +18700,29 @@ body.kiosk-mode .status-indicators {
 .tour-list-empty {
     color: var(--text-muted);
 }
+
+.tour-card-progress {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.tour-card-badge {
+    font-size: 0.7rem;
+    font-weight: 600;
+    padding: 1px 7px;
+    border-radius: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.tour-card-badge-new {
+    color: var(--info-color);
+    background: rgba(71, 151, 255, 0.15);
+}
+
+.tour-card-badge-improved {
+    color: var(--success-color);
+    background: rgba(36, 188, 112, 0.15);
+}
