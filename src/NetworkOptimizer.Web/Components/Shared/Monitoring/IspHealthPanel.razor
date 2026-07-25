@@ -64,27 +64,26 @@
                 </div>
             </div>
         </div>
-        <button class="btn btn-sm btn-secondary" @onclick="RefreshAsync" disabled="@(_refreshing || _windowComputing)"
+        @{
+            var refreshBusy = _refreshing || _windowComputing;
+        }
+        <button class="btn btn-sm btn-secondary" @onclick="RefreshAsync" disabled="@refreshBusy"
                 data-tooltip="Recompute ISP Health for the selected window" data-tooltip-hover-only>
-            @if (_refreshing || _windowComputing)
-            {
-                <span class="spinner-sm"></span> <span>@(_refreshing ? "Refreshing" : "Loading")</span>
-            }
-            else
-            {
-                <span>Refresh</span>
-            }
+            <span class="btn-state-stack">
+                <span class="@(refreshBusy ? "is-hidden" : "")">Refresh</span>
+                <span class="@(refreshBusy ? "" : "is-hidden")">
+                    <span class="spinner-sm"></span> @(_refreshing ? "Refreshing" : "Loading")
+                </span>
+            </span>
         </button>
         <button class="btn btn-sm btn-primary" @onclick="ExportPdfAsync"
                 disabled="@(_report == null || _exportingPdf || _refreshing || _windowComputing)">
-            @if (_exportingPdf)
-            {
-                <span class="spinner-sm"></span> <span>Building</span>
-            }
-            else
-            {
-                <span>Export PDF</span>
-            }
+            <span class="btn-state-stack">
+                <span class="@(_exportingPdf ? "is-hidden" : "")">Export PDF</span>
+                <span class="@(_exportingPdf ? "" : "is-hidden")">
+                    <span class="spinner-sm"></span> Building
+                </span>
+            </span>
         </button>
     </div>
 }
