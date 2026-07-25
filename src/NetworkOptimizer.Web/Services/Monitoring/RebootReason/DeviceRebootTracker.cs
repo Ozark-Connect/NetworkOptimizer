@@ -121,10 +121,21 @@ public class DeviceRebootTracker
                 deviceName ?? "unknown", mac, uptimeSeconds, bootedAt);
         }
 
+        // A version change between the firmware we last recorded for this device and what the
+        // UniFi device data reports now means the reboot was an upgrade - the signal that catches
+        // switches, whose console ring shows an upgrade as an ordinary clean shutdown. It needs a
+        // recorded baseline, which is why the firmware is persisted with the reboot record.
         var firmwareChanged = known != null && !sameBoot &&
             !string.IsNullOrWhiteSpace(firmwareVersion) &&
             !string.IsNullOrWhiteSpace(known.FirmwareVersion) &&
             !string.Equals(known.FirmwareVersion, firmwareVersion, StringComparison.OrdinalIgnoreCase);
+
+        if (firmwareChanged)
+        {
+            _logger.LogInformation(
+                "Device {Device} ({Mac}) changed firmware across the restart: {Old} -> {New}",
+                deviceName ?? "unknown", mac, known!.FirmwareVersion, firmwareVersion);
+        }
 
         if (!sameBoot)
         {
@@ -155,7 +166,11 @@ public class DeviceRebootTracker
                     source = RebootReasonSource.UniFiEvent;
 
                 var reason = new DeviceRebootReason(category, point.Summary, point.Detail, source);
-                _records[Normalize(point.DeviceMac)] = new DeviceBootRecord(point.BootedAt, reason);
+                // Carrying the firmware back in is what lets a version change be spotted across a
+                // server restart: without it every device looks like a first sighting and an
+                // upgrade that happened while we were down goes unrecognised.
+                _records[Normalize(point.DeviceMac)] =
+                    new DeviceBootRecord(point.BootedAt, reason, point.FirmwareVersion);
             }
 
             _logger.LogDebug("Seeded {Count} device reboot records from history", stored.Count);
@@ -277,7 +292,8 @@ public class DeviceRebootTracker
             summary: reason.Summary,
             detail: reason.Detail,
             source: reason.Source.ToString(),
-            bootedAt: bootedAt);
+            bootedAt: bootedAt,
+            firmwareVersion: firmware);
     }
 
     private static bool WithinTolerance(DateTime a, DateTime b) =>

@@ -1075,6 +1075,11 @@ from(bucket: ""{_longtermBucket}"")
     /// <param name="detail">Evidence behind the call.</param>
     /// <param name="source">Which evidence source produced it.</param>
     /// <param name="bootedAt">When the current boot started.</param>
+    /// <param name="firmwareVersion">
+    /// Firmware the device reported on this boot. Persisted so the next reboot can be compared
+    /// against it even if the server restarted in between, which is what lets an upgrade be
+    /// recognised from the UniFi device data alone.
+    /// </param>
     public Task WriteDeviceRebootAsync(
         string deviceMac,
         string deviceType,
@@ -1082,7 +1087,8 @@ from(bucket: ""{_longtermBucket}"")
         string summary,
         string? detail,
         string source,
-        DateTime bootedAt)
+        DateTime bootedAt,
+        string? firmwareVersion = null)
     {
         if (!IsConfigured) return Task.CompletedTask;
 
@@ -1096,6 +1102,9 @@ from(bucket: ""{_longtermBucket}"")
             .Field("reason_category", category)
             .Field("reason_summary", summary)
             .Field("reason_source", source);
+
+        if (!string.IsNullOrWhiteSpace(firmwareVersion))
+            point = point.Field("firmware_version", firmwareVersion);
 
         Enqueue(point, longterm: true);
         return Task.CompletedTask;
@@ -1118,6 +1127,8 @@ from(bucket: ""{_longtermBucket}"")
         public string Source { get; init; } = "";
         /// <summary>When the boot this record describes started.</summary>
         public DateTime BootedAt { get; init; }
+        /// <summary>Firmware the device reported on that boot, when it was recorded.</summary>
+        public string? FirmwareVersion { get; init; }
     }
 
     /// <summary>
@@ -1156,6 +1167,7 @@ from(bucket: ""{_longtermBucket}"")
                 Summary = record.GetValueByKey("reason_summary") as string ?? "",
                 Detail = record.GetValueByKey("detail") as string,
                 Source = record.GetValueByKey("reason_source") as string ?? "",
+                FirmwareVersion = record.GetValueByKey("firmware_version") as string,
                 BootedAt = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow),
             });
         }

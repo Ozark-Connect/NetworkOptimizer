@@ -24,6 +24,7 @@ public class DeviceRebootProbe
     private const string CrashMarker = "###CRASH";
     private const string RebootLogMarker = "###REBOOTLOG";
     private const string UpgradeMarker = "###UPGRADE";
+    private const string UpgradeAgeMarker = "###UPGRADEAGE";
 
     /// <summary>
     /// One shell line per evidence source, each behind a marker so the reply can be split.
@@ -42,7 +43,14 @@ public class DeviceRebootProbe
         $"echo '{RebootLogMarker}'",
         "tail -n 2 /var/log/reboot-time.log 2>/dev/null",
         $"echo '{UpgradeMarker}'",
-        "ls /etc/persistent/post_upgrade_pending 2>/dev/null",
+        "cat /etc/persistent/post_upgrade_pending 2>/dev/null",
+        // The marker persists, so its contents alone cannot say which boot it explains. Report its
+        // mtime relative to this boot's start and let the parser decide: seconds = mtime - bootTime,
+        // normally a small negative number because the file is written just before the reboot.
+        $"echo '{UpgradeAgeMarker}'",
+        "M=$(stat -c %Y /etc/persistent/post_upgrade_pending 2>/dev/null); " +
+        "U=$(awk '{print int($1)}' /proc/uptime 2>/dev/null); N=$(date +%s 2>/dev/null); " +
+        "if [ -n \"$M\" ] && [ -n \"$U\" ] && [ -n \"$N\" ]; then echo $((M - N + U)); fi",
         // Absent paths make the last command exit non-zero, which the SSH layer reports as a
         // failed run even though the probe output is right there. Land on a success either way.
         "true");
@@ -112,7 +120,10 @@ public class DeviceRebootProbe
                 sections.GetValueOrDefault(ConsoleMarker),
                 sections.GetValueOrDefault(CrashMarker)),
             RebootReasonParser.ParseDeviceState(
-                hasPendingUpgradeMarker: HasContent(sections.GetValueOrDefault(UpgradeMarker)),
+                markerFirmware: HasContent(sections.GetValueOrDefault(UpgradeMarker))
+                    ? sections.GetValueOrDefault(UpgradeMarker)
+                    : null,
+                markerAgeVsBootSeconds: ParseSeconds(sections.GetValueOrDefault(UpgradeAgeMarker)),
                 firmwareChanged: firmwareChanged));
 
         if (!reason.IsConclusive)
@@ -152,6 +163,9 @@ public class DeviceRebootProbe
             Describe(RebootLogMarker, "reboot-time.log"),
             Describe(UpgradeMarker, "post_upgrade_pending"));
     }
+
+    private static int? ParseSeconds(string? section) =>
+        int.TryParse(section?.Trim(), out var seconds) ? seconds : null;
 
     private static string Summarize(string? output)
     {

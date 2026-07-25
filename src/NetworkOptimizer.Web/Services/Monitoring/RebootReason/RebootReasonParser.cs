@@ -155,23 +155,51 @@ public static class RebootReasonParser
     }
 
     /// <summary>
-    /// Read the pending-upgrade marker and firmware slot fields devices leave behind.
-    /// Used to catch a firmware flash when pstore has already been overwritten.
+    /// Read the upgrade evidence a device leaves outside pstore.
+    ///
+    /// Switches write <c>/etc/persistent/post_upgrade_pending</c> naming the image they flashed,
+    /// which matters because their console ring shows an upgrade reboot as an ordinary clean
+    /// shutdown - the flash itself is never announced there the way an AP announces it. The file
+    /// persists, so it only counts when it was written around the boot it would explain;
+    /// otherwise a months-old marker would relabel every later restart as an upgrade.
     /// </summary>
-    /// <param name="hasPendingUpgradeMarker">Whether <c>/etc/persistent/post_upgrade_pending</c> exists.</param>
+    /// <param name="markerFirmware">Contents of the marker, naming the flashed image, if present.</param>
+    /// <param name="markerAgeVsBootSeconds">
+    /// Marker mtime minus this boot's start, in seconds. Negative means it was written just before
+    /// the reboot, which is the normal case. Null when the device could not report it.
+    /// </param>
     /// <param name="firmwareChanged">Whether the reported firmware version changed across the boot.</param>
-    public static DeviceRebootReason? ParseDeviceState(bool hasPendingUpgradeMarker, bool firmwareChanged)
+    public static DeviceRebootReason? ParseDeviceState(
+        string? markerFirmware,
+        int? markerAgeVsBootSeconds,
+        bool firmwareChanged)
     {
-        if (!hasPendingUpgradeMarker && !firmwareChanged)
+        var markerBelongsToThisBoot = markerFirmware != null &&
+            markerAgeVsBootSeconds.HasValue &&
+            Math.Abs(markerAgeVsBootSeconds.Value) <= MarkerBootWindowSeconds;
+
+        if (!markerBelongsToThisBoot && !firmwareChanged)
             return null;
 
-        var detail = firmwareChanged
-            ? "Firmware version changed across the restart"
-            : "Device left a pending-upgrade marker";
+        string detail;
+        if (markerBelongsToThisBoot)
+        {
+            var image = ShortenFirmware(markerFirmware!.Trim());
+            detail = string.IsNullOrWhiteSpace(image)
+                ? "Device flashed a new image on this boot"
+                : $"Upgraded to {image}";
+        }
+        else
+        {
+            detail = "Firmware version changed across the restart";
+        }
 
         return new DeviceRebootReason(
             RebootCategory.FirmwareUpgrade, "Firmware upgrade", detail, RebootReasonSource.DeviceState);
     }
+
+    /// <summary>How close the upgrade marker's mtime must sit to the boot to count as its cause.</summary>
+    private const int MarkerBootWindowSeconds = 900;
 
     /// <summary>
     /// Last-resort mapping of a UniFi Network event key. These are generic: the "unknown reason"
@@ -225,16 +253,38 @@ public static class RebootReasonParser
     /// <summary>
     /// Keep the strongest of several candidate reasons: best evidence source first, and a
     /// conclusive answer always beats an inconclusive one.
+    ///
+    /// One exception overrides source order. A firmware upgrade looks exactly like a clean
+    /// shutdown from the console ring, so "restarted" and "upgraded" are not competing claims
+    /// about the same event - the upgrade is the more specific account of it. Whenever anything
+    /// says the device flashed an image, that beats a bare CommandedReboot no matter which source
+    /// each came from. It never displaces an unexpected finding: a device that upgraded and then
+    /// lost power still reports the power loss.
     /// </summary>
     public static DeviceRebootReason Best(params DeviceRebootReason?[] candidates)
     {
-        var best = candidates
-            .Where(c => c != null)
-            .OrderByDescending(c => c!.IsConclusive)
-            .ThenBy(c => (int)c!.Source)
+        var known = candidates.Where(c => c != null).Select(c => c!).ToList();
+
+        var best = known
+            .OrderByDescending(c => c.IsConclusive)
+            .ThenBy(c => (int)c.Source)
             .FirstOrDefault();
 
-        return best ?? DeviceRebootReason.Unknown();
+        if (best == null)
+            return DeviceRebootReason.Unknown();
+
+        if (best.Category == RebootCategory.CommandedReboot)
+        {
+            var upgrade = known
+                .Where(c => c.Category == RebootCategory.FirmwareUpgrade)
+                .OrderBy(c => (int)c.Source)
+                .FirstOrDefault();
+
+            if (upgrade != null)
+                return upgrade;
+        }
+
+        return best;
     }
 
     private static bool LooksLikeFirmwareFlash(string tail) =>
@@ -269,8 +319,24 @@ public static class RebootReasonParser
     {
         var match = Regex.Match(line, @"from\s+(\S+)\s+to\s+(\S+?)[,\s]", RegexOptions.IgnoreCase);
         return match.Success
-            ? $"Upgraded from {match.Groups[1].Value} to {match.Groups[2].Value}"
+            ? $"Upgraded from {ShortenFirmware(match.Groups[1].Value)} to {ShortenFirmware(match.Groups[2].Value)}"
             : null;
+    }
+
+    /// <summary>
+    /// Reduce a console firmware string to the part an operator reads. UniFi OS reports builds as
+    /// <c>UXGA6AA.ipq9574.v5.1.26.0bc0fe4.260716.1128</c>; the platform, git hash and build stamp
+    /// only make a tooltip unreadable, so keep the version.
+    /// </summary>
+    internal static string ShortenFirmware(string firmware)
+    {
+        if (string.IsNullOrWhiteSpace(firmware))
+            return firmware;
+
+        // v<major>.<minor>[.<patch>...]. The trailing lookahead stops the match running into the
+        // git hash: in "v5.1.26.0bc0fe4" the ".0" is the start of the hash, not a version part.
+        var match = Regex.Match(firmware, @"v(\d+(?:\.\d+)+)(?![0-9A-Za-z])", RegexOptions.IgnoreCase);
+        return match.Success ? match.Groups[1].Value : firmware;
     }
 
     private static string? LastNonEmptyLine(string? text) =>

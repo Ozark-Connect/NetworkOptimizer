@@ -47,9 +47,18 @@ public class RebootReasonParserTests
         var reason = RebootReasonParser.ParseConsoleRebootLog(log);
 
         Assert.Equal(RebootCategory.FirmwareUpgrade, reason!.Category);
-        Assert.Contains("v5.1.17", reason.Detail);
-        Assert.Contains("v5.1.26", reason.Detail);
+        Assert.Equal("Upgraded from 5.1.17 to 5.1.26", reason.Detail);
         Assert.False(reason.IsUnexpected);
+    }
+
+    [Theory]
+    [InlineData("UXGA6AA.ipq9574.v5.1.26.0bc0fe4.260716.1128", "5.1.26")]
+    [InlineData("UXGA6AA.ipq9574.v5.0.10.d29afb8.251229.1655", "5.0.10")]
+    [InlineData("v7.5.6", "7.5.6")]
+    [InlineData("7.5.6.17090", "7.5.6.17090")]
+    public void ShortenFirmware_KeepsOnlyTheVersion(string firmware, string expected)
+    {
+        Assert.Equal(expected, RebootReasonParser.ShortenFirmware(firmware));
     }
 
     [Fact]
@@ -183,16 +192,98 @@ public class RebootReasonParserTests
     [Fact]
     public void DeviceState_FirmwareChanged_IsFirmwareUpgrade()
     {
-        var reason = RebootReasonParser.ParseDeviceState(hasPendingUpgradeMarker: false, firmwareChanged: true);
+        var reason = RebootReasonParser.ParseDeviceState(
+            markerFirmware: null, markerAgeVsBootSeconds: null, firmwareChanged: true);
 
         Assert.Equal(RebootCategory.FirmwareUpgrade, reason!.Category);
         Assert.Equal(RebootReasonSource.DeviceState, reason.Source);
+        Assert.Contains("changed across the restart", reason.Detail);
+    }
+
+    /// <summary>
+    /// Real marker from a USW-Pro-XG-8-PoE, written 122 s before the boot it caused.
+    /// </summary>
+    [Fact]
+    public void DeviceState_MarkerWrittenAtThisBoot_NamesTheImage()
+    {
+        var reason = RebootReasonParser.ParseDeviceState(
+            markerFirmware: "US3.rtl93xx_7.5.6+17090.260622.0846",
+            markerAgeVsBootSeconds: -122,
+            firmwareChanged: false);
+
+        Assert.Equal(RebootCategory.FirmwareUpgrade, reason!.Category);
+        Assert.Contains("7.5.6", reason.Detail);
+    }
+
+    /// <summary>
+    /// The marker lives in persistent storage, so a months-old one must not relabel a later
+    /// restart as an upgrade.
+    /// </summary>
+    [Fact]
+    public void DeviceState_StaleMarker_IsIgnored()
+    {
+        var reason = RebootReasonParser.ParseDeviceState(
+            markerFirmware: "US3.rtl93xx_7.5.6+17090.260622.0846",
+            markerAgeVsBootSeconds: -60 * 60 * 24 * 30,
+            firmwareChanged: false);
+
+        Assert.Null(reason);
+    }
+
+    [Fact]
+    public void DeviceState_MarkerWithoutAge_IsIgnored()
+    {
+        Assert.Null(RebootReasonParser.ParseDeviceState(
+            markerFirmware: "US3.rtl93xx_7.5.6+17090.260622.0846",
+            markerAgeVsBootSeconds: null,
+            firmwareChanged: false));
     }
 
     [Fact]
     public void DeviceState_NothingKnown_ReturnsNull()
     {
-        Assert.Null(RebootReasonParser.ParseDeviceState(false, false));
+        Assert.Null(RebootReasonParser.ParseDeviceState(null, null, false));
+    }
+
+    /// <summary>
+    /// The switch case that was getting mislabelled: an upgrade reboot leaves a Realtek console
+    /// ring that looks like any clean shutdown, so the upgrade evidence has to win even though
+    /// pstore ranks as the stronger source.
+    /// </summary>
+    [Fact]
+    public void Best_UpgradeEvidenceBeatsGenericCleanShutdown()
+    {
+        var pstore = RebootReasonParser.ParsePstore("console-ramoops-0", """
+            [747190.870000] Port 10 moving from Forwarding to Disabled
+            [747192.920000] reboot: Restarting system
+            [747192.920000] [RTK MS]System restart.
+            """);
+        var upgrade = RebootReasonParser.ParseDeviceState(
+            markerFirmware: "US3.rtl93xx_7.5.6+17090.260622.0846",
+            markerAgeVsBootSeconds: -122,
+            firmwareChanged: false);
+
+        Assert.Equal(RebootCategory.CommandedReboot, pstore!.Category);
+
+        var best = RebootReasonParser.Best(pstore, upgrade);
+
+        Assert.Equal(RebootCategory.FirmwareUpgrade, best.Category);
+    }
+
+    /// <summary>
+    /// The upgrade preference must not swallow an unexpected stop: a device that upgraded and then
+    /// lost power still reports the power loss.
+    /// </summary>
+    [Fact]
+    public void Best_UpgradeEvidenceDoesNotDisplacePowerLoss()
+    {
+        var register = RebootReasonParser.ParseConsoleRebootLog(
+            "2026-07-15T16:00:55-0500 Experience an improper shutdown(Power on Reset [0x20])");
+        var upgrade = RebootReasonParser.ParseDeviceState("US3.rtl93xx_7.5.6+17090", -60, false);
+
+        var best = RebootReasonParser.Best(register, upgrade);
+
+        Assert.Equal(RebootCategory.PowerLoss, best.Category);
     }
 
     [Theory]

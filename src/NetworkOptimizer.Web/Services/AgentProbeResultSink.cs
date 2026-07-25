@@ -25,6 +25,7 @@ public class AgentProbeResultSink
     private readonly SiteDbContextFactory _siteDbFactory;
     private readonly MonitoringInfluxRegistry _influxRegistry;
     private readonly MonitoringLiveStatsRegistry _liveStatsRegistry;
+    private readonly Monitoring.RebootReason.DeviceRebootRegistry _rebootRegistry;
     private readonly SiteConnectionRegistry _siteConnections;
     private readonly MonitoringAlertRegistry _alertRegistry;
     private readonly ICredentialProtectionService _credentialProtection;
@@ -81,6 +82,7 @@ public class AgentProbeResultSink
         SiteDbContextFactory siteDbFactory,
         MonitoringInfluxRegistry influxRegistry,
         MonitoringLiveStatsRegistry liveStatsRegistry,
+        Monitoring.RebootReason.DeviceRebootRegistry rebootRegistry,
         SiteConnectionRegistry siteConnections,
         MonitoringAlertRegistry alertRegistry,
         ICredentialProtectionService credentialProtection,
@@ -90,6 +92,7 @@ public class AgentProbeResultSink
         _siteDbFactory = siteDbFactory;
         _influxRegistry = influxRegistry;
         _liveStatsRegistry = liveStatsRegistry;
+        _rebootRegistry = rebootRegistry;
         _siteConnections = siteConnections;
         _alertRegistry = alertRegistry;
         _credentialProtection = credentialProtection;
@@ -555,6 +558,8 @@ public class AgentProbeResultSink
         var influx = _influxRegistry.GetFor(connection.SiteSlug);
         if (!influx.IsConfigured) await influx.ReconfigureAsync(ct);
         var liveStats = _liveStatsRegistry.GetFor(connection.SiteSlug);
+        var rebootTracker = _rebootRegistry.GetFor(connection.SiteSlug);
+        await rebootTracker.SeedFromHistoryAsync(ct);
 
         // Temperature thresholds for health alerting come from the site's own
         // MonitoringSettings, same as the local medium tier.
@@ -889,6 +894,19 @@ public class AgentProbeResultSink
                 mem,
                 temp,
                 uptime,
+                timestamp);
+
+            // Agent-relayed sites get their reboot reasons the same way direct ones do. This is
+            // the only uptime feed for them: the server's own medium tier stands down while an
+            // agent covers collection, so without this the whole site shows no reasons at all.
+            // The probe's SSH reaches the site's devices back through the agent tunnel.
+            rebootTracker.RecordUptimeSample(
+                health.DeviceMac,
+                apiDevice?.Name,
+                apiDevice?.DeviceType ?? DeviceType.Unknown,
+                apiDevice?.Ip,
+                uptime,
+                apiDevice?.Version,
                 timestamp);
 
             // Threshold evaluation through the site's own evaluator instance, same
