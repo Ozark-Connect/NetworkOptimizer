@@ -35,9 +35,12 @@ public static class AppVersionInfo
     /// flavors MinVer produces: no reachable tag at all (0.0.0 base, e.g. a Docker
     /// build whose context has no .git) and commits past the last tag (prerelease
     /// height like "2.3.2-alpha.0.12", e.g. a native build from a git checkout).
-    /// A build exactly on a release tag has Informational equal to ReleaseVersion.
+    /// Build metadata is ignored: the SDK appends "+&lt;sha&gt;" to every build made from a
+    /// git checkout, releases included, so only a prerelease component marks a build
+    /// as unreleased. A build exactly on a release tag reports e.g. "2.3.1+abc123".
     /// </summary>
-    public static bool IsSourceBuild => ReleaseVersion is null || Informational != ReleaseVersion;
+    public static bool IsSourceBuild =>
+        ReleaseVersion is null || Informational.Split('+')[0] != ReleaseVersion;
 
     static AppVersionInfo()
     {
