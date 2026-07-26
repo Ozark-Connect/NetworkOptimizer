@@ -3,7 +3,7 @@
 @implements IDisposable
 @inject IWanSteerDeploymentService DeployService
 @inject UniFiConnectionService ConnectionService
-@inject NetworkOptimizer.Storage.Services.SiteDbContextFactory SiteDb
+@inject IWanSteerRuleService RuleService
 @inject SiteContextService SiteCtx
 @inject NetworkOptimizer.Web.Services.Licensing.LicenseStateService LicenseState
 @inject SiteTunnelRouting TunnelRouting
@@ -269,9 +269,9 @@
                                     <button class="btn btn-sm btn-secondary" @onclick="@(() => MoveRuleDown(rule))" disabled="@(rule.SortOrder >= _rules.Count - 1)" data-tooltip="Move down" data-tooltip-hover-only>&#9660;</button>
                                 </div>
                                 <button class="btn btn-sm btn-secondary" @onclick="@(() => EditRule(rule))">Edit</button>
-                                <SiteAdminOnly>
+                                <SiteOperatorOnly>
                                     <button class="btn btn-sm btn-danger" @onclick="@(() => DeleteRule(rule))">Delete</button>
-                                </SiteAdminOnly>
+                                </SiteOperatorOnly>
                             </div>
                         </div>
                     </div>
@@ -639,10 +639,7 @@
     {
         try
         {
-            await using var db = SiteDb.CreateForSite(SiteCtx.Slug, SiteCtx.IsDefault);
-            _rules = await db.WanSteerTrafficClasses
-                .OrderBy(r => r.SortOrder)
-                .ToListAsync();
+            _rules = await RuleService.ListAsync();
         }
         catch (Exception ex)
         {
@@ -804,32 +801,7 @@
 
         try
         {
-            await using var db = SiteDb.CreateForSite(SiteCtx.Slug, SiteCtx.IsDefault);
-
-            if (_editingRuleId == 0)
-            {
-                _editForm.SortOrder = _rules.Count;
-                db.WanSteerTrafficClasses.Add(_editForm);
-            }
-            else
-            {
-                var existing = await db.WanSteerTrafficClasses.FindAsync(_editForm.Id);
-                if (existing != null)
-                {
-                    existing.Name = _editForm.Name;
-                    existing.Enabled = _editForm.Enabled;
-                    existing.Probability = _editForm.Probability;
-                    existing.TargetWanKey = _editForm.TargetWanKey;
-                    existing.SrcCidrsJson = _editForm.SrcCidrsJson;
-                    existing.SrcMacsJson = _editForm.SrcMacsJson;
-                    existing.DstCidrsJson = _editForm.DstCidrsJson;
-                    existing.Protocol = _editForm.Protocol;
-                    existing.SrcPortsJson = _editForm.SrcPortsJson;
-                    existing.DstPortsJson = _editForm.DstPortsJson;
-                }
-            }
-
-            await db.SaveChangesAsync();
+            await RuleService.SaveAsync(_editForm);
             _hasUndeployedChanges = true;
             await LoadRulesAsync();
             _editingRuleId = null;
@@ -856,19 +828,7 @@
     {
         try
         {
-            await using var db = SiteDb.CreateForSite(SiteCtx.Slug, SiteCtx.IsDefault);
-            var entity = await db.WanSteerTrafficClasses.FindAsync(rule.Id);
-            if (entity != null)
-            {
-                db.WanSteerTrafficClasses.Remove(entity);
-                await db.SaveChangesAsync();
-
-                // Re-number sort orders
-                var remaining = await db.WanSteerTrafficClasses.OrderBy(r => r.SortOrder).ToListAsync();
-                for (int i = 0; i < remaining.Count; i++)
-                    remaining[i].SortOrder = i;
-                await db.SaveChangesAsync();
-            }
+            await RuleService.DeleteAsync(rule.Id);
 
             _hasUndeployedChanges = true;
             await LoadRulesAsync();
@@ -883,14 +843,8 @@
     {
         try
         {
-            await using var db = SiteDb.CreateForSite(SiteCtx.Slug, SiteCtx.IsDefault);
-            var entity = await db.WanSteerTrafficClasses.FindAsync(rule.Id);
-            if (entity != null)
-            {
-                entity.Enabled = enabled;
-                await db.SaveChangesAsync();
-                _hasUndeployedChanges = true;
-            }
+            await RuleService.SetEnabledAsync(rule.Id, enabled);
+            _hasUndeployedChanges = true;
             rule.Enabled = enabled;
         }
         catch (Exception ex)
@@ -919,15 +873,8 @@
     {
         try
         {
-            await using var db = SiteDb.CreateForSite(SiteCtx.Slug, SiteCtx.IsDefault);
-            var entityA = await db.WanSteerTrafficClasses.FindAsync(a.Id);
-            var entityB = await db.WanSteerTrafficClasses.FindAsync(b.Id);
-            if (entityA != null && entityB != null)
-            {
-                (entityA.SortOrder, entityB.SortOrder) = (entityB.SortOrder, entityA.SortOrder);
-                await db.SaveChangesAsync();
-                _hasUndeployedChanges = true;
-            }
+            await RuleService.SwapSortOrderAsync(a.Id, b.Id);
+            _hasUndeployedChanges = true;
             await LoadRulesAsync();
         }
         catch (Exception ex)
