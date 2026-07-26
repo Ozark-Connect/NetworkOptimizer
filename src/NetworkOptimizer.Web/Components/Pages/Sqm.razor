@@ -12,6 +12,8 @@
 @inject IJSRuntime JS
 @inject ILogger<Sqm> Logger
 @inject PullToRefreshState PtrState
+@inject Microsoft.AspNetCore.Authorization.IAuthorizationService Authz
+@inject Microsoft.AspNetCore.Components.Authorization.AuthenticationStateProvider AuthState
 @rendermode InteractiveServer
 @using SqmConfig = NetworkOptimizer.Sqm.Models.SqmConfiguration
 @using NetworkOptimizer.Sqm.Models
@@ -503,7 +505,7 @@
             </div>
             <div class="card-header-right">
                 <label class="toggle-label" @onclick:stopPropagation>
-                    <input type="checkbox" @bind="wan1Config.Enabled" @bind:after="() => OnEnabledChanged(wan1Config, wan1AvailableInterfaces)" />
+                    <input type="checkbox" @bind="wan1Config.Enabled" @bind:after="() => OnEnabledChanged(wan1Config, wan1AvailableInterfaces)" disabled="@(!_canOperate)" />
                     <span>Enable Adaptive SQM</span>
                 </label>
                 <span class="issue-type-chevron">@(_wan1Collapsed ? "▼" : "▲")</span>
@@ -511,7 +513,7 @@
         </div>
         <div class="expand-wrapper @(!_wan1Collapsed ? "expanded" : "")">
             <div class="expand-content">
-                <div class="card-body @(!wan1Config.Enabled ? "disabled-section" : "")">
+                <div class="card-body @(!wan1Config.Enabled || !_canOperate ? "disabled-section" : "")">
             <div class="form-row">
                 <div class="form-group">
                     <label class="form-label">Connection Name</label>
@@ -687,7 +689,7 @@
             </div>
             <div class="card-header-right">
                 <label class="toggle-label" @onclick:stopPropagation>
-                    <input type="checkbox" @bind="wan2Config.Enabled" @bind:after="() => OnEnabledChanged(wan2Config, wan2AvailableInterfaces)" />
+                    <input type="checkbox" @bind="wan2Config.Enabled" @bind:after="() => OnEnabledChanged(wan2Config, wan2AvailableInterfaces)" disabled="@(!_canOperate)" />
                     <span>Enable Adaptive SQM</span>
                 </label>
                 <span class="issue-type-chevron">@(_wan2Collapsed ? "▼" : "▲")</span>
@@ -695,7 +697,7 @@
         </div>
         <div class="expand-wrapper @(!_wan2Collapsed ? "expanded" : "")">
             <div class="expand-content">
-                <div class="card-body @(!wan2Config.Enabled ? "disabled-section" : "")">
+                <div class="card-body @(!wan2Config.Enabled || !_canOperate ? "disabled-section" : "")">
             <div class="form-row">
                 <div class="form-group">
                     <label class="form-label">Connection Name</label>
@@ -1721,6 +1723,9 @@
     // Auto-refresh timer (1 minute interval)
     private System.Threading.Timer? _refreshTimer;
 
+    /// <summary>True when the caller may operate this site, i.e. may change and deploy SQM settings.</summary>
+    private bool _canOperate;
+
     protected override void OnInitialized()
     {
         UpdateCalculatedSpeeds(wan1Config);
@@ -1765,6 +1770,12 @@
     {
         if (firstRender)
         {
+            // The WAN forms save on change rather than behind a Save button, so a caller who cannot
+            // deploy must not be given editable fields - every edit would fire a save the gate
+            // refuses. Read-only rather than hidden: the current shaping settings are worth seeing.
+            var user = (await AuthState.GetAuthenticationStateAsync()).User;
+            _canOperate = (await Authz.AuthorizeAsync(user, SiteContext.Slug, Policies.SiteOperator)).Succeeded;
+
             // Load saved WAN configs from database
             await LoadSavedConfigsAsync();
             StateHasChanged();
