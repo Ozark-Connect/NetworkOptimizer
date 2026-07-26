@@ -1,5 +1,5 @@
 @page "/settings"
-@attribute [Authorize(Policy = Policies.RequireAdmin)]
+@attribute [Authorize(Policy = Policies.ManageSettings)]
 @rendermode InteractiveServer
 @implements IDisposable
 @using NetworkOptimizer.Web.Services

@@ -18,6 +18,11 @@ public static class Policies
     /// <summary>Any authenticated user (Viewer, Operator, or Admin).</summary>
     public const string RequireViewer = "RequireViewer";
 
+    /// <summary>
+    /// Reaching Settings: global Admin anywhere, or Site Admin on the managed site in context.
+    /// </summary>
+    public const string ManageSettings = "ManageSettings";
+
     /// <summary>Site-scoped: at least SiteViewer on the resource site.</summary>
     public const string SiteViewer = "SiteViewer";
 
