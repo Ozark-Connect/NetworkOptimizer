@@ -872,6 +872,28 @@ if (!string.IsNullOrWhiteSpace(trustedProxies))
     }
 
     app.UseForwardedHeaders(options);
+
+    // Cloudflare sets CF-Connecting-IP to the true client address, which is more reliable than
+    // walking X-Forwarded-For - it is a single value Cloudflare controls rather than a list any
+    // intermediate can append to. Opt-in on top of TRUSTED_PROXIES rather than automatic: the header
+    // is only meaningful if the request genuinely came through Cloudflare, and a client posting it
+    // directly to an origin that merely has SOME trusted proxy configured would otherwise be
+    // choosing its own source address.
+    //
+    // This still assumes the origin refuses non-Cloudflare connections. If it does not, anyone can
+    // point their own Cloudflare account at it and the header becomes attacker-supplied.
+    if (bool.TryParse(builder.Configuration["TRUST_CF_CONNECTING_IP"], out var trustCf) && trustCf)
+    {
+        app.Use(async (context, next) =>
+        {
+            var header = context.Request.Headers["CF-Connecting-IP"].FirstOrDefault();
+            if (!string.IsNullOrEmpty(header) && System.Net.IPAddress.TryParse(header, out var clientIp))
+                context.Connection.RemoteIpAddress = clientIp;
+            await next();
+        });
+        app.Logger.LogInformation("Trusting CF-Connecting-IP for the real client address");
+    }
+
     app.Logger.LogInformation(
         "Trusting forwarded headers from {ProxyCount} proxy address(es) and {NetworkCount} network(s)",
         options.KnownProxies.Count, options.KnownIPNetworks.Count);
