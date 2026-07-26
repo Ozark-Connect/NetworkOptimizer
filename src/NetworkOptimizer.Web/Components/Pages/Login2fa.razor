@@ -84,7 +84,7 @@
     {
         var target = _useRecovery ? "false" : "true";
         var query = $"recovery={target}";
-        if (HasRecoveryCodes) query += "&rc=1";
+        if (HasRecoveryCodes) query += "&rc=true";
         if (!string.IsNullOrEmpty(ReturnUrl)) query += $"&returnUrl={Uri.EscapeDataString(ReturnUrl)}";
         if (!string.IsNullOrEmpty(Site)) query += $"&{SiteContextService.SiteQueryParam}={Uri.EscapeDataString(Site)}";
         return $"/login/2fa?{query}";
