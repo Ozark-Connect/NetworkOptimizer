@@ -50,11 +50,11 @@
             <div class="form-group">
                 <label class="checkbox-label">
                     <input type="checkbox" @bind="_restrictSites" @bind:after="SaveRestrictAsync" />
-                    Restrict non-Admin users to sites they are members of
+                    Operators and Viewers see only their assigned sites
                 </label>
                 <p class="form-help">
-                    Off by default: a global role applies across every site. Turn this on and Operators and
-                    Viewers see only the sites granted below.
+                    Without this, anyone with a global role can see every site regardless of the grants
+                    below. Admins are unaffected.
                 </p>
             </div>
         }

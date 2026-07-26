@@ -4,6 +4,7 @@
 @inject IFederationProviderService Federation
 @inject ICurrentUserAccessor CurrentUser
 @inject ISiteManagementService SiteManagement
+@inject IAuthPolicyOptions AuthPolicy
 
 @* Settings - Identity: the instance-wide account list. Create, enable/disable, delete, change role,
    reset another user's password, and link or unlink an external identity. Everything runs through
@@ -76,6 +77,11 @@
                                         }
                                     </select>
                                     </span>
+                                    @if (_siteRestrictionActive && !summary.HasSiteAccess)
+                                    {
+                                        <span class="status-badge status-inactive"
+                                              data-tooltip="This account is limited to its assigned sites and has none, so it can reach nothing. Grant access under Access.">No site access</span>
+                                    }
                                 </td>
                                 <td class="hide-mobile">
                                     @* What this account can actually sign in with. A badge that only
@@ -285,6 +291,7 @@
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
 
     private bool _multiSiteEnabled;
+    private bool _siteRestrictionActive;
     private string? _currentUserId;
     private IReadOnlyList<UserAccountSummary>? _users;
     private IReadOnlyList<FederationProvider>? _providers;
@@ -311,6 +318,7 @@
     protected override async Task OnInitializedAsync()
     {
         _multiSiteEnabled = await SiteManagement.IsMultiSiteEnabledAsync();
+        _siteRestrictionActive = await AuthPolicy.IsRestrictSitesToMembersAsync();
 
         if (AuthState is not null)
         {
