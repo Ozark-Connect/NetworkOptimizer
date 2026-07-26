@@ -444,7 +444,6 @@
                 <div class="adjustment-buttons">
                     @if (wan1Config.Enabled && IsWanActiveInMonitor(wan1Config.Name))
                     {
-                        <SiteAdminOnly>
                             <button class="btn btn-primary" @onclick="() => TriggerSqmAdjustment(wan1Config.Name)" disabled="@IsAnySpeedtestRunning">
                                 @if (isRunningAdjustment && adjustmentWan == wan1Config.Name)
                                 {
@@ -456,11 +455,9 @@
                                     <span>Adjust @wan1Config.Name</span>
                                 }
                             </button>
-                        </SiteAdminOnly>
                     }
                     @if (wan2Config.Enabled && IsWanActiveInMonitor(wan2Config.Name))
                     {
-                        <SiteAdminOnly>
                             <button class="btn btn-primary" @onclick="() => TriggerSqmAdjustment(wan2Config.Name)" disabled="@IsAnySpeedtestRunning">
                                 @if (isRunningAdjustment && adjustmentWan == wan2Config.Name)
                                 {
@@ -472,7 +469,6 @@
                                     <span>Adjust @wan2Config.Name</span>
                                 }
                             </button>
-                        </SiteAdminOnly>
                     }
                 </div>
                 @if ((HasFailedSpeedtest || HasLastError) && string.IsNullOrEmpty(adjustmentMessage))

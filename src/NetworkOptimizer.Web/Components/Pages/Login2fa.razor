@@ -48,6 +48,16 @@
             }
         </form>
 
+        @* A registered passkey is a second factor in its own right, so an account that has one should
+           not be forced through an authenticator code to finish signing in. Offered above the recovery
+           link because it is the everyday route; recovery is the fallback. *@
+        @if (HasPasskey)
+        {
+            <button type="button" class="btn btn-secondary login-btn" onclick="netoptPasskey.login()">
+                Use a passkey
+            </button>
+        }
+
         @if (_hasRecoveryCodes)
         {
             <div class="login-footer">
@@ -68,6 +78,12 @@
     /// can read the pending two-factor cookie, so a lookup would disagree with itself.
     /// </summary>
     [SupplyParameterFromQuery(Name = "rc")] private bool HasRecoveryCodes { get; set; }
+
+    /// <summary>
+    /// Set by the sign-in endpoint when the pending account has a passkey registered. Arrives in the
+    /// query for the same reason as <c>rc</c>: this page cannot read the pending-2FA cookie itself.
+    /// </summary>
+    [SupplyParameterFromQuery(Name = "pk")] private bool HasPasskey { get; set; }
 
     [SupplyParameterFromQuery(Name = SiteContextService.SiteQueryParam)]
     private string? Site { get; set; }

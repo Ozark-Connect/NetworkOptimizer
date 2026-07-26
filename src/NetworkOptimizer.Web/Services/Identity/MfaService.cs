@@ -51,6 +51,12 @@ public interface IMfaService
     Task<bool> HasRecoveryCodesAsync(string userName);
 
     /// <summary>
+    /// True when the named account has a passkey registered. Resolved by username for the same reason
+    /// as the recovery-code check: the second-factor page cannot read the pending-2FA cookie itself.
+    /// </summary>
+    Task<bool> HasPasskeysAsync(string userName);
+
+    /// <summary>
     /// The user waiting on the second-factor step, or null when no such sign-in is in progress. Lets
     /// the 2FA page tailor itself (for example, hiding recovery-code entry for an account that has none).
     /// </summary>
@@ -139,6 +145,12 @@ public sealed class MfaService : IMfaService
         => _userManager.CountRecoveryCodesAsync(user);
 
     /// <inheritdoc />
+    public async Task<bool> HasPasskeysAsync(string userName)
+    {
+        var user = await _userManager.FindByNameAsync(userName);
+        return user is not null && (await _userManager.GetPasskeysAsync(user)).Count > 0;
+    }
+
     public async Task<bool> HasRecoveryCodesAsync(string userName)
     {
         var user = await _userManager.FindByNameAsync(userName);

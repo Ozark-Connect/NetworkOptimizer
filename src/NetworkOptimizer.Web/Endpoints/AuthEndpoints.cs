@@ -58,7 +58,7 @@ public static class AuthEndpoints
                 // Resolved from the submitted username: the two-factor cookie was written into this
                 // response, so it cannot be read back out of this request.
                 SignInOutcome.RequiresTwoFactor => Results.Redirect(
-                    TwoFactorRedirect(returnUrl, site, await mfa.HasRecoveryCodesAsync(username))),
+                    TwoFactorRedirect(returnUrl, site, await mfa.HasRecoveryCodesAsync(username), await mfa.HasPasskeysAsync(username))),
                 SignInOutcome.RequiresMfaEnrollment => Results.Redirect("/account/security?setup=required"),
                 SignInOutcome.RequiresPasskeySignIn => LoginRedirect("use_passkey", site),
                 SignInOutcome.LockedOut => LoginRedirect("lockout", site),
@@ -92,7 +92,7 @@ public static class AuthEndpoints
                     : SiteContextService.WithSiteParam(returnUrl, site)),
                 SignInOutcome.LockedOut => LoginRedirect("lockout", site),
                 _ => Results.Redirect(
-                    TwoFactorRedirect(returnUrl, site, await PendingUserHasRecoveryCodesAsync(mfa)) + "&error=invalid"),
+                    TwoFactorRedirect(returnUrl, site, await PendingUserHasRecoveryCodesAsync(mfa), await PendingUserHasPasskeysAsync(mfa)) + "&error=invalid"),
             };
         })
             .AllowAnonymous();
@@ -184,13 +184,15 @@ public static class AuthEndpoints
     /// has an HttpContext to read the pending two-factor cookie from. Resolving it here, once, keeps
     /// both passes agreeing.
     /// </summary>
-    private static string TwoFactorRedirect(string returnUrl, string site, bool hasRecoveryCodes)
+    private static string TwoFactorRedirect(string returnUrl, string site, bool hasRecoveryCodes, bool hasPasskey)
     {
         var query = new List<string> { $"returnUrl={Uri.EscapeDataString(returnUrl)}" };
         if (!string.IsNullOrEmpty(site))
             query.Add($"{SiteContextService.SiteQueryParam}={Uri.EscapeDataString(site)}");
         if (hasRecoveryCodes)
             query.Add("rc=true");
+        if (hasPasskey)
+            query.Add("pk=true");
         return $"/login/2fa?{string.Join("&", query)}";
     }
 
@@ -199,6 +201,12 @@ public static class AuthEndpoints
     {
         var pending = await mfa.GetPendingTwoFactorUserAsync();
         return pending is not null && await mfa.CountRecoveryCodesAsync(pending) > 0;
+    }
+
+    private static async Task<bool> PendingUserHasPasskeysAsync(IMfaService mfa)
+    {
+        var pending = await mfa.GetPendingTwoFactorUserAsync();
+        return pending is not null && await mfa.HasPasskeysAsync(pending.UserName ?? "");
     }
 
     /// <summary>Rejects open-redirect targets: only same-site relative paths are allowed.</summary>
