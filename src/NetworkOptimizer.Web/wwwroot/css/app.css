@@ -2649,6 +2649,10 @@ select.form-control {
     color: var(--text-secondary);
 }
 
+.account-empty-note {
+    margin-bottom: 0.5rem;
+}
+
 .account-admin-note {
     margin: 0 0 0.75rem;
     font-size: 0.875rem;
