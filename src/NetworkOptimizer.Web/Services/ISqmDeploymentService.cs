@@ -9,7 +9,7 @@ namespace NetworkOptimizer.Web.Services;
 /// Service for deploying SQM scripts to UniFi gateways via SSH.
 /// Follows the same SSH execution pattern as Iperf3SpeedTestService.
 /// </summary>
-[MutatingService]
+[MutatingService(SiteScoped = true)]
 public interface ISqmDeploymentService
 {
     /// <summary>

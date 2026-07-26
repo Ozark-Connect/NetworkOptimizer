@@ -9,7 +9,7 @@ namespace NetworkOptimizer.Web.Services;
 /// Service for managing gateway SSH settings and running iperf3 speed tests.
 /// The gateway typically has different SSH credentials than other UniFi devices.
 /// </summary>
-[MutatingService]
+[MutatingService(SiteScoped = true)]
 public interface IGatewaySpeedTestService
 {
     /// <summary>

@@ -141,7 +141,7 @@
                     {
                         <div class="alert alert-warning" style="margin-top: 1rem;">
                             <strong>UDM Boot Required:</strong> Boot scripts in <code>/data/on_boot.d/</code> will not persist after firmware upgrades or run on boot without udm-boot installed.
-                            <AdminOnly>
+                            <SiteAdminOnly>
                                 <button class="btn btn-sm btn-primary" style="margin-left: 0.5rem;" @onclick="InstallUdmBoot" disabled="@isInstallingUdmBoot">
                                     @if (isInstallingUdmBoot)
                                     {
@@ -153,7 +153,7 @@
                                         <span>Install UDM Boot</span>
                                     }
                                 </button>
-                            </AdminOnly>
+                            </SiteAdminOnly>
                         </div>
                     }
                 }
@@ -424,7 +424,7 @@
     <!-- Manual SQM Adjustment (show if deployed OR monitor has active WANs) -->
     @* Running an adjustment is an Operator action, so the whole card is hidden below that rather than
        showing a Viewer a card whose only control refuses them. *@
-    <OperatorOnly>
+    <SiteOperatorOnly>
     @if (deploymentStatus?.IsDeployed == true || (sqmMonitorData != null && (sqmMonitorData.Wan1?.Active == true || sqmMonitorData.Wan2?.Active == true)))
     {
         <div class="card">
@@ -442,7 +442,7 @@
                 <div class="adjustment-buttons">
                     @if (wan1Config.Enabled && IsWanActiveInMonitor(wan1Config.Name))
                     {
-                        <AdminOnly>
+                        <SiteAdminOnly>
                             <button class="btn btn-primary" @onclick="() => TriggerSqmAdjustment(wan1Config.Name)" disabled="@IsAnySpeedtestRunning">
                                 @if (isRunningAdjustment && adjustmentWan == wan1Config.Name)
                                 {
@@ -454,11 +454,11 @@
                                     <span>Adjust @wan1Config.Name</span>
                                 }
                             </button>
-                        </AdminOnly>
+                        </SiteAdminOnly>
                     }
                     @if (wan2Config.Enabled && IsWanActiveInMonitor(wan2Config.Name))
                     {
-                        <AdminOnly>
+                        <SiteAdminOnly>
                             <button class="btn btn-primary" @onclick="() => TriggerSqmAdjustment(wan2Config.Name)" disabled="@IsAnySpeedtestRunning">
                                 @if (isRunningAdjustment && adjustmentWan == wan2Config.Name)
                                 {
@@ -470,7 +470,7 @@
                                     <span>Adjust @wan2Config.Name</span>
                                 }
                             </button>
-                        </AdminOnly>
+                        </SiteAdminOnly>
                     }
                 </div>
                 @if ((HasFailedSpeedtest || HasLastError) && string.IsNullOrEmpty(adjustmentMessage))
@@ -491,7 +491,7 @@
             </div>
         </div>
     }
-    </OperatorOnly>
+    </SiteOperatorOnly>
 
     <!-- Primary WAN Configuration (only show if at least one WAN has Smart Queues enabled) -->
     @if (sqmEligibleWans.Any())
@@ -862,7 +862,7 @@
     <!-- Deployment Actions (show if WANs available OR scripts are deployed but need cleanup) -->
     @* Deployment is Operator, reading logs is Viewer, so they are separate cards rather than one card
        with mixed gating inside it. A Viewer sees only Debugging, below. *@
-    <OperatorOnly>
+    <SiteOperatorOnly>
     @if (sqmEligibleWans.Any() || deploymentStatus?.IsDeployed == true)
     {
     <div class="card">
@@ -878,7 +878,7 @@
                     The scripts and scheduled tasks will not function correctly. You should either re-enable Smart Queues in UniFi, or remove the deployed scripts.
                 </div>
                 <div class="action-buttons">
-                    <AdminOnly>
+                    <SiteAdminOnly>
                         <button class="btn btn-danger" @onclick="RemoveSqm" disabled="@isDeploying">
                             @if (isDeploying)
                             {
@@ -890,7 +890,7 @@
                                 <span>Remove Adaptive SQM</span>
                             }
                         </button>
-                    </AdminOnly>
+                    </SiteAdminOnly>
                 </div>
             }
             else
@@ -920,7 +920,7 @@
                    running system and is undone by deploying again. Removing tears the feature off the
                    gateway and stays Admin. *@
                 <div class="action-buttons">
-                    <OperatorOnly>
+                    <SiteOperatorOnly>
                         <button class="btn btn-primary" @onclick="DeploySqm" disabled="@(isDeploying || IsLicenseRestricted)">
                             @if (isDeploying)
                             {
@@ -932,19 +932,19 @@
                                 <span>@(deploymentStatus?.IsDeployed == true ? "Deploy Settings" : "Deploy SQM Scripts")</span>
                             }
                         </button>
-                    </OperatorOnly>
+                    </SiteOperatorOnly>
                     <span title="@(deploymentStatus?.IsDeployed != true ? "Deploy SQM scripts first" : "")">
-                        <OperatorOnly>
+                        <SiteOperatorOnly>
                             <button class="btn btn-secondary" @onclick="DeployTcMonitor" disabled="@(isDeploying || deploymentStatus?.IsDeployed != true || IsLicenseRestricted)">
                                 Deploy SQM Monitor Only
                             </button>
-                        </OperatorOnly>
+                        </SiteOperatorOnly>
                     </span>
-                    <AdminOnly>
+                    <SiteAdminOnly>
                         <button class="btn btn-danger" @onclick="RemoveSqm" disabled="@(isDeploying || deploymentStatus?.IsDeployed != true)">
                             Remove Adaptive SQM
                         </button>
-                    </AdminOnly>
+                    </SiteAdminOnly>
                 </div>
 
             }
@@ -970,7 +970,7 @@
         </div>
     </div>
     }
-    </OperatorOnly>
+    </SiteOperatorOnly>
 
     @* Debugging: reading SQM logs is already Viewer at the service layer, so this card is not gated.
        It is the only card on this page a Viewer sees. *@

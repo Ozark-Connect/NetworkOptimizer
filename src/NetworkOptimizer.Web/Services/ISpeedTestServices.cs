@@ -10,7 +10,7 @@ namespace NetworkOptimizer.Web.Services;
 /// is the one mutating action an Operator may take (design doc 08); editing or deleting stored
 /// results is an Admin change to recorded data.
 /// </summary>
-[MutatingService]
+[MutatingService(SiteScoped = true)]
 public interface IUwnSpeedTestService
 {
     /// <summary>True while a test is in flight (the UI blocks a second concurrent run).</summary>
@@ -63,7 +63,7 @@ public interface IUwnSpeedTestService
 /// The gateway-run WAN speed test (the gateway runs the test against an external server). Same tiers
 /// as <see cref="IUwnSpeedTestService"/>; deploying the binary to the gateway is Admin.
 /// </summary>
-[MutatingService]
+[MutatingService(SiteScoped = true)]
 public interface IGatewayWanSpeedTestService
 {
     /// <summary>True while a test is in flight.</summary>
@@ -126,7 +126,7 @@ public interface IGatewayWanSpeedTestService
 /// driven by anonymous client submissions on <c>/api/public/*</c>, which run in an explicit system
 /// scope, so they carry the read tier here; deleting or editing recorded results is an Admin change.
 /// </summary>
-[MutatingService]
+[MutatingService(SiteScoped = true)]
 public interface IClientSpeedTestService
 {
     /// <summary>Records a browser (OpenSpeedTest) result posted by a client.</summary>

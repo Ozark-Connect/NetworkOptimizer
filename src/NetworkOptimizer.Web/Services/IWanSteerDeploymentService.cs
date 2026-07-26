@@ -8,7 +8,7 @@ namespace NetworkOptimizer.Web.Services;
 /// doc 06, gate 9): reads are open to any authenticated user, every change to what runs on the
 /// gateway is Admin-only and audited.
 /// </summary>
-[MutatingService]
+[MutatingService(SiteScoped = true)]
 public interface IWanSteerDeploymentService
 {
     /// <summary>Current deployment/run status of the WAN Steering daemon on the gateway.</summary>

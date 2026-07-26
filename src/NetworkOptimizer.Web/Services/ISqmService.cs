@@ -7,7 +7,7 @@ namespace NetworkOptimizer.Web.Services;
 /// Service for managing SQM (Smart Queue Management) and polling TC stats.
 /// SQM data is obtained by polling the tc-monitor endpoint on the UniFi gateway.
 /// </summary>
-[MutatingService]
+[MutatingService(SiteScoped = true)]
 public interface ISqmService
 {
     /// <summary>

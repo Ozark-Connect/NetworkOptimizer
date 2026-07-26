@@ -8,7 +8,7 @@ namespace NetworkOptimizer.Web.Services;
 /// service layer (design doc 06, gate 9): status reads are open to any authenticated user, deploying
 /// or removing a tweak is Admin-only and audited.
 /// </summary>
-[MutatingService]
+[MutatingService(SiteScoped = true)]
 public interface IPerfTweaksDeploymentService
 {
     /// <summary>Status of every tweak on the current site's gateway, plus gateway/firmware support.</summary>

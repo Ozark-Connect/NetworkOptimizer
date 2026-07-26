@@ -11,6 +11,18 @@ namespace NetworkOptimizer.Web.Services.Gates;
 [AttributeUsage(AttributeTargets.Interface, AllowMultiple = false)]
 public sealed class MutatingServiceAttribute : Attribute
 {
+    /// <summary>
+    /// True when the service acts on one site - the site in context - rather than on the instance.
+    /// The role required by <see cref="RequireGlobalRoleAttribute"/> is then satisfied by the caller's
+    /// effective role ON THAT SITE, so "Site Operator on the branch office" grants operator capability
+    /// there and nowhere else. That is least privilege: the grant means exactly what it says, instead
+    /// of handing out an instance-wide role and fencing it in afterwards.
+    ///
+    /// Leave false for anything genuinely instance-wide (user administration, federation config,
+    /// system settings). Marking one of those site-scoped would let a Site Admin inherit instance
+    /// powers on the strength of administering one site.
+    /// </summary>
+    public bool SiteScoped { get; init; }
 }
 
 /// <summary>

@@ -10,7 +10,7 @@ namespace NetworkOptimizer.Web.Services;
 /// <see cref="AuditService"/> itself - this interface exists so the actions a Viewer must not take
 /// are gated and audited at the service layer (design doc 06, gate 9) rather than only hidden in the UI.
 /// </summary>
-[MutatingService]
+[MutatingService(SiteScoped = true)]
 public interface IAuditScanService
 {
     /// <summary>Runs a security audit against the current site's UniFi Console.</summary>

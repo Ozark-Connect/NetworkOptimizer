@@ -1,0 +1,19 @@
+@using NetworkOptimizer.Storage.Models.Identity
+@using NetworkOptimizer.Web.Services.Authorization
+@inject SiteContextService SiteContext
+
+@* Hides a control that installs or removes a feature ON THIS SITE from anyone below Site Admin on it.
+   Use this rather than AdminOnly for site-scoped features: tearing SQM off one site is that site's
+   admin's call, whereas AdminOnly is for instance-wide things (users, federation, system settings). *@
+<AuthorizeView Policy="@Policies.SiteAdmin" Resource="@SiteContext.Slug">
+    <Authorized>@ChildContent</Authorized>
+    <NotAuthorized>@NotAuthorized</NotAuthorized>
+</AuthorizeView>
+
+@code {
+    /// <summary>The control to show to a Site Admin (or better) on the current site.</summary>
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>Optional stand-in shown to everyone else (usually nothing).</summary>
+    [Parameter] public RenderFragment? NotAuthorized { get; set; }
+}

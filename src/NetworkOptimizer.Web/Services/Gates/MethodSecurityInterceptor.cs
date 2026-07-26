@@ -23,17 +23,23 @@ public sealed class MethodSecurityInterceptor : AsyncInterceptorBase
     private readonly IAuthorizationService _authz;
     private readonly IAuditLogger _audit;
     private readonly IAuditContext _auditContext;
+    private readonly IEffectiveSiteRoleResolver _siteRoles;
+    private readonly SiteContextService _siteContext;
 
     public MethodSecurityInterceptor(
         ICallerContext caller,
         IAuthorizationService authz,
         IAuditLogger audit,
-        IAuditContext auditContext)
+        IAuditContext auditContext,
+        IEffectiveSiteRoleResolver siteRoles,
+        SiteContextService siteContext)
     {
         _caller = caller;
         _authz = authz;
         _audit = audit;
         _auditContext = auditContext;
+        _siteRoles = siteRoles;
+        _siteContext = siteContext;
     }
 
     /// <inheritdoc />
@@ -64,8 +70,13 @@ public sealed class MethodSecurityInterceptor : AsyncInterceptorBase
 
         // System (scheduler/poller) and auth-disabled installs have no principal to authorize; both
         // are still audited, so the action is attributed either way.
+        // A service that acts on one site has its required role checked against the caller's role on
+        // that site, not their instance-wide role (see MutatingServiceAttribute.SiteScoped).
+        var siteScoped = method.DeclaringType?
+            .GetCustomAttribute<MutatingServiceAttribute>()?.SiteScoped ?? false;
+
         if (!caller.IsSystem && !caller.AuthenticationDisabled)
-            await AuthorizeAsync(caller, requireGlobal, requireSite, siteSlug, auditAttr);
+            await AuthorizeAsync(caller, requireGlobal, requireSite, siteSlug, auditAttr, siteScoped);
 
         if (auditAttr is null)
         {
@@ -94,13 +105,24 @@ public sealed class MethodSecurityInterceptor : AsyncInterceptorBase
         RequireGlobalRoleAttribute? requireGlobal,
         RequireSiteRoleAttribute? requireSite,
         string? siteSlug,
-        AuditActionAttribute? auditAttr)
+        AuditActionAttribute? auditAttr,
+        bool siteScoped)
     {
         if (caller.Principal is null)
             Deny(caller, auditAttr, siteSlug, "no principal");
 
-        if (requireGlobal is not null && EffectiveRank(caller.Principal!) < GlobalRoles.Rank(requireGlobal.Role))
-            Deny(caller, auditAttr, siteSlug, $"missing global role {requireGlobal.Role}");
+        if (requireGlobal is not null)
+        {
+            var rank = siteScoped
+                ? await SiteRankAsync(caller.Principal!, siteSlug ?? _siteContext.Slug)
+                : EffectiveRank(caller.Principal!);
+
+            if (rank < GlobalRoles.Rank(requireGlobal.Role))
+                Deny(caller, auditAttr, siteSlug,
+                    siteScoped
+                        ? $"missing {requireGlobal.Role} on this site"
+                        : $"missing global role {requireGlobal.Role}");
+        }
 
         if (requireSite is not null)
         {
@@ -169,6 +191,22 @@ public sealed class MethodSecurityInterceptor : AsyncInterceptorBase
         }
         return rank;
     }
+
+    /// <summary>
+    /// The rank a caller holds for a service that acts on one site: their effective role on the site
+    /// in context, which <see cref="EffectiveSiteRole"/> already computes from the global role and
+    /// every applicable membership. This is what makes a per-site grant mean something - without it a
+    /// Site Operator has to be handed an instance-wide Operator role and fenced back in, which is the
+    /// opposite of least privilege.
+    /// </summary>
+    private async Task<int> SiteRankAsync(ClaimsPrincipal principal, string slug)
+        => await _siteRoles.GetEffectiveRoleAsync(principal, slug) switch
+        {
+            SiteRole.SiteAdmin => GlobalRoles.Rank(GlobalRoles.Admin),
+            SiteRole.SiteOperator => GlobalRoles.Rank(GlobalRoles.Operator),
+            SiteRole.SiteViewer => GlobalRoles.Rank(GlobalRoles.Viewer),
+            _ => 0,
+        };
 
     private static string? ResolveSiteSlug(IInvocation invocation, MethodInfo method)
     {

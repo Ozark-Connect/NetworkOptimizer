@@ -1,0 +1,21 @@
+@using NetworkOptimizer.Storage.Models.Identity
+@using NetworkOptimizer.Web.Services.Authorization
+@inject SiteContextService SiteContext
+
+@* Hides a control that operates THIS site from anyone below Site Operator on it. Site-scoped rather
+   than instance-wide on purpose: a Site Operator on the branch office should operate the branch
+   office and nothing else, which is what the grant says. Pairs with
+   [MutatingService(SiteScoped = true)] on the service - this is the UX half, the gate is the boundary.
+   On an install with authentication disabled the policy succeeds, so the control renders as always. *@
+<AuthorizeView Policy="@Policies.SiteOperator" Resource="@SiteContext.Slug">
+    <Authorized>@ChildContent</Authorized>
+    <NotAuthorized>@NotAuthorized</NotAuthorized>
+</AuthorizeView>
+
+@code {
+    /// <summary>The control to show to a Site Operator (or better) on the current site.</summary>
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>Optional stand-in shown to everyone else (usually nothing).</summary>
+    [Parameter] public RenderFragment? NotAuthorized { get; set; }
+}
