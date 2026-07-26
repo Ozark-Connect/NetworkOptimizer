@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models;
@@ -25,6 +25,7 @@ public class SiteManagementService : ISiteManagementService
     private readonly MonitoringCollectionRegistry _collectionRegistry;
     private readonly SiteRegistryChangeNotifier _changeNotifier;
     private readonly ILogger<SiteManagementService> _logger;
+    private readonly Authorization.ISiteAccessFilter _siteAccess;
 
     public SiteManagementService(
         ISiteRepository siteRepository,
@@ -35,8 +36,10 @@ public class SiteManagementService : ISiteManagementService
         SiteConnectionRegistry siteConnections,
         MonitoringCollectionRegistry collectionRegistry,
         SiteRegistryChangeNotifier changeNotifier,
+        Authorization.ISiteAccessFilter siteAccess,
         ILogger<SiteManagementService> logger)
     {
+        _siteAccess = siteAccess;
         _siteRepository = siteRepository;
         _mainDbFactory = mainDbFactory;
         _dbPaths = dbPaths;
@@ -118,12 +121,31 @@ public class SiteManagementService : ISiteManagementService
     public async Task<int> RemainingSiteSlotsAsync()
     {
         var limit = await GetSiteLimitAsync();
-        var count = (await GetSitesAsync()).Count;
+        // Instance-wide licensing arithmetic: counts every site, not the caller's slice.
+        var count = (await GetAllSitesUnfilteredAsync()).Count;
         return Math.Max(0, limit - count);
     }
 
-    /// <summary>Gets all registered sites, with the default (main) site always first.</summary>
+    /// <summary>
+    /// Gets the registered sites the CALLER may see, with the default (main) site always first.
+    ///
+    /// Narrowing happens here rather than at the call sites deliberately. Component-level filtering
+    /// is not a boundary - a live circuit can call the service directly - and doing it per caller
+    /// means every future caller re-decides it. The filter returns everything for system scopes,
+    /// auth-disabled installs, and any scope with no caller, so background fan-out and single-admin
+    /// installs are unaffected.
+    /// </summary>
     public async Task<List<Site>> GetSitesAsync()
+    {
+        var sites = await GetAllSitesUnfilteredAsync();
+        return await _siteAccess.FilterAsync(sites, s => s.Slug);
+    }
+
+    /// <summary>
+    /// Every registered site regardless of caller. For instance-level questions - licensing counts,
+    /// registry maintenance - where narrowing to one caller's view would give the wrong answer.
+    /// </summary>
+    private async Task<List<Site>> GetAllSitesUnfilteredAsync()
     {
         var sites = await _siteRepository.GetAllAsync();
         return sites.OrderByDescending(s => s.IsDefault).ToList();
