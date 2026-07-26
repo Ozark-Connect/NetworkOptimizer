@@ -7133,6 +7133,10 @@ a.path-hop.hop-clickable:hover {
     gap: 0.5rem;
 }
 
+.login-alt-signin {
+    margin-top: 1.5rem;
+}
+
 .login-footer {
     text-align: center;
     margin-top: 1.5rem;
