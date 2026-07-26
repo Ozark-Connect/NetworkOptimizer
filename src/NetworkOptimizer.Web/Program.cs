@@ -292,6 +292,10 @@ builder.Services.AddHttpClient("LicenseServer", client => client.Timeout = TimeS
 builder.Services.AddSingleton<LicenseServerClient>();
 builder.Services.AddSingleton<LicenseStateService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<LicenseStateService>());
+// The one gate every per-site background loop consults. Registered against the same singleton so
+// Alerts and Threats - which cannot see the Web project - read exactly the state Web enforces.
+builder.Services.AddSingleton<NetworkOptimizer.Core.ISiteWorkGate>(
+    sp => sp.GetRequiredService<LicenseStateService>());
 builder.Services.AddSingleton<LicenseActivationService>();
 builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.Licensing.ILicenseActivationService>(sp => sp.GetRequiredService<LicenseActivationService>());
 builder.Services.AddSingleton<LicensePhoneHomeService>();
