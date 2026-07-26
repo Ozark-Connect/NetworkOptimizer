@@ -37,6 +37,7 @@ public sealed class MfaRequirementTests : IDisposable
         services.AddNetOptIdentityCore(_dbPath);
         services.AddSingleton<IAuditLogger>(new NoOpAuditLogger());
         services.AddScoped<ICallerContext, CallerContext>();
+        services.AddScoped<NetworkOptimizer.Web.Services.Authorization.IEffectiveSiteRoleResolver, UnusedSiteRoleResolver>();
 
         // SignInManager issues and clears the auth cookie, so the sign-in path needs real
         // authentication schemes and an HttpContext to write to.
@@ -257,6 +258,19 @@ public sealed class MfaRequirementTests : IDisposable
                 "the Identity tab reports how each account last signed in");
             stored.LastLoginAt.Should().NotBeNull();
         }
+    }
+
+    /// <summary>
+    /// These tests never exercise the membership ownership guard, so the resolver only has to exist
+    /// for the container to build.
+    /// </summary>
+    private sealed class UnusedSiteRoleResolver : NetworkOptimizer.Web.Services.Authorization.IEffectiveSiteRoleResolver
+    {
+        public Task<SiteRole?> GetEffectiveRoleAsync(System.Security.Claims.ClaimsPrincipal user, string slug)
+            => Task.FromResult<SiteRole?>(null);
+
+        public Task<IReadOnlySet<string>> GetAuthorizedSlugsAsync(System.Security.Claims.ClaimsPrincipal user)
+            => Task.FromResult<IReadOnlySet<string>>(new HashSet<string>());
     }
 
     private sealed class NoOpAuditLogger : IAuditLogger
