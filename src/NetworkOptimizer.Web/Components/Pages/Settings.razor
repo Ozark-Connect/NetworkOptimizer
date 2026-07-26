@@ -2132,11 +2132,6 @@
         </div>
         <div class="card-body">
             <div class="form-group">
-                <label class="form-label">Alert Retention (days)</label>
-                <input type="number" class="form-control" @bind="alertRetention" min="1" max="365" />
-            </div>
-
-            <div class="form-group">
                 <label class="checkbox-label">
                     <input type="checkbox" @bind="receivePrereleaseUpdates" @bind:after="SavePrereleaseSetting" />
                     Receive pre-release update notifications
@@ -2145,12 +2140,6 @@
                     Shows a banner when a preview (beta) build is available so you can try new
                     features early. Stable update notifications are unaffected either way.
                 </p>
-            </div>
-
-            <div class="action-buttons">
-                <button class="btn btn-success" @onclick="SaveAppSettings">
-                    Save Application Settings
-                </button>
             </div>
         </div>
     </div>
@@ -4196,7 +4185,6 @@
     private string adminPasswordMessageClass = "";
 
     // Application Settings
-    private int alertRetention = 30;
     private bool receivePrereleaseUpdates = true; // default ON; global (instance-wide); dismissing the preview banner opts out
 
     // Security Audit Settings
@@ -6290,12 +6278,6 @@
         _ => provider,
     };
 
-    private async Task SaveAppSettings()
-    {
-        // TODO: Implement save
-        await Task.CompletedTask;
-    }
-
     private async Task SavePrereleaseSetting()
     {
         // Instance-wide: written to the main DB so it applies across all sites.
@@ -6449,12 +6431,6 @@
             isClearingCache = false;
             StateHasChanged();
         }
-    }
-
-    private async Task ResetSettings()
-    {
-        // TODO: Implement reset
-        await Task.CompletedTask;
     }
 
     // Admin Password methods
