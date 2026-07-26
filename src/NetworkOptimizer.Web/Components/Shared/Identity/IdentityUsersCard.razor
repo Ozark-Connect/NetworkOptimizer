@@ -362,6 +362,9 @@
         _linkProvider = _providers.FirstOrDefault()?.Scheme ?? "";
     }
 
+    /// <summary>Raised after a change that also affects site grants, so the Access card can reload.</summary>
+    [Parameter] public EventCallback OnAccessChanged { get; set; }
+
     private async Task ReloadAsync() => _users = await IdentityAdmin.ListUserSummariesAsync();
 
     /// <summary>True when the row is the account the signed-in admin is using.</summary>
@@ -420,6 +423,7 @@
             {
                 _addingUser = false;
                 await ReloadAsync();
+                await OnAccessChanged.InvokeAsync();
             }
         }
         finally
@@ -493,6 +497,8 @@
         {
             _busyUserId = null;
             await ReloadAsync();
+            // Deleting an account takes its grants with it.
+            await OnAccessChanged.InvokeAsync();
         }
     }
 

@@ -5,8 +5,8 @@
 
 @if (SiteSlug is null)
 {
-    <IdentityUsersCard />
-    <IdentityAccessCard />
+    <IdentityUsersCard OnAccessChanged="RefreshAccessAsync" />
+    <IdentityAccessCard @ref="_accessCard" />
     <IdentitySignInCard />
 }
 else
@@ -15,6 +15,18 @@ else
 }
 
 @code {
+    private IdentityAccessCard? _accessCard;
+
+    /// <summary>
+    /// Creating or deleting an account changes that account's site grants in the same step, so the
+    /// Access card below is stale as soon as the Users card finishes.
+    /// </summary>
+    private async Task RefreshAccessAsync()
+    {
+        if (_accessCard is not null)
+            await _accessCard.RefreshAsync();
+    }
+
     /// <summary>Null for the instance-wide view; a site slug scopes the tab to that site.</summary>
     [Parameter] public string? SiteSlug { get; set; }
 
