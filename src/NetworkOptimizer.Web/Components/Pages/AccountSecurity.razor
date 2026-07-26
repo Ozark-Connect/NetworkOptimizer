@@ -74,7 +74,7 @@
         {
             @if (_passkeys.Count == 0)
             {
-                <p class="form-help">No passkeys registered.</p>
+                <p class="form-help account-empty-note">No passkeys registered.</p>
             }
             else
             {
@@ -89,7 +89,7 @@
                 </ul>
             }
             <div class="form-group" style="max-width: 260px;">
-                <input class="form-control" @bind="_passkeyName" placeholder="Passkey name (e.g. YubiKey 5)" />
+                <input class="form-control" @bind="_passkeyName" placeholder="Passkey name (e.g. My phone)" />
             </div>
             <button class="btn btn-primary btn-sm" @onclick="RegisterPasskeyAsync">Register a passkey</button>
             @if (!string.IsNullOrEmpty(_passkeyMessage)) { <div class="alert alert-info mt-3">@_passkeyMessage</div> }
