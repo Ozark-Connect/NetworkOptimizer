@@ -190,7 +190,7 @@ public static class AuthEndpoints
         if (!string.IsNullOrEmpty(site))
             query.Add($"{SiteContextService.SiteQueryParam}={Uri.EscapeDataString(site)}");
         if (hasRecoveryCodes)
-            query.Add("rc=1");
+            query.Add("rc=true");
         return $"/login/2fa?{string.Join("&", query)}";
     }
 
