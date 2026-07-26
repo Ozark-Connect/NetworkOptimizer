@@ -44,7 +44,7 @@ public static class PasskeyEndpoints
             if (!SecureContext.IsSecure(ctx)) return Results.BadRequest(new { error = "insecure_context" });
             var json = await passkeys.RequestOptionsAsync(user: null, ctx);
             return Results.Content(json, "application/json");
-        });
+        }).AllowAnonymous();
 
         app.MapPost("/api/passkey/assert", async (
             HttpContext ctx, SignInManager<ApplicationUser> signInManager) =>
@@ -56,7 +56,7 @@ public static class PasskeyEndpoints
 
             await signInManager.SignInAsync(assertion.User, isPersistent: false, "passkey");
             return Results.Ok(new { authenticated = true });
-        });
+        }).AllowAnonymous();
     }
 
     private sealed record PasskeyRegisterRequest(string Credential, string? Name);

@@ -10,7 +10,7 @@ namespace NetworkOptimizer.Web.Services.Licensing;
 /// per-site coverage assignment. Licensing rows are registry data, so all
 /// access goes through the main-database factory.
 /// </summary>
-public class LicenseActivationService
+public class LicenseActivationService : ILicenseActivationService
 {
     /// <summary>How long after activation a perpetual key gets its one confirm check.</summary>
     public static readonly TimeSpan PerpetualConfirmWindow = TimeSpan.FromDays(30);

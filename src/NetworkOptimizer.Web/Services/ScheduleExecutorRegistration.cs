@@ -52,9 +52,14 @@ public static class ScheduleExecutorRegistration
         if (auditService.IsRunning)
             return (false, null, "Audit is already running");
 
+        // A scheduled scan has no user behind it: run the gated scan as system so it authorizes
+        // and audits as "system:scheduler:audit" (design doc 06).
+        using var systemScope = Identity.SystemScope.Enter(scope.ServiceProvider, "scheduler:audit");
+        var auditScan = scope.ServiceProvider.GetRequiredService<IAuditScanService>();
+
         try
         {
-            var result = await auditService.RunAuditAsync(new AuditOptions { IsScheduled = true });
+            var result = await auditScan.RunAuditAsync(new AuditOptions { IsScheduled = true });
             var summary = result.CriticalCount > 0 || result.WarningCount > 0
                 ? $"Score: {result.Score} - {result.CriticalCount} critical, {result.WarningCount} recommended"
                 : $"Score: {result.Score}";
@@ -71,6 +76,9 @@ public static class ScheduleExecutorRegistration
     {
         var scope = services.CreateScope();
         scope.ServiceProvider.GetRequiredService<SiteContextService>().OverrideSite(siteKey);
+        // Scheduled work has no user caller; gated services resolved here run as system and the
+        // restore handle dies with the scope (design doc 06).
+        Identity.SystemScope.Enter(scope.ServiceProvider, "scheduler:speedtest");
         return scope;
     }
 

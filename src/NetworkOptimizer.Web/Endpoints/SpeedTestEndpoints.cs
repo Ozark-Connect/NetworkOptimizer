@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Web.Services;
+using NetworkOptimizer.Web.Services.Authorization;
 
 namespace NetworkOptimizer.Web.Endpoints;
 
@@ -8,15 +9,22 @@ public static class SpeedTestEndpoints
 {
     public static void MapSpeedTestEndpoints(this WebApplication app)
     {
+        // Gate 2 (design doc 06): every endpoint is mapped onto a group that carries its
+        // authorization policy, which is what architecture test A1 checks. Reads are any
+        // authenticated user, running a test is Operator, and changes are Admin.
+        var read = app.MapGroup("").RequireAuthorization(Policies.RequireViewer);
+        var operate = app.MapGroup("").RequireAuthorization(Policies.RequireOperator);
+        var admin = app.MapGroup("").RequireAuthorization(Policies.RequireAdmin);
+
         // --- LAN iperf3 Speed Test ---
 
-        app.MapGet("/api/speedtest/devices", async (Iperf3SpeedTestService service) =>
+        read.MapGet("/api/speedtest/devices", async (IIperf3SpeedTestService service) =>
         {
             var devices = await service.GetDevicesAsync();
             return Results.Ok(devices);
         });
 
-        app.MapPost("/api/speedtest/devices/{deviceId:int}/results", async (int deviceId, Iperf3SpeedTestService service) =>
+        operate.MapPost("/api/speedtest/devices/{deviceId:int}/results", async (int deviceId, IIperf3SpeedTestService service) =>
         {
             var devices = await service.GetDevicesAsync();
             var device = devices.FirstOrDefault(d => d.Id == deviceId);
@@ -27,7 +35,7 @@ public static class SpeedTestEndpoints
             return Results.Ok(result);
         });
 
-        app.MapGet("/api/speedtest/results", async (Iperf3SpeedTestService service, string? deviceHost = null, int count = 50) =>
+        read.MapGet("/api/speedtest/results", async (IIperf3SpeedTestService service, string? deviceHost = null, int count = 50) =>
         {
             // Validate count parameter is within reasonable bounds
             if (count < 1) count = 1;
@@ -288,7 +296,7 @@ public static class SpeedTestEndpoints
         }).RequireCors("SpeedTestCors").RequireRateLimiting("PublicSpeedTest");
 
         // Authenticated endpoint for viewing client speed test results
-        app.MapGet("/api/speedtest/client-results", async (ClientSpeedTestService service, string? ip = null, string? mac = null, int count = 50) =>
+        read.MapGet("/api/speedtest/client-results", async (IClientSpeedTestService service, string? ip = null, string? mac = null, int count = 50) =>
         {
             if (count < 1) count = 1;
             if (count > 1000) count = 1000;
@@ -306,7 +314,7 @@ public static class SpeedTestEndpoints
         });
 
         // Authenticated endpoint for viewing WAN client speed test results (external OpenSpeedTest servers)
-        app.MapGet("/api/speedtest/wan-client-results", async (ClientSpeedTestService service, int count = 50, int hours = 0) =>
+        read.MapGet("/api/speedtest/wan-client-results", async (IClientSpeedTestService service, int count = 50, int hours = 0) =>
         {
             if (count < 1) count = 1;
             if (count > 1000) count = 1000;
@@ -315,7 +323,7 @@ public static class SpeedTestEndpoints
         });
 
         // Authenticated endpoint for deleting a client speed test result
-        app.MapDelete("/api/speedtest/client-results/{id:int}", async (int id, ClientSpeedTestService service) =>
+        admin.MapDelete("/api/speedtest/client-results/{id:int}", async (int id, IClientSpeedTestService service) =>
         {
             var deleted = await service.DeleteResultAsync(id);
             return deleted ? Results.NoContent() : Results.NotFound();

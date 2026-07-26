@@ -1,7 +1,8 @@
 @page "/sqm"
+@attribute [Authorize(Policy = Policies.RequireViewer)]
 @implements IDisposable
 @inject ISqmService SqmService
-@inject SqmDeploymentService DeploymentService
+@inject ISqmDeploymentService DeploymentService
 @inject UniFiConnectionService ConnectionService
 @inject NetworkOptimizer.Storage.Interfaces.ISpeedTestRepository SpeedTestRepository
 @inject TcMonitorClient SqmMonitorClient

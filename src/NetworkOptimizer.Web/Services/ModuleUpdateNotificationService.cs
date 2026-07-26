@@ -72,8 +72,11 @@ public sealed class ModuleUpdateNotificationService : IDisposable
                 return;
 
             await using var scope = _scopeFactory.CreateAsyncScope();
-            var perf = scope.ServiceProvider.GetRequiredService<PerfTweaksDeploymentService>();
-            var wan = scope.ServiceProvider.GetRequiredService<WanSteerDeploymentService>();
+            // Runs from a Console-connected event rather than a user action, so the gated status
+            // reads run as system (design doc 06).
+            using var systemScope = Identity.SystemScope.Enter(scope.ServiceProvider, "module-update-check");
+            var perf = scope.ServiceProvider.GetRequiredService<IPerfTweaksDeploymentService>();
+            var wan = scope.ServiceProvider.GetRequiredService<IWanSteerDeploymentService>();
 
             var perfStatus = await perf.CheckAllStatusAsync();
             PerfTweaksUpdateAvailable = perfStatus.Tweaks.Values.Any(t => t.ScriptOutdated);

@@ -7,7 +7,7 @@ namespace NetworkOptimizer.Web.Services.Gates;
 /// the <see cref="MethodSecurityInterceptor"/> on the DI-registered interface, and required on every
 /// mutating-service method by architecture test A2.
 /// </summary>
-[AttributeUsage(AttributeTargets.Method, AllowMultiple = false)]
+[AttributeUsage(AttributeTargets.Method | AttributeTargets.Property, AllowMultiple = false)]
 public sealed class RequireGlobalRoleAttribute : Attribute
 {
     public RequireGlobalRoleAttribute(string role) => Role = role;
@@ -20,7 +20,7 @@ public sealed class RequireGlobalRoleAttribute : Attribute
 /// Declares that a mutating service method requires at least a site role on the site identified by the
 /// <see cref="SiteSlugAttribute"/>-marked parameter (design doc 06, gate 9).
 /// </summary>
-[AttributeUsage(AttributeTargets.Method, AllowMultiple = false)]
+[AttributeUsage(AttributeTargets.Method | AttributeTargets.Property, AllowMultiple = false)]
 public sealed class RequireSiteRoleAttribute : Attribute
 {
     public RequireSiteRoleAttribute(SiteRole minimum) => Minimum = minimum;

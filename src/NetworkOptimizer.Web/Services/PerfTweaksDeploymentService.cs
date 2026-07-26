@@ -8,7 +8,7 @@ using NetworkOptimizer.Web.Services.Ssh;
 
 namespace NetworkOptimizer.Web.Services;
 
-public class PerfTweaksDeploymentService
+public class PerfTweaksDeploymentService : IPerfTweaksDeploymentService
 {
     private readonly ILogger<PerfTweaksDeploymentService> _logger;
     private readonly IGatewaySshService _gatewaySsh;

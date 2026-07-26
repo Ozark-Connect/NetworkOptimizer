@@ -1,4 +1,5 @@
 @page "/client-dashboard"
+@attribute [Authorize(Policy = Policies.RequireViewer)]
 @rendermode InteractiveServer
 @implements IAsyncDisposable
 @using NetworkOptimizer.Web.Services
@@ -11,7 +12,7 @@
 @using Microsoft.AspNetCore.Http
 @using ApexCharts
 @inject ClientDashboardService DashboardService
-@inject ClientSpeedTestService SpeedTestService
+@inject IClientSpeedTestService SpeedTestService
 @inject UniFiConnectionService ConnectionService
 @inject IConfiguration Configuration
 @inject SiteContextService SiteContext

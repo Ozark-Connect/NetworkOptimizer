@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using NetworkOptimizer.Web.Services.Monitoring;
+using NetworkOptimizer.Web.Services.Authorization;
 
 namespace NetworkOptimizer.Web.Endpoints;
 
@@ -13,7 +14,12 @@ public static class FlakyTargetEndpoints
 {
     public static void Map(WebApplication app)
     {
-        app.MapGet("/api/monitoring/flaky-targets", async (FlakyTargetService svc, CancellationToken ct) =>
+        // Gate 2 (design doc 06): the whole group carries authorization metadata, which is what
+        // architecture test A1 checks. The policy short-circuits when the install has
+        // authentication disabled (GlobalRoleHandler).
+        var group = app.MapGroup("").RequireAuthorization(Policies.RequireViewer);
+
+        group.MapGet("/api/monitoring/flaky-targets", async (FlakyTargetService svc, CancellationToken ct) =>
         {
             var sw = Stopwatch.StartNew();
             var flaky = await svc.DetectAsync(ct);

@@ -1,5 +1,6 @@
 using NetworkOptimizer.Storage.Services;
 using NetworkOptimizer.Web.Services;
+using NetworkOptimizer.Web.Services.Authorization;
 
 namespace NetworkOptimizer.Web.Endpoints;
 
@@ -12,7 +13,12 @@ public static class CellularChartEndpoints
 {
     public static void Map(WebApplication app)
     {
-        app.MapGet("/api/monitoring/cellular-chart", async (
+        // Gate 2 (design doc 06): the whole group carries authorization metadata, which is what
+        // architecture test A1 checks. The policy short-circuits when the install has
+        // authentication disabled (GlobalRoleHandler).
+        var group = app.MapGroup("").RequireAuthorization(Policies.RequireViewer);
+
+        group.MapGet("/api/monitoring/cellular-chart", async (
             MonitoringInfluxClient influx,
             CellularModemService modemService,
             int? rangeHours,

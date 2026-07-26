@@ -19,7 +19,7 @@ namespace NetworkOptimizer.Web.Services;
 /// binary runs on the site's gateway, so the measurement never traverses the
 /// path back to this server.
 /// </summary>
-public class GatewayWanSpeedTestService
+public class GatewayWanSpeedTestService : IGatewayWanSpeedTestService
 {
     private const string RemoteBinaryPath = "/data/uwnspeedtest";
     private const string LocalBinaryName = "uwnspeedtest-linux-arm64";

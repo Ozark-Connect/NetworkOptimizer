@@ -1,4 +1,5 @@
 @page "/wan-speedtest"
+@attribute [Authorize(Policy = Policies.RequireViewer)]
 @rendermode InteractiveServer
 @implements IDisposable
 @using NetworkOptimizer.Web.Services
@@ -10,8 +11,8 @@
 @using NetworkOptimizer.UniFi
 @using NetworkOptimizer.Core.Helpers
 @using NetworkOptimizer.Web.Services.Monitoring.IspHealth
-@inject UwnSpeedTestService WanSpeedTestService
-@inject GatewayWanSpeedTestService GatewayWanTestService
+@inject IUwnSpeedTestService WanSpeedTestService
+@inject IGatewayWanSpeedTestService GatewayWanTestService
 @inject ISqmService SqmService
 @inject IGatewaySshService GatewaySshService
 @inject SpeedTestServiceRegistry SpeedTestRegistry

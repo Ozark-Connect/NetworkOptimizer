@@ -18,4 +18,17 @@ public static class GlobalRoles
 
     /// <summary>All global roles, most-privileged first.</summary>
     public static readonly string[] All = { Admin, Operator, Viewer };
+
+    /// <summary>
+    /// Privilege rank of a role name (Admin 3, Operator 2, Viewer 1, unknown 0). The role tiers are a
+    /// strict hierarchy, so a gate is satisfied by the required rank or higher - an Operator passes a
+    /// Viewer gate, an Admin passes everything.
+    /// </summary>
+    public static int Rank(string? role) => role switch
+    {
+        Admin => 3,
+        Operator => 2,
+        Viewer => 1,
+        _ => 0,
+    };
 }

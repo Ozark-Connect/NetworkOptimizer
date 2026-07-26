@@ -1,4 +1,5 @@
 @page "/upnp-inspector"
+@attribute [Authorize(Policy = Policies.RequireViewer)]
 @using NetworkOptimizer.UniFi.Models
 @using NetworkOptimizer.Web.Services
 @using NetworkOptimizer.Storage.Models

@@ -9,7 +9,7 @@ namespace NetworkOptimizer.Web.Services;
 /// <summary>
 /// Service for reading and writing system-wide settings
 /// </summary>
-public class SystemSettingsService : ISystemSettingsService
+public class SystemSettingsService : ISystemSettingsService, ISystemSettingsAdmin
 {
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<SystemSettingsService> _logger;

@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Security.Claims;
 using Castle.DynamicProxy;
 using Microsoft.AspNetCore.Authorization;
 using NetworkOptimizer.Storage.Models.Identity;
@@ -54,14 +55,16 @@ public sealed class MethodSecurityInterceptor : AsyncInterceptorBase
     private async Task GuardAsync(IInvocation invocation, Func<Task> proceed)
     {
         var method = invocation.Method; // the interface method carries the gate attributes
-        var requireGlobal = method.GetCustomAttribute<RequireGlobalRoleAttribute>();
-        var requireSite = method.GetCustomAttribute<RequireSiteRoleAttribute>();
+        var requireGlobal = GetGate<RequireGlobalRoleAttribute>(method);
+        var requireSite = GetGate<RequireSiteRoleAttribute>(method);
         var auditAttr = method.GetCustomAttribute<AuditActionAttribute>();
 
         var caller = _caller.Require(); // unset caller on a gated call is a loud failure
         var siteSlug = ResolveSiteSlug(invocation, method);
 
-        if (!caller.IsSystem)
+        // System (scheduler/poller) and auth-disabled installs have no principal to authorize; both
+        // are still audited, so the action is attributed either way.
+        if (!caller.IsSystem && !caller.AuthenticationDisabled)
             await AuthorizeAsync(caller, requireGlobal, requireSite, siteSlug, auditAttr);
 
         if (auditAttr is null)
@@ -96,11 +99,8 @@ public sealed class MethodSecurityInterceptor : AsyncInterceptorBase
         if (caller.Principal is null)
             Deny(caller, auditAttr, siteSlug, "no principal");
 
-        if (requireGlobal is not null && !caller.Principal!.IsInRole(requireGlobal.Role)
-            && !caller.Principal.IsInRole(GlobalRoles.Admin))
-        {
+        if (requireGlobal is not null && EffectiveRank(caller.Principal!) < GlobalRoles.Rank(requireGlobal.Role))
             Deny(caller, auditAttr, siteSlug, $"missing global role {requireGlobal.Role}");
-        }
 
         if (requireSite is not null)
         {
@@ -140,6 +140,34 @@ public sealed class MethodSecurityInterceptor : AsyncInterceptorBase
             targetName: targetName,
             siteSlug: siteSlug,
             details: details));
+    }
+
+    /// <summary>
+    /// Reads a gate attribute from the invoked member. Property accessors carry the gate on the
+    /// property itself (a gated interface's read-only status properties), so fall back to it.
+    /// </summary>
+    private static TAttribute? GetGate<TAttribute>(MethodInfo method) where TAttribute : Attribute
+    {
+        var direct = method.GetCustomAttribute<TAttribute>();
+        if (direct is not null)
+            return direct;
+
+        return GateReflection.DeclaringProperty(method)?.GetCustomAttribute<TAttribute>();
+    }
+
+    /// <summary>
+    /// Highest global-role rank the principal holds. An authenticated user with no role claim still
+    /// ranks as Viewer - "Viewer" is the read tier, which is any authenticated user (design doc 04).
+    /// </summary>
+    private static int EffectiveRank(ClaimsPrincipal principal)
+    {
+        var rank = principal.Identity?.IsAuthenticated == true ? GlobalRoles.Rank(GlobalRoles.Viewer) : 0;
+        foreach (var role in GlobalRoles.All)
+        {
+            if (principal.IsInRole(role))
+                rank = Math.Max(rank, GlobalRoles.Rank(role));
+        }
+        return rank;
     }
 
     private static string? ResolveSiteSlug(IInvocation invocation, MethodInfo method)

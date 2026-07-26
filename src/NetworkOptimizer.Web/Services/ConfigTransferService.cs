@@ -11,7 +11,7 @@ namespace NetworkOptimizer.Web.Services;
 /// <summary>
 /// Export and import NetworkOptimizer configuration as encrypted .nopt files.
 /// </summary>
-public class ConfigTransferService
+public class ConfigTransferService : IConfigTransferService
 {
     private readonly IDbContextFactory<NetworkOptimizerDbContext> _dbFactory;
     private readonly IHostApplicationLifetime _appLifetime;

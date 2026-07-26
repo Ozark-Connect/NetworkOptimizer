@@ -1,4 +1,5 @@
 @page "/speedtest"
+@attribute [Authorize(Policy = Policies.RequireViewer)]
 @rendermode InteractiveServer
 @implements IDisposable
 @using NetworkOptimizer.Web.Services
@@ -9,10 +10,10 @@
 @using NetworkOptimizer.UniFi.Models
 @using NetworkOptimizer.Core.Models
 @using NetworkOptimizer.Web.Models
-@inject Iperf3SpeedTestService SpeedTestService
+@inject IIperf3SpeedTestService SpeedTestService
 @inject UniFiSshService SshService
 @inject UniFiConnectionService ConnectionService
-@inject GatewaySpeedTestService GatewaySpeedTestService
+@inject IGatewaySpeedTestService GatewaySpeedTestService
 @inject SpeedTestServiceRegistry SpeedTestRegistry
 @inject SiteContextService SiteContext
 @inject MonitoringReadinessService Readiness

@@ -133,6 +133,12 @@ public static class AuditActions
     public const string AlertRuleChanged = "alert_rule.changed";
     public const string MonitoringSetupChanged = "monitoring_setup.changed";
     public const string DbRestored = "db.restored";
+    public const string DbExported = "db.exported";
+    public const string PerfTweakRemoved = "perftweak.removed";
+    public const string SpeedTestRun = "speedtest.run";
+    public const string SpeedTestDeleted = "speedtest.deleted";
+    public const string SiteChanged = "site.changed";
+    public const string ScheduleChanged = "schedule.changed";
 
     // License / agent
     public const string LicenseChanged = "license.changed";

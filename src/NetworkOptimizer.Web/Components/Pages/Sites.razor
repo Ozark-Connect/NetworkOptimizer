@@ -1,4 +1,5 @@
 @page "/sites"
+@attribute [Authorize(Policy = Policies.RequireAdmin)]
 @rendermode InteractiveServer
 @implements IDisposable
 @using Microsoft.EntityFrameworkCore
@@ -8,7 +9,7 @@
 @inject SiteManagementService SiteManagement
 @inject SiteContextService SiteContext
 @inject SiteConnectionRegistry SiteConnections
-@inject AgentEnrollmentService AgentEnrollment
+@inject IAgentEnrollmentService AgentEnrollment
 @inject AgentTunnelRegistry TunnelRegistry
 @inject NetworkOptimizer.Storage.Services.SiteDbContextFactory SiteDb
 @inject NetworkOptimizer.Web.Services.Licensing.LicenseStateService LicenseState

@@ -14,13 +14,17 @@ public static class AuthorizationRegistration
         services.AddMemoryCache();
         services.AddScoped<IEffectiveSiteRoleResolver, EffectiveSiteRoleResolver>();
         services.AddScoped<IAuthorizationHandler, SiteRoleHandler>();
+        services.AddScoped<IAuthorizationHandler, GlobalRoleHandler>();
 
+        // Global policies go through GlobalRoleRequirement rather than RequireRole so the
+        // "authentication disabled for this install" case is answered in one handler, and so the role
+        // hierarchy (Admin > Operator > Viewer) is applied consistently with the service-layer gate.
         services.AddAuthorizationBuilder()
-            .AddPolicy(Policies.RequireAdmin, p => p.RequireRole(GlobalRoles.Admin))
-            .AddPolicy(Policies.RequireOperator, p => p.RequireRole(GlobalRoles.Admin, GlobalRoles.Operator))
+            .AddPolicy(Policies.RequireAdmin, p => p.AddRequirements(new GlobalRoleRequirement(GlobalRoles.Admin)))
+            .AddPolicy(Policies.RequireOperator, p => p.AddRequirements(new GlobalRoleRequirement(GlobalRoles.Operator)))
             // "Viewer" is any authenticated user; per-site visibility is enforced by the site-scoped
             // policies and the site-context filter, not by requiring a specific global role here.
-            .AddPolicy(Policies.RequireViewer, p => p.RequireAuthenticatedUser())
+            .AddPolicy(Policies.RequireViewer, p => p.AddRequirements(new GlobalRoleRequirement(GlobalRoles.Viewer)))
             .AddPolicy(Policies.SiteViewer, p => p.AddRequirements(new SiteRoleRequirement(SiteRole.SiteViewer)))
             .AddPolicy(Policies.SiteOperator, p => p.AddRequirements(new SiteRoleRequirement(SiteRole.SiteOperator)))
             .AddPolicy(Policies.SiteAdmin, p => p.AddRequirements(new SiteRoleRequirement(SiteRole.SiteAdmin)));

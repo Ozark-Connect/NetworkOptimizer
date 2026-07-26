@@ -12,6 +12,13 @@ public sealed record CallerInfo
     /// <summary>True for scheduler/poller/background work; such calls skip authorization.</summary>
     public bool IsSystem { get; init; }
 
+    /// <summary>
+    /// True when the install has authentication turned off entirely (no admin password configured).
+    /// There is no principal to authorize in that mode, and the app has always let the local operator
+    /// do everything - so gated calls skip authorization but are still audited, as "local".
+    /// </summary>
+    public bool AuthenticationDisabled { get; init; }
+
     /// <summary>The signed-in principal for a user caller (used by the gated interceptor for authorization); null for system.</summary>
     public ClaimsPrincipal? Principal { get; init; }
 
@@ -34,6 +41,20 @@ public sealed record CallerInfo
         IsSystem = true,
         ActorName = $"system:{systemActor}",
         AuthMethod = "system",
+    };
+
+    /// <summary>
+    /// Builds the caller used when authentication is disabled for the install: an unauthenticated
+    /// local operator with full access (the pre-identity behavior), still attributed in the audit log.
+    /// </summary>
+    public static CallerInfo LocalNoAuth(string? sourceIp, string? userAgent, string? correlationId) => new()
+    {
+        AuthenticationDisabled = true,
+        ActorName = "local",
+        AuthMethod = "none",
+        SourceIp = sourceIp,
+        UserAgent = Truncate(userAgent, 512),
+        CorrelationId = correlationId,
     };
 
     /// <summary>Builds a user caller from a signed-in principal plus request metadata.</summary>

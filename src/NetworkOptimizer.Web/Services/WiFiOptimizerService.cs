@@ -17,7 +17,7 @@ namespace NetworkOptimizer.Web.Services;
 /// Service layer for Wi-Fi Optimizer feature.
 /// Coordinates data providers and analyzers.
 /// </summary>
-public class WiFiOptimizerService
+public class WiFiOptimizerService : IWiFiScanService
 {
     private readonly UniFiConnectionService _connectionService;
     private readonly ILogger<WiFiOptimizerService> _logger;

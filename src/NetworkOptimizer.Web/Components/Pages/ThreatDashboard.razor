@@ -1,6 +1,6 @@
 @page "/threats"
 @rendermode InteractiveServer
-@attribute [Authorize]
+@attribute [Authorize(Policy = Policies.RequireViewer)]
 @using Microsoft.AspNetCore.Authorization
 @using NetworkOptimizer.Web.Services
 @using NetworkOptimizer.Threats.Models

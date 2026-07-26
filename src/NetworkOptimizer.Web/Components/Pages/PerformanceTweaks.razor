@@ -1,8 +1,9 @@
 @page "/perf-tweaks"
+@attribute [Authorize(Policy = Policies.RequireViewer)]
 @implements IDisposable
 @inject UniFiConnectionService ConnectionService
 @inject IGatewaySshService GatewaySshService
-@inject PerfTweaksDeploymentService DeployService
+@inject IPerfTweaksDeploymentService DeployService
 @inject ModuleUpdateNotificationService ModuleUpdates
 @inject NetworkOptimizer.Web.Services.Licensing.LicenseStateService LicenseState
 @inject SiteContextService SiteContext

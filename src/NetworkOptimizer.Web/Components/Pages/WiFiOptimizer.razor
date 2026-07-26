@@ -1,4 +1,5 @@
 @page "/wifi-optimizer"
+@attribute [Authorize(Policy = Policies.RequireViewer)]
 @using NetworkOptimizer.Web.Services
 @using NetworkOptimizer.Web.Models
 @using NetworkOptimizer.WiFi
@@ -6,12 +7,12 @@
 @using NetworkOptimizer.WiFi.Models
 @using NetworkOptimizer.Storage.Models
 @inject WiFiOptimizerService WiFiService
-@inject ClientSpeedTestService SpeedTestService
+@inject IClientSpeedTestService SpeedTestService
 @inject ClientDashboardService DashboardService
 @inject UniFiConnectionService ConnectionService
 @inject NavigationManager NavigationManager
 @inject ApMapService ApMapService
-@inject MeshOptimizationService MeshService
+@inject IMeshOptimizationService MeshService
 @inject NetworkOptimizer.Web.Services.Licensing.LicenseStateService LicenseState
 @inject SiteContextService SiteContext
 @inject PullToRefreshState PtrState
