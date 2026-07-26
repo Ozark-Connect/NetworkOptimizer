@@ -259,6 +259,82 @@ public sealed class AdminPasswordChangeTests : IDisposable
         }
     }
 
+    [Fact]
+    public async Task DisablingOrDemotingYourOwnAccountIsRefused()
+    {
+        await SeedAdminSettingsAsync("Original-Pass-1");
+
+        await using var provider = BuildProvider();
+        using (var boot = provider.CreateScope())
+            await boot.ServiceProvider.GetRequiredService<IIdentityBootstrapService>().RunAsync();
+
+        string selfId;
+        using (var scope = provider.CreateScope())
+        {
+            // A second Admin exists, so neither refusal can be the last-admin invariant firing.
+            var identityAdmin = scope.ServiceProvider.GetRequiredService<IIdentityAdminService>();
+            (await identityAdmin.CreateUserAsync("second", null, "Second-Pass-2", GlobalRoles.Admin))
+                .Succeeded.Should().BeTrue();
+            var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+            selfId = (await userManager.FindByNameAsync("second"))!.Id;
+        }
+
+        using (var scope = provider.CreateScope())
+        {
+            scope.ServiceProvider.GetRequiredService<ICallerContext>()
+                .SetUser(CallerInfo.ForUser(PrincipalFor(selfId), null, null, null));
+            var identityAdmin = scope.ServiceProvider.GetRequiredService<IIdentityAdminService>();
+
+            var disabled = await identityAdmin.SetEnabledAsync(selfId, false);
+            disabled.Succeeded.Should().BeFalse("disabling yourself rotates your stamp and ends your session");
+            disabled.Error.Should().Contain("signed in as");
+
+            var demoted = await identityAdmin.RevokeGlobalRoleAsync(selfId, GlobalRoles.Admin);
+            demoted.Succeeded.Should().BeFalse("dropping your own Admin role strips your access");
+            demoted.Error.Should().Contain("your own Admin role");
+        }
+
+        using (var scope = provider.CreateScope())
+        {
+            var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+            var self = await userManager.FindByIdAsync(selfId);
+            self!.IsEnabled.Should().BeTrue();
+            (await userManager.IsInRoleAsync(self, GlobalRoles.Admin)).Should().BeTrue();
+        }
+    }
+
+    [Fact]
+    public async Task AnotherAdminCanStillDisableAndDemoteYou()
+    {
+        await SeedAdminSettingsAsync("Original-Pass-1");
+
+        await using var provider = BuildProvider();
+        using (var boot = provider.CreateScope())
+            await boot.ServiceProvider.GetRequiredService<IIdentityBootstrapService>().RunAsync();
+
+        string adminId, targetId;
+        using (var scope = provider.CreateScope())
+        {
+            var identityAdmin = scope.ServiceProvider.GetRequiredService<IIdentityAdminService>();
+            (await identityAdmin.CreateUserAsync("colleague", null, "Colleague-Pass-2", GlobalRoles.Admin))
+                .Succeeded.Should().BeTrue();
+            var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+            adminId = (await userManager.FindByNameAsync(IdentityBootstrapService.AdminUserName))!.Id;
+            targetId = (await userManager.FindByNameAsync("colleague"))!.Id;
+        }
+
+        using (var scope = provider.CreateScope())
+        {
+            // Signed in as the built-in admin, acting on somebody else: both changes are allowed.
+            scope.ServiceProvider.GetRequiredService<ICallerContext>()
+                .SetUser(CallerInfo.ForUser(PrincipalFor(adminId), null, null, null));
+            var identityAdmin = scope.ServiceProvider.GetRequiredService<IIdentityAdminService>();
+
+            (await identityAdmin.RevokeGlobalRoleAsync(targetId, GlobalRoles.Admin)).Succeeded.Should().BeTrue();
+            (await identityAdmin.SetEnabledAsync(targetId, false)).Succeeded.Should().BeTrue();
+        }
+    }
+
     private static System.Security.Claims.ClaimsPrincipal PrincipalFor(string userId)
         => new(new System.Security.Claims.ClaimsIdentity(
             new[]

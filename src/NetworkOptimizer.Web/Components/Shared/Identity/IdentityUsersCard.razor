@@ -62,7 +62,8 @@
                                 <td>
                                     <select class="form-control identity-role-select" value="@(summary.GlobalRole ?? GlobalRoles.Viewer)"
                                             @onchange="e => ChangeRoleAsync(summary, e.Value?.ToString())"
-                                            disabled="@(_busyUserId == user.Id)">
+                                            disabled="@(_busyUserId == user.Id || IsSelf(user))"
+                                            data-tooltip="@(IsSelf(user) ? "You cannot change your own role" : null)">
                                         @foreach (var role in GlobalRoles.All)
                                         {
                                             <option value="@role">@role</option>
@@ -70,11 +71,16 @@
                                     </select>
                                 </td>
                                 <td class="hide-mobile">
+                                    @* What this account can actually sign in with. A badge that only
+                                       restates itself carries no tooltip. *@
                                     <div class="identity-credentials">
-                                        <span class="status-badge status-info" data-tooltip="Password sign-in">Password</span>
+                                        @if (summary.HasPassword)
+                                        {
+                                            <span class="status-badge status-info">Password</span>
+                                        }
                                         @if (summary.MfaEnabled)
                                         {
-                                            <span class="status-badge status-active" data-tooltip="Authenticator app enrolled">MFA</span>
+                                            <span class="status-badge status-active" data-tooltip="Authenticator app enrolled as a second factor">MFA</span>
                                         }
                                         @if (summary.PasskeyCount > 0)
                                         {
@@ -83,7 +89,11 @@
                                         }
                                         @foreach (var provider in summary.LinkedProviders)
                                         {
-                                            <span class="status-badge status-info" data-tooltip="Linked identity provider">@provider</span>
+                                            <span class="status-badge status-info" data-tooltip="Signs in through this identity provider">@provider</span>
+                                        }
+                                        @if (!summary.HasPassword && summary.PasskeyCount == 0 && summary.LinkedProviders.Count == 0)
+                                        {
+                                            <span class="status-badge status-inactive" data-tooltip="This account has no way to sign in until a password is set or an identity is linked">None</span>
                                         }
                                     </div>
                                 </td>
@@ -113,7 +123,9 @@
                                             Identities
                                         </button>
                                         <button type="button" class="btn btn-tertiary btn-sm"
-                                                @onclick="() => SetEnabledAsync(user, !user.IsEnabled)" disabled="@(_busyUserId == user.Id)">
+                                                @onclick="() => SetEnabledAsync(user, !user.IsEnabled)"
+                                                disabled="@(_busyUserId == user.Id || IsSelf(user))"
+                                                data-tooltip="@(IsSelf(user) ? "You cannot disable the account you are signed in as" : null)">
                                             @(user.IsEnabled ? "Disable" : "Enable")
                                         </button>
                                         <button type="button" class="btn btn-danger btn-sm"
@@ -139,7 +151,7 @@
                                             </div>
                                             <div class="identity-form-actions">
                                                 <button type="button" class="btn btn-primary btn-sm" @onclick="() => ResetPasswordAsync(user)">Set password</button>
-                                                <button type="button" class="btn btn-secondary btn-sm" @onclick="ClosePasswordReset">Cancel</button>
+                                                <button type="button" class="btn btn-tertiary btn-sm" @onclick="ClosePasswordReset">Cancel</button>
                                             </div>
                                         </div>
                                     </td>
@@ -195,14 +207,14 @@
                                                 </div>
                                                 <div class="identity-form-actions">
                                                     <button type="button" class="btn btn-primary btn-sm" @onclick="() => LinkAsync(user)">Link identity</button>
-                                                    <button type="button" class="btn btn-secondary btn-sm" @onclick="CloseLinks">Close</button>
+                                                    <button type="button" class="btn btn-tertiary btn-sm" @onclick="CloseLinks">Close</button>
                                                 </div>
                                             }
                                             else
                                             {
                                                 <div class="identity-form-actions">
                                                     <p class="form-help">Add a provider under Sign-In to link identities.</p>
-                                                    <button type="button" class="btn btn-secondary btn-sm" @onclick="CloseLinks">Close</button>
+                                                    <button type="button" class="btn btn-tertiary btn-sm" @onclick="CloseLinks">Close</button>
                                                 </div>
                                             }
                                         </div>
@@ -245,7 +257,7 @@
                         <button type="button" class="btn btn-primary btn-sm" @onclick="CreateUserAsync" disabled="@_creating">
                             @(_creating ? "Creating..." : "Create user")
                         </button>
-                        <button type="button" class="btn btn-secondary btn-sm" @onclick="() => _addingUser = false">Cancel</button>
+                        <button type="button" class="btn btn-tertiary btn-sm" @onclick="() => _addingUser = false">Cancel</button>
                     </div>
                 </div>
             }
@@ -302,13 +314,16 @@
 
     private async Task ReloadAsync() => _users = await IdentityAdmin.ListUserSummariesAsync();
 
+    /// <summary>True when the row is the account the signed-in admin is using.</summary>
+    private bool IsSelf(ApplicationUser user) => user.Id == _currentUserId;
+
     /// <summary>
     /// Why this account cannot be deleted, or null when it can. Mirrors the refusals
     /// IdentityAdminService enforces, so the button explains itself instead of failing on click.
     /// </summary>
     private string? UndeletableReason(ApplicationUser user)
     {
-        if (user.Id == _currentUserId)
+        if (IsSelf(user))
             return "You cannot delete the account you are signed in as";
         if (string.Equals(user.UserName, IdentityBootstrapService.AdminUserName, StringComparison.OrdinalIgnoreCase))
             return $"The built-in {IdentityBootstrapService.AdminUserName} account cannot be deleted. Disable it instead";
