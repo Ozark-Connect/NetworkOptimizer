@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Moq;
@@ -17,6 +17,15 @@ public class AgentEnrollmentServiceTests
         public NetworkOptimizerDbContext CreateDbContext() => new(_options);
     }
 
+    /// <summary>No caller in scope, so nothing is narrowed - the background/system behaviour.</summary>
+    private sealed class UnfilteredSiteAccess : NetworkOptimizer.Web.Services.Authorization.ISiteAccessFilter
+    {
+        public Task<IReadOnlySet<string>?> AuthorizedSlugsAsync() => Task.FromResult<IReadOnlySet<string>?>(null);
+        public Task<bool> IsAuthorizedAsync(string? slug) => Task.FromResult(true);
+        public Task<List<T>> FilterAsync<T>(IEnumerable<T> sites, Func<T, string> slugSelector) => Task.FromResult(sites.ToList());
+        public Task<string> FallbackSlugAsync() => Task.FromResult("main");
+    }
+
     private readonly TestDbFactory _factory;
     private readonly AgentTunnelRegistry _tunnelRegistry = new(new AgentTunnelOptions(Enabled: true, Port: 0));
     private readonly AgentEnrollmentService _service;
@@ -27,7 +36,7 @@ public class AgentEnrollmentServiceTests
             .UseInMemoryDatabase(databaseName: Guid.NewGuid().ToString())
             .Options;
         _factory = new TestDbFactory(options);
-        _service = new AgentEnrollmentService(_factory, _tunnelRegistry, new Mock<ILogger<AgentEnrollmentService>>().Object);
+        _service = new AgentEnrollmentService(_factory, _tunnelRegistry, new UnfilteredSiteAccess(), new Mock<ILogger<AgentEnrollmentService>>().Object);
     }
 
     private async Task<int> SeedSiteAsync(string slug = "lake-house")

@@ -1,4 +1,4 @@
-using System.Security.Cryptography;
+﻿using System.Security.Cryptography;
 using System.Text;
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Storage.Models;
@@ -25,12 +25,15 @@ public class AgentEnrollmentService : IAgentEnrollmentService
     private readonly IDbContextFactory<NetworkOptimizerDbContext> _mainDbFactory;
     private readonly AgentTunnelRegistry _tunnelRegistry;
     private readonly ILogger<AgentEnrollmentService> _logger;
+    private readonly Authorization.ISiteAccessFilter _siteAccess;
 
     public AgentEnrollmentService(
         IDbContextFactory<NetworkOptimizerDbContext> mainDbFactory,
         AgentTunnelRegistry tunnelRegistry,
+        Authorization.ISiteAccessFilter siteAccess,
         ILogger<AgentEnrollmentService> logger)
     {
+        _siteAccess = siteAccess;
         _mainDbFactory = mainDbFactory;
         _tunnelRegistry = tunnelRegistry;
         _logger = logger;
@@ -40,6 +43,12 @@ public class AgentEnrollmentService : IAgentEnrollmentService
     public async Task<List<SiteAgent>> GetAgentsForSiteAsync(int siteId)
     {
         await using var db = await _mainDbFactory.CreateDbContextAsync();
+        // The site id arrives from the caller, so authorization for it is asked here rather than
+        // assumed from whatever page supplied it.
+        var slug = await db.Sites.Where(x => x.Id == siteId).Select(x => x.Slug).FirstOrDefaultAsync();
+        if (slug is not null && !await _siteAccess.IsAuthorizedAsync(slug))
+            return new List<SiteAgent>();
+
         return await db.SiteAgents
             .Where(a => a.SiteId == siteId)
             .OrderByDescending(a => a.CreatedAt)
@@ -50,7 +59,12 @@ public class AgentEnrollmentService : IAgentEnrollmentService
     public async Task<List<SiteAgent>> GetAllAgentsAsync()
     {
         await using var db = await _mainDbFactory.CreateDbContextAsync();
-        return await db.SiteAgents.ToListAsync();
+        var agents = await db.SiteAgents.ToListAsync();
+
+        // Agent rows name the sites they serve, so the same narrowing the site list gets applies
+        // here. Background scopes are unfiltered, as always.
+        var slugsById = await db.Sites.AsNoTracking().ToDictionaryAsync(x => x.Id, x => x.Slug);
+        return await _siteAccess.FilterAsync(agents, a => slugsById.GetValueOrDefault(a.SiteId) ?? "");
     }
 
     /// <summary>
