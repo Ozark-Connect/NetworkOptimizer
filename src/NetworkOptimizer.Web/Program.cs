@@ -1287,6 +1287,10 @@ app.Use(async (context, next) =>
     await next();
 });
 
+// Narrows the request's site to one the caller may actually see. Placed after UseStaticFiles so
+// asset requests never pay for it, and before the components/endpoints that read the site context.
+app.UseMiddleware<NetworkOptimizer.Web.Services.Authorization.SiteAccessMiddleware>();
+
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 

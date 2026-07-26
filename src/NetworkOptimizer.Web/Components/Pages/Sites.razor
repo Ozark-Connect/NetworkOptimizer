@@ -7,6 +7,7 @@
 @using NetworkOptimizer.Web.Services
 @using NetworkOptimizer.Web.Services.Licensing
 @inject SiteManagementService SiteManagement
+@inject NetworkOptimizer.Web.Services.Authorization.ISiteAccessFilter SiteAccess
 @inject SiteContextService SiteContext
 @inject SiteConnectionRegistry SiteConnections
 @inject IAgentEnrollmentService AgentEnrollment
@@ -116,7 +117,8 @@ else
         _enabled = await SiteManagement.IsMultiSiteEnabledAsync();
         if (_enabled)
         {
-            _sites = (await SiteManagement.GetSitesAsync()).Where(s => s.Enabled).ToList();
+            _sites = await SiteAccess.FilterAsync(
+                (await SiteManagement.GetSitesAsync()).Where(s => s.Enabled), s => s.Slug);
             _agents = await AgentEnrollment.GetAllAgentsAsync();
             await LoadConsoleHostsAsync();
 
