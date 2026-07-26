@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Antiforgery;
+﻿using Microsoft.AspNetCore.Antiforgery;
 using NetworkOptimizer.Web.Services;
 using NetworkOptimizer.Web.Services.Identity;
 
@@ -66,7 +66,7 @@ public static class AuthEndpoints
                 _ => LoginRedirect("invalid", site),
             };
         })
-            .AllowAnonymous();
+            .AllowAnonymous().RequireRateLimiting("Authentication");
 
         // Second-factor step (TOTP or recovery code), posted by the /login/2fa static-SSR page.
         app.MapPost("/api/auth/2fa", async (
@@ -95,7 +95,7 @@ public static class AuthEndpoints
                     TwoFactorRedirect(returnUrl, site, await PendingUserHasRecoveryCodesAsync(mfa), await PendingUserHasPasskeysAsync(mfa)) + "&error=invalid"),
             };
         })
-            .AllowAnonymous();
+            .AllowAnonymous().RequireRateLimiting("Authentication");
 
         // Completing TOTP enrollment flips two-factor on, which rotates the security stamp and leaves
         // the caller's cookie stale - the live circuit revalidates as signed out and the app starts
