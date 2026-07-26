@@ -2,6 +2,8 @@ using Microsoft.AspNetCore.Antiforgery;
 using NetworkOptimizer.Web.Services;
 using NetworkOptimizer.Web.Services.Identity;
 
+using NetworkOptimizer.Web.Services.Authorization;
+
 namespace NetworkOptimizer.Web.Endpoints;
 
 /// <summary>
@@ -89,13 +91,70 @@ public static class AuthEndpoints
         })
             .AllowAnonymous();
 
-        // Sign out of the application cookie. GET is retained so existing nav logout links keep working;
-        // it also clears any residual legacy auth_token cookie during the bridge window.
-        app.MapGet("/api/auth/logout", async (HttpContext context, IIdentitySignInService signInService) =>
+        // Completing TOTP enrollment flips two-factor on, which rotates the security stamp and leaves
+        // the caller's cookie stale - the live circuit revalidates as signed out and the app starts
+        // erroring until they sign in again. A circuit cannot write Set-Cookie, so enrollment finishes
+        // here, over HTTP, and the cookie is refreshed in the same request (design doc 06: sign-in
+        // flows are HTTP, not circuit). The recovery codes are handed to the page through a one-time
+        // store rather than the URL, so they never land in history or a proxy log.
+        app.MapPost("/api/auth/mfa/enable", async (
+            HttpContext context,
+            IMfaService mfa,
+            ICurrentUserAccessor currentUser,
+            IIdentitySignInService signInService,
+            MfaEnrollmentCodes enrollmentCodes,
+            IAntiforgery antiforgery) =>
         {
+            try
+            {
+                await antiforgery.ValidateRequestAsync(context);
+            }
+            catch (AntiforgeryValidationException)
+            {
+                return Results.Redirect("/account/security?enroll=failed");
+            }
+
+            var user = await currentUser.GetAsync(context.User);
+            if (user is null)
+                return Results.Redirect("/login");
+
+            var form = await context.Request.ReadFormAsync();
+            var code = form["code"].ToString().Trim();
+            if (!await mfa.CompleteEnrollmentAsync(user, code))
+                return Results.Redirect("/account/security?enroll=failed");
+
+            var codes = await mfa.GenerateRecoveryCodesAsync(user);
+            enrollmentCodes.Stash(user.Id, codes);
+
+            // The stamp moved when two-factor was enabled; re-issue the cookie against the new one.
+            await signInService.RefreshSignInAsync(user);
+            return Results.Redirect("/account/security?enroll=done");
+        })
+            // Enrolling your own second factor: signed in is the only requirement. A user in the
+            // must-enroll state already holds a cookie, so this stays reachable for them.
+            .RequireAuthorization(Policies.RequireViewer);
+
+        // Sign out of the application cookie; also clears any residual legacy auth_token cookie
+        // during the bridge window. POST, not GET: a GET logout can be fired by any page embedding
+        // <img src=".../api/auth/logout">, and by link prefetchers. Posting from a form also keeps
+        // the Blazor router out of it - it used to try to route this endpoint as a page and throw.
+        app.MapPost("/api/auth/logout", async (
+            HttpContext context,
+            IIdentitySignInService signInService,
+            IAntiforgery antiforgery) =>
+        {
+            try
+            {
+                await antiforgery.ValidateRequestAsync(context);
+            }
+            catch (AntiforgeryValidationException)
+            {
+                return Results.Redirect("/login");
+            }
+
             await signInService.SignOutAsync();
             context.Response.Cookies.Delete("auth_token", new CookieOptions { Path = "/" });
-            var site = context.Request.Query[SiteContextService.SiteQueryParam].ToString();
+            var site = context.Request.Form[SiteContextService.SiteQueryParam].ToString();
             return LoginRedirect(null, site);
         })
             .AllowAnonymous();

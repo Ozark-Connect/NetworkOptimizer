@@ -1,6 +1,8 @@
 @page "/login/2fa"
 @layout AuthLayout
 @using NetworkOptimizer.Web.Services
+@using NetworkOptimizer.Web.Services.Identity
+@inject IMfaService Mfa
 @* Static SSR: the second-factor step posts to /api/auth/2fa, which issues the cookie. *@
 
 <PageTitle>Two-factor authentication - Network Optimizer</PageTitle>
@@ -27,7 +29,7 @@
                     <input id="code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code"
                            class="form-control" placeholder="123456" autofocus />
                 </div>
-                <label style="display:flex; gap:0.5rem; align-items:center; margin: 0.5rem 0;">
+                <label class="remember-device">
                     <input type="checkbox" name="rememberMachine" value="true" /> Remember this device
                 </label>
             }
@@ -35,8 +37,8 @@
             {
                 <div class="form-group">
                     <label class="form-label" for="recoveryCode">Recovery code</label>
-                    <input id="recoveryCode" name="recoveryCode" type="text"
-                           class="form-control" placeholder="xxxxx-xxxxx" autofocus />
+                    <input id="recoveryCode" name="recoveryCode" type="text" autocomplete="one-time-code"
+                           class="form-control" placeholder="One of the codes you saved at setup" autofocus />
                 </div>
             }
 
@@ -48,9 +50,12 @@
             }
         </form>
 
-        <div class="login-footer">
-            <a href="@ToggleUrl()">@(_useRecovery ? "Use an authenticator code" : "Use a recovery code")</a>
-        </div>
+        @if (_hasRecoveryCodes)
+        {
+            <div class="login-footer">
+                <a href="@ToggleUrl()">@(_useRecovery ? "Use an authenticator code" : "Use a recovery code")</a>
+            </div>
+        }
     </div>
 </div>
 
@@ -63,8 +68,19 @@
     private string? Site { get; set; }
 
     private bool _useRecovery;
+    private bool _hasRecoveryCodes;
 
-    protected override void OnInitialized() => _useRecovery = Recovery;
+    protected override async Task OnInitializedAsync()
+    {
+        _useRecovery = Recovery;
+
+        // Offering the recovery route to an account with no codes is a dead end: the link switches
+        // the form over and nothing the user types can ever match.
+        var pending = await Mfa.GetPendingTwoFactorUserAsync();
+        _hasRecoveryCodes = pending is not null && await Mfa.CountRecoveryCodesAsync(pending) > 0;
+        if (_useRecovery && !_hasRecoveryCodes)
+            _useRecovery = false;
+    }
 
     private string ToggleUrl()
     {

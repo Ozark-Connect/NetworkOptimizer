@@ -52,6 +52,14 @@ public interface IIdentitySignInService
 
     /// <summary>Signs the current user out of the application cookie.</summary>
     Task SignOutAsync();
+
+    /// <summary>
+    /// Re-issues the application cookie for the signed-in user. Enabling or disabling a second factor
+    /// rotates the security stamp, which leaves the existing cookie stale - the live circuit then
+    /// revalidates as signed-out and the app starts failing until the user signs in again. Only an
+    /// HTTP request can write the replacement cookie, so this is called from an endpoint.
+    /// </summary>
+    Task RefreshSignInAsync(ApplicationUser user);
 }
 
 /// <inheritdoc />
@@ -194,6 +202,9 @@ public sealed class IdentitySignInService : IIdentitySignInService
 
     /// <inheritdoc />
     public Task SignOutAsync() => _signInManager.SignOutAsync();
+
+    /// <inheritdoc />
+    public Task RefreshSignInAsync(ApplicationUser user) => _signInManager.RefreshSignInAsync(user);
 
     /// <summary>Emits a login-related audit event, attributing the attempt to the supplied username + request metadata.</summary>
     private void EmitLogin(string username, string? userId, string action, string outcome, string method)

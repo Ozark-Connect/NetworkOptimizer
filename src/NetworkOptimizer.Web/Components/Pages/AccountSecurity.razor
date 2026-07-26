@@ -9,6 +9,7 @@
 @inject ICurrentUserAccessor CurrentUser
 @inject AuthenticationStateProvider AuthState
 @inject IJSRuntime JS
+@inject MfaEnrollmentCodes EnrollmentCodes
 
 <PageTitle>Security - Network Optimizer</PageTitle>
 
@@ -33,7 +34,7 @@
         }
         else if (_mfaEnabled)
         {
-            <p>Two-factor authentication is <strong>enabled</strong>.</p>
+            <p class="account-note">Two-factor authentication is <strong>enabled</strong>.</p>
             <button class="btn btn-secondary btn-sm" @onclick="RegenerateCodesAsync">Regenerate recovery codes</button>
             <button class="btn btn-danger btn-sm" @onclick="DisableMfaAsync">Disable</button>
         }
@@ -45,10 +46,16 @@
             </div>
             <p class="account-note">Can't scan it? Enter this key by hand instead.</p>
             <p class="account-secret-key"><code>@_setup.FormattedKey</code></p>
-            <div class="form-group account-verify-code">
-                <input class="form-control" @bind="_verifyCode" placeholder="Enter the 6-digit code from your authenticator app" inputmode="numeric" />
-            </div>
-            <button class="btn btn-primary btn-sm" @onclick="VerifyEnrollmentAsync">Verify &amp; enable</button>
+            @* Posted rather than handled in the circuit: enabling two-factor rotates the security
+               stamp, and only an HTTP response can re-issue the cookie that carries it. *@
+            <form method="post" action="/api/auth/mfa/enable">
+                <AntiforgeryToken />
+                <div class="form-group account-verify-code">
+                    <input name="code" class="form-control" inputmode="numeric" autocomplete="one-time-code"
+                           placeholder="The 6-digit code from your authenticator app" />
+                </div>
+                <button type="submit" class="btn btn-primary btn-sm">Verify &amp; enable</button>
+            </form>
             @if (_enrollError) { <div class="alert alert-danger mt-3">That code wasn't valid.</div> }
         }
         else
@@ -58,8 +65,11 @@
 
         @if (_recoveryCodes is not null)
         {
-            <div class="alert alert-info mt-3">
-                <strong>Recovery codes</strong> - store these somewhere safe. Each can be used once.
+            <div class="alert alert-info mt-3 account-recovery-panel">
+                <p class="account-recovery-intro">
+                    <strong>Recovery codes</strong> - store these somewhere safe. Each can be used once,
+                    and they are shown only now.
+                </p>
                 <ul class="account-recovery-codes">
                     @foreach (var c in _recoveryCodes)
                     {
@@ -128,13 +138,13 @@
 
 @code {
     [SupplyParameterFromQuery(Name = "setup")] private string? Setup { get; set; }
+    [SupplyParameterFromQuery(Name = "enroll")] private string? Enroll { get; set; }
 
     private ApplicationUser? _user;
     private bool _mfaEnabled;
     private bool _setupRequired;
     private bool _secureContext = true;
     private AuthenticatorSetup? _setup;
-    private string _verifyCode = "";
     private bool _enrollError;
     private IReadOnlyList<string>? _recoveryCodes;
 
@@ -145,12 +155,16 @@
     protected override async Task OnInitializedAsync()
     {
         _setupRequired = Setup == "required";
+        _enrollError = Enroll == "failed";
         var principal = (await AuthState.GetAuthenticationStateAsync()).User;
         _user = await CurrentUser.GetAsync(principal);
         if (_user is not null)
         {
             _mfaEnabled = await Mfa.IsEnabledAsync(_user);
             _passkeys = await Passkeys.ListAsync(principal);
+            // Codes minted by the enrollment endpoint, handed over once and only once.
+            if (Enroll == "done")
+                _recoveryCodes = EnrollmentCodes.Take(_user.Id);
         }
     }
 
@@ -167,23 +181,6 @@
     {
         if (_user is null) return;
         _setup = await Mfa.BeginEnrollmentAsync(_user);
-    }
-
-    private async Task VerifyEnrollmentAsync()
-    {
-        if (_user is null) return;
-        if (await Mfa.CompleteEnrollmentAsync(_user, _verifyCode))
-        {
-            _mfaEnabled = true;
-            _enrollError = false;
-            _setup = null;
-            _setupRequired = false;
-            _recoveryCodes = await Mfa.GenerateRecoveryCodesAsync(_user);
-        }
-        else
-        {
-            _enrollError = true;
-        }
     }
 
     private async Task RegenerateCodesAsync()

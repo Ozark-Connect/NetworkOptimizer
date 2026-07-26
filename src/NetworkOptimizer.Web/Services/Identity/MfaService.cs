@@ -40,6 +40,15 @@ public interface IMfaService
     /// <summary>Generates a fresh set of 10 single-use recovery codes (invalidating any prior set).</summary>
     Task<IReadOnlyList<string>> GenerateRecoveryCodesAsync(ApplicationUser user);
 
+    /// <summary>How many unused recovery codes the user holds.</summary>
+    Task<int> CountRecoveryCodesAsync(ApplicationUser user);
+
+    /// <summary>
+    /// The user waiting on the second-factor step, or null when no such sign-in is in progress. Lets
+    /// the 2FA page tailor itself (for example, hiding recovery-code entry for an account that has none).
+    /// </summary>
+    Task<ApplicationUser?> GetPendingTwoFactorUserAsync();
+
     /// <summary>Disables MFA and clears the authenticator key.</summary>
     Task DisableAsync(ApplicationUser user);
 }
@@ -52,17 +61,20 @@ public sealed class MfaService : IMfaService
 
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly RoleManager<ApplicationRole> _roleManager;
+    private readonly SignInManager<ApplicationUser> _signInManager;
     private readonly IAuditLogger _audit;
     private readonly ICallerContext _caller;
 
     public MfaService(
         UserManager<ApplicationUser> userManager,
         RoleManager<ApplicationRole> roleManager,
+        SignInManager<ApplicationUser> signInManager,
         IAuditLogger audit,
         ICallerContext caller)
     {
         _userManager = userManager;
         _roleManager = roleManager;
+        _signInManager = signInManager;
         _audit = audit;
         _caller = caller;
     }
@@ -114,6 +126,14 @@ public sealed class MfaService : IMfaService
         Emit(AuditActions.MfaEnrolled, user);
         return true;
     }
+
+    /// <inheritdoc />
+    public Task<int> CountRecoveryCodesAsync(ApplicationUser user)
+        => _userManager.CountRecoveryCodesAsync(user);
+
+    /// <inheritdoc />
+    public Task<ApplicationUser?> GetPendingTwoFactorUserAsync()
+        => _signInManager.GetTwoFactorAuthenticationUserAsync()!;
 
     public async Task<IReadOnlyList<string>> GenerateRecoveryCodesAsync(ApplicationUser user)
     {
