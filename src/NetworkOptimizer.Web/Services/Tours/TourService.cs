@@ -49,11 +49,17 @@ public class TourService
     {
         var tours = _definitions.GetTours();
         if (tours.Count == 0)
+        {
+            _logger.LogDebug("No tour due: no tour definitions loaded");
             return null;
+        }
 
         var snapshot = await _state.GetSnapshotAsync();
         if (snapshot.ToursDisabled)
+        {
+            _logger.LogDebug("No tour due: tours disabled for this subject");
             return null;
+        }
 
         var current = _definitions.CurrentEffectiveVersion();
         var firstSeen = TourVersions.Parse(await _state.GetFirstSeenVersionAsync());
@@ -66,6 +72,10 @@ public class TourService
                 && IsStillOfferable(snapshot, t.Id, current))
             .ToList();
         var highlightsPossible = firstSeen != null && tours.Any(t => t.IsHighlights);
+
+        _logger.LogDebug("Tour eligibility: version={Current}, firstSeen={FirstSeen}, tours={Tours}, eligible={Eligible}, seenSteps={Seen}, dismissed={Dismissed}, offers={Offers}",
+            current, firstSeen?.ToString() ?? "(null)", tours.Count, eligible.Count,
+            snapshot.SeenStepIds.Count, snapshot.DismissedTourIds.Count, snapshot.Offers.Count);
 
         // Predicate resolution reads gateway settings per site; skip it entirely in the
         // common nothing-due case, which runs on every Dashboard visit.
@@ -89,7 +99,12 @@ public class TourService
             !snapshot.SeenStepIds.Contains(step.Id)
             && ctx.Satisfies(step.Requires, _siteContext.Slug, out _));
         if (plan.Steps.Count == 0)
+        {
+            _logger.LogDebug("No tour due: every step of {Count} eligible tour(s) was filtered out (seen or predicate)", eligible.Count);
             return null;
+        }
+        _logger.LogInformation("Tour offer built: {Steps} step(s) from {Tours}", plan.Steps.Count,
+            string.Join(", ", plan.Steps.Select(s => s.Tour.Id).Distinct()));
 
         var contributing = plan.Steps.Select(s => s.Tour.Id).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         var newest = plan.Steps.Select(s => s.Tour).OrderBy(t => t.ParsedVersion).Last();

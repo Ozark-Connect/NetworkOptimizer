@@ -74,7 +74,15 @@
         if (!firstRender)
             return;
         _selfRef = DotNetObjectReference.Create(this);
-        await HandleLocationAsync(Navigation.Uri, initial: true);
+        try
+        {
+            await HandleLocationAsync(Navigation.Uri, initial: true);
+        }
+        catch (JSDisconnectedException) { }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Tour initial location handling failed");
+        }
     }
 
     private async void OnLocationChanged(object? sender, LocationChangedEventArgs e)
@@ -122,9 +130,16 @@
         }
 
         if (_running || _modalVisible || _autoOfferConsumed || _offerCheckInFlight)
+        {
+            Logger.LogDebug("Tour offer check skipped (running={Running}, modal={Modal}, consumed={Consumed}, inFlight={InFlight})",
+                _running, _modalVisible, _autoOfferConsumed, _offerCheckInFlight);
             return;
+        }
         if (!IsDashboard(uri))
+        {
+            Logger.LogDebug("Tour offer check skipped: {Uri} is not the Dashboard", uri);
             return;
+        }
 
         _offerCheckInFlight = true;
         try
@@ -132,10 +147,17 @@
             // Let the page paint before deciding to interrupt it.
             await Task.Delay(initial ? 1200 : 600);
             if (_disposed || _running || _modalVisible || _autoOfferConsumed || !IsDashboard(Navigation.Uri))
+            {
+                Logger.LogDebug("Tour offer check abandoned after the settle delay (disposed={Disposed}, running={Running}, modal={Modal}, consumed={Consumed}, uri={Uri})",
+                    _disposed, _running, _modalVisible, _autoOfferConsumed, Navigation.Uri);
                 return;
+            }
 
             if (await Tours.HasActiveCriticalAlertsAsync())
+            {
+                Logger.LogDebug("Tour offer suppressed: active critical alerts");
                 return; // never interrupt an incident; try the next visit
+            }
 
             var offer = await Tours.GetDueOfferAsync();
             if (offer == null || offer.Steps.Count == 0)
