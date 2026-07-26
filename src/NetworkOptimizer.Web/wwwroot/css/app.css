@@ -19121,7 +19121,13 @@ body.kiosk-mode .status-indicators {
     }
 
     .identity-row-actions {
-        justify-content: flex-start;
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .identity-row-actions > *,
+    .identity-lock > .btn {
+        width: 100%;
     }
 
     .identity-actions-col {
