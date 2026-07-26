@@ -41,13 +41,14 @@
                 <label class="checkbox-label">
                     <input type="checkbox" checked="@policy.RequireMfa"
                            @onchange="e => SetRoleMfaAsync(policy.Role, (bool?)e.Value == true)" />
-                    Require MFA for @policy.Role
+                    Require MFA or a passkey for @policy.Role
                 </label>
             }
         </div>
         <p class="form-help">
-            Members of a role with this set must enrol an authenticator app before they can use the app.
-            Passkeys count as a second factor on their own.
+            Members of a role with this set must enrol an authenticator app or register a passkey before
+            they can use the app. A passkey satisfies this on its own: it is tied to this site's address,
+            so it cannot be handed to a lookalike page the way a typed code can.
         </p>
 
         <h3 class="identity-section-title">Identity providers</h3>
@@ -432,7 +433,7 @@
         var result = await IdentityAdmin.SetRoleRequiresMfaAsync(role, requireMfa);
         _mfaPolicies = await IdentityAdmin.GetRoleMfaPoliciesAsync();
         Show(result.Succeeded
-                ? $"{role} {(requireMfa ? "now requires" : "no longer requires")} an authenticator app."
+                ? $"{role} {(requireMfa ? "now requires" : "no longer requires")} an authenticator app or a passkey."
                 : result.Error ?? "That change was refused.",
              result.Succeeded ? "success" : "warning");
     }
