@@ -6,6 +6,9 @@ window.noTour = (function () {
 
     let active = null; // { dotNetRef, overlay, hole, card, target, cleanup: [] }
     let modalEsc = null;
+    // Monotonic token: a showStep whose waitFor outlives a newer showStep or an end()
+    // must not build a zombie overlay for a tour that already moved on.
+    let generation = 0;
 
     function waitFor(selector, timeoutMs) {
         return new Promise(resolve => {
@@ -148,10 +151,13 @@ window.noTour = (function () {
     }
 
     return {
-        // Returns 'shown' when the target was found and spotlighted, 'missing' otherwise.
+        // Returns 'shown' when the target was found and spotlighted, 'missing' when it
+        // never appeared, 'stale' when superseded mid-wait.
         showStep: async function (dotNetRef, opts) {
+            const gen = ++generation;
             teardown();
             const el = await waitFor(opts.selector, opts.waitMs || 8000);
+            if (gen !== generation) return 'stale';
             if (!el) return 'missing';
 
             el.scrollIntoView({ block: 'center', behavior: 'instant' });
@@ -207,6 +213,7 @@ window.noTour = (function () {
         },
 
         end: function () {
+            ++generation;
             teardown();
         },
 

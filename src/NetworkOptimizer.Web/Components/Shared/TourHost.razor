@@ -1,3 +1,4 @@
+@using System.Threading
 @using NetworkOptimizer.Web.Services.Tours
 @implements IDisposable
 @inject NavigationManager Navigation
@@ -59,6 +60,8 @@
     private int _direction = 1;
     private string? _expectedLocation;
     private bool _autoOfferConsumed;
+    private bool _offerCheckInFlight;
+    private int _advancing;
     private bool _disposed;
 
     protected override void OnInitialized()
@@ -102,42 +105,53 @@
         var tourParam = GetQueryParam(uri, "tour");
         if (!string.IsNullOrEmpty(tourParam))
         {
-            Navigation.NavigateTo(SiteContextService.RemoveQueryParam(uri, "tour"), forceLoad: false, replace: true);
             if (string.Equals(tourParam, "reset", StringComparison.OrdinalIgnoreCase))
             {
+                // Reset before stripping the parameter: NavigateTo raises LocationChanged
+                // synchronously, and the nested offer check must see the cleared state.
                 await Tours.ResetAsync();
                 _autoOfferConsumed = false;
+                Navigation.NavigateTo(SiteContextService.RemoveQueryParam(uri, "tour"), forceLoad: false, replace: true);
             }
             else
             {
+                Navigation.NavigateTo(SiteContextService.RemoveQueryParam(uri, "tour"), forceLoad: false, replace: true);
                 await LaunchManualAsync(tourParam);
             }
             return;
         }
 
-        if (_running || _modalVisible || _autoOfferConsumed)
+        if (_running || _modalVisible || _autoOfferConsumed || _offerCheckInFlight)
             return;
         if (!IsDashboard(uri))
             return;
 
-        // Let the page paint before deciding to interrupt it.
-        await Task.Delay(initial ? 1200 : 600);
-        if (_disposed || _running || _modalVisible || _autoOfferConsumed || !IsDashboard(Navigation.Uri))
-            return;
+        _offerCheckInFlight = true;
+        try
+        {
+            // Let the page paint before deciding to interrupt it.
+            await Task.Delay(initial ? 1200 : 600);
+            if (_disposed || _running || _modalVisible || _autoOfferConsumed || !IsDashboard(Navigation.Uri))
+                return;
 
-        if (await Tours.HasActiveCriticalAlertsAsync())
-            return; // never interrupt an incident; try the next visit
+            if (await Tours.HasActiveCriticalAlertsAsync())
+                return; // never interrupt an incident; try the next visit
 
-        var offer = await Tours.GetDueOfferAsync();
-        if (offer == null || offer.Steps.Count == 0)
-            return;
+            var offer = await Tours.GetDueOfferAsync();
+            if (offer == null || offer.Steps.Count == 0)
+                return;
 
-        _offer = offer;
-        _modalVisible = true;
-        _autoOfferConsumed = true; // one modal per session, whatever happens next
-        await Tours.RecordOfferShownAsync(offer);
-        await InvokeAsync(StateHasChanged);
-        await SafeJsAsync("noTour.modalEscape", _selfRef, true);
+            _offer = offer;
+            _modalVisible = true;
+            _autoOfferConsumed = true; // one modal per session, whatever happens next
+            await Tours.RecordOfferShownAsync(offer);
+            await InvokeAsync(StateHasChanged);
+            await SafeJsAsync("noTour.modalEscape", _selfRef, true);
+        }
+        finally
+        {
+            _offerCheckInFlight = false;
+        }
     }
 
     /// <summary>Launch from Settings or a ?tour=id deep link. No modal, no eligibility checks.</summary>
@@ -156,7 +170,7 @@
 
     private async Task StartTourAsync()
     {
-        if (_offer == null)
+        if (_offer == null || _running)
             return;
         _modalVisible = false;
         await SafeJsAsync("noTour.modalEscape", null, false);
@@ -188,6 +202,9 @@
     [JSInvokable]
     public async Task TourAdvance(string action)
     {
+        // A double-clicked Next would otherwise run two overlapping walks.
+        if (Interlocked.Exchange(ref _advancing, 1) == 1)
+            return;
         try
         {
             switch (action)
@@ -217,51 +234,68 @@
             Logger.LogDebug(ex, "Tour step advance failed");
             await EndTourAsync();
         }
+        finally
+        {
+            Interlocked.Exchange(ref _advancing, 0);
+        }
     }
 
     private async Task PlayCurrentStepAsync()
     {
         if (_offer == null || !_running)
             return;
-        if (_stepIndex < 0)
-            _stepIndex = 0;
-        if (_stepIndex >= _offer.Steps.Count)
+
+        // Bounded walk, not recursion: a missing target skips in the direction of
+        // travel, reversing at the front edge, and the guard caps the walk so no
+        // combination of missing steps can spin. On a disconnected circuit the JS call
+        // reports "missing" synchronously, which unbounded recursion would turn into a
+        // stack overflow.
+        for (var guard = 0; guard < _offer.Steps.Count + 2; guard++)
         {
-            await EndTourAsync();
-            return;
+            if (!_running)
+                return;
+            if (_stepIndex < 0)
+            {
+                _direction = 1;
+                _stepIndex = 0;
+            }
+            if (_stepIndex >= _offer.Steps.Count)
+                break;
+
+            var resolved = _offer.Steps[_stepIndex];
+            _expectedLocation = resolved.NavigateUrl;
+            if (!IsExpectedLocation(Navigation.Uri))
+                Navigation.NavigateTo(resolved.NavigateUrl, forceLoad: false);
+
+            var result = await SafeJsAsync<string>("noTour.showStep", _selfRef, new
+            {
+                selector = resolved.Step.Selector,
+                title = resolved.Step.Title,
+                body = resolved.Step.Body,
+                placement = resolved.Step.Placement,
+                badge = resolved.Step.IsImproved ? "improved" : "new",
+                index = _stepIndex,
+                total = _offer.Steps.Count,
+                hasBack = _stepIndex > 0,
+                waitMs = resolved.Step.Optional ? 5000 : 8000,
+            });
+
+            if (result == "shown")
+            {
+                await Tours.RecordStepSeenAsync(resolved.Step.Id);
+                return;
+            }
+            if (result == "stale")
+                return; // superseded by a newer showStep or the tour ended mid-wait
+
+            // Target absent: an optional step's target may legitimately not exist (e.g.
+            // no device has rebooted); a required miss means a broken selector. Either
+            // way, move on without recording the step as seen.
+            if (!resolved.Step.Optional)
+                Logger.LogWarning("Tour step {StepId} target {Selector} not found", resolved.Step.Id, resolved.Step.Selector);
+            _stepIndex += _direction;
         }
-
-        var resolved = _offer.Steps[_stepIndex];
-        _expectedLocation = resolved.NavigateUrl;
-        if (!IsExpectedLocation(Navigation.Uri))
-            Navigation.NavigateTo(resolved.NavigateUrl, forceLoad: false);
-
-        var result = await SafeJsAsync<string>("noTour.showStep", _selfRef, new
-        {
-            selector = resolved.Step.Selector,
-            title = resolved.Step.Title,
-            body = resolved.Step.Body,
-            placement = resolved.Step.Placement,
-            badge = resolved.Step.IsImproved ? "improved" : "new",
-            index = _stepIndex,
-            total = _offer.Steps.Count,
-            hasBack = _stepIndex > 0,
-            waitMs = resolved.Step.Optional ? 5000 : 8000,
-        });
-
-        if (result == "shown")
-        {
-            await Tours.RecordStepSeenAsync(resolved.Step.Id);
-            return;
-        }
-
-        // Target absent: an optional step's target may legitimately not exist (e.g. no
-        // device has rebooted); a required miss means a broken selector. Either way,
-        // move on in the direction of travel without recording the step as seen.
-        if (!resolved.Step.Optional)
-            Logger.LogWarning("Tour step {StepId} target {Selector} not found", resolved.Step.Id, resolved.Step.Selector);
-        _stepIndex += _direction;
-        await PlayCurrentStepAsync();
+        await EndTourAsync();
     }
 
     private async Task EndTourAsync()

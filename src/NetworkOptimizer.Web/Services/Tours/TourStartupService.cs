@@ -41,23 +41,33 @@ public class TourStartupService : IHostedService
             await using var db = await _dbFactory.CreateDbContextAsync(cancellationToken);
             var admin = await db.AdminSettings.FirstOrDefaultAsync(cancellationToken);
 
+            // The AdminSettings row alone cannot classify the install: Docker installs
+            // using APP_PASSWORD never create one, so its absence proves nothing. A
+            // saved UniFi Console connection is the durable evidence an install predates
+            // this release - nothing works until one exists.
+            var hasConsoleConnection = await db.UniFiConnectionSettings.AnyAsync(cancellationToken);
+
             if (admin == null)
             {
                 db.AdminSettings.Add(new AdminSettings
                 {
-                    FirstSeenVersion = version,
+                    FirstSeenVersion = hasConsoleConnection ? null : version,
                     LastSeenAppVersion = version,
                 });
                 await db.SaveChangesAsync(cancellationToken);
-                _logger.LogInformation("New install detected; FirstSeenVersion stamped as {Version}", version);
+                if (hasConsoleConnection)
+                    _logger.LogDebug("Existing install without an AdminSettings row (env-var password); FirstSeenVersion left null");
+                else
+                    _logger.LogInformation("New install detected; FirstSeenVersion stamped as {Version}", version);
                 return;
             }
 
             if (admin.LastSeenAppVersion == null && admin.FirstSeenVersion == null)
             {
-                // Row age decides: only a row born during this startup means a new install.
-                var isNewInstall = admin.CreatedAt >= _processStartUtc.AddMinutes(-2);
-                if (isNewInstall)
+                // New install only when the row was born during this startup AND no
+                // console connection has ever been saved.
+                var rowBornThisStartup = admin.CreatedAt >= _processStartUtc.AddMinutes(-2);
+                if (rowBornThisStartup && !hasConsoleConnection)
                 {
                     admin.FirstSeenVersion = version;
                     _logger.LogInformation("New install detected; FirstSeenVersion stamped as {Version}", version);

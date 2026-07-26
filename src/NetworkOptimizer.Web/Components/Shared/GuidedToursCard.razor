@@ -46,9 +46,16 @@
                             <span class="tour-list-title">@info.Tour.Title</span>
                             <span class="tour-list-status">@StatusLabel(info)</span>
                         </div>
-                        <button type="button" class="btn btn-secondary btn-sm" @onclick="() => Launch(info.Tour.Id)">
-                            @(info.Status is TourStatus.Completed or TourStatus.Skipped ? "Replay" : "Start")
-                        </button>
+                        @if (info.EligibleStepCount == 0)
+                        {
+                            <span class="tour-list-status" data-tooltip="No steps apply to this installation">Not available</span>
+                        }
+                        else
+                        {
+                            <button type="button" class="btn btn-secondary btn-sm" @onclick="() => Launch(info.Tour.Id)">
+                                @(info.Status is TourStatus.Completed or TourStatus.Skipped ? "Replay" : "Start")
+                            </button>
+                        }
                     </div>
                 }
             </div>

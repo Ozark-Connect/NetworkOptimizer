@@ -18655,6 +18655,10 @@ body.kiosk-mode .status-indicators {
 }
 
 .tour-card-progress {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
     color: var(--text-muted);
     font-size: 0.75rem;
     margin-bottom: 6px;
@@ -18738,13 +18742,6 @@ body.kiosk-mode .status-indicators {
 
 .tour-list-empty {
     color: var(--text-muted);
-}
-
-.tour-card-progress {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
 }
 
 .tour-badge {

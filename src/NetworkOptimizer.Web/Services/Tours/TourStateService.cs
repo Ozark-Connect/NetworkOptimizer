@@ -15,6 +15,9 @@ public class TourStateService
 {
     private readonly IDbContextFactory<NetworkOptimizerDbContext> _dbFactory;
     private readonly ILogger<TourStateService> _logger;
+    // Serializes the read-modify-write on the single state row: concurrent circuits
+    // would otherwise lose writes, and a double insert trips the unique Subject index.
+    private readonly SemaphoreSlim _writeLock = new(1, 1);
 
     public TourStateService(IDbContextFactory<NetworkOptimizerDbContext> dbFactory, ILogger<TourStateService> logger)
     {
@@ -100,18 +103,26 @@ public class TourStateService
     /// </summary>
     public async Task ResetAsync()
     {
-        await using var db = await _dbFactory.CreateDbContextAsync();
-        var row = await db.TourStates.FirstOrDefaultAsync(t => t.Subject == TourState.DefaultSubject);
-        if (row != null)
-            db.TourStates.Remove(row);
-        var admin = await db.AdminSettings.FirstOrDefaultAsync();
-        if (admin != null)
+        await _writeLock.WaitAsync();
+        try
         {
-            admin.LastSeenAppVersion = null;
-            admin.UpdatedAt = DateTime.UtcNow;
+            await using var db = await _dbFactory.CreateDbContextAsync();
+            var row = await db.TourStates.FirstOrDefaultAsync(t => t.Subject == TourState.DefaultSubject);
+            if (row != null)
+                db.TourStates.Remove(row);
+            var admin = await db.AdminSettings.FirstOrDefaultAsync();
+            if (admin != null)
+            {
+                admin.LastSeenAppVersion = null;
+                admin.UpdatedAt = DateTime.UtcNow;
+            }
+            await db.SaveChangesAsync();
+            _logger.LogInformation("Guided tour state reset via ?tour=reset");
         }
-        await db.SaveChangesAsync();
-        _logger.LogInformation("Guided tour state reset via ?tour=reset");
+        finally
+        {
+            _writeLock.Release();
+        }
     }
 
     public async Task<string?> GetFirstSeenVersionAsync()
@@ -123,6 +134,7 @@ public class TourStateService
 
     private async Task MutateAsync(Action<TourState> mutate)
     {
+        await _writeLock.WaitAsync();
         try
         {
             await using var db = await _dbFactory.CreateDbContextAsync();
@@ -139,6 +151,10 @@ public class TourStateService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to persist tour state");
+        }
+        finally
+        {
+            _writeLock.Release();
         }
     }
 

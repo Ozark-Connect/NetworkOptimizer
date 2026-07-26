@@ -56,17 +56,7 @@ public class TourService
             return null;
 
         var current = _definitions.CurrentEffectiveVersion();
-        var ctx = await _predicates.ResolveAsync();
         var firstSeen = TourVersions.Parse(await _state.GetFirstSeenVersionAsync());
-
-        // New installs (they have a FirstSeenVersion) are offered Highlights once,
-        // and never what's-new for releases that predate them.
-        if (firstSeen != null)
-        {
-            var highlightsOffer = BuildHighlightsOffer(tours, snapshot, current, ctx);
-            if (highlightsOffer != null)
-                return highlightsOffer;
-        }
 
         var eligible = tours.Where(t =>
                 !t.IsHighlights
@@ -75,6 +65,23 @@ public class TourService
                 && !snapshot.DismissedTourIds.Contains(t.Id)
                 && IsStillOfferable(snapshot, t.Id, current))
             .ToList();
+        var highlightsPossible = firstSeen != null && tours.Any(t => t.IsHighlights);
+
+        // Predicate resolution reads gateway settings per site; skip it entirely in the
+        // common nothing-due case, which runs on every Dashboard visit.
+        if (eligible.Count == 0 && !highlightsPossible)
+            return null;
+        var ctx = await _predicates.ResolveAsync();
+
+        // New installs (they have a FirstSeenVersion) are offered Highlights once,
+        // and never what's-new for releases that predate them.
+        if (highlightsPossible)
+        {
+            var highlightsOffer = BuildHighlightsOffer(tours, snapshot, current, ctx);
+            if (highlightsOffer != null)
+                return highlightsOffer;
+        }
+
         if (eligible.Count == 0)
             return null;
 
@@ -89,7 +96,7 @@ public class TourService
         var single = contributing.Count == 1;
         return new TourOffer
         {
-            Title = single ? newest.Title : $"What's new since your last update",
+            Title = single ? newest.Title : "What's new since your last update",
             Summary = single ? newest.Summary : null,
             IsHighlights = false,
             Steps = plan.Steps.Select(s => Resolve(s.Tour, s.Step, ctx)).ToList(),
