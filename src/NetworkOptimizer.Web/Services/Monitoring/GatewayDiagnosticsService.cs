@@ -126,10 +126,8 @@ public class GatewayDiagnosticsService
         }
 
         // A copper port, a port with no module seated, or a gateway without ethtool all land
-        // here. ethtool's own message is the most useful thing to show.
-        result.SfpError = string.IsNullOrWhiteSpace(sfpOutput)
-            ? "No transceiver data for this interface."
-            : sfpOutput.Trim();
+        // here. ethtool's raw message reads like a fault, so translate the known ones.
+        result.SfpError = GatewayDiagnosticsParser.DescribeEthtoolFailure(sfpOutput);
     }
 
     private void PopulateNeighbors(GatewayDiagnosticsResult result, IReadOnlyDictionary<string, string> sections)

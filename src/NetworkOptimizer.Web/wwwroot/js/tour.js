@@ -15,16 +15,58 @@ window.noTour = (function () {
             const started = Date.now();
             const tick = () => {
                 if (!document.body) return resolve(null);
-                // First visible match: the same anchor can exist on hidden siblings
-                // (e.g. the 3D and 2D map variants of the Live View timeline).
-                const el = Array.from(document.querySelectorAll(selector))
-                    .find(e => e.offsetParent !== null && e.getBoundingClientRect().width > 0);
-                if (el) return resolve(el);
+                // The same anchor can exist more than once (the 3D and 2D Live View maps
+                // both carry the timeline anchor). Pick by LAYOUT order, not DOM order:
+                // the user can swap the two maps, and the spotlight should follow
+                // whichever is actually on top.
+                const visible = Array.from(document.querySelectorAll(selector))
+                    .filter(e => e.offsetParent !== null && e.getBoundingClientRect().width > 0);
+                if (visible.length) {
+                    visible.sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);
+                    return resolve(visible[0]);
+                }
                 if (Date.now() - started > timeoutMs) return resolve(null);
                 setTimeout(tick, 150);
             };
             tick();
         });
+    }
+
+    // The app scrolls .main-content (mobile) or .page-content (desktop) rather than the
+    // document, and scrollIntoView does not always settle those before we measure. Scroll,
+    // verify, then move the owning scroller by hand if the target is still off screen.
+    function scrollableAncestor(el) {
+        let node = el.parentElement;
+        while (node && node !== document.body) {
+            const oy = getComputedStyle(node).overflowY;
+            if ((oy === 'auto' || oy === 'scroll') && node.scrollHeight > node.clientHeight + 4) return node;
+            node = node.parentElement;
+        }
+        return document.scrollingElement || document.documentElement;
+    }
+
+    function sleep(ms) {
+        return new Promise(r => setTimeout(r, ms));
+    }
+
+    async function ensureInView(el) {
+        try {
+            el.scrollIntoView({ block: 'center', inline: 'nearest' });
+        } catch {
+            el.scrollIntoView();
+        }
+        await sleep(200);
+
+        const rect = el.getBoundingClientRect();
+        const vh = window.innerHeight;
+        if (rect.top >= 8 && rect.bottom <= vh - 8) return;
+
+        const scroller = scrollableAncestor(el);
+        const isDocument = scroller === document.scrollingElement || scroller === document.documentElement;
+        const viewTop = isDocument ? 0 : scroller.getBoundingClientRect().top;
+        const viewHeight = isDocument ? vh : scroller.clientHeight;
+        scroller.scrollTop += (rect.top - viewTop) - (viewHeight / 2) + (rect.height / 2);
+        await sleep(150);
     }
 
     function teardown() {
@@ -160,7 +202,8 @@ window.noTour = (function () {
             if (gen !== generation) return 'stale';
             if (!el) return 'missing';
 
-            el.scrollIntoView({ block: 'center', behavior: 'instant' });
+            await ensureInView(el);
+            if (gen !== generation) return 'stale';
 
             const overlay = document.createElement('div');
             overlay.className = 'tour-overlay';

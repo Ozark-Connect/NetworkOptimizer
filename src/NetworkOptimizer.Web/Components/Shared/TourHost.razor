@@ -153,12 +153,6 @@
                 return;
             }
 
-            if (await Tours.HasActiveCriticalAlertsAsync())
-            {
-                Logger.LogDebug("Tour offer suppressed: active critical alerts");
-                return; // never interrupt an incident; try the next visit
-            }
-
             var offer = await Tours.GetDueOfferAsync();
             if (offer == null || offer.Steps.Count == 0)
                 return;

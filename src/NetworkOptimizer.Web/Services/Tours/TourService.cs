@@ -1,6 +1,3 @@
-using NetworkOptimizer.Alerts.Interfaces;
-using NetworkOptimizer.Core.Enums;
-
 namespace NetworkOptimizer.Web.Services.Tours;
 
 /// <summary>
@@ -21,7 +18,6 @@ public class TourService
     private readonly TourStateService _state;
     private readonly TourPredicateResolver _predicates;
     private readonly SiteContextService _siteContext;
-    private readonly IAlertRepository _alertRepository;
     private readonly ILogger<TourService> _logger;
 
     public TourService(
@@ -29,14 +25,12 @@ public class TourService
         TourStateService state,
         TourPredicateResolver predicates,
         SiteContextService siteContext,
-        IAlertRepository alertRepository,
         ILogger<TourService> logger)
     {
         _definitions = definitions;
         _state = state;
         _predicates = predicates;
         _siteContext = siteContext;
-        _alertRepository = alertRepository;
         _logger = logger;
     }
 
@@ -173,21 +167,6 @@ public class TourService
             });
         }
         return result;
-    }
-
-    /// <summary>Never interrupt an incident: the offer modal is suppressed while a critical alert is active.</summary>
-    public async Task<bool> HasActiveCriticalAlertsAsync()
-    {
-        try
-        {
-            var active = await _alertRepository.GetActiveAlertsAsync();
-            return active.Any(a => a.Severity == AlertSeverity.Critical);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "Active-alert check for tour offer failed; not suppressing");
-            return false;
-        }
     }
 
     public async Task RecordOfferShownAsync(TourOffer offer)
