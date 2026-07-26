@@ -4,6 +4,7 @@
 @inject IIdentityAdminService IdentityAdmin
 @inject IFederationProviderService Federation
 @inject IAuthPolicyOptions AuthPolicy
+@inject ISiteManagementService SiteManagement
 @inject ICanonicalOrigin CanonicalOrigin
 @inject IHttpContextAccessor HttpContextAccessor
 @inject NavigationManager Navigation
@@ -15,9 +16,12 @@
 <div class="card settings-tab-identity" id="identity-sign-in">
     <div class="card-header">
         <h2 class="card-title">Sign-In</h2>
-        <div class="card-header-badges">
-            <span class="status-badge global-badge" data-tooltip="Applies to all sites (instance-wide)">Global</span>
-        </div>
+        @if (_multiSiteEnabled)
+        {
+            <div class="card-header-badges">
+                <span class="status-badge global-badge" data-tooltip="Applies to all sites (instance-wide)">Global</span>
+            </div>
+        }
     </div>
     <div class="card-body">
         <p class="section-description">
@@ -307,6 +311,7 @@
 </div>
 
 @code {
+    private bool _multiSiteEnabled;
     private IReadOnlyList<FederationProvider>? _providers;
     private IReadOnlyList<RoleMfaPolicy> _mfaPolicies = Array.Empty<RoleMfaPolicy>();
     private FederationProvider? _editing;
@@ -321,6 +326,7 @@
 
     protected override async Task OnInitializedAsync()
     {
+        _multiSiteEnabled = await SiteManagement.IsMultiSiteEnabledAsync();
         _localLoginDisabled = await AuthPolicy.IsLocalLoginDisabledAsync();
         _mfaPolicies = await IdentityAdmin.GetRoleMfaPoliciesAsync();
         await ReloadAsync();

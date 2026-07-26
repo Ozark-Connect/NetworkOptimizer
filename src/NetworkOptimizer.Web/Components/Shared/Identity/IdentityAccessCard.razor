@@ -12,16 +12,19 @@
 <div class="card settings-tab-identity" id="identity-access">
     <div class="card-header">
         <h2 class="card-title">Access</h2>
-        <div class="card-header-badges">
-            @if (SiteSlug is null)
-            {
-                <span class="status-badge global-badge" data-tooltip="Applies to all sites (instance-wide)">Global</span>
-            }
-            else
-            {
-                <span class="status-badge site-context-badge" data-tooltip="These grants apply to this site only">@(SiteName ?? SiteSlug)</span>
-            }
-        </div>
+        @if (_multiSiteEnabled)
+        {
+            <div class="card-header-badges">
+                @if (SiteSlug is null)
+                {
+                    <span class="status-badge global-badge" data-tooltip="Applies to all sites (instance-wide)">Global</span>
+                }
+                else
+                {
+                    <span class="status-badge site-context-badge" data-tooltip="These grants apply to this site only">@(SiteName ?? SiteSlug)</span>
+                }
+            </div>
+        }
     </div>
     <div class="card-body">
         <p class="section-description">
@@ -173,6 +176,7 @@
     private IReadOnlyList<ApplicationUser> _users = Array.Empty<ApplicationUser>();
     private List<Site> _sites = new();
     private bool _restrictSites;
+    private bool _multiSiteEnabled;
 
     private string _grantUserId = "";
     private string _grantTarget = AllSitesTarget;
@@ -184,6 +188,7 @@
 
     protected override async Task OnInitializedAsync()
     {
+        _multiSiteEnabled = await SiteManagement.IsMultiSiteEnabledAsync();
         _users = await IdentityAdmin.ListUsersAsync();
         _grantUserId = _users.FirstOrDefault()?.Id ?? "";
         _sites = await SiteManagement.GetSitesAsync();

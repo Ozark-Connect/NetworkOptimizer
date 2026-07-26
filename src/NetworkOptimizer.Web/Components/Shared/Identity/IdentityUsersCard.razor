@@ -3,6 +3,7 @@
 @inject IIdentityAdminService IdentityAdmin
 @inject IFederationProviderService Federation
 @inject ICurrentUserAccessor CurrentUser
+@inject ISiteManagementService SiteManagement
 
 @* Settings - Identity: the instance-wide account list. Create, enable/disable, delete, change role,
    reset another user's password, and link or unlink an external identity. Everything runs through
@@ -11,9 +12,12 @@
 <div class="card settings-tab-identity" id="identity-users">
     <div class="card-header">
         <h2 class="card-title">Users</h2>
-        <div class="card-header-badges">
-            <span class="status-badge global-badge" data-tooltip="Applies to all sites (instance-wide)">Global</span>
-        </div>
+        @if (_multiSiteEnabled)
+        {
+            <div class="card-header-badges">
+                <span class="status-badge global-badge" data-tooltip="Applies to all sites (instance-wide)">Global</span>
+            </div>
+        }
     </div>
     <div class="card-body">
         <p class="section-description">
@@ -275,6 +279,7 @@
     /// <summary>The signed-in user, so the card never offers to delete the account in use.</summary>
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
 
+    private bool _multiSiteEnabled;
     private string? _currentUserId;
     private IReadOnlyList<UserAccountSummary>? _users;
     private IReadOnlyList<FederationProvider>? _providers;
@@ -300,6 +305,8 @@
 
     protected override async Task OnInitializedAsync()
     {
+        _multiSiteEnabled = await SiteManagement.IsMultiSiteEnabledAsync();
+
         if (AuthState is not null)
         {
             var principal = (await AuthState).User;
