@@ -1,4 +1,3 @@
-using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using NetworkOptimizer.Storage.Models.Identity;
 using NetworkOptimizer.Web.Services.Auditing;
@@ -157,7 +156,13 @@ public sealed class IdentitySignInService : IIdentitySignInService
         }
 
         if (result.RequiresTwoFactor)
+        {
+            // Logged because it is otherwise the one sign-in outcome that leaves no trace: the
+            // password was right and no session was issued yet, so a problem in the second-factor
+            // step looks like nothing happened at all.
+            _logger.LogInformation("Local sign-in for {User} requires a second factor.", username);
             return SignInOutcome.RequiresTwoFactor;
+        }
 
         if (result.IsLockedOut)
         {
