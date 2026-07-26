@@ -2701,6 +2701,12 @@ select.form-control {
     gap: 0.375rem;
 }
 
+.account-recovery-actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 1rem;
+}
+
 .account-recovery-codes code {
     font-size: 0.95rem;
     letter-spacing: 0.05em;

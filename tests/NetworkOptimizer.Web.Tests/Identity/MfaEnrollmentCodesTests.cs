@@ -41,6 +41,19 @@ public class MfaEnrollmentCodesTests
     }
 
     [Fact]
+    public void DismissingDropsThemImmediately()
+    {
+        var store = new MfaEnrollmentCodes();
+        store.Stash("user-1", Codes);
+        store.Take("user-1").Should().NotBeNull();
+
+        store.Discard("user-1");
+
+        store.Take("user-1").Should().BeNull(
+            "saying you saved them must beat the grace window, or a refresh would show them again");
+    }
+
+    [Fact]
     public void AFreshEnrollmentReplacesAnEarlierSet()
     {
         var store = new MfaEnrollmentCodes();

@@ -31,6 +31,9 @@ public sealed class MfaEnrollmentCodes
     public void Stash(string userId, IReadOnlyList<string> codes)
         => _pending[userId] = new Entry(codes, DateTime.UtcNow.Add(Lifetime));
 
+    /// <summary>Drops the user's pending codes outright, once they say they have saved them.</summary>
+    public void Discard(string userId) => _pending.TryRemove(userId, out _);
+
     /// <summary>
     /// The user's pending codes, or null when there are none left. Readable for a short grace period
     /// after the first read so the prerender and interactive passes agree, then evicted - a later
