@@ -80,7 +80,7 @@
                                             @* Disabled rows expose exactly one forward action - Enable - in the primary
                                                slot (it redeploys), so Deploy/Re-apply (which would just hit the disabled
                                                guard) and the separate Disable toggle are both omitted here. *@
-                                            <AdminOnly>
+                                            <SiteAdminOnly>
                                                 <button class="btn btn-primary btn-sm" @onclick="() => ToggleDisable(mi)" disabled="@(_busyId != null)">
                                                     @if (_busyId == mi.Id && _busyAction == "enable")
                                                     {
@@ -92,11 +92,11 @@
                                                         <span>Enable</span>
                                                     }
                                                 </button>
-                                            </AdminOnly>
+                                            </SiteAdminOnly>
                                         }
                                         else
                                         {
-                                            <AdminOnly>
+                                            <SiteAdminOnly>
                                                 <button class="btn btn-primary btn-sm" @onclick="() => DeployInterface(mi)" disabled="@(_busyId != null)">
                                                     @if (_busyId == mi.Id && _busyAction == "deploy")
                                                     {
@@ -108,12 +108,12 @@
                                                         <span>@(IsApplied(mi) ? "Re-apply" : "Deploy")</span>
                                                     }
                                                 </button>
-                                            </AdminOnly>
+                                            </SiteAdminOnly>
                                         }
                                         <button class="btn btn-secondary btn-sm" @onclick="() => CheckStatus(mi)" disabled="@(_busyId != null)">Check status</button>
                                         @if (ShowDisableToggle(mi) && !mi.Disabled)
                                         {
-                                            <AdminOnly>
+                                            <SiteAdminOnly>
                                                 <button class="btn btn-outline-primary btn-sm" @onclick="() => ToggleDisable(mi)" disabled="@(_busyId != null)">
                                                     @if (_busyId == mi.Id && _busyAction == "disable")
                                                     {
@@ -125,9 +125,9 @@
                                                         <span>Disable</span>
                                                     }
                                                 </button>
-                                            </AdminOnly>
+                                            </SiteAdminOnly>
                                         }
-                                        <AdminOnly>
+                                        <SiteAdminOnly>
                                             <button class="btn btn-danger btn-sm" @onclick="() => RemoveInterface(mi)" disabled="@(_busyId != null)">
                                                 @if (_busyId == mi.Id && _busyAction == "remove")
                                                 {
@@ -139,7 +139,7 @@
                                                     <span>@(_forceRemoveArmed.Contains(mi.Id) ? "Remove anyway" : "Remove")</span>
                                                 }
                                             </button>
-                                        </AdminOnly>
+                                        </SiteAdminOnly>
                                     </div>
                                 </td>
                             </tr>
@@ -276,7 +276,7 @@
                     </details>
 
                     <div class="action-buttons">
-                        <AdminOnly>
+                        <SiteAdminOnly>
                             <button class="btn btn-primary" @onclick="SaveAndDeploy" disabled="@(_busyId != null || _saving)">
                                 @if (_saving)
                                 {
@@ -288,10 +288,10 @@
                                     <span>Save &amp; Deploy</span>
                                 }
                             </button>
-                        </AdminOnly>
-                        <AdminOnly>
+                        </SiteAdminOnly>
+                        <SiteAdminOnly>
                             <button class="btn btn-secondary" @onclick="SaveOnly" disabled="@(_busyId != null || _saving)">Save without deploying</button>
-                        </AdminOnly>
+                        </SiteAdminOnly>
                         @if (_editing.Id > 0)
                         {
                             <button class="btn btn-secondary" @onclick="CancelEdit" disabled="@_saving">Cancel edit</button>
