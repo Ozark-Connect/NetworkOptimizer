@@ -201,6 +201,64 @@ public sealed class MfaRequirementTests : IDisposable
         }
     }
 
+    [Fact]
+    public async Task ADisabledAccountCannotSignInWithItsPasskey()
+    {
+        await using var provider = await BuildWithSchemaAsync();
+
+        using (var scope = provider.CreateScope())
+        {
+            var created = await CreateUserAsync(scope, "disabledpasskey");
+            await AddPasskeyAsync(scope, created);
+
+            var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+            created.IsEnabled = false;
+            (await userManager.UpdateAsync(created)).Succeeded.Should().BeTrue();
+        }
+
+        using (var scope = provider.CreateScope())
+        {
+            AttachHttpContext(scope);
+            // Resolved inside the acting scope, as the endpoint does with the assertion's user.
+            var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+            var user = await userManager.FindByNameAsync("disabledpasskey");
+            var signIn = scope.ServiceProvider.GetRequiredService<IIdentitySignInService>();
+
+            (await signIn.PasskeySignInAsync(user!)).Should().Be(SignInOutcome.Failed,
+                "a credential registered before the account was disabled must not still let it in");
+        }
+    }
+
+    [Fact]
+    public async Task APasskeySignInRecordsHowTheUserGotIn()
+    {
+        await using var provider = await BuildWithSchemaAsync();
+
+        using (var scope = provider.CreateScope())
+        {
+            var created = await CreateUserAsync(scope, "passkeylogin");
+            await AddPasskeyAsync(scope, created);
+        }
+
+        using (var scope = provider.CreateScope())
+        {
+            AttachHttpContext(scope);
+            var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+            var user = await userManager.FindByNameAsync("passkeylogin");
+            var signIn = scope.ServiceProvider.GetRequiredService<IIdentitySignInService>();
+            (await signIn.PasskeySignInAsync(user!)).Should().Be(SignInOutcome.Success);
+        }
+
+        using (var scope = provider.CreateScope())
+        {
+            var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+            var stored = await userManager.FindByNameAsync("passkeylogin");
+            stored!.LastLoginMethod.Should().Be("passkey",
+                "the Identity tab reports how each account last signed in");
+            stored.LastLoginAt.Should().NotBeNull();
+        }
+    }
+
     private sealed class NoOpAuditLogger : IAuditLogger
     {
         public void Log(AuditEvent auditEvent) { }

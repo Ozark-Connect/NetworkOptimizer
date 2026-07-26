@@ -47,15 +47,22 @@ public static class PasskeyEndpoints
         }).AllowAnonymous();
 
         app.MapPost("/api/passkey/assert", async (
-            HttpContext ctx, SignInManager<ApplicationUser> signInManager) =>
+            HttpContext ctx,
+            SignInManager<ApplicationUser> signInManager,
+            IIdentitySignInService signInService) =>
         {
             var credentialJson = await new StreamReader(ctx.Request.Body).ReadToEndAsync();
             var assertion = await signInManager.PerformPasskeyAssertionAsync(credentialJson);
             if (!assertion.Succeeded)
                 return Results.BadRequest(new { error = "assertion_failed" });
 
-            await signInManager.SignInAsync(assertion.User, isPersistent: false, "passkey");
-            return Results.Ok(new { authenticated = true });
+            // The sign-in itself goes through the shared service, so a passkey login is gated and
+            // audited exactly like a password one. A refusal reports the same way as a failed
+            // assertion, so a disabled account is not distinguishable from a bad credential.
+            var outcome = await signInService.PasskeySignInAsync(assertion.User);
+            return outcome == SignInOutcome.Success
+                ? Results.Ok(new { authenticated = true })
+                : Results.BadRequest(new { error = "assertion_failed" });
         }).AllowAnonymous();
     }
 

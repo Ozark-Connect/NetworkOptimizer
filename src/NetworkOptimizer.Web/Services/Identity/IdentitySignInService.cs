@@ -50,6 +50,13 @@ public interface IIdentitySignInService
     /// <summary>Completes the second-factor step with a single-use recovery code.</summary>
     Task<SignInOutcome> RecoveryCodeSignInAsync(string recoveryCode);
 
+    /// <summary>
+    /// Completes a passkey assertion the browser already proved. Routed through here rather than
+    /// signing in at the endpoint so a passkey login gets the same treatment as a password one:
+    /// the local enablement gate, last-login metadata, and a login audit event.
+    /// </summary>
+    Task<SignInOutcome> PasskeySignInAsync(ApplicationUser user);
+
     /// <summary>Signs the current user out of the application cookie.</summary>
     Task SignOutAsync();
 
@@ -201,6 +208,28 @@ public sealed class IdentitySignInService : IIdentitySignInService
     }
 
     /// <inheritdoc />
+    /// <inheritdoc />
+    public async Task<SignInOutcome> PasskeySignInAsync(ApplicationUser user)
+    {
+        // A disabled account must not get in on a credential registered before it was disabled.
+        if (!user.IsEnabled)
+        {
+            _logger.LogWarning("Passkey sign-in refused for {User}: the account is disabled.", user.UserName);
+            EmitLogin(user.UserName ?? "", user.Id, AuditActions.LoginFailed, AuditOutcomes.Failure, "passkey");
+            return SignInOutcome.Failed;
+        }
+
+        await _signInManager.SignInAsync(user, isPersistent: false, "passkey");
+
+        user.LastLoginAt = DateTime.UtcNow;
+        user.LastLoginMethod = "passkey";
+        await _userManager.UpdateAsync(user);
+
+        _logger.LogInformation("Passkey sign-in succeeded for {User}.", user.UserName);
+        EmitLogin(user.UserName ?? "", user.Id, AuditActions.LoginSuccess, AuditOutcomes.Success, "passkey");
+        return SignInOutcome.Success;
+    }
+
     public Task SignOutAsync() => _signInManager.SignOutAsync();
 
     /// <inheritdoc />
