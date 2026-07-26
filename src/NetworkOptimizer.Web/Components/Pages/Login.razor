@@ -49,6 +49,10 @@
             {
                 <div class="alert alert-danger mt-3">@ErrorText</div>
             }
+            @if (!string.IsNullOrEmpty(PromptText))
+            {
+                <div class="alert alert-info mt-3">@PromptText</div>
+            }
         </form>
 
         @if (_providers.Count > 0 || _showPasskey)
@@ -56,7 +60,8 @@
             <div class="login-footer">
                 @if (_showPasskey)
                 {
-                    <button type="button" class="btn btn-secondary login-btn" onclick="netoptPasskey.login()">
+                    <button type="button" class="btn @(_needsPasskey ? "btn-primary" : "btn-secondary") login-btn"
+                            onclick="netoptPasskey.login()">
                         Sign in with a passkey
                     </button>
                 }
@@ -103,6 +108,17 @@
     private IReadOnlyList<FederationProvider> _providers = new List<FederationProvider>();
 
     // Uniform, non-enumerating messages (never reveal whether a username exists).
+    private bool _needsPasskey => Error == "use_passkey";
+
+    /// <summary>
+    /// Not a failure: the password was right, but this account's role requires a second factor and its
+    /// passkey is the one it holds, so the passkey is what has to be used to get in.
+    /// </summary>
+    private string? PromptText => _needsPasskey
+        ? "Your role requires a second factor. Sign in with your passkey below - a password on its own "
+          + "is not enough. You can add an authenticator app from Security once you are in."
+        : null;
+
     private string? ErrorText => Error switch
     {
         "invalid" or "missing" => "Invalid username or password.",

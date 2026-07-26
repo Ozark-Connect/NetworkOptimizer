@@ -54,6 +54,7 @@ public static class AuthEndpoints
                     : SiteContextService.WithSiteParam(returnUrl, site)),
                 SignInOutcome.RequiresTwoFactor => Results.Redirect(TwoFactorRedirect(returnUrl, site)),
                 SignInOutcome.RequiresMfaEnrollment => Results.Redirect("/account/security?setup=required"),
+                SignInOutcome.RequiresPasskeySignIn => LoginRedirect("use_passkey", site),
                 SignInOutcome.LockedOut => LoginRedirect("lockout", site),
                 SignInOutcome.LocalLoginDisabled => LoginRedirect("sso_only", site),
                 _ => LoginRedirect("invalid", site),
