@@ -13,6 +13,7 @@ public static class AuthorizationRegistration
     {
         services.AddMemoryCache();
         services.AddScoped<IEffectiveSiteRoleResolver, EffectiveSiteRoleResolver>();
+        services.AddScoped<ISiteAccessFilter, SiteAccessFilter>();
         services.AddScoped<IAuthorizationHandler, SiteRoleHandler>();
         services.AddScoped<IAuthorizationHandler, GlobalRoleHandler>();
         services.AddScoped<IAuthorizationHandler, ManageSettingsHandler>();

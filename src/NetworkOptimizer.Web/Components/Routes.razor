@@ -1,7 +1,14 @@
 @rendermode InteractiveServer
+@using NetworkOptimizer.Storage.Models.Identity
+@using NetworkOptimizer.Web.Services.Authorization
+@using NetworkOptimizer.Web.Services.Identity
 @inject NavigationManager Navigation
 @inject SiteContextService SiteContext
+@inject ICallerContext Caller
+@inject ISiteAccessFilter SiteAccess
 
+@if (_siteResolved)
+{
 <Router AppAssembly="typeof(Program).Assembly">
     <Found Context="routeData">
         @* Gate 4 (design doc 06): page [Authorize] policies decide navigation. The policies succeed
@@ -27,15 +34,35 @@
         <FocusOnNavigate RouteData="routeData" Selector="h1" />
     </Found>
 </Router>
+}
 <SiteTabSync />
 
 @code {
-    protected override void OnInitialized()
+    private bool _siteResolved;
+
+    protected override async Task OnInitializedAsync()
     {
         // Pin this scope to the site in the tab's URL before the Router renders
         // anything that could resolve the site context. The circuit's WebSocket
         // upgrade request only carries the shared site cookie, so without this pin
         // every tab of the browser would collapse onto the same site.
         SiteContext.PinFromUri(Navigation.Uri);
+
+        // A circuit is its own DI scope, so the request middleware's correction does not reach it and
+        // the pin above has to be re-checked here. Both short-circuits below are deliberately
+        // synchronous: an install with authentication off, and any Admin, can see every site, so they
+        // never gate their first render and never flash an empty page while a check resolves.
+        var caller = Caller.Current;
+        if (caller is null || caller.AuthenticationDisabled || caller.Principal is null
+            || caller.Principal.IsInRole(GlobalRoles.Admin))
+        {
+            _siteResolved = true;
+            return;
+        }
+
+        if (!await SiteAccess.IsAuthorizedAsync(SiteContext.Slug))
+            SiteContext.OverrideSite(await SiteAccess.FallbackSlugAsync());
+
+        _siteResolved = true;
     }
 }

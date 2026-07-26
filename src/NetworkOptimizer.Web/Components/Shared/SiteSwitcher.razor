@@ -1,6 +1,7 @@
 @using NetworkOptimizer.Storage.Models
 @using NetworkOptimizer.Web.Services
 @inject SiteManagementService SiteManagement
+@inject NetworkOptimizer.Web.Services.Authorization.ISiteAccessFilter SiteAccess
 @inject SiteContextService SiteContext
 @inject SiteConnectionRegistry SiteConnections
 @inject SiteRegistryChangeNotifier ChangeNotifier
@@ -68,7 +69,8 @@
 
         // Disabled sites are managed (re-enabled/removed) from Settings - Multi-Site;
         // they don't belong in the switcher.
-        _sites = (await SiteManagement.GetSitesAsync()).Where(s => s.Enabled).ToList();
+        _sites = await SiteAccess.FilterAsync(
+            (await SiteManagement.GetSitesAsync()).Where(s => s.Enabled), s => s.Slug);
         _currentSite = _sites.FirstOrDefault(s => s.Slug == SiteContext.Slug)
             ?? _sites.FirstOrDefault(s => s.IsDefault);
     }
