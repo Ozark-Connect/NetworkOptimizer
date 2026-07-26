@@ -18519,6 +18519,19 @@ body.kiosk-mode .status-indicators {
     margin-bottom: 0.5rem;
 }
 
+@keyframes tour-fade-in {
+    from {
+        opacity: 0;
+    }
+}
+
+@keyframes tour-rise-in {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+}
+
 .tour-modal-backdrop {
     position: fixed;
     inset: 0;
@@ -18528,6 +18541,7 @@ body.kiosk-mode .status-indicators {
     align-items: center;
     justify-content: center;
     padding: 16px;
+    animation: tour-fade-in 0.2s ease;
 }
 
 .tour-modal {
@@ -18537,6 +18551,7 @@ body.kiosk-mode .status-indicators {
     max-width: 480px;
     width: 100%;
     padding: 24px;
+    animation: tour-rise-in 0.25s ease;
 }
 
 .tour-modal-title {
