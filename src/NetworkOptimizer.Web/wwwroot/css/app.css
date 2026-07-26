@@ -19044,7 +19044,13 @@ body.kiosk-mode .status-indicators {
 @media (max-width: 768px) {
     .account-secret-key code,
     .account-recovery-codes code {
-        font-size: 0.9rem;
+        font-size: 0.85rem;
+    }
+
+    /* The tracking that makes the key readable on a wide screen is what pushes it onto a second
+       line on a narrow one, so it comes off here rather than shrinking the type further. */
+    .account-secret-key code {
+        letter-spacing: 0.02em;
     }
 
     .account-credential-item {
