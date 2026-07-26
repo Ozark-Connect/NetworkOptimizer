@@ -119,6 +119,47 @@ public class ArchitectureTests
     }
 
     /// <summary>
+    /// A2 (third part): where a mutating service is reachable ONLY through its gated interface,
+    /// nothing may take the implementation class as a constructor dependency - that both skips the
+    /// gate and fails at runtime, because the implementation is constructed inside the proxy factory
+    /// rather than registered as its own service. Implementations Program.cs still registers directly
+    /// (because a background/system path legitimately uses them) are exempt, as is the per-site
+    /// registry that owns its instances and hands them to the gated registration as proxy targets.
+    /// </summary>
+    [Fact]
+    public void A2_NothingDependsOnAMutatingServiceImplementation()
+    {
+        var allow = new HashSet<string>
+        {
+            "SpeedTestServiceRegistry", // owns the per-site instances the gated registrations proxy
+        };
+
+        var programSource = ReadRepoFile("src/NetworkOptimizer.Web/Program.cs");
+        var implementations = SafeGetTypes(WebAssembly)
+            .Where(t => t.IsClass && !t.IsAbstract)
+            .Where(t => t.GetInterfaces().Any(i => i.GetCustomAttribute<MutatingServiceAttribute>() is not null))
+            .Where(t => !programSource.Contains($"AddScoped<{t.Name}>", StringComparison.Ordinal)
+                && !programSource.Contains($"AddSingleton<{t.Name}>", StringComparison.Ordinal))
+            .ToHashSet();
+
+        var offenders = new List<string>();
+        foreach (var type in SafeGetTypes(WebAssembly).Where(t => t.IsClass && !IsCompilerGenerated(t)))
+        {
+            if (implementations.Contains(type) || allow.Contains(DeclaringName(type)))
+                continue;
+
+            foreach (var ctor in type.GetConstructors())
+            {
+                foreach (var parameter in ctor.GetParameters().Where(p => implementations.Contains(p.ParameterType)))
+                    offenders.Add($"{type.Name}({parameter.ParameterType.Name} {parameter.Name})");
+            }
+        }
+
+        offenders.Should().BeEmpty(
+            "inject the gated interface, not the implementation class (design doc 06 A2)");
+    }
+
+    /// <summary>
     /// A3: only the identity infrastructure may reference UserManager/RoleManager; product code must go
     /// through <see cref="IdentityAdminService"/>. The allowlist is the identity plumbing that
     /// legitimately needs the managers (sign-in, bootstrap/seed, the session bridge, the claims factory).

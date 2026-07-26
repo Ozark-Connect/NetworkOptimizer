@@ -16,7 +16,7 @@ public class DashboardService : IDashboardService
     private readonly ILogger<DashboardService> _logger;
     private readonly UniFiConnectionService _connectionService;
     private readonly AuditService _auditService;
-    private readonly GatewaySpeedTestService _gatewayService;
+    private readonly IGatewaySpeedTestService _gatewayService;
     private readonly TcMonitorClient _tcMonitorClient;
     private readonly NetworkOptimizer.Storage.Services.SiteDbContextFactory _siteDbFactory;
     private readonly SiteContextService _siteContext;
@@ -28,7 +28,7 @@ public class DashboardService : IDashboardService
         ILogger<DashboardService> logger,
         UniFiConnectionService connectionService,
         AuditService auditService,
-        GatewaySpeedTestService gatewayService,
+        IGatewaySpeedTestService gatewayService,
         TcMonitorClient tcMonitorClient,
         NetworkOptimizer.Storage.Services.SiteDbContextFactory siteDbFactory,
         SiteContextService siteContext,
