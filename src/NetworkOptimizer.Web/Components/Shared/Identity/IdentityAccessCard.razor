@@ -206,6 +206,13 @@
     /// </summary>
     public async Task RefreshAsync()
     {
+        // The global view derives grants by walking _users, so a new account has to be in that list
+        // before its grant can be found at all. Deletion only looked correct because the account was
+        // already there and simply stopped returning memberships.
+        _users = await IdentityAdmin.ListUsersAsync();
+        if (string.IsNullOrEmpty(_grantUserId) || _users.All(u => u.Id != _grantUserId))
+            _grantUserId = _users.FirstOrDefault()?.Id ?? "";
+
         await ReloadAsync();
         StateHasChanged();
     }
