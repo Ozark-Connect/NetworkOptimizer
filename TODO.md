@@ -960,3 +960,24 @@ only on `UniFiApiClient`).
   - *Perf (profile, don't assume):* the per-AP fallback recomputes `ScoreAssignment` per candidate and
     `ScanReadingForScoring` loops siblings for current-channel reads - both negligible at small n but
     worth checking on large sites before they bite.
+
+## Retention: alerts and audit events are never pruned
+
+The Application Settings card carried an "Alert Retention (days)" field wired to a `SaveAppSettings`
+stub that did nothing, so the value never persisted. The field and its dead Save button were removed
+rather than made to persist a number nothing reads - storing it would have turned a visibly broken
+control into an invisibly broken one.
+
+Nothing in the solution consumes a retention value today:
+- `IAlertRepository` has no delete/prune method at all - alert history grows without bound.
+- `AlertEngine.ClearOldAlerts(TimeSpan)` exists in Monitoring with **zero callers**.
+- `IAuditRepository.DeleteOldAuditsAsync` exists with **zero callers**, so the audit retention
+  design doc 05 specifies (365 days + a row cap, with `audit.pruned` itself audited) is unimplemented.
+
+The real fix, as one piece of work:
+- [ ] Add pruning to `IAlertRepository` and run it from a background service, mirroring how the
+  monitoring collectors are hosted. Per-site DBs mean the job has to walk every site, not just main.
+- [ ] Implement audit pruning to doc 05: time-based default 365d plus a row-count cap, emitting an
+  `audit.pruned` event with count and range.
+- [ ] Reinstate the settings UI once something consumes the values, saving through the gated
+  `ISystemSettingsAdmin` so the change is Admin-only and audited like every other settings write.
