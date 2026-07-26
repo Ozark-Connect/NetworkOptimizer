@@ -146,6 +146,34 @@
             downloadLink.click();
         }
 
+        // Copy a shared secret from the sibling input, stripping the grouping spaces. The key is
+        // displayed in groups of four because that is what a human can read back, but an
+        // authenticator app wants the bare base32 string.
+        function copySecretFromInput(button) {
+            const input = button.previousElementSibling;
+            const text = input.value.replace(/\s+/g, '');
+
+            if (navigator.clipboard && window.isSecureContext) {
+                navigator.clipboard.writeText(text);
+            } else {
+                input.select();
+                input.setSelectionRange(0, 99999);
+                document.execCommand('copy');
+            }
+            input.blur();
+
+            const icon = button.querySelector('.copy-icon');
+            const check = button.querySelector('.copy-check');
+            if (icon && check) {
+                icon.style.display = 'none';
+                check.style.display = 'inline-flex';
+                setTimeout(function () {
+                    icon.style.display = 'inline-flex';
+                    check.style.display = 'none';
+                }, 1500);
+            }
+        }
+
         // Copy text from sibling input element with visual feedback
         function copyFromInput(button) {
             const input = button.previousElementSibling;
