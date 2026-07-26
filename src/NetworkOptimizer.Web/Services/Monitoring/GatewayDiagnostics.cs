@@ -383,6 +383,34 @@ public static class GatewayDiagnosticsParser
         return looksLikeModule ? info : null;
     }
 
+    /// <summary>
+    /// Turns ethtool's own failure line into something actionable. "Operation not supported"
+    /// is the common one and reads like a fault: it only means the kernel has no module
+    /// EEPROM to read for this port - a copper port, or a transceiver that reports no
+    /// diagnostics (DDM). Anything unrecognized is passed through unchanged rather than
+    /// guessed at.
+    /// </summary>
+    public static string DescribeEthtoolFailure(string? output)
+    {
+        var text = output?.Trim();
+        if (string.IsNullOrWhiteSpace(text))
+            return "No transceiver data for this interface.";
+
+        if (text.Contains("not supported", StringComparison.OrdinalIgnoreCase))
+            return "This port doesn't report transceiver data. Either it isn't an SFP port, or the module doesn't support diagnostic monitoring (DDM).";
+
+        if (text.Contains("No such device", StringComparison.OrdinalIgnoreCase))
+            return "The gateway has no interface by that name.";
+
+        if (text.Contains("not found", StringComparison.OrdinalIgnoreCase))
+            return "ethtool isn't available on this gateway, so transceiver data can't be read.";
+
+        if (text.Contains("Operation not permitted", StringComparison.OrdinalIgnoreCase))
+            return "The gateway refused the transceiver read. The SSH user needs root to read module data.";
+
+        return text;
+    }
+
     private static readonly Regex NeighborPattern = new(
         @"^(?<ip>\S+)(?:\s+dev\s+\S+)?(?:\s+lladdr\s+(?<mac>[0-9a-fA-F:]+))?(?<flags>.*)$",
         RegexOptions.Compiled);

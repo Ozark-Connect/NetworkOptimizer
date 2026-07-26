@@ -1,0 +1,57 @@
+{
+  "id": "2.4.0",
+  "kind": "whats-new",
+  "title": "What's new in v2.4.0",
+  "summary": "UniFi Network Device reboot reasons, gateway interface diagnostics, ISP Health PDF export, and the Live View timeline.",
+  "steps": [
+    {
+      "id": "reboot-reasons",
+      "level": "major",
+      "url": "/",
+      "selector": "[data-tour=\"device-uptime\"]",
+      "title": "UniFi Network Device restart reasons",
+      "listLabel": "See why a device restarted, not just when",
+      "body": "When a device has rebooted, its Uptime now carries the reason: firmware upgrade, power loss, or a crash. **Hover** or **tap** the Uptime on a Device Status card to see what actually happened and the evidence behind it.",
+      "placement": "auto",
+      "requires": [],
+      "optional": true
+    },
+    {
+      "id": "isp-health-pdf-export",
+      "level": "major",
+      "url": "/monitoring?tab=isp-health",
+      "selector": "[data-tour=\"isp-health-pdf-export\"]",
+      "title": "ISP Health PDF export",
+      "listLabel": "Give your ISP proof, not anecdotes",
+      "body": "**Export PDF** downloads everything the ISP Health tab shows for the window on screen: scores, findings, the factor breakdown, outages, and the events feed, with the WAN and ISP named in the header. Ready to attach when you open a ticket with your ISP.",
+      "placement": "bottom",
+      "requires": [],
+      "optional": false
+    },
+    {
+      "id": "gateway-interface",
+      "level": "advanced",
+      "url": "/network-tools",
+      "selector": "[data-tour=\"gateway-interface\"]",
+      "title": "Inspect a gateway interface",
+      "listLabel": "Live gateway interface detail, no CLI needed",
+      "body": "**Pick** an interface and one SSH round trip returns four cards: link state, every address with its DHCP lease as a countdown, the SFP module's readings, and the neighbor table with vendors. The lease countdown is the reason this exists: an ISP that quietly stops renewing gives no warning, and UniFi Network shows the address but never how long it is good for.",
+      "placement": "top",
+      "requires": ["gateway-ssh"],
+      "optional": false
+    },
+    {
+      "id": "live-view-timeline",
+      "level": "minor",
+      "url": "/monitoring?tab=live",
+      "selector": "[data-tour=\"live-view-timeline\"]",
+      "title": "Live View timeline",
+      "listLabel": "The timeline now shows clients connected then, not just now",
+      "body": "**Scrub** the timeline to any moment and the map shows the network as it was then: devices, ports, and now the clients that were connected at that instant, placed on the device they were attached to. Clients gone for weeks keep their names, and the band filter and pipes follow the same instant.",
+      "placement": "top",
+      "badge": "improved",
+      "requires": [],
+      "optional": true
+    }
+  ]
+}

@@ -48,7 +48,9 @@
             }
             @if (!string.IsNullOrEmpty(Device.Uptime))
             {
-                <div class="device-detail">
+                @* The tour anchor only lands where the feature can actually be shown:
+                   an uptime with no reboot reason has no tooltip to demonstrate. *@
+                <div class="device-detail" data-tour="@(string.IsNullOrEmpty(UptimeTooltip) ? null : "device-uptime")">
                     <span class="detail-label">Uptime:</span>
                     @* Icon only while the reboot is recent news; the hover on the value stays for
                        good. It leads the value: left of a value reads as information about it,

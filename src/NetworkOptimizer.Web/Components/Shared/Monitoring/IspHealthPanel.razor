@@ -77,7 +77,7 @@
                 </span>
             </span>
         </button>
-        <button class="btn btn-sm btn-primary" @onclick="ExportPdfAsync"
+        <button class="btn btn-sm btn-primary" @onclick="ExportPdfAsync" data-tour="isp-health-pdf-export"
                 disabled="@(_report == null || _exportingPdf || _refreshing || _windowComputing)">
             <span class="btn-state-stack">
                 <span class="@(_exportingPdf ? "is-hidden" : "")">

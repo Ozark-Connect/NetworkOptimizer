@@ -22,6 +22,30 @@ public class GatewayDiagnosticsParserTests
                valid_lft forever preferred_lft forever
         """;
 
+    [Theory]
+    [InlineData("Cannot get module EEPROM information: Operation not supported", "isn't an SFP port")]
+    [InlineData("netlink error: Operation not supported", "isn't an SFP port")]
+    [InlineData("Cannot get module EEPROM information: No such device", "no interface by that name")]
+    [InlineData("sh: ethtool: command not found", "ethtool isn't available")]
+    [InlineData("Cannot get module EEPROM information: Operation not permitted", "needs root")]
+    public void DescribeEthtoolFailure_TranslatesKnownFailures(string output, string expectedFragment)
+    {
+        GatewayDiagnosticsParser.DescribeEthtoolFailure(output).Should().Contain(expectedFragment);
+    }
+
+    [Fact]
+    public void DescribeEthtoolFailure_PassesUnknownTextThrough()
+    {
+        GatewayDiagnosticsParser.DescribeEthtoolFailure("something nobody has seen before")
+            .Should().Be("something nobody has seen before");
+    }
+
+    [Fact]
+    public void DescribeEthtoolFailure_HandlesEmptyOutput()
+    {
+        GatewayDiagnosticsParser.DescribeEthtoolFailure("   ").Should().Be("No transceiver data for this interface.");
+    }
+
     [Fact]
     public void ParseAddressOutput_ReadsInterfaceHeader()
     {
