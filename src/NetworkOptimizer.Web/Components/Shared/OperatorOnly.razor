@@ -1,0 +1,14 @@
+@* Hides a run control from anyone below Operator. Operators may run speed tests; Admins pass too.
+   UX only: the boundary is the service-layer gate and the endpoint policy (design doc 06). *@
+<AuthorizeView Policy="@Policies.RequireOperator">
+    <Authorized>@ChildContent</Authorized>
+    <NotAuthorized>@NotAuthorized</NotAuthorized>
+</AuthorizeView>
+
+@code {
+    /// <summary>The control to show to an Operator or Admin.</summary>
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>Optional stand-in shown to everyone else (usually nothing).</summary>
+    [Parameter] public RenderFragment? NotAuthorized { get; set; }
+}
