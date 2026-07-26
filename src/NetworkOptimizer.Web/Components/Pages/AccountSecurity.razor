@@ -46,7 +46,7 @@
             <p class="account-note">Can't scan it? Enter this key by hand instead.</p>
             <p class="account-secret-key"><code>@_setup.FormattedKey</code></p>
             <div class="form-group account-verify-code">
-                <input class="form-control" @bind="_verifyCode" placeholder="123456" inputmode="numeric" />
+                <input class="form-control" @bind="_verifyCode" placeholder="Enter the 6-digit code from your authenticator app" inputmode="numeric" />
             </div>
             <button class="btn btn-primary btn-sm" @onclick="VerifyEnrollmentAsync">Verify &amp; enable</button>
             @if (_enrollError) { <div class="alert alert-danger mt-3">That code wasn't valid.</div> }
