@@ -46,6 +46,9 @@
 @inject OntMonitorService OntMonitorService
 @inject StarlinkMonitorService StarlinkMonitor
 @inject Microsoft.EntityFrameworkCore.IDbContextFactory<NetworkOptimizer.Storage.Models.NetworkOptimizerDbContext> DbFactory
+@inject NetworkOptimizer.Web.Services.Identity.IIdentityAdminService IdentityAdmin
+@inject NetworkOptimizer.Web.Services.Identity.ICurrentUserAccessor CurrentUser
+@inject NetworkOptimizer.Web.Services.Identity.IIdentityBootstrapService IdentityBootstrap
 @using NetworkOptimizer.Alerts.Models
 @using NetworkOptimizer.Web.Components.Shared
 
@@ -90,6 +93,12 @@
                 Application
             </button>
         }
+        @* Identity is instance-wide on the default site and scoped to the site elsewhere, so the
+           tab is always present; the cards inside adjust to the scope. *@
+        <button class="wifi-view-tab @(_activeTab == "identity" ? "active" : "")"
+                @onclick="@(() => SetActiveTab("identity"))">
+            Identity
+        </button>
         <button class="wifi-view-tab @(_activeTab == "multisite" ? "active" : "")"
                 @onclick="@(() => SetActiveTab("multisite"))">
             Multi-Site
@@ -3098,6 +3107,14 @@
     </div>
     }
 
+    @* Settings - Identity: instance-wide on the default site, scoped to the site elsewhere.
+       Gated by policy, so a Viewer or Operator never sees the tab's contents. *@
+    <AuthorizeView Policy="@(SiteContext.IsDefault ? Policies.RequireAdmin : Policies.SiteAdmin)"
+                   Resource="@SiteContext.Slug">
+        <IdentitySettings SiteSlug="@(SiteContext.IsDefault ? null : SiteContext.Slug)"
+                          SiteName="@_currentSiteName" />
+    </AuthorizeView>
+
     <!-- Multi-Site -->
     <div class="card settings-tab-multisite" id="multi-site">
         <div class="card-header">
@@ -3440,12 +3457,15 @@
     [SupplyParameterFromQuery(Name = "tab")]
     public string? TabParam { get; set; }
 
+    /// <summary>The signed-in user, used by the Admin Password control to change their own password.</summary>
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
     private string _activeTab = "connection";
     private string? _lastTabParam;
 
     private static readonly HashSet<string> ValidTabs = new(StringComparer.OrdinalIgnoreCase)
     {
-        "connection", "monitoring", "speedtests", "security", "application", "multisite"
+        "connection", "monitoring", "speedtests", "security", "application", "identity", "multisite"
     };
 
     // Maps card anchors (used by /settings#... deep links across the app) to their tab
@@ -3475,6 +3495,9 @@
         ["ui-display"] = "application",
         ["map"] = "application",
         ["data-management"] = "application",
+        ["identity-users"] = "identity",
+        ["identity-access"] = "identity",
+        ["identity-sign-in"] = "identity",
         ["multi-site"] = "multisite",
         ["site-agent-setup"] = "multisite",
     };
@@ -6487,17 +6510,46 @@
 
         try
         {
-            // Save new password (always enabled when setting a password)
-            var passwordToSave = string.IsNullOrEmpty(adminNewPassword) ? null : adminNewPassword;
-            await AdminAuth.SaveAdminSettingsAsync(passwordToSave, true);
+            var newPassword = adminNewPassword;
+
+            // The Identity hash is what actually authenticates a sign-in, so the signed-in user's own
+            // password is set here - this control stays where it has always been and now takes effect.
+            var authState = AuthState is null ? null : await AuthState;
+            var signedInUser = authState?.User is { Identity.IsAuthenticated: true } principal
+                ? await CurrentUser.GetAsync(principal)
+                : null;
+
+            string? identityError = null;
+            if (signedInUser is not null)
+            {
+                var result = await IdentityAdmin.SetOwnPasswordAsync(signedInUser.Id, newPassword);
+                identityError = result.Succeeded ? null : result.Error;
+            }
+
+            // AdminSettings still records that this install requires authentication (and carries the
+            // credential the first-boot seed transcodes from), so it is kept in step.
+            await AdminAuth.SaveAdminSettingsAsync(newPassword, true);
+
+            // Nobody was signed in, so authentication was off until now: seed the Identity admin from
+            // the credential just saved, otherwise the new password would have no account to sign in to.
+            if (signedInUser is null)
+                await IdentityBootstrap.RunAsync();
 
             // Refresh the source
             adminPasswordSource = await AdminAuth.GetPasswordSourceAsync();
 
             adminNewPassword = "";
             adminConfirmPassword = "";
-            adminPasswordMessage = "Admin password settings saved successfully";
-            adminPasswordMessageClass = "success";
+            if (identityError is null)
+            {
+                adminPasswordMessage = "Admin password settings saved successfully";
+                adminPasswordMessageClass = "success";
+            }
+            else
+            {
+                adminPasswordMessage = identityError;
+                adminPasswordMessageClass = "danger";
+            }
         }
         catch (Exception ex)
         {

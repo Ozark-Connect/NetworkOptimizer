@@ -5,6 +5,37 @@ using NetworkOptimizer.Web.Services.Auditing;
 
 namespace NetworkOptimizer.Web.Services.Identity;
 
+/// <summary>One user as the Identity tab lists them: identity, access, and credential facts in one row.</summary>
+/// <param name="User">The user record.</param>
+/// <param name="GlobalRole">Highest global role held, or null when the account has none.</param>
+/// <param name="MfaEnabled">True when an authenticator app is enrolled.</param>
+/// <param name="PasskeyCount">Number of registered passkeys.</param>
+/// <param name="LinkedProviders">Scheme names of linked external identity providers.</param>
+public sealed record UserAccountSummary(
+    ApplicationUser User,
+    string? GlobalRole,
+    bool MfaEnabled,
+    int PasskeyCount,
+    IReadOnlyList<string> LinkedProviders);
+
+/// <summary>An external identity linked to a local account.</summary>
+/// <param name="LoginProvider">Provider scheme (matches <see cref="FederationProvider.Scheme"/>).</param>
+/// <param name="ProviderKey">The IdP-side subject identifier.</param>
+/// <param name="DisplayName">Provider display name shown in the UI.</param>
+public sealed record LinkedExternalIdentity(string LoginProvider, string ProviderKey, string? DisplayName);
+
+/// <summary>One user's granted access to a single site.</summary>
+/// <param name="MembershipId">Row id, used to revoke the grant.</param>
+/// <param name="UserId">The user the grant belongs to.</param>
+/// <param name="UserName">Username snapshot for display.</param>
+/// <param name="SiteRole">The role granted on the site.</param>
+public sealed record SiteAccessGrant(int MembershipId, string UserId, string? UserName, SiteRole SiteRole);
+
+/// <summary>Whether a global role's members must enrol in MFA.</summary>
+/// <param name="Role">Global role name.</param>
+/// <param name="RequireMfa">True when members of the role must enrol before they can use the app.</param>
+public sealed record RoleMfaPolicy(string Role, bool RequireMfa);
+
 /// <summary>Result of an identity-admin mutation; carries a user-facing error for refusals (e.g. last-admin).</summary>
 public sealed record AdminActionResult(bool Succeeded, string? Error = null)
 {
@@ -25,17 +56,52 @@ public interface IIdentityAdminService
     Task<ApplicationUser?> FindByIdAsync(string userId);
     Task<IReadOnlyList<string>> GetGlobalRolesAsync(ApplicationUser user);
 
+    /// <summary>
+    /// Every user with the credential and access facts the Identity tab lists: global role, whether
+    /// they are enabled, MFA and passkey enrolment, and any linked external identities.
+    /// </summary>
+    Task<IReadOnlyList<UserAccountSummary>> ListUserSummariesAsync();
+
+    /// <summary>External identities linked to one user (provider scheme plus the IdP-side subject).</summary>
+    Task<IReadOnlyList<LinkedExternalIdentity>> GetExternalLoginsAsync(string userId);
+
+    /// <summary>Links an external identity to a local user on an admin's behalf.</summary>
+    Task<AdminActionResult> LinkExternalAsync(string userId, string loginProvider, string providerKey, string? displayName);
+
+    /// <summary>Removes a linked external identity (the user keeps any local password).</summary>
+    Task<AdminActionResult> UnlinkExternalAsync(string userId, string loginProvider, string providerKey);
+
     Task<AdminActionResult> CreateUserAsync(string username, string? displayName, string? password, string globalRole);
     Task<AdminActionResult> SetEnabledAsync(string userId, bool enabled);
     Task<AdminActionResult> DeleteUserAsync(string userId);
     Task<AdminActionResult> SetPasswordAsync(string userId, string newPassword);
 
+    /// <summary>
+    /// Sets the signed-in user's own password. This is what the Admin Password control in Settings
+    /// drives, so a single-admin install changes its password where it always has and the change is
+    /// what authenticates at the next sign-in.
+    /// </summary>
+    Task<AdminActionResult> SetOwnPasswordAsync(string userId, string newPassword);
+
     Task<AdminActionResult> GrantGlobalRoleAsync(string userId, string role);
     Task<AdminActionResult> RevokeGlobalRoleAsync(string userId, string role);
 
     Task<IReadOnlyList<SiteMembership>> GetMembershipsAsync(string userId);
+
+    /// <summary>
+    /// Who can reach one site and at what role: the direct memberships on that slug, used by the
+    /// per-site Identity tab's Access list.
+    /// </summary>
+    Task<IReadOnlyList<SiteAccessGrant>> GetSiteAccessAsync(string siteSlug);
+
     Task<AdminActionResult> AddMembershipAsync(string userId, MembershipTargetType targetType, string? targetId, SiteRole role);
     Task<AdminActionResult> RemoveMembershipAsync(string userId, int membershipId);
+
+    /// <summary>Per-role "require MFA" policy, in role-privilege order.</summary>
+    Task<IReadOnlyList<RoleMfaPolicy>> GetRoleMfaPoliciesAsync();
+
+    /// <summary>Turns the "require MFA" policy on or off for one global role.</summary>
+    Task<AdminActionResult> SetRoleRequiresMfaAsync(string role, bool requireMfa);
 
     Task<IReadOnlyList<SiteGroup>> GetSiteGroupsAsync();
     Task<AdminActionResult> CreateSiteGroupAsync(string name);
@@ -47,6 +113,7 @@ public interface IIdentityAdminService
 public sealed class IdentityAdminService : IIdentityAdminService
 {
     private readonly UserManager<ApplicationUser> _userManager;
+    private readonly RoleManager<ApplicationRole> _roleManager;
     private readonly IDbContextFactory<AuthDbContext> _authDbFactory;
     private readonly IAuditLogger _audit;
     private readonly ICallerContext _caller;
@@ -54,12 +121,14 @@ public sealed class IdentityAdminService : IIdentityAdminService
 
     public IdentityAdminService(
         UserManager<ApplicationUser> userManager,
+        RoleManager<ApplicationRole> roleManager,
         IDbContextFactory<AuthDbContext> authDbFactory,
         IAuditLogger audit,
         ICallerContext caller,
         ILogger<IdentityAdminService> logger)
     {
         _userManager = userManager;
+        _roleManager = roleManager;
         _authDbFactory = authDbFactory;
         _audit = audit;
         _caller = caller;
@@ -75,6 +144,98 @@ public sealed class IdentityAdminService : IIdentityAdminService
 
     public async Task<IReadOnlyList<string>> GetGlobalRolesAsync(ApplicationUser user)
         => (await _userManager.GetRolesAsync(user)).ToList();
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<UserAccountSummary>> ListUserSummariesAsync()
+    {
+        var users = await _userManager.Users.OrderBy(u => u.UserName).ToListAsync();
+        var summaries = new List<UserAccountSummary>(users.Count);
+
+        foreach (var user in users)
+        {
+            var roles = await _userManager.GetRolesAsync(user);
+            var logins = await _userManager.GetLoginsAsync(user);
+            var passkeys = await _userManager.GetPasskeysAsync(user);
+            summaries.Add(new UserAccountSummary(
+                user,
+                GlobalRoles.All.FirstOrDefault(roles.Contains),
+                await _userManager.GetTwoFactorEnabledAsync(user),
+                passkeys.Count,
+                logins.Select(l => l.LoginProvider).ToList()));
+        }
+
+        return summaries;
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<LinkedExternalIdentity>> GetExternalLoginsAsync(string userId)
+    {
+        var user = await _userManager.FindByIdAsync(userId);
+        if (user is null) return Array.Empty<LinkedExternalIdentity>();
+
+        var logins = await _userManager.GetLoginsAsync(user);
+        return logins
+            .Select(l => new LinkedExternalIdentity(l.LoginProvider, l.ProviderKey, l.ProviderDisplayName))
+            .ToList();
+    }
+
+    /// <inheritdoc />
+    public async Task<AdminActionResult> LinkExternalAsync(string userId, string loginProvider, string providerKey, string? displayName)
+    {
+        var user = await _userManager.FindByIdAsync(userId);
+        if (user is null) return AdminActionResult.Fail("User not found.");
+
+        var existing = await _userManager.FindByLoginAsync(loginProvider, providerKey);
+        if (existing is not null)
+        {
+            return existing.Id == userId
+                ? AdminActionResult.Ok()
+                : AdminActionResult.Fail($"That identity is already linked to '{existing.UserName}'.");
+        }
+
+        var result = await _userManager.AddLoginAsync(user, new UserLoginInfo(loginProvider, providerKey, displayName));
+        if (!result.Succeeded) return AdminActionResult.Fail(Describe(result));
+
+        Emit(AuditCategories.User, AuditActions.ExternalLinked, user, new { loginProvider });
+        return AdminActionResult.Ok();
+    }
+
+    /// <inheritdoc />
+    public async Task<AdminActionResult> UnlinkExternalAsync(string userId, string loginProvider, string providerKey)
+    {
+        var user = await _userManager.FindByIdAsync(userId);
+        if (user is null) return AdminActionResult.Fail("User not found.");
+
+        var result = await _userManager.RemoveLoginAsync(user, loginProvider, providerKey);
+        if (!result.Succeeded) return AdminActionResult.Fail(Describe(result));
+
+        await _userManager.UpdateSecurityStampAsync(user);
+        Emit(AuditCategories.User, AuditActions.ExternalUnlinked, user, new { loginProvider });
+        return AdminActionResult.Ok();
+    }
+
+    /// <inheritdoc />
+    public async Task<AdminActionResult> SetOwnPasswordAsync(string userId, string newPassword)
+    {
+        var user = await _userManager.FindByIdAsync(userId);
+        if (user is null) return AdminActionResult.Fail("User not found.");
+
+        // A federated-only account (or one carried over from an install that never had a local
+        // password) has no hash to reset, so the change becomes an add.
+        var result = await _userManager.HasPasswordAsync(user)
+            ? await _userManager.ResetPasswordAsync(user, await _userManager.GeneratePasswordResetTokenAsync(user), newPassword)
+            : await _userManager.AddPasswordAsync(user, newPassword);
+        if (!result.Succeeded) return AdminActionResult.Fail(Describe(result));
+
+        if (user.PasswordIsTemporary)
+        {
+            user.PasswordIsTemporary = false;
+            await _userManager.UpdateAsync(user);
+        }
+
+        Emit(AuditCategories.Auth, AuditActions.PasswordChanged, user);
+        return AdminActionResult.Ok();
+    }
 
     public async Task<AdminActionResult> CreateUserAsync(string username, string? displayName, string? password, string globalRole)
     {
@@ -188,6 +349,26 @@ public sealed class IdentityAdminService : IIdentityAdminService
         return await db.SiteMemberships.AsNoTracking().Where(m => m.UserId == userId).ToListAsync();
     }
 
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<SiteAccessGrant>> GetSiteAccessAsync(string siteSlug)
+    {
+        await using var db = await _authDbFactory.CreateDbContextAsync();
+        var grants = await db.SiteMemberships
+            .AsNoTracking()
+            .Where(m => m.TargetType == MembershipTargetType.Site && m.TargetId == siteSlug)
+            .Select(m => new { m.Id, m.UserId, m.SiteRole })
+            .ToListAsync();
+
+        var names = await _userManager.Users
+            .Where(u => grants.Select(g => g.UserId).Contains(u.Id))
+            .ToDictionaryAsync(u => u.Id, u => u.UserName);
+
+        return grants
+            .Select(g => new SiteAccessGrant(g.Id, g.UserId, names.GetValueOrDefault(g.UserId), g.SiteRole))
+            .OrderBy(g => g.UserName)
+            .ToList();
+    }
+
     public async Task<AdminActionResult> AddMembershipAsync(string userId, MembershipTargetType targetType, string? targetId, SiteRole role)
     {
         var user = await _userManager.FindByIdAsync(userId);
@@ -229,6 +410,39 @@ public sealed class IdentityAdminService : IIdentityAdminService
         }
         await BumpMembershipVersionAsync(user);
         Emit(AuditCategories.Rbac, AuditActions.MembershipChanged, user, new { removed = membershipId });
+        return AdminActionResult.Ok();
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<RoleMfaPolicy>> GetRoleMfaPoliciesAsync()
+    {
+        var policies = new List<RoleMfaPolicy>(GlobalRoles.All.Length);
+        foreach (var role in GlobalRoles.All)
+        {
+            var appRole = await _roleManager.FindByNameAsync(role);
+            policies.Add(new RoleMfaPolicy(role, appRole?.RequireMfa == true));
+        }
+        return policies;
+    }
+
+    /// <inheritdoc />
+    public async Task<AdminActionResult> SetRoleRequiresMfaAsync(string role, bool requireMfa)
+    {
+        if (!GlobalRoles.All.Contains(role))
+            return AdminActionResult.Fail($"Unknown role '{role}'.");
+
+        var appRole = await _roleManager.FindByNameAsync(role);
+        if (appRole is null) return AdminActionResult.Fail($"Role '{role}' is not provisioned.");
+
+        appRole.RequireMfa = requireMfa;
+        var result = await _roleManager.UpdateAsync(appRole);
+        if (!result.Succeeded) return AdminActionResult.Fail(Describe(result));
+
+        // Members revalidate against the new policy on their next stamp check.
+        foreach (var member in await _userManager.GetUsersInRoleAsync(role))
+            await _userManager.UpdateSecurityStampAsync(member);
+
+        EmitSystemTarget(AuditCategories.Rbac, AuditActions.RoleGranted, "role", role, new { requireMfa });
         return AdminActionResult.Ok();
     }
 
