@@ -7122,7 +7122,7 @@ a.path-hop.hop-clickable:hover {
     display: flex;
     align-items: center;
     gap: 0.5rem;
-    margin: 0 0 0.5rem;
+    margin: 0 0 1rem;
     font-size: 0.9rem;
 }
 
