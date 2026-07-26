@@ -141,17 +141,19 @@
                     {
                         <div class="alert alert-warning" style="margin-top: 1rem;">
                             <strong>UDM Boot Required:</strong> Boot scripts in <code>/data/on_boot.d/</code> will not persist after firmware upgrades or run on boot without udm-boot installed.
-                            <button class="btn btn-sm btn-primary" style="margin-left: 0.5rem;" @onclick="InstallUdmBoot" disabled="@isInstallingUdmBoot">
-                                @if (isInstallingUdmBoot)
-                                {
-                                    <span class="spinner-border spinner-border-sm"></span>
-                                    <span>Installing...</span>
-                                }
-                                else
-                                {
-                                    <span>Install UDM Boot</span>
-                                }
-                            </button>
+                            <AdminOnly>
+                                <button class="btn btn-sm btn-primary" style="margin-left: 0.5rem;" @onclick="InstallUdmBoot" disabled="@isInstallingUdmBoot">
+                                    @if (isInstallingUdmBoot)
+                                    {
+                                        <span class="spinner-border spinner-border-sm"></span>
+                                        <span>Installing...</span>
+                                    }
+                                    else
+                                    {
+                                        <span>Install UDM Boot</span>
+                                    }
+                                </button>
+                            </AdminOnly>
                         </div>
                     }
                 }
@@ -437,31 +439,35 @@
                 <div class="adjustment-buttons">
                     @if (wan1Config.Enabled && IsWanActiveInMonitor(wan1Config.Name))
                     {
-                        <button class="btn btn-primary" @onclick="() => TriggerSqmAdjustment(wan1Config.Name)" disabled="@IsAnySpeedtestRunning">
-                            @if (isRunningAdjustment && adjustmentWan == wan1Config.Name)
-                            {
-                                <span class="spinner-border spinner-border-sm"></span>
-                                <span>Running...</span>
-                            }
-                            else
-                            {
-                                <span>Adjust @wan1Config.Name</span>
-                            }
-                        </button>
+                        <AdminOnly>
+                            <button class="btn btn-primary" @onclick="() => TriggerSqmAdjustment(wan1Config.Name)" disabled="@IsAnySpeedtestRunning">
+                                @if (isRunningAdjustment && adjustmentWan == wan1Config.Name)
+                                {
+                                    <span class="spinner-border spinner-border-sm"></span>
+                                    <span>Running...</span>
+                                }
+                                else
+                                {
+                                    <span>Adjust @wan1Config.Name</span>
+                                }
+                            </button>
+                        </AdminOnly>
                     }
                     @if (wan2Config.Enabled && IsWanActiveInMonitor(wan2Config.Name))
                     {
-                        <button class="btn btn-primary" @onclick="() => TriggerSqmAdjustment(wan2Config.Name)" disabled="@IsAnySpeedtestRunning">
-                            @if (isRunningAdjustment && adjustmentWan == wan2Config.Name)
-                            {
-                                <span class="spinner-border spinner-border-sm"></span>
-                                <span>Running...</span>
-                            }
-                            else
-                            {
-                                <span>Adjust @wan2Config.Name</span>
-                            }
-                        </button>
+                        <AdminOnly>
+                            <button class="btn btn-primary" @onclick="() => TriggerSqmAdjustment(wan2Config.Name)" disabled="@IsAnySpeedtestRunning">
+                                @if (isRunningAdjustment && adjustmentWan == wan2Config.Name)
+                                {
+                                    <span class="spinner-border spinner-border-sm"></span>
+                                    <span>Running...</span>
+                                }
+                                else
+                                {
+                                    <span>Adjust @wan2Config.Name</span>
+                                }
+                            </button>
+                        </AdminOnly>
                     }
                 </div>
                 @if ((HasFailedSpeedtest || HasLastError) && string.IsNullOrEmpty(adjustmentMessage))
@@ -865,17 +871,19 @@
                     The scripts and scheduled tasks will not function correctly. You should either re-enable Smart Queues in UniFi, or remove the deployed scripts.
                 </div>
                 <div class="action-buttons">
-                    <button class="btn btn-danger" @onclick="RemoveSqm" disabled="@isDeploying">
-                        @if (isDeploying)
-                        {
-                            <span class="spinner-border spinner-border-sm"></span>
-                            <span>Removing...</span>
-                        }
-                        else
-                        {
-                            <span>Remove Adaptive SQM</span>
-                        }
-                    </button>
+                    <AdminOnly>
+                        <button class="btn btn-danger" @onclick="RemoveSqm" disabled="@isDeploying">
+                            @if (isDeploying)
+                            {
+                                <span class="spinner-border spinner-border-sm"></span>
+                                <span>Removing...</span>
+                            }
+                            else
+                            {
+                                <span>Remove Adaptive SQM</span>
+                            }
+                        </button>
+                    </AdminOnly>
                 </div>
             }
             else
@@ -902,25 +910,31 @@
                 }
 
                 <div class="action-buttons">
-                    <button class="btn btn-primary" @onclick="DeploySqm" disabled="@(isDeploying || IsLicenseRestricted)">
-                        @if (isDeploying)
-                        {
-                            <span class="spinner-border spinner-border-sm"></span>
-                            <span>Deploying...</span>
-                        }
-                        else
-                        {
-                            <span>@(deploymentStatus?.IsDeployed == true ? "Deploy Settings" : "Deploy SQM Scripts")</span>
-                        }
-                    </button>
-                    <span title="@(deploymentStatus?.IsDeployed != true ? "Deploy SQM scripts first" : "")">
-                        <button class="btn btn-secondary" @onclick="DeployTcMonitor" disabled="@(isDeploying || deploymentStatus?.IsDeployed != true || IsLicenseRestricted)">
-                            Deploy SQM Monitor Only
+                    <AdminOnly>
+                        <button class="btn btn-primary" @onclick="DeploySqm" disabled="@(isDeploying || IsLicenseRestricted)">
+                            @if (isDeploying)
+                            {
+                                <span class="spinner-border spinner-border-sm"></span>
+                                <span>Deploying...</span>
+                            }
+                            else
+                            {
+                                <span>@(deploymentStatus?.IsDeployed == true ? "Deploy Settings" : "Deploy SQM Scripts")</span>
+                            }
                         </button>
+                    </AdminOnly>
+                    <span title="@(deploymentStatus?.IsDeployed != true ? "Deploy SQM scripts first" : "")">
+                        <AdminOnly>
+                            <button class="btn btn-secondary" @onclick="DeployTcMonitor" disabled="@(isDeploying || deploymentStatus?.IsDeployed != true || IsLicenseRestricted)">
+                                Deploy SQM Monitor Only
+                            </button>
+                        </AdminOnly>
                     </span>
-                    <button class="btn btn-danger" @onclick="RemoveSqm" disabled="@(isDeploying || deploymentStatus?.IsDeployed != true)">
-                        Remove Adaptive SQM
-                    </button>
+                    <AdminOnly>
+                        <button class="btn btn-danger" @onclick="RemoveSqm" disabled="@(isDeploying || deploymentStatus?.IsDeployed != true)">
+                            Remove Adaptive SQM
+                        </button>
+                    </AdminOnly>
                 </div>
 
             }

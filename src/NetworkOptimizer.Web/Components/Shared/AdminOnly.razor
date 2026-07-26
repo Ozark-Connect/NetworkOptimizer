@@ -1,0 +1,15 @@
+@* Hides a mutating control from anyone below Admin. UX only: the boundary is the service-layer gate
+   and the endpoint policy (design doc 06). On an install with authentication disabled the policy
+   succeeds, so the control renders exactly as it always has. *@
+<AuthorizeView Policy="@Policies.RequireAdmin">
+    <Authorized>@ChildContent</Authorized>
+    <NotAuthorized>@NotAuthorized</NotAuthorized>
+</AuthorizeView>
+
+@code {
+    /// <summary>The control to show to an Admin.</summary>
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>Optional stand-in shown to everyone else (usually nothing).</summary>
+    [Parameter] public RenderFragment? NotAuthorized { get; set; }
+}

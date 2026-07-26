@@ -1,7 +1,14 @@
 using System.Reflection;
 using FluentAssertions;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.DependencyInjection;
 using NetworkOptimizer.Storage.Models.Identity;
+using NetworkOptimizer.Web.Endpoints;
 using NetworkOptimizer.Web.Services.Gates;
 using NetworkOptimizer.Web.Services.Identity;
 using Xunit;
@@ -10,13 +17,106 @@ namespace NetworkOptimizer.Web.Tests.Identity;
 
 /// <summary>
 /// Architecture tests A1-A4 (design doc 06): the reflection net that fails the build when a gate is
-/// forgotten. A2 and A3 enforce directly against the current code with explicit allowlists; A1 and A4
-/// are staged behind the per-endpoint / per-page retrofit (the app currently gates via the global auth
-/// middleware, see Program.cs), and their intent + allowlist contract is captured here.
+/// forgotten. Each has an explicit allowlist, so opting a surface out of a gate is a reviewed diff
+/// rather than an omission nobody notices.
 /// </summary>
 public class ArchitectureTests
 {
     private static readonly Assembly WebAssembly = typeof(IdentityAdminService).Assembly;
+
+    /// <summary>
+    /// A1: every mapped endpoint either carries authorization metadata (a policy, or an explicit
+    /// <see cref="IAllowAnonymous"/> decision from the allowlist below) or lives under
+    /// <c>/api/public/</c>. <see cref="ApiEndpoints.MapAll"/> is the single registration point the app
+    /// itself uses, so an endpoint that is reachable in production is covered here.
+    /// </summary>
+    [Fact]
+    public void A1_EveryEndpointIsAuthorizedOrPublic()
+    {
+        // Routes that are deliberately reachable without a session. Sign-in surfaces cannot require
+        // authentication (nobody is signed in yet); health is polled by container orchestration.
+        var anonymousAllowlist = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "/api/health",
+            "/api/auth/login",
+            "/api/auth/2fa",
+            "/api/auth/logout",
+            "/api/passkey/request-options",
+            "/api/passkey/assert",
+            "/login/external/{scheme}",
+            "/login/external-callback",
+            "/login/saml/{scheme}",
+            "/saml/{scheme}/metadata",
+            "/saml/{scheme}/acs",
+        };
+
+        var ungated = new List<string>();
+        foreach (var endpoint in MapAllEndpoints().OfType<RouteEndpoint>())
+        {
+            var route = "/" + endpoint.RoutePattern.RawText?.TrimStart('/');
+            if (route.StartsWith("/api/public/", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            var allowsAnonymous = endpoint.Metadata.GetMetadata<IAllowAnonymous>() is not null;
+            if (allowsAnonymous)
+            {
+                if (!anonymousAllowlist.Contains(route))
+                    ungated.Add($"{route} (anonymous but not on the allowlist)");
+                continue;
+            }
+
+            if (endpoint.Metadata.GetMetadata<IAuthorizeData>() is null)
+                ungated.Add($"{route} (no authorization metadata)");
+        }
+
+        ungated.Should().BeEmpty(
+            "every endpoint must carry authorization metadata, be an allowlisted anonymous route, or "
+            + "live under /api/public/ (design doc 06 A1)");
+    }
+
+    /// <summary>
+    /// A2: every method on a <see cref="MutatingServiceAttribute"/>-marked interface must declare a
+    /// <see cref="RequireGlobalRoleAttribute"/> or <see cref="RequireSiteRoleAttribute"/> gate. Event
+    /// add/remove accessors are subscription plumbing rather than an action, so they are exempt; the
+    /// interceptor still refuses them without a caller context.
+    /// </summary>
+    [Fact]
+    public void A2_EveryMutatingServiceMethodHasAGate()
+    {
+        var ungated = new List<string>();
+        foreach (var iface in MutatingInterfaces())
+        {
+            foreach (var method in iface.GetMethods())
+            {
+                if (IsEventAccessor(method))
+                    continue;
+                if (!GateReflection.HasGate(method))
+                    ungated.Add($"{iface.Name}.{method.Name}");
+            }
+        }
+
+        ungated.Should().BeEmpty("every [MutatingService] method must carry a role gate (design doc 06 A2)");
+    }
+
+    /// <summary>
+    /// A2 (second half): a gate is only enforced if the interface is actually proxied, so every
+    /// <see cref="MutatingServiceAttribute"/> interface must be registered through one of the
+    /// <c>AddMutatingService</c> overloads in Program.cs.
+    /// </summary>
+    [Fact]
+    public void A2_EveryMutatingServiceIsRegisteredThroughTheGate()
+    {
+        var programSource = ReadRepoFile("src/NetworkOptimizer.Web/Program.cs");
+        var unregistered = MutatingInterfaces()
+            .Where(i => !programSource.Contains($"AddMutatingService<{i.Name}", StringComparison.Ordinal)
+                && !programSource.Contains($"AddMutatingService<{i.Name},", StringComparison.Ordinal)
+                && !programSource.Contains($".{i.Name}>", StringComparison.Ordinal))
+            .Select(i => i.Name)
+            .ToList();
+
+        unregistered.Should().BeEmpty(
+            "a [MutatingService] interface is only gated once it is registered via AddMutatingService (design doc 06 A2)");
+    }
 
     /// <summary>
     /// A3: only the identity infrastructure may reference UserManager/RoleManager; product code must go
@@ -58,43 +158,97 @@ public class ArchitectureTests
     }
 
     /// <summary>
-    /// A2: every method on a <see cref="MutatingServiceAttribute"/>-marked interface must declare a
-    /// <see cref="RequireGlobalRoleAttribute"/> or <see cref="RequireSiteRoleAttribute"/> gate.
+    /// A4: every routable Blazor page declares an <see cref="AuthorizeAttribute"/>, except the sign-in
+    /// pages, which must render while anonymous. The page policies succeed on an install with
+    /// authentication disabled, so this gate costs those installs nothing.
     /// </summary>
     [Fact]
-    public void A2_EveryMutatingServiceMethodHasAGate()
+    public void A4_EveryAuthenticatedPageDeclaresAuthorize()
     {
-        var ungated = new List<string>();
-        foreach (var iface in SafeGetTypes(WebAssembly)
-                     .Where(t => t.IsInterface && t.GetCustomAttribute<MutatingServiceAttribute>() is not null))
-        {
-            foreach (var method in iface.GetMethods())
-            {
-                var hasGate = method.GetCustomAttribute<RequireGlobalRoleAttribute>() is not null
-                    || method.GetCustomAttribute<RequireSiteRoleAttribute>() is not null;
-                if (!hasGate)
-                    ungated.Add($"{iface.Name}.{method.Name}");
-            }
-        }
+        var anonymousPages = new HashSet<string> { "Login", "Login2fa" };
 
-        ungated.Should().BeEmpty("every [MutatingService] method must carry a role gate (design doc 06 A2)");
+        var ungated = SafeGetTypes(WebAssembly)
+            .Where(t => typeof(IComponent).IsAssignableFrom(t))
+            .Where(t => t.GetCustomAttributes<RouteAttribute>().Any())
+            .Where(t => !anonymousPages.Contains(t.Name))
+            .Where(t => t.GetCustomAttribute<AuthorizeAttribute>() is null)
+            .Select(t => t.Name)
+            .ToList();
+
+        ungated.Should().BeEmpty(
+            "every routable page outside the sign-in allowlist must declare [Authorize] (design doc 06 A4)");
+    }
+
+    private static IEnumerable<Endpoint> MapAllEndpoints()
+    {
+        var builder = WebApplication.CreateBuilder();
+        // Mapping builds each handler's parameter binding, which asks the container whether a
+        // parameter type is an injected service. The test only reads route metadata, so the container
+        // is swapped for one that answers "yes" instead of duplicating hundreds of registrations.
+        builder.Host.UseServiceProviderFactory(new StubServiceProviderFactory());
+        var app = builder.Build();
+        ApiEndpoints.MapAll(app);
+        return ((IEndpointRouteBuilder)app).DataSources.SelectMany(ds => ds.Endpoints);
+    }
+
+    private sealed class StubServiceProviderFactory : IServiceProviderFactory<IServiceCollection>
+    {
+        public IServiceCollection CreateBuilder(IServiceCollection services) => services;
+
+        public IServiceProvider CreateServiceProvider(IServiceCollection containerBuilder)
+            => new StubServiceProvider(containerBuilder.BuildServiceProvider());
     }
 
     /// <summary>
-    /// A1: every mapped endpoint must carry authorization metadata or live under <c>/api/public/</c>.
-    /// STAGED: the app currently enforces this structurally via the global auth-required middleware
-    /// (Program.cs) rather than per-endpoint metadata; the strict reflection form lands with the
-    /// endpoint retrofit. Tracked in the PR body.
+    /// The real container except for <see cref="IServiceProviderIsService"/>, which the container
+    /// implements itself and therefore cannot be replaced by a registration (see MapAllEndpoints).
     /// </summary>
-    [Fact(Skip = "A1 strict form pending the per-endpoint authorization retrofit; gating is currently enforced by the global auth middleware (Program.cs).")]
-    public void A1_EveryEndpointIsAuthorizedOrPublic() { }
+    private sealed class StubServiceProvider : IServiceProvider, ISupportRequiredService
+    {
+        private static readonly EverythingIsAService IsService = new();
+        private readonly IServiceProvider _inner;
 
-    /// <summary>
-    /// A4: every Blazor page under an authenticated area declares [Authorize] (or is on the anonymous
-    /// allowlist). STAGED with A1 for the same reason - pages are currently gated by the middleware.
-    /// </summary>
-    [Fact(Skip = "A4 strict form pending the per-page [Authorize] retrofit; pages are currently gated by the global auth middleware (Program.cs).")]
-    public void A4_EveryAuthenticatedPageDeclaresAuthorize() { }
+        public StubServiceProvider(IServiceProvider inner) => _inner = inner;
+
+        public object? GetService(Type serviceType)
+            => serviceType == typeof(IServiceProviderIsService) ? IsService : _inner.GetService(serviceType);
+
+        public object GetRequiredService(Type serviceType)
+            => GetService(serviceType) ?? throw new InvalidOperationException($"No service for {serviceType}.");
+    }
+
+    /// <summary>Treats every non-primitive parameter type as an injected service (see MapAllEndpoints).</summary>
+    private sealed class EverythingIsAService : IServiceProviderIsService
+    {
+        public bool IsService(Type serviceType)
+            => !serviceType.IsPrimitive
+                && serviceType != typeof(string)
+                && !serviceType.IsEnum
+                && Nullable.GetUnderlyingType(serviceType) is null
+                && serviceType != typeof(DateTime)
+                && serviceType != typeof(Guid)
+                && serviceType != typeof(decimal);
+    }
+
+    private static IEnumerable<Type> MutatingInterfaces()
+        => SafeGetTypes(WebAssembly)
+            .Where(t => t.IsInterface && t.GetCustomAttribute<MutatingServiceAttribute>() is not null);
+
+    private static bool IsEventAccessor(MethodInfo method)
+        => method.IsSpecialName
+            && (method.Name.StartsWith("add_", StringComparison.Ordinal)
+                || method.Name.StartsWith("remove_", StringComparison.Ordinal));
+
+    /// <summary>Reads a repo-relative source file by walking up from the test binary to the repo root.</summary>
+    private static string ReadRepoFile(string relativePath)
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, relativePath)))
+            dir = dir.Parent;
+
+        dir.Should().NotBeNull($"the repo root containing {relativePath} should be above the test binary");
+        return File.ReadAllText(Path.Combine(dir!.FullName, relativePath));
+    }
 
     private static bool IsCompilerGenerated(Type t)
         => t.GetCustomAttribute<System.Runtime.CompilerServices.CompilerGeneratedAttribute>() is not null
