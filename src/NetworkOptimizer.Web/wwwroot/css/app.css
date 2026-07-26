@@ -2436,7 +2436,8 @@ a.btn-lg {
         justify-content: center;
     }
 
-    .site-switcher ~ .logout-btn span {
+    .site-switcher ~ .logout-btn span,
+    .site-switcher ~ .account-btn span {
         display: none;
     }
 }
@@ -7095,7 +7096,8 @@ a.path-hop.hop-clickable:hover {
     color: var(--danger-color);
 }
 
-.logout-btn svg {
+.logout-btn svg,
+.account-btn svg {
     width: 14px;
     height: 14px;
 }
