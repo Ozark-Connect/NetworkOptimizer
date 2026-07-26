@@ -184,11 +184,11 @@ window.noTour = (function () {
             // Interacting with the demo'd element lifts the dim for the rest of the step
             // so whatever it reveals is seen in full. One-shot on purpose: restoring on
             // mouseleave made scrolling flicker the dim on and off. A press lifts
-            // immediately; a hover must dwell 500 ms so brushing past the target does
+            // immediately; a hover must dwell briefly so brushing past the target does
             // not break the spotlight.
             let dwell = null;
             const clearDim = () => overlay.classList.add('tour-overlay-clear');
-            const onEnter = () => { if (!dwell) dwell = setTimeout(clearDim, 500); };
+            const onEnter = () => { if (!dwell) dwell = setTimeout(clearDim, 250); };
             const onLeave = () => { clearTimeout(dwell); dwell = null; };
             el.addEventListener('mouseenter', onEnter);
             el.addEventListener('mouseleave', onLeave);
