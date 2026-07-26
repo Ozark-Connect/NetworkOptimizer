@@ -525,6 +525,7 @@ class LanFlowMap2D {
         // Interactions forward to the 3D map's instance.
         const scrubber=document.createElement('div');
         scrubber.className='lan-flow-map-scrubber';
+        scrubber.dataset.tour='live-view-timeline';
         scrubber.innerHTML=`
             <div class="lan-flow-map-scrubber-row">
                 <button class="lan-flow-map-scrubber-playpause" data-role="playpause" type="button" aria-label="Pause">⏸</button>

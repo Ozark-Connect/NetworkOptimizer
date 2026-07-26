@@ -1,0 +1,405 @@
+@using System.Threading
+@using NetworkOptimizer.Web.Services.Tours
+@implements IDisposable
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
+@inject TourService Tours
+@inject SiteContextService SiteContext
+@inject ILogger<TourHost> Logger
+
+@* Global guided-tour host, rendered once in MainLayout. Owns the offer modal, the
+   ?tour= deep links, and the step driver; the spotlight itself lives in js/tour.js. *@
+
+@if (_modalVisible && _offer != null)
+{
+    <div class="tour-modal-backdrop">
+        <div class="tour-modal">
+            <h3 class="tour-modal-title">@_offer.Title</h3>
+            @if (!string.IsNullOrEmpty(_offer.Summary))
+            {
+                <p class="tour-modal-summary">@_offer.Summary</p>
+            }
+            <ul class="tour-modal-steps">
+                @foreach (var step in _offer.Steps.Take(6))
+                {
+                    <li>
+                        @(step.Step.ListLabel ?? step.Step.Title)
+                        @if (step.Step.IsImproved)
+                        {
+                            <span class="tour-badge tour-badge-improved">Improved</span>
+                        }
+                    </li>
+                }
+                @if (_offer.Steps.Count > 6)
+                {
+                    <li>and @(_offer.Steps.Count - 6) more</li>
+                }
+            </ul>
+            <p class="tour-modal-meta">
+                @_offer.Steps.Count steps, about @Math.Max(1, (int)Math.Ceiling(_offer.Steps.Count * 0.5)) minute@(_offer.Steps.Count > 2 ? "s" : "").
+                @if (_offer.DroppedCount > 0)
+                {
+                    <text> Covers the biggest changes - the full list is in Settings - Application.</text>
+                }
+            </p>
+            <div class="tour-modal-actions">
+                <button type="button" class="btn btn-primary" @onclick="StartTourAsync">Show me</button>
+                <button type="button" class="btn btn-secondary" @onclick="DismissModalAsync">Later</button>
+                <button type="button" class="tour-modal-optout" @onclick="OptOutAsync">Don't show again</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private DotNetObjectReference<TourHost>? _selfRef;
+    private TourOffer? _offer;
+    private bool _modalVisible;
+    private bool _running;
+    private int _stepIndex;
+    private int _direction = 1;
+    private string? _expectedLocation;
+    private bool _autoOfferConsumed;
+    private bool _offerCheckInFlight;
+    private int _advancing;
+    private bool _disposed;
+
+    protected override void OnInitialized()
+    {
+        Navigation.LocationChanged += OnLocationChanged;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+            return;
+        _selfRef = DotNetObjectReference.Create(this);
+        try
+        {
+            await HandleLocationAsync(Navigation.Uri, initial: true);
+        }
+        catch (JSDisconnectedException) { }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Tour initial location handling failed");
+        }
+    }
+
+    private async void OnLocationChanged(object? sender, LocationChangedEventArgs e)
+    {
+        try
+        {
+            if (_running && !IsExpectedLocation(e.Location))
+            {
+                // The user navigated somewhere the tour did not send them. They left for
+                // a reason: exit as "Later", never as completed.
+                await EndTourAsync();
+                return;
+            }
+            await HandleLocationAsync(e.Location, initial: false);
+        }
+        catch (JSDisconnectedException) { }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Tour location handling failed");
+        }
+    }
+
+    private async Task HandleLocationAsync(string uri, bool initial)
+    {
+        if (_disposed)
+            return;
+
+        var tourParam = GetQueryParam(uri, "tour");
+        if (!string.IsNullOrEmpty(tourParam))
+        {
+            if (string.Equals(tourParam, "reset", StringComparison.OrdinalIgnoreCase))
+            {
+                // Reset before stripping the parameter: NavigateTo raises LocationChanged
+                // synchronously, and the nested offer check must see the cleared state.
+                await Tours.ResetAsync();
+                _autoOfferConsumed = false;
+                Navigation.NavigateTo(SiteContextService.RemoveQueryParam(uri, "tour"), forceLoad: false, replace: true);
+            }
+            else
+            {
+                Navigation.NavigateTo(SiteContextService.RemoveQueryParam(uri, "tour"), forceLoad: false, replace: true);
+                await LaunchManualAsync(tourParam);
+            }
+            return;
+        }
+
+        if (_running || _modalVisible || _autoOfferConsumed || _offerCheckInFlight)
+        {
+            Logger.LogDebug("Tour offer check skipped (running={Running}, modal={Modal}, consumed={Consumed}, inFlight={InFlight})",
+                _running, _modalVisible, _autoOfferConsumed, _offerCheckInFlight);
+            return;
+        }
+        if (!IsDashboard(uri))
+        {
+            Logger.LogDebug("Tour offer check skipped: {Uri} is not the Dashboard", uri);
+            return;
+        }
+
+        _offerCheckInFlight = true;
+        try
+        {
+            // Let the page paint before deciding to interrupt it.
+            await Task.Delay(initial ? 1200 : 600);
+            if (_disposed || _running || _modalVisible || _autoOfferConsumed || !IsDashboard(Navigation.Uri))
+            {
+                Logger.LogDebug("Tour offer check abandoned after the settle delay (disposed={Disposed}, running={Running}, modal={Modal}, consumed={Consumed}, uri={Uri})",
+                    _disposed, _running, _modalVisible, _autoOfferConsumed, Navigation.Uri);
+                return;
+            }
+
+            var offer = await Tours.GetDueOfferAsync();
+            if (offer == null || offer.Steps.Count == 0)
+                return;
+
+            _offer = offer;
+            _modalVisible = true;
+            _autoOfferConsumed = true; // one modal per session, whatever happens next
+            await Tours.RecordOfferShownAsync(offer);
+            await InvokeAsync(StateHasChanged);
+            await SafeJsAsync("noTour.modalEscape", _selfRef, true);
+        }
+        finally
+        {
+            _offerCheckInFlight = false;
+        }
+    }
+
+    /// <summary>Launch from Settings or a ?tour=id deep link. No modal, no eligibility checks.</summary>
+    public async Task LaunchManualAsync(string tourId)
+    {
+        var offer = await Tours.BuildManualLaunchAsync(tourId);
+        if (offer == null)
+        {
+            Logger.LogDebug("Tour {TourId} not launched: unknown or no eligible steps", tourId);
+            return;
+        }
+        _offer = offer;
+        _modalVisible = false;
+        await StartTourAsync();
+    }
+
+    private async Task StartTourAsync()
+    {
+        if (_offer == null || _running)
+            return;
+        _modalVisible = false;
+        await SafeJsAsync("noTour.modalEscape", null, false);
+        _running = true;
+        _stepIndex = 0;
+        _direction = 1;
+        await InvokeAsync(StateHasChanged);
+        await PlayCurrentStepAsync();
+    }
+
+    private async Task DismissModalAsync()
+    {
+        // Later: the offer is already recorded, so this tour will not modal again until
+        // it carries into a future release's merged tour.
+        _modalVisible = false;
+        await SafeJsAsync("noTour.modalEscape", null, false);
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task OptOutAsync()
+    {
+        await Tours.SetToursDisabledAsync(true);
+        await DismissModalAsync();
+    }
+
+    [JSInvokable]
+    public async Task TourModalEscape() => await DismissModalAsync();
+
+    [JSInvokable]
+    public async Task TourAdvance(string action)
+    {
+        // A double-clicked Next would otherwise run two overlapping walks.
+        if (Interlocked.Exchange(ref _advancing, 1) == 1)
+            return;
+        try
+        {
+            switch (action)
+            {
+                case "next":
+                    _direction = 1;
+                    _stepIndex++;
+                    break;
+                case "back":
+                    _direction = -1;
+                    _stepIndex--;
+                    break;
+                case "skip":
+                    if (_offer != null)
+                        await Tours.RecordSkippedAsync(_offer);
+                    await EndTourAsync();
+                    return;
+                default: // escape - exit, not completed, nothing extra recorded
+                    await EndTourAsync();
+                    return;
+            }
+            await PlayCurrentStepAsync();
+        }
+        catch (JSDisconnectedException) { }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Tour step advance failed");
+            await EndTourAsync();
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _advancing, 0);
+        }
+    }
+
+    private async Task PlayCurrentStepAsync()
+    {
+        if (_offer == null || !_running)
+            return;
+
+        // Bounded walk, not recursion: a missing target skips in the direction of
+        // travel, reversing at the front edge, and the guard caps the walk so no
+        // combination of missing steps can spin. On a disconnected circuit the JS call
+        // reports "missing" synchronously, which unbounded recursion would turn into a
+        // stack overflow.
+        for (var guard = 0; guard < _offer.Steps.Count + 2; guard++)
+        {
+            if (!_running)
+                return;
+            if (_stepIndex < 0)
+            {
+                _direction = 1;
+                _stepIndex = 0;
+            }
+            if (_stepIndex >= _offer.Steps.Count)
+                break;
+
+            var resolved = _offer.Steps[_stepIndex];
+            _expectedLocation = resolved.NavigateUrl;
+            if (!IsExpectedLocation(Navigation.Uri))
+                Navigation.NavigateTo(resolved.NavigateUrl, forceLoad: false);
+
+            var result = await SafeJsAsync<string>("noTour.showStep", _selfRef, new
+            {
+                selector = resolved.Step.Selector,
+                title = resolved.Step.Title,
+                body = resolved.Step.Body,
+                placement = resolved.Step.Placement,
+                badge = resolved.Step.IsImproved ? "improved" : "new",
+                index = _stepIndex,
+                total = _offer.Steps.Count,
+                hasBack = _stepIndex > 0,
+                waitMs = resolved.Step.Optional ? 5000 : 8000,
+            });
+
+            if (result == "shown")
+            {
+                await Tours.RecordStepSeenAsync(resolved.Step.Id);
+                return;
+            }
+            if (result == "stale")
+                return; // superseded by a newer showStep or the tour ended mid-wait
+
+            // Target absent: an optional step's target may legitimately not exist (e.g.
+            // no device has rebooted); a required miss means a broken selector. Either
+            // way, move on without recording the step as seen.
+            if (!resolved.Step.Optional)
+                Logger.LogWarning("Tour step {StepId} target {Selector} not found", resolved.Step.Id, resolved.Step.Selector);
+            _stepIndex += _direction;
+        }
+        await EndTourAsync();
+    }
+
+    private async Task EndTourAsync()
+    {
+        _running = false;
+        _expectedLocation = null;
+        await SafeJsAsync("noTour.end");
+    }
+
+    private bool IsExpectedLocation(string uri)
+    {
+        if (_expectedLocation == null)
+            return false;
+        return NormalizeLocation(uri) == NormalizeLocation(_expectedLocation);
+    }
+
+    /// <summary>
+    /// Path plus query, with ?site= ignored: SiteTabSync re-stamps the site parameter on
+    /// every navigation, and that must not read as the user leaving the tour.
+    /// </summary>
+    private string NormalizeLocation(string uri)
+    {
+        var relative = uri.StartsWith("http", StringComparison.OrdinalIgnoreCase)
+            ? "/" + Navigation.ToBaseRelativePath(uri)
+            : uri;
+        relative = SiteContextService.RemoveQueryParam(relative, "site");
+        return relative.TrimEnd('?', '/').ToLowerInvariant() is { Length: > 0 } r ? r : "/";
+    }
+
+    private bool IsDashboard(string uri)
+    {
+        var path = "/" + Navigation.ToBaseRelativePath(uri);
+        var q = path.IndexOfAny(new[] { '?', '#' });
+        if (q >= 0)
+            path = path[..q];
+        return path == "/";
+    }
+
+    private static string? GetQueryParam(string uri, string name)
+    {
+        var q = uri.IndexOf('?');
+        if (q < 0)
+            return null;
+        var query = uri[(q + 1)..];
+        var h = query.IndexOf('#');
+        if (h >= 0)
+            query = query[..h];
+        foreach (var pair in query.Split('&', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var eq = pair.IndexOf('=');
+            var key = eq < 0 ? pair : pair[..eq];
+            if (string.Equals(key, name, StringComparison.OrdinalIgnoreCase))
+                return eq < 0 ? "" : Uri.UnescapeDataString(pair[(eq + 1)..]);
+        }
+        return null;
+    }
+
+    private async Task SafeJsAsync(string identifier, params object?[] args)
+    {
+        try
+        {
+            await JS.InvokeVoidAsync(identifier, args);
+        }
+        catch (JSDisconnectedException) { }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Tour JS call {Identifier} failed", identifier);
+        }
+    }
+
+    private async Task<T?> SafeJsAsync<T>(string identifier, params object?[] args)
+    {
+        try
+        {
+            return await JS.InvokeAsync<T>(identifier, args);
+        }
+        catch (JSDisconnectedException) { }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Tour JS call {Identifier} failed", identifier);
+        }
+        return default;
+    }
+
+    public void Dispose()
+    {
+        _disposed = true;
+        Navigation.LocationChanged -= OnLocationChanged;
+        _selfRef?.Dispose();
+    }
+}

@@ -70,6 +70,7 @@ public class NetworkOptimizerDbContext : DbContext
     public DbSet<SiteAgent> SiteAgents { get; set; }
     public DbSet<LicenseKeyRecord> LicenseKeyRecords { get; set; }
     public DbSet<SiteLicenseAssignment> SiteLicenseAssignments { get; set; }
+    public DbSet<TourState> TourStates { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -79,6 +80,12 @@ public class NetworkOptimizerDbContext : DbContext
         {
             entity.ToTable("Sites");
             entity.HasIndex(e => e.Slug).IsUnique();
+        });
+
+        modelBuilder.Entity<TourState>(entity =>
+        {
+            entity.ToTable("TourStates");
+            entity.HasIndex(e => e.Subject).IsUnique();
         });
 
         modelBuilder.Entity<SiteAgent>(entity =>

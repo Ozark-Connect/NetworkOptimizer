@@ -33,6 +33,23 @@ public class AdminSettings
     /// </summary>
     public DateTime? SfpOntHintDismissedAt { get; set; }
 
+    /// <summary>
+    /// App version this install was first seen running, stamped the moment a genuinely
+    /// new install is detected (settings row created during that startup). Null for
+    /// installs predating the column - it cannot be reconstructed later. Install-level
+    /// fact, deliberately not per-subject tour state: it decides Highlights-tour
+    /// eligibility for installs that were new before any Highlights content shipped.
+    /// </summary>
+    [MaxLength(32)]
+    public string? FirstSeenVersion { get; set; }
+
+    /// <summary>
+    /// App version recorded at the last startup, written after the tour due-check has
+    /// read it. Stored version below the running version means an upgrade happened.
+    /// </summary>
+    [MaxLength(32)]
+    public string? LastSeenAppVersion { get; set; }
+
     /// <summary>Check if password is configured (non-empty after decryption)</summary>
     public bool HasPassword => !string.IsNullOrEmpty(Password);
 }

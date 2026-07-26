@@ -504,6 +504,14 @@ builder.Services.AddSingleton<ISystemSettingsService>(sp => sp.GetRequiredServic
 // Register Sponsorship service (singleton - reads from DB, limited state)
 builder.Services.AddSingleton<ISponsorshipService, SponsorshipService>();
 
+// Guided tours: definitions and state are instance-wide (main DB); the orchestrator is
+// scoped because predicate resolution and ?site= stamping depend on the circuit's site.
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Tours.TourDefinitionService>();
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Tours.TourStateService>();
+builder.Services.AddScoped<NetworkOptimizer.Web.Services.Tours.TourPredicateResolver>();
+builder.Services.AddScoped<NetworkOptimizer.Web.Services.Tours.TourService>();
+builder.Services.AddHostedService<NetworkOptimizer.Web.Services.Tours.TourStartupService>();
+
 // Register password hasher (singleton - stateless)
 builder.Services.AddSingleton<IPasswordHasher, PasswordHasher>();
 
