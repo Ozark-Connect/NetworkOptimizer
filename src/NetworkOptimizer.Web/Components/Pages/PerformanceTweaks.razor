@@ -151,7 +151,7 @@
                     {
                         <div class="alert alert-warning" style="margin-top: 1rem;">
                             <strong>UDM Boot Required:</strong> Performance tweaks use boot scripts in <code>/data/on_boot.d/</code> that require udm-boot to persist across reboots.
-                            <AdminOnly>
+                            <SiteAdminOnly>
                                 <button class="btn btn-sm btn-primary" style="margin-left: 0.5rem;" @onclick="InstallUdmBoot" disabled="@_isInstallingUdmBoot">
                                     @if (_isInstallingUdmBoot)
                                     {
@@ -163,7 +163,7 @@
                                         <span>Install UDM Boot</span>
                                     }
                                 </button>
-                            </AdminOnly>
+                            </SiteAdminOnly>
                         </div>
                     }
 
@@ -377,17 +377,17 @@
                                     <span>Deploy</span>
                                 }
                             </button>
-                            <AdminOnly>
+                            <SiteAdminOnly>
                                 <button class="btn btn-secondary btn-sm" @onclick="() => MarkAsManual(def.Id)" disabled="@(_deployingTweakId != null || _removingTweakId != null)">
                                     Mark as Manually Deployed
                                 </button>
-                            </AdminOnly>
+                            </SiteAdminOnly>
                         }
                         else if (effectiveStatus == TweakDisplayStatus.Active)
                         {
                             @if (tweakStatus?.ScriptOutdated == true)
                             {
-                                <AdminOnly>
+                                <SiteAdminOnly>
                                     <button class="btn btn-sm btn-primary" @onclick="() => ShowDeployConfirmation(def.Id)" disabled="@(_deployingTweakId == def.Id || IsLicenseRestricted)">
                                         @if (_deployingTweakId == def.Id)
                                         {
@@ -399,14 +399,14 @@
                                             <span>Update</span>
                                         }
                                     </button>
-                                </AdminOnly>
+                                </SiteAdminOnly>
                             }
                             <button class="btn btn-sm btn-secondary" @onclick="RefreshStatus" disabled="@_isLoading">
                                 Check Status
                             </button>
                             @if (tweakStatus?.IsManuallyDeployed != true)
                             {
-                                <AdminOnly>
+                                <SiteAdminOnly>
                                     <button class="btn btn-sm btn-danger" @onclick="() => ShowRemoveConfirmation(def.Id)" disabled="@(_removingTweakId == def.Id || _deployingTweakId == def.Id)">
                                         @if (_removingTweakId == def.Id)
                                         {
@@ -418,7 +418,7 @@
                                             <span>Remove</span>
                                         }
                                     </button>
-                                </AdminOnly>
+                                </SiteAdminOnly>
                             }
                         }
                         else if (effectiveStatus == TweakDisplayStatus.Manual)
@@ -432,18 +432,18 @@
                         }
                         else if (effectiveStatus == TweakDisplayStatus.Detected)
                         {
-                            <AdminOnly>
+                            <SiteAdminOnly>
                                 <button class="btn btn-sm btn-primary" @onclick="() => MarkAsManual(def.Id)" disabled="@(_deployingTweakId != null || _removingTweakId != null)">
                                     Mark as Manually Deployed
                                 </button>
-                            </AdminOnly>
+                            </SiteAdminOnly>
                             <button class="btn btn-sm btn-secondary" @onclick="RefreshStatus" disabled="@_isLoading">
                                 Check Status
                             </button>
                         }
                         else if (effectiveStatus == TweakDisplayStatus.Issue)
                         {
-                            <AdminOnly>
+                            <SiteAdminOnly>
                                 <button class="btn btn-sm btn-primary" @onclick="() => ShowDeployConfirmation(def.Id)" disabled="@(_deployingTweakId == def.Id || IsLicenseRestricted)">
                                     @if (_deployingTweakId == def.Id)
                                     {
@@ -455,11 +455,11 @@
                                         <span>Redeploy</span>
                                     }
                                 </button>
-                            </AdminOnly>
+                            </SiteAdminOnly>
                             <button class="btn btn-sm btn-secondary" @onclick="RefreshStatus" disabled="@_isLoading">
                                 Check Status
                             </button>
-                            <AdminOnly>
+                            <SiteAdminOnly>
                                 <button class="btn btn-sm btn-danger" @onclick="() => ShowRemoveConfirmation(def.Id)" disabled="@(_removingTweakId == def.Id || _deployingTweakId == def.Id)">
                                     @if (_removingTweakId == def.Id)
                                     {
@@ -471,7 +471,7 @@
                                         <span>Remove</span>
                                     }
                                 </button>
-                            </AdminOnly>
+                            </SiteAdminOnly>
                         }
                     </div>
 
