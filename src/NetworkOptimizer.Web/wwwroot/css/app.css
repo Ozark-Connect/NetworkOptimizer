@@ -2670,6 +2670,10 @@ select.form-control {
     min-width: 0;
 }
 
+.account-credential-item .btn {
+    flex: 0 0 auto;
+}
+
 .account-credential-name {
     font-weight: 500;
     color: var(--text-primary);
@@ -19080,12 +19084,6 @@ body.kiosk-mode .status-indicators {
 @media (max-width: 768px) {
     .account-recovery-codes code {
         font-size: 0.85rem;
-    }
-
-    .account-credential-item {
-        align-items: flex-start;
-        flex-direction: column;
-        gap: 0.5rem;
     }
 
     .identity-row-actions {
