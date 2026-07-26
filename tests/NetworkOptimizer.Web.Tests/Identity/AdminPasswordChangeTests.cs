@@ -174,7 +174,7 @@ public sealed class AdminPasswordChangeTests : IDisposable
             var admin = await userManager.FindByNameAsync(IdentityBootstrapService.AdminUserName);
             admin.Should().NotBeNull("turning authentication on must leave an account to sign in with");
             (await userManager.CheckPasswordAsync(admin!, "First-Admin-Pass-4")).Should().BeTrue();
-            (await userManager.IsInRoleAsync(admin!, GlobalRoles.Admin)).Should().BeTrue();
+            (await userManager.IsInRoleAsync(admin!, Roles.Admin)).Should().BeTrue();
         }
     }
 
@@ -192,7 +192,7 @@ public sealed class AdminPasswordChangeTests : IDisposable
         {
             // A second Admin, so the refusal cannot be the last-admin invariant firing instead.
             var identityAdmin = scope.ServiceProvider.GetRequiredService<IIdentityAdminService>();
-            (await identityAdmin.CreateUserAsync("second", null, "Second-Pass-2", GlobalRoles.Admin))
+            (await identityAdmin.CreateUserAsync("second", null, "Second-Pass-2", Roles.Admin))
                 .Succeeded.Should().BeTrue();
             var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
             operatorId = (await userManager.FindByNameAsync("second"))!.Id;
@@ -230,7 +230,7 @@ public sealed class AdminPasswordChangeTests : IDisposable
         {
             var identityAdmin = scope.ServiceProvider.GetRequiredService<IIdentityAdminService>();
             // Another Admin exists, so neither refusal below can be the last-admin invariant.
-            (await identityAdmin.CreateUserAsync("second", null, "Second-Pass-2", GlobalRoles.Admin))
+            (await identityAdmin.CreateUserAsync("second", null, "Second-Pass-2", Roles.Admin))
                 .Succeeded.Should().BeTrue();
             var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
             adminId = (await userManager.FindByNameAsync(IdentityBootstrapService.AdminUserName))!.Id;
@@ -274,7 +274,7 @@ public sealed class AdminPasswordChangeTests : IDisposable
         {
             // A second Admin exists, so neither refusal can be the last-admin invariant firing.
             var identityAdmin = scope.ServiceProvider.GetRequiredService<IIdentityAdminService>();
-            (await identityAdmin.CreateUserAsync("second", null, "Second-Pass-2", GlobalRoles.Admin))
+            (await identityAdmin.CreateUserAsync("second", null, "Second-Pass-2", Roles.Admin))
                 .Succeeded.Should().BeTrue();
             var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
             selfId = (await userManager.FindByNameAsync("second"))!.Id;
@@ -290,7 +290,7 @@ public sealed class AdminPasswordChangeTests : IDisposable
             disabled.Succeeded.Should().BeFalse("disabling yourself rotates your stamp and ends your session");
             disabled.Error.Should().Contain("signed in as");
 
-            var demoted = await identityAdmin.RevokeGlobalRoleAsync(selfId, GlobalRoles.Admin);
+            var demoted = await identityAdmin.RevokeGlobalRoleAsync(selfId, Roles.Admin);
             demoted.Succeeded.Should().BeFalse("dropping your own Admin role strips your access");
             demoted.Error.Should().Contain("your own Admin role");
         }
@@ -300,7 +300,7 @@ public sealed class AdminPasswordChangeTests : IDisposable
             var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
             var self = await userManager.FindByIdAsync(selfId);
             self!.IsEnabled.Should().BeTrue();
-            (await userManager.IsInRoleAsync(self, GlobalRoles.Admin)).Should().BeTrue();
+            (await userManager.IsInRoleAsync(self, Roles.Admin)).Should().BeTrue();
         }
     }
 
@@ -317,7 +317,7 @@ public sealed class AdminPasswordChangeTests : IDisposable
         using (var scope = provider.CreateScope())
         {
             var identityAdmin = scope.ServiceProvider.GetRequiredService<IIdentityAdminService>();
-            (await identityAdmin.CreateUserAsync("colleague", null, "Colleague-Pass-2", GlobalRoles.Admin))
+            (await identityAdmin.CreateUserAsync("colleague", null, "Colleague-Pass-2", Roles.Admin))
                 .Succeeded.Should().BeTrue();
             var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
             adminId = (await userManager.FindByNameAsync(IdentityBootstrapService.AdminUserName))!.Id;
@@ -331,7 +331,7 @@ public sealed class AdminPasswordChangeTests : IDisposable
                 .SetUser(CallerInfo.ForUser(PrincipalFor(adminId), null, null, null));
             var identityAdmin = scope.ServiceProvider.GetRequiredService<IIdentityAdminService>();
 
-            (await identityAdmin.RevokeGlobalRoleAsync(targetId, GlobalRoles.Admin)).Succeeded.Should().BeTrue();
+            (await identityAdmin.RevokeGlobalRoleAsync(targetId, Roles.Admin)).Succeeded.Should().BeTrue();
             (await identityAdmin.SetEnabledAsync(targetId, false)).Succeeded.Should().BeTrue();
         }
     }
@@ -341,7 +341,7 @@ public sealed class AdminPasswordChangeTests : IDisposable
             new[]
             {
                 new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.NameIdentifier, userId),
-                new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.Role, GlobalRoles.Admin),
+                new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.Role, Roles.Admin),
             },
             "test"));
 

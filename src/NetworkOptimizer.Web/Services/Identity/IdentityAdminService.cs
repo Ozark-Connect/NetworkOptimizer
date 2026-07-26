@@ -165,7 +165,7 @@ public sealed class IdentityAdminService : IIdentityAdminService
         if (caller is null || caller.IsSystem || caller.AuthenticationDisabled || caller.Principal is null)
             return null;
 
-        if (caller.Principal.IsInRole(GlobalRoles.Admin))
+        if (caller.Principal.IsInRole(Roles.Admin))
             return null;
 
         if (targetType != MembershipTargetType.Site || string.IsNullOrEmpty(targetId))
@@ -211,7 +211,7 @@ public sealed class IdentityAdminService : IIdentityAdminService
             var roles = await _userManager.GetRolesAsync(user);
             var logins = await _userManager.GetLoginsAsync(user);
             var passkeys = await _userManager.GetPasskeysAsync(user);
-            var globalRole = GlobalRoles.All.FirstOrDefault(roles.Contains);
+            var globalRole = Roles.All.FirstOrDefault(roles.Contains);
             summaries.Add(new UserAccountSummary(
                 user,
                 globalRole,
@@ -219,7 +219,7 @@ public sealed class IdentityAdminService : IIdentityAdminService
                 await _userManager.GetTwoFactorEnabledAsync(user),
                 passkeys.Count,
                 logins.Select(l => l.LoginProvider).ToList(),
-                HasSiteAccess: globalRole == GlobalRoles.Admin || withGrants.Contains(user.Id)));
+                HasSiteAccess: globalRole == Roles.Admin || withGrants.Contains(user.Id)));
         }
 
         return summaries;
@@ -298,7 +298,7 @@ public sealed class IdentityAdminService : IIdentityAdminService
     public async Task<AdminActionResult> CreateUserAsync(
         string username, string? displayName, string? password, string globalRole, string? siteTarget = null)
     {
-        if (!GlobalRoles.All.Contains(globalRole))
+        if (!Roles.All.Contains(globalRole))
             return AdminActionResult.Fail($"Unknown role '{globalRole}'.");
 
         var user = new ApplicationUser
@@ -319,7 +319,7 @@ public sealed class IdentityAdminService : IIdentityAdminService
 
         // An Admin is SiteAdmin everywhere, so a grant would be noise on the membership list.
         var implied = Authorization.EffectiveSiteRole.GlobalImplied(
-            globalRole == GlobalRoles.Operator, globalRole == GlobalRoles.Viewer);
+            globalRole == Roles.Operator, globalRole == Roles.Viewer);
         if (!string.IsNullOrEmpty(siteTarget) && implied is not null)
         {
             var grant = siteTarget == "*"
@@ -401,7 +401,7 @@ public sealed class IdentityAdminService : IIdentityAdminService
 
     public async Task<AdminActionResult> GrantGlobalRoleAsync(string userId, string role)
     {
-        if (!GlobalRoles.All.Contains(role))
+        if (!Roles.All.Contains(role))
             return AdminActionResult.Fail($"Unknown role '{role}'.");
         var user = await _userManager.FindByIdAsync(userId);
         if (user is null) return AdminActionResult.Fail("User not found.");
@@ -420,11 +420,11 @@ public sealed class IdentityAdminService : IIdentityAdminService
         var user = await _userManager.FindByIdAsync(userId);
         if (user is null) return AdminActionResult.Fail("User not found.");
 
-        if (role == GlobalRoles.Admin && IsSelf(userId))
+        if (role == Roles.Admin && IsSelf(userId))
             return Refuse(user, AuditCategories.Rbac, AuditActions.RoleRevoked, "self",
                 "You cannot remove your own Admin role. Ask another administrator to change it.");
 
-        if (role == GlobalRoles.Admin && await IsLastEnabledAdminAsync(user))
+        if (role == Roles.Admin && await IsLastEnabledAdminAsync(user))
             return RefuseLastAdmin(user, "demote");
 
         if (!await _userManager.IsInRoleAsync(user, role))
@@ -525,8 +525,8 @@ public sealed class IdentityAdminService : IIdentityAdminService
     /// <inheritdoc />
     public async Task<IReadOnlyList<RoleMfaPolicy>> GetRoleMfaPoliciesAsync()
     {
-        var policies = new List<RoleMfaPolicy>(GlobalRoles.All.Length);
-        foreach (var role in GlobalRoles.All)
+        var policies = new List<RoleMfaPolicy>(Roles.All.Length);
+        foreach (var role in Roles.All)
         {
             var appRole = await _roleManager.FindByNameAsync(role);
             policies.Add(new RoleMfaPolicy(role, appRole?.RequireMfa == true));
@@ -537,7 +537,7 @@ public sealed class IdentityAdminService : IIdentityAdminService
     /// <inheritdoc />
     public async Task<AdminActionResult> SetRoleRequiresMfaAsync(string role, bool requireMfa)
     {
-        if (!GlobalRoles.All.Contains(role))
+        if (!Roles.All.Contains(role))
             return AdminActionResult.Fail($"Unknown role '{role}'.");
 
         var appRole = await _roleManager.FindByNameAsync(role);
@@ -596,9 +596,9 @@ public sealed class IdentityAdminService : IIdentityAdminService
     /// <summary>True if <paramref name="user"/> is an enabled Admin and no other enabled Admin remains.</summary>
     private async Task<bool> IsLastEnabledAdminAsync(ApplicationUser user)
     {
-        if (!await _userManager.IsInRoleAsync(user, GlobalRoles.Admin) || !user.IsEnabled)
+        if (!await _userManager.IsInRoleAsync(user, Roles.Admin) || !user.IsEnabled)
             return false;
-        var admins = await _userManager.GetUsersInRoleAsync(GlobalRoles.Admin);
+        var admins = await _userManager.GetUsersInRoleAsync(Roles.Admin);
         return admins.Count(a => a.IsEnabled) <= 1;
     }
 

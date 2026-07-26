@@ -25,14 +25,14 @@ public class SiteScopedGateTests
     [MutatingService(SiteScoped = true)]
     public interface ISiteWidgetService
     {
-        [RequireRole(GlobalRoles.Operator)]
+        [RequireRole(Roles.Operator)]
         Task OperateAsync();
     }
 
     [MutatingService]
     public interface IInstanceWidgetService
     {
-        [RequireRole(GlobalRoles.Operator)]
+        [RequireRole(Roles.Operator)]
         Task OperateAsync();
     }
 
@@ -95,7 +95,7 @@ public class SiteScopedGateTests
         {
             new Claim(ClaimTypes.NameIdentifier, "u1"),
             new Claim(ClaimTypes.Name, "operator1"),
-            new Claim(ClaimTypes.Role, GlobalRoles.Viewer),
+            new Claim(ClaimTypes.Role, Roles.Viewer),
         },
         "test"));
 

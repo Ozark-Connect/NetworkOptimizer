@@ -111,7 +111,7 @@ public sealed class IdentitySignInService : IIdentitySignInService
         }
 
         // SSO-only installs disable local password login, except a break-glass admin recovery boot.
-        var isAdmin = await _userManager.IsInRoleAsync(user, GlobalRoles.Admin);
+        var isAdmin = await _userManager.IsInRoleAsync(user, Roles.Admin);
         if (await _policy.IsLocalLoginDisabledAsync() && !(BreakGlass.IsRecoveryMode && isAdmin))
         {
             _logger.LogWarning("Local sign-in blocked for {User}: local login is disabled (SSO-only).", username);

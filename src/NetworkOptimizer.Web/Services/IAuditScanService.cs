@@ -19,22 +19,22 @@ public interface IAuditScanService
     /// nothing on the network, which is what separates it from a speed test - also "just measuring",
     /// but that one saturates the WAN, so it earns Operator.
     /// </remarks>
-    [RequireRole(GlobalRoles.Viewer)]
+    [RequireRole(Roles.Viewer)]
     [AuditAction(AuditActions.AuditScanRun, TargetType = "security_audit")]
     Task<AuditResult> RunAuditAsync(AuditOptions options);
 
     /// <summary>Dismisses a finding so it stops appearing in the active list.</summary>
-    [RequireRole(GlobalRoles.Admin)]
+    [RequireRole(Roles.Admin)]
     [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "audit_issue")]
     Task DismissIssueAsync(AuditIssue issue);
 
     /// <summary>Restores a previously dismissed finding.</summary>
-    [RequireRole(GlobalRoles.Admin)]
+    [RequireRole(Roles.Admin)]
     [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "audit_issue")]
     Task RestoreIssueAsync(AuditIssue issue);
 
     /// <summary>Restores every dismissed finding.</summary>
-    [RequireRole(GlobalRoles.Admin)]
+    [RequireRole(Roles.Admin)]
     [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "audit_issue")]
     Task ClearDismissedIssuesAsync();
 
@@ -46,7 +46,7 @@ public interface IAuditScanService
     /// Networks table and the findings it produces are still shown, whereas a dismissed finding is
     /// hidden by design. Operators are also the people who know what each VLAN is for.
     /// </remarks>
-    [RequireRole(GlobalRoles.Operator)]
+    [RequireRole(Roles.Operator)]
     [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "network_purpose")]
     Task SaveNetworkPurposeOverrideAsync(string networkId, string? purpose);
 }

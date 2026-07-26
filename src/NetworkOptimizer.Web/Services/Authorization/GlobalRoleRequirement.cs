@@ -11,7 +11,7 @@ public sealed class GlobalRoleRequirement : IAuthorizationRequirement
 {
     public GlobalRoleRequirement(string minimum) => Minimum = minimum;
 
-    /// <summary>Least-privileged global role that satisfies the requirement (see <see cref="GlobalRoles"/>).</summary>
+    /// <summary>Least-privileged global role that satisfies the requirement (see <see cref="Roles"/>).</summary>
     public string Minimum { get; }
 }
 
@@ -42,14 +42,14 @@ public sealed class GlobalRoleHandler : AuthorizationHandler<GlobalRoleRequireme
             return;
 
         // An authenticated user with no role claim is a Viewer: read access is "any authenticated".
-        var rank = GlobalRoles.Rank(GlobalRoles.Viewer);
-        foreach (var role in GlobalRoles.All)
+        var rank = Roles.Rank(Roles.Viewer);
+        foreach (var role in Roles.All)
         {
             if (context.User.IsInRole(role))
-                rank = Math.Max(rank, GlobalRoles.Rank(role));
+                rank = Math.Max(rank, Roles.Rank(role));
         }
 
-        if (rank >= GlobalRoles.Rank(requirement.Minimum))
+        if (rank >= Roles.Rank(requirement.Minimum))
             context.Succeed(requirement);
     }
 }

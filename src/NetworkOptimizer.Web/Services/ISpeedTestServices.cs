@@ -14,26 +14,26 @@ namespace NetworkOptimizer.Web.Services;
 public interface IUwnSpeedTestService
 {
     /// <summary>True while a test is in flight (the UI blocks a second concurrent run).</summary>
-    [RequireRole(GlobalRoles.Viewer)]
+    [RequireRole(Roles.Viewer)]
     bool IsRunning { get; }
 
     /// <summary>Live progress of the running test (phase, percent, status line).</summary>
-    [RequireRole(GlobalRoles.Viewer)]
+    [RequireRole(Roles.Viewer)]
     (string Phase, int Percent, string? Status) CurrentProgress { get; }
 
     /// <summary>The most recently completed result, kept for the page to show after a run.</summary>
-    [RequireRole(GlobalRoles.Viewer)]
+    [RequireRole(Roles.Viewer)]
     Iperf3Result? LastCompletedResult { get; }
 
     /// <summary>Metadata captured alongside the last run (server, path, interface).</summary>
-    [RequireRole(GlobalRoles.Viewer)]
+    [RequireRole(Roles.Viewer)]
     WanTestMetadata? LastMetadata { get; }
 
     /// <summary>Raised with the result id once the post-test path analysis finishes.</summary>
     event Action<int>? OnPathAnalysisComplete;
 
     /// <summary>Runs a WAN speed test from this server.</summary>
-    [RequireRole(GlobalRoles.Operator)]
+    [RequireRole(Roles.Operator)]
     [AuditAction(AuditActions.SpeedTestRun, TargetType = "wan_speedtest")]
     Task<Iperf3Result?> RunTestAsync(
         Action<(string Phase, int Percent, string? Status)>? onProgress = null,
@@ -41,21 +41,21 @@ public interface IUwnSpeedTestService
         CancellationToken cancellationToken = default);
 
     /// <summary>Stored WAN speed test results for this site.</summary>
-    [RequireRole(GlobalRoles.Viewer)]
+    [RequireRole(Roles.Viewer)]
     Task<List<Iperf3Result>> GetResultsAsync(int count = 50, int hours = 0);
 
     /// <summary>Deletes a stored result.</summary>
-    [RequireRole(GlobalRoles.Admin)]
+    [RequireRole(Roles.Admin)]
     [AuditAction(AuditActions.SpeedTestDeleted, TargetType = "wan_speedtest")]
     Task<bool> DeleteResultAsync(int id);
 
     /// <summary>Re-assigns a stored result to a different WAN.</summary>
-    [RequireRole(GlobalRoles.Admin)]
+    [RequireRole(Roles.Admin)]
     [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "wan_speedtest")]
     Task<bool> UpdateWanAssignmentAsync(int id, string wanNetworkGroup, string? wanName);
 
     /// <summary>Edits the notes on a stored result.</summary>
-    [RequireRole(GlobalRoles.Admin)]
+    [RequireRole(Roles.Admin)]
     Task<bool> UpdateNotesAsync(int id, string? notes);
 }
 
@@ -67,31 +67,31 @@ public interface IUwnSpeedTestService
 public interface IGatewayWanSpeedTestService
 {
     /// <summary>True while a test is in flight.</summary>
-    [RequireRole(GlobalRoles.Viewer)]
+    [RequireRole(Roles.Viewer)]
     bool IsRunning { get; }
 
     /// <summary>Live progress of the running test (phase, percent, status line).</summary>
-    [RequireRole(GlobalRoles.Viewer)]
+    [RequireRole(Roles.Viewer)]
     (string Phase, int Percent, string? Status) CurrentProgress { get; }
 
     /// <summary>The most recently completed result, kept for the page to show after a run.</summary>
-    [RequireRole(GlobalRoles.Viewer)]
+    [RequireRole(Roles.Viewer)]
     Iperf3Result? LastCompletedResult { get; }
 
     /// <summary>Raised with the result id once the post-test path analysis finishes.</summary>
     event Action<int>? OnPathAnalysisComplete;
 
     /// <summary>Whether the speed test binary is present on the gateway and current.</summary>
-    [RequireRole(GlobalRoles.Viewer)]
+    [RequireRole(Roles.Viewer)]
     Task<(bool Deployed, bool NeedsUpdate)> CheckBinaryStatusAsync();
 
     /// <summary>Deploys or updates the speed test binary on the gateway.</summary>
-    [RequireRole(GlobalRoles.Admin)]
+    [RequireRole(Roles.Admin)]
     [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "wan_speedtest_binary")]
     Task<(bool Success, string? Error)> DeployBinaryAsync(CancellationToken ct = default);
 
     /// <summary>Runs a WAN speed test from the gateway over one or more WAN interfaces.</summary>
-    [RequireRole(GlobalRoles.Operator)]
+    [RequireRole(Roles.Operator)]
     [AuditAction(AuditActions.SpeedTestRun, TargetType = "wan_speedtest")]
     Task<Iperf3Result?> RunTestAsync(
         string interfaceName,
@@ -103,20 +103,20 @@ public interface IGatewayWanSpeedTestService
         CancellationToken cancellationToken = default);
 
     /// <summary>Stored gateway WAN results for this site.</summary>
-    [RequireRole(GlobalRoles.Viewer)]
+    [RequireRole(Roles.Viewer)]
     Task<List<Iperf3Result>> GetResultsAsync(int count = 50, int hours = 0);
 
     /// <summary>Deletes a stored result.</summary>
-    [RequireRole(GlobalRoles.Admin)]
+    [RequireRole(Roles.Admin)]
     [AuditAction(AuditActions.SpeedTestDeleted, TargetType = "wan_speedtest")]
     Task<bool> DeleteResultAsync(int id);
 
     /// <summary>Edits the notes on a stored result.</summary>
-    [RequireRole(GlobalRoles.Admin)]
+    [RequireRole(Roles.Admin)]
     Task<bool> UpdateNotesAsync(int id, string? notes);
 
     /// <summary>Re-assigns a stored result to a different WAN.</summary>
-    [RequireRole(GlobalRoles.Admin)]
+    [RequireRole(Roles.Admin)]
     [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "wan_speedtest")]
     Task<bool> UpdateWanAssignmentAsync(int id, string wanNetworkGroup, string? wanName);
 }
@@ -130,7 +130,7 @@ public interface IGatewayWanSpeedTestService
 public interface IClientSpeedTestService
 {
     /// <summary>Records a browser (OpenSpeedTest) result posted by a client.</summary>
-    [RequireRole(GlobalRoles.Viewer)]
+    [RequireRole(Roles.Viewer)]
     Task<Iperf3Result> RecordOpenSpeedTestResultAsync(
         string clientIp, double downloadMbps, double uploadMbps, double? pingMs, double? jitterMs,
         double? downloadDataMb, double? uploadDataMb, string? userAgent,
@@ -138,34 +138,34 @@ public interface IClientSpeedTestService
         int? durationSeconds = null, string? externalServerId = null);
 
     /// <summary>Records a client-initiated iperf3 result relayed by the site's iperf3 server.</summary>
-    [RequireRole(GlobalRoles.Viewer)]
+    [RequireRole(Roles.Viewer)]
     Task<Iperf3Result> RecordIperf3ClientResultAsync(
         string clientIp, double downloadBitsPerSecond, double uploadBitsPerSecond,
         long downloadBytes, long uploadBytes, int? downloadRetransmits, int? uploadRetransmits,
         int durationSeconds, int parallelStreams, string? rawJson, string? serverLocalIp = null);
 
     /// <summary>Recent client speed test results for this site.</summary>
-    [RequireRole(GlobalRoles.Viewer)]
+    [RequireRole(Roles.Viewer)]
     Task<List<Iperf3Result>> GetResultsAsync(int count = 50, int hours = 0);
 
     /// <summary>Recent client WAN results for this site.</summary>
-    [RequireRole(GlobalRoles.Viewer)]
+    [RequireRole(Roles.Viewer)]
     Task<List<Iperf3Result>> GetWanResultsAsync(int count = 50, int hours = 0);
 
     /// <summary>Results for one client address.</summary>
-    [RequireRole(GlobalRoles.Viewer)]
+    [RequireRole(Roles.Viewer)]
     Task<List<Iperf3Result>> GetResultsByIpAsync(string clientIp, int count = 20);
 
     /// <summary>Results for one client MAC.</summary>
-    [RequireRole(GlobalRoles.Viewer)]
+    [RequireRole(Roles.Viewer)]
     Task<List<Iperf3Result>> GetResultsByMacAsync(string clientMac, int count = 20);
 
     /// <summary>Deletes a stored result.</summary>
-    [RequireRole(GlobalRoles.Admin)]
+    [RequireRole(Roles.Admin)]
     [AuditAction(AuditActions.SpeedTestDeleted, TargetType = "client_speedtest")]
     Task<bool> DeleteResultAsync(int id);
 
     /// <summary>Edits the notes on a stored result.</summary>
-    [RequireRole(GlobalRoles.Admin)]
+    [RequireRole(Roles.Admin)]
     Task<bool> UpdateNotesAsync(int id, string? notes);
 }

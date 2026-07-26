@@ -44,7 +44,7 @@ public sealed class ManageSettingsHandler : AuthorizationHandler<ManageSettingsR
             return;
         }
 
-        if (context.User.IsInRole(GlobalRoles.Admin))
+        if (context.User.IsInRole(Roles.Admin))
         {
             context.Succeed(requirement);
             return;

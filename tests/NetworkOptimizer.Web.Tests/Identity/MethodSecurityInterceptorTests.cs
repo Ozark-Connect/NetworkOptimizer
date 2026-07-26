@@ -19,7 +19,7 @@ public class MethodSecurityInterceptorTests
     [MutatingService]
     public interface IWidgetService
     {
-        [RequireRoleAttribute(GlobalRoles.Admin)]
+        [RequireRoleAttribute(Roles.Admin)]
         [AuditActionAttribute("widget.changed", Category = AuditCategories.Settings, TargetType = "widget")]
         Task ApplyAsync(string value);
     }
@@ -75,7 +75,7 @@ public class MethodSecurityInterceptorTests
         await using var provider = Build(audit);
         using var scope = provider.CreateScope();
         scope.ServiceProvider.GetRequiredService<ICallerContext>()
-            .SetUser(CallerInfo.ForUser(User(GlobalRoles.Admin), "203.0.113.5", "test-agent", "corr-1"));
+            .SetUser(CallerInfo.ForUser(User(Roles.Admin), "203.0.113.5", "test-agent", "corr-1"));
 
         var svc = scope.ServiceProvider.GetRequiredService<IWidgetService>();
         await svc.ApplyAsync("blue");
@@ -95,7 +95,7 @@ public class MethodSecurityInterceptorTests
         await using var provider = Build(audit);
         using var scope = provider.CreateScope();
         scope.ServiceProvider.GetRequiredService<ICallerContext>()
-            .SetUser(CallerInfo.ForUser(User(GlobalRoles.Viewer), null, null, null));
+            .SetUser(CallerInfo.ForUser(User(Roles.Viewer), null, null, null));
 
         var svc = scope.ServiceProvider.GetRequiredService<IWidgetService>();
 

@@ -117,7 +117,7 @@ public sealed class MethodSecurityInterceptor : AsyncInterceptorBase
                 ? await SiteRankAsync(caller.Principal!, siteSlug ?? _siteContext.Slug)
                 : EffectiveRank(caller.Principal!);
 
-            if (rank < GlobalRoles.Rank(requireGlobal.Role))
+            if (rank < Roles.Rank(requireGlobal.Role))
                 Deny(caller, auditAttr, siteSlug,
                     siteScoped
                         ? $"missing {requireGlobal.Role} on this site"
@@ -183,11 +183,11 @@ public sealed class MethodSecurityInterceptor : AsyncInterceptorBase
     /// </summary>
     private static int EffectiveRank(ClaimsPrincipal principal)
     {
-        var rank = principal.Identity?.IsAuthenticated == true ? GlobalRoles.Rank(GlobalRoles.Viewer) : 0;
-        foreach (var role in GlobalRoles.All)
+        var rank = principal.Identity?.IsAuthenticated == true ? Roles.Rank(Roles.Viewer) : 0;
+        foreach (var role in Roles.All)
         {
             if (principal.IsInRole(role))
-                rank = Math.Max(rank, GlobalRoles.Rank(role));
+                rank = Math.Max(rank, Roles.Rank(role));
         }
         return rank;
     }
@@ -202,9 +202,9 @@ public sealed class MethodSecurityInterceptor : AsyncInterceptorBase
     private async Task<int> SiteRankAsync(ClaimsPrincipal principal, string slug)
         => await _siteRoles.GetEffectiveRoleAsync(principal, slug) switch
         {
-            SiteRole.SiteAdmin => GlobalRoles.Rank(GlobalRoles.Admin),
-            SiteRole.SiteOperator => GlobalRoles.Rank(GlobalRoles.Operator),
-            SiteRole.SiteViewer => GlobalRoles.Rank(GlobalRoles.Viewer),
+            SiteRole.SiteAdmin => Roles.Rank(Roles.Admin),
+            SiteRole.SiteOperator => Roles.Rank(Roles.Operator),
+            SiteRole.SiteViewer => Roles.Rank(Roles.Viewer),
             _ => 0,
         };
 

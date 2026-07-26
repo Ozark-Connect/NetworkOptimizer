@@ -70,10 +70,10 @@
                                     @* A disabled control receives no mouse events, so the tooltip has to
                                        live on a wrapper or it never shows. *@
                                     <span class="identity-lock" data-tooltip="@(IsSelf(user) ? "You cannot change your own role" : null)">
-                                    <select class="form-control identity-role-select" value="@(summary.GlobalRole ?? GlobalRoles.Viewer)"
+                                    <select class="form-control identity-role-select" value="@(summary.GlobalRole ?? Roles.Viewer)"
                                             @onchange="e => ChangeRoleAsync(summary, e.Value?.ToString())"
                                             disabled="@(_busyUserId == user.Id || IsSelf(user))">
-                                        @foreach (var role in GlobalRoles.All)
+                                        @foreach (var role in Roles.All)
                                         {
                                             <option value="@role">@role</option>
                                         }
@@ -263,7 +263,7 @@
                         <div class="form-group">
                             <label class="form-label">Role</label>
                             <select class="form-control" @bind="_newUserRole">
-                                @foreach (var role in GlobalRoles.All)
+                                @foreach (var role in Roles.All)
                                 {
                                     <option value="@role">@role</option>
                                 }
@@ -274,7 +274,7 @@
                            is one site and nothing to choose, so the field is skipped and the main site is
                            granted outright - a single-site admin adding accounts for security should not
                            be handed site paperwork. An Admin reaches every site regardless. *@
-                        @if (_newUserRole != GlobalRoles.Admin && _multiSiteEnabled)
+                        @if (_newUserRole != Roles.Admin && _multiSiteEnabled)
                         {
                             <div class="form-group">
                                 <label class="form-label">Site access</label>
@@ -331,7 +331,7 @@
     private string _newUserName = "";
     private string _newDisplayName = "";
     private string _newUserPassword = "";
-    private string _newUserRole = GlobalRoles.Viewer;
+    private string _newUserRole = Roles.Viewer;
     private string _newUserSiteTarget = "";
 
     private const string AllSitesTarget = "*";
@@ -389,7 +389,7 @@
         _newUserName = "";
         _newDisplayName = "";
         _newUserPassword = "";
-        _newUserRole = GlobalRoles.Viewer;
+        _newUserRole = Roles.Viewer;
 
         // With multi-site off, grant the main site by slug rather than All sites: it is the same thing
         // today, but it does not silently widen to every client site if multi-site is enabled later.
@@ -449,7 +449,7 @@
                 return;
             }
 
-            foreach (var previous in GlobalRoles.All.Where(r => r != role))
+            foreach (var previous in Roles.All.Where(r => r != role))
             {
                 var revoke = await IdentityAdmin.RevokeGlobalRoleAsync(summary.User.Id, previous);
                 if (!revoke.Succeeded)

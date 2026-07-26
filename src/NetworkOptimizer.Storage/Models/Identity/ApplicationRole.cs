@@ -6,7 +6,7 @@ namespace NetworkOptimizer.Storage.Models.Identity;
 /// Global role. Extends Identity's <see cref="IdentityRole"/> with a description and a per-role
 /// "Require MFA" policy (design doc 02): when set, users in this role must have MFA enrolled,
 /// enforced at login as step-up-to-enrollment rather than a nag banner. The canonical global role
-/// names are in <see cref="GlobalRoles"/>.
+/// names are in <see cref="Roles"/>.
 /// </summary>
 public class ApplicationRole : IdentityRole
 {

@@ -22,11 +22,11 @@ public static class AuthorizationRegistration
         // "authentication disabled for this install" case is answered in one handler, and so the role
         // hierarchy (Admin > Operator > Viewer) is applied consistently with the service-layer gate.
         services.AddAuthorizationBuilder()
-            .AddPolicy(Policies.RequireAdmin, p => p.AddRequirements(new GlobalRoleRequirement(GlobalRoles.Admin)))
-            .AddPolicy(Policies.RequireOperator, p => p.AddRequirements(new GlobalRoleRequirement(GlobalRoles.Operator)))
+            .AddPolicy(Policies.RequireAdmin, p => p.AddRequirements(new GlobalRoleRequirement(Roles.Admin)))
+            .AddPolicy(Policies.RequireOperator, p => p.AddRequirements(new GlobalRoleRequirement(Roles.Operator)))
             // "Viewer" is any authenticated user; per-site visibility is enforced by the site-scoped
             // policies and the site-context filter, not by requiring a specific global role here.
-            .AddPolicy(Policies.RequireViewer, p => p.AddRequirements(new GlobalRoleRequirement(GlobalRoles.Viewer)))
+            .AddPolicy(Policies.RequireViewer, p => p.AddRequirements(new GlobalRoleRequirement(Roles.Viewer)))
             .AddPolicy(Policies.ManageSettings, p => p.AddRequirements(new ManageSettingsRequirement()))
             .AddPolicy(Policies.SiteViewer, p => p.AddRequirements(new SiteRoleRequirement(SiteRole.SiteViewer)))
             .AddPolicy(Policies.SiteOperator, p => p.AddRequirements(new SiteRoleRequirement(SiteRole.SiteOperator)))

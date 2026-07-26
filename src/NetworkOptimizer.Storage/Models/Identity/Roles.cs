@@ -5,7 +5,7 @@ namespace NetworkOptimizer.Storage.Models.Identity;
 /// Stored as Identity role claims on the principal. Per-site elevation is separate (see
 /// <see cref="SiteMembership"/> and <see cref="SiteRole"/>).
 /// </summary>
-public static class GlobalRoles
+public static class Roles
 {
     /// <summary>Everything: user/role management, federation config, licensing, all sites, destructive ops, audit read.</summary>
     public const string Admin = "Admin";
