@@ -59,7 +59,13 @@ public interface ISqmDeploymentService
     /// <param name="baseline">Optional hourly baseline data.</param>
     /// <param name="initialDelaySeconds">Delay before first speedtest (default 60s, use higher values for additional WANs to stagger).</param>
     /// <returns>A <see cref="SqmDeploymentResult"/> with deployment outcome and steps taken.</returns>
-    [RequireGlobalRole(GlobalRoles.Admin)]
+    /// <remarks>
+    /// Operator, not Admin: deploying settings adjusts a running system within its designed envelope
+    /// and is undone by deploying again. That includes disabling a WAN, which leaves the scripts and
+    /// boot persistence in place and is restored by re-enabling and re-deploying. Tearing the feature
+    /// off the gateway is <see cref="RemoveAsync"/>, which stays Admin.
+    /// </remarks>
+    [RequireGlobalRole(GlobalRoles.Operator)]
     [AuditAction(AuditActions.SqmApplied, TargetType = "wan")]
     Task<SqmDeploymentResult> DeployAsync(SqmConfig config, Dictionary<string, string>? baseline = null, int initialDelaySeconds = 60);
 
@@ -72,7 +78,8 @@ public interface ISqmDeploymentService
     /// <param name="wan2Interface">Physical interface name for WAN2 (e.g., "ifbeth0").</param>
     /// <param name="wan2Name">Friendly name for WAN2 (e.g., "Starlink").</param>
     /// <returns>A tuple with success status and optional warning message if the service didn't start correctly.</returns>
-    [RequireGlobalRole(GlobalRoles.Admin)]
+    /// <remarks>Operator: redeploying the monitor is how a broken one is repaired.</remarks>
+    [RequireGlobalRole(GlobalRoles.Operator)]
     [AuditAction(AuditActions.SqmApplied, TargetType = "tc_monitor")]
     Task<(bool success, string? warning)> DeploySqmMonitorAsync(string wan1Interface, string wan1Name, string wan2Interface, string wan2Name);
 
@@ -91,7 +98,8 @@ public interface ISqmDeploymentService
     /// </summary>
     /// <param name="wanName">The name of the WAN to trigger adjustment for.</param>
     /// <returns>A tuple indicating success and a descriptive message.</returns>
-    [RequireGlobalRole(GlobalRoles.Admin)]
+    /// <remarks>Operator: running an adjustment is operating the deployed system, not changing it.</remarks>
+    [RequireGlobalRole(GlobalRoles.Operator)]
     [AuditAction(AuditActions.SqmApplied, TargetType = "wan")]
     Task<(bool success, string message)> TriggerSqmAdjustmentAsync(string wanName);
 

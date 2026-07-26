@@ -909,8 +909,11 @@
                     </div>
                 }
 
+                @* Deploying settings, including enabling or disabling a WAN, is Operator: it adjusts a
+                   running system and is undone by deploying again. Removing tears the feature off the
+                   gateway and stays Admin. *@
                 <div class="action-buttons">
-                    <AdminOnly>
+                    <OperatorOnly>
                         <button class="btn btn-primary" @onclick="DeploySqm" disabled="@(isDeploying || IsLicenseRestricted)">
                             @if (isDeploying)
                             {
@@ -922,13 +925,13 @@
                                 <span>@(deploymentStatus?.IsDeployed == true ? "Deploy Settings" : "Deploy SQM Scripts")</span>
                             }
                         </button>
-                    </AdminOnly>
+                    </OperatorOnly>
                     <span title="@(deploymentStatus?.IsDeployed != true ? "Deploy SQM scripts first" : "")">
-                        <AdminOnly>
+                        <OperatorOnly>
                             <button class="btn btn-secondary" @onclick="DeployTcMonitor" disabled="@(isDeploying || deploymentStatus?.IsDeployed != true || IsLicenseRestricted)">
                                 Deploy SQM Monitor Only
                             </button>
-                        </AdminOnly>
+                        </OperatorOnly>
                     </span>
                     <AdminOnly>
                         <button class="btn btn-danger" @onclick="RemoveSqm" disabled="@(isDeploying || deploymentStatus?.IsDeployed != true)">
