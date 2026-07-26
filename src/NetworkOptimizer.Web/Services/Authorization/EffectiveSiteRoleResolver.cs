@@ -52,6 +52,22 @@ public sealed class EffectiveSiteRoleResolver : IEffectiveSiteRoleResolver
         if (user.IsInRole(GlobalRoles.Admin))
             return SiteRole.SiteAdmin;
 
+        // Cached on the same membership-version key as the authorized-slug set: this is now the
+        // capability check for every site-scoped gated call, so an uncached read here is a database
+        // round trip on every deploy, adjustment, scan, and speed test. A membership change bumps the
+        // version and invalidates it, which is the same contract the slug set already relies on.
+        var membershipVersion = user.FindFirstValue(NetOptClaims.MembershipVersion) ?? "0";
+        var cacheKey = $"siterole:{userId}:{membershipVersion}:{slug}";
+        if (_cache.TryGetValue(cacheKey, out SiteRole? cached))
+            return cached;
+
+        var role = await ComputeEffectiveRoleAsync(user, userId, slug);
+        _cache.Set(cacheKey, role, TimeSpan.FromMinutes(10));
+        return role;
+    }
+
+    private async Task<SiteRole?> ComputeEffectiveRoleAsync(ClaimsPrincipal user, string userId, string slug)
+    {
         var (memberships, groupSlugs) = await LoadMembershipsAsync(userId);
         var restrict = await _policy.IsRestrictSitesToMembersAsync();
         var globalImplied = EffectiveSiteRole.GlobalImplied(

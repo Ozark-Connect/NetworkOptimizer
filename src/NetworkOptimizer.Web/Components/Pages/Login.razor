@@ -48,6 +48,19 @@
             @if (!string.IsNullOrEmpty(ErrorText))
             {
                 <div class="alert alert-danger mt-3">@ErrorText</div>
+
+                @* The message lives in the query string, so without this it outlives the attempt that
+                   caused it: refresh or navigate back and a stale "invalid credentials" renders over a
+                   session that is perfectly fine. Strip it once shown - the banner above is already
+                   rendered, so this only affects what a later load would say. *@
+                <script suppress-error="BL9992">
+                    (function () {
+                        var u = new URL(window.location.href);
+                        if (!u.searchParams.has('error')) return;
+                        u.searchParams.delete('error');
+                        window.history.replaceState({}, '', u.toString());
+                    })();
+                </script>
             }
             @if (!string.IsNullOrEmpty(PromptText))
             {

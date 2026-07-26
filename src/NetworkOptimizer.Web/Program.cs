@@ -650,7 +650,7 @@ builder.Services.AddMutatingService<IAuditScanService>(sp => sp.GetRequiredServi
 builder.Services.AddScoped<DiagnosticsService>(); // Scoped - network diagnostics (trunk consistency, AP lock, etc.)
 // Mutating product services go through the declarative gate (design doc 06, gate 9): the
 // interface is proxied by MethodSecurityInterceptor, which authorizes the ambient caller against
-// the method's [RequireGlobalRole] and writes its [AuditAction] envelope.
+// the method's [RequireRole] and writes its [AuditAction] envelope.
 builder.Services.AddMutatingService<ISqmService, SqmService>();
 builder.Services.AddMutatingService<ISqmDeploymentService, SqmDeploymentService>();
 builder.Services.AddMutatingService<IWanSteerDeploymentService, WanSteerDeploymentService>();

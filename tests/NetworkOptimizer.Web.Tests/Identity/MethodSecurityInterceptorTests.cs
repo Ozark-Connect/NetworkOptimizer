@@ -19,7 +19,7 @@ public class MethodSecurityInterceptorTests
     [MutatingService]
     public interface IWidgetService
     {
-        [RequireGlobalRoleAttribute(GlobalRoles.Admin)]
+        [RequireRoleAttribute(GlobalRoles.Admin)]
         [AuditActionAttribute("widget.changed", Category = AuditCategories.Settings, TargetType = "widget")]
         Task ApplyAsync(string value);
     }

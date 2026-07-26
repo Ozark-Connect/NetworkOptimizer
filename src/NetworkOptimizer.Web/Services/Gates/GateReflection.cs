@@ -24,7 +24,7 @@ public static class GateReflection
     /// <summary>True when the member (or the property owning the accessor) declares a role gate.</summary>
     public static bool HasGate(MethodInfo method)
     {
-        if (method.GetCustomAttribute<RequireGlobalRoleAttribute>() is not null
+        if (method.GetCustomAttribute<RequireRoleAttribute>() is not null
             || method.GetCustomAttribute<RequireSiteRoleAttribute>() is not null)
         {
             return true;
@@ -32,7 +32,7 @@ public static class GateReflection
 
         var property = DeclaringProperty(method);
         return property is not null
-            && (property.GetCustomAttribute<RequireGlobalRoleAttribute>() is not null
+            && (property.GetCustomAttribute<RequireRoleAttribute>() is not null
                 || property.GetCustomAttribute<RequireSiteRoleAttribute>() is not null);
     }
 }

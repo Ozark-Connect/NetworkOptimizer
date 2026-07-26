@@ -12,7 +12,7 @@ namespace NetworkOptimizer.Web.Services;
 public interface IWiFiScanService
 {
     /// <summary>Runs quick spectrum scans on the given AP/band targets.</summary>
-    [RequireGlobalRole(GlobalRoles.Admin)]
+    [RequireRole(GlobalRoles.Admin)]
     [AuditAction(AuditActions.OptimizerApplied, TargetType = "spectrum_scan")]
     Task RunQuickScansAsync(
         IEnumerable<(string ApMac, string BandCode)> targets,

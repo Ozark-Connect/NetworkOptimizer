@@ -11,7 +11,7 @@ namespace NetworkOptimizer.Web.Services;
 public interface IMeshOptimizationService
 {
     /// <summary>Triggers a mesh backhaul re-scan on the given AP.</summary>
-    [RequireGlobalRole(GlobalRoles.Admin)]
+    [RequireRole(GlobalRoles.Admin)]
     [AuditAction(AuditActions.OptimizerApplied, TargetType = "mesh_ap")]
     Task<MeshOptimizationResult> OptimizeAsync(string? host, string? iface, string? apName, CancellationToken cancellationToken = default);
 }
