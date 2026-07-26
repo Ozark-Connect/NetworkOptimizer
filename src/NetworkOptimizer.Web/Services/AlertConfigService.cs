@@ -13,7 +13,7 @@ namespace NetworkOptimizer.Web.Services;
 /// every change is Admin-gated and audited (design doc 06, gate 9; <c>alert_rule.changed</c> from the
 /// doc-05 coverage list). Reads stay on <see cref="IAlertRepository"/>.
 /// </summary>
-[MutatingService]
+[MutatingService(SiteScoped = true)]
 public interface IAlertConfigService
 {
     /// <summary>Creates an alert rule and returns its id.</summary>

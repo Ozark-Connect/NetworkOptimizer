@@ -8,7 +8,7 @@ namespace NetworkOptimizer.Web.Services;
 /// takes the radio off-channel briefly, so it is an action rather than a read - Admin-only and
 /// audited (design doc 06, gate 9). Every analysis read stays on <see cref="WiFiOptimizerService"/>.
 /// </summary>
-[MutatingService]
+[MutatingService(SiteScoped = true)]
 public interface IWiFiScanService
 {
     /// <summary>Runs quick spectrum scans on the given AP/band targets.</summary>

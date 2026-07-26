@@ -10,7 +10,7 @@ namespace NetworkOptimizer.Web.Services;
 /// to any authenticated user, anything that writes to the gateway is Admin-only and audited as a
 /// monitoring setup change.
 /// </summary>
-[MutatingService]
+[MutatingService(SiteScoped = true)]
 public interface IMonitoringInterfaceDeploymentService
 {
     /// <summary>Checks whether the interface can be deployed (address conflicts, mark range, udm-boot).</summary>

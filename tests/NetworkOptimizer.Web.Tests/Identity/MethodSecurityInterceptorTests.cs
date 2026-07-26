@@ -52,6 +52,10 @@ public class MethodSecurityInterceptorTests
         services.AddAuthorization();
         services.AddSingleton<IAuditLogger>(audit);
         services.AddScoped<ICallerContext, CallerContext>();
+        // The gate engine resolves site-scoped services against the caller's role on the current site;
+        // these tests exercise instance-wide gating, so a neutral resolver and a default site suffice.
+        services.AddScoped<NetworkOptimizer.Web.Services.Authorization.IEffectiveSiteRoleResolver, NeutralSiteRoleResolver>();
+        services.AddScoped(_ => DefaultSiteContext());
         services.AddNetOptGates();
         services.AddMutatingService<IWidgetService, WidgetService>();
         return services.BuildServiceProvider();
@@ -129,5 +133,24 @@ public class MethodSecurityInterceptorTests
 
         var act = async () => await svc.ApplyAsync("blue");
         await act.Should().ThrowAsync<InvalidOperationException>();
+    }
+
+    /// <summary>No site role anywhere: site-scoped gating is covered by SiteScopedGateTests.</summary>
+    private sealed class NeutralSiteRoleResolver : NetworkOptimizer.Web.Services.Authorization.IEffectiveSiteRoleResolver
+    {
+        public Task<SiteRole?> GetEffectiveRoleAsync(System.Security.Claims.ClaimsPrincipal user, string slug)
+            => Task.FromResult<SiteRole?>(null);
+
+        public Task<IReadOnlySet<string>> GetAuthorizedSlugsAsync(System.Security.Claims.ClaimsPrincipal user)
+            => Task.FromResult<IReadOnlySet<string>>(new HashSet<string>());
+    }
+
+    private static NetworkOptimizer.Web.Services.SiteContextService DefaultSiteContext()
+    {
+        var context = new NetworkOptimizer.Web.Services.SiteContextService(
+            new Microsoft.AspNetCore.Http.HttpContextAccessor(),
+            new NetworkOptimizer.Storage.Services.SiteDatabasePaths("/tmp"));
+        context.OverrideSite(NetworkOptimizer.Web.Services.SiteManagementService.DefaultSiteSlug);
+        return context;
     }
 }

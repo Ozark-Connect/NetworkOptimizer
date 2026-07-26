@@ -8,7 +8,7 @@ namespace NetworkOptimizer.Web.Services;
 /// <summary>
 /// Interface for running iperf3 speed tests to UniFi and other network devices.
 /// </summary>
-[MutatingService]
+[MutatingService(SiteScoped = true)]
 public interface IIperf3SpeedTestService
 {
     /// <summary>
