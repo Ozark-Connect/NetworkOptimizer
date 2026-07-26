@@ -36,6 +36,7 @@ public sealed class AdminPasswordChangeTests : IDisposable
         services.AddNetOptIdentityCore(_dbPath);
         services.AddSingleton<IAuditLogger>(new NoOpAuditLogger());
         services.AddScoped<ICallerContext, CallerContext>();
+        services.AddScoped<NetworkOptimizer.Web.Services.Authorization.IEffectiveSiteRoleResolver, UnusedSiteRoleResolver>();
         // The admin credential store, as the Web host registers it.
         services.AddSingleton<IPasswordHasher, PasswordHasher>();
         services.AddSingleton<AdminAuthCache>();
@@ -343,6 +344,19 @@ public sealed class AdminPasswordChangeTests : IDisposable
                 new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.Role, GlobalRoles.Admin),
             },
             "test"));
+
+    /// <summary>
+    /// These tests act as a global Admin or with no caller at all, so the membership ownership guard
+    /// never consults site roles. The resolver only has to exist for the container to build.
+    /// </summary>
+    private sealed class UnusedSiteRoleResolver : NetworkOptimizer.Web.Services.Authorization.IEffectiveSiteRoleResolver
+    {
+        public Task<SiteRole?> GetEffectiveRoleAsync(System.Security.Claims.ClaimsPrincipal user, string slug)
+            => Task.FromResult<SiteRole?>(null);
+
+        public Task<IReadOnlySet<string>> GetAuthorizedSlugsAsync(System.Security.Claims.ClaimsPrincipal user)
+            => Task.FromResult<IReadOnlySet<string>>(new HashSet<string>());
+    }
 
     private sealed class NoOpAuditLogger : IAuditLogger
     {

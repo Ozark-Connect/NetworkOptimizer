@@ -127,6 +127,7 @@ public sealed class IdentityAdminService : IIdentityAdminService
     private readonly IDbContextFactory<AuthDbContext> _authDbFactory;
     private readonly IAuditLogger _audit;
     private readonly ICallerContext _caller;
+    private readonly Authorization.IEffectiveSiteRoleResolver _siteRoles;
     private readonly ILogger<IdentityAdminService> _logger;
 
     public IdentityAdminService(
@@ -135,6 +136,7 @@ public sealed class IdentityAdminService : IIdentityAdminService
         IDbContextFactory<AuthDbContext> authDbFactory,
         IAuditLogger audit,
         ICallerContext caller,
+        Authorization.IEffectiveSiteRoleResolver siteRoles,
         ILogger<IdentityAdminService> logger)
     {
         _userManager = userManager;
@@ -142,7 +144,37 @@ public sealed class IdentityAdminService : IIdentityAdminService
         _authDbFactory = authDbFactory;
         _audit = audit;
         _caller = caller;
+        _siteRoles = siteRoles;
         _logger = logger;
+    }
+
+    /// <summary>
+    /// The site-ownership invariant: a membership may only be changed by someone who owns the site it
+    /// targets. A global Admin owns every site; a SiteAdmin owns exactly the one site they administer,
+    /// so they can never grant AllSites, a group (which spans sites), or anything on another site.
+    /// The scoped Access card already narrows the target in the UI, but a Blazor circuit's bound values
+    /// arrive from the browser, so the UI cannot be the thing enforcing this.
+    /// Returns null when the change is allowed.
+    /// </summary>
+    private async Task<AdminActionResult?> RefuseUnlessOwnedAsync(MembershipTargetType targetType, string? targetId)
+    {
+        var caller = _caller.Current;
+
+        // Bootstrap, background work, and installs with authentication off have no principal to scope
+        // by, and have always been able to do everything locally.
+        if (caller is null || caller.IsSystem || caller.AuthenticationDisabled || caller.Principal is null)
+            return null;
+
+        if (caller.Principal.IsInRole(GlobalRoles.Admin))
+            return null;
+
+        if (targetType != MembershipTargetType.Site || string.IsNullOrEmpty(targetId))
+            return AdminActionResult.Fail("Only an Admin can grant access across sites.");
+
+        var role = await _siteRoles.GetEffectiveRoleAsync(caller.Principal, targetId);
+        return role == SiteRole.SiteAdmin
+            ? null
+            : AdminActionResult.Fail("You can only change access on a site you administer.");
     }
 
     public async Task<IReadOnlyList<ApplicationUser>> ListUsersAsync()
@@ -435,6 +467,9 @@ public sealed class IdentityAdminService : IIdentityAdminService
         var user = await _userManager.FindByIdAsync(userId);
         if (user is null) return AdminActionResult.Fail("User not found.");
 
+        if (await RefuseUnlessOwnedAsync(targetType, targetId) is { } refusal)
+            return refusal;
+
         await using (var db = await _authDbFactory.CreateDbContextAsync())
         {
             var exists = await db.SiteMemberships.AnyAsync(m =>
@@ -467,6 +502,19 @@ public sealed class IdentityAdminService : IIdentityAdminService
 
         await using (var db = await _authDbFactory.CreateDbContextAsync())
         {
+            // Resolve what the grant actually targets before deleting it: the id alone says nothing
+            // about which site it belongs to, so ownership cannot be checked without reading it first.
+            var target = await db.SiteMemberships
+                .AsNoTracking()
+                .Where(m => m.Id == membershipId && m.UserId == userId)
+                .Select(m => new { m.TargetType, m.TargetId })
+                .FirstOrDefaultAsync();
+            if (target is null)
+                return AdminActionResult.Fail("Membership not found.");
+
+            if (await RefuseUnlessOwnedAsync(target.TargetType, target.TargetId) is { } refusal)
+                return refusal;
+
             await db.SiteMemberships.Where(m => m.Id == membershipId && m.UserId == userId).ExecuteDeleteAsync();
         }
         await BumpMembershipVersionAsync(user);
