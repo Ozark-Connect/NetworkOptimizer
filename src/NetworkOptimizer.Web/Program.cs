@@ -1175,7 +1175,9 @@ app.Use(async (context, next) =>
     var path = context.Request.Path.Value?.ToLower() ?? "";
 
     // Only these paths are public (no auth required)
-    var publicPaths = new[] { "/login", "/login/2fa", "/api/auth/login", "/api/auth/2fa", "/api/auth/logout", "/api/health", "/api/passkey/request-options", "/api/passkey/assert" };
+    // "/error" is public so the exception handler's re-execute can actually render: if it fell to the
+    // gate below, every unhandled exception would redirect to /login with no message.
+    var publicPaths = new[] { "/login", "/login/2fa", "/error", "/api/auth/login", "/api/auth/2fa", "/api/auth/logout", "/api/health", "/api/passkey/request-options", "/api/passkey/assert" };
     // /api/public/*, plus the federation login/callback surface (OIDC challenge, IdP callbacks, SAML ACS).
     var publicPrefixes = new[] { "/api/public/", "/login/external", "/login/saml/", "/signin-oidc/", "/signout-oidc/", "/signout-callback-oidc/", "/saml/" };
     var staticPaths = new[] { "/_blazor", "/_framework", "/css", "/js", "/images", "/_content", "/downloads" };

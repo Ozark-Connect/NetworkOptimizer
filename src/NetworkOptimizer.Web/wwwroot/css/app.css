@@ -7158,6 +7158,34 @@ a.path-hop.hop-clickable:hover {
     gap: 1rem;
 }
 
+.error-page-icon {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 1rem;
+    color: var(--text-secondary);
+    opacity: 0.6;
+}
+
+.error-page-icon svg {
+    width: 3rem;
+    height: 3rem;
+}
+
+.error-page-title {
+    margin: 0 0 0.75rem;
+    font-size: 1.25rem;
+    text-align: center;
+    color: var(--text-primary);
+}
+
+.error-page-body {
+    margin: 0 0 1.25rem;
+    font-size: 0.875rem;
+    line-height: 1.5;
+    text-align: center;
+    color: var(--text-secondary);
+}
+
 .remember-device {
     display: flex;
     align-items: center;
