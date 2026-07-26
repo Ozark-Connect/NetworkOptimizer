@@ -74,7 +74,14 @@ public interface IIdentityAdminService
     /// <summary>Removes a linked external identity (the user keeps any local password).</summary>
     Task<AdminActionResult> UnlinkExternalAsync(string userId, string loginProvider, string providerKey);
 
-    Task<AdminActionResult> CreateUserAsync(string username, string? displayName, string? password, string globalRole);
+    /// <param name="siteTarget">
+    /// Site the new account is granted, at the role its global role implies: a slug, <c>"*"</c> for all
+    /// sites, or null to grant nothing. Granting here rather than in a second step matters because an
+    /// install with users is usually running many sites, where scoping the account IS the task.
+    /// Ignored for Admin, which reaches every site regardless.
+    /// </param>
+    Task<AdminActionResult> CreateUserAsync(
+        string username, string? displayName, string? password, string globalRole, string? siteTarget = null);
     Task<AdminActionResult> SetEnabledAsync(string userId, bool enabled);
     Task<AdminActionResult> DeleteUserAsync(string userId);
     Task<AdminActionResult> SetPasswordAsync(string userId, string newPassword);
@@ -256,7 +263,8 @@ public sealed class IdentityAdminService : IIdentityAdminService
         return AdminActionResult.Ok();
     }
 
-    public async Task<AdminActionResult> CreateUserAsync(string username, string? displayName, string? password, string globalRole)
+    public async Task<AdminActionResult> CreateUserAsync(
+        string username, string? displayName, string? password, string globalRole, string? siteTarget = null)
     {
         if (!GlobalRoles.All.Contains(globalRole))
             return AdminActionResult.Fail($"Unknown role '{globalRole}'.");
@@ -276,6 +284,20 @@ public sealed class IdentityAdminService : IIdentityAdminService
 
         await _userManager.AddToRoleAsync(user, globalRole);
         Emit(AuditCategories.User, AuditActions.UserCreated, user, new { globalRole });
+
+        // An Admin is SiteAdmin everywhere, so a grant would be noise on the membership list.
+        var implied = Authorization.EffectiveSiteRole.GlobalImplied(
+            globalRole == GlobalRoles.Operator, globalRole == GlobalRoles.Viewer);
+        if (!string.IsNullOrEmpty(siteTarget) && implied is not null)
+        {
+            var grant = siteTarget == "*"
+                ? await AddMembershipAsync(user.Id, MembershipTargetType.AllSites, null, implied.Value)
+                : await AddMembershipAsync(user.Id, MembershipTargetType.Site, siteTarget, implied.Value);
+            if (!grant.Succeeded)
+                return AdminActionResult.Fail(
+                    $"Created {username}, but the site grant failed: {grant.Error} Add it under Access.");
+        }
+
         return AdminActionResult.Ok();
     }
 
