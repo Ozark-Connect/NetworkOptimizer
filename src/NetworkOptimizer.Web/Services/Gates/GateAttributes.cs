@@ -8,9 +8,9 @@ namespace NetworkOptimizer.Web.Services.Gates;
 /// mutating-service method by architecture test A2.
 /// </summary>
 [AttributeUsage(AttributeTargets.Method | AttributeTargets.Property, AllowMultiple = false)]
-public sealed class RequireGlobalRoleAttribute : Attribute
+public sealed class RequireRoleAttribute : Attribute
 {
-    public RequireGlobalRoleAttribute(string role) => Role = role;
+    public RequireRoleAttribute(string role) => Role = role;
 
     /// <summary>Required global role (see <see cref="GlobalRoles"/>).</summary>
     public string Role { get; }

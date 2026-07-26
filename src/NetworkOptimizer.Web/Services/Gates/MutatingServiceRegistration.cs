@@ -4,7 +4,7 @@ namespace NetworkOptimizer.Web.Services.Gates;
 
 /// <summary>
 /// Marks a service interface as a gated mutating service: every public method must carry a
-/// <see cref="RequireGlobalRoleAttribute"/> or <see cref="RequireSiteRoleAttribute"/> (enforced by
+/// <see cref="RequireRoleAttribute"/> or <see cref="RequireSiteRoleAttribute"/> (enforced by
 /// architecture test A2), and the interface must be registered via
 /// <see cref="MutatingServiceRegistration.AddMutatingService{TInterface,TImpl}"/> so it is proxied.
 /// </summary>
@@ -13,7 +13,7 @@ public sealed class MutatingServiceAttribute : Attribute
 {
     /// <summary>
     /// True when the service acts on one site - the site in context - rather than on the instance.
-    /// The role required by <see cref="RequireGlobalRoleAttribute"/> is then satisfied by the caller's
+    /// The role required by <see cref="RequireRoleAttribute"/> is then satisfied by the caller's
     /// effective role ON THAT SITE, so "Site Operator on the branch office" grants operator capability
     /// there and nowhere else. That is least privilege: the grant means exactly what it says, instead
     /// of handing out an instance-wide role and fencing it in afterwards.

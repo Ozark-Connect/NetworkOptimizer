@@ -25,14 +25,14 @@ public class SiteScopedGateTests
     [MutatingService(SiteScoped = true)]
     public interface ISiteWidgetService
     {
-        [RequireGlobalRole(GlobalRoles.Operator)]
+        [RequireRole(GlobalRoles.Operator)]
         Task OperateAsync();
     }
 
     [MutatingService]
     public interface IInstanceWidgetService
     {
-        [RequireGlobalRole(GlobalRoles.Operator)]
+        [RequireRole(GlobalRoles.Operator)]
         Task OperateAsync();
     }
 

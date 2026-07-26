@@ -12,7 +12,7 @@ namespace NetworkOptimizer.Web.Services.Gates;
 /// <summary>
 /// The single declarative method-security gate (design doc 06, gate 9). Wraps mutating-service
 /// interfaces via Castle DynamicProxy and, per call: authorizes the ambient caller against the
-/// method's <see cref="RequireGlobalRoleAttribute"/> / <see cref="RequireSiteRoleAttribute"/> (using
+/// method's <see cref="RequireRoleAttribute"/> / <see cref="RequireSiteRoleAttribute"/> (using
 /// the same <see cref="SiteRoleHandler"/> as the endpoint/page gates), then emits the
 /// <see cref="AuditActionAttribute"/> envelope with the execution outcome. System callers skip authz;
 /// an unset caller throws (no silent bypass).
@@ -61,7 +61,7 @@ public sealed class MethodSecurityInterceptor : AsyncInterceptorBase
     private async Task GuardAsync(IInvocation invocation, Func<Task> proceed)
     {
         var method = invocation.Method; // the interface method carries the gate attributes
-        var requireGlobal = GetGate<RequireGlobalRoleAttribute>(method);
+        var requireGlobal = GetGate<RequireRoleAttribute>(method);
         var requireSite = GetGate<RequireSiteRoleAttribute>(method);
         var auditAttr = method.GetCustomAttribute<AuditActionAttribute>();
 
@@ -102,7 +102,7 @@ public sealed class MethodSecurityInterceptor : AsyncInterceptorBase
 
     private async Task AuthorizeAsync(
         CallerInfo caller,
-        RequireGlobalRoleAttribute? requireGlobal,
+        RequireRoleAttribute? requireGlobal,
         RequireSiteRoleAttribute? requireSite,
         string? siteSlug,
         AuditActionAttribute? auditAttr,

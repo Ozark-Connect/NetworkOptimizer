@@ -76,7 +76,7 @@ public class ArchitectureTests
 
     /// <summary>
     /// A2: every method on a <see cref="MutatingServiceAttribute"/>-marked interface must declare a
-    /// <see cref="RequireGlobalRoleAttribute"/> or <see cref="RequireSiteRoleAttribute"/> gate. Event
+    /// <see cref="RequireRoleAttribute"/> or <see cref="RequireSiteRoleAttribute"/> gate. Event
     /// add/remove accessors are subscription plumbing rather than an action, so they are exempt; the
     /// interceptor still refuses them without a caller context.
     /// </summary>

@@ -20,14 +20,14 @@ public class RoleEnforcementTests
     [MutatingService]
     public interface INetworkService
     {
-        [RequireGlobalRole(GlobalRoles.Viewer)]
+        [RequireRole(GlobalRoles.Viewer)]
         Task<string> GetStatusAsync();
 
-        [RequireGlobalRole(GlobalRoles.Operator)]
+        [RequireRole(GlobalRoles.Operator)]
         [AuditAction(AuditActions.SpeedTestRun, TargetType = "wan_speedtest")]
         Task<int> RunSpeedTestAsync();
 
-        [RequireGlobalRole(GlobalRoles.Admin)]
+        [RequireRole(GlobalRoles.Admin)]
         [AuditAction(AuditActions.SqmApplied, TargetType = "wan")]
         Task ApplyConfigAsync();
     }
