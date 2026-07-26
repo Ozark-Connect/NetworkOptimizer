@@ -445,6 +445,104 @@ public class DnsSecurityAnalyzerTests : IDisposable
     }
 
     [Fact]
+    public async Task Analyze_WithDomainGroupBackedDohTcp443Block_DetectsRule()
+    {
+        var domainGroup = new UniFiFirewallGroup
+        {
+            Id = "group-doh",
+            Name = "DoH Providers",
+            GroupType = "domain-group",
+            GroupMembers = new List<string>
+            {
+                "cloudflare-dns.com", "dns.google", "dns.quad9.net", "doh.opendns.com"
+            }
+        };
+        var firewall = JsonDocument.Parse(@"[{
+            ""name"": ""Block Internal to External DoH v4"",
+            ""enabled"": true,
+            ""action"": ""BLOCK"",
+            ""protocol"": ""tcp"",
+            ""destination"": {
+                ""matching_target"": ""WEB"",
+                ""matching_target_type"": ""OBJECT"",
+                ""web_matching_type"": ""CUSTOM"",
+                ""web_domains"": [],
+                ""web_group_id"": ""group-doh"",
+                ""port_matching_type"": ""SPECIFIC"",
+                ""port"": ""443""
+            }
+        }]").RootElement;
+
+        var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall, new List<UniFiFirewallGroup> { domainGroup }));
+
+        result.HasDohBlockRule.Should().BeTrue();
+        result.DohRuleName.Should().Be("Block Internal to External DoH v4");
+        result.DohBlockedDomains.Should().BeEquivalentTo(domainGroup.GroupMembers);
+    }
+
+    [Fact]
+    public async Task Analyze_WithIncompleteDomainGroupBackedDohBlock_DoesNotDetect()
+    {
+        var domainGroup = new UniFiFirewallGroup
+        {
+            Id = "group-doh",
+            Name = "Incomplete DoH Providers",
+            GroupType = "domain-group",
+            GroupMembers = new List<string> { "cloudflare-dns.com", "dns.google", "dns.quad9.net" }
+        };
+        var firewall = JsonDocument.Parse(@"[{
+            ""name"": ""Partial DoH Block"",
+            ""enabled"": true,
+            ""action"": ""BLOCK"",
+            ""protocol"": ""tcp"",
+            ""destination"": {
+                ""matching_target"": ""WEB"",
+                ""matching_target_type"": ""OBJECT"",
+                ""web_domains"": [],
+                ""web_group_id"": ""group-doh"",
+                ""port"": ""443""
+            }
+        }]").RootElement;
+
+        var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall, new List<UniFiFirewallGroup> { domainGroup }));
+
+        result.HasDohBlockRule.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Analyze_WithDomainGroupBackedUdp443Block_DoesNotDetectTcpDohBlock()
+    {
+        var domainGroup = new UniFiFirewallGroup
+        {
+            Id = "group-doh",
+            Name = "DoH Providers",
+            GroupType = "domain-group",
+            GroupMembers = new List<string>
+            {
+                "cloudflare-dns.com", "dns.google", "dns.quad9.net", "doh.opendns.com"
+            }
+        };
+        var firewall = JsonDocument.Parse(@"[{
+            ""name"": ""Block DoH3 Only"",
+            ""enabled"": true,
+            ""action"": ""BLOCK"",
+            ""protocol"": ""udp"",
+            ""destination"": {
+                ""matching_target"": ""WEB"",
+                ""matching_target_type"": ""OBJECT"",
+                ""web_domains"": [],
+                ""web_group_id"": ""group-doh"",
+                ""port"": ""443""
+            }
+        }]").RootElement;
+
+        var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall, new List<UniFiFirewallGroup> { domainGroup }));
+
+        result.HasDohBlockRule.Should().BeFalse();
+        result.HasDoh3BlockRule.Should().BeTrue();
+    }
+
+    [Fact]
     public async Task Analyze_WithDohBlockRule_MissingRequiredProvider_DoesNotDetect()
     {
         // Only 3 of 4 required providers (missing OpenDNS) - should not get credit

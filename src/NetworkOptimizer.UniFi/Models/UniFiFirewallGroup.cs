@@ -4,7 +4,7 @@ namespace NetworkOptimizer.UniFi.Models;
 
 /// <summary>
 /// Response from GET /api/s/{site}/rest/firewallgroup
-/// Represents a firewall group (address group, port group, IPv6 group)
+/// Represents a firewall group (address, IPv6 address, port, or domain group)
 /// </summary>
 public class UniFiFirewallGroup
 {
@@ -18,7 +18,7 @@ public class UniFiFirewallGroup
     public string Name { get; set; } = string.Empty;
 
     [JsonPropertyName("group_type")]
-    public string GroupType { get; set; } = string.Empty; // "address-group", "ipv6-address-group", "port-group"
+    public string GroupType { get; set; } = string.Empty; // "address-group", "ipv6-address-group", "port-group", "domain-group"
 
     [JsonPropertyName("group_members")]
     public List<string> GroupMembers { get; set; } = new();

@@ -22,7 +22,7 @@ public class FirewallRuleAnalyzer
     }
 
     /// <summary>
-    /// Set firewall groups for flattening port_group_id and ip_group_id references.
+    /// Set firewall groups for flattening port_group_id, ip_group_id, and web_group_id references.
     /// Call this before ExtractFirewallPolicies to enable group resolution.
     /// </summary>
     public void SetFirewallGroups(IEnumerable<UniFiFirewallGroup>? groups)
@@ -1231,6 +1231,9 @@ public class FirewallRuleAnalyzer
 
         var destTarget = rule.DestinationMatchingTarget?.ToUpperInvariant();
         var protocol = rule.Protocol?.ToLowerInvariant() ?? "all";
+
+        if (destTarget == "WEB" && rule.HasUnresolvedDestinationDomainGroup)
+            return false;
 
         // Check for HTTP/HTTPS app IDs - these are always broad web access
         if (rule.AppIds != null && rule.AppIds.Any(id =>
