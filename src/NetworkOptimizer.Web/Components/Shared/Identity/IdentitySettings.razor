@@ -1,0 +1,23 @@
+@* Settings - Identity. One component, two scopes: instance-wide when no site slug is supplied
+   (Users, Access, and Sign-In across every site), and scoped to a single site when one is
+   (that site's Access list only, since accounts and sign-in methods are instance-wide). The same
+   UX either way - the scoped view is the global one narrowed to what a site admin owns. *@
+
+@if (SiteSlug is null)
+{
+    <IdentityUsersCard />
+    <IdentityAccessCard />
+    <IdentitySignInCard />
+}
+else
+{
+    <IdentityAccessCard SiteSlug="@SiteSlug" SiteName="@SiteName" />
+}
+
+@code {
+    /// <summary>Null for the instance-wide view; a site slug scopes the tab to that site.</summary>
+    [Parameter] public string? SiteSlug { get; set; }
+
+    /// <summary>Friendly site name shown on the scoped badge.</summary>
+    [Parameter] public string? SiteName { get; set; }
+}

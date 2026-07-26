@@ -1,0 +1,482 @@
+@using NetworkOptimizer.Storage.Models.Identity
+@using NetworkOptimizer.Web.Services.Identity
+@inject IIdentityAdminService IdentityAdmin
+@inject IFederationProviderService Federation
+
+@* Settings - Identity: the instance-wide account list. Create, enable/disable, delete, change role,
+   reset another user's password, and link or unlink an external identity. Everything runs through
+   IdentityAdminService, which holds the last-admin invariant and audits each change. *@
+
+<div class="card settings-tab-identity" id="identity-users">
+    <div class="card-header">
+        <h2 class="card-title">Users</h2>
+        <div class="card-header-badges">
+            <span class="status-badge global-badge" data-tooltip="Applies to all sites (instance-wide)">Global</span>
+        </div>
+    </div>
+    <div class="card-body">
+        <p class="section-description">
+            Accounts that can sign in to Network Optimizer. <strong>Admin</strong> can do everything,
+            <strong>Operator</strong> adds running speed tests to read access, and <strong>Viewer</strong>
+            is read-only.
+        </p>
+
+        @if (_message is not null)
+        {
+            <div class="alert alert-@_messageClass">@_message</div>
+        }
+
+        @if (_users is null)
+        {
+            <div class="identity-loading"><span class="spinner spinner-sm"></span></div>
+        }
+        else
+        {
+            <div class="table-responsive">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>User</th>
+                            <th>Role</th>
+                            <th class="hide-mobile">Sign-in</th>
+                            <th class="hide-mobile">Last sign-in</th>
+                            <th>Status</th>
+                            <th class="identity-actions-col"></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var summary in _users)
+                        {
+                            var user = summary.User;
+                            <tr>
+                                <td>
+                                    <div class="identity-user">
+                                        <span class="identity-user-name">@user.UserName</span>
+                                        @if (!string.IsNullOrWhiteSpace(user.DisplayName))
+                                        {
+                                            <span class="identity-user-display">@user.DisplayName</span>
+                                        }
+                                    </div>
+                                </td>
+                                <td>
+                                    <select class="form-control identity-role-select" value="@(summary.GlobalRole ?? GlobalRoles.Viewer)"
+                                            @onchange="e => ChangeRoleAsync(summary, e.Value?.ToString())"
+                                            disabled="@(_busyUserId == user.Id)">
+                                        @foreach (var role in GlobalRoles.All)
+                                        {
+                                            <option value="@role">@role</option>
+                                        }
+                                    </select>
+                                </td>
+                                <td class="hide-mobile">
+                                    <div class="identity-credentials">
+                                        <span class="status-badge status-info" data-tooltip="Password sign-in">Password</span>
+                                        @if (summary.MfaEnabled)
+                                        {
+                                            <span class="status-badge status-active" data-tooltip="Authenticator app enrolled">MFA</span>
+                                        }
+                                        @if (summary.PasskeyCount > 0)
+                                        {
+                                            <span class="status-badge status-active"
+                                                  data-tooltip="@($"{summary.PasskeyCount} passkey{(summary.PasskeyCount == 1 ? "" : "s")} registered")">Passkey</span>
+                                        }
+                                        @foreach (var provider in summary.LinkedProviders)
+                                        {
+                                            <span class="status-badge status-info" data-tooltip="Linked identity provider">@provider</span>
+                                        }
+                                    </div>
+                                </td>
+                                <td class="hide-mobile">
+                                    @if (user.LastLoginAt is { } last)
+                                    {
+                                        <span data-tooltip="@($"Method: {user.LastLoginMethod ?? "password"}")">@last.ToLocalTime().ToString("g")</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="identity-muted">Never</span>
+                                    }
+                                </td>
+                                <td>
+                                    <span class="status-badge status-@(user.IsEnabled ? "active" : "inactive")">
+                                        @(user.IsEnabled ? "Enabled" : "Disabled")
+                                    </span>
+                                </td>
+                                <td class="identity-actions-col">
+                                    <div class="identity-row-actions">
+                                        <button type="button" class="btn btn-tertiary btn-sm"
+                                                @onclick="() => OpenPasswordReset(user.Id)" disabled="@(_busyUserId == user.Id)">
+                                            Reset password
+                                        </button>
+                                        <button type="button" class="btn btn-tertiary btn-sm"
+                                                @onclick="() => OpenLinks(user.Id)" disabled="@(_busyUserId == user.Id)">
+                                            Identities
+                                        </button>
+                                        <button type="button" class="btn btn-tertiary btn-sm"
+                                                @onclick="() => SetEnabledAsync(user, !user.IsEnabled)" disabled="@(_busyUserId == user.Id)">
+                                            @(user.IsEnabled ? "Disable" : "Enable")
+                                        </button>
+                                        <button type="button" class="btn btn-danger btn-sm"
+                                                @onclick="() => DeleteAsync(user)" disabled="@(_busyUserId == user.Id)">
+                                            Delete
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+
+                            @if (_passwordResetUserId == user.Id)
+                            {
+                                <tr class="identity-inline-row">
+                                    <td colspan="6">
+                                        <div class="identity-inline-form">
+                                            <div class="form-group">
+                                                <label class="form-label">New password for @user.UserName</label>
+                                                <input type="password" class="form-control" @bind="_newPassword"
+                                                       autocomplete="new-password" placeholder="Enter a new password" />
+                                                <p class="form-help">The user signs in with this password next time. Their MFA and passkeys are unchanged.</p>
+                                            </div>
+                                            <div class="identity-form-actions">
+                                                <button type="button" class="btn btn-primary btn-sm" @onclick="() => ResetPasswordAsync(user)">Set password</button>
+                                                <button type="button" class="btn btn-secondary btn-sm" @onclick="ClosePasswordReset">Cancel</button>
+                                            </div>
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+
+                            @if (_linksUserId == user.Id)
+                            {
+                                <tr class="identity-inline-row">
+                                    <td colspan="6">
+                                        <div class="identity-inline-form">
+                                            <h3 class="identity-inline-title">Linked identities for @user.UserName</h3>
+                                            @if (_links is null)
+                                            {
+                                                <div class="identity-loading"><span class="spinner spinner-sm"></span></div>
+                                            }
+                                            else if (_links.Count == 0)
+                                            {
+                                                <p class="form-help">No external identity is linked to this account.</p>
+                                            }
+                                            else
+                                            {
+                                                <ul class="identity-link-list">
+                                                    @foreach (var link in _links)
+                                                    {
+                                                        <li class="identity-link-item">
+                                                            <span class="identity-link-provider">@(link.DisplayName ?? link.LoginProvider)</span>
+                                                            <code class="identity-link-subject">@link.ProviderKey</code>
+                                                            <button type="button" class="btn btn-tertiary btn-sm"
+                                                                    @onclick="() => UnlinkAsync(user, link)">Unlink</button>
+                                                        </li>
+                                                    }
+                                                </ul>
+                                            }
+
+                                            @if (_providers is { Count: > 0 })
+                                            {
+                                                <div class="identity-form-grid">
+                                                    <div class="form-group">
+                                                        <label class="form-label">Provider</label>
+                                                        <select class="form-control" @bind="_linkProvider">
+                                                            @foreach (var provider in _providers)
+                                                            {
+                                                                <option value="@provider.Scheme">@provider.DisplayName</option>
+                                                            }
+                                                        </select>
+                                                    </div>
+                                                    <div class="form-group">
+                                                        <label class="form-label">Subject at the provider</label>
+                                                        <input class="form-control" @bind="_linkSubject" placeholder="The sub / NameID value" />
+                                                        <p class="form-help">Links an existing account to an identity provider without waiting for a first sign-in.</p>
+                                                    </div>
+                                                </div>
+                                                <div class="identity-form-actions">
+                                                    <button type="button" class="btn btn-primary btn-sm" @onclick="() => LinkAsync(user)">Link identity</button>
+                                                    <button type="button" class="btn btn-secondary btn-sm" @onclick="CloseLinks">Close</button>
+                                                </div>
+                                            }
+                                            else
+                                            {
+                                                <div class="identity-form-actions">
+                                                    <p class="form-help">Add a provider under Sign-In to link identities.</p>
+                                                    <button type="button" class="btn btn-secondary btn-sm" @onclick="CloseLinks">Close</button>
+                                                </div>
+                                            }
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+
+            @if (_addingUser)
+            {
+                <div class="identity-inline-form identity-add-form">
+                    <h3 class="identity-inline-title">Add a user</h3>
+                    <div class="identity-form-grid">
+                        <div class="form-group">
+                            <label class="form-label">Username</label>
+                            <input class="form-control" @bind="_newUserName" placeholder="jordan" autocomplete="off" />
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Display name (optional)</label>
+                            <input class="form-control" @bind="_newDisplayName" placeholder="Jordan Okonkwo" autocomplete="off" />
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Password</label>
+                            <input type="password" class="form-control" @bind="_newUserPassword" autocomplete="new-password" placeholder="Initial password" />
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Role</label>
+                            <select class="form-control" @bind="_newUserRole">
+                                @foreach (var role in GlobalRoles.All)
+                                {
+                                    <option value="@role">@role</option>
+                                }
+                            </select>
+                        </div>
+                    </div>
+                    <div class="identity-form-actions">
+                        <button type="button" class="btn btn-primary btn-sm" @onclick="CreateUserAsync" disabled="@_creating">
+                            @(_creating ? "Creating..." : "Create user")
+                        </button>
+                        <button type="button" class="btn btn-secondary btn-sm" @onclick="() => _addingUser = false">Cancel</button>
+                    </div>
+                </div>
+            }
+            else
+            {
+                <div class="identity-card-actions">
+                    <button type="button" class="btn btn-primary btn-sm" @onclick="StartAddUser">Add user</button>
+                </div>
+            }
+        }
+    </div>
+</div>
+
+@code {
+    private IReadOnlyList<UserAccountSummary>? _users;
+    private IReadOnlyList<FederationProvider>? _providers;
+    private IReadOnlyList<LinkedExternalIdentity>? _links;
+
+    private string? _message;
+    private string _messageClass = "info";
+    private string? _busyUserId;
+
+    private bool _addingUser;
+    private bool _creating;
+    private string _newUserName = "";
+    private string _newDisplayName = "";
+    private string _newUserPassword = "";
+    private string _newUserRole = GlobalRoles.Viewer;
+
+    private string? _passwordResetUserId;
+    private string _newPassword = "";
+
+    private string? _linksUserId;
+    private string _linkProvider = "";
+    private string _linkSubject = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await ReloadAsync();
+        _providers = await Federation.GetAllAsync();
+        _linkProvider = _providers.FirstOrDefault()?.Scheme ?? "";
+    }
+
+    private async Task ReloadAsync() => _users = await IdentityAdmin.ListUserSummariesAsync();
+
+    private void StartAddUser()
+    {
+        _addingUser = true;
+        _newUserName = "";
+        _newDisplayName = "";
+        _newUserPassword = "";
+        _newUserRole = GlobalRoles.Viewer;
+    }
+
+    private async Task CreateUserAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_newUserName))
+        {
+            Show("Enter a username.", "warning");
+            return;
+        }
+
+        _creating = true;
+        try
+        {
+            var result = await IdentityAdmin.CreateUserAsync(
+                _newUserName.Trim(),
+                string.IsNullOrWhiteSpace(_newDisplayName) ? null : _newDisplayName.Trim(),
+                string.IsNullOrEmpty(_newUserPassword) ? null : _newUserPassword,
+                _newUserRole);
+            Report(result, $"Created {_newUserName.Trim()}.");
+            if (result.Succeeded)
+            {
+                _addingUser = false;
+                await ReloadAsync();
+            }
+        }
+        finally
+        {
+            _creating = false;
+        }
+    }
+
+    private async Task ChangeRoleAsync(UserAccountSummary summary, string? role)
+    {
+        if (string.IsNullOrEmpty(role) || role == summary.GlobalRole)
+            return;
+
+        _busyUserId = summary.User.Id;
+        try
+        {
+            // Grant first: the last-admin invariant refuses the revoke, and granting the new role
+            // before revoking Admin means the account is never left with nothing.
+            var grant = await IdentityAdmin.GrantGlobalRoleAsync(summary.User.Id, role);
+            if (!grant.Succeeded)
+            {
+                Report(grant, "");
+                return;
+            }
+
+            foreach (var previous in GlobalRoles.All.Where(r => r != role))
+            {
+                var revoke = await IdentityAdmin.RevokeGlobalRoleAsync(summary.User.Id, previous);
+                if (!revoke.Succeeded)
+                {
+                    // Roll back to the role they had, so the account is not left holding both.
+                    await IdentityAdmin.RevokeGlobalRoleAsync(summary.User.Id, role);
+                    Report(revoke, "");
+                    return;
+                }
+            }
+
+            Show($"{summary.User.UserName} is now {role}.", "success");
+        }
+        finally
+        {
+            _busyUserId = null;
+            await ReloadAsync();
+        }
+    }
+
+    private async Task SetEnabledAsync(ApplicationUser user, bool enabled)
+    {
+        _busyUserId = user.Id;
+        try
+        {
+            var result = await IdentityAdmin.SetEnabledAsync(user.Id, enabled);
+            Report(result, $"{user.UserName} is now {(enabled ? "enabled" : "disabled")}.");
+        }
+        finally
+        {
+            _busyUserId = null;
+            await ReloadAsync();
+        }
+    }
+
+    private async Task DeleteAsync(ApplicationUser user)
+    {
+        _busyUserId = user.Id;
+        try
+        {
+            var result = await IdentityAdmin.DeleteUserAsync(user.Id);
+            Report(result, $"Deleted {user.UserName}.");
+        }
+        finally
+        {
+            _busyUserId = null;
+            await ReloadAsync();
+        }
+    }
+
+    private void OpenPasswordReset(string userId)
+    {
+        _passwordResetUserId = userId;
+        _linksUserId = null;
+        _newPassword = "";
+    }
+
+    private void ClosePasswordReset()
+    {
+        _passwordResetUserId = null;
+        _newPassword = "";
+    }
+
+    private async Task ResetPasswordAsync(ApplicationUser user)
+    {
+        if (string.IsNullOrEmpty(_newPassword))
+        {
+            Show("Enter a new password.", "warning");
+            return;
+        }
+
+        var result = await IdentityAdmin.SetPasswordAsync(user.Id, _newPassword);
+        Report(result, $"Password reset for {user.UserName}.");
+        if (result.Succeeded)
+        {
+            ClosePasswordReset();
+            await ReloadAsync();
+        }
+    }
+
+    private async Task OpenLinks(string userId)
+    {
+        _linksUserId = userId;
+        _passwordResetUserId = null;
+        _linkSubject = "";
+        _links = null;
+        _links = await IdentityAdmin.GetExternalLoginsAsync(userId);
+    }
+
+    private void CloseLinks()
+    {
+        _linksUserId = null;
+        _links = null;
+    }
+
+    private async Task LinkAsync(ApplicationUser user)
+    {
+        if (string.IsNullOrWhiteSpace(_linkProvider) || string.IsNullOrWhiteSpace(_linkSubject))
+        {
+            Show("Choose a provider and enter the subject value.", "warning");
+            return;
+        }
+
+        var provider = _providers?.FirstOrDefault(p => p.Scheme == _linkProvider);
+        var result = await IdentityAdmin.LinkExternalAsync(
+            user.Id, _linkProvider, _linkSubject.Trim(), provider?.DisplayName);
+        Report(result, $"Linked {provider?.DisplayName ?? _linkProvider} to {user.UserName}.");
+        if (result.Succeeded)
+        {
+            _linkSubject = "";
+            _links = await IdentityAdmin.GetExternalLoginsAsync(user.Id);
+            await ReloadAsync();
+        }
+    }
+
+    private async Task UnlinkAsync(ApplicationUser user, LinkedExternalIdentity link)
+    {
+        var result = await IdentityAdmin.UnlinkExternalAsync(user.Id, link.LoginProvider, link.ProviderKey);
+        Report(result, $"Unlinked {link.DisplayName ?? link.LoginProvider} from {user.UserName}.");
+        if (result.Succeeded)
+        {
+            _links = await IdentityAdmin.GetExternalLoginsAsync(user.Id);
+            await ReloadAsync();
+        }
+    }
+
+    private void Report(AdminActionResult result, string success)
+        => Show(result.Succeeded ? success : result.Error ?? "That change was refused.",
+                result.Succeeded ? "success" : "warning");
+
+    private void Show(string message, string cssClass)
+    {
+        _message = message;
+        _messageClass = cssClass;
+    }
+}
