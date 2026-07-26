@@ -2643,6 +2643,19 @@ select.form-control {
     opacity: 0.5;
 }
 
+.empty-icon svg {
+    width: 3rem;
+    height: 3rem;
+    color: var(--text-secondary);
+}
+
+.account-admin-note {
+    margin: 0 0 0.75rem;
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    line-height: 1.5;
+}
+
 .empty-state h3 {
     margin-bottom: 0.5rem;
     color: var(--text-primary);

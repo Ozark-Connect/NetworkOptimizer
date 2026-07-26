@@ -74,7 +74,7 @@
         {
             @if (_passkeys.Count == 0)
             {
-                <p class="text-muted">No passkeys registered.</p>
+                <p class="form-help">No passkeys registered.</p>
             }
             else
             {
@@ -96,6 +96,21 @@
         }
     </div>
 </div>
+
+@* This page is about your own credentials; an admin also needs somewhere to get to everyone
+   else's, so the shortcut lives here rather than adding a nav entry. *@
+<AdminOnly>
+    <div class="card">
+        <div class="card-header"><span class="card-title">Identity</span></div>
+        <div class="card-body">
+            <p class="account-admin-note">
+                Accounts, per-site access, and single sign-on for everyone on this instance are managed
+                in <strong>Settings - Identity</strong>.
+            </p>
+            <a class="btn btn-secondary btn-sm" href="/settings?tab=identity">Open Identity settings</a>
+        </div>
+    </div>
+</AdminOnly>
 
 @code {
     [SupplyParameterFromQuery(Name = "setup")] private string? Setup { get; set; }
