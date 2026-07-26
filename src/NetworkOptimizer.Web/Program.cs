@@ -1,5 +1,4 @@
-﻿using ApexCharts;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
+using ApexCharts;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Mvc.ViewFeatures;
 using Microsoft.AspNetCore.StaticFiles;
@@ -15,13 +14,12 @@ using NetworkOptimizer.Web;
 using NetworkOptimizer.Web.Endpoints;
 using NetworkOptimizer.Web.Services;
 using NetworkOptimizer.Web.Services.Authorization;
+using NetworkOptimizer.Web.Services.CableModemProviders;
 using NetworkOptimizer.Web.Services.Gates;
 using NetworkOptimizer.Web.Services.Identity;
-using NetworkOptimizer.Web.Services.CableModemProviders;
 using NetworkOptimizer.Web.Services.Licensing;
 using NetworkOptimizer.Web.Services.OntProviders;
 using NetworkOptimizer.Web.Services.Ssh;
-using NetworkOptimizer.WiFi.Models;
 using Serilog;
 using Serilog.Events;
 
@@ -846,6 +844,13 @@ if (!string.IsNullOrWhiteSpace(trustedProxies))
         ForwardedHeaders = Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedFor
             | Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedProto
             | Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedHost,
+        // One hop per proxy in the chain. Cloudflare in front of Traefik is TWO, and the default of
+        // one would stop unwrapping at Cloudflare's address - so every client would share one
+        // rate-limit bucket and appear to come from Cloudflare. Every proxy in the chain must ALSO
+        // appear in TRUSTED_PROXIES, or unwrapping stops at the first unrecognised hop.
+        ForwardLimit = int.TryParse(builder.Configuration["TRUSTED_PROXY_HOPS"], out var hops) && hops > 0
+            ? hops
+            : 1,
     };
     // Clear the loopback defaults: the entries below are the whole allowlist.
     options.KnownIPNetworks.Clear();
