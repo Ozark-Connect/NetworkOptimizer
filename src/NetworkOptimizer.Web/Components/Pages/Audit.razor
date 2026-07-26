@@ -53,8 +53,7 @@
     <div class="card">
         <div class="card-body">
             <div class="audit-controls">
-                <AdminOnly>
-                    <button class="btn btn-primary" @onclick="RunAudit" disabled="@(isRunning || !ConnectionService.IsConnected || IsLicenseRestricted)" style="min-width: 140px;">
+                                    <button class="btn btn-primary" @onclick="RunAudit" disabled="@(isRunning || !ConnectionService.IsConnected || IsLicenseRestricted)" style="min-width: 140px;">
                         @if (isRunning)
                         {
                             <span class="spinner"></span>
@@ -65,7 +64,6 @@
                             <span>Run Full Audit</span>
                         }
                     </button>
-                </AdminOnly>
 
                 @if (_isStandalone)
                 {
@@ -191,9 +189,9 @@
                                 <div class="issue-header">
                                     <span class="issue-severity">@GetSeverityDisplayName(issue.Severity)</span>
                                     <span class="issue-category">@issue.Category</span>
-                                    <button class="btn btn-sm btn-ghost issue-action" @onclick="() => RestoreIssue(issue)" title="Restore this issue">
+                                    <SiteAdminOnly><button class="btn btn-sm btn-ghost issue-action" @onclick="() => RestoreIssue(issue)" title="Restore this issue">
                                         Restore
-                                    </button>
+                                    </button></SiteAdminOnly>
                                 </div>
                                 <div class="issue-title">@issue.Title</div>
                                 <div class="issue-description">@FormatIssueText(issue.Description)</div>
@@ -287,9 +285,9 @@
                                                     </span>
                                                 </span>
                                             }
-                                            <button class="btn btn-sm btn-ghost issue-action" @onclick="() => DismissIssue(issue)" @onclick:stopPropagation="true" title="Dismiss this issue">
+                                            <SiteAdminOnly><button class="btn btn-sm btn-ghost issue-action" @onclick="() => DismissIssue(issue)" @onclick:stopPropagation="true" title="Dismiss this issue">
                                                 Dismiss
-                                            </button>
+                                            </button></SiteAdminOnly>
                                         </div>
                                         <div class="issue-title">@issue.Title</div>
                                         <div class="issue-description">@FormatIssueText(issue.Description)</div>
@@ -427,9 +425,9 @@
                                                                 {
                                                                     <span class="context-item"><strong>Rules:</strong> @FormatCoveringRules(issue.CoveringRules)</span>
                                                                 }
-                                                                <button class="btn btn-sm btn-ghost issue-action" @onclick="() => DismissIssue(issue)" @onclick:stopPropagation="true" title="Dismiss this issue">
+                                                                <SiteAdminOnly><button class="btn btn-sm btn-ghost issue-action" @onclick="() => DismissIssue(issue)" @onclick:stopPropagation="true" title="Dismiss this issue">
                                                                     Dismiss
-                                                                </button>
+                                                                </button></SiteAdminOnly>
                                                             </div>
                                                         }
                                                         else if (!isDeviceGroup)
@@ -437,17 +435,17 @@
                                                             @* Non-device group: show description per item *@
                                                             <div class="issue-context">
                                                                 <span class="context-item issue-item-description">@FormatIssueText(issue.Description)</span>
-                                                                <button class="btn btn-sm btn-ghost issue-action" @onclick="() => DismissIssue(issue)" @onclick:stopPropagation="true" title="Dismiss this issue">
+                                                                <SiteAdminOnly><button class="btn btn-sm btn-ghost issue-action" @onclick="() => DismissIssue(issue)" @onclick:stopPropagation="true" title="Dismiss this issue">
                                                                     Dismiss
-                                                                </button>
+                                                                </button></SiteAdminOnly>
                                                             </div>
                                                         }
                                                         else
                                                         {
                                                             <div class="issue-context">
-                                                                <button class="btn btn-sm btn-ghost issue-action" @onclick="() => DismissIssue(issue)" @onclick:stopPropagation="true" title="Dismiss this issue">
+                                                                <SiteAdminOnly><button class="btn btn-sm btn-ghost issue-action" @onclick="() => DismissIssue(issue)" @onclick:stopPropagation="true" title="Dismiss this issue">
                                                                     Dismiss
-                                                                </button>
+                                                                </button></SiteAdminOnly>
                                                             </div>
                                                         }
                                                     </div>
@@ -491,11 +489,9 @@
                                 <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd" /></svg>
                             </span>
                             <span>Purpose changes will take effect on the next audit run.</span>
-                            <AdminOnly>
-                                <button class="btn btn-sm btn-primary" @onclick="RunAudit" disabled="@(isRunning || !ConnectionService.IsConnected)">
+                                                            <button class="btn btn-sm btn-primary" @onclick="RunAudit" disabled="@(isRunning || !ConnectionService.IsConnected)">
                                     Re-run Audit
                                 </button>
-                            </AdminOnly>
                         </div>
                     }
                     <div class="table-responsive">

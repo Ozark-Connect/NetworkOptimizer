@@ -14,7 +14,12 @@ namespace NetworkOptimizer.Web.Services;
 public interface IAuditScanService
 {
     /// <summary>Runs a security audit against the current site's UniFi Console.</summary>
-    [RequireRole(GlobalRoles.Admin)]
+    /// <remarks>
+    /// Viewer: an audit reads configuration from the console and records what it found. It changes
+    /// nothing on the network, which is what separates it from a speed test - also "just measuring",
+    /// but that one saturates the WAN, so it earns Operator.
+    /// </remarks>
+    [RequireRole(GlobalRoles.Viewer)]
     [AuditAction(AuditActions.AuditScanRun, TargetType = "security_audit")]
     Task<AuditResult> RunAuditAsync(AuditOptions options);
 
