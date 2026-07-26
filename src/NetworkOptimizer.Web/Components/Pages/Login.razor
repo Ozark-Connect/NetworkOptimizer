@@ -47,7 +47,7 @@
 
             @if (!string.IsNullOrEmpty(ErrorText))
             {
-                <div class="alert alert-danger mt-3">@ErrorText</div>
+                <div class="alert alert-danger">@ErrorText</div>
 
                 @* The message lives in the query string, so without this it outlives the attempt that
                    caused it: refresh or navigate back and a stale "invalid credentials" renders over a
@@ -64,7 +64,7 @@
             }
             @if (!string.IsNullOrEmpty(PromptText))
             {
-                <div class="alert alert-info mt-3">@PromptText</div>
+                <div class="alert alert-info">@PromptText</div>
             }
         </form>
 
