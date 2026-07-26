@@ -31,7 +31,19 @@ public sealed class ConfigureOidcOptions : IConfigureNamedOptions<OpenIdConnectO
         var providers = scope.ServiceProvider.GetRequiredService<IFederationProviderService>();
         var provider = providers.GetBySchemeAsync(schemeKey).GetAwaiter().GetResult();
         if (provider is null || provider.Type != FederationProviderType.Oidc)
+        {
+            // Unconfigured/placeholder scheme (e.g. the handler-registration "__template__", or a scheme
+            // whose provider was removed). The OIDC handler is an IAuthenticationRequestHandler, so
+            // UseAuthentication initializes it on EVERY request to test for its callback path - which
+            // validates the options. Give it valid-but-inert values so validation passes; it is never
+            // challenged, and a static empty Configuration means it never touches the network.
+            options.ClientId = "unconfigured";
+            options.Authority = "https://localhost/";
+            options.RequireHttpsMetadata = false;
+            options.CallbackPath = $"/signin-oidc-unconfigured/{schemeKey}";
+            options.SignInScheme = IdentityConstants.ExternalScheme;
             return;
+        }
 
         options.Authority = provider.Authority;
         options.ClientId = provider.ClientId;
