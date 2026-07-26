@@ -1,8 +1,6 @@
 @page "/login/2fa"
 @layout AuthLayout
 @using NetworkOptimizer.Web.Services
-@using NetworkOptimizer.Web.Services.Identity
-@inject IMfaService Mfa
 @* Static SSR: the second-factor step posts to /api/auth/2fa, which issues the cookie. *@
 
 <PageTitle>Two-factor authentication - Network Optimizer</PageTitle>
@@ -64,28 +62,29 @@
     [SupplyParameterFromQuery] private string? ReturnUrl { get; set; }
     [SupplyParameterFromQuery] private bool Recovery { get; set; }
 
+    /// <summary>
+    /// Set by the sign-in endpoint when the pending account holds recovery codes. It arrives in the
+    /// query rather than being looked up here: this page renders twice and only the prerendered pass
+    /// can read the pending two-factor cookie, so a lookup would disagree with itself.
+    /// </summary>
+    [SupplyParameterFromQuery(Name = "rc")] private bool HasRecoveryCodes { get; set; }
+
     [SupplyParameterFromQuery(Name = SiteContextService.SiteQueryParam)]
     private string? Site { get; set; }
 
     private bool _useRecovery;
-    private bool _hasRecoveryCodes;
 
-    protected override async Task OnInitializedAsync()
-    {
-        _useRecovery = Recovery;
+    // Offering the recovery route to an account with no codes is a dead end: the link switches the
+    // form over and nothing the user types can ever match.
+    private bool _hasRecoveryCodes => HasRecoveryCodes;
 
-        // Offering the recovery route to an account with no codes is a dead end: the link switches
-        // the form over and nothing the user types can ever match.
-        var pending = await Mfa.GetPendingTwoFactorUserAsync();
-        _hasRecoveryCodes = pending is not null && await Mfa.CountRecoveryCodesAsync(pending) > 0;
-        if (_useRecovery && !_hasRecoveryCodes)
-            _useRecovery = false;
-    }
+    protected override void OnInitialized() => _useRecovery = Recovery && HasRecoveryCodes;
 
     private string ToggleUrl()
     {
         var target = _useRecovery ? "false" : "true";
         var query = $"recovery={target}";
+        if (HasRecoveryCodes) query += "&rc=1";
         if (!string.IsNullOrEmpty(ReturnUrl)) query += $"&returnUrl={Uri.EscapeDataString(ReturnUrl)}";
         if (!string.IsNullOrEmpty(Site)) query += $"&{SiteContextService.SiteQueryParam}={Uri.EscapeDataString(Site)}";
         return $"/login/2fa?{query}";

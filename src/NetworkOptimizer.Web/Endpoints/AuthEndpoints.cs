@@ -23,6 +23,7 @@ public static class AuthEndpoints
             HttpContext context,
             IIdentitySignInService signInService,
             SiteSwitchService siteSwitch,
+            IMfaService mfa,
             IAntiforgery antiforgery) =>
         {
             var form = await context.Request.ReadFormAsync();
@@ -54,7 +55,8 @@ public static class AuthEndpoints
                 SignInOutcome.Success => Results.Redirect(string.IsNullOrEmpty(site)
                     ? await siteSwitch.StampSiteAsync(returnUrl)
                     : SiteContextService.WithSiteParam(returnUrl, site)),
-                SignInOutcome.RequiresTwoFactor => Results.Redirect(TwoFactorRedirect(returnUrl, site)),
+                SignInOutcome.RequiresTwoFactor => Results.Redirect(
+                    TwoFactorRedirect(returnUrl, site, await PendingUserHasRecoveryCodesAsync(mfa))),
                 SignInOutcome.RequiresMfaEnrollment => Results.Redirect("/account/security?setup=required"),
                 SignInOutcome.RequiresPasskeySignIn => LoginRedirect("use_passkey", site),
                 SignInOutcome.LockedOut => LoginRedirect("lockout", site),
@@ -66,7 +68,8 @@ public static class AuthEndpoints
 
         // Second-factor step (TOTP or recovery code), posted by the /login/2fa static-SSR page.
         app.MapPost("/api/auth/2fa", async (
-            HttpContext context, IIdentitySignInService signInService, SiteSwitchService siteSwitch, IAntiforgery antiforgery) =>
+            HttpContext context, IIdentitySignInService signInService, SiteSwitchService siteSwitch,
+            IMfaService mfa, IAntiforgery antiforgery) =>
         {
             var form = await context.Request.ReadFormAsync();
             var site = form[SiteContextService.SiteQueryParam].ToString();
@@ -86,7 +89,8 @@ public static class AuthEndpoints
                     ? await siteSwitch.StampSiteAsync(returnUrl)
                     : SiteContextService.WithSiteParam(returnUrl, site)),
                 SignInOutcome.LockedOut => LoginRedirect("lockout", site),
-                _ => Results.Redirect(TwoFactorRedirect(returnUrl, site) + "&error=invalid"),
+                _ => Results.Redirect(
+                    TwoFactorRedirect(returnUrl, site, await PendingUserHasRecoveryCodesAsync(mfa)) + "&error=invalid"),
             };
         })
             .AllowAnonymous();
@@ -172,12 +176,27 @@ public static class AuthEndpoints
         return Results.Redirect($"/login{suffix}");
     }
 
-    private static string TwoFactorRedirect(string returnUrl, string site)
+    /// <summary>
+    /// Builds the second-factor page URL. <paramref name="hasRecoveryCodes"/> travels in the query
+    /// because the page renders twice - prerendered, then interactive - and only the prerender pass
+    /// has an HttpContext to read the pending two-factor cookie from. Resolving it here, once, keeps
+    /// both passes agreeing.
+    /// </summary>
+    private static string TwoFactorRedirect(string returnUrl, string site, bool hasRecoveryCodes)
     {
         var query = new List<string> { $"returnUrl={Uri.EscapeDataString(returnUrl)}" };
         if (!string.IsNullOrEmpty(site))
             query.Add($"{SiteContextService.SiteQueryParam}={Uri.EscapeDataString(site)}");
+        if (hasRecoveryCodes)
+            query.Add("rc=1");
         return $"/login/2fa?{string.Join("&", query)}";
+    }
+
+    /// <summary>Whether the account waiting on the second factor holds any recovery codes.</summary>
+    private static async Task<bool> PendingUserHasRecoveryCodesAsync(IMfaService mfa)
+    {
+        var pending = await mfa.GetPendingTwoFactorUserAsync();
+        return pending is not null && await mfa.CountRecoveryCodesAsync(pending) > 0;
     }
 
     /// <summary>Rejects open-redirect targets: only same-site relative paths are allowed.</summary>
