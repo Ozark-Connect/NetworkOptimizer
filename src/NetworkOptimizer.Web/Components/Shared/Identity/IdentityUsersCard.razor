@@ -1,3 +1,4 @@
+@using NetworkOptimizer.Storage.Models
 @using NetworkOptimizer.Storage.Models.Identity
 @using NetworkOptimizer.Web.Services.Identity
 @inject IIdentityAdminService IdentityAdmin
@@ -5,6 +6,7 @@
 @inject ICurrentUserAccessor CurrentUser
 @inject ISiteManagementService SiteManagement
 @inject IAuthPolicyOptions AuthPolicy
+@inject SiteContextService SiteContext
 
 @* Settings - Identity: the instance-wide account list. Create, enable/disable, delete, change role,
    reset another user's password, and link or unlink an external identity. Everything runs through
@@ -267,6 +269,29 @@
                                 }
                             </select>
                         </div>
+                        @* Scoping a user to a site is the whole job when you run many of them, so it
+                           belongs here rather than as a second trip to Access. With multi-site off there
+                           is one site and nothing to choose, so the field is skipped and the main site is
+                           granted outright - a single-site admin adding accounts for security should not
+                           be handed site paperwork. An Admin reaches every site regardless. *@
+                        @if (_newUserRole != GlobalRoles.Admin && _multiSiteEnabled)
+                        {
+                            <div class="form-group">
+                                <label class="form-label">Site access</label>
+                                <select class="form-control" @bind="_newUserSiteTarget">
+                                    @foreach (var site in _sites)
+                                    {
+                                        <option value="@site.Slug">@site.Name</option>
+                                    }
+                                    <option value="@AllSitesTarget">All sites</option>
+                                    <option value="">None for now</option>
+                                </select>
+                                <p class="form-help">
+                                    Can be changed, and more sites added, under Access. Pick
+                                    <strong>None for now</strong> to stage an account before its site exists.
+                                </p>
+                            </div>
+                        }
                     </div>
                     <div class="identity-form-actions">
                         <button type="button" class="btn btn-primary btn-sm" @onclick="CreateUserAsync" disabled="@_creating">
@@ -307,6 +332,10 @@
     private string _newDisplayName = "";
     private string _newUserPassword = "";
     private string _newUserRole = GlobalRoles.Viewer;
+    private string _newUserSiteTarget = "";
+
+    private const string AllSitesTarget = "*";
+    private List<Site> _sites = new();
 
     private string? _passwordResetUserId;
     private string _newPassword = "";
@@ -319,6 +348,7 @@
     {
         _multiSiteEnabled = await SiteManagement.IsMultiSiteEnabledAsync();
         _siteRestrictionActive = await AuthPolicy.IsRestrictSitesToMembersAsync();
+        _sites = await SiteManagement.GetSitesAsync();
 
         if (AuthState is not null)
         {
@@ -357,6 +387,15 @@
         _newDisplayName = "";
         _newUserPassword = "";
         _newUserRole = GlobalRoles.Viewer;
+
+        // With multi-site off, grant the main site by slug rather than All sites: it is the same thing
+        // today, but it does not silently widen to every client site if multi-site is enabled later.
+        // Otherwise default to the site being administered, which is what a new account usually needs.
+        _newUserSiteTarget = !_multiSiteEnabled
+            ? SiteManagementService.DefaultSiteSlug
+            : _sites.Any(s => s.Slug == SiteContext.Slug)
+                ? SiteContext.Slug
+                : _sites.FirstOrDefault()?.Slug ?? AllSitesTarget;
     }
 
     private async Task CreateUserAsync()
@@ -374,7 +413,8 @@
                 _newUserName.Trim(),
                 string.IsNullOrWhiteSpace(_newDisplayName) ? null : _newDisplayName.Trim(),
                 string.IsNullOrEmpty(_newUserPassword) ? null : _newUserPassword,
-                _newUserRole);
+                _newUserRole,
+                _newUserSiteTarget);
             Report(result, $"Created {_newUserName.Trim()}.");
             if (result.Succeeded)
             {
