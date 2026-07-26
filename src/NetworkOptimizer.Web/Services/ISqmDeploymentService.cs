@@ -41,7 +41,13 @@ public interface ISqmDeploymentService
     /// Remove every SQM script the app has ever deployed, including orphans from earlier versions.
     /// </summary>
     /// <returns>A tuple indicating success and a descriptive message.</returns>
-    [RequireGlobalRole(GlobalRoles.Admin)]
+    /// <remarks>
+    /// Operator, despite the name: deploying is its only caller, which clears stale and orphaned
+    /// scripts immediately before writing the new ones. It is not a standalone teardown - that is
+    /// <see cref="RemoveAsync"/>, which stays Admin. Gating this at Admin made deploy impossible for
+    /// an Operator, since the very first step of the deploy refused them.
+    /// </remarks>
+    [RequireGlobalRole(GlobalRoles.Operator)]
     [AuditAction(AuditActions.SqmReverted, TargetType = "wan")]
     Task<(bool success, string message)> CleanAllSqmScriptsAsync();
 
