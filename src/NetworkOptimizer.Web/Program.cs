@@ -656,6 +656,7 @@ builder.Services.AddScoped<DiagnosticsService>(); // Scoped - network diagnostic
 builder.Services.AddMutatingService<ISqmService, SqmService>();
 builder.Services.AddMutatingService<ISqmDeploymentService, SqmDeploymentService>();
 builder.Services.AddMutatingService<IWanSteerDeploymentService, WanSteerDeploymentService>();
+builder.Services.AddMutatingService<IWanSteerRuleService, WanSteerRuleService>();
 builder.Services.AddMutatingService<IPerfTweaksDeploymentService, PerfTweaksDeploymentService>();
 // Per site: the update banner reflects the current site's gateway module deployment
 // state. Scoped so each site's Perf Tweaks / WAN Steering status is its own; a circuit
