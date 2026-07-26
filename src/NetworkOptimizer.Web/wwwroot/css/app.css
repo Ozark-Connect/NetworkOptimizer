@@ -2730,13 +2730,43 @@ select.form-control {
     display: block;
 }
 
-.account-secret-key {
-    margin: 0 0 1rem;
+.account-key-row {
+    display: flex;
+    align-items: stretch;
+    gap: 0.5rem;
+    max-width: 26rem;
+    margin-bottom: 1rem;
 }
 
-.account-secret-key code {
-    font-size: 0.95rem;
-    letter-spacing: 0.05em;
+.account-key-input {
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+    letter-spacing: 0.04em;
+}
+
+.account-copy-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: 2.5rem;
+    padding: 0;
+    background: var(--bg-elevated);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.account-copy-btn:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.account-copy-btn svg {
+    width: 1rem;
+    height: 1rem;
 }
 
 .account-verify-code {
@@ -19042,15 +19072,8 @@ body.kiosk-mode .status-indicators {
 }
 
 @media (max-width: 768px) {
-    .account-secret-key code,
     .account-recovery-codes code {
         font-size: 0.85rem;
-    }
-
-    /* The tracking that makes the key readable on a wide screen is what pushes it onto a second
-       line on a narrow one, so it comes off here rather than shrinking the type further. */
-    .account-secret-key code {
-        letter-spacing: 0.02em;
     }
 
     .account-credential-item {

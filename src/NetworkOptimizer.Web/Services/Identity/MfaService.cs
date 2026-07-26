@@ -153,11 +153,16 @@ public sealed class MfaService : IMfaService
         => _audit.Log(AuditEventBuilder.From(_caller.Current, AuditCategories.Auth, action,
             targetType: "user", targetId: user.Id, targetName: user.UserName));
 
+    /// <summary>
+    /// Groups the shared key in fours for readability. Deliberately NOT lower-cased: base32 (RFC 4648)
+    /// is an upper-case alphabet, and authenticator apps reject or mis-decode a lower-case secret on
+    /// manual entry. The scaffolded Identity template lower-cases here; that is a display bug.
+    /// </summary>
     private static string FormatKey(string key)
     {
         var sb = new StringBuilder();
         for (var i = 0; i < key.Length; i += 4)
             sb.Append(key.AsSpan(i, Math.Min(4, key.Length - i))).Append(' ');
-        return sb.ToString().Trim().ToLowerInvariant();
+        return sb.ToString().Trim().ToUpperInvariant();
     }
 }
