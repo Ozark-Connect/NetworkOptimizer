@@ -21,6 +21,7 @@ public sealed record AdminActionResult(bool Succeeded, string? Error = null)
 public interface IIdentityAdminService
 {
     Task<IReadOnlyList<ApplicationUser>> ListUsersAsync();
+    Task<int> CountUsersAsync();
     Task<ApplicationUser?> FindByIdAsync(string userId);
     Task<IReadOnlyList<string>> GetGlobalRolesAsync(ApplicationUser user);
 
@@ -67,6 +68,8 @@ public sealed class IdentityAdminService : IIdentityAdminService
 
     public async Task<IReadOnlyList<ApplicationUser>> ListUsersAsync()
         => await _userManager.Users.OrderBy(u => u.UserName).ToListAsync();
+
+    public Task<int> CountUsersAsync() => _userManager.Users.CountAsync();
 
     public Task<ApplicationUser?> FindByIdAsync(string userId) => _userManager.FindByIdAsync(userId)!;
 
