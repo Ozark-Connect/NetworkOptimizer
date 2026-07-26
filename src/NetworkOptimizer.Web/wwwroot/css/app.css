@@ -18784,7 +18784,6 @@ body.kiosk-mode .status-indicators {
     font-weight: 600;
 }
 
-/* Settings - Identity: users, per-site access, and sign-in providers. */
 .identity-loading {
     display: flex;
     justify-content: center;
