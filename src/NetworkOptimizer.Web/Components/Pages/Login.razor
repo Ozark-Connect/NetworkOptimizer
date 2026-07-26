@@ -124,6 +124,11 @@
         "invalid" or "missing" => "Invalid username or password.",
         "lockout" => "Too many attempts. Try again in a few minutes.",
         "sso_only" => "Local login is disabled. Sign in with your identity provider.",
+        // Passkey outcomes name the credential, never the account, so they carry no enumeration risk.
+        "passkey_rejected" => "That passkey wasn't accepted. It may have been removed from the account - "
+            + "sign in another way, then register a new one.",
+        "passkey_failed" => "Passkey sign-in couldn't be completed. Try again, or sign in with your password.",
+        "passkey_insecure" => "Passkeys need a secure (HTTPS) connection. Sign in with your password instead.",
         _ => null,
     };
 
