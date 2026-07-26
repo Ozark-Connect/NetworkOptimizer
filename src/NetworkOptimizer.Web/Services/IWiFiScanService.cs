@@ -14,7 +14,7 @@ public interface IWiFiScanService
     /// <summary>Runs quick spectrum scans on the given AP/band targets.</summary>
     /// <remarks>Operator: a scan takes APs off-channel and briefly drops their clients. Disruptive measurement,
     /// which is the same reason a speed test is Operator rather than Viewer.</remarks>
-    [RequireRole(GlobalRoles.Operator)]
+    [RequireRole(Roles.Operator)]
     [AuditAction(AuditActions.OptimizerApplied, TargetType = "spectrum_scan")]
     Task RunQuickScansAsync(
         IEnumerable<(string ApMac, string BandCode)> targets,

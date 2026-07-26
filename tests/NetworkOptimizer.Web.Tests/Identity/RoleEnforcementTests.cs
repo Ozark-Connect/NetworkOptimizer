@@ -20,14 +20,14 @@ public class RoleEnforcementTests
     [MutatingService]
     public interface INetworkService
     {
-        [RequireRole(GlobalRoles.Viewer)]
+        [RequireRole(Roles.Viewer)]
         Task<string> GetStatusAsync();
 
-        [RequireRole(GlobalRoles.Operator)]
+        [RequireRole(Roles.Operator)]
         [AuditAction(AuditActions.SpeedTestRun, TargetType = "wan_speedtest")]
         Task<int> RunSpeedTestAsync();
 
-        [RequireRole(GlobalRoles.Admin)]
+        [RequireRole(Roles.Admin)]
         [AuditAction(AuditActions.SqmApplied, TargetType = "wan")]
         Task ApplyConfigAsync();
     }
@@ -81,7 +81,7 @@ public class RoleEnforcementTests
         var audit = new CapturingAudit();
         await using var provider = Build(audit);
         using var scope = provider.CreateScope();
-        var svc = ServiceFor(scope, GlobalRoles.Viewer);
+        var svc = ServiceFor(scope, Roles.Viewer);
 
         (await svc.GetStatusAsync()).Should().Be("ok");
 
@@ -100,7 +100,7 @@ public class RoleEnforcementTests
         var audit = new CapturingAudit();
         await using var provider = Build(audit);
         using var scope = provider.CreateScope();
-        var svc = ServiceFor(scope, GlobalRoles.Operator);
+        var svc = ServiceFor(scope, Roles.Operator);
 
         (await svc.RunSpeedTestAsync()).Should().Be(940);
         (await svc.GetStatusAsync()).Should().Be("ok"); // Operator outranks Viewer
@@ -118,7 +118,7 @@ public class RoleEnforcementTests
         var audit = new CapturingAudit();
         await using var provider = Build(audit);
         using var scope = provider.CreateScope();
-        var svc = ServiceFor(scope, GlobalRoles.Admin);
+        var svc = ServiceFor(scope, Roles.Admin);
 
         (await svc.RunSpeedTestAsync()).Should().Be(940);
         await svc.ApplyConfigAsync();

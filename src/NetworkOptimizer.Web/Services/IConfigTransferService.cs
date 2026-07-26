@@ -12,20 +12,20 @@ namespace NetworkOptimizer.Web.Services;
 public interface IConfigTransferService
 {
     /// <summary>Builds the export archive for the selected scope.</summary>
-    [RequireRole(GlobalRoles.Admin)]
+    [RequireRole(Roles.Admin)]
     [AuditAction(AuditActions.DbExported, Category = AuditCategories.Settings, TargetType = "config_archive")]
     Task<byte[]> ExportAsync(ExportType type);
 
     /// <summary>Validates an uploaded archive and stages it, returning what the import would change.</summary>
-    [RequireRole(GlobalRoles.Admin)]
+    [RequireRole(Roles.Admin)]
     Task<ImportPreview> ValidateImportAsync(Stream uploadStream);
 
     /// <summary>Applies the staged import and restarts the app.</summary>
-    [RequireRole(GlobalRoles.Admin)]
+    [RequireRole(Roles.Admin)]
     [AuditAction(AuditActions.DbRestored, Category = AuditCategories.Settings, TargetType = "config_archive")]
     Task ApplyImportAsync();
 
     /// <summary>Discards a staged import without applying it.</summary>
-    [RequireRole(GlobalRoles.Admin)]
+    [RequireRole(Roles.Admin)]
     void CancelPendingImport();
 }

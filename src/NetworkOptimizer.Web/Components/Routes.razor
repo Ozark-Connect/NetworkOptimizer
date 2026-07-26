@@ -54,7 +54,7 @@
         // never gate their first render and never flash an empty page while a check resolves.
         var caller = Caller.Current;
         if (caller is null || caller.AuthenticationDisabled || caller.Principal is null
-            || caller.Principal.IsInRole(GlobalRoles.Admin))
+            || caller.Principal.IsInRole(Roles.Admin))
         {
             _siteResolved = true;
             return;

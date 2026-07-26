@@ -17,47 +17,47 @@ namespace NetworkOptimizer.Web.Services;
 public interface IAlertConfigService
 {
     /// <summary>Creates an alert rule and returns its id.</summary>
-    [RequireRole(GlobalRoles.Admin)]
+    [RequireRole(Roles.Admin)]
     [AuditAction(AuditActions.AlertRuleChanged, TargetType = "alert_rule")]
     Task<int> CreateRuleAsync(AlertRule rule);
 
     /// <summary>Applies edits to an existing rule; returns the saved rule, or null when it is gone.</summary>
-    [RequireRole(GlobalRoles.Admin)]
+    [RequireRole(Roles.Admin)]
     [AuditAction(AuditActions.AlertRuleChanged, TargetType = "alert_rule")]
     Task<AlertRule?> UpdateRuleAsync(int id, AlertRule rule);
 
     /// <summary>Deletes an alert rule.</summary>
-    [RequireRole(GlobalRoles.Admin)]
+    [RequireRole(Roles.Admin)]
     [AuditAction(AuditActions.AlertRuleChanged, TargetType = "alert_rule")]
     Task DeleteRuleAsync(int id);
 
     /// <summary>Creates a delivery channel and returns its id.</summary>
-    [RequireRole(GlobalRoles.Admin)]
+    [RequireRole(Roles.Admin)]
     [AuditAction(AuditActions.AlertRuleChanged, TargetType = "alert_channel")]
     Task<int> CreateChannelAsync(DeliveryChannel channel);
 
     /// <summary>Applies edits to a delivery channel; returns the saved channel, or null when it is gone.</summary>
-    [RequireRole(GlobalRoles.Admin)]
+    [RequireRole(Roles.Admin)]
     [AuditAction(AuditActions.AlertRuleChanged, TargetType = "alert_channel")]
     Task<DeliveryChannel?> UpdateChannelAsync(int id, DeliveryChannel channel);
 
     /// <summary>Deletes a delivery channel.</summary>
-    [RequireRole(GlobalRoles.Admin)]
+    [RequireRole(Roles.Admin)]
     [AuditAction(AuditActions.AlertRuleChanged, TargetType = "alert_channel")]
     Task DeleteChannelAsync(int id);
 
     /// <summary>Acknowledges an alert; returns the updated alert, or null when it is gone.</summary>
-    [RequireRole(GlobalRoles.Admin)]
+    [RequireRole(Roles.Admin)]
     [AuditAction(AuditActions.AlertRuleChanged, TargetType = "alert")]
     Task<AlertHistoryEntry?> AcknowledgeAlertAsync(int id);
 
     /// <summary>Resolves an alert; returns the updated alert, or null when it is gone.</summary>
-    [RequireRole(GlobalRoles.Admin)]
+    [RequireRole(Roles.Admin)]
     [AuditAction(AuditActions.AlertRuleChanged, TargetType = "alert")]
     Task<AlertHistoryEntry?> ResolveAlertAsync(int id);
 
     /// <summary>Applies edits to a scheduled task; returns the saved task, or null when it is gone.</summary>
-    [RequireRole(GlobalRoles.Admin)]
+    [RequireRole(Roles.Admin)]
     [AuditAction(AuditActions.ScheduleChanged, TargetType = "schedule")]
     Task<ScheduledTask?> UpdateScheduleAsync(int id, ScheduledTask updated);
 }

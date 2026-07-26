@@ -74,7 +74,7 @@ public sealed class IdentityBootstrapServiceTests : IDisposable
         admin.Should().NotBeNull();
         admin!.PasswordIsTemporary.Should().BeTrue("an auto-generated password must keep nagging");
         admin.IsEnabled.Should().BeTrue();
-        (await userManager.IsInRoleAsync(admin, GlobalRoles.Admin)).Should().BeTrue();
+        (await userManager.IsInRoleAsync(admin, Roles.Admin)).Should().BeTrue();
         (await userManager.CheckPasswordAsync(admin, tempPassword)).Should()
             .BeTrue("the migrated temp password must still log in - this is the anti-lockout guarantee");
         (await userManager.CheckPasswordAsync(admin, "wrong")).Should().BeFalse();
@@ -130,7 +130,7 @@ public sealed class IdentityBootstrapServiceTests : IDisposable
         // Roles are still ensured, but no admin user is seeded without a credential.
         (await userManager.FindByNameAsync(IdentityBootstrapService.AdminUserName)).Should().BeNull();
         var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<ApplicationRole>>();
-        (await roleManager.RoleExistsAsync(GlobalRoles.Admin)).Should().BeTrue();
+        (await roleManager.RoleExistsAsync(Roles.Admin)).Should().BeTrue();
     }
 
     private static async Task RunBootstrapAsync(ServiceProvider provider)

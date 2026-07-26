@@ -49,7 +49,7 @@ public sealed class EffectiveSiteRoleResolver : IEffectiveSiteRoleResolver
         if (string.IsNullOrEmpty(userId))
             return null;
 
-        if (user.IsInRole(GlobalRoles.Admin))
+        if (user.IsInRole(Roles.Admin))
             return SiteRole.SiteAdmin;
 
         // Cached on the same membership-version key as the authorized-slug set: this is now the
@@ -71,7 +71,7 @@ public sealed class EffectiveSiteRoleResolver : IEffectiveSiteRoleResolver
         var (memberships, groupSlugs) = await LoadMembershipsAsync(userId);
         var restrict = await _policy.IsRestrictSitesToMembersAsync();
         var globalImplied = EffectiveSiteRole.GlobalImplied(
-            user.IsInRole(GlobalRoles.Operator), user.IsInRole(GlobalRoles.Viewer));
+            user.IsInRole(Roles.Operator), user.IsInRole(Roles.Viewer));
 
         return EffectiveSiteRole.Compute(
             isGlobalAdmin: false,
@@ -104,7 +104,7 @@ public sealed class EffectiveSiteRoleResolver : IEffectiveSiteRoleResolver
         var allSlugs = await LoadAllSlugsAsync();
 
         // Admin, and (when unrestricted) any global role, see every site.
-        if (user.IsInRole(GlobalRoles.Admin))
+        if (user.IsInRole(Roles.Admin))
             return allSlugs;
         if (!await _policy.IsRestrictSitesToMembersAsync())
             return allSlugs;

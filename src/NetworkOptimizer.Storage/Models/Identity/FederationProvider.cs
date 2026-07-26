@@ -136,7 +136,7 @@ public class FederationRoleMapping
     /// <summary>The group name or claim value to match (e.g. "netopt-admins").</summary>
     public string GroupOrClaimValue { get; set; } = "";
 
-    /// <summary>Target global role name (see <see cref="GlobalRoles"/>).</summary>
+    /// <summary>Target global role name (see <see cref="Roles"/>).</summary>
     public string GlobalRole { get; set; } = "";
 }
 

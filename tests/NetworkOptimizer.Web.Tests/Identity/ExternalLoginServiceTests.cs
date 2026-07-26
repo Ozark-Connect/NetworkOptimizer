@@ -80,14 +80,14 @@ public sealed class ExternalLoginServiceTests : IDisposable
         var svc = scope.ServiceProvider.GetRequiredService<IExternalLoginService>();
         var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
 
-        var fed = Provider(roleMappings: ("netopt-ops", GlobalRoles.Operator));
+        var fed = Provider(roleMappings: ("netopt-ops", Roles.Operator));
         var outcome = await svc.ProcessAsync(fed, External("okta|001", "alice", "alice@example.com", "netopt-ops"));
 
         outcome.Should().Be(ExternalLoginOutcome.SignedIn);
         var user = await userManager.FindByLoginAsync("oidc:okta", "okta|001");
         user.Should().NotBeNull();
         user!.UserName.Should().Be("alice");
-        (await userManager.IsInRoleAsync(user, GlobalRoles.Operator)).Should().BeTrue();
+        (await userManager.IsInRoleAsync(user, Roles.Operator)).Should().BeTrue();
     }
 
     [Fact]
@@ -148,7 +148,7 @@ public sealed class ExternalLoginServiceTests : IDisposable
         var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
 
         // Provision a federated user as Admin, then re-login with no admin group under authoritative mode.
-        var fedGrant = Provider(mode: RoleMappingMode.IdpAuthoritative, roleMappings: ("admins", GlobalRoles.Admin));
+        var fedGrant = Provider(mode: RoleMappingMode.IdpAuthoritative, roleMappings: ("admins", Roles.Admin));
         await svc.ProcessAsync(fedGrant, External("okta|900", "erin", groups: "admins"));
         var erin = await userManager.FindByLoginAsync("oidc:okta", "okta|900");
 
@@ -156,10 +156,10 @@ public sealed class ExternalLoginServiceTests : IDisposable
         var seededAdmin = await userManager.FindByNameAsync(IdentityBootstrapService.AdminUserName);
         if (seededAdmin is not null) { seededAdmin.IsEnabled = false; await userManager.UpdateAsync(seededAdmin); }
 
-        var fedRevoke = Provider(mode: RoleMappingMode.IdpAuthoritative, roleMappings: ("admins", GlobalRoles.Admin));
+        var fedRevoke = Provider(mode: RoleMappingMode.IdpAuthoritative, roleMappings: ("admins", Roles.Admin));
         await svc.ProcessAsync(fedRevoke, External("okta|900", "erin")); // no groups now
 
-        (await userManager.IsInRoleAsync(erin!, GlobalRoles.Admin))
+        (await userManager.IsInRoleAsync(erin!, Roles.Admin))
             .Should().BeTrue("resync must not demote the last remaining Admin");
     }
 

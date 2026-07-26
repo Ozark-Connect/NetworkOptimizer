@@ -16,7 +16,7 @@ public interface ISqmDeploymentService
     /// Test SSH connection to the gateway.
     /// </summary>
     /// <returns>A tuple indicating success and a descriptive message.</returns>
-    [RequireRole(GlobalRoles.Viewer)]
+    [RequireRole(Roles.Viewer)]
     Task<(bool success, string message)> TestConnectionAsync();
 
     /// <summary>
@@ -24,7 +24,7 @@ public interface ISqmDeploymentService
     /// isn't online yet, rather than a real connection failure. Always false for a
     /// directly-reached site.
     /// </summary>
-    [RequireRole(GlobalRoles.Viewer)]
+    [RequireRole(Roles.Viewer)]
     Task<bool> IsAwaitingAgentAsync();
 
     /// <summary>
@@ -33,7 +33,7 @@ public interface ISqmDeploymentService
     /// and persist across firmware updates.
     /// </summary>
     /// <returns>A tuple indicating success and a descriptive message.</returns>
-    [RequireRole(GlobalRoles.Admin)]
+    [RequireRole(Roles.Admin)]
     [AuditAction(AuditActions.SqmApplied, TargetType = "udm_boot")]
     Task<(bool success, string message)> InstallUdmBootAsync();
 
@@ -47,7 +47,7 @@ public interface ISqmDeploymentService
     /// <see cref="RemoveAsync"/>, which stays Admin. Gating this at Admin made deploy impossible for
     /// an Operator, since the very first step of the deploy refused them.
     /// </remarks>
-    [RequireRole(GlobalRoles.Operator)]
+    [RequireRole(Roles.Operator)]
     [AuditAction(AuditActions.SqmReverted, TargetType = "wan")]
     Task<(bool success, string message)> CleanAllSqmScriptsAsync();
 
@@ -55,7 +55,7 @@ public interface ISqmDeploymentService
     /// Check if SQM scripts are already deployed on the gateway.
     /// </summary>
     /// <returns>A <see cref="SqmDeploymentStatus"/> object with detailed deployment status.</returns>
-    [RequireRole(GlobalRoles.Viewer)]
+    [RequireRole(Roles.Viewer)]
     Task<SqmDeploymentStatus> CheckDeploymentStatusAsync();
 
     /// <summary>
@@ -71,7 +71,7 @@ public interface ISqmDeploymentService
     /// boot persistence in place and is restored by re-enabling and re-deploying. Tearing the feature
     /// off the gateway is <see cref="RemoveAsync"/>, which stays Admin.
     /// </remarks>
-    [RequireRole(GlobalRoles.Operator)]
+    [RequireRole(Roles.Operator)]
     [AuditAction(AuditActions.SqmApplied, TargetType = "wan")]
     Task<SqmDeploymentResult> DeployAsync(SqmConfig config, Dictionary<string, string>? baseline = null, int initialDelaySeconds = 60);
 
@@ -85,7 +85,7 @@ public interface ISqmDeploymentService
     /// <param name="wan2Name">Friendly name for WAN2 (e.g., "Starlink").</param>
     /// <returns>A tuple with success status and optional warning message if the service didn't start correctly.</returns>
     /// <remarks>Operator: redeploying the monitor is how a broken one is repaired.</remarks>
-    [RequireRole(GlobalRoles.Operator)]
+    [RequireRole(Roles.Operator)]
     [AuditAction(AuditActions.SqmApplied, TargetType = "tc_monitor")]
     Task<(bool success, string? warning)> DeploySqmMonitorAsync(string wan1Interface, string wan1Name, string wan2Interface, string wan2Name);
 
@@ -94,7 +94,7 @@ public interface ISqmDeploymentService
     /// </summary>
     /// <param name="includeTcMonitor">If true, also removes the TC Monitor service.</param>
     /// <returns>A tuple indicating success and a list of steps performed.</returns>
-    [RequireRole(GlobalRoles.Admin)]
+    [RequireRole(Roles.Admin)]
     [AuditAction(AuditActions.SqmReverted, TargetType = "wan")]
     Task<(bool success, List<string> steps)> RemoveAsync(bool includeTcMonitor = true);
 
@@ -105,7 +105,7 @@ public interface ISqmDeploymentService
     /// <param name="wanName">The name of the WAN to trigger adjustment for.</param>
     /// <returns>A tuple indicating success and a descriptive message.</returns>
     /// <remarks>Operator: running an adjustment is operating the deployed system, not changing it.</remarks>
-    [RequireRole(GlobalRoles.Operator)]
+    [RequireRole(Roles.Operator)]
     [AuditAction(AuditActions.SqmApplied, TargetType = "wan")]
     Task<(bool success, string message)> TriggerSqmAdjustmentAsync(string wanName);
 
@@ -116,13 +116,13 @@ public interface ISqmDeploymentService
     /// <param name="wanName">The WAN connection name.</param>
     /// <param name="lines">Number of lines to retrieve (default 50).</param>
     /// <returns>Success status and log output or error message.</returns>
-    [RequireRole(GlobalRoles.Viewer)]
+    [RequireRole(Roles.Viewer)]
     Task<(bool success, string output)> GetWanLogsAsync(string wanName, int lines = 50);
 
     /// <summary>
     /// Get SQM status for all WANs by parsing gateway logs.
     /// </summary>
     /// <returns>A list of <see cref="SqmWanStatus"/> objects with per-WAN status information.</returns>
-    [RequireRole(GlobalRoles.Viewer)]
+    [RequireRole(Roles.Viewer)]
     Task<List<SqmWanStatus>> GetSqmWanStatusAsync();
 }

@@ -69,7 +69,7 @@ public sealed class MembershipOwnershipTests : IDisposable
         {
             new Claim(ClaimTypes.NameIdentifier, "site-admin-1"),
             new Claim(ClaimTypes.Name, "siteadmin1"),
-            new Claim(ClaimTypes.Role, GlobalRoles.Viewer),
+            new Claim(ClaimTypes.Role, Roles.Viewer),
         },
         "test"));
 
@@ -78,7 +78,7 @@ public sealed class MembershipOwnershipTests : IDisposable
         {
             new Claim(ClaimTypes.NameIdentifier, "admin-1"),
             new Claim(ClaimTypes.Name, "admin"),
-            new Claim(ClaimTypes.Role, GlobalRoles.Admin),
+            new Claim(ClaimTypes.Role, Roles.Admin),
         },
         "test"));
 
@@ -87,7 +87,7 @@ public sealed class MembershipOwnershipTests : IDisposable
         var users = sp.GetRequiredService<UserManager<ApplicationUser>>();
         var target = new ApplicationUser { UserName = "tech1", IsEnabled = true };
         await users.CreateAsync(target);
-        await users.AddToRoleAsync(target, GlobalRoles.Viewer);
+        await users.AddToRoleAsync(target, Roles.Viewer);
         return target.Id;
     }
 
@@ -100,7 +100,7 @@ public sealed class MembershipOwnershipTests : IDisposable
             await seed.ServiceProvider.GetRequiredService<AuthDbContext>().Database.MigrateAsync();
 
             var roles = seed.ServiceProvider.GetRequiredService<RoleManager<ApplicationRole>>();
-            foreach (var role in GlobalRoles.All)
+            foreach (var role in Roles.All)
                 await roles.CreateAsync(new ApplicationRole { Name = role });
         }
 

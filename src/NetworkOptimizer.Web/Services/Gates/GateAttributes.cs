@@ -12,7 +12,7 @@ public sealed class RequireRoleAttribute : Attribute
 {
     public RequireRoleAttribute(string role) => Role = role;
 
-    /// <summary>Required global role (see <see cref="GlobalRoles"/>).</summary>
+    /// <summary>Required global role (see <see cref="Roles"/>).</summary>
     public string Role { get; }
 }
 

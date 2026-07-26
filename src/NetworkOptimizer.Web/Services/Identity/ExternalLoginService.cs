@@ -132,7 +132,7 @@ public sealed class ExternalLoginService : IExternalLoginService
         var mappedRoles = provider.RoleMappings
             .Where(m => groups.Contains(m.GroupOrClaimValue))
             .Select(m => m.GlobalRole)
-            .Where(r => GlobalRoles.All.Contains(r))
+            .Where(r => Roles.All.Contains(r))
             .Distinct()
             .ToList();
 
@@ -171,7 +171,7 @@ public sealed class ExternalLoginService : IExternalLoginService
         var desiredRoles = provider.RoleMappings
             .Where(m => groups.Contains(m.GroupOrClaimValue))
             .Select(m => m.GlobalRole)
-            .Where(r => GlobalRoles.All.Contains(r))
+            .Where(r => Roles.All.Contains(r))
             .Distinct()
             .ToHashSet();
 
@@ -182,7 +182,7 @@ public sealed class ExternalLoginService : IExternalLoginService
 
         foreach (var remove in currentRoles.Except(desiredRoles))
         {
-            if (remove == GlobalRoles.Admin && await IsLastEnabledAdminAsync(user))
+            if (remove == Roles.Admin && await IsLastEnabledAdminAsync(user))
             {
                 _audit.Log(AuditEventBuilder.From(
                     CallerInfo.System($"federation:{SchemeKey(provider)}"),
@@ -200,7 +200,7 @@ public sealed class ExternalLoginService : IExternalLoginService
 
     private async Task<bool> IsLastEnabledAdminAsync(ApplicationUser user)
     {
-        var admins = await _userManager.GetUsersInRoleAsync(GlobalRoles.Admin);
+        var admins = await _userManager.GetUsersInRoleAsync(Roles.Admin);
         return admins.Count(a => a.IsEnabled) <= 1;
     }
 

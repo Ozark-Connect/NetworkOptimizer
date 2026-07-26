@@ -62,7 +62,7 @@ public sealed class IdentityBootstrapService : IIdentityBootstrapService
     /// <summary>Ensures the three global roles exist. Admin implies MFA-required is opt-in (default off).</summary>
     private async Task EnsureRolesAsync()
     {
-        foreach (var roleName in GlobalRoles.All)
+        foreach (var roleName in Roles.All)
         {
             if (await _roleManager.RoleExistsAsync(roleName))
                 continue;
@@ -71,9 +71,9 @@ public sealed class IdentityBootstrapService : IIdentityBootstrapService
             {
                 Description = roleName switch
                 {
-                    GlobalRoles.Admin => "Full access: user, role, and federation management, licensing, all sites, audit log.",
-                    GlobalRoles.Operator => "Operate permitted sites; no settings, user, or federation management.",
-                    GlobalRoles.Viewer => "Read-only on permitted sites.",
+                    Roles.Admin => "Full access: user, role, and federation management, licensing, all sites, audit log.",
+                    Roles.Operator => "Operate permitted sites; no settings, user, or federation management.",
+                    Roles.Viewer => "Read-only on permitted sites.",
                     _ => null,
                 },
             };
@@ -142,7 +142,7 @@ public sealed class IdentityBootstrapService : IIdentityBootstrapService
             return;
         }
 
-        var roleResult = await _userManager.AddToRoleAsync(admin, GlobalRoles.Admin);
+        var roleResult = await _userManager.AddToRoleAsync(admin, Roles.Admin);
         if (!roleResult.Succeeded)
             _logger.LogError("Identity bootstrap: failed to grant admin the Admin role: {Errors}", Describe(roleResult));
 

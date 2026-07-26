@@ -14,30 +14,30 @@ namespace NetworkOptimizer.Web.Services;
 public interface IMonitoringInterfaceDeploymentService
 {
     /// <summary>Checks whether the interface can be deployed (address conflicts, mark range, udm-boot).</summary>
-    [RequireRole(GlobalRoles.Viewer)]
+    [RequireRole(Roles.Viewer)]
     Task<MonitoringInterfaceDeploymentService.PreflightResult> PreflightAsync(MonitoringInterface mi, CancellationToken ct = default);
 
     /// <summary>Deploys the alias interface and its boot script to the gateway.</summary>
-    [RequireRole(GlobalRoles.Admin)]
+    [RequireRole(Roles.Admin)]
     [AuditAction(AuditActions.MonitoringSetupChanged, TargetType = "monitoring_interface")]
     Task<MonitoringInterfaceDeploymentService.DeployResult> DeployAsync(MonitoringInterface mi, CancellationToken ct = default);
 
     /// <summary>Removes the alias interface and its boot script from the gateway.</summary>
-    [RequireRole(GlobalRoles.Admin)]
+    [RequireRole(Roles.Admin)]
     [AuditAction(AuditActions.MonitoringSetupChanged, TargetType = "monitoring_interface")]
     Task<(bool success, List<string> steps)> RemoveAsync(MonitoringInterface mi);
 
     /// <summary>Disables the alias interface on the gateway without removing its configuration.</summary>
-    [RequireRole(GlobalRoles.Admin)]
+    [RequireRole(Roles.Admin)]
     [AuditAction(AuditActions.MonitoringSetupChanged, TargetType = "monitoring_interface")]
     Task<(bool success, List<string> steps)> DisableAsync(MonitoringInterface mi);
 
     /// <summary>Re-enables a previously disabled alias interface.</summary>
-    [RequireRole(GlobalRoles.Admin)]
+    [RequireRole(Roles.Admin)]
     [AuditAction(AuditActions.MonitoringSetupChanged, TargetType = "monitoring_interface")]
     Task<MonitoringInterfaceDeploymentService.DeployResult> EnableAsync(MonitoringInterface mi, CancellationToken ct = default);
 
     /// <summary>Live status of the alias interface on the gateway.</summary>
-    [RequireRole(GlobalRoles.Viewer)]
+    [RequireRole(Roles.Viewer)]
     Task<MonitoringInterfaceDeploymentService.InterfaceStatus> CheckStatusAsync(MonitoringInterface mi);
 }

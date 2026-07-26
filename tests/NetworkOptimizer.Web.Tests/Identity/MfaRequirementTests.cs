@@ -164,10 +164,10 @@ public sealed class MfaRequirementTests : IDisposable
             await AddPasskeyAsync(scope, user);
 
             var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
-            (await userManager.AddToRoleAsync(user, GlobalRoles.Admin)).Succeeded.Should().BeTrue();
+            (await userManager.AddToRoleAsync(user, Roles.Admin)).Succeeded.Should().BeTrue();
 
             var identityAdmin = scope.ServiceProvider.GetRequiredService<IIdentityAdminService>();
-            (await identityAdmin.SetRoleRequiresMfaAsync(GlobalRoles.Admin, true)).Succeeded.Should().BeTrue();
+            (await identityAdmin.SetRoleRequiresMfaAsync(Roles.Admin, true)).Succeeded.Should().BeTrue();
         }
 
         using (var scope = provider.CreateScope())
@@ -190,7 +190,7 @@ public sealed class MfaRequirementTests : IDisposable
         {
             var user = await CreateUserAsync(scope, "plainviewer");
             var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
-            (await userManager.AddToRoleAsync(user, GlobalRoles.Viewer)).Succeeded.Should().BeTrue();
+            (await userManager.AddToRoleAsync(user, Roles.Viewer)).Succeeded.Should().BeTrue();
         }
 
         using (var scope = provider.CreateScope())

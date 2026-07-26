@@ -14,27 +14,27 @@ namespace NetworkOptimizer.Web.Services;
 public interface ISystemSettingsAdmin
 {
     /// <summary>Writes a setting in the current site's database.</summary>
-    [RequireRole(GlobalRoles.Admin)]
+    [RequireRole(Roles.Admin)]
     [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "setting")]
     Task SetAsync(string key, string? value);
 
     /// <summary>Writes an integer setting in the current site's database.</summary>
-    [RequireRole(GlobalRoles.Admin)]
+    [RequireRole(Roles.Admin)]
     [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "setting")]
     Task SetIntAsync(string key, int value);
 
     /// <summary>Writes an instance-wide setting in the main database.</summary>
-    [RequireRole(GlobalRoles.Admin)]
+    [RequireRole(Roles.Admin)]
     [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "setting")]
     Task SetGlobalAsync(string key, string? value);
 
     /// <summary>Writes an instance-wide integer setting in the main database.</summary>
-    [RequireRole(GlobalRoles.Admin)]
+    [RequireRole(Roles.Admin)]
     [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "setting")]
     Task SetGlobalIntAsync(string key, int value);
 
     /// <summary>Saves the iperf3 test preferences as one change.</summary>
-    [RequireRole(GlobalRoles.Admin)]
+    [RequireRole(Roles.Admin)]
     [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "iperf3_settings")]
     Task SaveIperf3SettingsAsync(Iperf3Settings settings);
 }
