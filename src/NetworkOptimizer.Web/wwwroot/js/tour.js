@@ -27,7 +27,13 @@ window.noTour = (function () {
     function teardown() {
         if (!active) return;
         active.cleanup.forEach(fn => { try { fn(); } catch { } });
-        if (active.overlay) active.overlay.remove();
+        const overlay = active.overlay;
+        if (overlay) {
+            // Fade the dim and card out, then remove; a replacement overlay from the
+            // next step cross-fades over this one.
+            overlay.classList.remove('tour-overlay-on');
+            setTimeout(() => overlay.remove(), 300);
+        }
         active = null;
     }
 
@@ -192,7 +198,10 @@ window.noTour = (function () {
             active.cleanup.push(() => clearInterval(drift));
 
             position();
-            requestAnimationFrame(position);
+            requestAnimationFrame(() => {
+                position();
+                overlay.classList.add('tour-overlay-on');
+            });
             try { next.focus(); } catch { }
             return 'shown';
         },

@@ -30,17 +30,8 @@ public static class AppVersionInfo
     /// <summary>The X.Y.Z base version for a real release, or null for a source build.</summary>
     public static string? ReleaseVersion { get; }
 
-    /// <summary>
-    /// True when this is a source build rather than a published release. Covers both
-    /// flavors MinVer produces: no reachable tag at all (0.0.0 base, e.g. a Docker
-    /// build whose context has no .git) and commits past the last tag (prerelease
-    /// height like "2.3.2-alpha.0.12", e.g. a native build from a git checkout).
-    /// Build metadata is ignored: the SDK appends "+&lt;sha&gt;" to every build made from a
-    /// git checkout, releases included, so only a prerelease component marks a build
-    /// as unreleased. A build exactly on a release tag reports e.g. "2.3.1+abc123".
-    /// </summary>
-    public static bool IsSourceBuild =>
-        ReleaseVersion is null || Informational.Split('+')[0] != ReleaseVersion;
+    /// <summary>True when this is an untagged source build rather than a published release.</summary>
+    public static bool IsSourceBuild => ReleaseVersion is null;
 
     static AppVersionInfo()
     {

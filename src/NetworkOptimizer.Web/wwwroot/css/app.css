@@ -18602,11 +18602,16 @@ body.kiosk-mode .status-indicators {
 
 .tour-hole {
     position: fixed;
-    box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.6);
+    box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0);
     border-radius: 8px;
-    border: 2px solid var(--primary-hover);
-    transition: left 0.25s ease, top 0.25s ease, width 0.25s ease, height 0.25s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+    border: 2px solid transparent;
+    transition: left 0.25s ease, top 0.25s ease, width 0.25s ease, height 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
     pointer-events: none;
+}
+
+.tour-overlay-on .tour-hole {
+    box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.6);
+    border-color: var(--primary-hover);
 }
 
 .tour-overlay-clear .tour-hole {
@@ -18624,6 +18629,14 @@ body.kiosk-mode .status-indicators {
     max-width: calc(100vw - 20px);
     pointer-events: auto;
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+    opacity: 0;
+    transform: translateY(8px);
+    transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.tour-overlay-on .tour-card {
+    opacity: 1;
+    transform: none;
 }
 
 .tour-card-progress {

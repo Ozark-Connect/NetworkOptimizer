@@ -132,6 +132,20 @@ public static class TourVersions
             return null;
         return System.Version.TryParse(value.Trim(), out var v) ? v : null;
     }
+
+    /// <summary>
+    /// Tour-scoped source-build test, deliberately NOT on AppVersionInfo so tour
+    /// semantics never leak into core versioning. Unlike AppVersionInfo.IsSourceBuild
+    /// (0.0.0-base only), this also counts MinVer prerelease height ("2.3.2-alpha.0.12",
+    /// a git-checkout build past the last tag) as a source build - such a build must
+    /// namespace its recorded state and judge tours by its shipped content, not by a
+    /// release that does not exist yet. Build metadata is ignored: the SDK appends
+    /// "+sha" to every git build, releases included, so a build exactly on a release
+    /// tag reports e.g. "2.3.1+abc123" and still counts as a release here.
+    /// </summary>
+    public static bool IsSourceBuild =>
+        AppVersionInfo.ReleaseVersion is null
+        || AppVersionInfo.Informational.Split('+')[0] != AppVersionInfo.ReleaseVersion;
 }
 
 /// <summary>A step resolved for playback: site-stamped URL plus its owning tour.</summary>

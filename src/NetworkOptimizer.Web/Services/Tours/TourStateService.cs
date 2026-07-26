@@ -24,11 +24,11 @@ public class TourStateService
 
     private const string DevPrefix = "dev:";
 
-    private static string Ns(string id) => AppVersionInfo.IsSourceBuild ? DevPrefix + id : id;
+    private static string Ns(string id) => TourVersions.IsSourceBuild ? DevPrefix + id : id;
 
     private static string? StripNs(string id)
     {
-        if (AppVersionInfo.IsSourceBuild)
+        if (TourVersions.IsSourceBuild)
             return id.StartsWith(DevPrefix, StringComparison.Ordinal) ? id[DevPrefix.Length..] : null;
         return id.StartsWith(DevPrefix, StringComparison.Ordinal) ? null : id;
     }
