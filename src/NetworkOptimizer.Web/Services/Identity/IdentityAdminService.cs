@@ -8,12 +8,14 @@ namespace NetworkOptimizer.Web.Services.Identity;
 /// <summary>One user as the Identity tab lists them: identity, access, and credential facts in one row.</summary>
 /// <param name="User">The user record.</param>
 /// <param name="GlobalRole">Highest global role held, or null when the account has none.</param>
+/// <param name="HasPassword">True when a local password is set; false for a federated-only account.</param>
 /// <param name="MfaEnabled">True when an authenticator app is enrolled.</param>
 /// <param name="PasskeyCount">Number of registered passkeys.</param>
 /// <param name="LinkedProviders">Scheme names of linked external identity providers.</param>
 public sealed record UserAccountSummary(
     ApplicationUser User,
     string? GlobalRole,
+    bool HasPassword,
     bool MfaEnabled,
     int PasskeyCount,
     IReadOnlyList<string> LinkedProviders);
@@ -159,6 +161,7 @@ public sealed class IdentityAdminService : IIdentityAdminService
             summaries.Add(new UserAccountSummary(
                 user,
                 GlobalRoles.All.FirstOrDefault(roles.Contains),
+                await _userManager.HasPasswordAsync(user),
                 await _userManager.GetTwoFactorEnabledAsync(user),
                 passkeys.Count,
                 logins.Select(l => l.LoginProvider).ToList()));
@@ -265,6 +268,10 @@ public sealed class IdentityAdminService : IIdentityAdminService
         var user = await _userManager.FindByIdAsync(userId);
         if (user is null) return AdminActionResult.Fail("User not found.");
 
+        if (!enabled && IsSelf(userId))
+            return Refuse(user, AuditCategories.User, AuditActions.UserDisabled, "self",
+                "You cannot disable the account you are signed in as.");
+
         if (!enabled && await IsLastEnabledAdminAsync(user))
             return RefuseLastAdmin(user, "disable");
 
@@ -282,13 +289,15 @@ public sealed class IdentityAdminService : IIdentityAdminService
 
         // Deleting the account you are signed in as revokes your own session mid-action, so it is
         // refused outright rather than left to the last-admin check (which passes with two admins).
-        if (string.Equals(userId, _caller.Current?.UserId, StringComparison.Ordinal))
-            return RefuseDelete(user, "self", "You cannot delete the account you are signed in as.");
+        if (IsSelf(userId))
+            return Refuse(user, AuditCategories.User, AuditActions.UserDeleted, "self",
+                "You cannot delete the account you are signed in as.");
 
         // The reserved local administrator is what the boot seed reconciles and what break-glass
         // recovery re-enables. Disabling it is enough to take it out of use.
         if (string.Equals(user.UserName, IdentityBootstrapService.AdminUserName, StringComparison.OrdinalIgnoreCase))
-            return RefuseDelete(user, "reserved", $"The built-in {IdentityBootstrapService.AdminUserName} account cannot be deleted. Disable it instead.");
+            return Refuse(user, AuditCategories.User, AuditActions.UserDeleted, "reserved",
+                $"The built-in {IdentityBootstrapService.AdminUserName} account cannot be deleted. Disable it instead.");
 
         if (await IsLastEnabledAdminAsync(user))
             return RefuseLastAdmin(user, "delete");
@@ -340,6 +349,10 @@ public sealed class IdentityAdminService : IIdentityAdminService
     {
         var user = await _userManager.FindByIdAsync(userId);
         if (user is null) return AdminActionResult.Fail("User not found.");
+
+        if (role == GlobalRoles.Admin && IsSelf(userId))
+            return Refuse(user, AuditCategories.Rbac, AuditActions.RoleRevoked, "self",
+                "You cannot remove your own Admin role. Ask another administrator to change it.");
 
         if (role == GlobalRoles.Admin && await IsLastEnabledAdminAsync(user))
             return RefuseLastAdmin(user, "demote");
@@ -503,17 +516,25 @@ public sealed class IdentityAdminService : IIdentityAdminService
         return admins.Count(a => a.IsEnabled) <= 1;
     }
 
-    /// <summary>Refuses a delete that would be self-destructive, recording the denial as signal.</summary>
-    private AdminActionResult RefuseDelete(ApplicationUser user, string reason, string message)
+    /// <summary>
+    /// Refuses a change that would lock the caller out or remove a reserved account, recording the
+    /// denial as signal (design doc 05 - denials are logged, successful reads are not).
+    /// </summary>
+    private AdminActionResult Refuse(
+        ApplicationUser user, string category, string action, string reason, string message)
     {
         _audit.Log(AuditEventBuilder.From(
-            _caller.Current, AuditCategories.User, AuditActions.UserDeleted,
+            _caller.Current, category, action,
             outcome: AuditOutcomes.Denied,
             targetType: "user", targetId: user.Id, targetName: user.UserName,
             details: new { reason }));
-        _logger.LogWarning("Refused to delete {User} ({Reason}).", user.UserName, reason);
+        _logger.LogWarning("Refused {Action} on {User} ({Reason}).", action, user.UserName, reason);
         return AdminActionResult.Fail(message);
     }
+
+    /// <summary>True when the change targets the account the caller is signed in as.</summary>
+    private bool IsSelf(string userId)
+        => string.Equals(userId, _caller.Current?.UserId, StringComparison.Ordinal);
 
     private AdminActionResult RefuseLastAdmin(ApplicationUser user, string action)
     {
