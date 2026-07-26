@@ -135,7 +135,7 @@
                             <strong>@_scanGaps.Count @(_scanGaps.Count == 1 ? "radio needs" : "radios need") a scan.</strong>
                             Their channel congestion is estimated from nearby networks, not measured. @ScanDisruptionNote(_scanGaps)
                         </div>
-                        <button class="btn btn-primary btn-sm" @onclick="RunGapScans" disabled="@(_scanningGaps || _scanningStale)"
+                        <SiteOperatorOnly><button class="btn btn-primary btn-sm" @onclick="RunGapScans" disabled="@(_scanningGaps || _scanningStale)"
                                 data-tooltip="Runs a quick RF scan to measure the real airtime and noise floor on these channels, so the recommendations reflect what's actually on the air instead of a guess.">
                             @if (_scanningGaps)
                             {
@@ -146,7 +146,7 @@
                             {
                                 <span>Run quick scan</span>
                             }
-                        </button>
+                        </button></SiteOperatorOnly>
                     </div>
                     @if (_scanError is not null)
                     {
@@ -164,7 +164,7 @@
                             <strong>@_staleScanTargets.Count @(_staleScanTargets.Count == 1 ? "radio has" : "radios have") stale scan data.</strong>
                             Their recommendation is based on an old reading that may no longer reflect what's on the air. @ScanDisruptionNote(_staleScanTargets)
                         </div>
-                        <button class="btn btn-primary btn-sm" @onclick="RunStaleScans" disabled="@(_scanningGaps || _scanningStale)"
+                        <SiteOperatorOnly><button class="btn btn-primary btn-sm" @onclick="RunStaleScans" disabled="@(_scanningGaps || _scanningStale)"
                                 data-tooltip="Re-measures the real airtime and noise floor on these channels. The current recommendation is resting on an older scan that nearby networks no longer corroborate, so a fresh one may change the advice.">
                             @if (_scanningStale)
                             {
@@ -175,7 +175,7 @@
                             {
                                 <span>Re-scan</span>
                             }
-                        </button>
+                        </button></SiteOperatorOnly>
                     </div>
                     @if (_staleScanError is not null)
                     {

@@ -614,7 +614,7 @@
                                         <div class="ap-mesh-info @(!string.IsNullOrEmpty(ap.MeshUplinkInterface) ? "ap-mesh-info-with-action" : "")">
                                             @if (!string.IsNullOrEmpty(ap.MeshUplinkInterface))
                                             {
-                                                <AdminOnly>
+                                                <SiteOperatorOnly>
                                                     <button class="btn btn-sm btn-primary optimize-mesh-btn"
                                                             @onclick="@(() => OptimizeMeshAsync(ap))"
                                                             disabled="@(!ap.IsOnline || _optimizingMacs.Contains(ap.Mac) || IsLicenseRestricted)"
@@ -630,7 +630,7 @@
                                                             <span>Re-pair Uplink</span>
                                                         }
                                                     </button>
-                                                </AdminOnly>
+                                                </SiteOperatorOnly>
                                             }
                                             @if (ap.MeshUplinkSignalDbm.HasValue)
                                             {
