@@ -85,7 +85,7 @@
                 </div>
                 <button type="submit" class="btn btn-primary btn-sm">Verify &amp; enable</button>
             </form>
-            @if (_enrollError) { <div class="alert alert-danger mt-3">That code wasn't valid.</div> }
+            @if (_enrollError) { <div class="alert alert-danger">That code wasn't valid.</div> }
         }
         else
         {
@@ -94,7 +94,7 @@
 
         @if (_recoveryCodes is not null)
         {
-            <div class="alert alert-info mt-3 account-recovery-panel">
+            <div class="alert alert-info account-recovery-panel">
                 <p class="account-recovery-intro">
                     <strong>Recovery codes</strong> - store these somewhere safe. Each can be used once,
                     and they are shown only now.
@@ -150,7 +150,7 @@
                 <input class="form-control" @bind="_passkeyName" placeholder="Passkey name (e.g. My phone)" />
             </div>
             <button class="btn btn-primary btn-sm" @onclick="RegisterPasskeyAsync">Register a passkey</button>
-            @if (!string.IsNullOrEmpty(_passkeyMessage)) { <div class="alert alert-info mt-3">@_passkeyMessage</div> }
+            @if (!string.IsNullOrEmpty(_passkeyMessage)) { <div class="alert alert-info">@_passkeyMessage</div> }
         }
     </div>
 </div>
