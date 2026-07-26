@@ -14,6 +14,8 @@
 @inject ILogger<Audit> Logger
 @inject NavigationManager NavigationManager
 @inject PullToRefreshState PtrState
+@inject Microsoft.AspNetCore.Authorization.IAuthorizationService Authz
+@inject Microsoft.AspNetCore.Components.Authorization.AuthenticationStateProvider AuthState
 @implements IDisposable
 @rendermode InteractiveServer
 
@@ -515,6 +517,7 @@
                                         <div class="purpose-cell-inner">
                                             <select class="purpose-select"
                                                     value="@GetEffectivePurpose(network.Id, network.Purpose)"
+                                                    disabled="@(!_canOperate)"
                                                     @onchange="e => OnPurposeChanged(network.Id, e.Value?.ToString())">
                                                 @foreach (var purpose in _purposeOptions)
                                                 {
@@ -940,8 +943,15 @@
         ("Unknown", "Unclassified")
     ];
 
+    /// <summary>True when the caller may operate this site, i.e. may reassign a network's purpose.</summary>
+    private bool _canOperate;
+
     protected override async Task OnInitializedAsync()
     {
+        var user = (await AuthState.GetAuthenticationStateAsync()).User;
+        _canOperate = (await Authz.AuthorizeAsync(
+            user, SiteContext.Slug, NetworkOptimizer.Web.Services.Authorization.Policies.SiteOperator)).Succeeded;
+
         PtrState.RefreshCallback = async () => { if (hasResults) await RunAudit(); };
         PtrState.NotifyStateChanged = StateHasChanged;
 
