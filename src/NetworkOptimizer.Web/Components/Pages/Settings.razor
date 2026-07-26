@@ -1,4 +1,4 @@
-@page "/settings"
+﻿@page "/settings"
 @attribute [Authorize(Policy = Policies.ManageSettings)]
 @rendermode InteractiveServer
 @implements IDisposable
@@ -2119,7 +2119,11 @@
     @* Instance-wide settings below are only shown on the main site. *@
     @if (SiteContext.IsDefault)
     {
-    <LicensingSettingsCard />
+    @* Licence keys carry the org they were issued to, so the card and the service behind it are
+       both Admin-only. Without the wrapper a Viewer opening Settings would trip the service gate. *@
+    <AdminOnly>
+        <LicensingSettingsCard />
+    </AdminOnly>
 
     <!-- 10. Application Settings -->
     <div class="card settings-tab-application" id="application-settings">

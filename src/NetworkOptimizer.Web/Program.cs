@@ -1,4 +1,4 @@
-using ApexCharts;
+﻿using ApexCharts;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Mvc.ViewFeatures;
@@ -808,6 +808,48 @@ builder.Services.AddRateLimiter(options =>
 });
 
 var app = builder.Build();
+
+// Forwarded headers are OPT-IN, and deliberately so. The common install is a single site reached
+// directly on host:8042 with no proxy in front, where trusting X-Forwarded-* would mean trusting
+// whatever the client sends. Existing reverse-proxied installs already declare themselves through
+// REVERSE_PROXIED_HOST_NAME rather than through headers, so they are unaffected too.
+//
+// It matters now because a per-tenant hostname selects which tenant a request is FOR. An
+// unvalidated forwarded host would therefore be attacker-chosen tenant selection, so the proxies
+// allowed to assert one must be named explicitly: TRUSTED_PROXIES=10.0.0.1,10.0.0.0/24
+var trustedProxies = builder.Configuration["TRUSTED_PROXIES"];
+if (!string.IsNullOrWhiteSpace(trustedProxies))
+{
+    var options = new Microsoft.AspNetCore.Builder.ForwardedHeadersOptions
+    {
+        ForwardedHeaders = Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedFor
+            | Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedProto
+            | Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedHost,
+    };
+    // Clear the loopback defaults: the entries below are the whole allowlist.
+    options.KnownIPNetworks.Clear();
+    options.KnownProxies.Clear();
+
+    foreach (var entry in trustedProxies.Split(',', StringSplitOptions.RemoveEmptyEntries))
+    {
+        var value = entry.Trim();
+        if (value.Contains('/'))
+        {
+            var parts = value.Split('/');
+            if (System.Net.IPAddress.TryParse(parts[0], out var network) && int.TryParse(parts[1], out var prefix))
+                options.KnownIPNetworks.Add(new System.Net.IPNetwork(network, prefix));
+        }
+        else if (System.Net.IPAddress.TryParse(value, out var proxy))
+        {
+            options.KnownProxies.Add(proxy);
+        }
+    }
+
+    app.UseForwardedHeaders(options);
+    app.Logger.LogInformation(
+        "Trusting forwarded headers from {ProxyCount} proxy address(es) and {NetworkCount} network(s)",
+        options.KnownProxies.Count, options.KnownIPNetworks.Count);
+}
 
 // Apply database migrations
 using (var scope = app.Services.CreateScope())

@@ -1,4 +1,4 @@
-using NetworkOptimizer.Storage.Models;
+﻿using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Models.Identity;
 using NetworkOptimizer.Web.Services.Gates;
 
@@ -12,12 +12,12 @@ namespace NetworkOptimizer.Web.Services.Licensing;
 [MutatingService]
 public interface ILicenseActivationService
 {
-    /// <summary>Licence keys held by this install.</summary>
-    [RequireRole(GlobalRoles.Viewer)]
+    /// <summary>Licence keys held by this install. Admin-only: keys carry the org they were issued to.</summary>
+    [RequireRole(GlobalRoles.Admin)]
     Task<List<LicenseKeyRecord>> GetKeysAsync();
 
-    /// <summary>Which key is assigned to which site.</summary>
-    [RequireRole(GlobalRoles.Viewer)]
+    /// <summary>Which key is assigned to which site. Admin-only, like the keys themselves.</summary>
+    [RequireRole(GlobalRoles.Admin)]
     Task<List<SiteLicenseAssignment>> GetAssignmentsAsync();
 
     /// <summary>Activates a licence key against the licence server.</summary>
@@ -40,7 +40,7 @@ public interface ILicenseActivationService
     [AuditAction(AuditActions.LicenseChanged, Category = AuditCategories.License, TargetType = "site")]
     Task<string?> AssignAsync(int siteId, int? licenseKeyRecordId);
 
-    /// <summary>This install's stable installation id (shown in the licensing card).</summary>
-    [RequireRole(GlobalRoles.Viewer)]
+    /// <summary>This install's stable installation id (shown in the licensing card). Admin-only.</summary>
+    [RequireRole(GlobalRoles.Admin)]
     Task<Guid> GetOrCreateInstallationIdAsync();
 }
