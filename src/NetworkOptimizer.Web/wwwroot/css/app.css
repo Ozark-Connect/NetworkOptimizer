@@ -2708,7 +2708,7 @@ select.form-control {
 
 .account-qr {
     display: inline-block;
-    margin-bottom: 1rem;
+    margin-bottom: 0.5rem;
     padding: 0.75rem;
     background: #ffffff;
     border-radius: var(--border-radius-lg);
@@ -2729,7 +2729,7 @@ select.form-control {
 }
 
 .account-verify-code {
-    max-width: 220px;
+    max-width: 340px;
     margin-bottom: 1rem;
 }
 
