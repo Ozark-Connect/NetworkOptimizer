@@ -110,11 +110,12 @@ public sealed class IdentitySignInService : IIdentitySignInService
                 method == "recovery" ? AuditActions.BreakGlassUsed : AuditActions.LoginSuccess,
                 AuditOutcomes.Success, method);
 
-            // Step-up-to-enrollment: a role that requires MFA, with none enrolled, must enroll before
-            // proceeding (design doc 02 - enforced, not a banner). Recovery boots are exempt.
+            // Step-up-to-enrollment: a role that requires MFA, with no second factor at all, must
+            // enroll before proceeding (design doc 02 - enforced, not a banner). A passkey counts, so
+            // a passkey user is not pushed into enrolling the weaker factor. Recovery boots are exempt.
             if (method != "recovery"
                 && await _mfa.RoleRequiresMfaAsync(user)
-                && !await _mfa.IsEnabledAsync(user))
+                && !await _mfa.HasSecondFactorAsync(user))
             {
                 return SignInOutcome.RequiresMfaEnrollment;
             }

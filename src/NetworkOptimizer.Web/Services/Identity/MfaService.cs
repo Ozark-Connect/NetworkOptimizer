@@ -15,7 +15,18 @@ public sealed record AuthenticatorSetup(string SharedKey, string FormattedKey, s
 /// </summary>
 public interface IMfaService
 {
+    /// <summary>True when an authenticator app (TOTP) is enrolled. Specific to TOTP, so the account
+    /// page can describe that factor honestly; use <see cref="HasSecondFactorAsync"/> to decide whether
+    /// a role's MFA requirement is met.</summary>
     Task<bool> IsEnabledAsync(ApplicationUser user);
+
+    /// <summary>
+    /// True when the user holds any second factor: an authenticator app, or a passkey. A passkey is
+    /// origin-bound and therefore phishing-resistant where a typed code is not, so it satisfies a
+    /// role's MFA requirement on its own - demanding TOTP from someone who already has a passkey would
+    /// insist on the weaker factor.
+    /// </summary>
+    Task<bool> HasSecondFactorAsync(ApplicationUser user);
 
     /// <summary>Any of the user's global roles has <see cref="ApplicationRole.RequireMfa"/> set.</summary>
     Task<bool> RoleRequiresMfaAsync(ApplicationUser user);
@@ -57,6 +68,11 @@ public sealed class MfaService : IMfaService
     }
 
     public Task<bool> IsEnabledAsync(ApplicationUser user) => _userManager.GetTwoFactorEnabledAsync(user);
+
+    /// <inheritdoc />
+    public async Task<bool> HasSecondFactorAsync(ApplicationUser user)
+        => await _userManager.GetTwoFactorEnabledAsync(user)
+            || (await _userManager.GetPasskeysAsync(user)).Count > 0;
 
     public async Task<bool> RoleRequiresMfaAsync(ApplicationUser user)
     {
