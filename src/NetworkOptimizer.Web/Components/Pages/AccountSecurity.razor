@@ -92,6 +92,11 @@
                         <li><code>@c</code></li>
                     }
                 </ul>
+                <div class="account-recovery-actions">
+                    <button type="button" class="btn btn-tertiary btn-sm" @onclick="DismissRecoveryCodes">
+                        I've saved these
+                    </button>
+                </div>
             </div>
         }
     </div>
@@ -197,6 +202,17 @@
     {
         if (_user is null) return;
         _setup = await Mfa.BeginEnrollmentAsync(_user);
+    }
+
+    /// <summary>
+    /// Clears the panel and drops the codes from the hand-off store, so they cannot reappear on a
+    /// refresh inside the grace window.
+    /// </summary>
+    private void DismissRecoveryCodes()
+    {
+        _recoveryCodes = null;
+        if (_user is not null)
+            EnrollmentCodes.Discard(_user.Id);
     }
 
     private async Task RegenerateCodesAsync()
