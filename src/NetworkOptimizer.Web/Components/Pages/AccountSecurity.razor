@@ -18,6 +18,19 @@
     <p class="page-description">Two-factor authentication and passkeys for your account.</p>
 </div>
 
+@* Only when the passkey really is the sole way in: the role demands a second factor, a passkey
+   supplies it, and there is no authenticator app and no recovery code to fall back on. Either of
+   those makes this quiet. *@
+@if (_passkeyIsOnlyWayIn)
+{
+    <div class="alert alert-warning">
+        <strong>This passkey is your only way in.</strong> Your role requires a second factor and a
+        passkey is the only one registered, so a password on its own will not sign you in. If you lose
+        it you will need recovery mode to get back. Set up an authenticator app below, or register a
+        second passkey on another device.
+    </div>
+}
+
 @if (_setupRequired)
 {
     <div class="alert alert-warning">
@@ -165,6 +178,7 @@
     private bool _mfaEnabled;
     private bool _setupRequired;
     private bool _secureContext = true;
+    private bool _passkeyIsOnlyWayIn;
     private AuthenticatorSetup? _setup;
     private bool _enrollError;
     private IReadOnlyList<string>? _recoveryCodes;
@@ -183,6 +197,11 @@
         {
             _mfaEnabled = await Mfa.IsEnabledAsync(_user);
             _passkeys = await Passkeys.ListAsync(principal);
+
+            _passkeyIsOnlyWayIn = _passkeys.Count > 0
+                && !_mfaEnabled
+                && await Mfa.CountRecoveryCodesAsync(_user) == 0
+                && await Mfa.RoleRequiresMfaAsync(_user);
             // Codes minted by the enrollment endpoint, handed over once and only once.
             if (Enroll == "done")
                 _recoveryCodes = EnrollmentCodes.Take(_user.Id);

@@ -206,7 +206,9 @@ public class ArchitectureTests
     [Fact]
     public void A4_EveryAuthenticatedPageDeclaresAuthorize()
     {
-        var anonymousPages = new HashSet<string> { "Login", "Login2fa" };
+        // Error is the exception handler's target: it must render for an anonymous caller, or an
+        // unhandled exception turns into a silent redirect to the sign-in page.
+        var anonymousPages = new HashSet<string> { "Login", "Login2fa", "Error" };
 
         var ungated = SafeGetTypes(WebAssembly)
             .Where(t => typeof(IComponent).IsAssignableFrom(t))

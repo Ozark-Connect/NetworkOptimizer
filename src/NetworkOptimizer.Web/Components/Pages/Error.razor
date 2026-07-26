@@ -1,0 +1,29 @@
+@page "/Error"
+@layout AuthLayout
+
+@* The target of UseExceptionHandler. Deliberately anonymous, layout-light, and free of any service
+   call or interactivity: without this page an unhandled exception re-executed to a route that matched
+   nothing, fell through to the auth gate, and silently redirected to /login - which made every render
+   crash look like a button that simply did nothing. An error page that can itself throw would
+   reintroduce exactly that, so this one renders nothing but markup. *@
+
+<PageTitle>Something went wrong - Network Optimizer</PageTitle>
+
+<div class="login-container">
+    <div class="login-card">
+        <div class="error-page-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z" />
+            </svg>
+        </div>
+        <h1 class="error-page-title">Something went wrong</h1>
+        <p class="error-page-body">
+            That request could not be completed. Trying again often works; if it keeps happening, the
+            server log records what failed and when.
+        </p>
+        <a class="btn btn-primary login-btn" href="/">Back to Dashboard</a>
+        <div class="login-footer">
+            <a href="/login">Go to sign in</a>
+        </div>
+    </div>
+</div>
