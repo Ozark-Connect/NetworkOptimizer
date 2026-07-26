@@ -17,8 +17,10 @@ public interface IAuthPolicyOptions
     Task SetLocalLoginDisabledAsync(bool disabled);
 
     /// <summary>
-    /// When on, non-Admin users see and touch only sites they are members of; when off (default),
-    /// the global role applies across all sites (today's behaviour). Design doc 04.
+    /// When on, Operators and Viewers reach only the sites they are granted; when off, a global role
+    /// applies across every site. Design doc 04. On by default - a grant that cannot confine anyone is
+    /// not really a grant. This applies on a single-site install too, where it is how an admin picks
+    /// who may reach the main site at all.
     /// </summary>
     Task<bool> IsRestrictSitesToMembersAsync();
 
@@ -46,13 +48,19 @@ public sealed class AuthPolicyOptions : IAuthPolicyOptions
     public Task SetLocalLoginDisabledAsync(bool disabled) => SetBoolAsync(LocalLoginDisabledKey, disabled);
 
     /// <inheritdoc />
-    public async Task<bool> IsRestrictSitesToMembersAsync() => await GetBoolAsync(RestrictSitesToMembersKey);
+    public async Task<bool> IsRestrictSitesToMembersAsync()
+        => await GetBoolAsync(RestrictSitesToMembersKey, defaultValue: true);
 
     /// <inheritdoc />
     public Task SetRestrictSitesToMembersAsync(bool restrict) => SetBoolAsync(RestrictSitesToMembersKey, restrict);
 
-    private async Task<bool> GetBoolAsync(string key)
-        => string.Equals(await _settings.GetGlobalAsync(key), "true", StringComparison.OrdinalIgnoreCase);
+    private async Task<bool> GetBoolAsync(string key, bool defaultValue = false)
+    {
+        var raw = await _settings.GetGlobalAsync(key);
+        return string.IsNullOrEmpty(raw)
+            ? defaultValue
+            : string.Equals(raw, "true", StringComparison.OrdinalIgnoreCase);
+    }
 
     private Task SetBoolAsync(string key, bool value)
         => _settings.SetGlobalAsync(key, value ? "true" : "false");

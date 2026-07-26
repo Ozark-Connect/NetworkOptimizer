@@ -41,7 +41,7 @@
                 <label class="checkbox-label">
                     <input type="checkbox" checked="@policy.RequireMfa"
                            @onchange="e => SetRoleMfaAsync(policy.Role, (bool?)e.Value == true)" />
-                    Require MFA or a passkey for @policy.Role
+                    Require MFA / passkey for @policy.Role
                 </label>
             }
         </div>

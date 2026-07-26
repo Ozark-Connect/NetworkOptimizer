@@ -18,7 +18,8 @@ public sealed record UserAccountSummary(
     bool HasPassword,
     bool MfaEnabled,
     int PasskeyCount,
-    IReadOnlyList<string> LinkedProviders);
+    IReadOnlyList<string> LinkedProviders,
+    bool HasSiteAccess);
 
 /// <summary>An external identity linked to a local account.</summary>
 /// <param name="LoginProvider">Provider scheme (matches <see cref="FederationProvider.Scheme"/>).</param>
@@ -153,18 +154,33 @@ public sealed class IdentityAdminService : IIdentityAdminService
         var users = await _userManager.Users.OrderBy(u => u.UserName).ToListAsync();
         var summaries = new List<UserAccountSummary>(users.Count);
 
+        // Which accounts hold any grant at all, in one query rather than per user. With the site
+        // restriction on, a non-Admin holding none can reach nothing, which is worth surfacing in the
+        // list instead of leaving them to discover it through empty pages.
+        HashSet<string> withGrants;
+        await using (var db = await _authDbFactory.CreateDbContextAsync())
+        {
+            withGrants = (await db.SiteMemberships
+                .AsNoTracking()
+                .Select(m => m.UserId)
+                .Distinct()
+                .ToListAsync()).ToHashSet(StringComparer.Ordinal);
+        }
+
         foreach (var user in users)
         {
             var roles = await _userManager.GetRolesAsync(user);
             var logins = await _userManager.GetLoginsAsync(user);
             var passkeys = await _userManager.GetPasskeysAsync(user);
+            var globalRole = GlobalRoles.All.FirstOrDefault(roles.Contains);
             summaries.Add(new UserAccountSummary(
                 user,
-                GlobalRoles.All.FirstOrDefault(roles.Contains),
+                globalRole,
                 await _userManager.HasPasswordAsync(user),
                 await _userManager.GetTwoFactorEnabledAsync(user),
                 passkeys.Count,
-                logins.Select(l => l.LoginProvider).ToList()));
+                logins.Select(l => l.LoginProvider).ToList(),
+                HasSiteAccess: globalRole == GlobalRoles.Admin || withGrants.Contains(user.Id)));
         }
 
         return summaries;
