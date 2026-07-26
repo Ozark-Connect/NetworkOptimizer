@@ -54,7 +54,12 @@
         {
             <div class="alert alert-info mt-3">
                 <strong>Recovery codes</strong> - store these somewhere safe. Each can be used once.
-                <ul>@foreach (var c in _recoveryCodes) { <li><code>@c</code></li> }</ul>
+                <ul class="account-recovery-codes">
+                    @foreach (var c in _recoveryCodes)
+                    {
+                        <li><code>@c</code></li>
+                    }
+                </ul>
             </div>
         }
     </div>
@@ -78,17 +83,20 @@
             }
             else
             {
-                <ul>
+                <ul class="account-credential-list">
                     @foreach (var pk in _passkeys)
                     {
-                        <li>
-                            @(string.IsNullOrEmpty(pk.Name) ? "Passkey" : pk.Name)
-                            <button class="btn btn-danger btn-sm" @onclick="() => RemovePasskeyAsync(pk.CredentialId)">Remove</button>
+                        <li class="account-credential-item">
+                            <div class="account-credential-info">
+                                <span class="account-credential-name">@(string.IsNullOrEmpty(pk.Name) ? "Passkey" : pk.Name)</span>
+                                <span class="account-credential-meta">Added @pk.CreatedAt.ToLocalTime().ToString("d MMM yyyy")</span>
+                            </div>
+                            <button class="btn btn-tertiary btn-sm" @onclick="() => RemovePasskeyAsync(pk.CredentialId)">Remove</button>
                         </li>
                     }
                 </ul>
             }
-            <div class="form-group" style="max-width: 260px;">
+            <div class="form-group account-passkey-name">
                 <input class="form-control" @bind="_passkeyName" placeholder="Passkey name (e.g. My phone)" />
             </div>
             <button class="btn btn-primary btn-sm" @onclick="RegisterPasskeyAsync">Register a passkey</button>
