@@ -11,7 +11,7 @@ namespace NetworkOptimizer.Web.Services;
 /// through the main-database factory. Raw tokens and keys are returned exactly
 /// once; only SHA-256 hashes are stored.
 /// </summary>
-public class AgentEnrollmentService
+public class AgentEnrollmentService : IAgentEnrollmentService
 {
     /// <summary>Agents reporting within this window count as online.</summary>
     public static readonly TimeSpan OnlineWindow = TimeSpan.FromMinutes(2);

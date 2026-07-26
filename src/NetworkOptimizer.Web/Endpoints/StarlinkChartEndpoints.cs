@@ -1,5 +1,6 @@
 using NetworkOptimizer.Storage.Services;
 using NetworkOptimizer.Web.Services;
+using NetworkOptimizer.Web.Services.Authorization;
 
 namespace NetworkOptimizer.Web.Endpoints;
 
@@ -12,7 +13,12 @@ public static class StarlinkChartEndpoints
 {
     public static void Map(WebApplication app)
     {
-        app.MapGet("/api/monitoring/starlink-chart", async (
+        // Gate 2 (design doc 06): the whole group carries authorization metadata, which is what
+        // architecture test A1 checks. The policy short-circuits when the install has
+        // authentication disabled (GlobalRoleHandler).
+        var group = app.MapGroup("").RequireAuthorization(Policies.RequireViewer);
+
+        group.MapGet("/api/monitoring/starlink-chart", async (
             MonitoringInfluxClient influx,
             StarlinkMonitorService starlinkService,
             int? rangeHours,
@@ -74,7 +80,7 @@ public static class StarlinkChartEndpoints
             return Results.Ok(new { devices = result });
         });
 
-        app.MapGet("/api/monitoring/starlink/{id:int}/obstruction-map", (
+        group.MapGet("/api/monitoring/starlink/{id:int}/obstruction-map", (
             StarlinkMonitorService starlinkService,
             int id) =>
         {
@@ -92,7 +98,7 @@ public static class StarlinkChartEndpoints
             });
         });
 
-        app.MapGet("/api/monitoring/starlink/stats", async (
+        group.MapGet("/api/monitoring/starlink/stats", async (
             StarlinkMonitorService starlinkService) =>
         {
             var configs = await starlinkService.GetConfigsAsync();

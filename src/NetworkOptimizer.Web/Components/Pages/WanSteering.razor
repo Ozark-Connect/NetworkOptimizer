@@ -1,6 +1,7 @@
 @page "/wan-steering"
+@attribute [Authorize(Policy = Policies.RequireViewer)]
 @implements IDisposable
-@inject WanSteerDeploymentService DeployService
+@inject IWanSteerDeploymentService DeployService
 @inject UniFiConnectionService ConnectionService
 @inject NetworkOptimizer.Storage.Services.SiteDbContextFactory SiteDb
 @inject SiteContextService SiteCtx
@@ -9,7 +10,7 @@
 @inject IGatewaySshService GatewaySshService
 @inject ILogger<WanSteering> Logger
 @inject PullToRefreshState PtrState
-@inject SqmDeploymentService SqmDeploymentService
+@inject ISqmDeploymentService SqmDeploymentService
 @inject ModuleUpdateNotificationService ModuleUpdates
 @rendermode InteractiveServer
 @using NetworkOptimizer.Storage.Models

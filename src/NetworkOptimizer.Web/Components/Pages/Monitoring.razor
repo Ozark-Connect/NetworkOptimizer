@@ -7,6 +7,7 @@
      around JS mount points but could still benefit from encapsulation.
 *@
 @page "/monitoring"
+@attribute [Authorize(Policy = Policies.RequireViewer)]
 @rendermode InteractiveServer
 @implements IDisposable
 @using NetworkOptimizer.Web.Services

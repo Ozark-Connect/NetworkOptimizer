@@ -1,5 +1,6 @@
 using NetworkOptimizer.Storage.Services;
 using NetworkOptimizer.Web.Services;
+using NetworkOptimizer.Web.Services.Authorization;
 
 namespace NetworkOptimizer.Web.Endpoints;
 
@@ -11,7 +12,12 @@ public static class CmChartEndpoints
 {
     public static void Map(WebApplication app)
     {
-        app.MapGet("/api/monitoring/cm-chart", async (
+        // Gate 2 (design doc 06): the whole group carries authorization metadata, which is what
+        // architecture test A1 checks. The policy short-circuits when the install has
+        // authentication disabled (GlobalRoleHandler).
+        var group = app.MapGroup("").RequireAuthorization(Policies.RequireViewer);
+
+        group.MapGet("/api/monitoring/cm-chart", async (
             MonitoringInfluxClient influx,
             CableModemMonitorService cmService,
             int? rangeHours,

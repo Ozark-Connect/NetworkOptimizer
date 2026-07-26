@@ -1,4 +1,5 @@
 @page "/network-tools"
+@attribute [Authorize(Policy = Policies.RequireViewer)]
 @rendermode InteractiveServer
 @implements IDisposable
 @using NetworkOptimizer.Web.Services

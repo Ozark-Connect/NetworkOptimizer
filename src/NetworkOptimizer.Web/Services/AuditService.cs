@@ -17,7 +17,7 @@ using StorageAuditResult = NetworkOptimizer.Storage.Models.AuditResult;
 
 namespace NetworkOptimizer.Web.Services;
 
-public class AuditService
+public class AuditService : IAuditScanService
 {
     // Cache keys for IMemoryCache, scoped per site so the app-wide cache never
     // leaks one site's audit state (score, findings, dismissals, running flag)

@@ -269,6 +269,7 @@ builder.Services.AddScoped<NetworkOptimizer.Alerts.Interfaces.IAlertRepository, 
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.ISiteRepository, NetworkOptimizer.Storage.Repositories.SiteRepository>();
 builder.Services.AddSingleton<SiteRegistryChangeNotifier>();
 builder.Services.AddScoped<SiteManagementService>();
+builder.Services.AddMutatingService<ISiteManagementService>(sp => sp.GetRequiredService<SiteManagementService>());
 builder.Services.AddScoped<SiteContextService>();
 builder.Services.AddScoped<SiteSwitchService>();
 // The alert pipeline pins its scope to an event's originating site through this seam.
@@ -277,6 +278,9 @@ builder.Services.AddScoped<NetworkOptimizer.Alerts.Interfaces.IAlertSiteScope>(s
 // Resolves a site's display name so delivered alerts name their originating site.
 builder.Services.AddSingleton<NetworkOptimizer.Alerts.Interfaces.IAlertSiteNameResolver, AlertSiteNameResolver>();
 builder.Services.AddSingleton<AgentEnrollmentService>();
+// The agent tunnel keeps using the concrete singleton (it authenticates with the agent scheme and
+// runs as system); the admin-facing enrollment surface is gated.
+builder.Services.AddMutatingService<IAgentEnrollmentService>(sp => sp.GetRequiredService<AgentEnrollmentService>());
 // Detects agents running on the site's UniFi gateway itself (monitoring-only
 // installs) so speed-test surfaces can gate accordingly.
 builder.Services.AddSingleton<AgentOnGatewayDetector>();
@@ -289,6 +293,7 @@ builder.Services.AddSingleton<LicenseServerClient>();
 builder.Services.AddSingleton<LicenseStateService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<LicenseStateService>());
 builder.Services.AddSingleton<LicenseActivationService>();
+builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.Licensing.ILicenseActivationService>(sp => sp.GetRequiredService<LicenseActivationService>());
 builder.Services.AddSingleton<LicensePhoneHomeService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<LicensePhoneHomeService>());
 builder.Services.AddHostedService<LicenseEnforcementCoordinator>();
@@ -372,19 +377,19 @@ builder.Services.AddScoped(sp => sp.GetRequiredService<ModemMonitorRegistry>()
 // LAN iperf3 speed test per site (registry-owned): devices, credentials, and
 // results live in that site's database; tests run against that site's devices.
 // Scoped resolution forwards to the current site's instance.
-builder.Services.AddScoped(sp => sp.GetRequiredService<SpeedTestServiceRegistry>()
+builder.Services.AddMutatingService<IIperf3SpeedTestService>(sp => sp.GetRequiredService<SpeedTestServiceRegistry>()
     .GetFor(sp.GetRequiredService<SiteContextService>().Slug).LanSpeedTest);
 
 // Register Gateway Speed Test service (scoped - forwards to the current site's
 // gateway SSH and database; gateway iperf3 tests with separate SSH creds)
-builder.Services.AddScoped<GatewaySpeedTestService>();
+builder.Services.AddMutatingService<IGatewaySpeedTestService, GatewaySpeedTestService>();
 
 // Client Speed Test per site: the registry owns one enrichment bundle per site
 // (path analyzer + topology snapshots + client speed test service). Scoped
 // resolution forwards to the current site's instance so pages show that site's
 // results; the public results endpoint routes by slug parameter.
 builder.Services.AddSingleton<SpeedTestServiceRegistry>();
-builder.Services.AddScoped(sp => sp.GetRequiredService<SpeedTestServiceRegistry>()
+builder.Services.AddMutatingService<IClientSpeedTestService>(sp => sp.GetRequiredService<SpeedTestServiceRegistry>()
     .GetFor(sp.GetRequiredService<SiteContextService>().Slug).ClientSpeedTest);
 
 // Register Client Dashboard service (scoped - forwards to the current site's
@@ -397,14 +402,14 @@ builder.Services.AddScoped<ClientDashboardService>();
 // through the registry: non-default instances serve that site's result history; runs
 // stay default-only (the local binary measures this server's own WAN).
 builder.Services.AddSingleton<CloudflareSpeedTestService>();
-builder.Services.AddScoped(sp => sp.GetRequiredService<SpeedTestServiceRegistry>()
+builder.Services.AddMutatingService<IUwnSpeedTestService>(sp => sp.GetRequiredService<SpeedTestServiceRegistry>()
     .GetFor(sp.GetRequiredService<SiteContextService>().Slug).Uwn);
 
 // Gateway WAN Speed Test per site (registry-owned): the test runs on that site's
 // gateway via its own SSH settings and stores to that site's database. Scoped
 // resolution forwards to the current site's instance; the schedule executor
 // resolves by site key through the registry.
-builder.Services.AddScoped(sp => sp.GetRequiredService<SpeedTestServiceRegistry>()
+builder.Services.AddMutatingService<IGatewayWanSpeedTestService>(sp => sp.GetRequiredService<SpeedTestServiceRegistry>()
     .GetFor(sp.GetRequiredService<SiteContextService>().Slug).GatewayWan);
 
 // Topology Snapshot service: default site's instance comes from the speed test
@@ -485,6 +490,7 @@ builder.Services.AddSingleton<NetworkOptimizer.Threats.Interfaces.IUniFiClientAc
 
 // Register Schedule services (scheduling engine for periodic audits, speed tests)
 builder.Services.AddScoped<NetworkOptimizer.Alerts.Interfaces.IScheduleRepository, NetworkOptimizer.Storage.Repositories.ScheduleRepository>();
+builder.Services.AddMutatingService<IAlertConfigService, AlertConfigService>();
 // Site fan-out for the schedule loop: each enabled site's schedules run in a
 // scope pinned to that site's database and console connection.
 builder.Services.AddSingleton<NetworkOptimizer.Alerts.Interfaces.IScheduleSiteContext, ScheduleSiteContext>();
@@ -503,6 +509,9 @@ builder.Services.AddScoped(sp => sp.GetRequiredService<WanDataUsageRegistry>()
 // Register System Settings service (singleton - system-wide configuration)
 builder.Services.AddSingleton<SystemSettingsService>();
 builder.Services.AddSingleton<ISystemSettingsService>(sp => sp.GetRequiredService<SystemSettingsService>());
+// Reads stay ungated (pollers and collectors read settings on every cycle); the UI's writes go
+// through the gated admin interface so each one is authorized and audited.
+builder.Services.AddMutatingService<ISystemSettingsAdmin>(sp => sp.GetRequiredService<SystemSettingsService>());
 
 // Register Sponsorship service (singleton - reads from DB, limited state)
 builder.Services.AddSingleton<ISponsorshipService, SponsorshipService>();
@@ -596,7 +605,7 @@ builder.Services.AddSingleton<MonitoringAlertRegistry>();
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.UpstreamTracerRegistry>();
 builder.Services.AddScoped(sp => sp.GetRequiredService<NetworkOptimizer.Web.Services.Monitoring.UpstreamTracerRegistry>()
     .GetFor(sp.GetRequiredService<SiteContextService>().Slug));
-builder.Services.AddScoped<InfluxDbProvisioningService>();
+builder.Services.AddMutatingService<IInfluxDbProvisioningService, InfluxDbProvisioningService>();
 // Probe-execution layer: the server-side LocalProbeExecutor is the default vantage. SSH
 // vantages (gateway/switch/AP) are constructed per-device via SshProbeExecutor later.
 builder.Services.AddSingleton<NetworkOptimizer.Monitoring.Probes.LocalProbeExecutor>();
@@ -636,16 +645,21 @@ builder.Services.AddSingleton<FingerprintDatabaseService>(); // Singleton to cac
 builder.Services.AddSingleton<IeeeOuiDatabase>(); // IEEE OUI database for MAC vendor lookup
 builder.Services.AddScoped<PdfStorageService>(); // Scoped - namespaces PDF storage by the current site's slug
 builder.Services.AddScoped<AuditService>(); // Scoped - uses IMemoryCache for cross-request state
+// Running a scan and curating findings are gated separately from the audit read surface.
+builder.Services.AddMutatingService<IAuditScanService>(sp => sp.GetRequiredService<AuditService>());
 builder.Services.AddScoped<DiagnosticsService>(); // Scoped - network diagnostics (trunk consistency, AP lock, etc.)
-builder.Services.AddScoped<ISqmService, SqmService>();
-builder.Services.AddScoped<SqmDeploymentService>();
-builder.Services.AddScoped<WanSteerDeploymentService>();
-builder.Services.AddScoped<PerfTweaksDeploymentService>();
+// Mutating product services go through the declarative gate (design doc 06, gate 9): the
+// interface is proxied by MethodSecurityInterceptor, which authorizes the ambient caller against
+// the method's [RequireGlobalRole] and writes its [AuditAction] envelope.
+builder.Services.AddMutatingService<ISqmService, SqmService>();
+builder.Services.AddMutatingService<ISqmDeploymentService, SqmDeploymentService>();
+builder.Services.AddMutatingService<IWanSteerDeploymentService, WanSteerDeploymentService>();
+builder.Services.AddMutatingService<IPerfTweaksDeploymentService, PerfTweaksDeploymentService>();
 // Per site: the update banner reflects the current site's gateway module deployment
 // state. Scoped so each site's Perf Tweaks / WAN Steering status is its own; a circuit
 // is session-lived, so the compute still runs about once per session.
 builder.Services.AddScoped<ModuleUpdateNotificationService>();
-builder.Services.AddScoped<MonitoringInterfaceDeploymentService>();
+builder.Services.AddMutatingService<IMonitoringInterfaceDeploymentService, MonitoringInterfaceDeploymentService>();
 
 // Register WiFi Optimizer rules and engine
 builder.Services.AddSingleton<NetworkOptimizer.WiFi.Rules.IWiFiOptimizerRule, NetworkOptimizer.WiFi.Rules.IoTSsidSeparationRule>();
@@ -671,9 +685,10 @@ builder.Services.AddSingleton<NetworkOptimizer.WiFi.Rules.IWiFiOptimizerRule, Ne
 builder.Services.AddSingleton<NetworkOptimizer.WiFi.Rules.IWiFiOptimizerRule, NetworkOptimizer.WiFi.Rules.WideChannelWidthRule>();
 builder.Services.AddSingleton<NetworkOptimizer.WiFi.Rules.WiFiOptimizerEngine>();
 builder.Services.AddScoped<WiFiOptimizerService>();
+builder.Services.AddMutatingService<IWiFiScanService>(sp => sp.GetRequiredService<WiFiOptimizerService>());
 // Mesh backhaul re-scan (Optimize Mesh button); scoped - forwards to the current
 // site's UniFiSshService.
-builder.Services.AddScoped<MeshOptimizationService>();
+builder.Services.AddMutatingService<IMeshOptimizationService, MeshOptimizationService>();
 builder.Services.AddScoped<ApMapService>();
 // Per-site: buildings, floor plans, planned APs, and their heatmap cache are
 // per-site data. Scoped so each site's WiFi optimizer / floor plan / heatmap reads
@@ -682,6 +697,7 @@ builder.Services.AddScoped<FloorPlanService>();
 builder.Services.AddScoped<HeatmapDataCache>();
 builder.Services.AddScoped<PlannedApService>();
 builder.Services.AddSingleton<ConfigTransferService>();
+builder.Services.AddMutatingService<IConfigTransferService>(sp => sp.GetRequiredService<ConfigTransferService>());
 builder.Services.AddSingleton<NetworkOptimizer.WiFi.Data.AntennaPatternLoader>();
 builder.Services.AddSingleton<NetworkOptimizer.WiFi.Services.PropagationService>();
 builder.Services.AddSingleton<NetworkOptimizer.WiFi.Services.ChannelRecommendationService>();
@@ -1149,8 +1165,6 @@ app.UseAuthentication();
 // SUNSET: remove with JwtService one release after the cutover (30-day legacy token lifetime).
 app.UseMiddleware<NetworkOptimizer.Web.Services.Identity.LegacyJwtBridgeMiddleware>();
 
-app.UseAuthorization();
-
 // Populate the ambient caller context (actor/IP/UA/correlation) for HTTP requests, after auth so the
 // principal is resolved. Circuit calls are populated separately by CallerContextCircuitHandler.
 app.UseMiddleware<NetworkOptimizer.Web.Services.Identity.CallerContextMiddleware>();
@@ -1220,6 +1234,12 @@ app.Use(async (context, next) =>
     await next();
 });
 
+// Endpoint/page authorization runs after the auth-required gate above, so an anonymous user on an
+// auth-enabled install still gets that gate's redirect to /login (carrying the tab's ?site= pin)
+// instead of a bare 401 from a policy failure. With authentication disabled the policies short-
+// circuit to success (GlobalRoleHandler), so nothing changes for those installs.
+app.UseAuthorization();
+
 // Site selection via ?site=<slug> is per browser tab: it wins over the site cookie on
 // every request (SiteContextService.Resolve), the circuit pins itself from the tab URL
 // (Routes.razor), and SiteTabSync keeps the selector in the address bar. It is never
@@ -1268,732 +1288,14 @@ app.Use(async (context, next) =>
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 
-// Alert Engine API endpoints
-app.MapAlertEndpoints();
+// Every minimal-API endpoint is mapped in one place so architecture test A1 can walk the whole
+// surface and prove each endpoint is authorized or explicitly public (design doc 06, gate 2/3).
+ApiEndpoints.MapAll(app);
 
-app.MapGet("/api/health", () => Results.Ok(new { status = "healthy", timestamp = DateTime.UtcNow }));
-
-// Audit Report PDF download endpoints (serves pre-generated PDFs)
-// Auth handled by middleware for all /api/* paths
-// Uses strongly-typed int to prevent path traversal attacks
-app.MapGet("/api/reports/{auditId:int}/pdf", async (int auditId, AuditService auditService) =>
-{
-    var (pdfBytes, fileName) = await auditService.GetAuditPdfAsync(auditId);
-    return pdfBytes != null ? Results.File(pdfBytes, "application/pdf", fileName) : Results.NotFound(new { error = "PDF not found" });
-});
-
-// Get the latest audit report PDF (works across restarts since it queries database)
-app.MapGet("/api/reports/latest/pdf", async (AuditService auditService) =>
-{
-    var (pdfBytes, fileName) = await auditService.GetLatestAuditPdfAsync();
-    return pdfBytes != null ? Results.File(pdfBytes, "application/pdf", fileName) : Results.NotFound(new { error = "PDF not found" });
-});
-
-// Speed Test API endpoints
-app.MapSpeedTestEndpoints();
-
-// Auth API endpoints (Identity cookie sign-in/out; SSR form posts - see AuthEndpoints).
-app.MapAuthEndpoints();
-
-// Audit-log CSV/JSON export (Admin-only).
-app.MapAuditLogEndpoints();
-
-// WebAuthn passkey ceremonies (registration authenticated; assertion login anonymous).
-app.MapPasskeyEndpoints();
-
-// OIDC relying-party challenge/callback (federation).
-app.MapFederationEndpoints();
-
-// SAML service-provider metadata / ACS / SP-initiated login.
-app.MapSamlEndpoints();
-
-// UPnP Notes API endpoints
-app.MapGet("/api/upnp/notes", async (NetworkOptimizerDbContext db) =>
-{
-    var notes = await db.UpnpNotes.ToListAsync();
-    return Results.Ok(notes);
-});
-
-app.MapPut("/api/upnp/notes", async (HttpContext context, NetworkOptimizerDbContext db) =>
-{
-    var request = await context.Request.ReadFromJsonAsync<UpnpNoteRequest>();
-    if (request == null || string.IsNullOrWhiteSpace(request.HostIp) ||
-        string.IsNullOrWhiteSpace(request.Port) || string.IsNullOrWhiteSpace(request.Protocol))
-    {
-        return Results.BadRequest(new { error = "HostIp, Port, and Protocol are required" });
-    }
-
-    // Normalize protocol to lowercase
-    var protocol = request.Protocol.ToLowerInvariant();
-
-    // Find existing note or create new
-    var existing = await db.UpnpNotes.FirstOrDefaultAsync(n =>
-        n.HostIp == request.HostIp &&
-        n.Port == request.Port &&
-        n.Protocol == protocol);
-
-    if (existing != null)
-    {
-        // Update or delete if note is empty
-        if (string.IsNullOrWhiteSpace(request.Note))
-        {
-            db.UpnpNotes.Remove(existing);
-        }
-        else
-        {
-            existing.Note = request.Note;
-            existing.UpdatedAt = DateTime.UtcNow;
-        }
-    }
-    else if (!string.IsNullOrWhiteSpace(request.Note))
-    {
-        // Create new note
-        var note = new UpnpNote
-        {
-            HostIp = request.HostIp,
-            Port = request.Port,
-            Protocol = protocol,
-            Note = request.Note,
-            CreatedAt = DateTime.UtcNow,
-            UpdatedAt = DateTime.UtcNow
-        };
-        db.UpnpNotes.Add(note);
-    }
-
-    await db.SaveChangesAsync();
-    return Results.Ok(new { success = true });
-});
-
-// AP Location API endpoints
-app.MapGet("/api/ap-locations", async (NetworkOptimizerDbContext db) =>
-{
-    var locations = await db.ApLocations.ToListAsync();
-    return Results.Ok(locations);
-});
-
-app.MapPut("/api/ap-locations/{mac}", async (string mac, HttpContext context, NetworkOptimizerDbContext db) =>
-{
-    var request = await context.Request.ReadFromJsonAsync<ApLocationRequest>();
-    if (request == null)
-    {
-        return Results.BadRequest(new { error = "Request body is required" });
-    }
-
-    // Normalize MAC to lowercase for consistent matching
-    var normalizedMac = mac.ToLowerInvariant();
-
-    var existing = await db.ApLocations.FirstOrDefaultAsync(a => a.ApMac == normalizedMac);
-    if (existing != null)
-    {
-        existing.Latitude = request.Latitude;
-        existing.Longitude = request.Longitude;
-        existing.Floor = request.Floor ?? 1;
-        existing.UpdatedAt = DateTime.UtcNow;
-    }
-    else
-    {
-        var location = new ApLocation
-        {
-            ApMac = normalizedMac,
-            Latitude = request.Latitude,
-            Longitude = request.Longitude,
-            Floor = request.Floor ?? 1,
-            UpdatedAt = DateTime.UtcNow
-        };
-        db.ApLocations.Add(location);
-    }
-
-    await db.SaveChangesAsync();
-    return Results.Ok(new { success = true });
-});
-
-app.MapDelete("/api/ap-locations/{mac}", async (string mac, NetworkOptimizerDbContext db) =>
-{
-    var normalizedMac = mac.ToLowerInvariant();
-    var existing = await db.ApLocations.FirstOrDefaultAsync(a => a.ApMac == normalizedMac);
-    if (existing == null)
-    {
-        return Results.NotFound();
-    }
-
-    db.ApLocations.Remove(existing);
-    await db.SaveChangesAsync();
-    return Results.NoContent();
-});
-
-// --- Building & Floor Plan API ---
-
-app.MapGet("/api/floor-plan/buildings", async (FloorPlanService svc) =>
-{
-    var buildings = await svc.GetBuildingsAsync();
-    return Results.Ok(buildings.Select(b => new
-    {
-        b.Id,
-        b.Name,
-        b.CenterLatitude,
-        b.CenterLongitude,
-        b.CreatedAt,
-        Floors = b.Floors.Select(f => new
-        {
-            f.Id,
-            f.BuildingId,
-            f.FloorNumber,
-            f.Label,
-            f.SwLatitude,
-            f.SwLongitude,
-            f.NeLatitude,
-            f.NeLongitude,
-            f.Opacity,
-            f.WallsJson,
-            f.FloorMaterial,
-            HasImage = !string.IsNullOrEmpty(f.ImagePath),
-            f.CreatedAt,
-            f.UpdatedAt
-        })
-    }));
-});
-
-app.MapPost("/api/floor-plan/buildings", async (HttpContext context, FloorPlanService svc, ApMapService apMapSvc, PlannedApService plannedApSvc, HeatmapDataCache heatmapCache) =>
-{
-    var request = await context.Request.ReadFromJsonAsync<BuildingRequest>();
-    if (request == null) return Results.BadRequest(new { error = "Request body is required" });
-    var building = await svc.CreateBuildingAsync(request.Name?.Trim() ?? "", request.CenterLatitude, request.CenterLongitude);
-    await heatmapCache.InvalidateAndReloadAsync(svc, apMapSvc, plannedApSvc);
-    return Results.Ok(new { building.Id, building.Name, building.CenterLatitude, building.CenterLongitude });
-});
-
-app.MapPut("/api/floor-plan/buildings/{id:int}", async (int id, HttpContext context, FloorPlanService svc, ApMapService apMapSvc, PlannedApService plannedApSvc, HeatmapDataCache heatmapCache) =>
-{
-    var request = await context.Request.ReadFromJsonAsync<BuildingRequest>();
-    if (request == null) return Results.BadRequest(new { error = "Request body is required" });
-    var building = await svc.UpdateBuildingAsync(id, request.Name?.Trim() ?? "", request.CenterLatitude, request.CenterLongitude);
-    await heatmapCache.InvalidateAndReloadAsync(svc, apMapSvc, plannedApSvc);
-    return building != null ? Results.Ok(new { success = true }) : Results.NotFound();
-});
-
-app.MapDelete("/api/floor-plan/buildings/{id:int}", async (int id, FloorPlanService svc, ApMapService apMapSvc, PlannedApService plannedApSvc, HeatmapDataCache heatmapCache) =>
-{
-    await svc.DeleteBuildingAsync(id);
-    await heatmapCache.InvalidateAndReloadAsync(svc, apMapSvc, plannedApSvc);
-    return Results.NoContent();
-});
-
-app.MapGet("/api/floor-plan/buildings/{id:int}/floors", async (int id, FloorPlanService svc) =>
-{
-    var floors = await svc.GetFloorsAsync(id);
-    return Results.Ok(floors.Select(f => new
-    {
-        f.Id,
-        f.BuildingId,
-        f.FloorNumber,
-        f.Label,
-        f.SwLatitude,
-        f.SwLongitude,
-        f.NeLatitude,
-        f.NeLongitude,
-        f.Opacity,
-        f.WallsJson,
-        f.FloorMaterial,
-        HasImage = !string.IsNullOrEmpty(f.ImagePath),
-        f.CreatedAt,
-        f.UpdatedAt
-    }));
-});
-
-app.MapPost("/api/floor-plan/buildings/{id:int}/floors", async (int id, HttpContext context, FloorPlanService svc, ApMapService apMapSvc, PlannedApService plannedApSvc, HeatmapDataCache heatmapCache) =>
-{
-    var request = await context.Request.ReadFromJsonAsync<FloorRequest>();
-    if (request == null) return Results.BadRequest(new { error = "Request body is required" });
-    var floor = await svc.CreateFloorAsync(id, request.FloorNumber, request.Label,
-        request.SwLatitude, request.SwLongitude, request.NeLatitude, request.NeLongitude);
-    await heatmapCache.InvalidateAndReloadAsync(svc, apMapSvc, plannedApSvc);
-    return Results.Ok(new { floor.Id, floor.BuildingId, floor.FloorNumber, floor.Label });
-});
-
-app.MapPut("/api/floor-plan/floors/{id:int}", async (int id, HttpContext context, FloorPlanService svc, ApMapService apMapSvc, PlannedApService plannedApSvc, HeatmapDataCache heatmapCache) =>
-{
-    var request = await context.Request.ReadFromJsonAsync<FloorUpdateRequest>();
-    if (request == null) return Results.BadRequest(new { error = "Request body is required" });
-    var floor = await svc.UpdateFloorAsync(id,
-        request.SwLatitude, request.SwLongitude, request.NeLatitude, request.NeLongitude,
-        request.Opacity, request.WallsJson, request.Label, floorMaterial: request.FloorMaterial);
-    await heatmapCache.InvalidateAndReloadAsync(svc, apMapSvc, plannedApSvc);
-    return floor != null ? Results.Ok(new { success = true }) : Results.NotFound();
-});
-
-app.MapDelete("/api/floor-plan/floors/{id:int}", async (int id, FloorPlanService svc, ApMapService apMapSvc, PlannedApService plannedApSvc, HeatmapDataCache heatmapCache) =>
-{
-    await svc.DeleteFloorAsync(id);
-    await heatmapCache.InvalidateAndReloadAsync(svc, apMapSvc, plannedApSvc);
-    return Results.NoContent();
-});
-
-app.MapGet("/api/floor-plan/floors/{id:int}/image", async (int id, FloorPlanService svc) =>
-{
-    var floor = await svc.GetFloorAsync(id);
-    if (floor == null) return Results.NotFound();
-    var imagePath = svc.GetFloorImagePath(floor);
-    if (imagePath == null) return Results.NotFound();
-    var mimeType = DetectImageMimeType(imagePath);
-    return Results.File(imagePath, mimeType);
-});
-
-app.MapPost("/api/floor-plan/floors/{id:int}/image", async (int id, HttpContext context, FloorPlanService svc) =>
-{
-    var form = await context.Request.ReadFormAsync();
-    var file = form.Files.GetFile("image");
-    if (file == null || file.Length == 0)
-        return Results.BadRequest(new { error = "No image file provided" });
-
-    using var stream = file.OpenReadStream();
-    await svc.SaveFloorImageAsync(id, stream);
-    return Results.Ok(new { success = true });
-});
-
-// --- FloorPlanImage (multi-image per floor) ---
-
-app.MapGet("/api/floor-plan/floors/{floorId:int}/images", async (int floorId, FloorPlanService svc) =>
-{
-    var images = await svc.GetFloorImagesAsync(floorId);
-    return Results.Ok(images.Select(i => new
-    {
-        i.Id,
-        i.FloorPlanId,
-        i.Label,
-        i.SwLatitude,
-        i.SwLongitude,
-        i.NeLatitude,
-        i.NeLongitude,
-        i.Opacity,
-        i.RotationDeg,
-        i.CropJson,
-        i.SortOrder,
-        HasFile = !string.IsNullOrEmpty(i.ImagePath)
-    }));
-});
-
-app.MapPost("/api/floor-plan/floors/{floorId:int}/images", async (int floorId, HttpContext context, FloorPlanService svc) =>
-{
-    const long maxFileSize = 50 * 1024 * 1024; // 50 MB
-    var form = await context.Request.ReadFormAsync();
-    var file = form.Files.GetFile("image");
-    if (file == null || file.Length == 0)
-        return Results.BadRequest(new { error = "No image file provided" });
-    if (file.Length > maxFileSize)
-        return Results.BadRequest(new { error = "File exceeds 50 MB limit" });
-
-    double.TryParse(form["swLat"], System.Globalization.CultureInfo.InvariantCulture, out var swLat);
-    double.TryParse(form["swLng"], System.Globalization.CultureInfo.InvariantCulture, out var swLng);
-    double.TryParse(form["neLat"], System.Globalization.CultureInfo.InvariantCulture, out var neLat);
-    double.TryParse(form["neLng"], System.Globalization.CultureInfo.InvariantCulture, out var neLng);
-    var label = form["label"].FirstOrDefault() ?? "";
-
-    using var stream = file.OpenReadStream();
-    var image = await svc.CreateFloorImageAsync(floorId, stream, swLat, swLng, neLat, neLng, label);
-    return Results.Ok(new
-    {
-        image.Id,
-        image.FloorPlanId,
-        image.Label,
-        image.SwLatitude,
-        image.SwLongitude,
-        image.NeLatitude,
-        image.NeLongitude,
-        image.Opacity,
-        image.RotationDeg,
-        image.CropJson,
-        image.SortOrder,
-        HasFile = true
-    });
-});
-
-app.MapGet("/api/floor-plan/images/{imageId:int}/file", async (int imageId, FloorPlanService svc) =>
-{
-    var image = await svc.GetFloorImageAsync(imageId);
-    if (image == null) return Results.NotFound();
-    var filePath = svc.GetFloorImageFilePath(image);
-    if (filePath == null) return Results.NotFound();
-    var mimeType = DetectImageMimeType(filePath);
-    return Results.File(filePath, mimeType);
-});
-
-app.MapPut("/api/floor-plan/images/{imageId:int}", async (int imageId, FloorImageUpdateRequest req, FloorPlanService svc) =>
-{
-    var image = await svc.UpdateFloorImageAsync(imageId, req.SwLatitude, req.SwLongitude,
-        req.NeLatitude, req.NeLongitude, req.Opacity, req.RotationDeg, req.CropJson, req.Label);
-    if (image == null) return Results.NotFound();
-    return Results.Ok(new
-    {
-        image.Id,
-        image.FloorPlanId,
-        image.Label,
-        image.SwLatitude,
-        image.SwLongitude,
-        image.NeLatitude,
-        image.NeLongitude,
-        image.Opacity,
-        image.RotationDeg,
-        image.CropJson,
-        image.SortOrder
-    });
-});
-
-app.MapDelete("/api/floor-plan/images/{imageId:int}", async (int imageId, FloorPlanService svc) =>
-{
-    return await svc.DeleteFloorImageAsync(imageId) ? Results.NoContent() : Results.NotFound();
-});
-
-app.MapPost("/api/floor-plan/heatmap", async (HttpContext context,
-    FloorPlanService floorSvc, ApMapService apMapSvc,
-    PlannedApService plannedApSvc,
-    NetworkOptimizer.WiFi.Services.PropagationService propagationSvc,
-    HeatmapDataCache heatmapCache) =>
-{
-    var request = await context.Request.ReadFromJsonAsync<NetworkOptimizer.WiFi.Models.HeatmapRequest>();
-    if (request == null) return Results.BadRequest(new { error = "Request body is required" });
-
-    if (!request.SwLat.HasValue || !request.SwLng.HasValue || !request.NeLat.HasValue || !request.NeLng.HasValue)
-        return Results.BadRequest(new { error = "Viewport bounds are required" });
-
-    var activeFloor = request.ActiveFloor;
-
-    // Load from cache (only hits DB when data has been invalidated)
-    var cached = await heatmapCache.GetOrLoadAsync(floorSvc, apMapSvc, plannedApSvc);
-
-    // Build placed APs list from cached markers
-    var bandFilter = request.Band == "2.4" ? "2.4" : request.Band == "6" ? "6" : "5";
-    var placedAps = cached.ApMarkers
-        .Where(a => a.Latitude.HasValue && a.Longitude.HasValue)
-        .Where(a => a.Radios.Any(r => r.Band.Contains(bandFilter)))
-        .Select(a =>
-        {
-            var radio = a.Radios.First(r => r.Band.Contains(bandFilter));
-            return new NetworkOptimizer.WiFi.Models.PropagationAp
-            {
-                Mac = a.Mac,
-                Model = a.Model,
-                Latitude = a.Latitude!.Value,
-                Longitude = a.Longitude!.Value,
-                Floor = a.Floor ?? 1,
-                OrientationDeg = a.OrientationDeg,
-                MountType = a.MountType,
-                AntennaMode = radio.AntennaMode,
-                TxPowerDbm = radio.TxPowerDbm ?? 20,
-                AntennaGainDbi = (radio.Eirp ?? 23) - (radio.TxPowerDbm ?? 20)
-            };
-        }).ToList();
-
-    // Add planned APs to the propagation computation (unless excluded by toggle)
-    if (!request.ExcludePlannedAps)
-    {
-        var patternLoader = context.RequestServices.GetRequiredService<NetworkOptimizer.WiFi.Data.AntennaPatternLoader>();
-        foreach (var pa in cached.PlannedAps)
-        {
-            var bandDefaults = NetworkOptimizer.WiFi.Data.ApModelCatalog.GetBandDefaults(pa.Model, bandFilter);
-            var (modeGain, modeMaxTx, modeDefaultTx) = NetworkOptimizer.WiFi.Data.ApModelCatalog.ResolveForMode(bandDefaults, pa.AntennaMode);
-            var txPowerStored = bandFilter switch { "2.4" => pa.TxPower24Dbm, "6" => pa.TxPower6Dbm, _ => pa.TxPower5Dbm };
-            var txPower = txPowerStored ?? modeDefaultTx;
-            var supportedBands = patternLoader.GetSupportedBands(pa.Model);
-            if (!supportedBands.Contains(bandFilter)) continue;
-
-            placedAps.Add(new NetworkOptimizer.WiFi.Models.PropagationAp
-            {
-                Mac = $"planned-{pa.Id}",
-                Model = pa.Model,
-                Latitude = pa.Latitude,
-                Longitude = pa.Longitude,
-                Floor = pa.Floor,
-                OrientationDeg = pa.OrientationDeg,
-                MountType = pa.MountType,
-                AntennaMode = pa.AntennaMode,
-                TxPowerDbm = txPower,
-                AntennaGainDbi = modeGain
-            });
-        }
-    }
-
-    // Apply TX power overrides from simulation slider
-    if (request.TxPowerOverrides is { Count: > 0 })
-    {
-        foreach (var ap in placedAps)
-        {
-            if (request.TxPowerOverrides.TryGetValue(ap.Mac.ToLowerInvariant(), out var overridePower))
-                ap.TxPowerDbm = overridePower;
-        }
-    }
-
-    // Apply antenna mode overrides from simulation toggle (also updates gain)
-    if (request.AntennaModeOverrides is { Count: > 0 })
-    {
-        foreach (var ap in placedAps)
-        {
-            if (request.AntennaModeOverrides.TryGetValue(ap.Mac.ToLowerInvariant(), out var overrideMode))
-            {
-                ap.AntennaMode = overrideMode;
-                var bd = NetworkOptimizer.WiFi.Data.ApModelCatalog.GetBandDefaults(ap.Model, bandFilter);
-                var (gain, maxTx, _) = NetworkOptimizer.WiFi.Data.ApModelCatalog.ResolveForMode(bd, overrideMode);
-                ap.AntennaGainDbi = gain;
-                ap.TxPowerDbm = Math.Min(ap.TxPowerDbm, maxTx);
-            }
-        }
-    }
-
-    // Remove disabled APs from simulation
-    if (request.DisabledMacs is { Count: > 0 })
-    {
-        var disabled = new HashSet<string>(request.DisabledMacs, StringComparer.OrdinalIgnoreCase);
-        placedAps.RemoveAll(ap => disabled.Contains(ap.Mac));
-    }
-
-    var result = propagationSvc.ComputeHeatmap(
-        request.SwLat.Value, request.SwLng.Value, request.NeLat.Value, request.NeLng.Value,
-        request.Band, placedAps, cached.WallsByFloor, activeFloor, request.GridResolutionMeters, cached.BuildingFloorInfos);
-
-    // Apply calibration adjustment from real-world signal measurements if provided.
-    // Filter to measurements matching the active heatmap band.
-    if (request.SignalMeasurements is { Count: > 0 })
-    {
-        var bandFiltered = request.SignalMeasurements
-            .Where(m => RadioBandExtensions.MatchesPropagationBand(m.Band, request.Band))
-            .ToList();
-        if (bandFiltered.Count > 0)
-            propagationSvc.AdjustWithMeasurements(result, bandFiltered, placedAps);
-    }
-
-    return Results.Ok(result);
-});
-
-// ── Planned APs ─────────────────────────────────────────────────────
-
-app.MapGet("/api/floor-plan/planned-aps", async (PlannedApService svc) =>
-{
-    var aps = await svc.GetAllAsync();
-    return Results.Ok(aps);
-});
-
-app.MapPost("/api/floor-plan/planned-aps", async (HttpContext context, FloorPlanService floorSvc, ApMapService apMapSvc, PlannedApService svc, HeatmapDataCache heatmapCache) =>
-{
-    var ap = await context.Request.ReadFromJsonAsync<NetworkOptimizer.Storage.Models.PlannedAp>();
-    if (ap == null) return Results.BadRequest(new { error = "Request body is required" });
-    var created = await svc.CreateAsync(ap);
-    await heatmapCache.InvalidateAndReloadAsync(floorSvc, apMapSvc, svc);
-    return Results.Ok(created);
-});
-
-app.MapPut("/api/floor-plan/planned-aps/{id:int}", async (int id, HttpContext context, FloorPlanService floorSvc, ApMapService apMapSvc, PlannedApService svc, HeatmapDataCache heatmapCache) =>
-{
-    var body = await context.Request.ReadFromJsonAsync<Dictionary<string, System.Text.Json.JsonElement>>();
-    if (body == null) return Results.BadRequest(new { error = "Request body is required" });
-
-    if (body.TryGetValue("latitude", out var lat) && body.TryGetValue("longitude", out var lng))
-        await svc.UpdateLocationAsync(id, lat.GetDouble(), lng.GetDouble());
-    if (body.TryGetValue("floor", out var floor))
-        await svc.UpdateFloorAsync(id, floor.GetInt32());
-    if (body.TryGetValue("orientationDeg", out var deg))
-        await svc.UpdateOrientationAsync(id, deg.GetInt32());
-    if (body.TryGetValue("mountType", out var mt))
-        await svc.UpdateMountTypeAsync(id, mt.GetString() ?? "ceiling");
-    if (body.TryGetValue("txPowerDbm", out var tx) && body.TryGetValue("band", out var band))
-        await svc.UpdateTxPowerAsync(id, band.GetString() ?? "5", tx.ValueKind == System.Text.Json.JsonValueKind.Null ? null : tx.GetInt32());
-    if (body.TryGetValue("antennaMode", out var am))
-        await svc.UpdateAntennaModeAsync(id, am.ValueKind == System.Text.Json.JsonValueKind.Null ? null : am.GetString());
-    if (body.TryGetValue("name", out var name))
-        await svc.UpdateNameAsync(id, (name.GetString() ?? "").Trim());
-
-    await heatmapCache.InvalidateAndReloadAsync(floorSvc, apMapSvc, svc);
-    return Results.Ok(new { success = true });
-});
-
-app.MapDelete("/api/floor-plan/planned-aps/{id:int}", async (int id, FloorPlanService floorSvc, ApMapService apMapSvc, PlannedApService svc, HeatmapDataCache heatmapCache) =>
-{
-    var deleted = await svc.DeleteAsync(id);
-    await heatmapCache.InvalidateAndReloadAsync(floorSvc, apMapSvc, svc);
-    return deleted ? Results.Ok(new { success = true }) : Results.NotFound();
-});
-
-app.MapGet("/api/floor-plan/ap-catalog", (NetworkOptimizer.WiFi.Data.AntennaPatternLoader patternLoader) =>
-{
-    var catalog = NetworkOptimizer.WiFi.Data.ApModelCatalog.BuildCatalog(patternLoader);
-    return Results.Ok(catalog.Select(c => new
-    {
-        model = c.Model,
-        bands = c.Bands.ToDictionary(b => b.Key, b => new
-        {
-            defaultTxPowerDbm = b.Value.DefaultTxPowerDbm,
-            minTxPowerDbm = b.Value.MinTxPowerDbm,
-            maxTxPowerDbm = b.Value.MaxTxPowerDbm,
-            antennaGainDbi = b.Value.AntennaGainDbi,
-            modeOverrides = b.Value.ModeOverrides?.ToDictionary(m => m.Key, m => new
-            {
-                antennaGainDbi = m.Value.AntennaGainDbi,
-                maxTxPowerDbm = m.Value.MaxTxPowerDbm,
-                defaultTxPowerDbm = m.Value.DefaultTxPowerDbm,
-            })
-        }),
-        defaultMountType = c.DefaultMountType,
-        hasOmniVariant = c.HasOmniVariant,
-        antennaVariants = c.AntennaVariants,
-        iconPath = NetworkOptimizer.Web.Components.Shared.DeviceIcon.GetIconPath(c.Model) ?? "/images/devices/default-ap.png"
-    }));
-});
-
-// Demo mode masking endpoint (returns mappings from DEMO_MODE_MAPPINGS env var)
-// --- Client Dashboard API ---
-
-app.MapGet("/api/client-dashboard/client", async (HttpContext context, ClientDashboardService service) =>
-{
-    var clientIp = EndpointHelpers.GetClientIp(context);
-    var identity = await service.IdentifyClientAsync(clientIp);
-    return identity != null ? Results.Ok(identity) : Results.NotFound(new { error = "Client not found" });
-});
-
-app.MapGet("/api/client-dashboard/signal-detail", async (HttpContext context, ClientDashboardService service,
-    double? lat = null, double? lng = null, int? acc = null) =>
-{
-    var clientIp = EndpointHelpers.GetClientIp(context);
-    var result = await service.PollSignalAsync(clientIp, lat, lng, acc);
-    return result != null ? Results.Ok(result) : Results.NotFound(new { error = "Client not found" });
-});
-
-app.MapPost("/api/client-dashboard/gps-locations", async (HttpContext context, ClientDashboardService service) =>
-{
-    var request = await context.Request.ReadFromJsonAsync<NetworkOptimizer.Web.Models.GpsUpdateRequest>();
-    if (request == null)
-        return Results.BadRequest(new { error = "Request body is required" });
-
-    // Identify client by IP to get MAC
-    var clientIp = EndpointHelpers.GetClientIp(context);
-    var identity = await service.IdentifyClientAsync(clientIp);
-    if (identity == null)
-        return Results.NotFound(new { error = "Client not found" });
-
-    await service.SubmitGpsAsync(identity.Mac, request.Latitude, request.Longitude, request.AccuracyMeters);
-    return Results.Ok(new { success = true });
-});
-
-app.MapGet("/api/client-dashboard/signal-history", async (ClientDashboardService service,
-    string mac, DateTime? from = null, DateTime? to = null, int? skip = null, int? take = null) =>
-{
-    var fromDate = from ?? DateTime.UtcNow.AddHours(-24);
-    var toDate = to ?? DateTime.UtcNow;
-    var history = await service.GetSignalHistoryAsync(mac, fromDate, toDate, skip ?? 0, take ?? 500);
-    return Results.Ok(history);
-});
-
-app.MapGet("/api/client-dashboard/trace-history", async (ClientDashboardService service,
-    string mac, DateTime? from = null, DateTime? to = null) =>
-{
-    var fromDate = from ?? DateTime.UtcNow.AddHours(-24);
-    var toDate = to ?? DateTime.UtcNow;
-    var history = await service.GetTraceHistoryAsync(mac, fromDate, toDate);
-    return Results.Ok(history);
-});
-
-app.MapGet("/api/client-dashboard/speed-results", async (ClientDashboardService service,
-    string mac, DateTime? from = null, DateTime? to = null) =>
-{
-    var fromDate = from ?? DateTime.UtcNow.AddHours(-24);
-    var toDate = to ?? DateTime.UtcNow;
-    var results = await service.GetSpeedResultsAsync(mac, fromDate, toDate);
-    return Results.Ok(results);
-});
-
-app.MapGet("/api/demo-mappings", () =>
-{
-    var mappingsEnv = Environment.GetEnvironmentVariable("DEMO_MODE_MAPPINGS");
-    if (string.IsNullOrWhiteSpace(mappingsEnv))
-    {
-        return Results.Ok(new { mappings = Array.Empty<object>() });
-    }
-
-    // Parse format: "key1:value1,key2:value2"
-    var mappings = mappingsEnv
-        .Split(',', StringSplitOptions.RemoveEmptyEntries)
-        .Select(pair =>
-        {
-            var parts = pair.Split(':', 2);
-            if (parts.Length == 2)
-            {
-                return new { from = parts[0].Trim(), to = parts[1].Trim() };
-            }
-            return null;
-        })
-        .Where(m => m != null)
-        .ToArray();
-
-    return Results.Ok(new { mappings });
-});
-
-// --- Config Backup/Restore API ---
-
-app.MapGet("/api/config/backups", async (string type, ConfigTransferService service) =>
-{
-    var exportType = type?.Equals("settings", StringComparison.OrdinalIgnoreCase) == true
-        ? ExportType.SettingsOnly
-        : ExportType.Full;
-
-    var bytes = await service.ExportAsync(exportType);
-    var label = exportType == ExportType.Full ? "full" : "settings";
-    var fileName = $"NetworkOptimizer-{label}-{DateTime.UtcNow:yyyyMMdd}.nopt";
-    return Results.File(bytes, "application/octet-stream", fileName);
-});
-
-app.MapPost("/api/config/backups", async (HttpContext context, ConfigTransferService service) =>
-{
-    var form = await context.Request.ReadFormAsync();
-    var file = form.Files.GetFile("file");
-    if (file == null || file.Length == 0)
-        return Results.BadRequest(new { error = "No file provided" });
-
-    try
-    {
-        using var stream = file.OpenReadStream();
-        var preview = await service.ValidateImportAsync(stream);
-        return Results.Ok(preview);
-    }
-    catch (Exception ex)
-    {
-        return Results.BadRequest(new { error = $"Invalid file: {ex.Message}" });
-    }
-});
-
-app.MapPut("/api/config", async (ConfigTransferService service) =>
-{
-    try
-    {
-        await service.ApplyImportAsync();
-        return Results.Ok(new { message = "Config restored. Restarting..." });
-    }
-    catch (Exception ex)
-    {
-        return Results.BadRequest(new { error = ex.Message });
-    }
-});
-
-app.MapDelete("/api/config/backups/pending", (ConfigTransferService service) =>
-{
-    service.CancelPendingImport();
-    return Results.Ok(new { message = "Pending backup cancelled" });
-});
-
-// New API endpoints go in Endpoints/*.cs, not inline here.
-LanFlowMapEndpoints.Map(app);
-SiteAgentEndpoints.Map(app);
 // Agent tunnel (gRPC). Mapped unconditionally; it is only reachable when the
-// dedicated HTTP/2 listener is bound (multi-site enabled at startup).
+// dedicated HTTP/2 listener is bound (multi-site enabled at startup). It authenticates with the
+// agent enrollment-token/agent-key scheme, separate from user identity (design doc 06, gate 11).
 app.MapGrpcService<AgentTunnelService>();
-MonitoringChartEndpoints.Map(app);
-IspHealthEndpoints.Map(app);
-MonitoringInvestigateEndpoints.Map(app);
-FlakyTargetEndpoints.Map(app);
-DeviceHealthChartEndpoints.Map(app);
-PortStatsEndpoints.Map(app);
-SfpChartEndpoints.Map(app);
-CellularChartEndpoints.Map(app);
-CmChartEndpoints.Map(app);
-OntChartEndpoints.Map(app);
-StarlinkChartEndpoints.Map(app);
-SnmpEndpoints.Map(app);
 
 app.Run();
 
@@ -2052,38 +1354,6 @@ static Dictionary<string, string?> LoadWindowsRegistrySettings()
 
 
 
-static string DetectImageMimeType(string filePath)
-{
-    try
-    {
-        var header = new byte[12];
-        using var fs = File.OpenRead(filePath);
-        var bytesRead = fs.Read(header, 0, header.Length);
-        if (bytesRead >= 4)
-        {
-            // PNG: 89 50 4E 47
-            if (header[0] == 0x89 && header[1] == 0x50 && header[2] == 0x4E && header[3] == 0x47)
-                return "image/png";
-            // JPEG: FF D8 FF
-            if (header[0] == 0xFF && header[1] == 0xD8 && header[2] == 0xFF)
-                return "image/jpeg";
-            // WebP: RIFF + 4 byte size + WEBP
-            if (bytesRead >= 12 && header[0] == 0x52 && header[1] == 0x49 && header[2] == 0x46 && header[3] == 0x46
-                && header[8] == 0x57 && header[9] == 0x45 && header[10] == 0x42 && header[11] == 0x50)
-                return "image/webp";
-        }
-    }
-    catch { /* fall through */ }
-
-    // Fallback by extension
-    var ext = Path.GetExtension(filePath).ToLowerInvariant();
-    return ext switch
-    {
-        ".jpg" or ".jpeg" => "image/jpeg",
-        ".webp" => "image/webp",
-        _ => "image/png"
-    };
-}
 
 // Request DTO for UPnP notes
 record UpnpNoteRequest(string HostIp, string Port, string Protocol, string? Note);

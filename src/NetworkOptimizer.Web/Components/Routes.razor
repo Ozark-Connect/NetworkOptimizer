@@ -4,7 +4,22 @@
 
 <Router AppAssembly="typeof(Program).Assembly">
     <Found Context="routeData">
-        <RouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)" />
+        @* Gate 4 (design doc 06): page [Authorize] policies decide navigation. The policies succeed
+           when the install has authentication disabled, so nothing changes for those installs. *@
+        <AuthorizeRouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)">
+            <NotAuthorized>
+                <div class="page-content">
+                    <div class="empty-state">
+                        <div class="empty-icon">&#128274;</div>
+                        <h2>You do not have access to this page</h2>
+                        <p class="page-description">
+                            Ask an administrator for the access you need, or head back to the dashboard.
+                        </p>
+                        <a class="btn btn-primary" href="/">Go to Dashboard</a>
+                    </div>
+                </div>
+            </NotAuthorized>
+        </AuthorizeRouteView>
         <FocusOnNavigate RouteData="routeData" Selector="h1" />
     </Found>
 </Router>

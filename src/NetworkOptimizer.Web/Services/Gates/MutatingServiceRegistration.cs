@@ -15,8 +15,8 @@ public sealed class MutatingServiceAttribute : Attribute
 
 /// <summary>
 /// DI wiring for the declarative service-layer gate (design doc 06, gate 9). Mutating services are
-/// registered through <see cref="AddMutatingService{TInterface,TImpl}"/>, which wraps the concrete
-/// implementation in a Castle DynamicProxy interface proxy backed by <see cref="MethodSecurityInterceptor"/>.
+/// registered through the <c>AddMutatingService</c> overloads, which wrap the implementation in a
+/// Castle DynamicProxy interface proxy backed by <see cref="MethodSecurityInterceptor"/>.
 /// </summary>
 public static class MutatingServiceRegistration
 {
@@ -31,21 +31,46 @@ public static class MutatingServiceRegistration
 
     /// <summary>
     /// Registers a mutating service so callers resolving <typeparamref name="TInterface"/> get a gated
-    /// proxy of <typeparamref name="TImpl"/>. Both share the scope; the concrete type stays available
-    /// for the proxy's target.
+    /// proxy of <typeparamref name="TImpl"/>. The implementation is constructed inside the proxy factory
+    /// rather than registered as its own service type, so there is no ungated concrete registration for
+    /// a component to inject around the gate.
     /// </summary>
     public static IServiceCollection AddMutatingService<TInterface, TImpl>(this IServiceCollection services)
         where TInterface : class
         where TImpl : class, TInterface
+        => services.AddMutatingService<TInterface>(sp => ActivatorUtilities.CreateInstance<TImpl>(sp));
+
+    /// <summary>
+    /// Registers a gated mutating service whose instance comes from a factory - used for the per-site
+    /// registries, which own the instance for the current site's slug.
+    /// </summary>
+    public static IServiceCollection AddMutatingService<TInterface>(
+        this IServiceCollection services, Func<IServiceProvider, TInterface> factory)
+        where TInterface : class
     {
-        services.AddScoped<TImpl>();
-        services.AddScoped(sp =>
-        {
-            var target = sp.GetRequiredService<TImpl>();
-            var generator = sp.GetRequiredService<ProxyGenerator>();
-            var interceptor = sp.GetRequiredService<MethodSecurityInterceptor>();
-            return generator.CreateInterfaceProxyWithTargetInterface<TInterface>(target, interceptor.ToInterceptor());
-        });
+        services.AddScoped(sp => Proxy(sp, factory(sp)));
         return services;
+    }
+
+    /// <summary>
+    /// Registers a gated interface over an existing singleton implementation. The singleton keeps its
+    /// lifetime (and its cached state); the gated <typeparamref name="TInterface"/> is scoped because
+    /// the interceptor authorizes and audits against the per-request/per-circuit caller.
+    /// </summary>
+    public static IServiceCollection AddMutatingSingleton<TInterface, TImpl>(this IServiceCollection services)
+        where TInterface : class
+        where TImpl : class, TInterface
+    {
+        services.AddSingleton<TImpl>();
+        services.AddScoped(sp => Proxy<TInterface>(sp, sp.GetRequiredService<TImpl>()));
+        return services;
+    }
+
+    private static TInterface Proxy<TInterface>(IServiceProvider sp, TInterface target)
+        where TInterface : class
+    {
+        var generator = sp.GetRequiredService<ProxyGenerator>();
+        var interceptor = sp.GetRequiredService<MethodSecurityInterceptor>();
+        return generator.CreateInterfaceProxyWithTargetInterface(target, interceptor.ToInterceptor());
     }
 }

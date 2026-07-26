@@ -1,5 +1,5 @@
 @page "/alerts"
-@attribute [Authorize]
+@attribute [Authorize(Policy = Policies.RequireViewer)]
 @using Microsoft.AspNetCore.Authorization
 @using NetworkOptimizer.Alerts
 @using NetworkOptimizer.Alerts.Interfaces
@@ -19,7 +19,7 @@
 @inject ILogger<Alerts> Logger
 @inject NavigationManager NavigationManager
 @inject ISqmService SqmService
-@inject Iperf3SpeedTestService SpeedTestService
+@inject IIperf3SpeedTestService SpeedTestService
 @inject UniFiConnectionService ConnectionService
 @inject IGatewaySshService GatewaySshService
 @inject AgentOnGatewayDetector OnGatewayDetector

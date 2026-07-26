@@ -1,4 +1,5 @@
 @page "/audit-log"
+@attribute [Authorize(Policy = Policies.RequireAdmin)]
 @rendermode InteractiveServer
 @using NetworkOptimizer.Storage.Models.Identity
 @using NetworkOptimizer.Web.Services.Auditing

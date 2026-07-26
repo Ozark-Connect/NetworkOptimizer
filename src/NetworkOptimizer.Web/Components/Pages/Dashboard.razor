@@ -1,4 +1,5 @@
 @page "/"
+@attribute [Authorize(Policy = Policies.RequireViewer)]
 @using NetworkOptimizer.Web.Services
 @using NetworkOptimizer.Storage.Models
 @using NetworkOptimizer.WiFi
@@ -6,9 +7,9 @@
 @inject DashboardService DashboardService
 @inject DashboardLayoutService LayoutService
 @inject UniFiConnectionService ConnectionService
-@inject Iperf3SpeedTestService SpeedTestService
-@inject UwnSpeedTestService WanSpeedTestService
-@inject GatewayWanSpeedTestService GatewayWanTestService
+@inject IIperf3SpeedTestService SpeedTestService
+@inject IUwnSpeedTestService WanSpeedTestService
+@inject IGatewayWanSpeedTestService GatewayWanTestService
 @inject IAdminAuthService AdminAuthService
 @inject ThreatDashboardService ThreatService
 @inject NavigationManager NavigationManager

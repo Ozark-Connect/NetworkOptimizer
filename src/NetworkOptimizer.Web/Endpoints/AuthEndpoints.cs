@@ -58,7 +58,8 @@ public static class AuthEndpoints
                 SignInOutcome.LocalLoginDisabled => LoginRedirect("sso_only", site),
                 _ => LoginRedirect("invalid", site),
             };
-        });
+        })
+            .AllowAnonymous();
 
         // Second-factor step (TOTP or recovery code), posted by the /login/2fa static-SSR page.
         app.MapPost("/api/auth/2fa", async (
@@ -84,7 +85,8 @@ public static class AuthEndpoints
                 SignInOutcome.LockedOut => LoginRedirect("lockout", site),
                 _ => Results.Redirect(TwoFactorRedirect(returnUrl, site) + "&error=invalid"),
             };
-        });
+        })
+            .AllowAnonymous();
 
         // Sign out of the application cookie. GET is retained so existing nav logout links keep working;
         // it also clears any residual legacy auth_token cookie during the bridge window.
@@ -94,7 +96,8 @@ public static class AuthEndpoints
             context.Response.Cookies.Delete("auth_token", new CookieOptions { Path = "/" });
             var site = context.Request.Query[SiteContextService.SiteQueryParam].ToString();
             return LoginRedirect(null, site);
-        });
+        })
+            .AllowAnonymous();
     }
 
     /// <summary>Builds a redirect to /login, carrying the tab's ?site= pin and an optional error code.</summary>

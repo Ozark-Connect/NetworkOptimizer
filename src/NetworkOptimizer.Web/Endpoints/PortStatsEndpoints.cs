@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Services;
 using NetworkOptimizer.Web.Services;
+using NetworkOptimizer.Web.Services.Authorization;
 
 namespace NetworkOptimizer.Web.Endpoints;
 
@@ -30,7 +31,12 @@ public static class PortStatsEndpoints
 
     public static void Map(WebApplication app)
     {
-        app.MapGet("/api/monitoring/port-stats", async (
+        // Gate 2 (design doc 06): the whole group carries authorization metadata, which is what
+        // architecture test A1 checks. The policy short-circuits when the install has
+        // authentication disabled (GlobalRoleHandler).
+        var group = app.MapGroup("").RequireAuthorization(Policies.RequireViewer);
+
+        group.MapGet("/api/monitoring/port-stats", async (
             MonitoringInfluxClient influx,
             MonitoringLiveStats liveStats,
             SiteDbContextFactory siteDbFactory,

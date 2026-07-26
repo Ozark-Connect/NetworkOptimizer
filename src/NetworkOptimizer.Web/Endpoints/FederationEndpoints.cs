@@ -19,7 +19,8 @@ public static class FederationEndpoints
         {
             var props = new AuthenticationProperties { RedirectUri = "/login/external-callback" };
             return Results.Challenge(props, new[] { ConfigureOidcOptions.Prefix + scheme });
-        });
+        })
+            .AllowAnonymous();
 
         // IdP returned and the OIDC handler wrote the external cookie; resolve to a local user.
         app.MapGet("/login/external-callback", async (
@@ -50,6 +51,7 @@ public static class FederationEndpoints
                 ExternalLoginOutcome.Disabled => Results.Redirect("/login?error=account_disabled"),
                 _ => Results.Redirect("/login?error=no_account"),
             };
-        });
+        })
+            .AllowAnonymous();
     }
 }

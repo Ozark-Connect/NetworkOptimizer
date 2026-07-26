@@ -11,7 +11,7 @@ namespace NetworkOptimizer.Web.Services;
 /// provisions its own SQLite database file by running the full EF migration
 /// set against a fresh file under sites/{slug}/.
 /// </summary>
-public class SiteManagementService
+public class SiteManagementService : ISiteManagementService
 {
     /// <summary>Slug reserved for the default site (the pre-multi-site instance).</summary>
     public const string DefaultSiteSlug = "main";

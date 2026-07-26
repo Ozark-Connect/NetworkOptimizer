@@ -1,5 +1,6 @@
 using NetworkOptimizer.Web.Services;
 using NetworkOptimizer.Web.Services.Monitoring.IspHealth;
+using NetworkOptimizer.Web.Services.Authorization;
 
 namespace NetworkOptimizer.Web.Endpoints;
 
@@ -12,12 +13,17 @@ public static class IspHealthEndpoints
 {
     public static void Map(WebApplication app)
     {
+        // Gate 2 (design doc 06): the whole group carries authorization metadata, which is what
+        // architecture test A1 checks. The policy short-circuits when the install has
+        // authentication disabled (GlobalRoleHandler).
+        var group = app.MapGroup("").RequireAuthorization(Policies.RequireViewer);
+
         // Full ISP Health report for the selected window as a PDF. from/to mirror the tab's
         // date/time filter: both present computes that window (served from the same
         // custom-window cache the tab uses, so exporting what's on screen is a cache hit),
         // absent exports the live cached report. The rendering is a pure projection of the
         // scored report - the export can never disagree with the tab.
-        app.MapGet("/api/monitoring/isp-health/pdf", async (
+        group.MapGet("/api/monitoring/isp-health/pdf", async (
             DateTime? from,
             DateTime? to,
             IspHealthService ispHealth,
@@ -47,7 +53,7 @@ public static class IspHealthEndpoints
             return Results.File(pdfBytes, "application/pdf", fileName);
         });
 
-        app.MapGet("/api/monitoring/isp-health/asn-series", async (
+        group.MapGet("/api/monitoring/isp-health/asn-series", async (
             DateTime? from,
             DateTime? to,
             IspHealthService ispHealth,

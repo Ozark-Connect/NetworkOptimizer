@@ -21,7 +21,8 @@ public static class SamlEndpoints
             var provider = await SamlProviderAsync(providers, scheme);
             if (provider is null) return Results.NotFound();
             return Results.Content(await saml.BuildMetadataAsync(provider, ctx), "application/samlmetadata+xml");
-        });
+        })
+            .AllowAnonymous();
 
         // SP-initiated login.
         app.MapGet("/login/saml/{scheme}", async (
@@ -30,7 +31,8 @@ public static class SamlEndpoints
             var provider = await SamlProviderAsync(providers, scheme);
             if (provider is null || !provider.Enabled) return Results.Redirect("/login?error=provider_disabled");
             return await saml.ChallengeAsync(provider, ctx, returnUrl: "/");
-        });
+        })
+            .AllowAnonymous();
 
         // Assertion Consumer Service: validate the IdP response and resolve to a local user.
         app.MapPost("/saml/{scheme}/acs", async (
@@ -56,7 +58,8 @@ public static class SamlEndpoints
                 ExternalLoginOutcome.Disabled => Results.Redirect("/login?error=account_disabled"),
                 _ => Results.Redirect("/login?error=no_account"),
             };
-        });
+        })
+            .AllowAnonymous();
     }
 
     private static async Task<FederationProvider?> SamlProviderAsync(IFederationProviderService providers, string scheme)

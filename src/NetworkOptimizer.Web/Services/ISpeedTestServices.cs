@@ -1,0 +1,171 @@
+using NetworkOptimizer.Storage.Models;
+using NetworkOptimizer.Storage.Models.Identity;
+using NetworkOptimizer.UniFi;
+using NetworkOptimizer.Web.Services.Gates;
+
+namespace NetworkOptimizer.Web.Services;
+
+/// <summary>
+/// The WAN speed test surface shared by the server-side (uwnspeedtest) runner. Running a speed test
+/// is the one mutating action an Operator may take (design doc 08); editing or deleting stored
+/// results is an Admin change to recorded data.
+/// </summary>
+[MutatingService]
+public interface IUwnSpeedTestService
+{
+    /// <summary>True while a test is in flight (the UI blocks a second concurrent run).</summary>
+    [RequireGlobalRole(GlobalRoles.Viewer)]
+    bool IsRunning { get; }
+
+    /// <summary>Live progress of the running test (phase, percent, status line).</summary>
+    [RequireGlobalRole(GlobalRoles.Viewer)]
+    (string Phase, int Percent, string? Status) CurrentProgress { get; }
+
+    /// <summary>The most recently completed result, kept for the page to show after a run.</summary>
+    [RequireGlobalRole(GlobalRoles.Viewer)]
+    Iperf3Result? LastCompletedResult { get; }
+
+    /// <summary>Metadata captured alongside the last run (server, path, interface).</summary>
+    [RequireGlobalRole(GlobalRoles.Viewer)]
+    WanTestMetadata? LastMetadata { get; }
+
+    /// <summary>Raised with the result id once the post-test path analysis finishes.</summary>
+    event Action<int>? OnPathAnalysisComplete;
+
+    /// <summary>Runs a WAN speed test from this server.</summary>
+    [RequireGlobalRole(GlobalRoles.Operator)]
+    [AuditAction(AuditActions.SpeedTestRun, TargetType = "wan_speedtest")]
+    Task<Iperf3Result?> RunTestAsync(
+        Action<(string Phase, int Percent, string? Status)>? onProgress = null,
+        bool maxMode = false,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Stored WAN speed test results for this site.</summary>
+    [RequireGlobalRole(GlobalRoles.Viewer)]
+    Task<List<Iperf3Result>> GetResultsAsync(int count = 50, int hours = 0);
+
+    /// <summary>Deletes a stored result.</summary>
+    [RequireGlobalRole(GlobalRoles.Admin)]
+    [AuditAction(AuditActions.SpeedTestDeleted, TargetType = "wan_speedtest")]
+    Task<bool> DeleteResultAsync(int id);
+
+    /// <summary>Re-assigns a stored result to a different WAN.</summary>
+    [RequireGlobalRole(GlobalRoles.Admin)]
+    [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "wan_speedtest")]
+    Task<bool> UpdateWanAssignmentAsync(int id, string wanNetworkGroup, string? wanName);
+
+    /// <summary>Edits the notes on a stored result.</summary>
+    [RequireGlobalRole(GlobalRoles.Admin)]
+    Task<bool> UpdateNotesAsync(int id, string? notes);
+}
+
+/// <summary>
+/// The gateway-run WAN speed test (the gateway runs the test against an external server). Same tiers
+/// as <see cref="IUwnSpeedTestService"/>; deploying the binary to the gateway is Admin.
+/// </summary>
+[MutatingService]
+public interface IGatewayWanSpeedTestService
+{
+    /// <summary>True while a test is in flight.</summary>
+    [RequireGlobalRole(GlobalRoles.Viewer)]
+    bool IsRunning { get; }
+
+    /// <summary>Live progress of the running test (phase, percent, status line).</summary>
+    [RequireGlobalRole(GlobalRoles.Viewer)]
+    (string Phase, int Percent, string? Status) CurrentProgress { get; }
+
+    /// <summary>The most recently completed result, kept for the page to show after a run.</summary>
+    [RequireGlobalRole(GlobalRoles.Viewer)]
+    Iperf3Result? LastCompletedResult { get; }
+
+    /// <summary>Raised with the result id once the post-test path analysis finishes.</summary>
+    event Action<int>? OnPathAnalysisComplete;
+
+    /// <summary>Whether the speed test binary is present on the gateway and current.</summary>
+    [RequireGlobalRole(GlobalRoles.Viewer)]
+    Task<(bool Deployed, bool NeedsUpdate)> CheckBinaryStatusAsync();
+
+    /// <summary>Deploys or updates the speed test binary on the gateway.</summary>
+    [RequireGlobalRole(GlobalRoles.Admin)]
+    [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "wan_speedtest_binary")]
+    Task<(bool Success, string? Error)> DeployBinaryAsync(CancellationToken ct = default);
+
+    /// <summary>Runs a WAN speed test from the gateway over one or more WAN interfaces.</summary>
+    [RequireGlobalRole(GlobalRoles.Operator)]
+    [AuditAction(AuditActions.SpeedTestRun, TargetType = "wan_speedtest")]
+    Task<Iperf3Result?> RunTestAsync(
+        string interfaceName,
+        string? wanNetworkGroup,
+        string? wanName,
+        Action<(string Phase, int Percent, string? Status)>? onProgress = null,
+        IReadOnlyList<WanInterfaceInfo>? allInterfaces = null,
+        bool maxMode = false,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Stored gateway WAN results for this site.</summary>
+    [RequireGlobalRole(GlobalRoles.Viewer)]
+    Task<List<Iperf3Result>> GetResultsAsync(int count = 50, int hours = 0);
+
+    /// <summary>Deletes a stored result.</summary>
+    [RequireGlobalRole(GlobalRoles.Admin)]
+    [AuditAction(AuditActions.SpeedTestDeleted, TargetType = "wan_speedtest")]
+    Task<bool> DeleteResultAsync(int id);
+
+    /// <summary>Edits the notes on a stored result.</summary>
+    [RequireGlobalRole(GlobalRoles.Admin)]
+    Task<bool> UpdateNotesAsync(int id, string? notes);
+
+    /// <summary>Re-assigns a stored result to a different WAN.</summary>
+    [RequireGlobalRole(GlobalRoles.Admin)]
+    [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "wan_speedtest")]
+    Task<bool> UpdateWanAssignmentAsync(int id, string wanNetworkGroup, string? wanName);
+}
+
+/// <summary>
+/// Client speed test results (OpenSpeedTest and client-initiated iperf3). The recording methods are
+/// driven by anonymous client submissions on <c>/api/public/*</c>, which run in an explicit system
+/// scope, so they carry the read tier here; deleting or editing recorded results is an Admin change.
+/// </summary>
+[MutatingService]
+public interface IClientSpeedTestService
+{
+    /// <summary>Records a browser (OpenSpeedTest) result posted by a client.</summary>
+    [RequireGlobalRole(GlobalRoles.Viewer)]
+    Task<Iperf3Result> RecordOpenSpeedTestResultAsync(
+        string clientIp, double downloadMbps, double uploadMbps, double? pingMs, double? jitterMs,
+        double? downloadDataMb, double? uploadDataMb, string? userAgent,
+        double? latitude = null, double? longitude = null, int? locationAccuracy = null,
+        int? durationSeconds = null, string? externalServerId = null);
+
+    /// <summary>Records a client-initiated iperf3 result relayed by the site's iperf3 server.</summary>
+    [RequireGlobalRole(GlobalRoles.Viewer)]
+    Task<Iperf3Result> RecordIperf3ClientResultAsync(
+        string clientIp, double downloadBitsPerSecond, double uploadBitsPerSecond,
+        long downloadBytes, long uploadBytes, int? downloadRetransmits, int? uploadRetransmits,
+        int durationSeconds, int parallelStreams, string? rawJson, string? serverLocalIp = null);
+
+    /// <summary>Recent client speed test results for this site.</summary>
+    [RequireGlobalRole(GlobalRoles.Viewer)]
+    Task<List<Iperf3Result>> GetResultsAsync(int count = 50, int hours = 0);
+
+    /// <summary>Recent client WAN results for this site.</summary>
+    [RequireGlobalRole(GlobalRoles.Viewer)]
+    Task<List<Iperf3Result>> GetWanResultsAsync(int count = 50, int hours = 0);
+
+    /// <summary>Results for one client address.</summary>
+    [RequireGlobalRole(GlobalRoles.Viewer)]
+    Task<List<Iperf3Result>> GetResultsByIpAsync(string clientIp, int count = 20);
+
+    /// <summary>Results for one client MAC.</summary>
+    [RequireGlobalRole(GlobalRoles.Viewer)]
+    Task<List<Iperf3Result>> GetResultsByMacAsync(string clientMac, int count = 20);
+
+    /// <summary>Deletes a stored result.</summary>
+    [RequireGlobalRole(GlobalRoles.Admin)]
+    [AuditAction(AuditActions.SpeedTestDeleted, TargetType = "client_speedtest")]
+    Task<bool> DeleteResultAsync(int id);
+
+    /// <summary>Edits the notes on a stored result.</summary>
+    [RequireGlobalRole(GlobalRoles.Admin)]
+    Task<bool> UpdateNotesAsync(int id, string? notes);
+}

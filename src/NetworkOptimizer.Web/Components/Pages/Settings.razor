@@ -1,4 +1,5 @@
 @page "/settings"
+@attribute [Authorize(Policy = Policies.RequireAdmin)]
 @rendermode InteractiveServer
 @implements IDisposable
 @using NetworkOptimizer.Web.Services
@@ -19,7 +20,7 @@
 @inject ISqmService SqmService
 @inject CellularModemService ModemService
 @inject UniFiSshService SshService
-@inject GatewaySpeedTestService GatewayService
+@inject IGatewaySpeedTestService GatewayService
 @inject SystemSettingsService SystemSettings
 @inject IAdminAuthService AdminAuth
 @inject IJSRuntime JS
@@ -34,7 +35,7 @@
 @inject NavigationManager NavigationManager
 @inject SiteManagementService SiteManagement
 @inject SiteSwitchService SiteSwitch
-@inject AgentEnrollmentService AgentEnrollment
+@inject IAgentEnrollmentService AgentEnrollment
 @inject AgentServerUrlProvider AgentServerUrl
 @inject AgentTunnelRegistry TunnelRegistry
 @inject AgentOnGatewayDetector OnGatewayDetector
