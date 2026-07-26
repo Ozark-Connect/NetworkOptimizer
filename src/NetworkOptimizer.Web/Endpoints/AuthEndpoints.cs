@@ -55,8 +55,10 @@ public static class AuthEndpoints
                 SignInOutcome.Success => Results.Redirect(string.IsNullOrEmpty(site)
                     ? await siteSwitch.StampSiteAsync(returnUrl)
                     : SiteContextService.WithSiteParam(returnUrl, site)),
+                // Resolved from the submitted username: the two-factor cookie was written into this
+                // response, so it cannot be read back out of this request.
                 SignInOutcome.RequiresTwoFactor => Results.Redirect(
-                    TwoFactorRedirect(returnUrl, site, await PendingUserHasRecoveryCodesAsync(mfa))),
+                    TwoFactorRedirect(returnUrl, site, await mfa.HasRecoveryCodesAsync(username))),
                 SignInOutcome.RequiresMfaEnrollment => Results.Redirect("/account/security?setup=required"),
                 SignInOutcome.RequiresPasskeySignIn => LoginRedirect("use_passkey", site),
                 SignInOutcome.LockedOut => LoginRedirect("lockout", site),

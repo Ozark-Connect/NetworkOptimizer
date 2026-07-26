@@ -44,6 +44,13 @@ public interface IMfaService
     Task<int> CountRecoveryCodesAsync(ApplicationUser user);
 
     /// <summary>
+    /// Whether the named account holds any recovery codes. Takes a username rather than reading the
+    /// pending two-factor cookie, because the sign-in that triggers the second-factor step writes
+    /// that cookie into the response - it is not in the request yet, so it cannot be read back.
+    /// </summary>
+    Task<bool> HasRecoveryCodesAsync(string userName);
+
+    /// <summary>
     /// The user waiting on the second-factor step, or null when no such sign-in is in progress. Lets
     /// the 2FA page tailor itself (for example, hiding recovery-code entry for an account that has none).
     /// </summary>
@@ -130,6 +137,13 @@ public sealed class MfaService : IMfaService
     /// <inheritdoc />
     public Task<int> CountRecoveryCodesAsync(ApplicationUser user)
         => _userManager.CountRecoveryCodesAsync(user);
+
+    /// <inheritdoc />
+    public async Task<bool> HasRecoveryCodesAsync(string userName)
+    {
+        var user = await _userManager.FindByNameAsync(userName);
+        return user is not null && await _userManager.CountRecoveryCodesAsync(user) > 0;
+    }
 
     /// <inheritdoc />
     public Task<ApplicationUser?> GetPendingTwoFactorUserAsync()
