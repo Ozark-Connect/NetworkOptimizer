@@ -16,17 +16,21 @@ public interface IWanSteerDeploymentService
     Task<WanSteerStatus> GetStatusAsync();
 
     /// <summary>Deploys (or updates) the WAN Steering binary and configuration on the gateway.</summary>
-    [RequireRole(GlobalRoles.Admin)]
+    /// <remarks>Operator, matching Adaptive SQM: deploying steering config adjusts a running system and is
+    /// undone by deploying again. Tearing it off the gateway is RemoveAsync, which stays Admin.</remarks>
+    [RequireRole(GlobalRoles.Operator)]
     [AuditAction(AuditActions.WanSteeringChanged, TargetType = "wan_steering")]
     Task<(bool Success, string? Error)> DeployAsync(IProgress<string>? progress, CancellationToken ct = default);
 
     /// <summary>Stops the running WAN Steering daemon.</summary>
-    [RequireRole(GlobalRoles.Admin)]
+    /// <remarks>Operator: stopping is reversible through DeployAsync, which an Operator also holds.</remarks>
+    [RequireRole(GlobalRoles.Operator)]
     [AuditAction(AuditActions.WanSteeringChanged, TargetType = "wan_steering")]
     Task StopAsync();
 
     /// <summary>Regenerates the daemon configuration and signals it to reload.</summary>
-    [RequireRole(GlobalRoles.Admin)]
+    /// <remarks>Operator: re-reading config into the running daemon is routine operation.</remarks>
+    [RequireRole(GlobalRoles.Operator)]
     [AuditAction(AuditActions.WanSteeringChanged, TargetType = "wan_steering")]
     Task<(bool Success, string? Error)> ReloadConfigAsync();
 

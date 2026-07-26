@@ -141,7 +141,7 @@
             {
                 <div class="alert alert-warning" style="margin-top: 1rem;">
                     <strong>UDM Boot Required:</strong> WAN Steering uses a boot script in <code>/data/on_boot.d/</code> that requires udm-boot to persist across reboots. Without it, iptables rules will silently stop being applied after a reboot or firmware update.
-                    <AdminOnly>
+                    <SiteAdminOnly>
                         <button class="btn btn-sm btn-primary" style="margin-left: 0.5rem;" @onclick="InstallUdmBoot" disabled="@_isInstallingUdmBoot">
                             @if (_isInstallingUdmBoot)
                             {
@@ -153,7 +153,7 @@
                                 <span>Install UDM Boot</span>
                             }
                         </button>
-                    </AdminOnly>
+                    </SiteAdminOnly>
                 </div>
             }
         }
@@ -269,9 +269,9 @@
                                     <button class="btn btn-sm btn-secondary" @onclick="@(() => MoveRuleDown(rule))" disabled="@(rule.SortOrder >= _rules.Count - 1)" data-tooltip="Move down" data-tooltip-hover-only>&#9660;</button>
                                 </div>
                                 <button class="btn btn-sm btn-secondary" @onclick="@(() => EditRule(rule))">Edit</button>
-                                <AdminOnly>
+                                <SiteAdminOnly>
                                     <button class="btn btn-sm btn-danger" @onclick="@(() => DeleteRule(rule))">Delete</button>
-                                </AdminOnly>
+                                </SiteAdminOnly>
                             </div>
                         </div>
                     </div>
@@ -302,7 +302,7 @@
         <div class="ws-deploy-buttons">
             @if (_status?.IsRunning == true)
             {
-                <AdminOnly>
+                <SiteOperatorOnly>
                     <button class="btn btn-primary" @onclick="ReloadConfigAsync" disabled="@(_isDeploying || _siteAgentOffline || IsLicenseRestricted)">
                         @if (_isDeploying)
                         {
@@ -314,20 +314,20 @@
                             <span>Deploy Config</span>
                         }
                     </button>
-                </AdminOnly>
-                <AdminOnly>
+                </SiteOperatorOnly>
+                <SiteOperatorOnly>
                     <button class="btn btn-secondary" @onclick="DeployAsync" disabled="@(_isDeploying || _siteAgentOffline || IsLicenseRestricted)">Redeploy</button>
-                </AdminOnly>
-                <AdminOnly>
+                </SiteOperatorOnly>
+                <SiteOperatorOnly>
                     <button class="btn btn-secondary" @onclick="StopAsync" disabled="@(_isDeploying || _siteAgentOffline)">Stop</button>
-                </AdminOnly>
-                <AdminOnly>
+                </SiteOperatorOnly>
+                <SiteAdminOnly>
                     <button class="btn btn-danger btn-sm" @onclick="RemoveAsync" disabled="@(_isDeploying || _siteAgentOffline)" data-tooltip="Stop daemon and remove all files from gateway" data-tooltip-hover-only>Remove</button>
-                </AdminOnly>
+                </SiteAdminOnly>
             }
             else
             {
-                <AdminOnly>
+                <SiteOperatorOnly>
                     <button class="btn btn-primary" @onclick="DeployAsync" disabled="@(_isDeploying || _siteAgentOffline || IsLicenseRestricted)">
                         @if (_isDeploying)
                         {
@@ -339,12 +339,12 @@
                             <span>Deploy</span>
                         }
                     </button>
-                </AdminOnly>
+                </SiteOperatorOnly>
                 @if (_status?.BinaryDeployed == true)
                 {
-                    <AdminOnly>
+                    <SiteAdminOnly>
                         <button class="btn btn-danger btn-sm" @onclick="RemoveAsync" disabled="@(_isDeploying || _siteAgentOffline)" data-tooltip="Stop daemon and remove all files from gateway" data-tooltip-hover-only>Remove</button>
-                    </AdminOnly>
+                    </SiteAdminOnly>
                 }
             }
         </div>
