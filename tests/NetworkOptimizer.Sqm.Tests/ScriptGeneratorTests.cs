@@ -342,6 +342,147 @@ public class ScriptGeneratorTests
         Assert.Null(config.WanLinkSpeedMbps);
     }
 
+    [Fact]
+    public void SqmConfiguration_DefaultsToConservativeBurst()
+    {
+        // Guards the property initializer itself: the generator tests below set the flag
+        // explicitly, so a default flipped to true would not show up there.
+        Assert.False(new SqmConfiguration().RateProportionalDownloadBurst);
+    }
+
+    [Fact]
+    public void GenerateAllScripts_ByDefault_SelectsConservativeBurstMode()
+    {
+        var scripts = GenerateWithBurstOptIn(false);
+
+        // Every script that carries the burst machinery must select mode 0.
+        var withMode = scripts.Values.Where(s => s.Contains("DOWNLOAD_BURST_MODE=")).ToList();
+        Assert.NotEmpty(withMode);
+        foreach (var script in withMode)
+        {
+            Assert.Contains("DOWNLOAD_BURST_MODE=0", script);
+            Assert.DoesNotContain("DOWNLOAD_BURST_MODE=1", script);
+        }
+    }
+
+    [Fact]
+    public void GenerateAllScripts_WithBurstOptIn_SelectsRateProportionalMode()
+    {
+        var scripts = GenerateWithBurstOptIn(true);
+
+        var withMode = scripts.Values.Where(s => s.Contains("DOWNLOAD_BURST_MODE=")).ToList();
+        Assert.NotEmpty(withMode);
+        foreach (var script in withMode)
+        {
+            Assert.Contains("DOWNLOAD_BURST_MODE=1", script);
+            Assert.DoesNotContain("DOWNLOAD_BURST_MODE=0", script);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void CalcBurst_CarriesBothFormulas_InEveryEmbeddedCopy(bool optIn)
+    {
+        var scripts = GenerateWithBurstOptIn(optIn);
+
+        // calc_burst is embedded into more than one generated script (speedtest + ping).
+        // A copy that carries the definition but not both branches would silently shape
+        // one code path differently from the other.
+        var copies = scripts.Values.Where(s => s.Contains("calc_burst()")).ToList();
+        Assert.NotEmpty(copies);
+        foreach (var script in copies)
+        {
+            Assert.Contains("burst=$((rate_mbps * 5))", script);
+            Assert.Contains("-gt 5000 ] && burst=5000", script);
+            Assert.Contains("burst=$((rate_mbps * 125))", script);
+            Assert.Contains("-gt 131072 ] && burst=131072", script);
+            Assert.Contains("-lt 1500 ] && burst=1500", script);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void BurstMode_AppliesToDownloadPathOnly(bool optIn)
+    {
+        var scripts = GenerateWithBurstOptIn(optIn);
+        var all = string.Join("\n", scripts.Values);
+
+        // Egress: the upload calls must not carry a burst mode argument, so they stay on the
+        // conservative sizing regardless of the setting (no upload evidence supports changing it).
+        Assert.Contains("update_all_tc_classes $INTERFACE $UPLOAD_SPEED\n", all + "\n");
+        Assert.DoesNotContain("update_all_tc_classes $INTERFACE $UPLOAD_SPEED $DOWNLOAD_BURST_MODE", all);
+
+        // tune_tc_performance only ever runs on the WAN device and must stay conservative too.
+        Assert.Contains("update_all_tc_classes $device $current_rate\n", all);
+        Assert.DoesNotContain("update_all_tc_classes $device $current_rate $", all);
+
+        // Ingress/IFB: every call passes the mode through.
+        foreach (var line in all.Split('\n').Where(l => l.Contains("update_all_tc_classes $IFB_DEVICE")))
+        {
+            Assert.EndsWith("$DOWNLOAD_BURST_MODE", line.TrimEnd());
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void SpeedtestProbe_UsesTheConfiguredBurstMode(bool optIn)
+    {
+        var scripts = GenerateWithBurstOptIn(optIn);
+        var all = string.Join("\n", scripts.Values);
+
+        // The probe rate is applied before measuring. Running it with a different bucket than
+        // normal operation would let a throughput-limited path under-measure itself, and that
+        // number is what the adaptive rate is derived from.
+        Assert.Contains(
+            "update_all_tc_classes $IFB_DEVICE $SPEEDTEST_PROBE_RATE $DOWNLOAD_BURST_MODE",
+            all);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void EveryScriptReferencingBurstMode_AlsoDefinesIt(bool optIn)
+    {
+        var scripts = GenerateWithBurstOptIn(optIn);
+
+        // An undefined $DOWNLOAD_BURST_MODE expands to the empty string, which calc_burst
+        // treats as conservative - the opt-in would silently do nothing instead of failing.
+        // The speedtest and ping scripts are written as separate heredocs into one boot
+        // script, so each heredoc has to carry its own definition; checking the boot script
+        // as a whole would let one heredoc's definition cover for the other's omission.
+        var bootScript = Assert.Single(scripts.Values);
+
+        foreach (var delimiter in new[] { "SPEEDTEST_EOF", "PING_EOF" })
+        {
+            var section = ExtractHeredocSection(bootScript, delimiter);
+            if (!section.Contains("$DOWNLOAD_BURST_MODE"))
+                continue;
+
+            Assert.True(
+                section.Contains("DOWNLOAD_BURST_MODE=0") || section.Contains("DOWNLOAD_BURST_MODE=1"),
+                $"Heredoc '{delimiter}' expands $DOWNLOAD_BURST_MODE without defining it");
+        }
+    }
+
+    private static Dictionary<string, string> GenerateWithBurstOptIn(bool optIn)
+    {
+        var config = new SqmConfiguration
+        {
+            ConnectionName = "Burst WAN",
+            Interface = "eth0",
+            NominalDownloadSpeed = 900,
+            NominalUploadSpeed = 550,
+            PingHost = "1.1.1.1",
+            RateProportionalDownloadBurst = optIn
+        };
+
+        var generator = new ScriptGenerator(config);
+        return generator.GenerateAllScripts(new Dictionary<string, string> { ["0_12"] = "880" });
+    }
+
     /// <summary>
     /// Extracts the content between heredoc delimiters (e.g., between 'SPEEDTEST_EOF' markers).
     /// </summary>

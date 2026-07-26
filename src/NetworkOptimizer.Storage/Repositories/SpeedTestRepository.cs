@@ -447,6 +447,7 @@ public class SpeedTestRepository : ISpeedTestRepository
                 existing.CongestionSeverity = config.CongestionSeverity;
                 existing.LinkSpeedOverrideMbps = config.LinkSpeedOverrideMbps;
                 existing.BootDelaySeconds = config.BootDelaySeconds;
+                existing.RateProportionalDownloadBurst = config.RateProportionalDownloadBurst;
                 existing.UpdatedAt = DateTime.UtcNow;
             }
             else
