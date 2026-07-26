@@ -177,6 +177,97 @@ public sealed class AdminPasswordChangeTests : IDisposable
         }
     }
 
+    [Fact]
+    public async Task DeletingTheAccountYouAreSignedInAsIsRefused()
+    {
+        await SeedAdminSettingsAsync("Original-Pass-1");
+
+        await using var provider = BuildProvider();
+        using (var boot = provider.CreateScope())
+            await boot.ServiceProvider.GetRequiredService<IIdentityBootstrapService>().RunAsync();
+
+        string operatorId;
+        using (var scope = provider.CreateScope())
+        {
+            // A second Admin, so the refusal cannot be the last-admin invariant firing instead.
+            var identityAdmin = scope.ServiceProvider.GetRequiredService<IIdentityAdminService>();
+            (await identityAdmin.CreateUserAsync("second", null, "Second-Pass-2", GlobalRoles.Admin))
+                .Succeeded.Should().BeTrue();
+            var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+            operatorId = (await userManager.FindByNameAsync("second"))!.Id;
+        }
+
+        using (var scope = provider.CreateScope())
+        {
+            scope.ServiceProvider.GetRequiredService<ICallerContext>()
+                .SetUser(CallerInfo.ForUser(PrincipalFor(operatorId), null, null, null));
+            var identityAdmin = scope.ServiceProvider.GetRequiredService<IIdentityAdminService>();
+
+            var result = await identityAdmin.DeleteUserAsync(operatorId);
+            result.Succeeded.Should().BeFalse("deleting your own account revokes your session mid-action");
+            result.Error.Should().Contain("signed in as");
+        }
+
+        using (var scope = provider.CreateScope())
+        {
+            var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+            (await userManager.FindByIdAsync(operatorId)).Should().NotBeNull();
+        }
+    }
+
+    [Fact]
+    public async Task DeletingTheBuiltInAdminAccountIsRefusedButDisablingItIsNot()
+    {
+        await SeedAdminSettingsAsync("Original-Pass-1");
+
+        await using var provider = BuildProvider();
+        using (var boot = provider.CreateScope())
+            await boot.ServiceProvider.GetRequiredService<IIdentityBootstrapService>().RunAsync();
+
+        string adminId, otherId;
+        using (var scope = provider.CreateScope())
+        {
+            var identityAdmin = scope.ServiceProvider.GetRequiredService<IIdentityAdminService>();
+            // Another Admin exists, so neither refusal below can be the last-admin invariant.
+            (await identityAdmin.CreateUserAsync("second", null, "Second-Pass-2", GlobalRoles.Admin))
+                .Succeeded.Should().BeTrue();
+            var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+            adminId = (await userManager.FindByNameAsync(IdentityBootstrapService.AdminUserName))!.Id;
+            otherId = (await userManager.FindByNameAsync("second"))!.Id;
+        }
+
+        using (var scope = provider.CreateScope())
+        {
+            scope.ServiceProvider.GetRequiredService<ICallerContext>()
+                .SetUser(CallerInfo.ForUser(PrincipalFor(otherId), null, null, null));
+            var identityAdmin = scope.ServiceProvider.GetRequiredService<IIdentityAdminService>();
+
+            var deleted = await identityAdmin.DeleteUserAsync(adminId);
+            deleted.Succeeded.Should().BeFalse("the boot seed and break-glass recovery both rely on this account");
+            deleted.Error.Should().Contain("Disable it instead");
+
+            (await identityAdmin.SetEnabledAsync(adminId, false)).Succeeded.Should()
+                .BeTrue("disabling the built-in account is the supported way to take it out of use");
+        }
+
+        using (var scope = provider.CreateScope())
+        {
+            var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+            var admin = await userManager.FindByIdAsync(adminId);
+            admin.Should().NotBeNull();
+            admin!.IsEnabled.Should().BeFalse();
+        }
+    }
+
+    private static System.Security.Claims.ClaimsPrincipal PrincipalFor(string userId)
+        => new(new System.Security.Claims.ClaimsIdentity(
+            new[]
+            {
+                new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.NameIdentifier, userId),
+                new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.Role, GlobalRoles.Admin),
+            },
+            "test"));
+
     private sealed class NoOpAuditLogger : IAuditLogger
     {
         public void Log(AuditEvent auditEvent) { }

@@ -280,6 +280,16 @@ public sealed class IdentityAdminService : IIdentityAdminService
         var user = await _userManager.FindByIdAsync(userId);
         if (user is null) return AdminActionResult.Fail("User not found.");
 
+        // Deleting the account you are signed in as revokes your own session mid-action, so it is
+        // refused outright rather than left to the last-admin check (which passes with two admins).
+        if (string.Equals(userId, _caller.Current?.UserId, StringComparison.Ordinal))
+            return RefuseDelete(user, "self", "You cannot delete the account you are signed in as.");
+
+        // The reserved local administrator is what the boot seed reconciles and what break-glass
+        // recovery re-enables. Disabling it is enough to take it out of use.
+        if (string.Equals(user.UserName, IdentityBootstrapService.AdminUserName, StringComparison.OrdinalIgnoreCase))
+            return RefuseDelete(user, "reserved", $"The built-in {IdentityBootstrapService.AdminUserName} account cannot be deleted. Disable it instead.");
+
         if (await IsLastEnabledAdminAsync(user))
             return RefuseLastAdmin(user, "delete");
 
@@ -491,6 +501,18 @@ public sealed class IdentityAdminService : IIdentityAdminService
             return false;
         var admins = await _userManager.GetUsersInRoleAsync(GlobalRoles.Admin);
         return admins.Count(a => a.IsEnabled) <= 1;
+    }
+
+    /// <summary>Refuses a delete that would be self-destructive, recording the denial as signal.</summary>
+    private AdminActionResult RefuseDelete(ApplicationUser user, string reason, string message)
+    {
+        _audit.Log(AuditEventBuilder.From(
+            _caller.Current, AuditCategories.User, AuditActions.UserDeleted,
+            outcome: AuditOutcomes.Denied,
+            targetType: "user", targetId: user.Id, targetName: user.UserName,
+            details: new { reason }));
+        _logger.LogWarning("Refused to delete {User} ({Reason}).", user.UserName, reason);
+        return AdminActionResult.Fail(message);
     }
 
     private AdminActionResult RefuseLastAdmin(ApplicationUser user, string action)

@@ -2,6 +2,7 @@
 @using NetworkOptimizer.Web.Services.Identity
 @inject IIdentityAdminService IdentityAdmin
 @inject IFederationProviderService Federation
+@inject ICurrentUserAccessor CurrentUser
 
 @* Settings - Identity: the instance-wide account list. Create, enable/disable, delete, change role,
    reset another user's password, and link or unlink an external identity. Everything runs through
@@ -116,7 +117,9 @@
                                             @(user.IsEnabled ? "Disable" : "Enable")
                                         </button>
                                         <button type="button" class="btn btn-danger btn-sm"
-                                                @onclick="() => DeleteAsync(user)" disabled="@(_busyUserId == user.Id)">
+                                                @onclick="() => DeleteAsync(user)"
+                                                disabled="@(_busyUserId == user.Id || UndeletableReason(user) is not null)"
+                                                data-tooltip="@UndeletableReason(user)">
                                             Delete
                                         </button>
                                     </div>
@@ -257,6 +260,10 @@
 </div>
 
 @code {
+    /// <summary>The signed-in user, so the card never offers to delete the account in use.</summary>
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private string? _currentUserId;
     private IReadOnlyList<UserAccountSummary>? _users;
     private IReadOnlyList<FederationProvider>? _providers;
     private IReadOnlyList<LinkedExternalIdentity>? _links;
@@ -281,12 +288,32 @@
 
     protected override async Task OnInitializedAsync()
     {
+        if (AuthState is not null)
+        {
+            var principal = (await AuthState).User;
+            if (principal.Identity?.IsAuthenticated == true)
+                _currentUserId = (await CurrentUser.GetAsync(principal))?.Id;
+        }
+
         await ReloadAsync();
         _providers = await Federation.GetAllAsync();
         _linkProvider = _providers.FirstOrDefault()?.Scheme ?? "";
     }
 
     private async Task ReloadAsync() => _users = await IdentityAdmin.ListUserSummariesAsync();
+
+    /// <summary>
+    /// Why this account cannot be deleted, or null when it can. Mirrors the refusals
+    /// IdentityAdminService enforces, so the button explains itself instead of failing on click.
+    /// </summary>
+    private string? UndeletableReason(ApplicationUser user)
+    {
+        if (user.Id == _currentUserId)
+            return "You cannot delete the account you are signed in as";
+        if (string.Equals(user.UserName, IdentityBootstrapService.AdminUserName, StringComparison.OrdinalIgnoreCase))
+            return $"The built-in {IdentityBootstrapService.AdminUserName} account cannot be deleted. Disable it instead";
+        return null;
+    }
 
     private void StartAddUser()
     {
