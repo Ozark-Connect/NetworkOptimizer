@@ -200,6 +200,16 @@
         await ReloadAsync();
     }
 
+    /// <summary>
+    /// Reloads the grant list from outside the component. Creating a user now grants a site in the
+    /// same step, so the Access list is stale the moment the Users card finishes and has to be told.
+    /// </summary>
+    public async Task RefreshAsync()
+    {
+        await ReloadAsync();
+        StateHasChanged();
+    }
+
     private async Task ReloadAsync()
     {
         if (SiteSlug is not null)
