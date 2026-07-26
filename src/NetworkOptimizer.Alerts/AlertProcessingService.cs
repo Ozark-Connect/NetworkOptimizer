@@ -27,6 +27,7 @@ public class AlertProcessingService : BackgroundService
     private readonly IEnumerable<IAlertDeliveryChannel> _deliveryChannels;
     private readonly AlertCooldownTracker _cooldownTracker;
     private readonly IAlertSiteNameResolver _siteNameResolver;
+    private readonly NetworkOptimizer.Core.ISiteWorkGate? _siteWorkGate;
     private readonly string? _appBaseUrl;
 
     // In-memory rule cache (refreshed periodically)
@@ -46,8 +47,10 @@ public class AlertProcessingService : BackgroundService
         IEnumerable<IAlertDeliveryChannel> deliveryChannels,
         AlertCooldownTracker cooldownTracker,
         IAlertSiteNameResolver siteNameResolver,
-        IConfiguration configuration)
+        IConfiguration configuration,
+        NetworkOptimizer.Core.ISiteWorkGate? siteWorkGate = null)
     {
+        _siteWorkGate = siteWorkGate;
         _logger = logger;
         _eventBus = eventBus;
         _scopeFactory = scopeFactory;
@@ -103,8 +106,20 @@ public class AlertProcessingService : BackgroundService
         _logger.LogInformation("Alert processing service stopped");
     }
 
+    /// <summary>Whether background work may run for a site; no gate wired means yes (fail-open).</summary>
+    private bool MayRunForSite(string? siteKey) => _siteWorkGate?.IsSiteOperational(siteKey) ?? true;
+
     private async Task ProcessEventAsync(AlertEvent alertEvent, CancellationToken cancellationToken)
     {
+        // Delivery is outbound and user-visible, so a site licensing has closed raises nothing.
+        // Checked before the scope is created: no rules read, no history written, no notification.
+        if (!MayRunForSite(alertEvent.SiteSlug))
+        {
+            _logger.LogDebug("Skipping alert {EventType} for non-operational site {Site}",
+                alertEvent.EventType, string.IsNullOrEmpty(alertEvent.SiteSlug) ? "main" : alertEvent.SiteSlug);
+            return;
+        }
+
         using var scope = _scopeFactory.CreateScope();
         // Pin the scope to the site this alert came from BEFORE the repository resolves its
         // DbContext, so rules and history read/write that site's database. A null slug is

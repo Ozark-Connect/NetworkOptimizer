@@ -49,17 +49,24 @@ public class ScheduleService : BackgroundService
     /// </summary>
     public Func<string, string?, string?, CancellationToken, Task<(bool Success, string? Summary, string? Error)>>? LanSpeedTestExecutor { get; set; }
 
+    private readonly NetworkOptimizer.Core.ISiteWorkGate? _siteWorkGate;
+
     public ScheduleService(
         ILogger<ScheduleService> logger,
         IServiceScopeFactory scopeFactory,
         IAlertEventBus alertEventBus,
-        IScheduleSiteContext? siteContext = null)
+        IScheduleSiteContext? siteContext = null,
+        NetworkOptimizer.Core.ISiteWorkGate? siteWorkGate = null)
     {
         _logger = logger;
         _scopeFactory = scopeFactory;
         _alertEventBus = alertEventBus;
         _siteContext = siteContext;
+        _siteWorkGate = siteWorkGate;
     }
+
+    /// <summary>Whether background work may run for a site; no gate wired means yes (fail-open).</summary>
+    private bool MayRunForSite(string? siteKey) => _siteWorkGate?.IsSiteOperational(siteKey) ?? true;
 
     private string DefaultSiteKey => _siteContext?.DefaultKey ?? "";
 
@@ -132,6 +139,14 @@ public class ScheduleService : BackgroundService
         foreach (var siteKey in await GetSiteKeysAsync(ct))
         {
             if (ct.IsCancellationRequested) break;
+            // Skip evaluation entirely rather than letting the run fail: a non-operational site would
+            // otherwise write a failed-run row every single cycle for as long as it stays closed.
+            if (!MayRunForSite(siteKey))
+            {
+                _logger.LogDebug("Skipping schedule evaluation for non-operational site {Site}",
+                    siteKey.Length == 0 ? "main" : siteKey);
+                continue;
+            }
             await EvaluateSiteSchedulesAsync(siteKey, ct);
         }
     }

@@ -50,6 +50,7 @@ public class ThreatCollectionService : BackgroundService
     private readonly HashSet<string> _chainStateLoadedSites = new();
     // Optional per-site fan-out. Null (unregistered) means single-site behavior.
     private readonly NetworkOptimizer.Alerts.Interfaces.IScheduleSiteContext? _siteContext;
+    private readonly NetworkOptimizer.Core.ISiteWorkGate? _siteWorkGate;
 
     public ThreatCollectionService(
         IServiceScopeFactory scopeFactory,
@@ -61,8 +62,10 @@ public class ThreatCollectionService : BackgroundService
         IAlertEventBus alertEventBus,
         IHttpClientFactory httpClientFactory,
         IUniFiClientAccessor uniFiClientAccessor,
-        NetworkOptimizer.Alerts.Interfaces.IScheduleSiteContext? siteContext = null)
+        NetworkOptimizer.Alerts.Interfaces.IScheduleSiteContext? siteContext = null,
+        NetworkOptimizer.Core.ISiteWorkGate? siteWorkGate = null)
     {
+        _siteWorkGate = siteWorkGate;
         _scopeFactory = scopeFactory;
         _logger = logger;
         _normalizer = normalizer;
@@ -133,6 +136,14 @@ public class ThreatCollectionService : BackgroundService
                     : (await _siteContext.GetSiteKeysAsync(stoppingToken)).Cast<string?>().ToList();
                 foreach (var siteKey in siteKeys)
                 {
+                    // Collection polls the site's console and writes to its database, so a site
+                    // licensing has closed does neither.
+                    if (_siteWorkGate?.IsSiteOperational(siteKey) == false)
+                    {
+                        _logger.LogDebug("Skipping threat collection for non-operational site {Site}",
+                            siteKey ?? "main");
+                        continue;
+                    }
                     try
                     {
                         await CollectAndProcessAsync(siteKey, stoppingToken);

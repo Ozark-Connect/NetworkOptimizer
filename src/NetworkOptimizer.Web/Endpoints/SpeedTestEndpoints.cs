@@ -148,9 +148,20 @@ public static class SpeedTestEndpoints
             var service = speedTestRegistry
                 .GetFor(string.IsNullOrEmpty(siteSlug) ? SiteManagementService.DefaultSiteSlug : siteSlug)
                 .ClientSpeedTest;
-            var result = await service.RecordOpenSpeedTestResultAsync(
-                clientIp, download, upload, ping, jitter, downloadData, uploadData, userAgent,
-                latitude, longitude, locationAccuracy, duration, externalServerId);
+            Iperf3Result result;
+            try
+            {
+                result = await service.RecordOpenSpeedTestResultAsync(
+                    clientIp, download, upload, ping, jitter, downloadData, uploadData, userAgent,
+                    latitude, longitude, locationAccuracy, duration, externalServerId);
+            }
+            catch (NetworkOptimizer.Web.Services.Licensing.LicenseRestrictedException)
+            {
+                // Recording a new result is an operation, so a restricted site declines it. This is a
+                // policy refusal, not a server fault: without the catch it surfaces as a 500 and reads
+                // like the relay is broken.
+                return Results.StatusCode(StatusCodes.Status403Forbidden);
+            }
 
             // Check if this is a new high score for download speed on this device
             // The "d" param from JS is always the client's download. Due to server perspective swap:
@@ -247,7 +258,14 @@ public static class SpeedTestEndpoints
             var clientSpeedTest = speedTestRegistry
                 .GetFor(string.IsNullOrEmpty(siteSlug) ? SiteManagementService.DefaultSiteSlug : siteSlug)
                 .ClientSpeedTest;
-            await Iperf3ClientResultRecorder.RecordAsync(clientSpeedTest, json, logger);
+            try
+            {
+                await Iperf3ClientResultRecorder.RecordAsync(clientSpeedTest, json, logger);
+            }
+            catch (NetworkOptimizer.Web.Services.Licensing.LicenseRestrictedException)
+            {
+                return Results.StatusCode(StatusCodes.Status403Forbidden);
+            }
 
             return Results.Ok(new { success = true });
         }).RequireCors("SpeedTestCors").RequireRateLimiting("PublicSpeedTest");
@@ -257,6 +275,7 @@ public static class SpeedTestEndpoints
         app.MapPost("/api/public/speedtest/topology-snapshots", (HttpContext context,
             SpeedTestServiceRegistry speedTestRegistry,
             NetworkOptimizer.Storage.Services.SiteDbContextFactory siteDbFactory,
+            NetworkOptimizer.Web.Services.Licensing.LicenseStateService licenseState,
             ILoggerFactory loggerFactory) =>
         {
             // Same optional site routing as the results endpoint: a slug-tagged test
@@ -283,6 +302,16 @@ public static class SpeedTestEndpoints
             // Relayed posts carry the real client IP as a param (see the results
             // endpoint); it MUST match the IP the result posts under so the mid-test
             // snapshot keys line up for the merge in AnalyzePathAsync.
+            // Capturing a snapshot queries the site's console and writes to its database, so a
+            // restricted site does neither. Declined the same way as an unprovisioned site rather
+            // than by throwing: this is fire-and-forget and the browser ignores the response.
+            if (!licenseState.IsSiteOperational(siteSlug))
+            {
+                loggerFactory.CreateLogger("SpeedTestRelay")
+                    .LogDebug("Skipping topology snapshot: site '{Slug}' is not operational", siteSlug);
+                return Results.Ok(new { success = false, skipped = "site not operational" });
+            }
+
             var relayedClientIp = context.Request.Query["client_ip"].ToString();
             var clientIp = relayed && !string.IsNullOrEmpty(relayedClientIp)
                 ? relayedClientIp
