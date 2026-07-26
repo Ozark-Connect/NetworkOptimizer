@@ -39,7 +39,14 @@ public interface IAuditScanService
     Task ClearDismissedIssuesAsync();
 
     /// <summary>Overrides the inferred purpose of a network, which changes how rules score it.</summary>
-    [RequireRole(GlobalRoles.Admin)]
+    /// <remarks>
+    /// Operator, unlike dismissing a finding. Setting a purpose labels what a network actually is, so
+    /// a correct label makes the audit more accurate rather than quieter, and a wrong one is undone by
+    /// setting it back. The difference that matters is visibility: the purpose sits in the open on the
+    /// Networks table and the findings it produces are still shown, whereas a dismissed finding is
+    /// hidden by design. Operators are also the people who know what each VLAN is for.
+    /// </remarks>
+    [RequireRole(GlobalRoles.Operator)]
     [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "network_purpose")]
     Task SaveNetworkPurposeOverrideAsync(string networkId, string? purpose);
 }
