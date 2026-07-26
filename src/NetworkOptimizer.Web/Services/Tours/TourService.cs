@@ -252,8 +252,14 @@ public class TourService
     {
         if (!snapshot.Offers.TryGetValue(tourId, out var versions))
             return true;
-        // "Later" never re-prompts within a release, and carry-forward stops after two carries.
+        // "Later" never re-prompts within a minor line: patches ship every few days, and
+        // re-arming the modal on each would both nag and burn the carry budget before
+        // the next feature release. A deferred tour comes back folded into the next
+        // minor's merged tour, and carry-forward stops after two carries.
         return versions.Count < MaxAutomaticOffers
-            && !versions.Contains(current.ToString(), StringComparer.OrdinalIgnoreCase);
+            && !versions.Any(v => SameMinorLine(TourVersions.Parse(v), current));
     }
+
+    private static bool SameMinorLine(Version? offered, Version current) =>
+        offered != null && offered.Major == current.Major && offered.Minor == current.Minor;
 }
