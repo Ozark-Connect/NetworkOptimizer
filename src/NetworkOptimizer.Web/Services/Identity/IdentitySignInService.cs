@@ -20,6 +20,13 @@ public enum SignInOutcome
     /// <summary>Credentials were correct but a second factor is required (redirect to the 2FA step).</summary>
     RequiresTwoFactor,
 
+    /// <summary>
+    /// The password was correct, but the account's role requires a second factor and the only one it
+    /// holds is a passkey - which a password sign-in never exercises. The session is refused and the
+    /// user is sent back to sign in with the passkey itself.
+    /// </summary>
+    RequiresPasskeySignIn,
+
     /// <summary>Signed in, but the user's role requires MFA and none is enrolled - force step-up enrollment.</summary>
     RequiresMfaEnrollment,
 
@@ -110,14 +117,25 @@ public sealed class IdentitySignInService : IIdentitySignInService
                 method == "recovery" ? AuditActions.BreakGlassUsed : AuditActions.LoginSuccess,
                 AuditOutcomes.Success, method);
 
-            // Step-up-to-enrollment: a role that requires MFA, with no second factor at all, must
-            // enroll before proceeding (design doc 02 - enforced, not a banner). A passkey counts, so
-            // a passkey user is not pushed into enrolling the weaker factor. Recovery boots are exempt.
-            if (method != "recovery"
-                && await _mfa.RoleRequiresMfaAsync(user)
-                && !await _mfa.HasSecondFactorAsync(user))
+            // A role that requires a second factor. Recovery boots are exempt.
+            if (method != "recovery" && await _mfa.RoleRequiresMfaAsync(user))
             {
-                return SignInOutcome.RequiresMfaEnrollment;
+                // Nothing enrolled at all: step up to enrollment (design doc 02 - enforced, not a banner).
+                if (!await _mfa.HasSecondFactorAsync(user))
+                    return SignInOutcome.RequiresMfaEnrollment;
+
+                // A passkey satisfies the requirement, but only when it is the credential actually
+                // used. Identity treats a passkey as primary passwordless auth, not as a challenge
+                // after a password, so a password sign-in here would be single-factor despite the
+                // policy. Refuse the session and send them back to use the passkey.
+                if (!await _mfa.IsEnabledAsync(user))
+                {
+                    await _signInManager.SignOutAsync();
+                    _logger.LogInformation(
+                        "Local sign-in for {User} refused: role requires a second factor and only a passkey is enrolled.",
+                        username);
+                    return SignInOutcome.RequiresPasskeySignIn;
+                }
             }
 
             return SignInOutcome.Success;

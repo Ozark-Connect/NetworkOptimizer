@@ -2699,11 +2699,38 @@ select.form-control {
     margin-bottom: 0.5rem;
 }
 
-.account-admin-note {
+.account-note {
     margin: 0 0 0.75rem;
     font-size: 0.875rem;
     color: var(--text-secondary);
     line-height: 1.5;
+}
+
+.account-qr {
+    display: inline-block;
+    margin-bottom: 1rem;
+    padding: 0.75rem;
+    background: #ffffff;
+    border-radius: var(--border-radius-lg);
+    line-height: 0;
+}
+
+.account-qr img {
+    display: block;
+}
+
+.account-secret-key {
+    margin: 0 0 1rem;
+}
+
+.account-secret-key code {
+    font-size: 0.95rem;
+    letter-spacing: 0.05em;
+}
+
+.account-verify-code {
+    max-width: 220px;
+    margin-bottom: 1rem;
 }
 
 .empty-state h3 {
@@ -18872,6 +18899,10 @@ body.kiosk-mode .status-indicators {
 
 .identity-muted {
     color: var(--text-muted);
+}
+
+.identity-lock {
+    display: inline-flex;
 }
 
 .identity-role-select {

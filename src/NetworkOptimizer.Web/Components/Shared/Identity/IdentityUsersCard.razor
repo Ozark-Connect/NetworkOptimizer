@@ -64,15 +64,18 @@
                                     </div>
                                 </td>
                                 <td>
+                                    @* A disabled control receives no mouse events, so the tooltip has to
+                                       live on a wrapper or it never shows. *@
+                                    <span class="identity-lock" data-tooltip="@(IsSelf(user) ? "You cannot change your own role" : null)">
                                     <select class="form-control identity-role-select" value="@(summary.GlobalRole ?? GlobalRoles.Viewer)"
                                             @onchange="e => ChangeRoleAsync(summary, e.Value?.ToString())"
-                                            disabled="@(_busyUserId == user.Id || IsSelf(user))"
-                                            data-tooltip="@(IsSelf(user) ? "You cannot change your own role" : null)">
+                                            disabled="@(_busyUserId == user.Id || IsSelf(user))">
                                         @foreach (var role in GlobalRoles.All)
                                         {
                                             <option value="@role">@role</option>
                                         }
                                     </select>
+                                    </span>
                                 </td>
                                 <td class="hide-mobile">
                                     @* What this account can actually sign in with. A badge that only
@@ -126,18 +129,20 @@
                                                 @onclick="() => OpenLinks(user.Id)" disabled="@(_busyUserId == user.Id)">
                                             Identities
                                         </button>
-                                        <button type="button" class="btn btn-tertiary btn-sm"
-                                                @onclick="() => SetEnabledAsync(user, !user.IsEnabled)"
-                                                disabled="@(_busyUserId == user.Id || IsSelf(user))"
-                                                data-tooltip="@(IsSelf(user) ? "You cannot disable the account you are signed in as" : null)">
-                                            @(user.IsEnabled ? "Disable" : "Enable")
-                                        </button>
-                                        <button type="button" class="btn btn-danger btn-sm"
-                                                @onclick="() => DeleteAsync(user)"
-                                                disabled="@(_busyUserId == user.Id || UndeletableReason(user) is not null)"
-                                                data-tooltip="@UndeletableReason(user)">
-                                            Delete
-                                        </button>
+                                        <span class="identity-lock" data-tooltip="@(IsSelf(user) ? "You cannot disable the account you are signed in as" : null)">
+                                            <button type="button" class="btn btn-tertiary btn-sm"
+                                                    @onclick="() => SetEnabledAsync(user, !user.IsEnabled)"
+                                                    disabled="@(_busyUserId == user.Id || IsSelf(user))">
+                                                @(user.IsEnabled ? "Disable" : "Enable")
+                                            </button>
+                                        </span>
+                                        <span class="identity-lock" data-tooltip="@UndeletableReason(user)">
+                                            <button type="button" class="btn btn-danger btn-sm"
+                                                    @onclick="() => DeleteAsync(user)"
+                                                    disabled="@(_busyUserId == user.Id || UndeletableReason(user) is not null)">
+                                                Delete
+                                            </button>
+                                        </span>
                                     </div>
                                 </td>
                             </tr>

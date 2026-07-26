@@ -39,9 +39,13 @@
         }
         else if (_setup is not null)
         {
-            <p>Scan this key in your authenticator app, then enter the 6-digit code to finish.</p>
-            <p class="detail-value"><code>@_setup.FormattedKey</code></p>
-            <div class="form-group" style="max-width: 220px;">
+            <p class="account-note">Scan this code in your authenticator app, then enter the 6-digit code to finish.</p>
+            <div class="account-qr">
+                <img src="@AuthenticatorQrCode.ToPngDataUri(_setup.OtpAuthUri)" alt="" width="200" height="200" />
+            </div>
+            <p class="account-note">Can't scan it? Enter this key by hand instead.</p>
+            <p class="account-secret-key"><code>@_setup.FormattedKey</code></p>
+            <div class="form-group account-verify-code">
                 <input class="form-control" @bind="_verifyCode" placeholder="123456" inputmode="numeric" />
             </div>
             <button class="btn btn-primary btn-sm" @onclick="VerifyEnrollmentAsync">Verify &amp; enable</button>
@@ -113,7 +117,7 @@
     <div class="card">
         <div class="card-header"><span class="card-title">Identity</span></div>
         <div class="card-body">
-            <p class="account-admin-note">
+            <p class="account-note">
                 Accounts, per-site access, and single sign-on for everyone on this instance are managed
                 in <strong>Settings - Identity</strong>.
             </p>

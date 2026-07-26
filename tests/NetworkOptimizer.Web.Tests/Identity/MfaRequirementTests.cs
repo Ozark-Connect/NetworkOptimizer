@@ -1,4 +1,6 @@
 using FluentAssertions;
+using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -35,6 +37,14 @@ public sealed class MfaRequirementTests : IDisposable
         services.AddNetOptIdentityCore(_dbPath);
         services.AddSingleton<IAuditLogger>(new NoOpAuditLogger());
         services.AddScoped<ICallerContext, CallerContext>();
+
+        // SignInManager issues and clears the auth cookie, so the sign-in path needs real
+        // authentication schemes and an HttpContext to write to.
+        services.AddAuthentication(IdentityConstants.ApplicationScheme)
+            .AddCookie(IdentityConstants.ApplicationScheme)
+            .AddCookie(IdentityConstants.TwoFactorUserIdScheme);
+        services.AddSingleton<IHttpContextAccessor, HttpContextAccessor>();
+        services.AddSingleton<IAuthPolicyOptions, StubAuthPolicy>();
         return services.BuildServiceProvider();
     }
 
@@ -50,6 +60,22 @@ public sealed class MfaRequirementTests : IDisposable
         using (var scope = provider.CreateScope())
             await scope.ServiceProvider.GetRequiredService<IIdentityBootstrapService>().RunAsync();
         return provider;
+    }
+
+    /// <summary>Gives the scope an HttpContext so SignInManager can write and clear its cookie.</summary>
+    private static void AttachHttpContext(IServiceScope scope)
+    {
+        var accessor = scope.ServiceProvider.GetRequiredService<IHttpContextAccessor>();
+        accessor.HttpContext = new DefaultHttpContext { RequestServices = scope.ServiceProvider };
+    }
+
+    /// <summary>Local login stays enabled; the SSO-only toggle is not what these tests exercise.</summary>
+    private sealed class StubAuthPolicy : IAuthPolicyOptions
+    {
+        public Task<bool> IsLocalLoginDisabledAsync() => Task.FromResult(false);
+        public Task SetLocalLoginDisabledAsync(bool disabled) => Task.CompletedTask;
+        public Task<bool> IsRestrictSitesToMembersAsync() => Task.FromResult(false);
+        public Task SetRestrictSitesToMembersAsync(bool restrict) => Task.CompletedTask;
     }
 
     private static async Task<ApplicationUser> CreateUserAsync(IServiceScope scope, string name)
@@ -124,6 +150,55 @@ public sealed class MfaRequirementTests : IDisposable
         var mfa = scope.ServiceProvider.GetRequiredService<IMfaService>();
         (await mfa.HasSecondFactorAsync(user)).Should().BeTrue();
         (await mfa.IsEnabledAsync(user)).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task PasswordSignInIsRefusedWhenTheOnlySecondFactorIsAPasskey()
+    {
+        await using var provider = await BuildWithSchemaAsync();
+
+        using (var scope = provider.CreateScope())
+        {
+            var user = await CreateUserAsync(scope, "passkeyadmin");
+            await AddPasskeyAsync(scope, user);
+
+            var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+            (await userManager.AddToRoleAsync(user, GlobalRoles.Admin)).Succeeded.Should().BeTrue();
+
+            var identityAdmin = scope.ServiceProvider.GetRequiredService<IIdentityAdminService>();
+            (await identityAdmin.SetRoleRequiresMfaAsync(GlobalRoles.Admin, true)).Succeeded.Should().BeTrue();
+        }
+
+        using (var scope = provider.CreateScope())
+        {
+            AttachHttpContext(scope);
+            var signIn = scope.ServiceProvider.GetRequiredService<IIdentitySignInService>();
+            var outcome = await signIn.PasswordSignInAsync("passkeyadmin", "Some-Pass-9", rememberMe: false);
+
+            outcome.Should().Be(SignInOutcome.RequiresPasskeySignIn,
+                "a password alone is single-factor, and Identity never challenges the passkey after one");
+        }
+    }
+
+    [Fact]
+    public async Task PasswordSignInStillSucceedsWhenTheRoleDoesNotRequireASecondFactor()
+    {
+        await using var provider = await BuildWithSchemaAsync();
+
+        using (var scope = provider.CreateScope())
+        {
+            var user = await CreateUserAsync(scope, "plainviewer");
+            var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+            (await userManager.AddToRoleAsync(user, GlobalRoles.Viewer)).Succeeded.Should().BeTrue();
+        }
+
+        using (var scope = provider.CreateScope())
+        {
+            AttachHttpContext(scope);
+            var signIn = scope.ServiceProvider.GetRequiredService<IIdentitySignInService>();
+            (await signIn.PasswordSignInAsync("plainviewer", "Some-Pass-9", rememberMe: false))
+                .Should().Be(SignInOutcome.Success, "nothing changes for a role with no MFA requirement");
+        }
     }
 
     private sealed class NoOpAuditLogger : IAuditLogger
