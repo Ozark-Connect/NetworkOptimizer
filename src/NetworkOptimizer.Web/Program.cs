@@ -796,6 +796,27 @@ builder.Services.AddCors(options =>
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    // Credential-verification endpoints. Identity lockout already caps attempts per ACCOUNT (5 in 5
+    // minutes), which stops brute force against a known user but does nothing about one source
+    // spraying a password across many usernames - and lockout is itself a denial-of-service lever,
+    // since anyone can lock a known user out on demand. This caps the source instead.
+    //
+    // 30 a minute is deliberately generous: a human sign-in is one or two requests, and a whole
+    // office behind one NAT address arriving at 9am must not lock itself out. Any spraying tool
+    // exceeds it immediately.
+    //
+    // Partitioned on the remote address, so behind a proxy this collapses to one bucket unless
+    // TRUSTED_PROXIES is configured and the real client address is recovered from forwarded headers.
+    options.AddPolicy("Authentication", httpContext =>
+        System.Threading.RateLimiting.RateLimitPartition.GetFixedWindowLimiter(
+            httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            _ => new System.Threading.RateLimiting.FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 30,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+            }));
+
     options.AddPolicy("PublicSpeedTest", httpContext =>
         System.Threading.RateLimiting.RateLimitPartition.GetFixedWindowLimiter(
             httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",

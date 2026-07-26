@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Identity;
+﻿using Microsoft.AspNetCore.Identity;
 using NetworkOptimizer.Storage.Models.Identity;
 using NetworkOptimizer.Web.Services.Identity;
 
@@ -63,7 +63,7 @@ public static class PasskeyEndpoints
             return outcome == SignInOutcome.Success
                 ? Results.Ok(new { authenticated = true })
                 : Results.BadRequest(new { error = "assertion_failed" });
-        }).AllowAnonymous();
+        }).AllowAnonymous().RequireRateLimiting("Authentication");
     }
 
     private sealed record PasskeyRegisterRequest(string Credential, string? Name);
