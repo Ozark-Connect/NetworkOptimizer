@@ -92,6 +92,8 @@ public static class IdentityRegistration
 
         // Ambient caller context (user vs system) for authorization + audit attribution.
         services.AddScoped<ICallerContext, CallerContext>();
+        // Hands enrollment recovery codes from the endpoint to the page across the redirect.
+        services.AddSingleton<MfaEnrollmentCodes>();
         services.AddScoped<Microsoft.AspNetCore.Components.Server.Circuits.CircuitHandler, CallerContextCircuitHandler>();
 
         // Append-only audit sink + background writer + SIEM forwarding + query (design doc 05).
