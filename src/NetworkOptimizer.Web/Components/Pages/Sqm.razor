@@ -422,6 +422,9 @@
     }
 
     <!-- Manual SQM Adjustment (show if deployed OR monitor has active WANs) -->
+    @* Running an adjustment is an Operator action, so the whole card is hidden below that rather than
+       showing a Viewer a card whose only control refuses them. *@
+    <OperatorOnly>
     @if (deploymentStatus?.IsDeployed == true || (sqmMonitorData != null && (sqmMonitorData.Wan1?.Active == true || sqmMonitorData.Wan2?.Active == true)))
     {
         <div class="card">
@@ -476,7 +479,7 @@
                         <strong>Warning:</strong> @(HasLastError
                             ? "One or more WAN connections reported an error. See the error details on the WAN cards above."
                             : "One or more WAN connections had a failed speedtest (measured 0 Mbps). This usually indicates the speedtest CLI couldn't connect or timed out.")
-                        <a href="./sqm#check-logs">Check the logs</a> in the Deployment & Debugging section below for details.
+                        <a href="./sqm#check-logs">Check the logs</a> in the Debugging section below for details.
                     </div>
                 }
                 @if (!string.IsNullOrEmpty(adjustmentMessage))
@@ -488,6 +491,7 @@
             </div>
         </div>
     }
+    </OperatorOnly>
 
     <!-- Primary WAN Configuration (only show if at least one WAN has Smart Queues enabled) -->
     @if (sqmEligibleWans.Any())
@@ -856,11 +860,14 @@
     }
 
     <!-- Deployment Actions (show if WANs available OR scripts are deployed but need cleanup) -->
+    @* Deployment is Operator, reading logs is Viewer, so they are separate cards rather than one card
+       with mixed gating inside it. A Viewer sees only Debugging, below. *@
+    <OperatorOnly>
     @if (sqmEligibleWans.Any() || deploymentStatus?.IsDeployed == true)
     {
     <div class="card">
         <div class="card-header">
-            <h2 class="card-title">Deployment & Debugging</h2>
+            <h2 class="card-title">Deployment</h2>
         </div>
         <div class="card-body">
             @if (!sqmEligibleWans.Any() && deploymentStatus?.IsDeployed == true)
@@ -960,10 +967,21 @@
                 </div>
             }
 
-            @if (deploymentStatus?.IsDeployed == true)
-            {
-                <div class="check-logs-section" style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--border-color);" id="check-logs">
-                    <h4 style="margin-bottom: 0.75rem;">Check SQM Logs</h4>
+        </div>
+    </div>
+    }
+    </OperatorOnly>
+
+    @* Debugging: reading SQM logs is already Viewer at the service layer, so this card is not gated.
+       It is the only card on this page a Viewer sees. *@
+    @if (deploymentStatus?.IsDeployed == true)
+    {
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">Debugging</h2>
+            </div>
+            <div class="card-body">
+                <div class="check-logs-section" id="check-logs">
                     <div class="action-buttons">
                         @if (wan1Config.Enabled && !string.IsNullOrEmpty(wan1Config.Name))
                         {
@@ -995,17 +1013,16 @@
                         }
                     </div>
                 </div>
-            }
 
-            @if (!string.IsNullOrEmpty(wanLogOutput))
-            {
-                <div class="deployment-log" style="margin-top: 1rem;">
-                    <h4>@wanLogTitle</h4>
-                    <pre class="log-output">@wanLogOutput</pre>
-                </div>
-            }
+                @if (!string.IsNullOrEmpty(wanLogOutput))
+                {
+                    <div class="deployment-log" style="margin-top: 1rem;">
+                        <h4>@wanLogTitle</h4>
+                        <pre class="log-output">@wanLogOutput</pre>
+                    </div>
+                }
+            </div>
         </div>
-    </div>
     }
 
 </div>
