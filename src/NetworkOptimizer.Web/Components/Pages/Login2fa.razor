@@ -7,6 +7,12 @@
 
 <div class="login-container">
     <div class="login-card">
+        <a class="login-back" href="@BackUrl()" aria-label="Back to sign in">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
+            </svg>
+            Back
+        </a>
         <div class="login-header">
             <img src="/images/ozark-connect-logo.png" alt="Network Optimizer" class="login-logo" />
             <h1>Two-factor authentication</h1>
@@ -15,6 +21,10 @@
         <form method="post" action="/api/auth/2fa">
             <AntiforgeryToken />
             <input type="hidden" name="returnUrl" value="@(ReturnUrl ?? "/")" />
+            @if (StaySignedIn)
+            {
+                <input type="hidden" name="rememberMe" value="true" />
+            }
             @if (!string.IsNullOrEmpty(Site))
             {
                 <input type="hidden" name="@SiteContextService.SiteQueryParam" value="@Site" />
@@ -85,6 +95,12 @@
     /// </summary>
     [SupplyParameterFromQuery(Name = "pk")] private bool HasPasskey { get; set; }
 
+    /// <summary>
+    /// Whether "Keep me signed in" was ticked on the first page. The final sign-in happens here, so
+    /// without carrying it an account with a second factor would always get a session-scoped cookie.
+    /// </summary>
+    [SupplyParameterFromQuery(Name = "rm")] private bool StaySignedIn { get; set; }
+
     [SupplyParameterFromQuery(Name = SiteContextService.SiteQueryParam)]
     private string? Site { get; set; }
 
@@ -96,11 +112,21 @@
 
     protected override void OnInitialized() => _useRecovery = Recovery && HasRecoveryCodes;
 
+    private string BackUrl()
+    {
+        var query = string.IsNullOrEmpty(Site)
+            ? ""
+            : $"?{SiteContextService.SiteQueryParam}={Uri.EscapeDataString(Site)}";
+        return $"/login{query}";
+    }
+
     private string ToggleUrl()
     {
         var target = _useRecovery ? "false" : "true";
         var query = $"recovery={target}";
         if (HasRecoveryCodes) query += "&rc=true";
+        if (HasPasskey) query += "&pk=true";
+        if (StaySignedIn) query += "&rm=true";
         if (!string.IsNullOrEmpty(ReturnUrl)) query += $"&returnUrl={Uri.EscapeDataString(ReturnUrl)}";
         if (!string.IsNullOrEmpty(Site)) query += $"&{SiteContextService.SiteQueryParam}={Uri.EscapeDataString(Site)}";
         return $"/login/2fa?{query}";

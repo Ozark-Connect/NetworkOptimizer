@@ -225,7 +225,7 @@ public sealed class MfaRequirementTests : IDisposable
             var user = await userManager.FindByNameAsync("disabledpasskey");
             var signIn = scope.ServiceProvider.GetRequiredService<IIdentitySignInService>();
 
-            (await signIn.PasskeySignInAsync(user!)).Should().Be(SignInOutcome.Failed,
+            (await signIn.PasskeySignInAsync(user!, rememberMe: false)).Should().Be(SignInOutcome.Failed,
                 "a credential registered before the account was disabled must not still let it in");
         }
     }
@@ -247,7 +247,7 @@ public sealed class MfaRequirementTests : IDisposable
             var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
             var user = await userManager.FindByNameAsync("passkeylogin");
             var signIn = scope.ServiceProvider.GetRequiredService<IIdentitySignInService>();
-            (await signIn.PasskeySignInAsync(user!)).Should().Be(SignInOutcome.Success);
+            (await signIn.PasskeySignInAsync(user!, rememberMe: false)).Should().Be(SignInOutcome.Success);
         }
 
         using (var scope = provider.CreateScope())

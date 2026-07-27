@@ -58,7 +58,7 @@ public static class AuthEndpoints
                 // Resolved from the submitted username: the two-factor cookie was written into this
                 // response, so it cannot be read back out of this request.
                 SignInOutcome.RequiresTwoFactor => Results.Redirect(
-                    TwoFactorRedirect(returnUrl, site, await mfa.HasRecoveryCodesAsync(username), await mfa.HasPasskeysAsync(username))),
+                    TwoFactorRedirect(returnUrl, site, await mfa.HasRecoveryCodesAsync(username), await mfa.HasPasskeysAsync(username), rememberMe)),
                 SignInOutcome.RequiresMfaEnrollment => Results.Redirect("/account/security?setup=required"),
                 SignInOutcome.RequiresPasskeySignIn => LoginRedirect("use_passkey", site),
                 SignInOutcome.LockedOut => LoginRedirect("lockout", site),
@@ -80,9 +80,12 @@ public static class AuthEndpoints
             catch (AntiforgeryValidationException) { return LoginRedirect("invalid", site); }
 
             var rememberMachine = form["rememberMachine"].ToString() is "true" or "on";
+            // Carried from the first page: the final sign-in happens here, so without it an
+            // account with a second factor would always get a session-scoped cookie.
+            var stayedSignedIn = form["rememberMe"].ToString() is "true" or "on";
             var recoveryCode = form["recoveryCode"].ToString();
             var outcome = string.IsNullOrEmpty(recoveryCode)
-                ? await signInService.TwoFactorSignInAsync(form["code"].ToString(), rememberMe: false, rememberMachine)
+                ? await signInService.TwoFactorSignInAsync(form["code"].ToString(), stayedSignedIn, rememberMachine)
                 : await signInService.RecoveryCodeSignInAsync(recoveryCode);
 
             return outcome switch
@@ -92,7 +95,7 @@ public static class AuthEndpoints
                     : SiteContextService.WithSiteParam(returnUrl, site)),
                 SignInOutcome.LockedOut => LoginRedirect("lockout", site),
                 _ => Results.Redirect(
-                    TwoFactorRedirect(returnUrl, site, await PendingUserHasRecoveryCodesAsync(mfa), await PendingUserHasPasskeysAsync(mfa)) + "&error=invalid"),
+                    TwoFactorRedirect(returnUrl, site, await PendingUserHasRecoveryCodesAsync(mfa), await PendingUserHasPasskeysAsync(mfa), stayedSignedIn) + "&error=invalid"),
             };
         })
             .AllowAnonymous().RequireRateLimiting("Authentication");
@@ -184,7 +187,7 @@ public static class AuthEndpoints
     /// has an HttpContext to read the pending two-factor cookie from. Resolving it here, once, keeps
     /// both passes agreeing.
     /// </summary>
-    private static string TwoFactorRedirect(string returnUrl, string site, bool hasRecoveryCodes, bool hasPasskey)
+    private static string TwoFactorRedirect(string returnUrl, string site, bool hasRecoveryCodes, bool hasPasskey, bool rememberMe)
     {
         var query = new List<string> { $"returnUrl={Uri.EscapeDataString(returnUrl)}" };
         if (!string.IsNullOrEmpty(site))
@@ -193,6 +196,8 @@ public static class AuthEndpoints
             query.Add("rc=true");
         if (hasPasskey)
             query.Add("pk=true");
+        if (rememberMe)
+            query.Add("rm=true");
         return $"/login/2fa?{string.Join("&", query)}";
     }
 

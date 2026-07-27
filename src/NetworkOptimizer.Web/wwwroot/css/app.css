@@ -7190,6 +7190,29 @@ a.path-hop.hop-clickable:hover {
     color: var(--text-secondary);
 }
 
+.login-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    margin-bottom: 0.75rem;
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+    text-decoration: none;
+}
+
+.login-back:hover {
+    color: var(--text-primary);
+}
+
+.login-back svg {
+    width: 14px;
+    height: 14px;
+}
+
+.login-username-group {
+    margin-bottom: 1rem;
+}
+
 .remember-device {
     display: flex;
     align-items: center;

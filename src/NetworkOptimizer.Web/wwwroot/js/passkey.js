@@ -61,7 +61,8 @@ window.netoptPasskey = (function () {
 
         if (!assertion) return false;
 
-        const assertRes = await fetch('/api/passkey/assert', {
+        const remember = document.querySelector('input[name="rememberMe"]')?.checked ? 'true' : 'false';
+        const assertRes = await fetch(`/api/passkey/assert?rememberMe=${remember}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             credentials: 'same-origin',
