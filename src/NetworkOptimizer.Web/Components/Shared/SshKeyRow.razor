@@ -14,14 +14,31 @@
     <label class="form-label">SSH key</label>
     @if (Key is not null)
     {
-        <div class="detail-value">@Key.KeyType &middot; @Key.Fingerprint</div>
-        <small class="form-help"><a href="@ManageUrl">Manage in Settings - Connection</a></small>
+        <small class="form-help">
+            @Key.KeyType, in use for gateway and device SSH.
+            @if (OnManage.HasDelegate)
+            {
+                <button type="button" class="btn-link" @onclick="OnManage">Manage in Settings - Connection</button>
+            }
+            else
+            {
+                <a href="@ManageUrl">Manage in Settings - Connection</a>
+            }
+        </small>
     }
     else
     {
         <small class="form-help">
             None stored. Network Optimizer can generate one for you, so you do not need to place a key
-            file on the server. <a href="@ManageUrl">Set up an SSH key</a>
+            file on the server.
+            @if (OnManage.HasDelegate)
+            {
+                <button type="button" class="btn-link" @onclick="OnManage">Set up an SSH key</button>
+            }
+            else
+            {
+                <a href="@ManageUrl">Set up an SSH key</a>
+            }
         </small>
     }
 </div>
@@ -37,4 +54,12 @@
     /// </summary>
     [Parameter]
     public string ManageUrl { get; set; } = "/settings#ssh-key";
+
+    /// <summary>
+    /// Supplied when the row is already on the Settings page. A link there is same-page navigation, so
+    /// the fragment handler never runs and the panel is never scrolled to or highlighted; the host
+    /// handles it directly instead. Left unset elsewhere, where the link is a real navigation.
+    /// </summary>
+    [Parameter]
+    public EventCallback OnManage { get; set; }
 }

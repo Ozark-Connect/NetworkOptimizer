@@ -2357,7 +2357,7 @@ a.btn-lg {
 
 /* This one sits inside help text rather than beside a button, so it sizes to sit with the sentence. */
 #ssh-key .form-help .btn-link {
-    font-size: 0.85rem;
+    font-size: 0.8rem;
 }
 
 /* A button that reads as a link, for the lesser of two adjacent actions. */
@@ -18473,7 +18473,7 @@ body.kiosk-mode .status-indicators {
 }
 
 .agent-upgrade-cmd .code-copy-block {
-    margin-bottom: 0.5rem;
+    margin-bottom: 0.75rem;
 }
 
 /* Direct child, for the same reason as .history-details-row above: the panel row carries both
