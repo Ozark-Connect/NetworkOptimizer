@@ -644,9 +644,11 @@ else
                     </div>
                 </div>
                 <div class="input-with-button" style="margin-top: 1rem;">
-                    <button class="btn btn-primary btn-sm" @onclick="SaveTempThresholdsAsync" disabled="@_savingTempThresholds">
+                    <SiteOperatorOnly>
+                        <button class="btn btn-primary btn-sm" @onclick="SaveTempThresholdsAsync" disabled="@_savingTempThresholds">
                         @(_savingTempThresholds ? "Saving..." : "Save thresholds")
                     </button>
+                    </SiteOperatorOnly>
                     @if (_tempThresholdsSaved)
                     {
                         <span class="form-help signal-good" style="align-self: center;">Saved</span>
@@ -825,9 +827,11 @@ else
                 <p class="form-help">Generic SFP+ modules have no standard optical envelope, so only a temperature ceiling is checked.</p>
 
                 <div class="input-with-button" style="margin-top: 1rem;">
-                    <button class="btn btn-primary btn-sm" @onclick="SaveSfpThresholdsAsync" disabled="@_savingSfpThresholds">
+                    <SiteOperatorOnly>
+                        <button class="btn btn-primary btn-sm" @onclick="SaveSfpThresholdsAsync" disabled="@_savingSfpThresholds">
                         @(_savingSfpThresholds ? "Saving..." : "Save thresholds")
                     </button>
+                    </SiteOperatorOnly>
                     @if (_sfpThresholdsSaved)
                     {
                         <span class="form-help signal-good" style="align-self: center;">Saved</span>
@@ -865,9 +869,11 @@ else
             <div class="card">
                 <div class="card-header monitoring-chart-header">
                     <h2 class="card-title">Cable Modem Signal History</h2>
-                    <a href="/settings#cable-modem" class="tooltip-icon settings-link" data-tooltip="Cable Modem settings">
+                    <SiteAdminOnly>
+                        <a href="/settings#cable-modem" class="tooltip-icon settings-link" data-tooltip="Cable Modem settings">
                         <img src="/images/gear.svg" alt="" style="width:16px;height:16px;" />
                     </a>
+                    </SiteAdminOnly>
                 </div>
                 <div class="card-body" style="text-align: center; padding: 2rem;">
                     <p class="page-description">No cable modems configured. Add one in <a href="/settings#cable-modem">Settings</a> to start monitoring.</p>
@@ -910,9 +916,11 @@ else
                         </div>
                     </div>
                     <button class="time-btn" data-shift="forward" data-tooltip="Shift window forward">&#x25B6;</button>
-                    <a href="/settings#cable-modem" class="tooltip-icon settings-link" data-tooltip="Cable Modem settings">
+                    <SiteAdminOnly>
+                        <a href="/settings#cable-modem" class="tooltip-icon settings-link" data-tooltip="Cable Modem settings">
                         <img src="/images/gear.svg" alt="" style="width:16px;height:16px;" />
                     </a>
+                    </SiteAdminOnly>
                 </div>
             </div>
             <div class="card-body">
@@ -966,9 +974,11 @@ else
             <div class="card">
                 <div class="card-header monitoring-chart-header">
                     <h2 class="card-title">ONT Signal History</h2>
-                    <a href="/settings#ont-monitoring" class="tooltip-icon settings-link" data-tooltip="ONT monitoring settings">
+                    <SiteAdminOnly>
+                        <a href="/settings#ont-monitoring" class="tooltip-icon settings-link" data-tooltip="ONT monitoring settings">
                         <img src="/images/gear.svg" alt="" style="width:16px;height:16px;" />
                     </a>
+                    </SiteAdminOnly>
                 </div>
                 <div class="card-body" style="text-align: center; padding: 2rem;">
                     <p class="page-description">Your ONT is monitored via SFP on the <a href="javascript:void(0)" @onclick='() => SetActiveTab("sfp")' @onclick:preventDefault>SFP Stats</a> tab. To poll a standalone ONT device directly, <a href="/settings#ont-monitoring">configure one in Settings</a>.</p>
@@ -980,9 +990,11 @@ else
             <div class="card">
                 <div class="card-header monitoring-chart-header">
                     <h2 class="card-title">ONT Signal History</h2>
-                    <a href="/settings#ont-monitoring" class="tooltip-icon settings-link" data-tooltip="ONT monitoring settings">
+                    <SiteAdminOnly>
+                        <a href="/settings#ont-monitoring" class="tooltip-icon settings-link" data-tooltip="ONT monitoring settings">
                         <img src="/images/gear.svg" alt="" style="width:16px;height:16px;" />
                     </a>
+                    </SiteAdminOnly>
                 </div>
                 <div class="card-body" style="text-align: center; padding: 2rem;">
                     <p class="page-description">No ONT monitoring configured. <a href="/settings#ont-monitoring">Configure direct device polling</a> for standalone ONTs or SFP modules that don't expose DDM to the gateway.</p>
@@ -1025,9 +1037,11 @@ else
                         </div>
                     </div>
                     <button class="time-btn" data-shift="forward" data-tooltip="Shift window forward">&#x25B6;</button>
-                    <a href="/settings#ont-monitoring" class="tooltip-icon settings-link" data-tooltip="ONT monitoring settings">
+                    <SiteAdminOnly>
+                        <a href="/settings#ont-monitoring" class="tooltip-icon settings-link" data-tooltip="ONT monitoring settings">
                         <img src="/images/gear.svg" alt="" style="width:16px;height:16px;" />
                     </a>
+                    </SiteAdminOnly>
                 </div>
             </div>
             <div class="card-body">
@@ -1085,9 +1099,11 @@ else
                 </p>
 
                 <div class="input-with-button" style="margin-top: 1rem;">
-                    <button class="btn btn-primary btn-sm" @onclick="SaveOntThresholdsAsync" disabled="@_savingOntThresholds">
+                    <SiteOperatorOnly>
+                        <button class="btn btn-primary btn-sm" @onclick="SaveOntThresholdsAsync" disabled="@_savingOntThresholds">
                         @(_savingOntThresholds ? "Saving..." : "Save thresholds")
                     </button>
+                    </SiteOperatorOnly>
                     @if (_ontThresholdsSaved)
                     {
                         <span class="form-help signal-good" style="align-self: center;">Saved</span>
@@ -1125,9 +1141,11 @@ else
             <div class="card">
                 <div class="card-header monitoring-chart-header">
                     <h2 class="card-title">Cellular Signal History</h2>
-                    <a href="/settings#cellular-modem" class="tooltip-icon settings-link" data-tooltip="Cellular Modem settings">
+                    <SiteAdminOnly>
+                        <a href="/settings#cellular-modem" class="tooltip-icon settings-link" data-tooltip="Cellular Modem settings">
                         <img src="/images/gear.svg" alt="" style="width:16px;height:16px;" />
                     </a>
+                    </SiteAdminOnly>
                 </div>
                 <div class="card-body" style="text-align: center; padding: 2rem;">
                     <p class="page-description">No cellular modems configured. Add one in <a href="/settings#cellular-modem">Settings</a> to start monitoring.</p>
@@ -1170,9 +1188,11 @@ else
                         </div>
                     </div>
                     <button class="time-btn" data-shift="forward" data-tooltip="Shift window forward">&#x25B6;</button>
-                    <a href="/settings#cellular-modem" class="tooltip-icon settings-link" data-tooltip="Cellular Modem settings">
+                    <SiteAdminOnly>
+                        <a href="/settings#cellular-modem" class="tooltip-icon settings-link" data-tooltip="Cellular Modem settings">
                         <img src="/images/gear.svg" alt="" style="width:16px;height:16px;" />
                     </a>
+                    </SiteAdminOnly>
                 </div>
             </div>
             <div class="card-body">
@@ -1226,9 +1246,11 @@ else
             <div class="card">
                 <div class="card-header monitoring-chart-header">
                     <h2 class="card-title">Starlink Terminal History</h2>
-                    <a href="/settings#starlink" class="tooltip-icon settings-link" data-tooltip="Starlink settings">
+                    <SiteAdminOnly>
+                        <a href="/settings#starlink" class="tooltip-icon settings-link" data-tooltip="Starlink settings">
                         <img src="/images/gear.svg" alt="" style="width:16px;height:16px;" />
                     </a>
+                    </SiteAdminOnly>
                 </div>
                 <div class="card-body" style="text-align: center; padding: 2rem;">
                     <p class="page-description">No Starlink terminals configured. Add one in <a href="/settings#starlink">Settings</a> to start monitoring.</p>
@@ -1271,9 +1293,11 @@ else
                         </div>
                     </div>
                     <button class="time-btn" data-shift="forward" data-tooltip="Shift window forward">&#x25B6;</button>
-                    <a href="/settings#starlink" class="tooltip-icon settings-link" data-tooltip="Starlink settings">
+                    <SiteAdminOnly>
+                        <a href="/settings#starlink" class="tooltip-icon settings-link" data-tooltip="Starlink settings">
                         <img src="/images/gear.svg" alt="" style="width:16px;height:16px;" />
                     </a>
+                    </SiteAdminOnly>
                 </div>
             </div>
             <div class="card-body">
@@ -1365,10 +1389,12 @@ else
                     </details>
 
                     <div class="action-buttons" style="margin-top: 1rem;">
-                        <button class="btn btn-primary" @onclick="RunDetection" disabled="@_detecting">
+                        <SiteAdminOnly>
+                            <button class="btn btn-primary" @onclick="RunDetection" disabled="@_detecting">
                             @if (_detecting) { <span class="spinner-sm"></span> <span>Checking...</span> }
                             else { <span>Re-check</span> }
                         </button>
+                        </SiteAdminOnly>
                     </div>
                 </div>
             </div>
@@ -1386,10 +1412,12 @@ else
                         @(_detectionError ?? "Check that SNMP is still enabled on your UniFi Console and that firewall rules permit UDP/161 from this server to your network devices.")
                     </div>
                     <div class="action-buttons" style="margin-top: 1rem;">
-                        <button class="btn btn-primary" @onclick="RunDetection" disabled="@_detecting">
+                        <SiteAdminOnly>
+                            <button class="btn btn-primary" @onclick="RunDetection" disabled="@_detecting">
                             @if (_detecting) { <span class="spinner-sm"></span> <span>Re-checking...</span> }
                             else { <span>Re-check SNMP</span> }
                         </button>
+                        </SiteAdminOnly>
                     </div>
                 </div>
             </div>
@@ -1407,10 +1435,12 @@ else
                         : "UniFi devices only reliably support 20 characters.")
                     Shorten it and re-check.
                     <div style="margin-top: 0.75rem;">
-                        <button class="btn btn-sm btn-secondary" @onclick="RunDetection" disabled="@_detecting">
+                        <SiteAdminOnly>
+                            <button class="btn btn-sm btn-secondary" @onclick="RunDetection" disabled="@_detecting">
                             @if (_detecting) { <span class="spinner-sm"></span> <span>Re-checking...</span> }
                             else { <span>Re-check</span> }
                         </button>
+                        </SiteAdminOnly>
                     </div>
                 </div>
             }
@@ -1434,9 +1464,11 @@ else
                     <h2 class="card-title">Monitoring Status</h2>
                     <div style="display: flex; align-items: center; gap: 0.5rem;">
                         <span class="status-badge status-connected">@OverallStateBadge()</span>
-                        <a href="/settings#monitoring" class="tooltip-icon settings-link" data-tooltip="Monitoring settings">
+                        <SiteAdminOnly>
+                            <a href="/settings#monitoring" class="tooltip-icon settings-link" data-tooltip="Monitoring settings">
                             <img src="/images/gear.svg" alt="" style="width:16px;height:16px;" />
                         </a>
+                        </SiteAdminOnly>
                     </div>
                 </div>
                 <div class="card-body">
@@ -1488,9 +1520,11 @@ else
                                     <a href="/settings#monitoring" class="btn btn-sm btn-secondary" style="margin-left: 0.5rem;">
                                         Update Token
                                     </a>
-                                    <button class="btn btn-sm btn-primary" style="margin-left: 0.25rem;" @onclick="ResetInfluxSetup">
+                                    <SiteAdminOnly>
+                                        <button class="btn btn-sm btn-primary" style="margin-left: 0.25rem;" @onclick="ResetInfluxSetup">
                                         Re-run Setup
                                     </button>
+                                    </SiteAdminOnly>
                                 }
                                 @if (_lastInfluxTestAt.HasValue && !_checkingInflux)
                                 {
@@ -1532,17 +1566,21 @@ else
                     <div class="action-buttons" style="margin-top: 1rem;">
                         @if (_monitoringEnabled)
                         {
-                            <button class="btn btn-secondary" @onclick="() => SetMonitoringEnabled(false)" disabled="@_togglingEnable">
+                            <SiteAdminOnly>
+                                <button class="btn btn-secondary" @onclick="() => SetMonitoringEnabled(false)" disabled="@_togglingEnable">
                                 @if (_togglingEnable) { <span class="spinner-sm"></span> <span>Stopping...</span> }
                                 else { <span>Disable Monitoring</span> }
                             </button>
+                            </SiteAdminOnly>
                         }
                         else
                         {
-                            <button class="btn btn-primary" @onclick="() => SetMonitoringEnabled(true)" disabled="@(_togglingEnable || _influxReachable != true)">
+                            <SiteAdminOnly>
+                                <button class="btn btn-primary" @onclick="() => SetMonitoringEnabled(true)" disabled="@(_togglingEnable || _influxReachable != true)">
                                 @if (_togglingEnable) { <span class="spinner-sm"></span> <span>Starting...</span> }
                                 else { <span>Enable Monitoring</span> }
                             </button>
+                            </SiteAdminOnly>
                             @if (_influxReachable != true)
                             {
                                 <span class="page-description" style="margin-left: 0.75rem;">

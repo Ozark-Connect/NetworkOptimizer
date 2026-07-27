@@ -48,7 +48,9 @@
                 hop to an ASN, and proposes monitoring targets for review.
             </p>
             <div class="action-buttons">
-                <button class="btn btn-primary" @onclick="StartAsync">Discover upstream path</button>
+                <SiteOperatorOnly>
+                    <button class="btn btn-primary" @onclick="StartAsync">Discover upstream path</button>
+                </SiteOperatorOnly>
             </div>
         }
         else if (_state.Step == TracerStep.Failed)
@@ -58,7 +60,9 @@
                 @_state.FailureMessage
             </div>
             <div class="action-buttons">
-                <button class="btn btn-primary" @onclick="StartAsync">Try again</button>
+                <SiteOperatorOnly>
+                    <button class="btn btn-primary" @onclick="StartAsync">Try again</button>
+                </SiteOperatorOnly>
             </div>
         }
         else
@@ -411,14 +415,18 @@
                 }
 
                 <div class="action-buttons">
-                    <button class="btn btn-secondary" @onclick="StartAsync">Re-run discovery</button>
+                    <SiteOperatorOnly>
+                        <button class="btn btn-secondary" @onclick="StartAsync">Re-run discovery</button>
+                    </SiteOperatorOnly>
                     @if (_state.AccessHops.Any(h => h.Enabled) || _state.TransitAsns.Any(a => a.Enabled) || _state.RemovedTransitAsns.Count > 0)
                     {
-                        <button class="btn btn-primary" @onclick="CommitAsync"
+                        <SiteAdminOnly>
+                            <button class="btn btn-primary" @onclick="CommitAsync"
                                 disabled="@(_state.IspChange is { Confirmed: null })"
                                 data-tooltip="@(_state.IspChange is { Confirmed: null } ? "Answer the provider question above first" : null)">
                             Save monitoring targets
                         </button>
+                        </SiteAdminOnly>
                     }
                 </div>
             }
@@ -431,7 +439,9 @@
                     </div>
                 }
                 <div class="action-buttons">
-                    <button class="btn btn-secondary" @onclick="StartAsync">Run discovery again</button>
+                    <SiteOperatorOnly>
+                        <button class="btn btn-secondary" @onclick="StartAsync">Run discovery again</button>
+                    </SiteOperatorOnly>
                 </div>
             }
             else

@@ -4,6 +4,11 @@
 @using NetworkOptimizer.Web.Services
 @using NetworkOptimizer.Storage.Models
 @using Microsoft.EntityFrameworkCore
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using NetworkOptimizer.Web.Services.Authorization
+@inject IAuthorizationService Authz
+@inject SiteContextService SiteContext
 @inject UniFiConnectionService ConnectionService
 @inject ILogger<UpnpInspector> Logger
 @inject NetworkOptimizerDbContext Db
@@ -173,7 +178,8 @@
                                                 <div class="rule-note">
                                                     <input type="text"
                                                            class="note-input"
-                                                           placeholder="Add notes..."
+                                                           readonly="@(!_canOperate)"
+                                                           placeholder="@(_canOperate ? "Add notes..." : "")"
                                                            @bind:get="GetNote(GetNoteKey(rule))"
                                                            @bind:set="@(value => OnNoteInput(rule, value))"
                                                            @bind:event="oninput"
@@ -279,6 +285,15 @@
 </div>
 
 @code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    /// <summary>
+    /// Whether this caller may leave notes on the rules. A note on a port forward is what one person
+    /// leaves for the next about why a hole is open, so writing it is running the site; reading it
+    /// is not, and the field stays visible either way.
+    /// </summary>
+    private bool _canOperate;
+
     private bool isLoading = false;
     private bool hasData = false;
     private bool autoRefresh = false;
@@ -313,6 +328,9 @@
 
     protected override async Task OnInitializedAsync()
     {
+        _canOperate = AuthState is null
+            || (await Authz.AuthorizeAsync((await AuthState).User, SiteContext.Slug, Policies.SiteOperator)).Succeeded;
+
         PtrState.RefreshCallback = () => RefreshData();
         PtrState.NotifyStateChanged = StateHasChanged;
 

@@ -59,7 +59,9 @@
                     </div>
                     <div class="custom-range-actions">
                         <button class="btn btn-sm btn-secondary" @onclick="() => _showCustomPopover = false">Cancel</button>
-                        <button class="btn btn-sm btn-primary" @onclick="ApplyCustomAsync">Apply</button>
+                        <SiteOperatorOnly>
+                            <button class="btn btn-sm btn-primary" @onclick="ApplyCustomAsync">Apply</button>
+                        </SiteOperatorOnly>
                     </div>
                 </div>
             </div>
@@ -321,10 +323,12 @@ else
                                         }
                                         else
                                         {
-                                            <a class="isp-outage-ack @AckLockClass" href="javascript:void(0)"
+                                            <SiteOperatorOnly>
+                                                <a class="isp-outage-ack @AckLockClass" href="javascript:void(0)"
                                                data-tooltip="Exclude this event from ISP Health scoring"
                                                data-tooltip-hover-only
                                                @onclick="() => AcknowledgeOutageAsync(start)">that was me@(issue.OutageStarts.Count > 1 ? $" ({EventTimeLabel(start)})" : "")</a>
+                                            </SiteOperatorOnly>
                                         }
                                     }
                                 </div>
@@ -598,15 +602,19 @@ else
                                 else if (outage.Acknowledged)
                                 {
                                     <span class="isp-outage-ack isp-outage-ack-done">that was me &middot; not scored
-                                        <a href="javascript:void(0)" class="@AckLockClass" @onclick="() => UnacknowledgeOutageAsync(outage.Start)">undo</a>
+                                        <SiteOperatorOnly>
+                                            <a href="javascript:void(0)" class="@AckLockClass" @onclick="() => UnacknowledgeOutageAsync(outage.Start)">undo</a>
+                                        </SiteOperatorOnly>
                                     </span>
                                 }
                                 else if (outage.Scope != OutageScope.Local)
                                 {
-                                    <a class="isp-outage-ack @AckLockClass" href="javascript:void(0)"
+                                    <SiteOperatorOnly>
+                                        <a class="isp-outage-ack @AckLockClass" href="javascript:void(0)"
                                        data-tooltip="Your own doing (pulled a cable, re-seated a connector, swapped equipment)? Click to exclude this event from ISP Health scoring."
                                        data-tooltip-hover-only
                                        @onclick="() => AcknowledgeOutageAsync(outage.Start)">that was me</a>
+                                    </SiteOperatorOnly>
                                 }
                             </div>
                             @if (outage.Tiers.Any(t => t.WentDark))
