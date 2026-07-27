@@ -1,6 +1,9 @@
 @page "/wan-steering"
 @attribute [Authorize(Policy = Policies.RequireViewer)]
 @implements IDisposable
+@using Microsoft.AspNetCore.Components.Authorization
+@using NetworkOptimizer.Web.Services.Authorization
+@inject IAuthorizationService Authz
 @inject IWanSteerDeploymentService DeployService
 @inject UniFiConnectionService ConnectionService
 @inject IWanSteerRuleService RuleService
@@ -227,7 +230,9 @@
         <h2 class="card-title">Traffic Rules</h2>
         @if (_editingRuleId == null)
         {
-            <button class="btn btn-sm btn-primary" @onclick="AddRule">Add Rule</button>
+            <SiteAdminOnly>
+                <button class="btn btn-sm btn-primary" @onclick="AddRule">Add Rule</button>
+            </SiteAdminOnly>
         }
     </div>
     <div class="card-body">
@@ -251,7 +256,7 @@
                         <div class="ws-rule-row">
                             <div class="ws-rule-left">
                                 <label class="checkbox-label" data-tooltip="@(rule.Enabled ? "Enabled" : "Disabled")" data-tooltip-hover-only>
-                                    <input type="checkbox" checked="@rule.Enabled" @onchange="@(e => ToggleRuleEnabled(rule, (bool)(e.Value ?? false)))" />
+                                    <input type="checkbox" checked="@rule.Enabled" @onchange="@(e => ToggleRuleEnabled(rule, (bool)(e.Value ?? false)))" disabled="@(!_canConfigure)" />
                                 </label>
                                 <div class="ws-rule-info">
                                     <div class="ws-rule-name @(rule.Enabled ? "" : "ws-rule-disabled")">@rule.Name</div>
@@ -265,13 +270,15 @@
                                 }
                                 <span class="status-badge status-active">@rule.TargetWanKey</span>
                                 <div class="ws-sort-buttons">
-                                    <button class="btn btn-sm btn-secondary" @onclick="@(() => MoveRuleUp(rule))" disabled="@(rule.SortOrder == 0)" data-tooltip="Move up" data-tooltip-hover-only>&#9650;</button>
-                                    <button class="btn btn-sm btn-secondary" @onclick="@(() => MoveRuleDown(rule))" disabled="@(rule.SortOrder >= _rules.Count - 1)" data-tooltip="Move down" data-tooltip-hover-only>&#9660;</button>
+                                    <SiteAdminOnly>
+                                        <button class="btn btn-sm btn-secondary" @onclick="@(() => MoveRuleUp(rule))" disabled="@(rule.SortOrder == 0)" data-tooltip="Move up" data-tooltip-hover-only>&#9650;</button>
+                                        <button class="btn btn-sm btn-secondary" @onclick="@(() => MoveRuleDown(rule))" disabled="@(rule.SortOrder >= _rules.Count - 1)" data-tooltip="Move down" data-tooltip-hover-only>&#9660;</button>
+                                    </SiteAdminOnly>
                                 </div>
                                 <button class="btn btn-sm btn-secondary" @onclick="@(() => EditRule(rule))">Edit</button>
-                                <SiteOperatorOnly>
+                                <SiteAdminOnly>
                                     <button class="btn btn-sm btn-danger" @onclick="@(() => DeleteRule(rule))">Delete</button>
-                                </SiteOperatorOnly>
+                                </SiteAdminOnly>
                             </div>
                         </div>
                     </div>
@@ -302,7 +309,7 @@
         <div class="ws-deploy-buttons">
             @if (_status?.IsRunning == true)
             {
-                <SiteOperatorOnly>
+                <SiteAdminOnly>
                     <button class="btn btn-primary" @onclick="ReloadConfigAsync" disabled="@(_isDeploying || _siteAgentOffline || IsLicenseRestricted)">
                         @if (_isDeploying)
                         {
@@ -314,20 +321,20 @@
                             <span>Deploy Config</span>
                         }
                     </button>
-                </SiteOperatorOnly>
-                <SiteOperatorOnly>
+                </SiteAdminOnly>
+                <SiteAdminOnly>
                     <button class="btn btn-secondary" @onclick="DeployAsync" disabled="@(_isDeploying || _siteAgentOffline || IsLicenseRestricted)">Redeploy</button>
-                </SiteOperatorOnly>
-                <SiteOperatorOnly>
+                </SiteAdminOnly>
+                <SiteAdminOnly>
                     <button class="btn btn-secondary" @onclick="StopAsync" disabled="@(_isDeploying || _siteAgentOffline)">Stop</button>
-                </SiteOperatorOnly>
+                </SiteAdminOnly>
                 <SiteAdminOnly>
                     <button class="btn btn-danger btn-sm" @onclick="RemoveAsync" disabled="@(_isDeploying || _siteAgentOffline)" data-tooltip="Stop daemon and remove all files from gateway" data-tooltip-hover-only>Remove</button>
                 </SiteAdminOnly>
             }
             else
             {
-                <SiteOperatorOnly>
+                <SiteAdminOnly>
                     <button class="btn btn-primary" @onclick="DeployAsync" disabled="@(_isDeploying || _siteAgentOffline || IsLicenseRestricted)">
                         @if (_isDeploying)
                         {
@@ -339,7 +346,7 @@
                             <span>Deploy</span>
                         }
                     </button>
-                </SiteOperatorOnly>
+                </SiteAdminOnly>
                 @if (_status?.BinaryDeployed == true)
                 {
                     <SiteAdminOnly>
@@ -549,6 +556,14 @@
 </style>
 
 @code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    /// <summary>
+    /// Steering decides which uplink traffic leaves by, so a wrong rule takes connectivity down
+    /// rather than skewing a measurement. Site Admin, matching the service gates.
+    /// </summary>
+    private bool _canConfigure;
+
     private bool IsLicenseRestricted => !LicenseState.IsSiteOperational(SiteCtx.Slug);
 
     // State
@@ -596,6 +611,9 @@
 
     protected override async Task OnInitializedAsync()
     {
+        _canConfigure = AuthState is null
+            || (await Authz.AuthorizeAsync((await AuthState).User, SiteCtx.Slug, Policies.SiteAdmin)).Succeeded;
+
         PtrState.RefreshCallback = () => RefreshStatusAsync();
         PtrState.NotifyStateChanged = StateHasChanged;
 

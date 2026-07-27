@@ -18,19 +18,19 @@ public interface IWanSteerDeploymentService
     /// <summary>Deploys (or updates) the WAN Steering binary and configuration on the gateway.</summary>
     /// <remarks>Operator, matching Adaptive SQM: deploying steering config adjusts a running system and is
     /// undone by deploying again. Tearing it off the gateway is RemoveAsync, which stays Admin.</remarks>
-    [RequireRole(Roles.Operator)]
+    [RequireRole(Roles.Admin)]
     [AuditAction(AuditActions.WanSteeringChanged, TargetType = "wan_steering")]
     Task<(bool Success, string? Error)> DeployAsync(IProgress<string>? progress, CancellationToken ct = default);
 
     /// <summary>Stops the running WAN Steering daemon.</summary>
     /// <remarks>Operator: stopping is reversible through DeployAsync, which an Operator also holds.</remarks>
-    [RequireRole(Roles.Operator)]
+    [RequireRole(Roles.Admin)]
     [AuditAction(AuditActions.WanSteeringChanged, TargetType = "wan_steering")]
     Task StopAsync();
 
     /// <summary>Regenerates the daemon configuration and signals it to reload.</summary>
     /// <remarks>Operator: re-reading config into the running daemon is routine operation.</remarks>
-    [RequireRole(Roles.Operator)]
+    [RequireRole(Roles.Admin)]
     [AuditAction(AuditActions.WanSteeringChanged, TargetType = "wan_steering")]
     Task<(bool Success, string? Error)> ReloadConfigAsync();
 
