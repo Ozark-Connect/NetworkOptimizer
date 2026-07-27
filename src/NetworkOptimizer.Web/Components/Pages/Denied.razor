@@ -22,6 +22,6 @@
             <strong>@SiteContext.Slug</strong>. Ask an administrator for the access you need, or head
             back to the dashboard.
         </p>
-        <a class="btn btn-primary" href="/">Go to Dashboard</a>
+        <a class="btn btn-primary" href="@SiteContextService.WithSiteParam("/", SiteContext.Slug)">Go to Dashboard</a>
     </div>
 </div>
