@@ -9,9 +9,9 @@ namespace NetworkOptimizer.Web.Services.Authorization;
 
 /// <summary>
 /// Resolves a user's effective site role and their authorized-site slug set from the local user id
-/// plus their memberships/groups (design doc 04). The authorized-slug set is cached per
-/// (user, membership-version) so a 1000-site fleet costs one set build, not a per-site query; the
-/// cache invalidates automatically when the user's membership version advances.
+/// plus their memberships/groups (design doc 04). The authorized-slug set is cached per user so a
+/// 1000-site fleet costs one set build, not a per-site query; changing that user's memberships or
+/// roles drops the entries through <see cref="IEffectiveSiteRoleResolver.Invalidate"/>.
 /// </summary>
 public interface IEffectiveSiteRoleResolver
 {
@@ -20,6 +20,12 @@ public interface IEffectiveSiteRoleResolver
 
     /// <summary>The set of site slugs the principal may at least view (used for site-context filtering).</summary>
     Task<IReadOnlySet<string>> GetAuthorizedSlugsAsync(ClaimsPrincipal user);
+
+    /// <summary>
+    /// Drops everything cached for one user, so a membership or role change applies to their very
+    /// next action instead of at the end of the cache window.
+    /// </summary>
+    void Invalidate(string userId);
 }
 
 /// <inheritdoc />
@@ -56,14 +62,44 @@ public sealed class EffectiveSiteRoleResolver : IEffectiveSiteRoleResolver
         // capability check for every site-scoped gated call, so an uncached read here is a database
         // round trip on every deploy, adjustment, scan, and speed test. A membership change bumps the
         // version and invalidates it, which is the same contract the slug set already relies on.
-        var membershipVersion = user.FindFirstValue(NetOptClaims.MembershipVersion) ?? "0";
-        var cacheKey = $"siterole:{userId}:{membershipVersion}:{slug}";
+        var cacheKey = $"siterole:{userId}:{slug}";
         if (_cache.TryGetValue(cacheKey, out SiteRole? cached))
             return cached;
 
         var role = await ComputeEffectiveRoleAsync(user, userId, slug);
-        _cache.Set(cacheKey, role, TimeSpan.FromMinutes(10));
+        _cache.Set(cacheKey, role, EntryOptions(userId));
         return role;
+    }
+
+    /// <inheritdoc />
+    public void Invalidate(string userId)
+    {
+        if (!_cache.TryGetValue(TokenKey(userId), out CancellationTokenSource? source) || source is null)
+            return;
+
+        // Cancelling expires every entry that carries this token, which is all of this user's.
+        _cache.Remove(TokenKey(userId));
+        source.Cancel();
+        source.Dispose();
+    }
+
+    private static string TokenKey(string userId) => $"siterole-token:{userId}";
+
+    /// <summary>
+    /// Ties an entry to its user's cancellation token as well as the ten-minute window, so
+    /// <see cref="Invalidate"/> can drop them all without knowing the site slugs they cover.
+    /// </summary>
+    private MemoryCacheEntryOptions EntryOptions(string userId)
+    {
+        var source = _cache.GetOrCreate(TokenKey(userId), entry =>
+        {
+            entry.Priority = CacheItemPriority.NeverRemove;
+            return new CancellationTokenSource();
+        })!;
+
+        return new MemoryCacheEntryOptions()
+            .SetAbsoluteExpiration(TimeSpan.FromMinutes(10))
+            .AddExpirationToken(new Microsoft.Extensions.Primitives.CancellationChangeToken(source.Token));
     }
 
     private async Task<SiteRole?> ComputeEffectiveRoleAsync(ClaimsPrincipal user, string userId, string slug)
@@ -89,13 +125,12 @@ public sealed class EffectiveSiteRoleResolver : IEffectiveSiteRoleResolver
         if (string.IsNullOrEmpty(userId))
             return new HashSet<string>();
 
-        var membershipVersion = user.FindFirstValue(NetOptClaims.MembershipVersion) ?? "0";
-        var cacheKey = $"authslugs:{userId}:{membershipVersion}";
+        var cacheKey = $"authslugs:{userId}";
         if (_cache.TryGetValue(cacheKey, out IReadOnlySet<string>? cached) && cached is not null)
             return cached;
 
         var result = await BuildAuthorizedSlugsAsync(user, userId);
-        _cache.Set(cacheKey, result, TimeSpan.FromMinutes(10));
+        _cache.Set(cacheKey, result, EntryOptions(userId));
         return result;
     }
 

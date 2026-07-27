@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Components.Server;
 using Microsoft.AspNetCore.Identity;
@@ -10,24 +11,29 @@ namespace NetworkOptimizer.Web.Services.Identity;
 /// <summary>
 /// Revalidates a live Blazor Server circuit's principal on a fixed interval so credential, role, and
 /// membership changes take effect on already-connected circuits (which outlive cookie/stamp checks).
-/// A circuit is torn down when the user's security stamp rotates (password/role/MFA change, disable,
-/// sign-out-everywhere), when the account is disabled, or when the membership version stamp advances
-/// (site-membership drift) - the three signals from design docs 02 and 04.
+/// A circuit is torn down when the user's security stamp rotates (password/MFA change, disable, sign
+/// out everywhere) or when the account is disabled. A change to what the account may do - a global
+/// role or a site membership - is not a reason to throw anyone out: the membership version advancing
+/// sends the circuit through a cookie refresh instead, and it lands back where it was with the new
+/// permissions in hand (design docs 02 and 04).
 /// </summary>
 public sealed class RevalidatingIdentityAuthenticationStateProvider
     : RevalidatingServerAuthenticationStateProvider
 {
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IdentityOptions _options;
+    private readonly NavigationManager _navigation;
 
     public RevalidatingIdentityAuthenticationStateProvider(
         ILoggerFactory loggerFactory,
         IServiceScopeFactory scopeFactory,
-        IOptions<IdentityOptions> optionsAccessor)
+        IOptions<IdentityOptions> optionsAccessor,
+        NavigationManager navigation)
         : base(loggerFactory)
     {
         _scopeFactory = scopeFactory;
         _options = optionsAccessor.Value;
+        _navigation = navigation;
     }
 
     /// <summary>Worst-case staleness for a live circuit (design doc 02: ~5 min, configurable).</summary>
@@ -61,12 +67,17 @@ public sealed class RevalidatingIdentityAuthenticationStateProvider
                 return false;
         }
 
-        // Membership version covers per-site membership/group drift (separate from the security stamp).
+        // Permissions changed since this cookie was issued. The account is still valid - only what it
+        // may do has moved - so the session is refreshed rather than dropped. Returning false here
+        // would leave the circuit anonymous while the cookie stayed good, which reads to the user as
+        // being locked out of every page with no way back except signing out and in again.
         var principalMembership = principal.FindFirstValue(NetOptClaims.MembershipVersion);
         if (principalMembership is not null &&
             principalMembership != user.MembershipVersion.ToString())
         {
-            return false;
+            var returnUrl = "/" + _navigation.ToBaseRelativePath(_navigation.Uri);
+            _navigation.NavigateTo(
+                $"/api/account/session?returnUrl={Uri.EscapeDataString(returnUrl)}", forceLoad: true);
         }
 
         return true;

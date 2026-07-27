@@ -20,6 +20,8 @@ public class SiteAccessFilterTests
 
     private sealed class StubResolver : IEffectiveSiteRoleResolver
     {
+        public void Invalidate(string userId) { }
+
         private readonly HashSet<string> _slugs;
         public StubResolver(params string[] slugs) =>
             _slugs = new HashSet<string>(slugs, StringComparer.OrdinalIgnoreCase);
