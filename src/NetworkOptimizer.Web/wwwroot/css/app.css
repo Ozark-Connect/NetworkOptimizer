@@ -2344,6 +2344,18 @@ a.btn-lg {
     color: var(--text-primary);
 }
 
+/* Same lift as tertiary, for a button sitting ON an elevated surface rather than one that is
+   lower priority. Keeps full-strength text: the elevated background is doing the separating, and
+   toning the label down as well makes it read as de-emphasised when it is not. */
+.btn-contrast {
+    background: var(--bg-elevated);
+    color: var(--text-primary);
+}
+
+.btn-contrast:hover:not(:disabled) {
+    background: var(--btn-map-hover);
+}
+
 /* Danger - Red (for destructive actions) */
 .btn-danger {
     background: var(--danger-color);

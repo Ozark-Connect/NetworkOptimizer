@@ -3777,10 +3777,11 @@
     private bool IsSiteRowOpen(int siteId) => _expandedSiteId == siteId || _usersSiteId == siteId;
 
     /// <summary>
-    /// Secondary normally, tertiary once the row is highlighted - the selected row's background is
-    /// brighter than a secondary button, so it would otherwise sink into it.
+    /// Secondary normally, contrast once the row is highlighted - the selected row's background is
+    /// brighter than a secondary button, so it would otherwise sink into it. Contrast rather than
+    /// tertiary: these are ordinary actions, not de-emphasised ones.
     /// </summary>
-    private string SiteActionButtonClass(int siteId) => IsSiteRowOpen(siteId) ? "btn-tertiary" : "btn-secondary";
+    private string SiteActionButtonClass(int siteId) => IsSiteRowOpen(siteId) ? "btn-contrast" : "btn-secondary";
     private bool _creatingAgent;
     private string? _newAgentToken;
     private int? _newAgentTokenSiteId;
