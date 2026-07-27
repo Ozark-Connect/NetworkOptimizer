@@ -4171,7 +4171,7 @@ tr:hover .snmp-row-chevron {
 
 .snmp-detail-panel {
     padding: 1rem 1.25rem 1.25rem;
-    background: var(--bg-secondary);
+    background: var(--bg-tertiary);
     border-top: 1px solid var(--border-color);
 }
 
