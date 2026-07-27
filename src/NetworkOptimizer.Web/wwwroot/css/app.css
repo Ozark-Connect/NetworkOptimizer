@@ -2786,6 +2786,42 @@ select.form-control {
     letter-spacing: 0.04em;
 }
 
+.code-copy-block {
+    position: relative;
+}
+
+.code-copy-block pre {
+    padding-right: 3rem;
+}
+
+.code-copy-btn {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    padding: 0;
+    background: var(--bg-elevated);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
+}
+
+.code-copy-btn:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.code-copy-btn svg {
+    width: 0.95rem;
+    height: 0.95rem;
+}
+
 .account-copy-btn {
     display: inline-flex;
     align-items: center;

@@ -3319,12 +3319,12 @@
                                                                         @if (AgentOnGateway(site.Id))
                                                                         {
                                                                             <p class="form-help">On the UniFi gateway - enrollment is preserved, only the binary updates:</p>
-                                                                            <pre><code>@GatewayUpgradeCommand()</code></pre>
+                                                                            <CopyableCommand Text="@GatewayUpgradeCommand()" Tooltip="Copy the gateway upgrade command" />
                                                                         }
                                                                         else
                                                                         {
                                                                             <p class="form-help">Bare metal (systemd) - enrollment is preserved, only the binaries update:</p>
-                                                                            <pre><code>@NativeUpgradeCommand()</code></pre>
+                                                                            <CopyableCommand Text="@NativeUpgradeCommand()" Tooltip="Copy the upgrade command" />
                                                                             <p class="form-help">
                                                                                 Docker agents instead: <code>cd /opt/network-optimizer-agent &amp;&amp; docker compose pull &amp;&amp; docker compose up -d</code>
                                                                             </p>
