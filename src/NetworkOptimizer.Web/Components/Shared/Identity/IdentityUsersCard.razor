@@ -168,7 +168,7 @@
                                             </div>
                                             <div class="identity-form-actions">
                                                 <button type="button" class="btn btn-primary btn-sm" @onclick="() => ResetPasswordAsync(user)">Set password</button>
-                                                <button type="button" class="btn btn-tertiary btn-sm" @onclick="ClosePasswordReset">Cancel</button>
+                                                <button type="button" class="btn btn-contrast btn-sm" @onclick="ClosePasswordReset">Cancel</button>
                                             </div>
                                         </div>
                                     </td>
@@ -197,7 +197,7 @@
                                                         <li class="identity-link-item">
                                                             <span class="identity-link-provider">@(link.DisplayName ?? link.LoginProvider)</span>
                                                             <code class="identity-link-subject">@link.ProviderKey</code>
-                                                            <button type="button" class="btn btn-tertiary btn-sm"
+                                                            <button type="button" class="btn btn-contrast btn-sm"
                                                                     @onclick="() => UnlinkAsync(user, link)">Unlink</button>
                                                         </li>
                                                     }
@@ -224,14 +224,14 @@
                                                 </div>
                                                 <div class="identity-form-actions">
                                                     <button type="button" class="btn btn-primary btn-sm" @onclick="() => LinkAsync(user)">Link identity</button>
-                                                    <button type="button" class="btn btn-tertiary btn-sm" @onclick="CloseLinks">Close</button>
+                                                    <button type="button" class="btn btn-contrast btn-sm" @onclick="CloseLinks">Close</button>
                                                 </div>
                                             }
                                             else
                                             {
                                                 <div class="identity-form-actions">
                                                     <p class="form-help">Add a provider under Sign-In to link identities.</p>
-                                                    <button type="button" class="btn btn-tertiary btn-sm" @onclick="CloseLinks">Close</button>
+                                                    <button type="button" class="btn btn-contrast btn-sm" @onclick="CloseLinks">Close</button>
                                                 </div>
                                             }
                                         </div>
@@ -297,7 +297,7 @@
                         <button type="button" class="btn btn-primary btn-sm" @onclick="CreateUserAsync" disabled="@_creating">
                             @(_creating ? "Creating..." : "Create user")
                         </button>
-                        <button type="button" class="btn btn-tertiary btn-sm" @onclick="() => _addingUser = false">Cancel</button>
+                        <button type="button" class="btn btn-contrast btn-sm" @onclick="() => _addingUser = false">Cancel</button>
                     </div>
                 </div>
             }
