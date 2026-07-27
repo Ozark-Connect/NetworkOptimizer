@@ -2341,6 +2341,14 @@ a.btn-lg {
     margin-top: 0.5rem;
 }
 
+#ssh-key .ssh-key-upload .form-group {
+    margin-bottom: 1rem;
+}
+
+#ssh-key .ssh-key-public {
+    margin-bottom: 1.25rem;
+}
+
 /* The actions follow a setup-guide, which carries no bottom margin of its own. */
 #ssh-key .action-buttons {
     margin-top: 1.5rem;
