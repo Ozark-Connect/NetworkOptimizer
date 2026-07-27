@@ -42,6 +42,10 @@
             {
                 <div class="alert alert-success">Your password has been changed.</div>
             }
+            @if (_passwordUnchanged)
+            {
+                <div class="alert alert-danger">Your new password has to be different from your current one.</div>
+            }
             @if (_passwordFailed)
             {
                 <div class="alert alert-danger">
@@ -223,6 +227,7 @@
 
     private bool _passwordChanged => PasswordResult == "done";
     private bool _passwordFailed => PasswordResult == "failed";
+    private bool _passwordUnchanged => PasswordResult == "same";
     private AuthenticatorSetup? _setup;
     private bool _enrollError;
     private IReadOnlyList<string>? _recoveryCodes;
