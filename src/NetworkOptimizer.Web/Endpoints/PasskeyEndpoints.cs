@@ -59,7 +59,10 @@ public static class PasskeyEndpoints
             // The sign-in itself goes through the shared service, so a passkey login is gated and
             // audited exactly like a password one. A refusal reports the same way as a failed
             // assertion, so a disabled account is not distinguishable from a bad credential.
-            var outcome = await signInService.PasskeySignInAsync(assertion.User);
+            // Sent by the browser from the same checkbox the password form posts, so a passkey
+            // sign-in lasts as long as a password one rather than always being session-scoped.
+            var rememberMe = ctx.Request.Query["rememberMe"].ToString() is "true" or "on";
+            var outcome = await signInService.PasskeySignInAsync(assertion.User, rememberMe);
             return outcome == SignInOutcome.Success
                 ? Results.Ok(new { authenticated = true })
                 : Results.BadRequest(new { error = "assertion_failed" });

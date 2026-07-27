@@ -54,7 +54,7 @@ public interface IIdentitySignInService
     /// signing in at the endpoint so a passkey login gets the same treatment as a password one:
     /// the local enablement gate, last-login metadata, and a login audit event.
     /// </summary>
-    Task<SignInOutcome> PasskeySignInAsync(ApplicationUser user);
+    Task<SignInOutcome> PasskeySignInAsync(ApplicationUser user, bool rememberMe);
 
     /// <summary>Signs the current user out of the application cookie.</summary>
     Task SignOutAsync();
@@ -214,7 +214,7 @@ public sealed class IdentitySignInService : IIdentitySignInService
 
     /// <inheritdoc />
     /// <inheritdoc />
-    public async Task<SignInOutcome> PasskeySignInAsync(ApplicationUser user)
+    public async Task<SignInOutcome> PasskeySignInAsync(ApplicationUser user, bool rememberMe)
     {
         // A disabled account must not get in on a credential registered before it was disabled.
         if (!user.IsEnabled)
@@ -224,7 +224,7 @@ public sealed class IdentitySignInService : IIdentitySignInService
             return SignInOutcome.Failed;
         }
 
-        await _signInManager.SignInAsync(user, isPersistent: false, "passkey");
+        await _signInManager.SignInAsync(user, rememberMe, "passkey");
 
         user.LastLoginAt = DateTime.UtcNow;
         user.LastLoginMethod = "passkey";
