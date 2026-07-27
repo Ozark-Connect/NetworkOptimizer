@@ -7223,7 +7223,9 @@ a.path-hop.hop-clickable:hover {
     height: 14px;
 }
 
-.login-username-group {
+/* Both class and element qualified so it beats .login-card .form-group outright, rather than
+   depending on which rule happens to come later in the file. */
+.login-card .form-group.login-username-group {
     margin-bottom: 1rem;
 }
 
