@@ -172,6 +172,8 @@
                     </div>
                 }
 
+                @if (_canConfigure || _editing.Id > 0)
+                {
                 <div class="mi-add-section">
                     <h3>@(!_canConfigure ? "Monitoring interface" : _editing.Id > 0 ? "Edit monitoring interface" : "Add a monitoring interface")</h3>
                     <div class="form-row">
@@ -307,6 +309,7 @@
                         }
                     </div>
                 </div>
+                }
             </div>
         </div>
     </div>
