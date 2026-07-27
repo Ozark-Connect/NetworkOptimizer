@@ -44,6 +44,38 @@ public sealed class SiteAccessInvalidationTests : IDisposable
     }
 
     [Fact]
+    public async Task ARevokeSurvivesAConcurrentRebuildOfTheSameUser()
+    {
+        // The real sequence: a membership change invalidates and then broadcasts, and every open
+        // circuit and in-flight request rebuilds this user's set at the same instant.
+        //
+        // HONEST LIMIT: this is a smoke test, not a reproduction. Run against the non-atomic token
+        // acquisition this replaced, it still passes - the racers stagger behind their database
+        // reads and rarely collide inside the token factory. Reproducing that reliably needs a cache
+        // decorator that holds two threads at a barrier, and the fixed code never consults the cache
+        // for a token at all, so the same harness cannot drive both. What guards the invariant now
+        // is the type: ConcurrentDictionary.GetOrAdd hands every caller the one stored source.
+        await SeedAsync();
+        var principal = PrincipalFor(UserId, Roles.Viewer);
+
+        for (var attempt = 0; attempt < 50; attempt++)
+        {
+            await AddMembershipAsync("depot", SiteRole.SiteViewer);
+            BuildResolver().Invalidate(UserId);
+
+            // Separate instances, as production has: a scope per circuit, one shared cache.
+            await Task.WhenAll(Enumerable.Range(0, 8)
+                .Select(_ => Task.Run(() => BuildResolver().GetAuthorizedSlugsAsync(principal))));
+
+            await RemoveMembershipAsync("depot");
+            BuildResolver().Invalidate(UserId);
+
+            (await BuildResolver().GetAuthorizedSlugsAsync(principal)).Should()
+                .NotContain("depot", $"the revoke must evict every cached set (attempt {attempt})");
+        }
+    }
+
+    [Fact]
     public async Task AddingASiteAppearsImmediatelyToo()
     {
         await SeedAsync();

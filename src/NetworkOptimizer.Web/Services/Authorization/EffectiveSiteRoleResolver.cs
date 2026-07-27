@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Security.Claims;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
@@ -125,24 +126,17 @@ public sealed class EffectiveSiteRoleResolver : IEffectiveSiteRoleResolver
     }
 
     /// <inheritdoc />
-    public void Invalidate(string userId)
-    {
-        if (!_cache.TryGetValue(TokenKey(userId), out CancellationTokenSource? source) || source is null)
-            return;
-
-        // Cancelling expires every entry that carries this token, which is all of this user's.
-        _cache.Remove(TokenKey(userId));
-        source.Cancel();
-        source.Dispose();
-    }
+    public void Invalidate(string userId) => Expire(TokenKey(userId));
 
     /// <inheritdoc />
-    public void InvalidateAll()
+    public void InvalidateAll() => Expire(RegistryTokenKey);
+
+    /// <summary>Cancels a token, which expires every cache entry tied to it, and retires it.</summary>
+    private static void Expire(string tokenKey)
     {
-        if (!_cache.TryGetValue(RegistryTokenKey, out CancellationTokenSource? source) || source is null)
+        if (!Tokens.TryRemove(tokenKey, out var source))
             return;
 
-        _cache.Remove(RegistryTokenKey);
         source.Cancel();
         source.Dispose();
     }
@@ -163,15 +157,23 @@ public sealed class EffectiveSiteRoleResolver : IEffectiveSiteRoleResolver
             .AddExpirationToken(new Microsoft.Extensions.Primitives.CancellationChangeToken(Token(RegistryTokenKey)));
     }
 
-    private CancellationToken Token(string key)
-    {
-        var source = _cache.GetOrCreate(key, entry =>
-        {
-            entry.Priority = CacheItemPriority.NeverRemove;
-            return new CancellationTokenSource();
-        })!;
-        return source.Token;
-    }
+    /// <summary>
+    /// The invalidation tokens, held here rather than in the cache because acquiring them has to be
+    /// ATOMIC. IMemoryCache.GetOrCreate is not: it reads, runs the factory, then commits, so two
+    /// callers that both miss each build a token source and each keeps its own, while only the last
+    /// to commit is stored. Every entry written against the loser is then tied to a source that
+    /// Invalidate can never find - which is how a revoked site went on being listed for a user until
+    /// the ten-minute expiry, while the gate checks, written outside that burst, refused it correctly.
+    /// The burst is not hypothetical: a membership change invalidates and then broadcasts, and every
+    /// open circuit and in-flight request rebuilds this user's set at the same instant.
+    ///
+    /// GetOrAdd may run its factory more than once under contention, but it returns the SAME stored
+    /// source to every caller, which is the property that was missing.
+    /// </summary>
+    private static readonly ConcurrentDictionary<string, CancellationTokenSource> Tokens = new();
+
+    private static CancellationToken Token(string key)
+        => Tokens.GetOrAdd(key, _ => new CancellationTokenSource()).Token;
 
     private async Task<SiteRole?> ComputeEffectiveRoleAsync(ClaimsPrincipal user, string userId, string slug)
     {
