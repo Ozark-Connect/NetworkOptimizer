@@ -1,4 +1,4 @@
-@rendermode InteractiveServer
+﻿@rendermode InteractiveServer
 @using NetworkOptimizer.Storage.Models.Identity
 @using NetworkOptimizer.Web.Services.Authorization
 @using NetworkOptimizer.Web.Services.Identity
@@ -49,12 +49,15 @@
         SiteContext.PinFromUri(Navigation.Uri);
 
         // A circuit is its own DI scope, so the request middleware's correction does not reach it and
-        // the pin above has to be re-checked here. Both short-circuits below are deliberately
-        // synchronous: an install with authentication off, and any Admin, can see every site, so they
-        // never gate their first render and never flash an empty page while a check resolves.
+        // the pin above has to be re-checked here. The pinned slug comes from the browser's URL and
+        // is validated only as "a real site with a database" - never as one this caller may open.
+        //
+        // An install with authentication off has no principal to check and has always seen every
+        // site, so it short-circuits. Holding Admin does NOT short-circuit: whether a role reaches
+        // every site is a question the role name cannot answer on its own, and the check below is
+        // cheap for a caller who does reach them all.
         var caller = Caller.Current;
-        if (caller is null || caller.AuthenticationDisabled || caller.Principal is null
-            || caller.Principal.IsInRole(Roles.Admin))
+        if (caller is null || caller.AuthenticationDisabled || caller.Principal is null)
         {
             _siteResolved = true;
             return;

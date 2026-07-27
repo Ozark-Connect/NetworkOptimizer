@@ -33,7 +33,7 @@
 @inject NetworkOptimizer.Storage.Services.ICredentialProtectionService CredentialService
 @inject IHttpClientFactory HttpClientFactory
 @inject NavigationManager NavigationManager
-@inject SiteManagementService SiteManagement
+@inject ISiteManagementService SiteManagement
 @inject SiteSwitchService SiteSwitch
 @inject IAgentEnrollmentService AgentEnrollment
 @inject AgentServerUrlProvider AgentServerUrl
@@ -2915,6 +2915,10 @@
         </div>
     </div>
 
+    @* Export bundles EVERY site's database, console credentials, SSH keys and the data-protection
+       keys - which sign the auth cookie. ManageSettings admits a Site Admin, so the card needs its
+       own Admin gate; the service gate behind it is the boundary, this stops offering it. *@
+    <AdminOnly>
     <!-- 14. Data Management -->
     <div class="card settings-tab-application" id="data-management">
         <div class="card-header">
@@ -3098,6 +3102,7 @@
             </div>
         </div>
     </div>
+    </AdminOnly>
     }
 
     @* Settings - Identity: instance-wide on the default site, scoped to the site elsewhere.
@@ -6302,7 +6307,7 @@
     private bool showImportConfirm;
     private bool importApplied;
 
-    [Inject] private ConfigTransferService ConfigTransfer { get; set; } = default!;
+    [Inject] private IConfigTransferService ConfigTransfer { get; set; } = default!;
 
     private async Task ExportConfig(ExportType type)
     {
