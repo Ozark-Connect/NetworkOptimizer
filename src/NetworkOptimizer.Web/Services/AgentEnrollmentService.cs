@@ -96,6 +96,23 @@ public class AgentEnrollmentService : IAgentEnrollmentService
     }
 
     /// <summary>
+    /// Closes an agent's tunnel from this end. The key is only checked when the stream opens, so a
+    /// removed or disabled agent whose connection is already up keeps relaying monitoring, SSH and
+    /// console traffic until something unrelated interrupts it - a restart, or a network blip. That
+    /// is not a revocation. The agent sees its stream close and retries on its own backoff; the key
+    /// no longer resolves, so the reconnect is refused. Same mechanism license enforcement uses.
+    /// </summary>
+    private void DropLiveTunnel(int agentId, string agentName, string reason)
+    {
+        foreach (var connection in _tunnelRegistry.GetAll().Where(c => c.AgentId == agentId))
+        {
+            _logger.LogInformation("Dropping tunnel for agent {Name} (id {Id}): {Reason}",
+                agentName, agentId, reason);
+            connection.Drop();
+        }
+    }
+
+    /// <summary>
     /// The agent, but only if it belongs to the site the caller was authorized against. Everything
     /// that acts on an agent id goes through here: the id is the caller's to choose, the slug is the
     /// one the gate checked, and an agent that does not sit on that slug is not theirs to touch.
@@ -143,6 +160,7 @@ public class AgentEnrollmentService : IAgentEnrollmentService
 
         db.SiteAgents.Remove(agent);
         await db.SaveChangesAsync();
+        DropLiveTunnel(agent.Id, agent.Name, "removed");
         _logger.LogInformation("Removed agent {Name} (id {Id}) for site {SiteId}", agent.Name, agent.Id, agent.SiteId);
     }
 
@@ -287,6 +305,9 @@ public class AgentEnrollmentService : IAgentEnrollmentService
         agent.Enabled = enabled;
         agent.UpdatedAt = DateTime.UtcNow;
         await db.SaveChangesAsync();
+
+        if (!enabled)
+            DropLiveTunnel(agent.Id, agent.Name, "disabled");
     }
 
     /// <summary>Whether a last-seen timestamp counts as online right now.</summary>
