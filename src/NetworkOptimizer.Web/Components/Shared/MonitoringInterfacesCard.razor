@@ -3,6 +3,11 @@
 @using NetworkOptimizer.Storage.Models
 @using NetworkOptimizer.UniFi
 @using NetworkOptimizer.Web.Services
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using NetworkOptimizer.Web.Services.Authorization
+@inject IAuthorizationService Authz
+@inject SiteContextService SiteCtx
 @inject IMonitoringInterfaceRepository Repo
 @inject IMonitoringInterfaceDeploymentService Deploy
 @inject ISqmService SqmService
@@ -74,7 +79,7 @@
                                 <td>@StatusBadge(mi)</td>
                                 <td>
                                     <div class="btn-group-wrap mi-row-actions">
-                                        <button class="btn btn-secondary btn-sm" @onclick="() => EditInterface(mi)" disabled="@(_busyId != null)">Edit</button>
+                                        <button class="btn btn-secondary btn-sm" @onclick="() => EditInterface(mi)" disabled="@(_busyId != null)">@(_canConfigure ? "Edit" : "View")</button>
                                         @if (mi.Disabled)
                                         {
                                             @* Disabled rows expose exactly one forward action - Enable - in the primary
@@ -168,7 +173,7 @@
                 }
 
                 <div class="mi-add-section">
-                    <h3>@(_editing.Id > 0 ? "Edit monitoring interface" : "Add a monitoring interface")</h3>
+                    <h3>@(!_canConfigure ? "Monitoring interface" : _editing.Id > 0 ? "Edit monitoring interface" : "Add a monitoring interface")</h3>
                     <div class="form-row">
                         <div class="form-group mi-grow-2">
                             <label class="form-label">Modem/ONT IP</label>
@@ -292,7 +297,11 @@
                         <SiteAdminOnly>
                             <button class="btn btn-secondary" @onclick="SaveOnly" disabled="@(_busyId != null || _saving)">Save without deploying</button>
                         </SiteAdminOnly>
-                        @if (_editing.Id > 0)
+                        @if (!_canConfigure)
+                        {
+                            <button class="btn btn-secondary" @onclick="CancelEdit" disabled="@_saving">Close</button>
+                        }
+                        else if (_editing.Id > 0)
                         {
                             <button class="btn btn-secondary" @onclick="CancelEdit" disabled="@_saving">Cancel edit</button>
                         }
@@ -376,6 +385,14 @@
 </style>
 
 @code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    /// <summary>
+    /// Whether this caller may change an interface. The editor is the only place a row's full
+    /// configuration can be read, so it stays reachable and simply stops offering to save.
+    /// </summary>
+    private bool _canConfigure;
+
     /// <summary>
     /// Optional modem/ONT IP to pre-fill into a new interface, used by the deep-links from
     /// the CM/ONT/Cellular monitor forms ("can't reach it? set up an interface").
@@ -465,6 +482,9 @@
 
     protected override async Task OnInitializedAsync()
     {
+        _canConfigure = AuthState is null
+            || (await Authz.AuthorizeAsync((await AuthState).User, SiteCtx.Slug, Policies.SiteAdmin)).Succeeded;
+
         await LoadAsync();
         // NOTE: collapse state is decided once in OnAfterRenderAsync (saved preference, else
         // count-based default). Don't set _collapsed here - this runs after an await and can
