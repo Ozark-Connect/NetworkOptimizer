@@ -12,6 +12,7 @@
 @using Microsoft.EntityFrameworkCore
 @using NetworkOptimizer.Web.Services.Ssh
 @inject IAlertRepository AlertRepository
+@inject IAlertConfigService AlertConfig
 @inject NetworkOptimizer.Storage.Services.SiteDbContextFactory SiteDb
 @inject IScheduleRepository ScheduleRepository
 @inject ScheduleService ScheduleService
@@ -2317,7 +2318,7 @@
         {
             alert.Status = AlertStatus.Acknowledged;
             alert.AcknowledgedAt = DateTime.UtcNow;
-            await AlertRepository.UpdateAlertAsync(alert);
+            await AlertConfig.UpdateAlertAsync(alert);
             await RecalculateIncidentStatusAsync(alert);
             await LoadActiveAlerts();
         }
@@ -2333,7 +2334,7 @@
         {
             alert.Status = AlertStatus.Resolved;
             alert.ResolvedAt = DateTime.UtcNow;
-            await AlertRepository.UpdateAlertAsync(alert);
+            await AlertConfig.UpdateAlertAsync(alert);
             await RecalculateIncidentStatusAsync(alert);
             await LoadActiveAlerts();
         }
@@ -2353,7 +2354,7 @@
             {
                 alert.Status = AlertStatus.Acknowledged;
                 alert.AcknowledgedAt = now;
-                await AlertRepository.UpdateAlertAsync(alert);
+                await AlertConfig.UpdateAlertAsync(alert);
                 await RecalculateIncidentStatusAsync(alert);
             }
             await LoadActiveAlerts();
@@ -2374,7 +2375,7 @@
             {
                 alert.Status = AlertStatus.Resolved;
                 alert.ResolvedAt = now;
-                await AlertRepository.UpdateAlertAsync(alert);
+                await AlertConfig.UpdateAlertAsync(alert);
                 await RecalculateIncidentStatusAsync(alert);
             }
             await LoadActiveAlerts();
@@ -2395,7 +2396,7 @@
             {
                 alert.Status = AlertStatus.Resolved;
                 alert.ResolvedAt = now;
-                await AlertRepository.UpdateAlertAsync(alert);
+                await AlertConfig.UpdateAlertAsync(alert);
                 await RecalculateIncidentStatusAsync(alert);
             }
             await LoadActiveAlerts();
@@ -2420,7 +2421,7 @@
 
         incident.Status = newStatus;
         incident.ResolvedAt = resolvedAt;
-        await AlertRepository.UpdateIncidentAsync(incident);
+        await AlertConfig.UpdateIncidentAsync(incident);
     }
 
     private async Task AcknowledgeIncident(AlertIncident incident)
@@ -2432,11 +2433,11 @@
             {
                 alert.Status = AlertStatus.Acknowledged;
                 alert.AcknowledgedAt = DateTime.UtcNow;
-                await AlertRepository.UpdateAlertAsync(alert);
+                await AlertConfig.UpdateAlertAsync(alert);
             }
 
             incident.Status = AlertStatus.Acknowledged;
-            await AlertRepository.UpdateIncidentAsync(incident);
+            await AlertConfig.UpdateIncidentAsync(incident);
             await LoadIncidents();
             await LoadActiveAlerts();
         }
@@ -2455,12 +2456,12 @@
             {
                 alert.Status = AlertStatus.Resolved;
                 alert.ResolvedAt = DateTime.UtcNow;
-                await AlertRepository.UpdateAlertAsync(alert);
+                await AlertConfig.UpdateAlertAsync(alert);
             }
 
             incident.Status = AlertStatus.Resolved;
             incident.ResolvedAt = DateTime.UtcNow;
-            await AlertRepository.UpdateIncidentAsync(incident);
+            await AlertConfig.UpdateIncidentAsync(incident);
             await LoadIncidents();
             await LoadActiveAlerts();
         }
@@ -2482,11 +2483,11 @@
                 {
                     alert.Status = AlertStatus.Acknowledged;
                     alert.AcknowledgedAt = now;
-                    await AlertRepository.UpdateAlertAsync(alert);
+                    await AlertConfig.UpdateAlertAsync(alert);
                 }
 
                 incident.Status = AlertStatus.Acknowledged;
-                await AlertRepository.UpdateIncidentAsync(incident);
+                await AlertConfig.UpdateIncidentAsync(incident);
             }
             await LoadIncidents();
             await LoadActiveAlerts();
@@ -2509,12 +2510,12 @@
                 {
                     alert.Status = AlertStatus.Resolved;
                     alert.ResolvedAt = now;
-                    await AlertRepository.UpdateAlertAsync(alert);
+                    await AlertConfig.UpdateAlertAsync(alert);
                 }
 
                 incident.Status = AlertStatus.Resolved;
                 incident.ResolvedAt = now;
-                await AlertRepository.UpdateIncidentAsync(incident);
+                await AlertConfig.UpdateIncidentAsync(incident);
             }
             await LoadIncidents();
             await LoadActiveAlerts();
@@ -2610,7 +2611,7 @@
                     rule.ThresholdPercent = _ruleThresholdPercent;
                     rule.TargetDevices = string.IsNullOrEmpty(_ruleTargetDevices) ? null : _ruleTargetDevices.Trim();
                     rule.UpdatedAt = DateTime.UtcNow;
-                    await AlertRepository.UpdateRuleAsync(rule);
+                    await AlertConfig.UpdateRuleAsync(rule.Id, rule);
                 }
             }
             else
@@ -2627,7 +2628,7 @@
                     ThresholdPercent = _ruleThresholdPercent,
                     TargetDevices = string.IsNullOrEmpty(_ruleTargetDevices) ? null : _ruleTargetDevices.Trim()
                 };
-                await AlertRepository.SaveRuleAsync(rule);
+                await AlertConfig.CreateRuleAsync(rule);
             }
 
             _showRuleForm = false;
@@ -2650,7 +2651,7 @@
         {
             rule.IsEnabled = !rule.IsEnabled;
             rule.UpdatedAt = DateTime.UtcNow;
-            await AlertRepository.UpdateRuleAsync(rule);
+            await AlertConfig.UpdateRuleAsync(rule.Id, rule);
         }
         catch (Exception ex)
         {
@@ -2663,7 +2664,7 @@
     {
         try
         {
-            await AlertRepository.DeleteRuleAsync(rule.Id);
+            await AlertConfig.DeleteRuleAsync(rule.Id);
             await LoadRules();
         }
         catch (Exception ex)
@@ -2679,7 +2680,7 @@
         try
         {
             task.Enabled = !task.Enabled;
-            await ScheduleRepository.UpdateAsync(task);
+            await AlertConfig.UpdateScheduleAsync(task.Id, task);
         }
         catch (Exception ex)
         {
@@ -2700,7 +2701,7 @@
                 {
                     task.NextRunAt = task.LastRunAt.Value.AddMinutes(minutes);
                 }
-                await ScheduleRepository.UpdateAsync(task);
+                await AlertConfig.UpdateScheduleAsync(task.Id, task);
             }
             catch (Exception ex)
             {
@@ -2713,7 +2714,7 @@
     {
         try
         {
-            var started = await ScheduleService.RunNowAsync(task.Id, SiteContext.Slug);
+            var started = await AlertConfig.RunScheduleNowAsync(task.Id, SiteContext.Slug);
             if (!started)
             {
                 _scheduleMessage = "Task is already running.";
@@ -2827,7 +2828,7 @@
                 NextRunAt = CalculateFirstRun(_newWanFrequency, startHour, startMinute)
             };
 
-            await ScheduleRepository.SaveAsync(task);
+            await AlertConfig.CreateScheduleAsync(task);
             _newWanSelection = "0";
             _newWanMaxMode = false;
             _newWanFrequency = 1440;
@@ -2869,7 +2870,7 @@
                 NextRunAt = CalculateFirstRun(_newLanFrequency, startHour, startMinute)
             };
 
-            await ScheduleRepository.SaveAsync(task);
+            await AlertConfig.CreateScheduleAsync(task);
             _newLanDevice = null;
             _newLanFrequency = 1440;
             _newLanStartTime = new(6, 0);
@@ -3046,7 +3047,7 @@
             existing.CustomMorningMinute = startMinute;
             existing.NextRunAt = CalculateFirstRun(_newWanFrequency, startHour, startMinute, isEdit: true);
 
-            await ScheduleRepository.UpdateAsync(existing);
+            await AlertConfig.UpdateScheduleAsync(existing.Id, existing);
             CancelEditWanSchedule();
             await LoadSchedules();
         }
@@ -3125,7 +3126,7 @@
             existing.CustomMorningMinute = startMinute;
             existing.NextRunAt = CalculateFirstRun(_newLanFrequency, startHour, startMinute, isEdit: true);
 
-            await ScheduleRepository.UpdateAsync(existing);
+            await AlertConfig.UpdateScheduleAsync(existing.Id, existing);
             CancelEditLanSchedule();
             await LoadSchedules();
         }
@@ -3145,7 +3146,7 @@
         {
             if (_editingWanScheduleId == task.Id) CancelEditWanSchedule();
             if (_editingLanScheduleId == task.Id) CancelEditLanSchedule();
-            await ScheduleRepository.DeleteAsync(task.Id);
+            await AlertConfig.DeleteScheduleAsync(task.Id);
             await LoadSchedules();
         }
         catch (Exception ex)

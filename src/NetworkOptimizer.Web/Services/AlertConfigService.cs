@@ -46,20 +46,49 @@ public interface IAlertConfigService
     [AuditAction(AuditActions.AlertRuleChanged, TargetType = "alert_channel")]
     Task DeleteChannelAsync(int id);
 
+    // Dealing with an alert is operating the network, not configuring it: it happens constantly, and
+    // getting it wrong is fixed by doing it again. Deciding WHAT alerts, and where they are sent, is
+    // configuration and stays above.
+
     /// <summary>Acknowledges an alert; returns the updated alert, or null when it is gone.</summary>
-    [RequireRole(Roles.Admin)]
+    [RequireRole(Roles.Operator)]
     [AuditAction(AuditActions.AlertRuleChanged, TargetType = "alert")]
     Task<AlertHistoryEntry?> AcknowledgeAlertAsync(int id);
 
     /// <summary>Resolves an alert; returns the updated alert, or null when it is gone.</summary>
-    [RequireRole(Roles.Admin)]
+    [RequireRole(Roles.Operator)]
     [AuditAction(AuditActions.AlertRuleChanged, TargetType = "alert")]
     Task<AlertHistoryEntry?> ResolveAlertAsync(int id);
+
+    /// <summary>Saves an alert's state - acknowledged, resolved, dismissed.</summary>
+    [RequireRole(Roles.Operator)]
+    [AuditAction(AuditActions.AlertRuleChanged, TargetType = "alert")]
+    Task UpdateAlertAsync(AlertHistoryEntry alert);
+
+    /// <summary>Saves an incident's state, which the alert list edits alongside its alerts.</summary>
+    [RequireRole(Roles.Operator)]
+    [AuditAction(AuditActions.AlertRuleChanged, TargetType = "incident")]
+    Task UpdateIncidentAsync(AlertIncident incident);
+
+    /// <summary>Runs a scheduled task immediately. Returns false when it could not be started.</summary>
+    [RequireRole(Roles.Operator)]
+    [AuditAction(AuditActions.ScheduleChanged, TargetType = "schedule")]
+    Task<bool> RunScheduleNowAsync(int id, [SiteSlug] string siteSlug);
+
+    /// <summary>Creates a scheduled task and returns its id.</summary>
+    [RequireRole(Roles.Admin)]
+    [AuditAction(AuditActions.ScheduleChanged, TargetType = "schedule")]
+    Task<int> CreateScheduleAsync(ScheduledTask task);
 
     /// <summary>Applies edits to a scheduled task; returns the saved task, or null when it is gone.</summary>
     [RequireRole(Roles.Admin)]
     [AuditAction(AuditActions.ScheduleChanged, TargetType = "schedule")]
     Task<ScheduledTask?> UpdateScheduleAsync(int id, ScheduledTask updated);
+
+    /// <summary>Deletes a scheduled task.</summary>
+    [RequireRole(Roles.Admin)]
+    [AuditAction(AuditActions.ScheduleChanged, TargetType = "schedule")]
+    Task DeleteScheduleAsync(int id);
 }
 
 /// <inheritdoc />
@@ -69,11 +98,59 @@ public sealed class AlertConfigService : IAlertConfigService
     private readonly IScheduleRepository _schedules;
     private readonly IAuditContext _auditContext;
 
-    public AlertConfigService(IAlertRepository alerts, IScheduleRepository schedules, IAuditContext auditContext)
+    private readonly ScheduleService _scheduleService;
+
+    public AlertConfigService(
+        IAlertRepository alerts,
+        IScheduleRepository schedules,
+        ScheduleService scheduleService,
+        IAuditContext auditContext)
     {
         _alerts = alerts;
         _schedules = schedules;
+        _scheduleService = scheduleService;
         _auditContext = auditContext;
+    }
+
+    /// <inheritdoc />
+    public async Task UpdateAlertAsync(AlertHistoryEntry alert)
+    {
+        await _alerts.UpdateAlertAsync(alert);
+        _auditContext.SetTarget(alert.Id.ToString(), alert.EventType);
+        _auditContext.SetDetails(new { alert.AcknowledgedAt, alert.ResolvedAt });
+    }
+
+    /// <inheritdoc />
+    public async Task UpdateIncidentAsync(AlertIncident incident)
+    {
+        await _alerts.UpdateIncidentAsync(incident);
+        _auditContext.SetTarget(incident.Id.ToString(), incident.Title);
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> RunScheduleNowAsync(int id, string siteSlug)
+    {
+        var started = await _scheduleService.RunNowAsync(id, siteSlug);
+        _auditContext.SetTarget(id.ToString());
+        _auditContext.SetDetails(new { ranNow = true, started });
+        return started;
+    }
+
+    /// <inheritdoc />
+    public async Task<int> CreateScheduleAsync(ScheduledTask task)
+    {
+        var id = await _schedules.SaveAsync(task);
+        _auditContext.SetTarget(id.ToString(), task.Name);
+        _auditContext.SetDetails(new { created = true, task.TaskType, task.Enabled });
+        return id;
+    }
+
+    /// <inheritdoc />
+    public async Task DeleteScheduleAsync(int id)
+    {
+        await _schedules.DeleteAsync(id);
+        _auditContext.SetTarget(id.ToString());
+        _auditContext.SetDetails(new { deleted = true });
     }
 
     /// <inheritdoc />
