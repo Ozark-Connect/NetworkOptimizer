@@ -22,6 +22,7 @@ public class NetworkOptimizerDbContext : DbContext
     public DbSet<Iperf3Result> Iperf3Results { get; set; }
     public DbSet<UniFiSshSettings> UniFiSshSettings { get; set; }
     public DbSet<GatewaySshSettings> GatewaySshSettings { get; set; }
+    public DbSet<SshKey> SshKeys { get; set; }
     public DbSet<DismissedIssue> DismissedIssues { get; set; }
     public DbSet<OutageAcknowledgement> OutageAcknowledgements { get; set; }
     public DbSet<SystemSetting> SystemSettings { get; set; }

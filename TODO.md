@@ -1,23 +1,25 @@
 # Network Optimizer - TODO / Future Enhancements
 
-## SSH Key Management (stored keypairs)
+## SSH key placement on console gateways (udm-boot)
 
-Critical before multi-user ships. Build on the source branch BEFORE the big SaaS rebase, so the fork
-inherits it and the tenant gate stays a small private delta. Design note:
-`docs/features/ssh-key-management.md`.
+TABLED, and quite likely overtaken by UniFi shipping key support for console SSH themselves.
 
-- Let admins **and site admins** upload or generate their own SSH private/public keypair. Generate is
-  the default (the private half never crosses the wire - the UI returns only the public key to install
-  on UniFi and other devices); upload is the fallback. Stored per site, encrypted with Data Protection
-  like `ClientSecretProtected`.
-- **Site admins lose the filesystem path option** and use a stored key. A global admin can override
-  and facilitate, and keeps the path field - self-hosted operators legitimately mount a key.
-- Three places SSH auth is configured, all needing both changes: Settings - UniFi Console Connection
-  (gateway SSH, `Settings.razor` ~447), Settings - Device SSH (~616), and LAN Speed Test's per-device
-  override (`SpeedTest.razor` ~691).
-- Also closes a gap for self-hosted users, who today must shell into the container to place a key.
-- Decide alongside: whether full config export should exist in the hosted build, since stored keys land
-  in the site DB and the export bundles every site DB plus the Data Protection keys.
+On a Cloud Gateway the gateway is also the console, so UniFi Network's Device SSH Settings does not
+reach its root SSH and the public key has to be placed by hand once. We could close that loop the way
+Adaptive SQM, WAN Steering and Performance Tweaks already do: use the configured username and password
+to install a udm-boot script that re-places the key, so it survives firmware upgrades.
+
+Why it is tabled rather than built:
+
+- It does not remove the bootstrap step, only the repeat. Placing the script still needs working
+  password auth, so "SSH in once" happens either way. The win is narrower than it looks.
+- It is a new gateway deployment target, with its own deploy/undeploy lifecycle and a lockout failure
+  mode, on top of a feature that is complete without it.
+
+**Settle this first, it sizes the whole item:** whether `/root/.ssh/authorized_keys` actually survives
+a UniFi OS firmware upgrade. `/etc/systemd/system` does, which is why udm-boot works at all. If
+authorized_keys persists too, this is nearly moot and should be dropped. If it does not, it is worth
+doing whatever UniFi ship. Checkable read-only on any console gateway.
 
 ## Channel Recommendation: Engine Follow-ups (recalibration-sensitive)
 
