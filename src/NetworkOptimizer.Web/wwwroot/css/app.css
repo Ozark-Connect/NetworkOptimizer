@@ -4160,7 +4160,7 @@ tr:hover .snmp-row-chevron {
 }
 
 .snmp-row-expanded,
-.snmp-row-expanded:hover {
+.data-table tr.snmp-row-expanded:hover {
     background: var(--bg-tertiary);
 }
 
@@ -6280,7 +6280,7 @@ a.path-hop.hop-clickable:hover {
 }
 
 .history-row-expanded,
-.history-row-expanded:hover {
+.data-table tr.history-row-expanded:hover {
     background: var(--bg-hover);
 }
 
