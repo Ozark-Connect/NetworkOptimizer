@@ -18311,7 +18311,9 @@ body.kiosk-mode .status-indicators {
     margin-top: 0.5rem;
 }
 
-.site-config-row td {
+/* Direct child only. As a descendant selector this also stripped the padding from every cell of
+   any table rendered inside the panel - the Users panel's own access table came out flush. */
+.site-config-row > td {
     padding: 0;
 }
 
@@ -19140,6 +19142,11 @@ body.kiosk-mode .status-indicators {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
     gap: 0.75rem 1rem;
+}
+
+/* The grid already spaces its rows, so .form-group's own 1.5rem stacked on top of the gap. */
+.identity-form-grid .form-group {
+    margin-bottom: 1rem;
 }
 
 .identity-mfa-grid {
