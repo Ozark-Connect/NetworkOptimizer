@@ -2648,11 +2648,6 @@ select.form-control {
 }
 
 /* Empty States */
-.empty-state {
-    text-align: center;
-    padding: 3rem 1rem;
-}
-
 .empty-icon {
     font-size: 4rem;
     margin-bottom: 1rem;
@@ -4765,6 +4760,24 @@ tr:hover .snmp-row-chevron {
     padding: 3rem 2rem;
     color: var(--text-secondary);
     font-size: 0.92rem;
+}
+
+/* For an empty state inside a card that is already one of several on a page, where the full-page
+   version's 3rem reads as a hole rather than breathing room. Both classes so it beats .empty-state
+   on specificity rather than on source order. */
+.empty-state.empty-state-small {
+    padding: 1.5rem;
+}
+
+.empty-state.empty-state-small .empty-icon {
+    font-size: 2rem;
+}
+
+/* Both identity empty states use an svg, and .empty-icon svg is sized in fixed rem - so font-size
+   alone would leave the icon at full size while the text around it shrank. */
+.empty-state.empty-state-small .empty-icon svg {
+    width: 2rem;
+    height: 2rem;
 }
 
 .empty-state .empty-icon {
