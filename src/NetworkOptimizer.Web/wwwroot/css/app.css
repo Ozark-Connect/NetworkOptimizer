@@ -2341,6 +2341,14 @@ a.btn-lg {
     margin-top: 0.5rem;
 }
 
+/* Bordered only once a key is stored: this is a statement that key auth is in play for the section,
+   and it should read as one rather than as another line of help text. */
+.ssh-key-row-set {
+    padding: 0.75rem;
+    border: 1px solid var(--info-color);
+    border-radius: var(--border-radius);
+}
+
 #ssh-key .ssh-key-upload .form-group {
     margin-bottom: 1rem;
 }
