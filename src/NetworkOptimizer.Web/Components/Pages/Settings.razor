@@ -3137,12 +3137,14 @@
 
             @if (!_multiSiteEnabled)
             {
-                <div class="form-group">
-                    <label class="checkbox-label">
-                        <input type="checkbox" checked="@_multiSiteEnabled" @onchange="OnMultiSiteEnabledChanged" />
-                        <span>Enable multi-site management</span>
-                    </label>
-                </div>
+                <AdminOnly>
+                    <div class="form-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" checked="@_multiSiteEnabled" @onchange="OnMultiSiteEnabledChanged" />
+                            <span>Enable multi-site management</span>
+                        </label>
+                    </div>
+                </AdminOnly>
             }
 
             @if (_multiSiteEnabled)
@@ -3180,12 +3182,16 @@
                                             {
                                                 <span class="site-name-cell">
                                                     <span class="@(IsSiteRowOpen(site.Id) ? "site-name-selected" : null)">@site.Name</span>
-                                                    <button type="button" class="site-name-edit-btn" data-tooltip="Rename site"
-                                                            aria-label="Rename site" @onclick="() => StartSiteNameEdit(site)" @onclick:stopPropagation="true">
-                                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-                                                            <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
-                                                        </svg>
-                                                    </button>
+                                                    @* Each row answers for its own site: reaching a site is not the same as running
+                                                       it, so a row someone only views carries nothing but Switch to Site. *@
+                                                    <AuthorizeView Policy="@Policies.SiteAdmin" Resource="@site.Slug" Context="siteAdmin">
+                                                        <button type="button" class="site-name-edit-btn" data-tooltip="Rename site"
+                                                                aria-label="Rename site" @onclick="() => StartSiteNameEdit(site)" @onclick:stopPropagation="true">
+                                                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                                                                <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
+                                                            </svg>
+                                                        </button>
+                                                    </AuthorizeView>
                                                 </span>
                                             }
                                         </td>
@@ -3212,12 +3218,14 @@
                                         <td>
                                             <div class="site-row-actions">
                                             <div class="btn-group-wrap">
-                                                <button type="button" class="btn @SiteActionButtonClass(site.Id) btn-sm" @onclick="() => ToggleAgents(site.Id)" @onclick:stopPropagation="true">
-                                                    Configuration
-                                                </button>
-                                                <button type="button" class="btn @SiteActionButtonClass(site.Id) btn-sm" @onclick="() => ToggleSiteUsers(site.Id)" @onclick:stopPropagation="true">
-                                                    Users
-                                                </button>
+                                                <AuthorizeView Policy="@Policies.SiteAdmin" Resource="@site.Slug" Context="siteAdmin">
+                                                    <button type="button" class="btn @SiteActionButtonClass(site.Id) btn-sm" @onclick="() => ToggleAgents(site.Id)" @onclick:stopPropagation="true">
+                                                        Configuration
+                                                    </button>
+                                                    <button type="button" class="btn @SiteActionButtonClass(site.Id) btn-sm" @onclick="() => ToggleSiteUsers(site.Id)" @onclick:stopPropagation="true">
+                                                        Users
+                                                    </button>
+                                                </AuthorizeView>
                                                 @if (site.Slug != SiteContext.Slug)
                                                 {
                                                     <button type="button" class="btn btn-primary btn-sm" @onclick="() => SwitchToSiteAsync(site)" @onclick:stopPropagation="true">
@@ -3441,10 +3449,15 @@
                     </div>
                 </div>
 
-                <div id="site-agent-setup">
-                    <SiteSetupWizard @ref="_setupWizard" OnSitesChanged="RefreshSites" />
-                </div>
+                @* Creating a site and switching site management off are instance-level, not site-level:
+                   no site role reaches them, and the services behind both require global Admin. *@
+                <AdminOnly>
+                    <div id="site-agent-setup">
+                        <SiteSetupWizard @ref="_setupWizard" OnSitesChanged="RefreshSites" />
+                    </div>
+                </AdminOnly>
 
+                <AdminOnly>
                 <details class="setup-guide multisite-disable">
                     <summary>Disable multi-site management</summary>
                     <div class="setup-guide-content">
@@ -3458,6 +3471,7 @@
                         </button>
                     </div>
                 </details>
+                </AdminOnly>
             }
 
             @if (!string.IsNullOrEmpty(_multiSiteMessage))
@@ -3753,8 +3767,8 @@
             CancelSiteNameEdit();
             return;
         }
+        await SiteManagement.RenameSiteAsync(site.Slug, name);
         site.Name = name;
-        await SiteManagement.UpdateSiteAsync(site);
         _editingSiteId = null;
         _editSiteName = "";
         _sites = await SiteManagement.GetSitesAsync();

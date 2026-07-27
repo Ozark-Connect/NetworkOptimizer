@@ -38,6 +38,16 @@ public interface ISiteManagementService
     [AuditAction(AuditActions.SiteChanged, Category = AuditCategories.Site, TargetType = "site")]
     Task UpdateSiteAsync(Site site);
 
+    /// <summary>
+    /// Renames one site. Separate from <see cref="UpdateSiteAsync"/> because it is the one edit a
+    /// Site Admin owns: the label on a site they run, checked against that site rather than the
+    /// instance. Everything else on a site - enabling it, deleting it, its place in the order -
+    /// stays with a global Admin, so this deliberately cannot reach those fields.
+    /// </summary>
+    [RequireSiteRole(SiteRole.SiteAdmin)]
+    [AuditAction(AuditActions.SiteChanged, Category = AuditCategories.Site, TargetType = "site")]
+    Task RenameSiteAsync([SiteSlug] string siteSlug, string name);
+
     /// <summary>Enables or disables a site (a disabled site stops collecting and is hidden).</summary>
     [RequireRole(Roles.Admin)]
     [AuditAction(AuditActions.SiteChanged, Category = AuditCategories.Site, TargetType = "site")]

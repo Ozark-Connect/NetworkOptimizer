@@ -443,6 +443,8 @@ public sealed class AdminPasswordChangeTests : IDisposable
     {
         public void Invalidate(string userId) { }
 
+        public void InvalidateAll() { }
+
         public Task<SiteRole?> GetEffectiveRoleAsync(System.Security.Claims.ClaimsPrincipal user, string slug)
             => Task.FromResult<SiteRole?>(null);
 

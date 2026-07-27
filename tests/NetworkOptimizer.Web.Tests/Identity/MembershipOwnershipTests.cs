@@ -30,6 +30,8 @@ public sealed class MembershipOwnershipTests : IDisposable
     {
         public void Invalidate(string userId) { }
 
+        public void InvalidateAll() { }
+
         private readonly string _slug;
         public SiteAdminOf(string slug) => _slug = slug;
 

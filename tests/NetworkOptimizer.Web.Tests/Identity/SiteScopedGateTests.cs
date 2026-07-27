@@ -56,6 +56,8 @@ public class SiteScopedGateTests
     {
         public void Invalidate(string userId) { }
 
+        public void InvalidateAll() { }
+
         private readonly SiteRole? _role;
         public RoleOnThisSite(SiteRole? role) => _role = role;
 

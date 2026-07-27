@@ -26,6 +26,13 @@ public interface IEffectiveSiteRoleResolver
     /// next action instead of at the end of the cache window.
     /// </summary>
     void Invalidate(string userId);
+
+    /// <summary>
+    /// Drops every user's cached resolution. The site list is baked into the authorized-slug set, so
+    /// a site that has just been added exists in no cached set - which hides it from everyone, an
+    /// Admin included, until the entry ages out.
+    /// </summary>
+    void InvalidateAll();
 }
 
 /// <inheritdoc />
@@ -83,7 +90,20 @@ public sealed class EffectiveSiteRoleResolver : IEffectiveSiteRoleResolver
         source.Dispose();
     }
 
+    /// <inheritdoc />
+    public void InvalidateAll()
+    {
+        if (!_cache.TryGetValue(RegistryTokenKey, out CancellationTokenSource? source) || source is null)
+            return;
+
+        _cache.Remove(RegistryTokenKey);
+        source.Cancel();
+        source.Dispose();
+    }
+
     private static string TokenKey(string userId) => $"siterole-token:{userId}";
+
+    private const string RegistryTokenKey = "siterole-token:site-registry";
 
     /// <summary>
     /// Ties an entry to its user's cancellation token as well as the ten-minute window, so
@@ -91,15 +111,20 @@ public sealed class EffectiveSiteRoleResolver : IEffectiveSiteRoleResolver
     /// </summary>
     private MemoryCacheEntryOptions EntryOptions(string userId)
     {
-        var source = _cache.GetOrCreate(TokenKey(userId), entry =>
+        return new MemoryCacheEntryOptions()
+            .SetAbsoluteExpiration(TimeSpan.FromMinutes(10))
+            .AddExpirationToken(new Microsoft.Extensions.Primitives.CancellationChangeToken(Token(TokenKey(userId))))
+            .AddExpirationToken(new Microsoft.Extensions.Primitives.CancellationChangeToken(Token(RegistryTokenKey)));
+    }
+
+    private CancellationToken Token(string key)
+    {
+        var source = _cache.GetOrCreate(key, entry =>
         {
             entry.Priority = CacheItemPriority.NeverRemove;
             return new CancellationTokenSource();
         })!;
-
-        return new MemoryCacheEntryOptions()
-            .SetAbsoluteExpiration(TimeSpan.FromMinutes(10))
-            .AddExpirationToken(new Microsoft.Extensions.Primitives.CancellationChangeToken(source.Token));
+        return source.Token;
     }
 
     private async Task<SiteRole?> ComputeEffectiveRoleAsync(ClaimsPrincipal user, string userId, string slug)
