@@ -153,7 +153,7 @@ public interface IIperf3SpeedTestService
     /// <param name="id">The ID of the result.</param>
     /// <param name="notes">The notes text (null or empty to clear).</param>
     /// <returns>True if the result was found and updated.</returns>
-    [RequireRole(Roles.Admin)]
+    [RequireRole(Roles.Operator)]
     Task<bool> UpdateNotesAsync(int id, string? notes);
 
     /// <summary>
