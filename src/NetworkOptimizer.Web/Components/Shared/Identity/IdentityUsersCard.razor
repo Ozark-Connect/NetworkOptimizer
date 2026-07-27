@@ -46,7 +46,7 @@
                     <thead>
                         <tr>
                             <th>User</th>
-                            <th>Role</th>
+                            <th>Role <span class="tooltip-icon tooltip-icon-sm" role="button" data-tooltip="What each role can and cannot do" @onclick="() => OnExplainRoles.InvokeAsync()">?</span></th>
                             <th class="hide-mobile">Sign-in</th>
                             <th class="hide-mobile">Last sign-in</th>
                             <th>Status</th>
@@ -262,7 +262,7 @@
                             <input type="password" class="form-control" @bind="_newUserPassword" autocomplete="new-password" placeholder="Initial password" />
                         </div>
                         <div class="form-group">
-                            <label class="form-label">Role</label>
+                            <label class="form-label">Role <span class="tooltip-icon tooltip-icon-sm" role="button" data-tooltip="What each role can and cannot do" @onclick="() => OnExplainRoles.InvokeAsync()">?</span></label>
                             <select class="form-control" @bind="_newUserRole">
                                 @foreach (var role in Roles.All)
                                 {
@@ -368,6 +368,9 @@
 
     /// <summary>Raised after a change that also affects site grants, so the Access card can reload.</summary>
     [Parameter] public EventCallback OnAccessChanged { get; set; }
+
+    /// <summary>Raised by the role tooltip icons; the parent opens the Roles reference panel.</summary>
+    [Parameter] public EventCallback OnExplainRoles { get; set; }
 
     private async Task ReloadAsync() => _users = await IdentityAdmin.ListUserSummariesAsync();
 
