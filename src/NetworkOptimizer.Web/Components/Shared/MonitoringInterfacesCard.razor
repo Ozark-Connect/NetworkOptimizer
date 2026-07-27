@@ -43,9 +43,22 @@
 
         @if (_interfaces.Count == 0)
         {
+            @* "Add one below" is only true for whoever can see the form. *@
             <p class="empty-state">
-                No monitoring interfaces configured. Add one below if a modem/ONT management IP
-                isn't reachable for polling.
+                @if (_canConfigure)
+                {
+                    <text>
+                        No monitoring interfaces configured. Add one below if a modem/ONT management IP
+                        isn't reachable for polling.
+                    </text>
+                }
+                else
+                {
+                    <text>
+                        No monitoring interfaces configured. These are set up by a site administrator
+                        when a modem/ONT management IP isn't reachable for polling.
+                    </text>
+                }
             </p>
         }
         else
