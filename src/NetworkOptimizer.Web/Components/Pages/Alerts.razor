@@ -956,7 +956,7 @@
                     {
                         <div class="empty-state">
                             <h3>No Alert Rules</h3>
-                            <p>Create rules to define which events trigger alerts.</p>
+                            <p>@(_canConfigure ? "Create rules to define which events trigger alerts." : "Rules define which events trigger alerts. A site administrator sets them up.")</p>
                         </div>
                     }
                     else

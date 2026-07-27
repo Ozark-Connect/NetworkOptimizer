@@ -239,7 +239,7 @@
         @if (_rules.Count == 0 && _editingRuleId == null)
         {
             <div class="empty-state">
-                <p>No traffic rules configured. Add a rule to steer traffic to a specific WAN interface.</p>
+                <p>@(_canConfigure ? "No traffic rules configured. Add a rule to steer traffic to a specific WAN interface." : "No traffic rules configured. Rules steer traffic to a specific WAN interface; a site administrator adds them.")</p>
             </div>
         }
         else
