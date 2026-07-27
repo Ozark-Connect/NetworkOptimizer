@@ -40,6 +40,7 @@
 @inject AgentTunnelRegistry TunnelRegistry
 @inject AgentOnGatewayDetector OnGatewayDetector
 @inject NetworkOptimizer.Storage.Services.SiteDbContextFactory SiteDb
+@inject ISiteConfigurationService SiteConfig
 @inject SnmpDetectionService SnmpDetection
 @inject MonitoringInfluxClient InfluxClient
 @inject CableModemMonitorService CmMonitorService
@@ -3964,26 +3965,11 @@
     private bool ConsoleViaAgent(int siteId) => _consoleViaAgent.TryGetValue(siteId, out var enabled) && enabled;
 
     private async Task LoadConsoleViaAgentAsync(Site site)
-    {
-        await using var db = SiteDb.CreateForSite(site.Slug, site.IsDefault);
-        var setting = await db.SystemSettings.FindAsync(UniFiConnectionService.ConsoleViaAgentKey);
-        _consoleViaAgent[site.Id] = bool.TryParse(setting?.Value, out var enabled) && enabled;
-    }
+        => _consoleViaAgent[site.Id] = (await SiteConfig.GetAsync(site.Slug)).ConsoleViaAgent;
 
     private async Task ToggleConsoleViaAgent(Site site, bool value)
     {
-        await using var db = SiteDb.CreateForSite(site.Slug, site.IsDefault);
-        var setting = await db.SystemSettings.FindAsync(UniFiConnectionService.ConsoleViaAgentKey);
-        if (setting == null)
-        {
-            db.SystemSettings.Add(new SystemSetting { Key = UniFiConnectionService.ConsoleViaAgentKey, Value = value.ToString() });
-        }
-        else
-        {
-            setting.Value = value.ToString();
-            setting.UpdatedAt = DateTime.UtcNow;
-        }
-        await db.SaveChangesAsync();
+        await SiteConfig.SetConsoleViaAgentAsync(site.Slug, value);
         _consoleViaAgent[site.Id] = value;
     }
 
@@ -3993,26 +3979,11 @@
     private bool SshViaAgent(int siteId) => _sshViaAgent.TryGetValue(siteId, out var enabled) && enabled;
 
     private async Task LoadSshViaAgentAsync(Site site)
-    {
-        await using var db = SiteDb.CreateForSite(site.Slug, site.IsDefault);
-        var setting = await db.SystemSettings.FindAsync(SiteTunnelRouting.DevicesViaAgentKey);
-        _sshViaAgent[site.Id] = bool.TryParse(setting?.Value, out var enabled) && enabled;
-    }
+        => _sshViaAgent[site.Id] = (await SiteConfig.GetAsync(site.Slug)).DevicesViaAgent;
 
     private async Task ToggleSshViaAgent(Site site, bool value)
     {
-        await using var db = SiteDb.CreateForSite(site.Slug, site.IsDefault);
-        var setting = await db.SystemSettings.FindAsync(SiteTunnelRouting.DevicesViaAgentKey);
-        if (setting == null)
-        {
-            db.SystemSettings.Add(new SystemSetting { Key = SiteTunnelRouting.DevicesViaAgentKey, Value = value.ToString() });
-        }
-        else
-        {
-            setting.Value = value.ToString();
-            setting.UpdatedAt = DateTime.UtcNow;
-        }
-        await db.SaveChangesAsync();
+        await SiteConfig.SetDevicesViaAgentAsync(site.Slug, value);
         _sshViaAgent[site.Id] = value;
     }
 
@@ -4083,30 +4054,13 @@
         _agentOnGateway.TryGetValue(siteId, out var onGateway) && onGateway;
 
     private async Task LoadClientSpeedTestTargetAsync(Site site)
-    {
-        await using var db = SiteDb.CreateForSite(site.Slug, site.IsDefault);
-        var setting = await db.SystemSettings.FindAsync(SystemSettingKeys.ClientSpeedTestTargetOverride);
-        _clientSpeedTestTarget[site.Id] = setting?.Value;
-    }
+        => _clientSpeedTestTarget[site.Id] = (await SiteConfig.GetAsync(site.Slug)).ClientSpeedTestTarget;
 
     private async Task SaveClientSpeedTestTarget(Site site, string? value)
     {
+        await SiteConfig.SetClientSpeedTestTargetAsync(site.Slug, value);
         var trimmed = value?.Trim();
-        if (string.IsNullOrEmpty(trimmed)) trimmed = null;
-        await using var db = SiteDb.CreateForSite(site.Slug, site.IsDefault);
-        var setting = await db.SystemSettings.FindAsync(SystemSettingKeys.ClientSpeedTestTargetOverride);
-        if (setting == null)
-        {
-            if (trimmed != null)
-                db.SystemSettings.Add(new SystemSetting { Key = SystemSettingKeys.ClientSpeedTestTargetOverride, Value = trimmed });
-        }
-        else
-        {
-            setting.Value = trimmed;
-            setting.UpdatedAt = DateTime.UtcNow;
-        }
-        await db.SaveChangesAsync();
-        _clientSpeedTestTarget[site.Id] = trimmed;
+        _clientSpeedTestTarget[site.Id] = string.IsNullOrEmpty(trimmed) ? null : trimmed;
     }
 
     private async Task CreateAgent(Site site)
