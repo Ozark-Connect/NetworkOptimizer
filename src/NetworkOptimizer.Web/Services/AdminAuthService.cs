@@ -289,6 +289,9 @@ public class AdminAuthService : IAdminAuthService
             _logger.LogWarning("========================================");
             _logger.LogWarning("  AUTO-GENERATED ADMIN PASSWORD         ");
             _logger.LogWarning("========================================");
+            // The username is not obvious on a fresh install - the login page pre-fills it only while
+            // one account exists, and nothing else in the log says what to type.
+            _logger.LogWarning("  Username: {Username}", Identity.IdentityBootstrapService.AdminUserName);
             _logger.LogWarning("  Password: {Password}", generatedPassword);
             _logger.LogWarning("========================================");
             _logger.LogWarning("  Use this password to log in, then    ");
