@@ -5064,6 +5064,9 @@
 
         try
         {
+            if (!await ClearKeyFromGatewayIfInstalled())
+                return;
+
             _sshKey = await SshKeyService.GenerateAsync(type);
             _showSshKeyUpload = false;
             _sshKeyMessage = "SSH key generated. Install the public key below on your devices.";
@@ -5126,6 +5129,9 @@
 
         try
         {
+            if (!await ClearKeyFromGatewayIfInstalled())
+                return;
+
             _sshKey = await SshKeyService.UploadAsync(_sshKeyUploadPem, _sshKeyUploadPassphrase);
             _sshKeyUploadPem = "";
             _sshKeyUploadPassphrase = "";
@@ -5154,14 +5160,43 @@
     {
         _sshKey = null;
         _showSshKeyUpload = false;
-        _sshKeyMessage = "Generate or upload a new key. The current one keeps working until you do.";
+        _sshKeyMessage = _keyDeployStatus?.KeyInstalled == true
+            ? "Generate or upload a new key. The current one is taken off the gateway when you do."
+            : "Generate or upload a new key. The current one keeps working until you do.";
         _sshKeyMessageClass = "info";
+    }
+
+    /// <summary>
+    /// Takes the current key off the gateway before it stops being the current key. Skipping this
+    /// leaves a revoked key authenticating forever: the boot script re-places it every boot, and once
+    /// the stored key is gone there is no key material left to match on, so nothing can find it again.
+    /// Returns false when the gateway could not be cleaned up, so the caller can keep the stored key
+    /// rather than orphan it.
+    /// </summary>
+    private async Task<bool> ClearKeyFromGatewayIfInstalled()
+    {
+        if (_keyDeployStatus?.KeyInstalled != true && _keyDeployStatus?.ScriptInstalled != true)
+            return true;
+
+        var (success, message) = await SshKeyDeployment.RemoveAsync();
+        if (!success)
+        {
+            _sshKeyMessage = $"{message} The stored key was kept, so you can try again.";
+            _sshKeyMessageClass = "danger";
+        }
+
+        return success;
     }
 
     private async Task RemoveSshKey()
     {
-        if (!await JS.InvokeAsync<bool>("confirm",
-            "Remove the stored SSH key? Connections will fall back to the password or key file configured for each."))
+        var installed = _keyDeployStatus?.KeyInstalled == true || _keyDeployStatus?.ScriptInstalled == true;
+        var prompt = installed
+            ? "Remove the stored SSH key and take it off the gateway? Connections will fall back to the "
+              + "password or key file configured for each."
+            : "Remove the stored SSH key? Connections will fall back to the password or key file configured for each.";
+
+        if (!await JS.InvokeAsync<bool>("confirm", prompt))
         {
             return;
         }
@@ -5171,7 +5206,11 @@
 
         try
         {
+            if (!await ClearKeyFromGatewayIfInstalled())
+                return;
+
             await SshKeyService.RemoveAsync();
+            _keyDeployStatus = await SshKeyDeployment.GetStatusAsync();
             _sshKey = null;
             _sshKeyMessage = "SSH key removed.";
             _sshKeyMessageClass = "info";
