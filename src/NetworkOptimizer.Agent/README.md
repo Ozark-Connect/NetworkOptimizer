@@ -157,6 +157,46 @@ curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main
 # installer has no --dir; it is always /data/netopt-agent.
 ```
 
+### Re-enrolling an existing agent
+
+If the agent's enrollment is invalidated server-side - removed in the UI
+(Settings > Multi-Site > site > Agents > Remove), or its key rotated - the
+agent stops connecting. The install scripts detect the existing `agentKey` and
+skip enrollment, so re-running the installer alone does not fix it. To
+re-enroll:
+
+1. Generate a new enrollment token in the web UI: **Settings > Multi-Site >
+   (site) > Agents > Set up agent** (or **New Agent Token** if the site
+   already had an agent).
+2. Edit `agent.json` on the agent box: remove the `agentKey` and `siteSlug`
+   fields, and set `enrollmentToken` to the new token.
+3. Restart the agent service.
+
+The config file location depends on the install type:
+
+| Install type | `agent.json` location |
+|---|---|
+| Docker | `/opt/network-optimizer-agent/data/agent.json` (or the custom `--dir` you specified during install, under `data/`) |
+| Bare metal | `/opt/netopt-agent/agent.json` (or the custom `--dir` you specified during install) |
+| Gateway | `/data/netopt-agent/agent.json` |
+
+```bash
+# Edit the config
+nano <path-to-agent.json>  # remove agentKey + siteSlug, add enrollmentToken
+
+# Restart - Docker
+docker restart network-optimizer-agent
+
+# Restart - bare metal
+sudo systemctl restart netopt-agent
+
+# Restart - gateway
+systemctl restart netopt-agent
+```
+
+On next start the agent exchanges the new token for a fresh key and resumes
+normal operation.
+
 ### On a UniFi gateway (on-box)
 
 To run the agent on the gateway itself (any current UniFi OS gateway)
