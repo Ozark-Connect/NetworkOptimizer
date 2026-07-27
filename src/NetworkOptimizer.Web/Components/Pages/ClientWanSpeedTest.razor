@@ -7,6 +7,10 @@
 @using NetworkOptimizer.Storage.Helpers
 @using NetworkOptimizer.Web.Components.Shared
 @using NetworkOptimizer.Core.Helpers
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using NetworkOptimizer.Web.Services.Authorization
+@inject IAuthorizationService Authz
 @inject IClientSpeedTestService ClientSpeedTestService
 @inject SiteContextService SiteContext
 @inject MonitoringReadinessService Readiness
@@ -39,7 +43,7 @@
                 <div class="empty-state">
                     <span class="empty-icon">🌐</span>
                     <h3>External Speed Test Server Not Configured</h3>
-                    <p>To use Client WAN Speed Tests, configure an external OpenSpeedTest server in Settings.</p>
+                    <p>@(_canConfigure ? "To use Client WAN Speed Tests, configure an external OpenSpeedTest server in Settings." : "Client WAN Speed Tests need an external OpenSpeedTest server, which a site administrator configures.")</p>
                     <a href="/settings#external-speedtest-settings" class="btn btn-primary">Configure External Server</a>
                 </div>
             </div>
@@ -665,6 +669,14 @@
 </style>
 
 @code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    /// <summary>
+    /// Whether this caller can open the Settings pages this page points at. Copy only - the controls
+    /// themselves are gated by their own wrappers.
+    /// </summary>
+    private bool _canConfigure;
+
     private List<ExternalSpeedTestServer> _servers = new();
 
     // On an agent-backed site the test starts at the on-site agent's /wan/ router,
@@ -794,6 +806,9 @@
 
     protected override async Task OnInitializedAsync()
     {
+        _canConfigure = AuthState is null
+            || (await Authz.AuthorizeAsync((await AuthState).User, SiteContext.Slug, Policies.SiteAdmin)).Succeeded;
+
         PtrState.RefreshCallback = () => LoadResults();
         PtrState.NotifyStateChanged = StateHasChanged;
 

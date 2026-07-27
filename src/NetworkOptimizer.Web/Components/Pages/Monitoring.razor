@@ -985,7 +985,17 @@ else
                     </SiteAdminOnly>
                 </div>
                 <div class="card-body" style="text-align: center; padding: 2rem;">
-                    <p class="page-description">Your ONT is monitored via SFP on the <a href="javascript:void(0)" @onclick='() => SetActiveTab("sfp")' @onclick:preventDefault>SFP Stats</a> tab. To poll a standalone ONT device directly, <a href="/settings#ont-monitoring">configure one in Settings</a>.</p>
+                    <p class="page-description">
+                        Your ONT is monitored via SFP on the <a href="javascript:void(0)" @onclick='() => SetActiveTab("sfp")' @onclick:preventDefault>SFP Stats</a> tab.
+                        @if (_canConfigure)
+                        {
+                            <text>To poll a standalone ONT device directly, <a href="/settings#ont-monitoring">configure one in Settings</a>.</text>
+                        }
+                        else
+                        {
+                            <text>A standalone ONT can be polled directly instead; a site administrator sets that up.</text>
+                        }
+                    </p>
                 </div>
             </div>
         }
