@@ -3161,7 +3161,7 @@
                             <tbody>
                                 @foreach (var site in _sites)
                                 {
-                                    <tr class="@(_expandedSiteId == site.Id ? "site-row-selected" : null)">
+                                    <tr class="@(IsSiteRowOpen(site.Id) ? "site-row-selected" : null)">
                                         <td>
                                             @if (_editingSiteId == site.Id)
                                             {
@@ -3176,7 +3176,7 @@
                                             else
                                             {
                                                 <span class="site-name-cell">
-                                                    <span class="@(_expandedSiteId == site.Id ? "site-name-selected" : null)">@site.Name</span>
+                                                    <span class="@(IsSiteRowOpen(site.Id) ? "site-name-selected" : null)">@site.Name</span>
                                                     <button type="button" class="site-name-edit-btn" data-tooltip="Rename site"
                                                             aria-label="Rename site" @onclick="() => StartSiteNameEdit(site)">
                                                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
@@ -3769,6 +3769,12 @@
 
     /// <summary>Which site's Users panel is open, if any. Separate from the Configuration panel.</summary>
     private int? _usersSiteId;
+
+    /// <summary>
+    /// True when this row has either panel open. Both drive the same row highlight, so the selected
+    /// row reads the same whichever panel opened it.
+    /// </summary>
+    private bool IsSiteRowOpen(int siteId) => _expandedSiteId == siteId || _usersSiteId == siteId;
     private bool _creatingAgent;
     private string? _newAgentToken;
     private int? _newAgentTokenSiteId;
