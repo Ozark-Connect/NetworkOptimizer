@@ -22,6 +22,13 @@ public interface IEffectiveSiteRoleResolver
     Task<IReadOnlySet<string>> GetAuthorizedSlugsAsync(ClaimsPrincipal user);
 
     /// <summary>
+    /// Whether the principal administers at least one site. Answers "should this person be offered
+    /// the settings they can reach somewhere" without asking site by site, which a fleet-sized
+    /// install cannot afford.
+    /// </summary>
+    Task<bool> IsSiteAdminAnywhereAsync(ClaimsPrincipal user);
+
+    /// <summary>
     /// Drops everything cached for one user, so a membership or role change applies to their very
     /// next action instead of at the end of the cache window.
     /// </summary>
@@ -76,6 +83,26 @@ public sealed class EffectiveSiteRoleResolver : IEffectiveSiteRoleResolver
         var role = await ComputeEffectiveRoleAsync(user, userId, slug);
         _cache.Set(cacheKey, role, EntryOptions(userId));
         return role;
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> IsSiteAdminAnywhereAsync(ClaimsPrincipal user)
+    {
+        if (user.IsInRole(Roles.Admin))
+            return true;
+
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrEmpty(userId))
+            return false;
+
+        var cacheKey = $"siteadminanywhere:{userId}";
+        if (_cache.TryGetValue(cacheKey, out bool cached))
+            return cached;
+
+        var (memberships, _) = await LoadMembershipsAsync(userId);
+        var anywhere = memberships.Any(m => m.SiteRole == SiteRole.SiteAdmin);
+        _cache.Set(cacheKey, anywhere, EntryOptions(userId));
+        return anywhere;
     }
 
     /// <inheritdoc />

@@ -32,6 +32,9 @@ public sealed class MembershipOwnershipTests : IDisposable
 
         public void InvalidateAll() { }
 
+        public Task<bool> IsSiteAdminAnywhereAsync(System.Security.Claims.ClaimsPrincipal user)
+            => Task.FromResult(false);
+
         private readonly string _slug;
         public SiteAdminOf(string slug) => _slug = slug;
 

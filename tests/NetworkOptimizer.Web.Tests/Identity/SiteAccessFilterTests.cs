@@ -24,6 +24,9 @@ public class SiteAccessFilterTests
 
         public void InvalidateAll() { }
 
+        public Task<bool> IsSiteAdminAnywhereAsync(System.Security.Claims.ClaimsPrincipal user)
+            => Task.FromResult(false);
+
         private readonly HashSet<string> _slugs;
         public StubResolver(params string[] slugs) =>
             _slugs = new HashSet<string>(slugs, StringComparer.OrdinalIgnoreCase);
