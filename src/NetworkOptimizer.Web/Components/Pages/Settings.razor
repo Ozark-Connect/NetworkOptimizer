@@ -786,9 +786,6 @@
                                 Installed, and replaced automatically after reboots and firmware upgrades.
                             </small>
                             <div class="action-buttons">
-                                <button class="btn btn-secondary btn-sm" @onclick="TestKeyOnGateway" disabled="@_sshKeyBusy">
-                                    Test key
-                                </button>
                                 <button class="btn btn-secondary btn-sm" @onclick="RemoveKeyFromGateway" disabled="@_sshKeyBusy">
                                     Remove from gateway
                                 </button>
@@ -815,6 +812,31 @@
                                 </button>
                             </div>
                         }
+                    </div>
+                }
+
+                @if (_keyDeployStatus?.GatewayConfigured == true)
+                {
+                    <div class="form-group">
+                        <label class="form-label">Key authentication</label>
+                        <small class="form-help">
+                            Checks that your gateway accepts this key, by connecting with the key alone.
+                            A key can be installed and still be refused - wrong permissions on
+                            <code>.ssh</code>, or a gateway that does not allow key authentication.
+                        </small>
+                        <div class="action-buttons">
+                            <button class="btn btn-secondary btn-sm" @onclick="TestKeyOnGateway" disabled="@_sshKeyBusy">
+                                @if (_sshKeyBusy)
+                                {
+                                    <span class="spinner"></span>
+                                    <span>Testing...</span>
+                                }
+                                else
+                                {
+                                    <span>Test key</span>
+                                }
+                            </button>
+                        </div>
                     </div>
                 }
 
