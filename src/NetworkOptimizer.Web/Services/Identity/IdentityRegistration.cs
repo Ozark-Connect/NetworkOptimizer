@@ -141,7 +141,11 @@ public static class IdentityRegistration
             options.ExpireTimeSpan = TimeSpan.FromDays(14);
             options.LoginPath = "/login";
             options.LogoutPath = "/api/auth/logout";
-            options.AccessDeniedPath = "/login";
+            // NOT the login page: a policy refusing an authenticated user is not a failure to
+            // authenticate, and sending them to /login reads as being signed out of a session that is
+            // perfectly good. Switching to a site you do not administer while on Settings did exactly
+            // that.
+            options.AccessDeniedPath = "/denied";
 
             // Preserve the pre-Identity behaviour: API calls get 401 (not a login redirect), and the
             // tab's ?site= pin is carried through the login redirect so re-auth lands on the same site.

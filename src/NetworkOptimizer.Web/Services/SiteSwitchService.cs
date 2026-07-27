@@ -1,5 +1,7 @@
 using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.JSInterop;
+using NetworkOptimizer.Storage.Models.Identity;
 
 namespace NetworkOptimizer.Web.Services;
 
@@ -15,17 +17,23 @@ public class SiteSwitchService
     private readonly NavigationManager _navigation;
     private readonly SiteContextService _siteContext;
     private readonly SiteManagementService _siteManagement;
+    private readonly AuthenticationStateProvider _authState;
+    private readonly Authorization.IEffectiveSiteRoleResolver _siteRoles;
 
     public SiteSwitchService(
         IJSRuntime js,
         NavigationManager navigation,
         SiteContextService siteContext,
-        SiteManagementService siteManagement)
+        SiteManagementService siteManagement,
+        AuthenticationStateProvider authState,
+        Authorization.IEffectiveSiteRoleResolver siteRoles)
     {
         _js = js;
         _navigation = navigation;
         _siteContext = siteContext;
         _siteManagement = siteManagement;
+        _authState = authState;
+        _siteRoles = siteRoles;
     }
 
     /// <summary>
@@ -44,7 +52,32 @@ public class SiteSwitchService
         await _js.InvokeVoidAsync("eval",
             $"document.cookie = '{SiteContextService.CookieName}={slug}; path=/; max-age=31536000; SameSite=Lax'");
 
-        _navigation.NavigateTo(SiteContextService.WithSiteParam(targetUrl ?? _navigation.Uri, slug), forceLoad: true);
+        var target = targetUrl ?? _navigation.Uri;
+
+        // Settings only opens on a site you administer, so switching from it to a site you do not
+        // would land on a refusal rather than the site you asked for. Nobody switches sites in order
+        // to be told no - send them to the new site's dashboard instead.
+        if (targetUrl is null && await RefusesOnTargetSiteAsync(target, slug))
+            target = _navigation.BaseUri;
+
+        _navigation.NavigateTo(SiteContextService.WithSiteParam(target, slug), forceLoad: true);
+    }
+
+    /// <summary>
+    /// Whether the page being carried across the switch is one the caller cannot open on the site
+    /// they are switching to. An install with authentication off has no principal and never refuses;
+    /// a global Admin administers every site, so this is false for them too.
+    /// </summary>
+    private async Task<bool> RefusesOnTargetSiteAsync(string url, string slug)
+    {
+        if (!new Uri(url).AbsolutePath.StartsWith("/settings", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        var user = (await _authState.GetAuthenticationStateAsync()).User;
+        if (user.Identity?.IsAuthenticated != true)
+            return false;
+
+        return await _siteRoles.GetEffectiveRoleAsync(user, slug) != SiteRole.SiteAdmin;
     }
 
     /// <summary>

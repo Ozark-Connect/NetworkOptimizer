@@ -1,0 +1,27 @@
+@page "/denied"
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@inject SiteContextService SiteContext
+
+@* Where a signed-in user lands when a page's policy refuses them - most often after switching to a
+   site they do not administer while standing on a page that only a site's admin can open. It used to
+   be the login page, which reads as being thrown out of an account that is perfectly valid. *@
+
+<PageTitle>No access - Network Optimizer</PageTitle>
+
+<div class="page-content">
+    <div class="empty-state">
+        <div class="empty-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z" />
+            </svg>
+        </div>
+        <h2>You do not have access to this page</h2>
+        <p class="page-description">
+            Your account is still signed in - this page is not one your role opens on
+            <strong>@SiteContext.Slug</strong>. Ask an administrator for the access you need, or head
+            back to the dashboard.
+        </p>
+        <a class="btn btn-primary" href="/">Go to Dashboard</a>
+    </div>
+</div>
