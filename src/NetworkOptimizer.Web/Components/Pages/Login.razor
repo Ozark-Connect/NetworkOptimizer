@@ -75,6 +75,13 @@
             }
         </form>
 
+        @* Revealed by the passkey helper when the browser has no secure context. Rendered here rather
+           than redirected to, because the browser knows before it asks the server - a round trip just
+           to say this costs a page load and races the error-stripping script. *@
+        <div class="alert alert-danger" id="passkey-insecure-alert" hidden>
+            Passkeys need a secure (HTTPS) connection. Sign in with your password instead.
+        </div>
+
         @if (_providers.Count > 0 || _showPasskey)
         {
             <div class="login-footer">
@@ -148,7 +155,6 @@
         "passkey_rejected" => "That passkey wasn't accepted. It may have been removed from the account - "
             + "sign in another way, then register a new one.",
         "passkey_failed" => "Passkey sign-in couldn't be completed. Try again, or sign in with your password.",
-        "passkey_insecure" => "Passkeys need a secure (HTTPS) connection. Sign in with your password instead.",
         _ => null,
     };
 

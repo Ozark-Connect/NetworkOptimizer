@@ -31,6 +31,44 @@
     </div>
 }
 
+@* Only for an account that actually signs in with one. A passkey-only or federated account has
+   nothing to prove and nothing to replace, so offering the form would be a dead end. *@
+@if (_hasPassword)
+{
+    <div class="card">
+        <div class="card-header"><span class="card-title">Password</span></div>
+        <div class="card-body">
+            @if (_passwordChanged)
+            {
+                <div class="alert alert-success">Your password has been changed.</div>
+            }
+            @if (_passwordFailed)
+            {
+                <div class="alert alert-danger">
+                    That did not work. Check your current password and that the new one meets the
+                    requirements.
+                </div>
+            }
+            @* Posted, not handled in the circuit: a password change rotates the security stamp, and
+               only an HTTP response can re-issue the cookie that carries it. *@
+            <form method="post" action="/api/account/password">
+                <AntiforgeryToken />
+                <div class="form-group">
+                    <label class="form-label" for="current-password">Current password</label>
+                    <input id="current-password" name="currentPassword" type="password"
+                           class="form-control" autocomplete="current-password" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="new-password">New password</label>
+                    <input id="new-password" name="newPassword" type="password"
+                           class="form-control" autocomplete="new-password" />
+                </div>
+                <button type="submit" class="btn btn-primary">Change password</button>
+            </form>
+        </div>
+    </div>
+}
+
 @if (_setupRequired)
 {
     <div class="alert alert-warning">
@@ -179,6 +217,12 @@
     private bool _setupRequired;
     private bool _secureContext = true;
     private bool _passkeyIsOnlyWayIn;
+    private bool _hasPassword;
+
+    [SupplyParameterFromQuery(Name = "pw")] private string? PasswordResult { get; set; }
+
+    private bool _passwordChanged => PasswordResult == "done";
+    private bool _passwordFailed => PasswordResult == "failed";
     private AuthenticatorSetup? _setup;
     private bool _enrollError;
     private IReadOnlyList<string>? _recoveryCodes;
@@ -196,6 +240,7 @@
         if (_user is not null)
         {
             _mfaEnabled = await Mfa.IsEnabledAsync(_user);
+            _hasPassword = await Mfa.HasPasswordAsync(_user);
             _passkeys = await Passkeys.ListAsync(principal);
 
             _passkeyIsOnlyWayIn = _passkeys.Count > 0

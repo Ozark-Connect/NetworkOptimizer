@@ -57,6 +57,12 @@ public interface IMfaService
     Task<bool> HasPasskeysAsync(string userName);
 
     /// <summary>
+    /// True when the account signs in with a local password. False for a passkey-only or
+    /// federated-only account, which has nothing to change.
+    /// </summary>
+    Task<bool> HasPasswordAsync(ApplicationUser user);
+
+    /// <summary>
     /// The user waiting on the second-factor step, or null when no such sign-in is in progress. Lets
     /// the 2FA page tailor itself (for example, hiding recovery-code entry for an account that has none).
     /// </summary>
@@ -145,6 +151,8 @@ public sealed class MfaService : IMfaService
         => _userManager.CountRecoveryCodesAsync(user);
 
     /// <inheritdoc />
+    public Task<bool> HasPasswordAsync(ApplicationUser user) => _userManager.HasPasswordAsync(user);
+
     public async Task<bool> HasPasskeysAsync(string userName)
     {
         var user = await _userManager.FindByNameAsync(userName);

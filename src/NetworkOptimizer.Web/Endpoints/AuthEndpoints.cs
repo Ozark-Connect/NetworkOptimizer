@@ -143,6 +143,42 @@ public static class AuthEndpoints
             // must-enroll state already holds a cookie, so this stays reachable for them.
             .RequireAuthorization(Policies.RequireViewer);
 
+        // Self-service password change. Posted rather than handled in the circuit for the same reason
+        // as enrolment: changing a password rotates the security stamp, and only an HTTP response can
+        // re-issue the cookie carrying it - without that the user is signed out within the
+        // revalidation interval for succeeding.
+        app.MapPost("/api/account/password", async (
+            HttpContext context,
+            ICurrentUserAccessor currentUser,
+            IIdentityAdminService identityAdmin,
+            IIdentitySignInService signInService,
+            IAntiforgery antiforgery) =>
+        {
+            try
+            {
+                await antiforgery.ValidateRequestAsync(context);
+            }
+            catch (AntiforgeryValidationException)
+            {
+                return Results.Redirect("/account/security?pw=failed");
+            }
+
+            var user = await currentUser.GetAsync(context.User);
+            if (user is null)
+                return Results.Redirect("/login");
+
+            var form = await context.Request.ReadFormAsync();
+            var result = await identityAdmin.ChangeOwnPasswordAsync(
+                user.Id, form["currentPassword"].ToString(), form["newPassword"].ToString());
+
+            if (!result.Succeeded)
+                return Results.Redirect("/account/security?pw=failed");
+
+            await signInService.RefreshSignInAsync(user);
+            return Results.Redirect("/account/security?pw=done");
+        })
+            .RequireAuthorization(Policies.RequireViewer);
+
         // Sign out of the application cookie; also clears any residual legacy auth_token cookie
         // during the bridge window. POST, not GET: a GET logout can be fired by any page embedding
         // <img src=".../api/auth/logout">, and by link prefetchers. Posting from a form also keeps
