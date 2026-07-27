@@ -270,8 +270,8 @@ public sealed class MfaRequirementTests : IDisposable
 
         public void InvalidateAll() { }
 
-        public Task<bool> IsSiteAdminAnywhereAsync(System.Security.Claims.ClaimsPrincipal user)
-            => Task.FromResult(false);
+        public Task<string?> FirstAdministeredSlugAsync(System.Security.Claims.ClaimsPrincipal user)
+            => Task.FromResult<string?>(null);
 
         public Task<SiteRole?> GetEffectiveRoleAsync(System.Security.Claims.ClaimsPrincipal user, string slug)
             => Task.FromResult<SiteRole?>(null);

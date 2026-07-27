@@ -1,0 +1,48 @@
+@using System.Runtime.ExceptionServices
+@using NetworkOptimizer.Web.Services.Gates
+@inherits ErrorBoundaryBase
+@implements IDisposable
+@inject NavigationManager Navigation
+
+@* A service gate refusing a call throws, and an exception out of a Blazor event handler takes the
+   whole circuit with it - which is why a control that should simply have said no instead left the
+   page dead until it was reloaded. A refusal is an answer, so it is shown as one. Anything else is a
+   real fault and is left to travel, so nothing is quietly swallowed. *@
+
+@if (CurrentException is null)
+{
+    @ChildContent
+}
+else
+{
+    <div class="page-content">
+        <div class="alert alert-danger gate-refusal">
+            <strong>You do not have access to do that.</strong>
+            <p>
+                Your role does not cover this action on <strong>@SiteContext.Slug</strong>. Nothing was
+                changed. Ask an administrator if you need it.
+            </p>
+            <button type="button" class="btn btn-secondary btn-sm" @onclick="Recover">Back to the page</button>
+        </div>
+    </div>
+}
+
+@code {
+    [Inject] private SiteContextService SiteContext { get; set; } = default!;
+
+    protected override void OnInitialized() => Navigation.LocationChanged += Cleared;
+
+    /// <inheritdoc />
+    protected override Task OnErrorAsync(Exception exception)
+    {
+        if (exception is not AuthorizationDeniedException)
+            ExceptionDispatchInfo.Capture(exception).Throw();
+
+        return Task.CompletedTask;
+    }
+
+    /// <summary>Navigating away is the user moving on, so the refusal does not outlive the page.</summary>
+    private void Cleared(object? sender, LocationChangedEventArgs e) => Recover();
+
+    public void Dispose() => Navigation.LocationChanged -= Cleared;
+}

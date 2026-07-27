@@ -58,8 +58,8 @@ public class SiteScopedGateTests
 
         public void InvalidateAll() { }
 
-        public Task<bool> IsSiteAdminAnywhereAsync(System.Security.Claims.ClaimsPrincipal user)
-            => Task.FromResult(false);
+        public Task<string?> FirstAdministeredSlugAsync(System.Security.Claims.ClaimsPrincipal user)
+            => Task.FromResult<string?>(null);
 
         private readonly SiteRole? _role;
         public RoleOnThisSite(SiteRole? role) => _role = role;

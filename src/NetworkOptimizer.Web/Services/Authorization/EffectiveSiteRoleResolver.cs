@@ -22,11 +22,11 @@ public interface IEffectiveSiteRoleResolver
     Task<IReadOnlySet<string>> GetAuthorizedSlugsAsync(ClaimsPrincipal user);
 
     /// <summary>
-    /// Whether the principal administers at least one site. Answers "should this person be offered
-    /// the settings they can reach somewhere" without asking site by site, which a fleet-sized
-    /// install cannot afford.
+    /// A site the principal administers, or null if there is none. Answers both "should this person
+    /// be offered the settings they can reach somewhere" and "which site do those settings open on",
+    /// without asking site by site - a fleet-sized install cannot afford the loop.
     /// </summary>
-    Task<bool> IsSiteAdminAnywhereAsync(ClaimsPrincipal user);
+    Task<string?> FirstAdministeredSlugAsync(ClaimsPrincipal user);
 
     /// <summary>
     /// Drops everything cached for one user, so a membership or role change applies to their very
@@ -86,23 +86,38 @@ public sealed class EffectiveSiteRoleResolver : IEffectiveSiteRoleResolver
     }
 
     /// <inheritdoc />
-    public async Task<bool> IsSiteAdminAnywhereAsync(ClaimsPrincipal user)
+    public async Task<string?> FirstAdministeredSlugAsync(ClaimsPrincipal user)
     {
-        if (user.IsInRole(Roles.Admin))
-            return true;
-
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrEmpty(userId))
-            return false;
+            return null;
 
-        var cacheKey = $"siteadminanywhere:{userId}";
-        if (_cache.TryGetValue(cacheKey, out bool cached))
+        // A global Admin administers every site, so the answer is simply the first one there is.
+        if (user.IsInRole(Roles.Admin))
+            return (await GetAuthorizedSlugsAsync(user)).FirstOrDefault();
+
+        var cacheKey = $"firstadministered:{userId}";
+        if (_cache.TryGetValue(cacheKey, out string? cached))
             return cached;
 
-        var (memberships, _) = await LoadMembershipsAsync(userId);
-        var anywhere = memberships.Any(m => m.SiteRole == SiteRole.SiteAdmin);
-        _cache.Set(cacheKey, anywhere, EntryOptions(userId));
-        return anywhere;
+        var (memberships, groupSlugs) = await LoadMembershipsAsync(userId);
+        string? slug = null;
+        foreach (var m in memberships.Where(m => m.SiteRole == SiteRole.SiteAdmin))
+        {
+            slug = m.TargetType switch
+            {
+                MembershipTargetType.Site => m.TargetId,
+                MembershipTargetType.Group when m.TargetId is not null
+                    && groupSlugs.TryGetValue(m.TargetId, out var slugs) => slugs.FirstOrDefault(),
+                MembershipTargetType.AllSites => (await GetAuthorizedSlugsAsync(user)).FirstOrDefault(),
+                _ => null,
+            };
+            if (slug is not null)
+                break;
+        }
+
+        _cache.Set(cacheKey, slug, EntryOptions(userId));
+        return slug;
     }
 
     /// <inheritdoc />
