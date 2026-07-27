@@ -18327,7 +18327,9 @@ body.kiosk-mode .status-indicators {
     background: transparent;
 }
 
-/* Fixed layout so opening a panel cannot resize the columns. The panel row spans every column,
+/* Widths are anchored to this table's own header row: as bare descendant selectors they also hit
+   any table rendered inside the panel, which gave the Users panel's access table these columns.
+   Fixed layout so opening a panel cannot resize the columns. The panel row spans every column,
    so under the default auto layout its content participates in width calculation and the header
    columns jump the moment it appears. Widths are declared on the header cells below. */
 .site-row-collapsible {
@@ -18360,18 +18362,18 @@ body.kiosk-mode .status-indicators {
 
 /* The actions cell carries up to three buttons plus the caret, so it takes the space the first
    three columns were over-claiming - a short name, a slug and a date all read fine narrower. */
-.sites-table th:nth-child(1) { width: 22%; }
-.sites-table th:nth-child(2) { width: 17%; }
-.sites-table th:nth-child(3) { width: 12%; }
-.sites-table th:nth-child(4) { width: 8%; }
-.sites-table th:nth-child(5) { width: 41%; }
+.sites-table > thead > tr > th:nth-child(1) { width: 22%; }
+.sites-table > thead > tr > th:nth-child(2) { width: 17%; }
+.sites-table > thead > tr > th:nth-child(3) { width: 12%; }
+.sites-table > thead > tr > th:nth-child(4) { width: 8%; }
+.sites-table > thead > tr > th:nth-child(5) { width: 41%; }
 
 /* Created is hidden below 768px, so its share is redistributed rather than left as a gap. */
 @media (max-width: 768px) {
-    .sites-table th:nth-child(1) { width: 28%; }
-    .sites-table th:nth-child(2) { width: 20%; }
-    .sites-table th:nth-child(4) { width: 8%; }
-    .sites-table th:nth-child(5) { width: 44%; }
+    .sites-table > thead > tr > th:nth-child(1) { width: 28%; }
+    .sites-table > thead > tr > th:nth-child(2) { width: 20%; }
+    .sites-table > thead > tr > th:nth-child(4) { width: 8%; }
+    .sites-table > thead > tr > th:nth-child(5) { width: 44%; }
 }
 
 .data-table tr.site-row-selected {
