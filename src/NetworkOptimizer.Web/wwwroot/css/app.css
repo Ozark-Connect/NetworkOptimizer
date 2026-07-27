@@ -2336,7 +2336,8 @@ a.btn-lg {
     background: var(--bg-elevated);
 }
 
-.ssh-key-row .form-help {
+.ssh-key-row .form-help,
+#ssh-key .form-help {
     margin-top: 0.5rem;
 }
 
