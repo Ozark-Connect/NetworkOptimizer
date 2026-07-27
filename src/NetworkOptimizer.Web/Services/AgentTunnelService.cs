@@ -1,4 +1,5 @@
 using Grpc.Core;
+using Microsoft.Data.Sqlite;
 using NetworkOptimizer.AgentProtocol;
 
 namespace NetworkOptimizer.Web.Services;
@@ -20,6 +21,9 @@ public record AgentTunnelOptions(bool Enabled, int Port);
 public class AgentTunnelService : AgentTunnel.AgentTunnelBase
 {
     /// <summary>Heartbeat cadence handed to agents in the ServerHello.</summary>
+    /// <summary>SQLITE_CANTOPEN - the site's database file is not there any more.</summary>
+    private const int SqliteCantOpen = 14;
+
     public const int HeartbeatIntervalSeconds = 30;
 
     // A healthy agent is never silent longer than one heartbeat interval, so
@@ -137,19 +141,19 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
                         await _enrollment.HeartbeatAsync(hello.AgentKey, hello.Version, hello.LanIp);
                         break;
                     case AgentMessage.PayloadOneofCase.ProbeResults:
-                        // A batch that cannot be stored is this batch's problem, not the tunnel's.
-                        // It used to escape the handler, which gRPC reports to the agent as an
-                        // opaque "Exception was thrown by handler" - what a site being removed out
-                        // from under a live agent produced, since its database had gone. The batch
-                        // is deliberately NOT acked, so the agent keeps it and sends it again.
+                        // A site removed out from under a live agent leaves its database gone, and
+                        // the write escaped the handler as an opaque "Exception was thrown by
+                        // handler". Only THAT is caught: everything else still tears the tunnel
+                        // down, because the agent replays unacked frames on the next connection and
+                        // never on this one - ending the connection is what gets the data in.
                         try
                         {
                             await _probeResultSink.RecordBatchAsync(connection, message.ProbeResults, ct);
                         }
-                        catch (Exception ex) when (ex is not OperationCanceledException)
+                        catch (SqliteException ex) when (ex.SqliteErrorCode == SqliteCantOpen)
                         {
-                            _logger.LogWarning(ex, "Discarding probe batch from agent {Name} on site {Slug}",
-                                agent.Name, siteSlug);
+                            _logger.LogWarning("Site {Slug} has no database any more; closing this agent's tunnel", siteSlug);
+                            connection.Drop();
                             break;
                         }
 
@@ -169,15 +173,16 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
                         _proxy.OnProxyClose(message.ProxyClose);
                         break;
                     case AgentMessage.PayloadOneofCase.SnmpResults:
-                        // Same reasoning as the probe batch above - this one took the tunnel down too.
+                        // Same reasoning as the probe batch above.
                         try
                         {
                             await _probeResultSink.RecordSnmpBatchAsync(connection, message.SnmpResults, ct);
                         }
-                        catch (Exception ex) when (ex is not OperationCanceledException)
+                        catch (SqliteException ex) when (ex.SqliteErrorCode == SqliteCantOpen)
                         {
-                            _logger.LogWarning(ex, "Discarding SNMP batch from agent {Name} on site {Slug}",
-                                agent.Name, siteSlug);
+                            _logger.LogWarning("Site {Slug} has no database any more; closing this agent's tunnel", siteSlug);
+                            connection.Drop();
+                            break;
                         }
                         if (message.Sequence > 0)
                             connection.TrySend(new ServerMessage { ResultAck = new ResultAck { Sequence = message.Sequence } });
