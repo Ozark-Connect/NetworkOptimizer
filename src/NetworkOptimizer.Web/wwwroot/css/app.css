@@ -4159,7 +4159,8 @@ tr:hover .snmp-row-chevron {
     color: var(--text-secondary);
 }
 
-.snmp-row-expanded {
+.snmp-row-expanded,
+.snmp-row-expanded:hover {
     background: var(--bg-tertiary);
 }
 
@@ -6278,7 +6279,8 @@ a.path-hop.hop-clickable:hover {
     background: var(--bg-hover);
 }
 
-.history-row-expanded {
+.history-row-expanded,
+.history-row-expanded:hover {
     background: var(--bg-hover);
 }
 
@@ -18306,12 +18308,44 @@ body.kiosk-mode .status-indicators {
     background: transparent;
 }
 
+/* Fixed layout so opening a panel cannot resize the columns. The panel row spans every column,
+   so under the default auto layout its content participates in width calculation and the header
+   columns jump the moment it appears. Widths are declared on the header cells below. */
+.site-row-collapsible {
+    cursor: pointer;
+}
+
+.site-row-caret {
+    margin-left: 0.35rem;
+    color: var(--text-secondary);
+    font-size: 0.7rem;
+}
+
+.sites-table {
+    table-layout: fixed;
+}
+
+.sites-table th:nth-child(1) { width: 30%; }
+.sites-table th:nth-child(2) { width: 22%; }
+.sites-table th:nth-child(3) { width: 16%; }
+.sites-table th:nth-child(4) { width: 6%; }
+.sites-table th:nth-child(5) { width: 26%; }
+
+/* Created is hidden below 768px, so its share is redistributed rather than left as a gap. */
+@media (max-width: 768px) {
+    .sites-table th:nth-child(1) { width: 36%; }
+    .sites-table th:nth-child(2) { width: 24%; }
+    .sites-table th:nth-child(4) { width: 8%; }
+    .sites-table th:nth-child(5) { width: 32%; }
+}
+
 .data-table tr.site-row-selected {
     background: var(--bg-hover);
 }
 
-/* The generic row hover paints a lighter tint, so hovering the open row made it look like it had
-   lost its selection. Same specificity as that rule, so this only wins by coming after it. */
+/* An expanded row keeps its own background on hover. The generic row hover paints a lighter tint,
+   so without this, hovering the row you just opened makes it look like it closed. Applied the same
+   way to .history-row-expanded and .snmp-row-expanded. */
 .data-table tr.site-row-selected:hover {
     background: var(--bg-hover);
 }
@@ -18326,35 +18360,11 @@ body.kiosk-mode .status-indicators {
     flex-direction: column;
     gap: 0.85rem;
     margin: 0 0 0.75rem;
-    padding: 2.5rem 1rem 1rem;
+    padding: 1rem;
     background: var(--bg-tertiary);
     /* Square along the top so the panel reads as an extension of the row that opened it, rather
        than a separate card floating below it. */
     border-radius: 0 0 var(--border-radius-lg) var(--border-radius-lg);
-}
-
-.site-config-dismiss {
-    position: absolute;
-    top: 0.5rem;
-    right: 0.5rem;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 1.75rem;
-    height: 1.75rem;
-    padding: 0;
-    border: none;
-    border-radius: var(--border-radius);
-    background: transparent;
-    color: var(--text-muted);
-    font-size: 1.25rem;
-    line-height: 1;
-    cursor: pointer;
-}
-
-.site-config-dismiss:hover {
-    background: var(--bg-hover);
-    color: var(--text-primary);
 }
 
 .site-config-section {
