@@ -2,6 +2,8 @@
 @using NetworkOptimizer.Core.Interfaces
 @using NetworkOptimizer.Storage.Models
 @using NetworkOptimizer.Web.Services
+@using NetworkOptimizer.Storage.Models.Identity
+@using Microsoft.AspNetCore.Components.Authorization
 @inject ISiteManagementService SiteManagement
 @inject SiteConnectionRegistry SiteConnections
 @inject IAgentEnrollmentService AgentEnrollment
@@ -10,6 +12,11 @@
 @inject SiteSwitchService SiteSwitch
 @implements IDisposable
 
+@* Step 1 creates a site, which is instance administration. Everything after it sets up an existing
+   site - its console and its agent - which that site's admin owns. Gating the whole wizard on Admin
+   took the agent setup away from the Site Admin who is meant to do it, so the gate is on the step. *@
+@if (_step > 1 || _canCreateSites)
+{
 <div class="site-wizard">
     <div class="site-wizard-steps">
         @{
@@ -257,15 +264,23 @@
         <div class="alert alert-@_messageClass">@_message</div>
     }
 </div>
+}
 
 @code {
     [Parameter]
     public EventCallback OnSitesChanged { get; set; }
 
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    /// <summary>Whether this caller may add a site at all - the wizard's first step.</summary>
+    private bool _canCreateSites;
+
     private int _remainingSlots = int.MaxValue;
 
     protected override async Task OnInitializedAsync()
     {
+        _canCreateSites = AuthState is null || (await AuthState).User.IsInRole(Roles.Admin);
+
         LicenseState.OnStateChanged += HandleLicenseStateChanged;
         await RefreshLimitAsync();
     }

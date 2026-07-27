@@ -3411,6 +3411,12 @@
                                                             </div>
                                                         </div>
 
+                                                        @* A site's lifecycle is instance work, not site work: removing one destroys its
+                                                           database and agent enrollments and hands a licence slot back, and disabling one
+                                                           hides it from the switcher - which would strand the very Site Admin who did it,
+                                                           since Settings only opens for them while contexted to a site they administer.
+                                                           You cannot use authority bounded by the site to end the site. *@
+                                                        <AdminOnly>
                                                         <div class="site-config-section">
                                                             <div class="site-config-section-title">Disable / Remove Site</div>
                                                             @if (site.Slug == SiteContext.Slug)
@@ -3436,6 +3442,7 @@
                                                                 </div>
                                                             }
                                                         </div>
+                                                        </AdminOnly>
                                                     }
                                                 </div>
                                                     </div>
@@ -3449,13 +3456,12 @@
                     </div>
                 </div>
 
-                @* Creating a site and switching site management off are instance-level, not site-level:
-                   no site role reaches them, and the services behind both require global Admin. *@
-                <AdminOnly>
-                    <div id="site-agent-setup">
-                        <SiteSetupWizard @ref="_setupWizard" OnSitesChanged="RefreshSites" />
-                    </div>
-                </AdminOnly>
+                @* The wizard shows its own first step (Add a site) only to an Admin; a Site Admin
+                   reaches the later steps through Set up agent on their own row. Switching site
+                   management off is instance-level and stays Admin-only below. *@
+                <div id="site-agent-setup">
+                    <SiteSetupWizard @ref="_setupWizard" OnSitesChanged="RefreshSites" />
+                </div>
 
                 <AdminOnly>
                 <details class="setup-guide multisite-disable">
