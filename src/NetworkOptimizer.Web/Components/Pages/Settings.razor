@@ -786,6 +786,9 @@
                                 Installed, and replaced automatically after reboots and firmware upgrades.
                             </small>
                             <div class="action-buttons">
+                                <button class="btn btn-secondary btn-sm" @onclick="TestKeyOnGateway" disabled="@_sshKeyBusy">
+                                    Test key
+                                </button>
                                 <button class="btn btn-secondary btn-sm" @onclick="RemoveKeyFromGateway" disabled="@_sshKeyBusy">
                                     Remove from gateway
                                 </button>
@@ -5071,6 +5074,35 @@
         {
             Logger.LogError(ex, "Failed to install the SSH key on the gateway");
             _sshKeyMessage = $"Could not install the key on the gateway: {ex.Message}";
+            _sshKeyMessageClass = "danger";
+        }
+        finally
+        {
+            _sshKeyBusy = false;
+            StateHasChanged();
+        }
+    }
+
+    /// <summary>
+    /// Proves the key authenticates, which a normal connection cannot: those offer the password too
+    /// and fall back to it without saying so.
+    /// </summary>
+    private async Task TestKeyOnGateway()
+    {
+        _sshKeyBusy = true;
+        _sshKeyMessage = null;
+        StateHasChanged();
+
+        try
+        {
+            var (success, message) = await SshKeyDeployment.TestKeyAsync();
+            _sshKeyMessage = message;
+            _sshKeyMessageClass = success ? "success" : "danger";
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to test the stored SSH key against the gateway");
+            _sshKeyMessage = $"Could not test the key: {ex.Message}";
             _sshKeyMessageClass = "danger";
         }
         finally
