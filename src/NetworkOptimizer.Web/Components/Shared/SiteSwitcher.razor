@@ -84,6 +84,19 @@
             try
             {
                 await LoadSitesAsync();
+
+                // The site this circuit is standing on has just gone out of reach. Everything scoped
+                // was resolved against it when the circuit started and cannot be re-pointed in place,
+                // so the parts that refetch start being refused while the parts that already have
+                // their data carry on showing it - access looks half taken away, and the address bar
+                // still names a site that is no longer theirs. A reload settles all of it: the root
+                // component falls back to a site they do hold and rewrites the URL to match.
+                if (_enabled && _sites.Count > 0 && _sites.All(site => site.Slug != SiteContext.Slug))
+                {
+                    NavigationManager.NavigateTo(NavigationManager.Uri, forceLoad: true);
+                    return;
+                }
+
                 _open = false;
                 StateHasChanged();
             }
