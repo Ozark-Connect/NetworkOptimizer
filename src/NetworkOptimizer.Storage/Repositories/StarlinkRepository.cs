@@ -81,7 +81,6 @@ public class StarlinkRepository : IStarlinkRepository
                     existing.Provider = config.Provider;
                     existing.Host = config.Host;
                     existing.Port = config.Port;
-                    existing.Enabled = config.Enabled;
                     existing.PollingIntervalSeconds = config.PollingIntervalSeconds;
                     existing.LastPolled = config.LastPolled;
                     existing.LastError = config.LastError;
@@ -132,19 +131,24 @@ public class StarlinkRepository : IStarlinkRepository
     {
         try
         {
-            var config = await _context.StarlinkConfigurations.FirstOrDefaultAsync(c => c.Id == id, cancellationToken);
             // Never resurrect or overwrite a config that was disabled while the poll was
-            // in flight - its frozen state (and cleared LastError) must stand.
-            if (config == null || !config.Enabled)
-                return false;
-
+            // in flight - its frozen state (and cleared LastError) must stand. Check and
+            // write in one conditional statement so a Disable committing in between
+            // cannot slip through.
+            var now = DateTime.UtcNow;
+            int rows;
             if (lastPolled.HasValue)
-                config.LastPolled = lastPolled.Value;
-            config.LastError = lastError;
-            config.UpdatedAt = DateTime.UtcNow;
-
-            await _context.SaveChangesAsync(cancellationToken);
-            return true;
+                rows = await _context.StarlinkConfigurations.Where(c => c.Id == id && c.Enabled)
+                    .ExecuteUpdateAsync(s => s
+                        .SetProperty(c => c.LastPolled, lastPolled.Value)
+                        .SetProperty(c => c.LastError, lastError)
+                        .SetProperty(c => c.UpdatedAt, now), cancellationToken);
+            else
+                rows = await _context.StarlinkConfigurations.Where(c => c.Id == id && c.Enabled)
+                    .ExecuteUpdateAsync(s => s
+                        .SetProperty(c => c.LastError, lastError)
+                        .SetProperty(c => c.UpdatedAt, now), cancellationToken);
+            return rows > 0;
         }
         catch (Exception ex)
         {

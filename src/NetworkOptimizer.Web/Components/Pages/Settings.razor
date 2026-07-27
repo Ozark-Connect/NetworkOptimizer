@@ -1825,13 +1825,6 @@
                         </div>
                     </div>
 
-                    <div class="form-group">
-                        <label class="checkbox-label">
-                            <input type="checkbox" @bind="_editingStarlink.Enabled" />
-                            <span>Enable polling</span>
-                        </label>
-                    </div>
-
                     <div class="action-buttons">
                         <button class="btn btn-primary" @onclick="SaveStarlink" disabled="@_savingStarlink">
                             @if (_savingStarlink)
