@@ -19203,6 +19203,10 @@ body.kiosk-mode .status-indicators {
     margin-bottom: 0.5rem;
 }
 
+.identity-roles-footnote {
+    margin-top: 0.5rem;
+}
+
 .identity-role-name {
     font-weight: 600;
     color: var(--text-primary);

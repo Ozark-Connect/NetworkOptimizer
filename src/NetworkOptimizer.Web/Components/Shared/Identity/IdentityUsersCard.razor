@@ -46,7 +46,7 @@
                     <thead>
                         <tr>
                             <th>User</th>
-                            <th>Role <span class="tooltip-icon tooltip-icon-sm tooltip-icon-contrast" role="button" data-tooltip-hover-only data-tooltip="Click to see what each role can and cannot do" @onclick="() => OnExplainRoles.InvokeAsync()">?</span></th>
+                            <th>Role <span class="tooltip-icon tooltip-icon-sm" role="button" data-tooltip-hover-only data-tooltip="Click to see what each role can and cannot do" @onclick="() => OnExplainRoles.InvokeAsync()">?</span></th>
                             <th class="hide-mobile">Sign-in</th>
                             <th class="hide-mobile">Last sign-in</th>
                             <th>Status</th>
@@ -162,7 +162,7 @@
                                     <td colspan="6">
                                         <div class="identity-inline-form">
                                             <div class="form-group">
-                                                <label class="form-label">New password for @user.UserName <span class="tooltip-icon tooltip-icon-sm" data-tooltip="@_passwordPolicy">?</span></label>
+                                                <label class="form-label">New password for @user.UserName <span class="tooltip-icon tooltip-icon-sm tooltip-icon-contrast" data-tooltip="@_passwordPolicy">?</span></label>
                                                 <input type="password" class="form-control" @bind="_newPassword"
                                                        autocomplete="new-password" placeholder="Enter a new password" />
                                                 <p class="form-help">The user signs in with this password next time. Their MFA and passkeys are unchanged.</p>
@@ -258,7 +258,7 @@
                             <input class="form-control" @bind="_newDisplayName" placeholder="John Smith" autocomplete="off" />
                         </div>
                         <div class="form-group">
-                            <label class="form-label">Password <span class="tooltip-icon tooltip-icon-sm" data-tooltip="@_passwordPolicy">?</span></label>
+                            <label class="form-label">Password <span class="tooltip-icon tooltip-icon-sm tooltip-icon-contrast" data-tooltip="@_passwordPolicy">?</span></label>
                             <input type="password" class="form-control" @bind="_newUserPassword" autocomplete="new-password" placeholder="Initial password" />
                         </div>
                         <div class="form-group">
