@@ -41,6 +41,13 @@
                        class="form-control" placeholder="Enter your password" autocomplete="current-password" />
             </div>
 
+            @* Without this the cookie is session-scoped whatever ExpireTimeSpan says, so the
+               fourteen-day lifetime never applied and the browser discarded the cookie on close.
+               Same treatment as Remember this device on the second-factor form. *@
+            <label class="remember-device">
+                <input type="checkbox" name="rememberMe" value="true" checked /> Keep me signed in
+            </label>
+
             <button type="submit" class="btn btn-primary login-btn">
                 <span>Sign In</span>
             </button>
