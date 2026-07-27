@@ -93,6 +93,14 @@ public interface IIdentityAdminService
     /// </summary>
     Task<AdminActionResult> SetOwnPasswordAsync(string userId, string newPassword);
 
+    /// <summary>
+    /// Changes the signed-in user's own password, proving the current one first. Distinct from
+    /// <see cref="SetOwnPasswordAsync"/>, which an admin path uses without that proof: self-service
+    /// has to establish that whoever is at the keyboard is the account holder and not someone who
+    /// found it unlocked.
+    /// </summary>
+    Task<AdminActionResult> ChangeOwnPasswordAsync(string userId, string currentPassword, string newPassword);
+
     Task<AdminActionResult> GrantGlobalRoleAsync(string userId, string role);
     Task<AdminActionResult> RevokeGlobalRoleAsync(string userId, string role);
 
@@ -273,6 +281,26 @@ public sealed class IdentityAdminService : IIdentityAdminService
     }
 
     /// <inheritdoc />
+    public async Task<AdminActionResult> ChangeOwnPasswordAsync(string userId, string currentPassword, string newPassword)
+    {
+        var user = await _userManager.FindByIdAsync(userId);
+        if (user is null) return AdminActionResult.Fail("User not found.");
+
+        // Nothing to prove against, and no password to replace - a passkey or federated account gets
+        // one set elsewhere, not changed here.
+        if (!await _userManager.HasPasswordAsync(user))
+            return AdminActionResult.Fail("This account signs in without a password.");
+
+        var result = await _userManager.ChangePasswordAsync(user, currentPassword, newPassword);
+        if (!result.Succeeded)
+            return AdminActionResult.Fail(Describe(result));
+
+        user.PasswordIsTemporary = false;
+        await _userManager.UpdateAsync(user);
+        Emit(AuditCategories.User, AuditActions.PasswordReset, user, new { self = true });
+        return AdminActionResult.Ok();
+    }
+
     public async Task<AdminActionResult> SetOwnPasswordAsync(string userId, string newPassword)
     {
         var user = await _userManager.FindByIdAsync(userId);

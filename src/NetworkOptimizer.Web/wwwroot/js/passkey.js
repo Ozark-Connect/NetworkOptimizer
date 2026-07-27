@@ -42,7 +42,10 @@ window.netoptPasskey = (function () {
     // says why, because a button that silently does nothing reads as a broken page - and the most
     // likely cause is a credential that was removed from the account server-side.
     async function login() {
-        if (!window.isSecureContext || !window.PublicKeyCredential) return failLogin('passkey_insecure');
+        if (!window.isSecureContext || !window.PublicKeyCredential) {
+            document.getElementById('passkey-insecure-alert')?.removeAttribute('hidden');
+            return false;
+        }
 
         let assertion;
         try {
