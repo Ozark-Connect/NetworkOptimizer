@@ -168,8 +168,15 @@ public static class AuthEndpoints
                 return Results.Redirect("/login");
 
             var form = await context.Request.ReadFormAsync();
-            var result = await identityAdmin.ChangeOwnPasswordAsync(
-                user.Id, form["currentPassword"].ToString(), form["newPassword"].ToString());
+            var current = form["currentPassword"].ToString();
+            var next = form["newPassword"].ToString();
+
+            // Told apart from a plain failure so the page can say why rather than sending someone to
+            // re-check a current password that was right.
+            if (string.Equals(current, next, StringComparison.Ordinal))
+                return Results.Redirect("/account/security?pw=same");
+
+            var result = await identityAdmin.ChangeOwnPasswordAsync(user.Id, current, next);
 
             if (!result.Succeeded)
                 return Results.Redirect("/account/security?pw=failed");

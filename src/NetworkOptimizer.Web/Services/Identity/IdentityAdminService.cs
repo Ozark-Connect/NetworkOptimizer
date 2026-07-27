@@ -291,6 +291,9 @@ public sealed class IdentityAdminService : IIdentityAdminService
         if (!await _userManager.HasPasswordAsync(user))
             return AdminActionResult.Fail("This account signs in without a password.");
 
+        if (await _userManager.CheckPasswordAsync(user, newPassword))
+            return AdminActionResult.Fail("The new password is the one already in use.");
+
         var result = await _userManager.ChangePasswordAsync(user, currentPassword, newPassword);
         if (!result.Succeeded)
             return AdminActionResult.Fail(Describe(result));
