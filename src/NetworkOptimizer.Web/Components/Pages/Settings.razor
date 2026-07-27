@@ -3211,6 +3211,9 @@
                                                 <button type="button" class="btn btn-secondary btn-sm" @onclick="() => ToggleAgents(site.Id)">
                                                     Configuration
                                                 </button>
+                                                <button type="button" class="btn btn-secondary btn-sm" @onclick="() => ToggleSiteUsers(site.Id)">
+                                                    Users
+                                                </button>
                                                 @if (site.Slug != SiteContext.Slug)
                                                 {
                                                     <button type="button" class="btn btn-primary btn-sm" @onclick="() => SwitchToSiteAsync(site)">
@@ -3220,6 +3223,20 @@
                                             </div>
                                         </td>
                                     </tr>
+                                    @if (_usersSiteId == site.Id)
+                                    {
+                                        <tr class="history-details-row site-config-row">
+                                            <td colspan="5">
+                                                <div class="site-config-panel">
+                                                    <button type="button" class="site-config-dismiss" @onclick="() => ToggleSiteUsers(site.Id)" aria-label="Dismiss">&times;</button>
+                                                    @* Scoped to this row's site rather than the one in context, so who can
+                                                       reach a site is answered without switching to it first. *@
+                                                    <IdentityAccessCard SiteSlug="@site.Slug" SiteName="@site.Name" />
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    }
+
                                     @if (_expandedSiteId == site.Id)
                                     {
                                         var agents = AgentsFor(site.Id).ToList();
@@ -3749,6 +3766,9 @@
     // Site agents (registry data, keyed by site id)
     private Dictionary<int, List<SiteAgent>> _agentsBySite = new();
     private int? _expandedSiteId;
+
+    /// <summary>Which site's Users panel is open, if any. Separate from the Configuration panel.</summary>
+    private int? _usersSiteId;
     private bool _creatingAgent;
     private string? _newAgentToken;
     private int? _newAgentTokenSiteId;
@@ -3812,8 +3832,16 @@
         return ("offline", "Awaiting", "Enrollment token created; waiting for the agent to enroll");
     }
 
+    private void ToggleSiteUsers(int siteId)
+    {
+        _usersSiteId = _usersSiteId == siteId ? null : siteId;
+        if (_usersSiteId != null)
+            _expandedSiteId = null;
+    }
+
     private async Task ToggleAgents(int siteId)
     {
+        _usersSiteId = null;
         _expandedSiteId = _expandedSiteId == siteId ? null : siteId;
         _newAgentToken = null;
         if (_expandedSiteId != null)
