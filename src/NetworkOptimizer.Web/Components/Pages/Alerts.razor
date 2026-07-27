@@ -13,6 +13,8 @@
 @using NetworkOptimizer.Web.Services.Ssh
 @inject IAlertRepository AlertRepository
 @inject IAlertConfigService AlertConfig
+@inject IAuthorizationService Authz
+@inject NetworkOptimizer.Web.Services.Authorization.ISiteAccessFilter SiteAccess
 @inject NetworkOptimizer.Storage.Services.SiteDbContextFactory SiteDb
 @inject IScheduleRepository ScheduleRepository
 @inject ScheduleService ScheduleService
@@ -58,8 +60,13 @@
                         @onclick='() => SetActiveTab("rules")'>Rules</button>
                 <button class="wifi-view-tab @(_activeTab == "incidents" ? "active" : "")"
                         @onclick='() => SetActiveTab("incidents")'>Incidents</button>
-                <button class="wifi-view-tab"
-                        @onclick='() => NavigationManager.NavigateTo("/settings#alert-channels")'>Notification Channels</button>
+                @* This tab is a jump into Settings, which only a site's admin can open - offering it
+                   to anyone else leads straight to a refusal. *@
+                @if (_canConfigure)
+                {
+                    <button class="wifi-view-tab"
+                            @onclick='() => NavigationManager.NavigateTo("/settings#alert-channels")'>Notification Channels</button>
+                }
             </div>
             <button class="wifi-tabs-scroll-btn wifi-tabs-scroll-right"
                     onclick="this.parentElement.querySelector('.wifi-view-tabs').scrollBy({left: 200, behavior: 'smooth'})">&#8250;</button>
@@ -92,13 +99,18 @@
                     <div class="schedule-card">
                         <div class="schedule-card-header">
                             <div class="schedule-card-title">
+                                @if (_canConfigure)
+                                {
                                 <label class="toggle-switch">
                                     <input type="checkbox" checked="@auditTask.Enabled" @onchange="() => ToggleSchedule(auditTask)" />
                                     <span class="toggle-slider"></span>
                                 </label>
+                                }
                                 <span>@auditTask.Name</span>
                             </div>
                             <div class="schedule-card-actions">
+                                @if (_canOperate)
+                                {
                                 <button class="btn btn-sm btn-secondary"
                                         @onclick="() => RunScheduleNow(auditTask)"
                                         disabled="@(ScheduleService.IsTaskRunning(auditTask.Id, SiteContext.Slug))">
@@ -112,6 +124,7 @@
                                         <text>Run Now</text>
                                     }
                                 </button>
+                                }
                             </div>
                         </div>
                         <div class="schedule-card-body">
@@ -172,7 +185,10 @@
             <div class="schedule-section">
                 <div class="schedule-section-header">
                     <h2 class="schedule-section-title">WAN Speed Tests</h2>
+                    @if (_canConfigure)
+                    {
                     <button class="btn btn-sm btn-primary" @onclick="StartAddWanSchedule">+ Add Test</button>
+                    }
                 </div>
                 <p class="schedule-section-desc">Add a separate test for each WAN line - schedule as many as you like.</p>
                 @{ var wanTasks = _scheduledTasks.Where(t => t.TaskType == "wan_speedtest").ToList(); }
@@ -181,10 +197,13 @@
                         <div class="schedule-card">
                             <div class="schedule-card-header">
                                 <div class="schedule-card-title">
+                                    @if (_canConfigure)
+                                    {
                                     <label class="toggle-switch">
                                         <input type="checkbox" checked="@task.Enabled" @onchange="() => ToggleSchedule(task)" />
                                         <span class="toggle-slider"></span>
                                     </label>
+                                    }
                                     @{ var (wanBaseName, wanDetail) = SplitTaskName(task.Name); }
                                     <span>@wanBaseName</span>
                                     @if (wanDetail != null)
@@ -193,6 +212,8 @@
                                     }
                                 </div>
                                 <div class="schedule-card-actions">
+                                    @if (_canOperate)
+                                    {
                                     <button class="btn btn-sm btn-secondary"
                                             @onclick="() => RunScheduleNow(task)"
                                             disabled="@(ScheduleService.IsTaskRunning(task.Id, SiteContext.Slug))">
@@ -206,11 +227,18 @@
                                             <text>Run Now</text>
                                         }
                                     </button>
+                                    }
+                                    @if (_canConfigure)
+                                    {
                                     <button class="btn btn-sm btn-secondary" @onclick="() => EditWanSchedule(task)"
                                             disabled="@(_editingWanScheduleId == task.Id)">
                                         @(_editingWanScheduleId == task.Id ? "Editing..." : "Edit")
                                     </button>
+                                    }
+                                    @if (_canConfigure)
+                                    {
                                     <button class="btn btn-sm btn-danger" @onclick="() => DeleteSchedule(task)">Delete</button>
+                                    }
                                 </div>
                             </div>
                             <div class="schedule-card-body">
@@ -282,7 +310,10 @@
                     <h2 class="schedule-section-title">LAN Speed Tests</h2>
                     @if (_lanDeviceOptions.Count > 0)
                     {
+                        @if (_canConfigure)
+                        {
                         <button class="btn btn-sm btn-primary" @onclick="StartAddLanSchedule">+ Add Test</button>
+                        }
                     }
                 </div>
                 <p class="schedule-section-desc">Add a separate test for each device - schedule as many as you like.</p>
@@ -292,10 +323,13 @@
                     <div class="schedule-card">
                         <div class="schedule-card-header">
                             <div class="schedule-card-title">
+                                @if (_canConfigure)
+                                {
                                 <label class="toggle-switch">
                                     <input type="checkbox" checked="@task.Enabled" @onchange="() => ToggleSchedule(task)" />
                                     <span class="toggle-slider"></span>
                                 </label>
+                                }
                                 @{ var (lanBaseName, lanDetail) = SplitTaskName(task.Name); }
                                 <span>@lanBaseName</span>
                                 @if (lanDetail != null)
@@ -304,6 +338,8 @@
                                 }
                             </div>
                             <div class="schedule-card-actions">
+                                @if (_canOperate)
+                                {
                                 <button class="btn btn-sm btn-secondary"
                                         @onclick="() => RunScheduleNow(task)"
                                         disabled="@(ScheduleService.IsTaskRunning(task.Id, SiteContext.Slug))">
@@ -317,11 +353,18 @@
                                         <text>Run Now</text>
                                     }
                                 </button>
+                                }
+                                @if (_canConfigure)
+                                {
                                 <button class="btn btn-sm btn-secondary" @onclick="() => EditLanSchedule(task)"
                                         disabled="@(_editingLanScheduleId == task.Id)">
                                     @(_editingLanScheduleId == task.Id ? "Editing..." : "Edit")
                                 </button>
+                                }
+                                @if (_canConfigure)
+                                {
                                 <button class="btn btn-sm btn-danger" @onclick="() => DeleteSchedule(task)">Delete</button>
+                                }
                             </div>
                         </div>
                         <div class="schedule-card-body">
@@ -579,8 +622,11 @@
                                     @if (isDirty)
                                     {
                                         <div style="margin-top: 0.75rem;">
+                                            @if (_canConfigure)
+                                            {
                                             <button class="btn btn-primary btn-sm"
                                                     @onclick="() => SaveDataUsageConfig(wanGroup)">Save Changes</button>
+                                            }
                                         </div>
                                     }
 
@@ -678,8 +724,14 @@
                     <div class="alert-group-header">
                         <h2 class="alert-group-title">Active</h2>
                         <div class="alert-group-actions">
+                            @if (_canOperate)
+                            {
                             <button class="btn btn-sm btn-secondary" @onclick="AcknowledgeAllActive">Acknowledge All</button>
+                            }
+                            @if (_canOperate)
+                            {
                             <button class="btn btn-sm btn-primary" @onclick="ResolveAllActive">Resolve All</button>
+                            }
                         </div>
                     </div>
                     <div class="alert-list">
@@ -717,12 +769,18 @@
                                     {
                                         <a href="@alert.SourceUrl" class="btn btn-sm btn-outline-primary">View</a>
                                     }
+                                    @if (_canOperate)
+                                    {
                                     <button class="btn btn-sm btn-secondary" @onclick="() => AcknowledgeAlert(alert)">
                                         Acknowledge
                                     </button>
+                                    }
+                                    @if (_canOperate)
+                                    {
                                     <button class="btn btn-sm btn-primary" @onclick="() => ResolveAlert(alert)">
                                         Resolve
                                     </button>
+                                    }
                                 </div>
                             </div>
                         }
@@ -734,7 +792,10 @@
                     <div class="alert-group-header">
                         <h2 class="alert-group-title">Acknowledged</h2>
                         <div class="alert-group-actions">
+                            @if (_canOperate)
+                            {
                             <button class="btn btn-sm btn-primary" @onclick="ResolveAllAcknowledged">Resolve All</button>
+                            }
                         </div>
                     </div>
                     <div class="alert-list">
@@ -773,9 +834,12 @@
                                         <a href="@alert.SourceUrl" class="btn btn-sm btn-outline-primary">View</a>
                                     }
                                     <span class="status-badge status-active">Acknowledged</span>
+                                    @if (_canOperate)
+                                    {
                                     <button class="btn btn-sm btn-primary" @onclick="() => ResolveAlert(alert)">
                                         Resolve
                                     </button>
+                                    }
                                 </div>
                             </div>
                         }
@@ -879,7 +943,10 @@
             <div class="card">
                 <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
                     <h2 class="card-title">Alert Rules</h2>
+                    @if (_canConfigure)
+                    {
                     <button class="btn btn-sm btn-primary" @onclick="StartAddRule">Add Rule</button>
+                    }
                 </div>
                 <div class="card-body">
                     @if (_rules.Count == 0)
@@ -935,8 +1002,14 @@
                                             <td class="hide-mobile">@(rule.ThresholdPercent.HasValue ? $"{rule.ThresholdPercent:F0}%" : "-")</td>
                                             <td>
                                                 <div class="action-buttons">
+                                                    @if (_canConfigure)
+                                                    {
                                                     <button class="btn btn-sm btn-secondary" @onclick="() => StartEditRule(rule)">Edit</button>
+                                                    }
+                                                    @if (_canConfigure)
+                                                    {
                                                     <button class="btn btn-sm btn-danger" @onclick="() => DeleteRule(rule)">Delete</button>
+                                                    }
                                                 </div>
                                             </td>
                                         </tr>
@@ -1054,9 +1127,15 @@
                     <div class="alert-group-actions">
                         @if (_incidents.Any(i => i.Status == AlertStatus.Active))
                         {
+                            @if (_canOperate)
+                            {
                             <button class="btn btn-sm btn-secondary" @onclick="AcknowledgeAllIncidents">Acknowledge All</button>
+                            }
                         }
+                        @if (_canOperate)
+                        {
                         <button class="btn btn-sm btn-primary" @onclick="ResolveAllIncidents">Resolve All</button>
+                        }
                     </div>
                 </div>
                 @foreach (var incident in _incidents.Where(i => i.Status != AlertStatus.Resolved))
@@ -1092,13 +1171,19 @@
                             <div class="incident-actions">
                                 @if (incident.Status == AlertStatus.Active)
                                 {
+                                    @if (_canOperate)
+                                    {
                                     <button class="btn btn-sm btn-secondary" @onclick="() => AcknowledgeIncident(incident)">
                                         Acknowledge
                                     </button>
+                                    }
                                 }
+                                @if (_canOperate)
+                                {
                                 <button class="btn btn-sm btn-primary" @onclick="() => ResolveIncident(incident)">
                                     Resolve
                                 </button>
+                                }
                             </div>
                         </div>
                     </div>
@@ -1689,6 +1774,29 @@
 }
 
 @code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    /// <summary>
+    /// What this caller may do on the site in context. Configuring decides what is watched and how
+    /// often - rules, channels, schedules - and is Site Admin. Operating deals with what has already
+    /// happened, and running a test now, which is Site Operator. The service gates refuse either way;
+    /// these decide what is worth OFFERING, so nobody is handed a button that only says no.
+    /// </summary>
+    private bool _canConfigure;
+    private bool _canOperate;
+
+    private async Task ResolveSitePermissionsAsync()
+    {
+        if (AuthState is null)
+        {
+            _canConfigure = _canOperate = true;
+            return;
+        }
+
+        var user = (await AuthState).User;
+        _canConfigure = (await Authz.AuthorizeAsync(user, SiteContext.Slug, Policies.SiteAdmin)).Succeeded;
+        _canOperate = (await Authz.AuthorizeAsync(user, SiteContext.Slug, Policies.SiteOperator)).Succeeded;
+    }
     [SupplyParameterFromQuery(Name = "tab")]
     public string? TabParam { get; set; }
 
@@ -1965,6 +2073,8 @@
 
     protected override async Task OnInitializedAsync()
     {
+        await ResolveSitePermissionsAsync();
+
         _activeTab = ResolveTab(TabParam);
         _lastTabParam = TabParam;
 

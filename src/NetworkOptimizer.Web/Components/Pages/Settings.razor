@@ -3460,7 +3460,8 @@
                    reaches the later steps through Set up agent on their own row. Switching site
                    management off is instance-level and stays Admin-only below. *@
                 <div id="site-agent-setup">
-                    <SiteSetupWizard @ref="_setupWizard" OnSitesChanged="RefreshSites" />
+                    <SiteSetupWizard @ref="_setupWizard" OnSitesChanged="RefreshSites"
+                                     OnSiteConfigChanged="ReloadSiteConfigAsync" />
                 </div>
 
                 <AdminOnly>
@@ -3983,6 +3984,18 @@
     private readonly Dictionary<int, bool> _consoleViaAgent = new();
 
     private bool ConsoleViaAgent(int siteId) => _consoleViaAgent.TryGetValue(siteId, out var enabled) && enabled;
+
+    /// <summary>
+    /// Re-reads the per-site settings the wizard just changed, so the configuration panel open behind
+    /// it shows the flags it set instead of what they were when the panel was opened.
+    /// </summary>
+    private async Task ReloadSiteConfigAsync(Site site)
+    {
+        await LoadConsoleViaAgentAsync(site);
+        await LoadSshViaAgentAsync(site);
+        await LoadClientSpeedTestTargetAsync(site);
+        StateHasChanged();
+    }
 
     private async Task LoadConsoleViaAgentAsync(Site site)
         => _consoleViaAgent[site.Id] = (await SiteConfig.GetAsync(site.Slug)).ConsoleViaAgent;
