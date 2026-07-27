@@ -7,6 +7,7 @@
 @inject ISiteManagementService SiteManagement
 @inject IAuthPolicyOptions AuthPolicy
 @inject SiteContextService SiteContext
+@inject Microsoft.Extensions.Options.IOptions<Microsoft.AspNetCore.Identity.IdentityOptions> IdentityOptions
 
 @* Settings - Identity: the instance-wide account list. Create, enable/disable, delete, change role,
    reset another user's password, and link or unlink an external identity. Everything runs through
@@ -161,7 +162,7 @@
                                     <td colspan="6">
                                         <div class="identity-inline-form">
                                             <div class="form-group">
-                                                <label class="form-label">New password for @user.UserName</label>
+                                                <label class="form-label">New password for @user.UserName <span class="tooltip-icon tooltip-icon-sm" data-tooltip="@_passwordPolicy">?</span></label>
                                                 <input type="password" class="form-control" @bind="_newPassword"
                                                        autocomplete="new-password" placeholder="Enter a new password" />
                                                 <p class="form-help">The user signs in with this password next time. Their MFA and passkeys are unchanged.</p>
@@ -257,7 +258,7 @@
                             <input class="form-control" @bind="_newDisplayName" placeholder="John Smith" autocomplete="off" />
                         </div>
                         <div class="form-group">
-                            <label class="form-label">Password</label>
+                            <label class="form-label">Password <span class="tooltip-icon tooltip-icon-sm" data-tooltip="@_passwordPolicy">?</span></label>
                             <input type="password" class="form-control" @bind="_newUserPassword" autocomplete="new-password" placeholder="Initial password" />
                         </div>
                         <div class="form-group">
@@ -317,6 +318,9 @@
 
     private bool _multiSiteEnabled;
     private bool _siteRestrictionActive;
+
+    /// <summary>The configured policy, so the hint cannot drift from what the validator enforces.</summary>
+    private string _passwordPolicy => PasswordPolicyText.Describe(IdentityOptions.Value.Password);
     private string? _currentUserId;
     private IReadOnlyList<UserAccountSummary>? _users;
     private IReadOnlyList<FederationProvider>? _providers;
