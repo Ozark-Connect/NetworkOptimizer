@@ -71,8 +71,15 @@ public class AgentEnrollmentService : IAgentEnrollmentService
     /// Registers a new agent for a site and returns its one-time enrollment
     /// token. The token is not retrievable afterwards.
     /// </summary>
-    public async Task<(SiteAgent Agent, string Token)> CreateAgentAsync(int siteId, string name)
+    public async Task<(SiteAgent Agent, string Token)> CreateAgentAsync(string siteSlug, string name)
     {
+        await using var db = await _mainDbFactory.CreateDbContextAsync();
+
+        // The slug is what was authorized, so it is also what decides the site the agent lands on.
+        var siteId = await db.Sites.Where(x => x.Slug == siteSlug).Select(x => x.Id).FirstOrDefaultAsync();
+        if (siteId == 0)
+            throw new InvalidOperationException($"No site with slug '{siteSlug}'.");
+
         var token = TokenPrefix + Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
         var agent = new SiteAgent
         {
@@ -82,11 +89,26 @@ public class AgentEnrollmentService : IAgentEnrollmentService
             TokenCreatedAt = DateTime.UtcNow,
         };
 
-        await using var db = await _mainDbFactory.CreateDbContextAsync();
         db.SiteAgents.Add(agent);
         await db.SaveChangesAsync();
         _logger.LogInformation("Created agent {Name} (id {Id}) for site {SiteId}", agent.Name, agent.Id, siteId);
         return (agent, token);
+    }
+
+    /// <summary>
+    /// The agent, but only if it belongs to the site the caller was authorized against. Everything
+    /// that acts on an agent id goes through here: the id is the caller's to choose, the slug is the
+    /// one the gate checked, and an agent that does not sit on that slug is not theirs to touch.
+    /// </summary>
+    private static async Task<SiteAgent?> AgentOnSiteAsync(
+        NetworkOptimizerDbContext db, string siteSlug, int agentId)
+    {
+        var agent = await db.SiteAgents.FindAsync(agentId);
+        if (agent is null)
+            return null;
+
+        var slug = await db.Sites.Where(x => x.Id == agent.SiteId).Select(x => x.Slug).FirstOrDefaultAsync();
+        return string.Equals(slug, siteSlug, StringComparison.OrdinalIgnoreCase) ? agent : null;
     }
 
     /// <summary>
@@ -95,10 +117,10 @@ public class AgentEnrollmentService : IAgentEnrollmentService
     /// row instead of piling up duplicates. Returns null if the agent is gone or
     /// already enrolled.
     /// </summary>
-    public async Task<string?> ReissueTokenAsync(int agentId)
+    public async Task<string?> ReissueTokenAsync(string siteSlug, int agentId)
     {
         await using var db = await _mainDbFactory.CreateDbContextAsync();
-        var agent = await db.SiteAgents.FindAsync(agentId);
+        var agent = await AgentOnSiteAsync(db, siteSlug, agentId);
         if (agent == null || agent.EnrolledAt != null)
             return null;
 
@@ -112,10 +134,10 @@ public class AgentEnrollmentService : IAgentEnrollmentService
     }
 
     /// <summary>Removes an agent registration entirely (its token/key stop working).</summary>
-    public async Task DeleteAgentAsync(int agentId)
+    public async Task DeleteAgentAsync(string siteSlug, int agentId)
     {
         await using var db = await _mainDbFactory.CreateDbContextAsync();
-        var agent = await db.SiteAgents.FindAsync(agentId);
+        var agent = await AgentOnSiteAsync(db, siteSlug, agentId);
         if (agent == null)
             return;
 
@@ -255,10 +277,10 @@ public class AgentEnrollmentService : IAgentEnrollmentService
     }
 
     /// <summary>Enables or disables an agent. Disabled agents cannot enroll or heartbeat.</summary>
-    public async Task SetEnabledAsync(int agentId, bool enabled)
+    public async Task SetEnabledAsync(string siteSlug, int agentId, bool enabled)
     {
         await using var db = await _mainDbFactory.CreateDbContextAsync();
-        var agent = await db.SiteAgents.FindAsync(agentId);
+        var agent = await AgentOnSiteAsync(db, siteSlug, agentId);
         if (agent == null)
             return;
 
