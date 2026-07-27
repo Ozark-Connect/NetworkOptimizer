@@ -2,23 +2,22 @@
 
 ## SSH Key Management (stored keypairs)
 
-Build on the source branch BEFORE the big rebase, so the SaaS fork inherits it and the tenant gate
-stays a small private delta. Full design note: `docs/features/ssh-key-management.md`.
+Critical before multi-user ships. Build on the source branch BEFORE the big SaaS rebase, so the fork
+inherits it and the tenant gate stays a small private delta. Design note:
+`docs/features/ssh-key-management.md`.
 
-- Upload **or generate** an SSH keypair per site, stored encrypted with Data Protection like
-  `ClientSecretProtected`. Generate is the default (the private half never crosses the wire - the UI
-  returns only the public key to install on devices); upload is the fallback for an existing key.
-- Closes a real gap for self-hosted users too: today placing a key at all means shelling into the
-  container.
-- In the fork, `PrivateKeyPath` becomes instance-admin-only and tenants must use a stored key. The
-  path field stays for self-hosted operators who legitimately mount a key.
-- Why it matters: `SshClientService.cs:287-293` opens whatever path the record names. Not arbitrary
-  file read (the bytes must parse as a key) but arbitrary key USE - a tenant naming the operator's
-  key gets the server to authenticate to devices as the operator. Different errors for missing vs
-  unparseable also make it a filesystem existence oracle.
-- Decide alongside: whether full config export should exist in the hosted build, since stored keys
-  land in the site DB and the export already bundles every site DB plus the Data Protection keys.
-- TJ has an iOS Notes write-up of the intended UX - ask for it before building.
+- Let admins **and site admins** upload or generate their own SSH private/public keypair. Generate is
+  the default (the private half never crosses the wire - the UI returns only the public key to install
+  on UniFi and other devices); upload is the fallback. Stored per site, encrypted with Data Protection
+  like `ClientSecretProtected`.
+- **Site admins lose the filesystem path option** and use a stored key. A global admin can override
+  and facilitate, and keeps the path field - self-hosted operators legitimately mount a key.
+- Three places SSH auth is configured, all needing both changes: Settings - UniFi Console Connection
+  (gateway SSH, `Settings.razor` ~447), Settings - Device SSH (~616), and LAN Speed Test's per-device
+  override (`SpeedTest.razor` ~691).
+- Also closes a gap for self-hosted users, who today must shell into the container to place a key.
+- Decide alongside: whether full config export should exist in the hosted build, since stored keys land
+  in the site DB and the export bundles every site DB plus the Data Protection keys.
 
 ## Channel Recommendation: Engine Follow-ups (recalibration-sensitive)
 
