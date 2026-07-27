@@ -2509,8 +2509,20 @@ a.btn-lg {
     color: var(--danger-color);
 }
 
+.card.danger-zone {
+    border-color: var(--danger-color);
+}
+
 .card.danger-zone .card-title {
     color: var(--danger-color);
+}
+
+.card.card-accent {
+    border-color: var(--primary-hover);
+}
+
+.card.card-accent .card-title {
+    color: var(--primary-hover);
 }
 
 /* Forms */
@@ -7314,11 +7326,16 @@ a.path-hop.hop-clickable:hover {
     transition: all 0.2s;
 }
 
-.logout-btn:hover,
-.account-btn:hover {
+.logout-btn:hover {
     background: var(--bg-hover);
     border-color: var(--danger-color);
     color: var(--danger-color);
+}
+
+.account-btn:hover {
+    background: var(--bg-hover);
+    border-color: var(--primary-hover);
+    color: var(--primary-hover);
 }
 
 .logout-btn svg,
