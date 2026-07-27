@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Storage.Models.Identity;
 using NetworkOptimizer.Web.Services.Auditing;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace NetworkOptimizer.Web.Services.Identity;
 
@@ -79,6 +80,10 @@ public static class IdentityRegistration
         services.AddScoped<IIdentitySignInService, IdentitySignInService>();
         services.AddScoped<IAuthPolicyOptions, AuthPolicyOptions>();
 
+        // Granting or revoking a site is a change to the site list every open circuit is showing, so
+        // the admin service raises the same broadcast the registry does. TryAdd because the Web host
+        // registers it too, and this keeps a bare identity container (tests) able to build.
+        services.TryAddSingleton<SiteRegistryChangeNotifier>();
         services.AddScoped<IIdentityAdminService, IdentityAdminService>();
         services.AddScoped<IMfaService, MfaService>();
         services.AddScoped<IPasskeyService, PasskeyService>();
@@ -171,7 +176,15 @@ public static class IdentityRegistration
                     context.Response.StatusCode = StatusCodes.Status403Forbidden;
                     return Task.CompletedTask;
                 }
-                context.Response.Redirect(options.AccessDeniedPath);
+
+                // Carry the tab's ?site= pin, exactly as the login redirect above does. Switching to
+                // a site while standing on a page that site will not open is still a switch: losing
+                // the pin here left the refusal naming the site they came FROM and dropped them back
+                // on it, so the switch had to be made twice.
+                var site = context.Request.Query[SiteContextService.SiteQueryParam].ToString();
+                context.Response.Redirect(string.IsNullOrEmpty(site)
+                    ? options.AccessDeniedPath
+                    : $"{options.AccessDeniedPath}?{SiteContextService.SiteQueryParam}={Uri.EscapeDataString(site)}");
                 return Task.CompletedTask;
             };
         });

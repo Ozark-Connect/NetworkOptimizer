@@ -143,6 +143,7 @@ public sealed class IdentityAdminService : IIdentityAdminService
     private readonly IAuditLogger _audit;
     private readonly ICallerContext _caller;
     private readonly Authorization.IEffectiveSiteRoleResolver _siteRoles;
+    private readonly SiteRegistryChangeNotifier _siteRegistryChanges;
     private readonly ILogger<IdentityAdminService> _logger;
 
     public IdentityAdminService(
@@ -152,6 +153,7 @@ public sealed class IdentityAdminService : IIdentityAdminService
         IAuditLogger audit,
         ICallerContext caller,
         Authorization.IEffectiveSiteRoleResolver siteRoles,
+        SiteRegistryChangeNotifier siteRegistryChanges,
         ILogger<IdentityAdminService> logger)
     {
         _userManager = userManager;
@@ -160,6 +162,7 @@ public sealed class IdentityAdminService : IIdentityAdminService
         _audit = audit;
         _caller = caller;
         _siteRoles = siteRoles;
+        _siteRegistryChanges = siteRegistryChanges;
         _logger = logger;
     }
 
@@ -696,6 +699,12 @@ public sealed class IdentityAdminService : IIdentityAdminService
         user.MembershipVersion++;
         await _userManager.UpdateAsync(user);
         _siteRoles.Invalidate(user.Id);
+
+        // Being granted or denied a site changes the site list this instant, and waiting for the
+        // session refresh to come round would leave the switcher offering yesterday's sites. Every
+        // circuit rebuilds its own filtered list, so the broadcast tells the right person without
+        // needing to know who they are.
+        _siteRegistryChanges.NotifySitesChanged();
     }
 
     private async Task RemoveAllMembershipsAsync(string userId)
