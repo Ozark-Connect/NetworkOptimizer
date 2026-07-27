@@ -10,21 +10,23 @@
     can make a key for them. It stays a plain line of text: the feature is optional and must not nag.
 *@
 
-<div class="form-group ssh-key-row @(Key is not null ? "ssh-key-row-set" : "")">
+<div class="form-group ssh-key-row">
     <label class="form-label">SSH key</label>
     @if (Key is not null)
     {
-        <small class="form-help">
-            @Key.KeyType, in use for gateway and device SSH.
-            @if (OnManage.HasDelegate)
-            {
-                <button type="button" class="btn-link" @onclick="OnManage">Manage in Settings - Connection</button>
-            }
-            else
-            {
-                <a href="@ManageUrl">Manage in Settings - Connection</a>
-            }
-        </small>
+        <div class="ssh-key-row-set">
+            <small class="form-help">
+                @Key.KeyType, in use for gateway and device SSH.
+                @if (OnManage.HasDelegate)
+                {
+                    <button type="button" class="btn-link" @onclick="OnManage">Manage in Settings - Connection</button>
+                }
+                else
+                {
+                    <a href="@ManageUrl">Manage in Settings - Connection</a>
+                }
+            </small>
+        </div>
     }
     else
     {

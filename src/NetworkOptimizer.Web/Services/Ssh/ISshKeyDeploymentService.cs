@@ -11,8 +11,13 @@ namespace NetworkOptimizer.Web.Services.Ssh;
 /// <param name="UdmBootInstalled">The shared udm-boot unit is present.</param>
 /// <param name="ScriptInstalled">Our boot script is on the gateway.</param>
 /// <param name="KeyInstalled">The public key is currently in root's authorized_keys.</param>
+/// <param name="AwaitingAgent">
+/// The gateway is reached through this site's agent and the agent is not online, so nothing was asked
+/// of it. Nothing here is known yet; the caller should ask again rather than cache this.
+/// </param>
 public sealed record SshKeyDeploymentStatus(
-    bool GatewayConfigured, bool UdmBootInstalled, bool ScriptInstalled, bool KeyInstalled)
+    bool GatewayConfigured, bool UdmBootInstalled, bool ScriptInstalled, bool KeyInstalled,
+    bool AwaitingAgent = false)
 {
     /// <summary>True when the key is placed and will survive a reboot or firmware upgrade.</summary>
     public bool FullyDeployed => ScriptInstalled && KeyInstalled;
@@ -90,6 +95,11 @@ public sealed class SshKeyDeploymentService : ISshKeyDeploymentService
         if (!CanReachGatewayToday(settings))
             return new SshKeyDeploymentStatus(false, false, false, false);
 
+        // Dialing now would just hit the refusing tunnel proxy, which SSH.NET reports as a raw
+        // protocol error - the same reason every other gateway caller checks this first.
+        if (await _gatewaySsh.IsAwaitingAgentTunnelAsync())
+            return new SshKeyDeploymentStatus(true, false, false, false, AwaitingAgent: true);
+
         // Match on the key blob, not our comment. An uploaded key that is already on the gateway
         // carries whatever comment its owner gave it, so a comment match would report "not installed"
         // and nag someone to install a key that already works.
@@ -148,6 +158,9 @@ public sealed class SshKeyDeploymentService : ISshKeyDeploymentService
         if (!CanReachGatewayToday(settings))
             return (false, "Configure Gateway SSH with a password first - the key is placed over the existing connection.");
 
+        if (await _gatewaySsh.IsAwaitingAgentTunnelAsync())
+            return (false, GatewaySshService.AwaitingAgentMessage);
+
         if (!await _udmBoot.IsInstalledAsync())
         {
             var (bootOk, bootMessage) = await _udmBoot.InstallAsync();
@@ -186,6 +199,9 @@ public sealed class SshKeyDeploymentService : ISshKeyDeploymentService
     /// <inheritdoc />
     public async Task<(bool success, string message)> RemoveAsync()
     {
+        if (await _gatewaySsh.IsAwaitingAgentTunnelAsync())
+            return (false, GatewaySshService.AwaitingAgentMessage);
+
         var key = await _sshKeys.GetAsync();
         var blob = KeyBlob(key?.PublicKey);
         if (blob is null)
