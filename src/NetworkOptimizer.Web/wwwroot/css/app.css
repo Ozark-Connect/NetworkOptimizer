@@ -2337,8 +2337,11 @@ a.btn-lg {
 }
 
 /* An auth option with nothing configured. Dimmed rather than hidden, because which options are and
-   are not in play is the thing you come to these cards to read. */
-.form-label-unused {
+   are not in play is the thing you come to these cards to read.
+
+   Qualified with .form-label deliberately: on its own this loses to .form-label's own colour, which
+   is declared later in the file at equal specificity. */
+.form-label.form-label-unused {
     color: var(--text-muted);
 }
 
