@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Models.Identity;
 using NetworkOptimizer.Web.Services.Identity;
@@ -49,17 +50,20 @@ public sealed class EffectiveSiteRoleResolver : IEffectiveSiteRoleResolver
     private readonly IDbContextFactory<NetworkOptimizerDbContext> _mainDbFactory;
     private readonly IAuthPolicyOptions _policy;
     private readonly IMemoryCache _cache;
+    private readonly ILogger<EffectiveSiteRoleResolver>? _logger;
 
     public EffectiveSiteRoleResolver(
         IDbContextFactory<AuthDbContext> authDbFactory,
         IDbContextFactory<NetworkOptimizerDbContext> mainDbFactory,
         IAuthPolicyOptions policy,
-        IMemoryCache cache)
+        IMemoryCache cache,
+        ILogger<EffectiveSiteRoleResolver>? logger = null)
     {
         _authDbFactory = authDbFactory;
         _mainDbFactory = mainDbFactory;
         _policy = policy;
         _cache = cache;
+        _logger = logger;
     }
 
     /// <inheritdoc />
@@ -198,6 +202,9 @@ public sealed class EffectiveSiteRoleResolver : IEffectiveSiteRoleResolver
 
         var result = await BuildAuthorizedSlugsAsync(user, userId);
         _cache.Set(cacheKey, result, EntryOptions(userId));
+        _logger?.LogDebug("Authorized sites rebuilt for {UserId} (admin={IsAdmin}, restrict={Restrict}): {Slugs}",
+            userId, user.IsInRole(Roles.Admin), await _policy.IsRestrictSitesToMembersAsync(),
+            string.Join(",", result));
         return result;
     }
 
