@@ -2347,12 +2347,17 @@ a.btn-lg {
     gap: 1rem;
 }
 
+/* This one sits inside help text rather than beside a button, so it sizes to sit with the sentence. */
+#ssh-key .form-help .btn-link {
+    font-size: 0.85rem;
+}
+
 /* A button that reads as a link, for the lesser of two adjacent actions. */
 .btn-link {
     background: none;
     border: none;
     padding: 0;
-    font-size: 0.875rem;
+    font-size: 0.9rem;
     color: var(--primary-hover);
     text-decoration: underline;
     cursor: pointer;
