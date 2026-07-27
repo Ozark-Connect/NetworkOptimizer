@@ -26,7 +26,21 @@
     }
 
     private async void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
-        => await EnsureSiteParamAsync();
+    {
+        // A client-side navigation carrying a DIFFERENT ?site= cannot be served by this circuit: the
+        // site is pinned once, before anything scoped resolves against its database (Routes.razor), so
+        // the address bar would say one site while every service still answered for the other. An
+        // in-app link to another site therefore has to become a real navigation. Ctrl-clicking such a
+        // link always worked, which is what a full page load buys.
+        var requested = SiteContextService.SiteParamOf(e.Location);
+        if (requested is not null && !string.Equals(requested, SiteContext.Slug, StringComparison.OrdinalIgnoreCase))
+        {
+            Navigation.NavigateTo(e.Location, forceLoad: true);
+            return;
+        }
+
+        await EnsureSiteParamAsync();
+    }
 
     private async Task EnsureSiteParamAsync()
     {
