@@ -4773,13 +4773,6 @@ tr:hover .snmp-row-chevron {
     font-size: 2rem;
 }
 
-/* Both identity empty states use an svg, and .empty-icon svg is sized in fixed rem - so font-size
-   alone would leave the icon at full size while the text around it shrank. */
-.empty-state.empty-state-small .empty-icon svg {
-    width: 2rem;
-    height: 2rem;
-}
-
 .empty-state .empty-icon {
     font-size: 3rem;
     margin-bottom: 1rem;
