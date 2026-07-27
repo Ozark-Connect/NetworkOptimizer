@@ -7018,6 +7018,11 @@ a.path-hop.hop-clickable:hover {
     vertical-align: text-top;
 }
 
+/* For icons sitting on an inner tertiary surface, where the default tertiary fill disappears. */
+.tooltip-icon-contrast {
+    background: var(--bg-elevated);
+}
+
 /* Hidden content element (Tippy reads innerHTML from this) */
 .tooltip-content {
     display: none;

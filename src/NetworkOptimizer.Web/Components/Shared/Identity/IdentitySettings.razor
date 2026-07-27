@@ -3,7 +3,9 @@
    (that site's Access list only, since accounts and sign-in methods are instance-wide). The same
    UX either way - the scoped view is the global one narrowed to what a site admin owns. *@
 
+@using Microsoft.AspNetCore.Components.Routing
 @inject NavigationManager Navigation
+@implements IDisposable
 
 @if (SiteSlug is null)
 {
@@ -43,15 +45,33 @@ else
         await _rolesCard.OpenAndHighlightAsync();
     }
 
+    protected override void OnInitialized() => Navigation.LocationChanged += HandleLocationChanged;
+
+    /// <summary>
+    /// Every Settings tab is rendered at once and shown by class, so arriving from another tab does
+    /// not remount this component and firstRender never comes round again. The location change is the
+    /// only signal that someone has just asked for the panel.
+    /// </summary>
+    private void HandleLocationChanged(object? sender, LocationChangedEventArgs e)
+        => _ = InvokeAsync(OpenRolesIfRequestedAsync);
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (!firstRender || _rolesCard is null)
+        if (firstRender)
+            await OpenRolesIfRequestedAsync();
+    }
+
+    private async Task OpenRolesIfRequestedAsync()
+    {
+        if (_rolesCard is null)
             return;
 
         var query = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(new Uri(Navigation.Uri).Query);
         if (query.TryGetValue(RolesQueryParam, out var arrivedForRoles) && arrivedForRoles == "1")
             await _rolesCard.OpenAndHighlightAsync();
     }
+
+    public void Dispose() => Navigation.LocationChanged -= HandleLocationChanged;
 
     /// <summary>
     /// Creating or deleting an account changes that account's site grants in the same step, so the

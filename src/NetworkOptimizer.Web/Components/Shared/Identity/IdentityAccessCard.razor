@@ -91,7 +91,7 @@
                             {
                                 <th>Site</th>
                             }
-                            <th>Site role <span class="tooltip-icon tooltip-icon-sm" role="button" data-tooltip="What each role can and cannot do" @onclick="() => OnExplainRoles.InvokeAsync()">?</span></th>
+                            <th>Site role <span class="tooltip-icon tooltip-icon-sm tooltip-icon-contrast" role="button" data-tooltip-hover-only data-tooltip="Click to see what each role can and cannot do" @onclick="() => OnExplainRoles.InvokeAsync()">?</span></th>
                             <th class="identity-actions-col"></th>
                         </tr>
                     </thead>
@@ -143,7 +143,7 @@
                         </div>
                     }
                     <div class="form-group">
-                        <label class="form-label">Site role <span class="tooltip-icon tooltip-icon-sm" role="button" data-tooltip="What each role can and cannot do" @onclick="() => OnExplainRoles.InvokeAsync()">?</span></label>
+                        <label class="form-label">Site role <span class="tooltip-icon tooltip-icon-sm tooltip-icon-contrast" role="button" data-tooltip-hover-only data-tooltip="Click to see what each role can and cannot do" @onclick="() => OnExplainRoles.InvokeAsync()">?</span></label>
                         <select class="form-control" @bind="_grantRole">
                             <option value="@SiteRole.SiteViewer">Site Viewer</option>
                             <option value="@SiteRole.SiteOperator">Site Operator</option>
