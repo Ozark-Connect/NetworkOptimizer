@@ -213,6 +213,29 @@
     </div>
 </AdminOnly>
 
+<div class="card">
+    <div class="card-header"><span class="card-title">Sign out everywhere</span></div>
+    <div class="card-body">
+        @if (_sessionsRevoked)
+        {
+            <div class="alert alert-success">Every other session has been signed out.</div>
+        }
+        @if (_sessionsFailed)
+        {
+            <div class="alert alert-danger">That did not work. Try again.</div>
+        }
+        <p class="account-note">
+            Signs your account out on every other browser, phone, and computer, and makes devices that
+            were remembered for two-factor ask again. This browser stays signed in. Worth doing after
+            you change your password, remove a passkey, or sign in somewhere you no longer control.
+        </p>
+        <form method="post" action="/api/account/sessions/revocation">
+            <AntiforgeryToken />
+            <button type="submit" class="btn btn-secondary">Sign out everywhere</button>
+        </form>
+    </div>
+</div>
+
 @code {
     [SupplyParameterFromQuery(Name = "setup")] private string? Setup { get; set; }
     [SupplyParameterFromQuery(Name = "enroll")] private string? Enroll { get; set; }
@@ -228,6 +251,10 @@
     private string _passwordPolicy => PasswordPolicyText.Describe(IdentityOptions.Value.Password);
 
     [SupplyParameterFromQuery(Name = "pw")] private string? PasswordResult { get; set; }
+    [SupplyParameterFromQuery(Name = "sessions")] private string? SessionsResult { get; set; }
+
+    private bool _sessionsRevoked => SessionsResult == "done";
+    private bool _sessionsFailed => SessionsResult == "failed";
 
     private bool _passwordChanged => PasswordResult == "done";
     private bool _passwordFailed => PasswordResult == "failed";

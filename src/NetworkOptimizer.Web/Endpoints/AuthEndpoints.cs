@@ -186,6 +186,38 @@ public static class AuthEndpoints
         })
             .RequireAuthorization(Policies.RequireViewer);
 
+        // Ends every other session for the signed-in user. Posted from a form for the same reason the
+        // password change is: rotating the stamp invalidates this browser's cookie too, and only an
+        // HTTP response can hand back a fresh one.
+        app.MapPost("/api/account/sessions/revocation", async (
+            HttpContext context,
+            ICurrentUserAccessor currentUser,
+            IIdentityAdminService identityAdmin,
+            IIdentitySignInService signInService,
+            IAntiforgery antiforgery) =>
+        {
+            try
+            {
+                await antiforgery.ValidateRequestAsync(context);
+            }
+            catch (AntiforgeryValidationException)
+            {
+                return Results.Redirect("/account/security?sessions=failed");
+            }
+
+            var user = await currentUser.GetAsync(context.User);
+            if (user is null)
+                return Results.Redirect("/login");
+
+            var result = await identityAdmin.SignOutEverywhereAsync(user.Id);
+            if (!result.Succeeded)
+                return Results.Redirect("/account/security?sessions=failed");
+
+            await signInService.RefreshSignInAsync(user);
+            return Results.Redirect("/account/security?sessions=done");
+        })
+            .RequireAuthorization(Policies.RequireViewer);
+
         // Sign out of the application cookie; also clears any residual legacy auth_token cookie
         // during the bridge window. POST, not GET: a GET logout can be fired by any page embedding
         // <img src=".../api/auth/logout">, and by link prefetchers. Posting from a form also keeps
