@@ -18329,6 +18329,10 @@ body.kiosk-mode .status-indicators {
 .site-row-caret {
     flex-shrink: 0;
     white-space: nowrap;
+    /* Pushed to the end of the cell rather than sitting against the last button, so it reads as the
+       row's own affordance instead of another item in the button group. */
+    margin-left: auto;
+    padding-left: 0.75rem;
     color: var(--text-secondary);
     font-size: 0.7rem;
 }
