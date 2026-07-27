@@ -198,22 +198,7 @@
     </div>
 </div>
 
-@* This page is about your own credentials; an admin also needs somewhere to get to everyone
-   else's, so the shortcut lives here rather than adding a nav entry. *@
-<AdminOnly>
-    <div class="card">
-        <div class="card-header"><span class="card-title">Identity</span></div>
-        <div class="card-body">
-            <p class="account-note">
-                Accounts, per-site access, and single sign-on for everyone on this instance are managed
-                in <strong>Settings - Identity</strong>.
-            </p>
-            <a class="btn btn-secondary btn-sm" href="/settings?tab=identity">Open Identity settings</a>
-        </div>
-    </div>
-</AdminOnly>
-
-<div class="card">
+<div class="card danger-zone">
     <div class="card-header"><span class="card-title">Sign out everywhere</span></div>
     <div class="card-body">
         @if (_sessionsRevoked)
@@ -231,10 +216,25 @@
         </p>
         <form method="post" action="/api/account/sessions/revocation">
             <AntiforgeryToken />
-            <button type="submit" class="btn btn-secondary">Sign out everywhere</button>
+            <button type="submit" class="btn btn-danger">Sign out everywhere</button>
         </form>
     </div>
 </div>
+
+@* This page is about your own credentials; an admin also needs somewhere to get to everyone
+   else's, so the shortcut lives here rather than adding a nav entry. *@
+<AdminOnly>
+    <div class="card">
+        <div class="card-header"><span class="card-title">Identity</span></div>
+        <div class="card-body">
+            <p class="account-note">
+                Accounts, per-site access, and single sign-on for everyone on this instance are managed
+                in <strong>Settings - Identity</strong>.
+            </p>
+            <a class="btn btn-secondary btn-sm" href="/settings?tab=identity">Open Identity settings</a>
+        </div>
+    </div>
+</AdminOnly>
 
 @code {
     [SupplyParameterFromQuery(Name = "setup")] private string? Setup { get; set; }

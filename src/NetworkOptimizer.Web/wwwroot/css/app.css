@@ -2503,6 +2503,10 @@ a.btn-lg {
     color: var(--danger-color);
 }
 
+.card.danger-zone .card-title {
+    color: var(--danger-color);
+}
+
 /* Forms */
 .form-group {
     margin-bottom: 1.5rem;
