@@ -3484,9 +3484,9 @@
                                                                         {
                                                                             <p class="form-help">Bare metal (systemd) - enrollment is preserved, only the binaries update:</p>
                                                                             <CopyableCommand Text="@NativeUpgradeCommand()" Tooltip="Copy the upgrade command" />
-                                                                            <p class="form-help">
-                                                                                Docker agents instead: <code>cd /opt/network-optimizer-agent &amp;&amp; docker compose pull &amp;&amp; docker compose up -d</code>
-                                                                            </p>
+                                                                            <p class="form-help">Docker agents instead:</p>
+                                                                            <CopyableCommand Text="cd /opt/network-optimizer-agent &amp;&amp; docker compose pull &amp;&amp; docker compose up -d"
+                                                                                             Tooltip="Copy the Docker upgrade command" />
                                                                         }
                                                                     </div>
                                                                 }
