@@ -2336,6 +2336,15 @@ a.btn-lg {
     background: var(--bg-elevated);
 }
 
+.ssh-key-row .form-help {
+    margin-top: 0.5rem;
+}
+
+/* The actions follow a setup-guide, which carries no bottom margin of its own. */
+#ssh-key .action-buttons {
+    margin-top: 1.5rem;
+}
+
 /* Link - a button that reads as a link, for the lesser of two adjacent actions */
 .btn-link {
     background: none;

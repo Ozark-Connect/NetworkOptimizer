@@ -16,6 +16,7 @@
 @inject IGatewaySshService GatewaySshService
 @inject ISshKeyService SshKeyService
 @inject ISshSettingsAdminService SshSettingsAdmin
+@inject ISshKeyDeploymentService SshKeyDeployment
 @inject ILogger<Settings> Logger
 @inject IAuditRepository AuditRepository
 @inject ISpeedTestRepository SpeedTestRepository
@@ -442,16 +443,16 @@
 
             <div class="form-group">
                 <label class="form-label">Password</label>
-                <input type="password" class="form-control" @bind="gatewayPassword" placeholder="@(SshKeyInUse(gatewayPrivateKeyPath) ? "(using SSH key)" : hasGatewayPassword ? "Saved – enter new to update" : "Enter password")" autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore />
+                <input type="password" class="form-control" @bind="gatewayPassword" placeholder="@(SshKeyInUse(gatewayPrivateKeyPath, hasGatewayPassword) ? "(using SSH key)" : hasGatewayPassword ? "Saved – enter new to update" : "Enter password")" autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore />
             </div>
 
             <SshKeyRow Key="_sshKey" />
 
             <AdminOnly NotAuthorized="@GatewayKeyFileNote">
                 <div class="form-group">
-                    <label class="form-label">Private Key Path (alternative to password)</label>
+                    <label class="form-label">Private Key Path</label>
                     <input type="text" class="form-control" @bind="gatewayPrivateKeyPath" placeholder="/app/ssh-keys/gateway_key" />
-                    <small class="form-help">Leave blank to use password authentication</small>
+                    <small class="form-help">Point at a key already on this server, for example your own <code>~/.ssh/id_rsa</code>. Leave blank to use the stored SSH key or a password.</small>
                 </div>
             </AdminOnly>
 
@@ -615,16 +616,16 @@
 
             <div class="form-group">
                 <label class="form-label">Password</label>
-                <input type="password" class="form-control" @bind="sshPassword" placeholder="@(SshKeyInUse(sshPrivateKeyPath) ? "(using SSH key)" : hasSshPassword ? "Saved – enter new to update" : "Enter password")" autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore />
+                <input type="password" class="form-control" @bind="sshPassword" placeholder="@(SshKeyInUse(sshPrivateKeyPath, hasSshPassword) ? "(using SSH key)" : hasSshPassword ? "Saved – enter new to update" : "Enter password")" autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore />
             </div>
 
             <SshKeyRow Key="_sshKey" />
 
             <AdminOnly NotAuthorized="@DeviceKeyFileNote">
                 <div class="form-group">
-                    <label class="form-label">Private Key Path (alternative to password)</label>
+                    <label class="form-label">Private Key Path</label>
                     <input type="text" class="form-control" @bind="sshPrivateKeyPath" placeholder="/app/ssh-keys/id_rsa" />
-                    <small class="form-help">Leave blank to use password authentication</small>
+                    <small class="form-help">Point at a key already on this server, for example your own <code>~/.ssh/id_rsa</code>. Leave blank to use the stored SSH key or a password.</small>
                 </div>
             </AdminOnly>
 
@@ -700,12 +701,11 @@
     <div class="card settings-tab-connection" id="ssh-key">
         <div class="card-header">
             <h2 class="card-title">SSH Key (Optional)</h2>
-            @if (_sshKey is not null)
-            {
-                <div class="card-header-badges">
-                    <span class="status-badge status-connected">@_sshKey.KeyType</span>
-                </div>
-            }
+            <div class="card-header-badges">
+                <span class="status-badge status-@(_sshKey is not null ? "connected" : "disconnected")">
+                    @(_sshKey is not null ? "Configured" : "Not Configured")
+                </span>
+            </div>
         </div>
         <div class="card-body">
             <p class="section-description">
@@ -715,7 +715,7 @@
 
             @if (_sshKeyMessage is not null)
             {
-                <div class="alert-@_sshKeyMessageClass">@_sshKeyMessage</div>
+                <div class="alert alert-@_sshKeyMessageClass">@_sshKeyMessage</div>
             }
 
             @if (_sshKey is null)
@@ -764,34 +764,66 @@
             }
             else
             {
-                <div class="detail-label">Fingerprint</div>
-                <div class="detail-value">@_sshKey.Fingerprint</div>
-
-                <div class="form-group" style="margin-top: 1rem;">
+                <div class="form-group">
                     <label class="form-label">Public key</label>
-                    <textarea class="form-control" rows="3" readonly>@_sshKey.PublicKey</textarea>
-                    <div class="action-buttons" style="margin-top: 0.5rem;">
-                        <button class="btn btn-secondary btn-sm" @onclick="CopySshPublicKey">
-                            @(_sshKeyCopied ? "Copied" : "Copy")
-                        </button>
-                    </div>
+                    <CopyableCommand Text="@_sshKey.PublicKey" Tooltip="Copy the public key" />
+                    <small class="form-help">@_sshKey.KeyType &middot; @_sshKey.Fingerprint</small>
                 </div>
 
-                <details class="setup-guide" open>
-                    <summary>Install it</summary>
+                @if (CanInstallKeyOnGateway)
+                {
+                    <div class="form-group">
+                        <label class="form-label">Gateway</label>
+                        @if (_keyDeployStatus?.FullyDeployed == true)
+                        {
+                            <small class="form-help">
+                                Installed, and replaced automatically after reboots and firmware upgrades.
+                            </small>
+                            <div class="action-buttons">
+                                <button class="btn btn-secondary btn-sm" @onclick="RemoveKeyFromGateway" disabled="@_sshKeyBusy">
+                                    Remove from gateway
+                                </button>
+                            </div>
+                        }
+                        else
+                        {
+                            <small class="form-help">
+                                Your gateway is also your console, so UniFi Network cannot place the key on it.
+                                Network Optimizer can install it over your existing Gateway SSH connection and
+                                keep it there through reboots and firmware upgrades.
+                            </small>
+                            <div class="action-buttons">
+                                <button class="btn btn-primary btn-sm" @onclick="InstallKeyOnGateway" disabled="@_sshKeyBusy">
+                                    @if (_sshKeyBusy)
+                                    {
+                                        <span class="spinner"></span>
+                                        <span>Installing...</span>
+                                    }
+                                    else
+                                    {
+                                        <span>Install on gateway</span>
+                                    }
+                                </button>
+                            </div>
+                        }
+                    </div>
+                }
+
+                <details class="setup-guide">
+                    <summary>How to Install the Public Key</summary>
                     <div class="setup-guide-content">
-                        @if (_gatewayIsConsole)
+                        @if (_gatewayIsConsole && !CanInstallKeyOnGateway)
                         {
                             <p>
-                                <strong>Your gateway is also your console</strong>, so UniFi Network's
-                                Device SSH Settings does not reach it. SSH in with your password once and
-                                append the key above to <code>/root/.ssh/authorized_keys</code>.
+                                <strong>Your gateway is also your console</strong>, so UniFi Network's Device
+                                SSH Settings does not reach it. SSH in with your password once and append the
+                                key above to <code>/root/.ssh/authorized_keys</code>.
                             </p>
                             <p>For your switches and access points, in UniFi Network:</p>
                         }
                         else
                         {
-                            <p>In UniFi Network:</p>
+                            <p>For your switches and access points, in UniFi Network:</p>
                         }
                         <ol>
                             <li>Click <strong>UniFi Devices</strong> on the side menu</li>
@@ -804,8 +836,8 @@
                 </details>
 
                 <div class="action-buttons">
-                    <button class="btn btn-secondary" @onclick="ReplaceSshKey" disabled="@_sshKeyBusy">Replace</button>
-                    <button class="btn btn-danger" @onclick="RemoveSshKey" disabled="@_sshKeyBusy">Remove</button>
+                    <button class="btn btn-secondary btn-sm" @onclick="ReplaceSshKey" disabled="@_sshKeyBusy">Replace</button>
+                    <button class="btn btn-danger btn-sm" @onclick="RemoveSshKey" disabled="@_sshKeyBusy">Remove</button>
                 </div>
             }
         </div>
@@ -4370,7 +4402,6 @@
     // SSH key: one per site, shared by Gateway SSH and Device SSH.
     private SshKeyInfo? _sshKey;
     private bool _sshKeyBusy;
-    private bool _sshKeyCopied;
     private bool _showSshKeyUpload;
     private string _sshKeyUploadPem = "";
     private string _sshKeyUploadPassphrase = "";
@@ -4383,6 +4414,9 @@
     /// shows the device instructions, which are the common case.
     /// </summary>
     private bool _gatewayIsConsole;
+
+    /// <summary>What the gateway already has, for the one-click install. Null until loaded.</summary>
+    private SshKeyDeploymentStatus? _keyDeployStatus;
 
     // Gateway SSH
     private GatewaySshSettings? gatewaySettings;
@@ -4887,11 +4921,15 @@
     }
 
     /// <summary>
-    /// Whether key authentication is in play for a section, so the password field can say so. True for
-    /// a key file OR the site's stored key - both are offered ahead of the password.
+    /// Whether the password field should say a key is standing in for it.
+    ///
+    /// A key file does replace the password - saving one clears it. The site's stored key does not:
+    /// SSH.NET is handed every configured method and tries them in turn, so a saved password stays a
+    /// working fallback if the device does not have the key. Saying "using SSH key" over a live
+    /// password would misreport that.
     /// </summary>
-    private bool SshKeyInUse(string keyFilePath)
-        => !string.IsNullOrWhiteSpace(keyFilePath) || _sshKey is not null;
+    private bool SshKeyInUse(string keyFilePath, bool hasSavedPassword)
+        => !string.IsNullOrWhiteSpace(keyFilePath) || (_sshKey is not null && !hasSavedPassword);
 
     /// <summary>
     /// Shown where the key-file field would be for anyone below global Admin. It states that a file is
@@ -4909,11 +4947,78 @@
 
     private RenderFragment? DeviceKeyFileNote => KeyFileNote(sshPrivateKeyPath);
 
+    /// <summary>
+    /// Whether to offer one-click installation on the gateway. Only for a Cloud Gateway, since a UXG is
+    /// adopted and UniFi Network places the key on it already, and only when Gateway SSH can already
+    /// log in - the key we are installing cannot be what gets us in to install it.
+    /// </summary>
+    private bool CanInstallKeyOnGateway
+        => _gatewayIsConsole && _keyDeployStatus?.GatewayConfigured == true;
+
+    private async Task InstallKeyOnGateway()
+    {
+        _sshKeyBusy = true;
+        _sshKeyMessage = null;
+        StateHasChanged();
+
+        try
+        {
+            var (success, message) = await SshKeyDeployment.DeployAsync();
+            _sshKeyMessage = message;
+            _sshKeyMessageClass = success ? "success" : "danger";
+            _keyDeployStatus = await SshKeyDeployment.GetStatusAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to install the SSH key on the gateway");
+            _sshKeyMessage = $"Could not install the key on the gateway: {ex.Message}";
+            _sshKeyMessageClass = "danger";
+        }
+        finally
+        {
+            _sshKeyBusy = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task RemoveKeyFromGateway()
+    {
+        if (!await JS.InvokeAsync<bool>("confirm",
+            "Remove the key from the gateway? If Gateway SSH has no password configured, this will end "
+            + "its access until you set one or reinstall the key."))
+        {
+            return;
+        }
+
+        _sshKeyBusy = true;
+        StateHasChanged();
+
+        try
+        {
+            var (success, message) = await SshKeyDeployment.RemoveAsync();
+            _sshKeyMessage = message;
+            _sshKeyMessageClass = success ? "info" : "danger";
+            _keyDeployStatus = await SshKeyDeployment.GetStatusAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to remove the SSH key from the gateway");
+            _sshKeyMessage = $"Could not remove the key from the gateway: {ex.Message}";
+            _sshKeyMessageClass = "danger";
+        }
+        finally
+        {
+            _sshKeyBusy = false;
+            StateHasChanged();
+        }
+    }
+
     private async Task LoadSshKey()
     {
         try
         {
             _sshKey = await SshKeyService.GetAsync();
+            _keyDeployStatus = await SshKeyDeployment.GetStatusAsync();
         }
         catch (Exception ex)
         {
@@ -4955,7 +5060,6 @@
         {
             _sshKey = await SshKeyService.GenerateAsync(type);
             _showSshKeyUpload = false;
-            _sshKeyCopied = false;
             _sshKeyMessage = "SSH key generated. Install the public key below on your devices.";
             _sshKeyMessageClass = "success";
             await RefreshSshSettingsAfterKeyChange();
@@ -4992,7 +5096,6 @@
             _sshKeyUploadPem = "";
             _sshKeyUploadPassphrase = "";
             _showSshKeyUpload = false;
-            _sshKeyCopied = false;
             _sshKeyMessage = "SSH key stored.";
             _sshKeyMessageClass = "success";
             await RefreshSshSettingsAfterKeyChange();
@@ -5053,23 +5156,6 @@
         }
     }
 
-    private async Task CopySshPublicKey()
-    {
-        if (_sshKey is null) return;
-
-        try
-        {
-            await JS.InvokeVoidAsync("navigator.clipboard.writeText", _sshKey.PublicKey);
-            _sshKeyCopied = true;
-        }
-        catch (Exception ex)
-        {
-            Logger.LogWarning(ex, "Clipboard copy of the SSH public key failed");
-            _sshKeyMessage = "Could not copy automatically - select the key above and copy it.";
-            _sshKeyMessageClass = "info";
-        }
-    }
-
     /// <summary>
     /// Both SSH services cache their settings for five minutes, and those settings carry the
     /// stored-key flag that drives every "Configured" badge. Without this the badges lag a key change
@@ -5081,6 +5167,7 @@
         {
             gatewaySettings = await SshSettingsAdmin.GetGatewayForEditAsync();
             sshSettings = await SshSettingsAdmin.GetDeviceForEditAsync();
+            _keyDeployStatus = await SshKeyDeployment.GetStatusAsync();
         }
         catch (Exception ex)
         {
@@ -5109,10 +5196,10 @@
 
         // Must have either: password (new or saved) OR private key
         var hasPassword = !string.IsNullOrEmpty(gatewayPassword) || hasGatewayPassword;
-        var hasPrivateKey = !string.IsNullOrWhiteSpace(gatewayPrivateKeyPath);
+        var hasPrivateKey = !string.IsNullOrWhiteSpace(gatewayPrivateKeyPath) || _sshKey is not null;
         if (!hasPassword && !hasPrivateKey)
         {
-            gatewayMessage = "Either a password or private key path is required";
+            gatewayMessage = "A password, an SSH key, or a private key path is required";
             gatewayMessageClass = "danger";
             StateHasChanged();
             return;
@@ -5180,10 +5267,10 @@
 
         // Must have either: password (new or saved) OR private key
         var hasPassword = !string.IsNullOrEmpty(gatewayPassword) || hasGatewayPassword;
-        var hasPrivateKey = !string.IsNullOrWhiteSpace(gatewayPrivateKeyPath);
+        var hasPrivateKey = !string.IsNullOrWhiteSpace(gatewayPrivateKeyPath) || _sshKey is not null;
         if (!hasPassword && !hasPrivateKey)
         {
-            gatewayMessage = "Either a password or private key path is required";
+            gatewayMessage = "A password, an SSH key, or a private key path is required";
             gatewayMessageClass = "danger";
             StateHasChanged();
             return;
@@ -5350,10 +5437,10 @@
 
         // Must have either: password (new or saved) OR private key
         var hasPassword = !string.IsNullOrEmpty(sshPassword) || hasSshPassword;
-        var hasPrivateKey = !string.IsNullOrWhiteSpace(sshPrivateKeyPath);
+        var hasPrivateKey = !string.IsNullOrWhiteSpace(sshPrivateKeyPath) || _sshKey is not null;
         if (!hasPassword && !hasPrivateKey)
         {
-            sshMessage = "Either a password or private key path is required";
+            sshMessage = "A password, an SSH key, or a private key path is required";
             sshMessageClass = "danger";
             StateHasChanged();
             return;
@@ -5412,10 +5499,10 @@
 
         // Must have either: password (new or saved) OR private key
         var hasPassword = !string.IsNullOrEmpty(sshPassword) || hasSshPassword;
-        var hasPrivateKey = !string.IsNullOrWhiteSpace(sshPrivateKeyPath);
+        var hasPrivateKey = !string.IsNullOrWhiteSpace(sshPrivateKeyPath) || _sshKey is not null;
         if (!hasPassword && !hasPrivateKey)
         {
-            sshMessage = "Either a password or private key path is required";
+            sshMessage = "A password, an SSH key, or a private key path is required";
             sshMessageClass = "danger";
             StateHasChanged();
             return;

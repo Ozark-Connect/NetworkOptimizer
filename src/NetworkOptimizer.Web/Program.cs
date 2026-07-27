@@ -664,6 +664,8 @@ builder.Services.AddMutatingService<ISshKeyService, SshKeyService>();
 // The SSH settings as the edit forms see them. Separate from IGatewaySshService/IUniFiSshService on
 // purpose: those are on the connection path, which monitoring calls with no caller established.
 builder.Services.AddMutatingService<ISshSettingsAdminService, SshSettingsAdminService>();
+// One-click placement of the site's public key on a Cloud Gateway, via the shared udm-boot mechanism.
+builder.Services.AddMutatingService<ISshKeyDeploymentService, SshKeyDeploymentService>();
 // Per site: the update banner reflects the current site's gateway module deployment
 // state. Scoped so each site's Perf Tweaks / WAN Steering status is its own; a circuit
 // is session-lived, so the compute still runs about once per session.
