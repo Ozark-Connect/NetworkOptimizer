@@ -359,7 +359,7 @@
 
             <div class="form-group">
                 <label class="form-label">New Password</label>
-                <input type="password" class="form-control" @bind="adminNewPassword" @bind:event="oninput" @bind:after="OnAdminPasswordInput" placeholder="Enter new password" autocomplete="new-password" />
+                <input type="password" class="form-control" @bind="adminNewPassword" @bind:event="oninput" @onclick:stopPropagation="true" @bind:after="OnAdminPasswordInput" placeholder="Enter new password" autocomplete="new-password" />
             </div>
 
             <div class="form-group">
@@ -3148,7 +3148,7 @@
                 <div class="form-group">
                     <label class="form-label">Sites</label>
                     <div class="table-responsive">
-                        <table class="data-table settings-table">
+                        <table class="data-table settings-table sites-table">
                             <thead>
                                 <tr>
                                     <th>Name</th>
@@ -3161,16 +3161,17 @@
                             <tbody>
                                 @foreach (var site in _sites)
                                 {
-                                    <tr class="@(IsSiteRowOpen(site.Id) ? "site-row-selected" : null)">
+                                    <tr class="@(IsSiteRowOpen(site.Id) ? "site-row-selected site-row-collapsible" : null)"
+                                        @onclick="@(() => IsSiteRowOpen(site.Id) ? CollapsePanelsAsync() : Task.CompletedTask)">
                                         <td>
                                             @if (_editingSiteId == site.Id)
                                             {
                                                 <div class="site-name-edit">
                                                     <input type="text" class="form-control" @ref="_siteNameInput" @bind="_editSiteName" @bind:event="oninput"
                                                            @onkeydown="@(e => SiteNameEditKey(e, site))" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
-                                                    <button type="button" class="btn btn-primary btn-sm" @onclick="() => SaveSiteName(site)"
+                                                    <button type="button" class="btn btn-primary btn-sm" @onclick="() => SaveSiteName(site)" @onclick:stopPropagation="true"
                                                             disabled="@string.IsNullOrWhiteSpace(_editSiteName)">Save</button>
-                                                    <button type="button" class="btn btn-secondary btn-sm" @onclick="CancelSiteNameEdit">Cancel</button>
+                                                    <button type="button" class="btn btn-secondary btn-sm" @onclick="CancelSiteNameEdit" @onclick:stopPropagation="true">Cancel</button>
                                                 </div>
                                             }
                                             else
@@ -3178,7 +3179,7 @@
                                                 <span class="site-name-cell">
                                                     <span class="@(IsSiteRowOpen(site.Id) ? "site-name-selected" : null)">@site.Name</span>
                                                     <button type="button" class="site-name-edit-btn" data-tooltip="Rename site"
-                                                            aria-label="Rename site" @onclick="() => StartSiteNameEdit(site)">
+                                                            aria-label="Rename site" @onclick="() => StartSiteNameEdit(site)" @onclick:stopPropagation="true">
                                                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
                                                             <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
                                                         </svg>
@@ -3208,17 +3209,21 @@
                                         </td>
                                         <td>
                                             <div class="btn-group-wrap">
-                                                <button type="button" class="btn @SiteActionButtonClass(site.Id) btn-sm" @onclick="() => ToggleAgents(site.Id)">
+                                                <button type="button" class="btn @SiteActionButtonClass(site.Id) btn-sm" @onclick="() => ToggleAgents(site.Id)" @onclick:stopPropagation="true">
                                                     Configuration
                                                 </button>
-                                                <button type="button" class="btn @SiteActionButtonClass(site.Id) btn-sm" @onclick="() => ToggleSiteUsers(site.Id)">
+                                                <button type="button" class="btn @SiteActionButtonClass(site.Id) btn-sm" @onclick="() => ToggleSiteUsers(site.Id)" @onclick:stopPropagation="true">
                                                     Users
                                                 </button>
                                                 @if (site.Slug != SiteContext.Slug)
                                                 {
-                                                    <button type="button" class="btn btn-primary btn-sm" @onclick="() => SwitchToSiteAsync(site)">
+                                                    <button type="button" class="btn btn-primary btn-sm" @onclick="() => SwitchToSiteAsync(site)" @onclick:stopPropagation="true">
                                                         Switch to Site
                                                     </button>
+                                                }
+                                                @if (IsSiteRowOpen(site.Id))
+                                                {
+                                                    <span class="site-row-caret" aria-hidden="true">&#9650;</span>
                                                 }
                                             </div>
                                         </td>
@@ -3230,8 +3235,7 @@
                                                 <div class="expand-wrapper @(_panelExpanded ? "expanded" : "")">
                                                     <div class="expand-content">
                                                         <div class="site-config-panel">
-                                                            <button type="button" class="site-config-dismiss" @onclick="() => ToggleSiteUsers(site.Id)" aria-label="Dismiss">&times;</button>
-                                                            @* Scoped to this row's site rather than the one in context, so who can
+                                                                                                                        @* Scoped to this row's site rather than the one in context, so who can
                                                                reach a site is answered without switching to it first. *@
                                                             <IdentityAccessCard SiteSlug="@site.Slug" SiteName="@site.Name" />
                                                         </div>
@@ -3249,8 +3253,7 @@
                                                 <div class="expand-wrapper @(_panelExpanded ? "expanded" : "")">
                                                     <div class="expand-content">
                                                 <div class="site-config-panel">
-                                                    <button type="button" class="site-config-dismiss" @onclick="() => ToggleAgents(site.Id)" aria-label="Dismiss">&times;</button>
-                                                    <div class="site-config-section">
+                                                                                                        <div class="site-config-section">
                                                         <div class="site-config-section-title">Agent</div>
                                                         @if (agents.Count > 0)
                                                         {
@@ -3797,6 +3800,15 @@
         await Task.Delay(16);
         _panelExpanded = true;
         StateHasChanged();
+    }
+
+    /// <summary>Collapses whichever panel this row has open. Bound to the row itself, so the caret
+    /// and the row are one target; expanding stays on the explicit buttons.</summary>
+    private async Task CollapsePanelsAsync()
+    {
+        await ClosePanelAsync();
+        _expandedSiteId = null;
+        _usersSiteId = null;
     }
 
     /// <summary>Collapses a panel and waits for the transition before the caller unmounts it.</summary>
