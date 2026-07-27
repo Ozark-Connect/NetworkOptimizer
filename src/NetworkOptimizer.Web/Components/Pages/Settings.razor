@@ -3225,7 +3225,9 @@
                                             </div>
                                                 @if (IsSiteRowOpen(site.Id))
                                                 {
-                                                    <span class="site-row-caret" aria-hidden="true">&#9650;</span>
+                                                    @* Flips the moment a collapse starts rather than at unmount, so it points the
+                                                       way the panel is actually moving while the transition plays. *@
+                                                    <span class="site-row-caret" aria-hidden="true">@(_panelExpanded ? "▲" : "▼")</span>
                                                 }
                                             </div>
                                         </td>
