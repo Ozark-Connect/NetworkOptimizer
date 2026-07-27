@@ -150,7 +150,7 @@
                                                                         <label>OID</label>
                                                                         <div class="snmp-oid-input-group">
                                                                             <input type="text" @bind="_editOid" placeholder="1.3.6.1.4.1.41112..." />
-                                                                            <button class="btn btn-sm btn-secondary" @onclick="TestOid" disabled="@_testingOid">
+                                                                            <button class="btn btn-sm btn-contrast" @onclick="TestOid" disabled="@_testingOid">
                                                                                 @(_testingOid ? "..." : "Test")
                                                                             </button>
                                                                         </div>
@@ -196,7 +196,7 @@
                                                                 </div>
                                                                 <div class="snmp-form-actions">
                                                                     <button class="btn btn-sm btn-primary" @onclick="SaveOid" disabled="@_saving">Save</button>
-                                                                    <button class="btn btn-sm btn-secondary" @onclick="CancelAdd">Cancel</button>
+                                                                    <button class="btn btn-sm btn-contrast" @onclick="CancelAdd">Cancel</button>
                                                                     @if (!string.IsNullOrEmpty(_saveError))
                                                                     {
                                                                         <span class="snmp-save-error">@_saveError</span>
