@@ -115,7 +115,8 @@
                             <span class="toggle-slider"></span>
                             <span class="toggle-label">Max Load</span>
                         </label>
-                        <button class="btn btn-primary test-button wan-test-button"
+                        <SiteOperatorOnly>
+                            <button class="btn btn-primary test-button wan-test-button"
                                 @onclick="RunGatewayTest"
                                 disabled="@(_isRunning || !_gatewayAvailable || IsLicenseRestricted)">
                             @if (_isRunning && _activeTestType == "gateway")
@@ -130,6 +131,7 @@
                                 <span>Run Test from Gateway</span>
                             }
                         </button>
+                        </SiteOperatorOnly>
                         @if (!string.IsNullOrEmpty(_gatewayStatus))
                         {
                             <code class="wan-result-summary">@_gatewayStatus</code>
@@ -176,7 +178,8 @@
                             <span class="toggle-slider"></span>
                             <span class="toggle-label">Max Load</span>
                         </label>
-                        <button class="btn btn-primary test-button wan-test-button"
+                        <SiteOperatorOnly>
+                            <button class="btn btn-primary test-button wan-test-button"
                                 @onclick="RunServerTest"
                                 disabled="@(_isRunning || !_serverAvailable || IsLicenseRestricted)">
                             @if (_isRunning && _activeTestType == "server")
@@ -191,6 +194,7 @@
                                 <span>Run Test from Server</span>
                             }
                         </button>
+                        </SiteOperatorOnly>
                         @if (!string.IsNullOrEmpty(_serverStatus))
                         {
                             <code class="wan-result-summary">@_serverStatus</code>

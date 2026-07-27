@@ -363,7 +363,8 @@
                     <div class="pt-actions">
                         @if (effectiveStatus == TweakDisplayStatus.NotDeployed)
                         {
-                            <button class="btn btn-primary btn-sm"
+                            <SiteAdminOnly>
+                                <button class="btn btn-primary btn-sm"
                                     disabled="@(!_canDeploy || _deployingTweakId == def.Id || exclusiveOtherActive || (def.Id == "sfp-sgmiiplus" && _status?.SfpModuleAlreadyLoaded == true) || (def.Id == "sfp-sgmiiplus-port6" && _status?.SfpPort6ModuleAlreadyLoaded == true) || ((def.Id == "sfp-sgmiiplus" || def.Id == "sfp-sgmiiplus-port6") && _status?.SfpQcaSsdkMissing == true) || (def.Id == "mongodb-ssd" && _status?.SsdAvailable != true) || IsLicenseRestricted)"
                                     @onclick="() => ShowDeployConfirmation(def.Id)"
                                     data-tooltip="@(!_canDeploy ? (_status?.FirmwareSupported != true ? "Unsupported firmware" : "Install UDM Boot first") : null)">
@@ -377,10 +378,13 @@
                                     <span>Deploy</span>
                                 }
                             </button>
+                            </SiteAdminOnly>
                             <SiteAdminOnly>
-                                <button class="btn btn-secondary btn-sm" @onclick="() => MarkAsManual(def.Id)" disabled="@(_deployingTweakId != null || _removingTweakId != null)">
+                                <SiteAdminOnly>
+                                    <button class="btn btn-secondary btn-sm" @onclick="() => MarkAsManual(def.Id)" disabled="@(_deployingTweakId != null || _removingTweakId != null)">
                                     Mark as Manually Deployed
                                 </button>
+                                </SiteAdminOnly>
                             </SiteAdminOnly>
                         }
                         else if (effectiveStatus == TweakDisplayStatus.Active)
@@ -388,7 +392,8 @@
                             @if (tweakStatus?.ScriptOutdated == true)
                             {
                                 <SiteAdminOnly>
-                                    <button class="btn btn-sm btn-primary" @onclick="() => ShowDeployConfirmation(def.Id)" disabled="@(_deployingTweakId == def.Id || IsLicenseRestricted)">
+                                    <SiteAdminOnly>
+                                        <button class="btn btn-sm btn-primary" @onclick="() => ShowDeployConfirmation(def.Id)" disabled="@(_deployingTweakId == def.Id || IsLicenseRestricted)">
                                         @if (_deployingTweakId == def.Id)
                                         {
                                             <span class="spinner spinner-sm"></span>
@@ -399,6 +404,7 @@
                                             <span>Update</span>
                                         }
                                     </button>
+                                    </SiteAdminOnly>
                                 </SiteAdminOnly>
                             }
                             <button class="btn btn-sm btn-secondary" @onclick="RefreshStatus" disabled="@_isLoading">
@@ -407,7 +413,8 @@
                             @if (tweakStatus?.IsManuallyDeployed != true)
                             {
                                 <SiteAdminOnly>
-                                    <button class="btn btn-sm btn-danger" @onclick="() => ShowRemoveConfirmation(def.Id)" disabled="@(_removingTweakId == def.Id || _deployingTweakId == def.Id)">
+                                    <SiteAdminOnly>
+                                        <button class="btn btn-sm btn-danger" @onclick="() => ShowRemoveConfirmation(def.Id)" disabled="@(_removingTweakId == def.Id || _deployingTweakId == def.Id)">
                                         @if (_removingTweakId == def.Id)
                                         {
                                             <span class="spinner spinner-sm"></span>
@@ -418,6 +425,7 @@
                                             <span>Remove</span>
                                         }
                                     </button>
+                                    </SiteAdminOnly>
                                 </SiteAdminOnly>
                             }
                         }
@@ -426,16 +434,20 @@
                             <button class="btn btn-sm btn-secondary" @onclick="RefreshStatus" disabled="@_isLoading">
                                 Check Status
                             </button>
-                            <button class="btn btn-sm btn-outline-primary" @onclick="() => UnmarkManual(def.Id)">
+                            <SiteAdminOnly>
+                                <button class="btn btn-sm btn-outline-primary" @onclick="() => UnmarkManual(def.Id)">
                                 Unmark Manual
                             </button>
+                            </SiteAdminOnly>
                         }
                         else if (effectiveStatus == TweakDisplayStatus.Detected)
                         {
                             <SiteAdminOnly>
-                                <button class="btn btn-sm btn-primary" @onclick="() => MarkAsManual(def.Id)" disabled="@(_deployingTweakId != null || _removingTweakId != null)">
+                                <SiteAdminOnly>
+                                    <button class="btn btn-sm btn-primary" @onclick="() => MarkAsManual(def.Id)" disabled="@(_deployingTweakId != null || _removingTweakId != null)">
                                     Mark as Manually Deployed
                                 </button>
+                                </SiteAdminOnly>
                             </SiteAdminOnly>
                             <button class="btn btn-sm btn-secondary" @onclick="RefreshStatus" disabled="@_isLoading">
                                 Check Status
@@ -444,7 +456,8 @@
                         else if (effectiveStatus == TweakDisplayStatus.Issue)
                         {
                             <SiteAdminOnly>
-                                <button class="btn btn-sm btn-primary" @onclick="() => ShowDeployConfirmation(def.Id)" disabled="@(_deployingTweakId == def.Id || IsLicenseRestricted)">
+                                <SiteAdminOnly>
+                                    <button class="btn btn-sm btn-primary" @onclick="() => ShowDeployConfirmation(def.Id)" disabled="@(_deployingTweakId == def.Id || IsLicenseRestricted)">
                                     @if (_deployingTweakId == def.Id)
                                     {
                                         <span class="spinner spinner-sm"></span>
@@ -455,12 +468,14 @@
                                         <span>Redeploy</span>
                                     }
                                 </button>
+                                </SiteAdminOnly>
                             </SiteAdminOnly>
                             <button class="btn btn-sm btn-secondary" @onclick="RefreshStatus" disabled="@_isLoading">
                                 Check Status
                             </button>
                             <SiteAdminOnly>
-                                <button class="btn btn-sm btn-danger" @onclick="() => ShowRemoveConfirmation(def.Id)" disabled="@(_removingTweakId == def.Id || _deployingTweakId == def.Id)">
+                                <SiteAdminOnly>
+                                    <button class="btn btn-sm btn-danger" @onclick="() => ShowRemoveConfirmation(def.Id)" disabled="@(_removingTweakId == def.Id || _deployingTweakId == def.Id)">
                                     @if (_removingTweakId == def.Id)
                                     {
                                         <span class="spinner spinner-sm"></span>
@@ -471,6 +486,7 @@
                                         <span>Remove</span>
                                     }
                                 </button>
+                                </SiteAdminOnly>
                             </SiteAdminOnly>
                         }
                     </div>
