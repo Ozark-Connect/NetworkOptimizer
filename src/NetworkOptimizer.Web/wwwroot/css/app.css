@@ -19198,6 +19198,10 @@ body.kiosk-mode .status-indicators {
     color: var(--text-primary);
 }
 
+.gate-refusal p {
+    margin: 0.5rem 0 0.75rem 0;
+}
+
 .identity-roles-heading {
     margin-top: 1.25rem;
     margin-bottom: 0.5rem;
