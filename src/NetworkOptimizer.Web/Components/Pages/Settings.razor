@@ -3208,10 +3208,10 @@
                                         </td>
                                         <td>
                                             <div class="btn-group-wrap">
-                                                <button type="button" class="btn btn-secondary btn-sm" @onclick="() => ToggleAgents(site.Id)">
+                                                <button type="button" class="btn @SiteActionButtonClass(site.Id) btn-sm" @onclick="() => ToggleAgents(site.Id)">
                                                     Configuration
                                                 </button>
-                                                <button type="button" class="btn btn-secondary btn-sm" @onclick="() => ToggleSiteUsers(site.Id)">
+                                                <button type="button" class="btn @SiteActionButtonClass(site.Id) btn-sm" @onclick="() => ToggleSiteUsers(site.Id)">
                                                     Users
                                                 </button>
                                                 @if (site.Slug != SiteContext.Slug)
@@ -3775,6 +3775,12 @@
     /// row reads the same whichever panel opened it.
     /// </summary>
     private bool IsSiteRowOpen(int siteId) => _expandedSiteId == siteId || _usersSiteId == siteId;
+
+    /// <summary>
+    /// Secondary normally, tertiary once the row is highlighted - the selected row's background is
+    /// brighter than a secondary button, so it would otherwise sink into it.
+    /// </summary>
+    private string SiteActionButtonClass(int siteId) => IsSiteRowOpen(siteId) ? "btn-tertiary" : "btn-secondary";
     private bool _creatingAgent;
     private string? _newAgentToken;
     private int? _newAgentTokenSiteId;
