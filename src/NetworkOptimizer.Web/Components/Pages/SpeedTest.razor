@@ -587,7 +587,7 @@
             }
             else if (!showAddDevice)
             {
-                <p class="empty-state">No saved devices. Click "Add Device" to add a server or other device for testing.</p>
+                <p class="empty-state">@(_canConfigure ? "No saved devices. Click \"Add Device\" to add a server or other device for testing." : "No saved devices. A site administrator adds servers and other devices for testing.")</p>
             }
 
             @if (showAddDevice || editingDevice.Id > 0)
