@@ -11,7 +11,7 @@
 *@
 
 <div class="form-group ssh-key-row">
-    <label class="form-label">SSH key</label>
+    <label class="form-label @(Key is null ? "form-label-unused" : "")">SSH key@(Key is null ? " (Not in use)" : "")</label>
     @if (Key is not null)
     {
         <div class="ssh-key-row-set">

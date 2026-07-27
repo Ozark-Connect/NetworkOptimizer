@@ -442,7 +442,7 @@
             </div>
 
             <div class="form-group">
-                <label class="form-label">Password</label>
+                <label class="form-label @UnusedLabel(GatewayPasswordSet)">Password@(NotInUse(GatewayPasswordSet))</label>
                 <input type="password" class="form-control" @bind="gatewayPassword" placeholder="@(SshKeyInUse(gatewayPrivateKeyPath, hasGatewayPassword) ? "(using SSH key)" : hasGatewayPassword ? "Saved – enter new to update" : "Enter password")" autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore />
             </div>
 
@@ -450,7 +450,7 @@
 
             <AdminOnly NotAuthorized="@GatewayKeyFileNote">
                 <div class="form-group">
-                    <label class="form-label">Private Key Path</label>
+                    <label class="form-label @UnusedLabel(GatewayKeyPathSet)">Private Key Path@(NotInUse(GatewayKeyPathSet))</label>
                     <input type="text" class="form-control" @bind="gatewayPrivateKeyPath" placeholder="/app/ssh-keys/gateway_key" />
                     <small class="form-help">Point at a key already on this server, for example your own <code>~/.ssh/id_rsa</code>. Leave blank to use the stored SSH key or a password.</small>
                 </div>
@@ -615,7 +615,7 @@
             </div>
 
             <div class="form-group">
-                <label class="form-label">Password</label>
+                <label class="form-label @UnusedLabel(DevicePasswordSet)">Password@(NotInUse(DevicePasswordSet))</label>
                 <input type="password" class="form-control" @bind="sshPassword" placeholder="@(SshKeyInUse(sshPrivateKeyPath, hasSshPassword) ? "(using SSH key)" : hasSshPassword ? "Saved – enter new to update" : "Enter password")" autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore />
             </div>
 
@@ -623,7 +623,7 @@
 
             <AdminOnly NotAuthorized="@DeviceKeyFileNote">
                 <div class="form-group">
-                    <label class="form-label">Private Key Path</label>
+                    <label class="form-label @UnusedLabel(DeviceKeyPathSet)">Private Key Path@(NotInUse(DeviceKeyPathSet))</label>
                     <input type="text" class="form-control" @bind="sshPrivateKeyPath" placeholder="/app/ssh-keys/id_rsa" />
                     <small class="form-help">Point at a key already on this server, for example your own <code>~/.ssh/id_rsa</code>. Leave blank to use the stored SSH key or a password.</small>
                 </div>
@@ -4675,6 +4675,10 @@
             _kioskMode = await JS.InvokeAsync<bool>("getKioskMode");
             StateHasChanged();
             await HandleFragmentNavigationAsync();
+
+            // Connection is the default tab, so arriving here never goes through SetActiveTab and
+            // the gateway would otherwise only be asked about after clicking away and back.
+            await EnsureKeyDeployStatusAsync();
         }
     }
 
@@ -4977,6 +4981,24 @@
             gatewayMessageClass = "danger";
         }
     }
+
+    /// <summary>
+    /// An auth option is "in use" when it has a value configured. Several can be in use at once - SSH
+    /// is handed every configured method and tries them in turn, so this is not a choice between them.
+    /// </summary>
+    private bool GatewayPasswordSet => hasGatewayPassword || !string.IsNullOrEmpty(gatewayPassword);
+
+    private bool GatewayKeyPathSet => !string.IsNullOrWhiteSpace(gatewayPrivateKeyPath);
+
+    private bool DevicePasswordSet => hasSshPassword || !string.IsNullOrEmpty(sshPassword);
+
+    private bool DeviceKeyPathSet => !string.IsNullOrWhiteSpace(sshPrivateKeyPath);
+
+    /// <summary>Dims the header of an option that is not configured.</summary>
+    private static string UnusedLabel(bool inUse) => inUse ? "" : "form-label-unused";
+
+    /// <summary>Says so in words, since dimming alone is easy to miss.</summary>
+    private static string NotInUse(bool inUse) => inUse ? "" : " (Not in use)";
 
     /// <summary>
     /// Whether the password field should say a key is standing in for it.
