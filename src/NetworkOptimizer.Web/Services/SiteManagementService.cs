@@ -18,6 +18,7 @@ public class SiteManagementService : ISiteManagementService
 
     private readonly ISiteRepository _siteRepository;
     private readonly Authorization.IEffectiveSiteRoleResolver _siteRoles;
+    private readonly AgentTunnelRegistry _tunnelRegistry;
     private readonly IDbContextFactory<NetworkOptimizerDbContext> _mainDbFactory;
     private readonly SiteDatabasePaths _dbPaths;
     private readonly Licensing.LicenseStateService _licenseState;
@@ -31,6 +32,7 @@ public class SiteManagementService : ISiteManagementService
     public SiteManagementService(
         ISiteRepository siteRepository,
         Authorization.IEffectiveSiteRoleResolver siteRoles,
+        AgentTunnelRegistry tunnelRegistry,
         IDbContextFactory<NetworkOptimizerDbContext> mainDbFactory,
         SiteDatabasePaths dbPaths,
         Licensing.LicenseStateService licenseState,
@@ -44,6 +46,7 @@ public class SiteManagementService : ISiteManagementService
         _siteAccess = siteAccess;
         _siteRepository = siteRepository;
         _siteRoles = siteRoles;
+        _tunnelRegistry = tunnelRegistry;
         _mainDbFactory = mainDbFactory;
         _dbPaths = dbPaths;
         _licenseState = licenseState;
@@ -163,6 +166,22 @@ public class SiteManagementService : ISiteManagementService
         _changeNotifier.NotifySitesChanged();
     }
 
+    /// <summary>
+    /// Closes any agent tunnel still open for a site that is going away or going quiet. An agent
+    /// streams results until something stops it, and removing a site deletes the database those
+    /// results are written to - so without this the next batch lands on a file that no longer
+    /// exists, and the failure escapes the tunnel handler as an unhandled error rather than a close.
+    /// </summary>
+    private void DropTunnels(string slug, string reason)
+    {
+        foreach (var connection in _tunnelRegistry.GetForSite(slug))
+        {
+            _logger.LogInformation("Dropping tunnel for agent {Agent} on site {Slug}: {Reason}",
+                connection.AgentName, slug, reason);
+            connection.Drop();
+        }
+    }
+
     /// <inheritdoc />
     public async Task RenameSiteAsync(string siteSlug, string name)
     {
@@ -200,6 +219,7 @@ public class SiteManagementService : ISiteManagementService
         {
             await _collectionRegistry.StopForSiteAsync(site.Slug);
             _siteConnections.RemoveFor(site.Slug);
+            DropTunnels(site.Slug, "site disabled");
         }
         // Re-enable needs no explicit start: the collection registry's reconcile
         // pass picks the site up within its cadence, and the next page view or
@@ -226,6 +246,7 @@ public class SiteManagementService : ISiteManagementService
         await _siteRepository.UpdateAsync(site);
         await _collectionRegistry.StopForSiteAsync(site.Slug);
         _siteConnections.RemoveFor(site.Slug);
+        DropTunnels(site.Slug, "site removed");
 
         await using (var db = await _mainDbFactory.CreateDbContextAsync())
         {
