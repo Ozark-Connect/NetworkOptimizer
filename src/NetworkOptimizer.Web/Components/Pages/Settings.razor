@@ -446,7 +446,7 @@
                 <input type="password" class="form-control" @bind="gatewayPassword" placeholder="@(SshKeyInUse(gatewayPrivateKeyPath, hasGatewayPassword) ? "(using SSH key)" : hasGatewayPassword ? "Saved – enter new to update" : "Enter password")" autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore />
             </div>
 
-            <SshKeyRow Key="_sshKey" />
+            <SshKeyRow Key="_sshKey" OnManage="ShowSshKeyPanel" />
 
             <AdminOnly NotAuthorized="@GatewayKeyFileNote">
                 <div class="form-group">
@@ -619,7 +619,7 @@
                 <input type="password" class="form-control" @bind="sshPassword" placeholder="@(SshKeyInUse(sshPrivateKeyPath, hasSshPassword) ? "(using SSH key)" : hasSshPassword ? "Saved – enter new to update" : "Enter password")" autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore />
             </div>
 
-            <SshKeyRow Key="_sshKey" />
+            <SshKeyRow Key="_sshKey" OnManage="ShowSshKeyPanel" />
 
             <AdminOnly NotAuthorized="@DeviceKeyFileNote">
                 <div class="form-group">
@@ -3766,6 +3766,15 @@
             StateHasChanged();
         }
 
+        await ScrollToAndHighlightAsync(anchor);
+    }
+
+    /// <summary>
+    /// Brings a card into view and flashes an outline round it. Shared so an in-page link highlights
+    /// exactly the way arriving on a #anchor does.
+    /// </summary>
+    private async Task ScrollToAndHighlightAsync(string anchor)
+    {
         // Let the tab panel render before scrolling; same scroll-and-highlight
         // pattern as the Monitoring page.
         await Task.Delay(300);
@@ -3785,6 +3794,18 @@
                     if (inp) inp.focus({ preventScroll: true });
                 }
             })();");
+    }
+
+    /// <summary>Takes the reader to the SSH Key panel from a key row elsewhere on this page.</summary>
+    private async Task ShowSshKeyPanel()
+    {
+        if (_activeTab != "connection")
+        {
+            _activeTab = "connection";
+            StateHasChanged();
+        }
+
+        await ScrollToAndHighlightAsync("ssh-key");
     }
 
     // Multi-Site
