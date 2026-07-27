@@ -137,7 +137,22 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
                         await _enrollment.HeartbeatAsync(hello.AgentKey, hello.Version, hello.LanIp);
                         break;
                     case AgentMessage.PayloadOneofCase.ProbeResults:
-                        await _probeResultSink.RecordBatchAsync(connection, message.ProbeResults, ct);
+                        // A batch that cannot be stored is this batch's problem, not the tunnel's.
+                        // It used to escape the handler, which gRPC reports to the agent as an
+                        // opaque "Exception was thrown by handler" - what a site being removed out
+                        // from under a live agent produced, since its database had gone. The batch
+                        // is deliberately NOT acked, so the agent keeps it and sends it again.
+                        try
+                        {
+                            await _probeResultSink.RecordBatchAsync(connection, message.ProbeResults, ct);
+                        }
+                        catch (Exception ex) when (ex is not OperationCanceledException)
+                        {
+                            _logger.LogWarning(ex, "Discarding probe batch from agent {Name} on site {Slug}",
+                                agent.Name, siteSlug);
+                            break;
+                        }
+
                         // Ack only after the batch is persisted, so the agent keeps it
                         // buffered until we confirm it landed. Cumulative: sequence N
                         // acks everything <= N. Sequence 0 = an older agent with no acking.
@@ -154,7 +169,16 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
                         _proxy.OnProxyClose(message.ProxyClose);
                         break;
                     case AgentMessage.PayloadOneofCase.SnmpResults:
-                        await _probeResultSink.RecordSnmpBatchAsync(connection, message.SnmpResults, ct);
+                        // Same reasoning as the probe batch above - this one took the tunnel down too.
+                        try
+                        {
+                            await _probeResultSink.RecordSnmpBatchAsync(connection, message.SnmpResults, ct);
+                        }
+                        catch (Exception ex) when (ex is not OperationCanceledException)
+                        {
+                            _logger.LogWarning(ex, "Discarding SNMP batch from agent {Name} on site {Slug}",
+                                agent.Name, siteSlug);
+                        }
                         if (message.Sequence > 0)
                             connection.TrySend(new ServerMessage { ResultAck = new ResultAck { Sequence = message.Sequence } });
                         break;
