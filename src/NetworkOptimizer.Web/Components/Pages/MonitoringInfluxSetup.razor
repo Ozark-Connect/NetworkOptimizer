@@ -16,7 +16,17 @@
     </p>
 </div>
 
-<InfluxSetupWizard TitlePrefix="" OnProvisioned="OnProvisioned" />
+<SiteAdminOnly>
+    <ChildContent>
+        <InfluxSetupWizard TitlePrefix="" OnProvisioned="OnProvisioned" />
+    </ChildContent>
+    <NotAuthorized>
+        <p class="page-description">
+            Setting up monitoring storage is a site administrator's action. Monitoring - Setup shows
+            whether it is already running.
+        </p>
+    </NotAuthorized>
+</SiteAdminOnly>
 
 @code {
     private void OnProvisioned()

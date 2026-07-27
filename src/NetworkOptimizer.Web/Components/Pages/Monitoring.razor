@@ -1456,7 +1456,11 @@ else
 
             @if (!_influxConfigured || _showInfluxWizard)
             {
-                <InfluxSetupWizard TitlePrefix="Set up " OnProvisioned="OnInfluxProvisioned" OnDismissed="() => { _showInfluxWizard = false; StateHasChanged(); }" />
+                @* Provisioning reaches the whole instance - it can create org, buckets and token for
+                   this site and, on the silent path, for every site. Not a viewer's to run. *@
+                <SiteAdminOnly>
+                    <InfluxSetupWizard TitlePrefix="Set up " OnProvisioned="OnInfluxProvisioned" OnDismissed="() => { _showInfluxWizard = false; StateHasChanged(); }" />
+                </SiteAdminOnly>
             }
 
             <div class="card" style="@(!_influxConfigured ? "margin-top: 1.5rem;" : "")">
