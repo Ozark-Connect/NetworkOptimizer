@@ -110,9 +110,21 @@
                                 <td class="identity-role-mark">@Yes</td>
                             </tr>
                             <tr>
-                                <td>Apply a Wi-Fi Optimizer change</td>
+                                <td>Acknowledge or resolve an alert</td>
                                 <td class="identity-role-mark">@No</td>
                                 <td class="identity-role-mark">@Yes</td>
+                                <td class="identity-role-mark">@Yes</td>
+                            </tr>
+                            <tr>
+                                <td>Change an alert rule or a schedule</td>
+                                <td class="identity-role-mark">@No</td>
+                                <td class="identity-role-mark">@No</td>
+                                <td class="identity-role-mark">@Yes</td>
+                            </tr>
+                            <tr>
+                                <td>Steer traffic to a different WAN</td>
+                                <td class="identity-role-mark">@No</td>
+                                <td class="identity-role-mark">@No</td>
                                 <td class="identity-role-mark">@Yes</td>
                             </tr>
                             <tr>
@@ -147,7 +159,8 @@
                     <strong>Where the line falls between Operator and Admin:</strong> if the action is part of running the
                     network day to day, and getting it wrong is fixed by doing it again, an Operator can do
                     it. If it installs something, removes something, or changes who can get in, it is an
-                    Admin's.
+                    Admin's. So is anything that can take the network off the air while it is wrong -
+                    steering traffic to another WAN is an Admin's even though you might edit it often.
                 </p>
             </div>
         </div>
