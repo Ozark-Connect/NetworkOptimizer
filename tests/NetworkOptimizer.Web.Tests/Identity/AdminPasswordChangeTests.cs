@@ -215,6 +215,60 @@ public sealed class AdminPasswordChangeTests : IDisposable
     }
 
     [Fact]
+    public async Task ChangingWhatAnAccountMayDoDoesNotEndItsSessions()
+    {
+        await SeedAdminSettingsAsync("Original-Pass-1");
+
+        await using var provider = BuildProvider();
+        using (var boot = provider.CreateScope())
+            await boot.ServiceProvider.GetRequiredService<IIdentityBootstrapService>().RunAsync();
+
+        string targetId, stampBefore;
+        int versionBefore;
+        using (var scope = provider.CreateScope())
+        {
+            var identityAdmin = scope.ServiceProvider.GetRequiredService<IIdentityAdminService>();
+            (await identityAdmin.CreateUserAsync("colleague", null, "Colleague-Pass-2", Roles.Viewer))
+                .Succeeded.Should().BeTrue();
+            var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+            var target = await userManager.FindByNameAsync("colleague");
+            targetId = target!.Id;
+            stampBefore = await userManager.GetSecurityStampAsync(target);
+            versionBefore = target.MembershipVersion;
+        }
+
+        using (var scope = provider.CreateScope())
+        {
+            var identityAdmin = scope.ServiceProvider.GetRequiredService<IIdentityAdminService>();
+            (await identityAdmin.GrantGlobalRoleAsync(targetId, Roles.Operator)).Succeeded.Should().BeTrue();
+        }
+
+        using (var scope = provider.CreateScope())
+        {
+            var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+            var target = await userManager.FindByIdAsync(targetId);
+            (await userManager.GetSecurityStampAsync(target!)).Should()
+                .Be(stampBefore, "a permission change is not a revocation - rotating the stamp would throw the user out of every session");
+            target!.MembershipVersion.Should()
+                .BeGreaterThan(versionBefore, "the version advance is what tells a live session to re-issue its cookie");
+        }
+
+        // Disabling the account is a revocation, and must still end every session it has.
+        using (var scope = provider.CreateScope())
+        {
+            var identityAdmin = scope.ServiceProvider.GetRequiredService<IIdentityAdminService>();
+            (await identityAdmin.SetEnabledAsync(targetId, false)).Succeeded.Should().BeTrue();
+        }
+
+        using (var scope = provider.CreateScope())
+        {
+            var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+            var target = await userManager.FindByIdAsync(targetId);
+            (await userManager.GetSecurityStampAsync(target!)).Should().NotBe(stampBefore);
+        }
+    }
+
+    [Fact]
     public async Task DeletingTheAccountYouAreSignedInAsIsRefused()
     {
         await SeedAdminSettingsAsync("Original-Pass-1");
@@ -387,6 +441,8 @@ public sealed class AdminPasswordChangeTests : IDisposable
     /// </summary>
     private sealed class UnusedSiteRoleResolver : NetworkOptimizer.Web.Services.Authorization.IEffectiveSiteRoleResolver
     {
+        public void Invalidate(string userId) { }
+
         public Task<SiteRole?> GetEffectiveRoleAsync(System.Security.Claims.ClaimsPrincipal user, string slug)
             => Task.FromResult<SiteRole?>(null);
 

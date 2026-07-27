@@ -266,6 +266,8 @@ public sealed class MfaRequirementTests : IDisposable
     /// </summary>
     private sealed class UnusedSiteRoleResolver : NetworkOptimizer.Web.Services.Authorization.IEffectiveSiteRoleResolver
     {
+        public void Invalidate(string userId) { }
+
         public Task<SiteRole?> GetEffectiveRoleAsync(System.Security.Claims.ClaimsPrincipal user, string slug)
             => Task.FromResult<SiteRole?>(null);
 

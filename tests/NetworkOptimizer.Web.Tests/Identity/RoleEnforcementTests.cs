@@ -179,6 +179,8 @@ public class RoleEnforcementTests
     /// <summary>No site role anywhere: site-scoped gating is covered by SiteScopedGateTests.</summary>
     private sealed class NeutralSiteRoleResolver : NetworkOptimizer.Web.Services.Authorization.IEffectiveSiteRoleResolver
     {
+        public void Invalidate(string userId) { }
+
         public Task<SiteRole?> GetEffectiveRoleAsync(System.Security.Claims.ClaimsPrincipal user, string slug)
             => Task.FromResult<SiteRole?>(null);
 

@@ -54,6 +54,8 @@ public class SiteScopedGateTests
     /// <summary>Reports the given role on <see cref="ThisSite"/> and nothing anywhere else.</summary>
     private sealed class RoleOnThisSite : IEffectiveSiteRoleResolver
     {
+        public void Invalidate(string userId) { }
+
         private readonly SiteRole? _role;
         public RoleOnThisSite(SiteRole? role) => _role = role;
 

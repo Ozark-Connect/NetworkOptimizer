@@ -218,6 +218,29 @@ public static class AuthEndpoints
         })
             .RequireAuthorization(Policies.RequireViewer);
 
+        // Re-issues the caller's own cookie from the current store: new roles, new membership version.
+        // A circuit lands here when it notices its permissions have moved on, and goes straight back
+        // to the page it was on. GET because it is the caller renewing their own session and nothing
+        // else - it grants nothing that signing out and in again would not.
+        app.MapGet("/api/account/session", async (
+            HttpContext context,
+            ICurrentUserAccessor currentUser,
+            IIdentitySignInService signInService) =>
+        {
+            var user = await currentUser.GetAsync(context.User);
+            if (user is null)
+                return Results.Redirect("/login");
+
+            await signInService.RefreshSignInAsync(user);
+
+            // Local paths only: this endpoint is reachable with a crafted query, and an open redirect
+            // off the back of a signed-in session is worth more to an attacker than the refresh is.
+            var requested = context.Request.Query["returnUrl"].ToString();
+            var target = requested.StartsWith('/') && !requested.StartsWith("//") ? requested : "/";
+            return Results.LocalRedirect(target);
+        })
+            .RequireAuthorization(Policies.RequireViewer);
+
         // Sign out of the application cookie; also clears any residual legacy auth_token cookie
         // during the bridge window. POST, not GET: a GET logout can be fired by any page embedding
         // <img src=".../api/auth/logout">, and by link prefetchers. Posting from a form also keeps

@@ -28,6 +28,8 @@ public sealed class MembershipOwnershipTests : IDisposable
     /// <summary>Reports SiteAdmin on exactly one site, which is what the guard consults.</summary>
     private sealed class SiteAdminOf : IEffectiveSiteRoleResolver
     {
+        public void Invalidate(string userId) { }
+
         private readonly string _slug;
         public SiteAdminOf(string slug) => _slug = slug;
 

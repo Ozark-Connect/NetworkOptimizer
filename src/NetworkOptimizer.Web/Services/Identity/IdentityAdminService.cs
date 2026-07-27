@@ -459,7 +459,7 @@ public sealed class IdentityAdminService : IIdentityAdminService
             return AdminActionResult.Ok();
 
         await _userManager.AddToRoleAsync(user, role);
-        await _userManager.UpdateSecurityStampAsync(user);
+        await PermissionsChangedAsync(user);
         Emit(AuditCategories.Rbac, AuditActions.RoleGranted, user, new { role });
         return AdminActionResult.Ok();
     }
@@ -480,7 +480,7 @@ public sealed class IdentityAdminService : IIdentityAdminService
             return AdminActionResult.Ok();
 
         await _userManager.RemoveFromRoleAsync(user, role);
-        await _userManager.UpdateSecurityStampAsync(user);
+        await PermissionsChangedAsync(user);
         Emit(AuditCategories.Rbac, AuditActions.RoleRevoked, user, new { role });
         return AdminActionResult.Ok();
     }
@@ -539,7 +539,7 @@ public sealed class IdentityAdminService : IIdentityAdminService
             await db.SaveChangesAsync();
         }
 
-        await BumpMembershipVersionAsync(user);
+        await PermissionsChangedAsync(user);
         Emit(AuditCategories.Rbac, AuditActions.MembershipChanged, user, new { targetType = targetType.ToString(), targetId, role = role.ToString() });
         return AdminActionResult.Ok();
     }
@@ -566,7 +566,7 @@ public sealed class IdentityAdminService : IIdentityAdminService
 
             await db.SiteMemberships.Where(m => m.Id == membershipId && m.UserId == userId).ExecuteDeleteAsync();
         }
-        await BumpMembershipVersionAsync(user);
+        await PermissionsChangedAsync(user);
         Emit(AuditCategories.Rbac, AuditActions.MembershipChanged, user, new { removed = membershipId });
         return AdminActionResult.Ok();
     }
@@ -678,11 +678,24 @@ public sealed class IdentityAdminService : IIdentityAdminService
         return AdminActionResult.Fail("This is the last enabled administrator; the action was refused to avoid locking everyone out.");
     }
 
-    private async Task BumpMembershipVersionAsync(ApplicationUser user)
+    /// <summary>
+    /// Records that a user's permissions changed - a global role, or a site membership.
+    ///
+    /// The security stamp is deliberately NOT rotated here. Rotating it ends every session the account
+    /// has, which is right for a revocation (disable, password change, sign out everywhere) and wrong
+    /// for this: being given access to one more site is not grounds for throwing someone out of the
+    /// app. The version advance is the signal instead, and a live circuit answers it by re-issuing its
+    /// own cookie (see RevalidatingIdentityAuthenticationStateProvider), which is how the new roles
+    /// reach a session that is already running.
+    ///
+    /// Site access is read from the database rather than the cookie, so dropping the cached resolution
+    /// is all it takes for a membership change to apply to the user's very next action.
+    /// </summary>
+    private async Task PermissionsChangedAsync(ApplicationUser user)
     {
         user.MembershipVersion++;
         await _userManager.UpdateAsync(user);
-        await _userManager.UpdateSecurityStampAsync(user);
+        _siteRoles.Invalidate(user.Id);
     }
 
     private async Task RemoveAllMembershipsAsync(string userId)
