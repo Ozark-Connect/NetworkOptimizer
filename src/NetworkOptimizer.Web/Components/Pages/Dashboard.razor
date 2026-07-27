@@ -41,7 +41,10 @@
         }
         else
         {
-            <button class="btn btn-sm btn-outline-primary" @onclick="EnterEditMode">Edit Layout</button>
+            @* The layout is shared by everyone on the site, so arranging it is an admin's call. *@
+            <SiteAdminOnly>
+                <button class="btn btn-sm btn-outline-primary" @onclick="EnterEditMode">Edit Layout</button>
+            </SiteAdminOnly>
         }
     </div>
     <p class="page-description">Network overview and health status</p>

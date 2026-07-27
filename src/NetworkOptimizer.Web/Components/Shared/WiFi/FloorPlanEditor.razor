@@ -1,4 +1,9 @@
 @using NetworkOptimizer.Web.Services
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using NetworkOptimizer.Web.Services.Authorization
+@inject IAuthorizationService Authz
+@inject SiteContextService SiteContext
 @using NetworkOptimizer.Web.Models
 @using NetworkOptimizer.Web.Components.Shared
 @using NetworkOptimizer.WiFi.Data
@@ -22,7 +27,7 @@
     <!-- Toolbar -->
     <div class="fp-toolbar">
         <div class="fp-toolbar-left">
-            @if (!ReadOnly)
+            @if (!IsReadOnly)
             {
                 <select class="fp-select" value="@_selectedBuildingId" @onchange="OnBuildingChanged"
                         disabled="@(_mode == "walls")">
@@ -54,7 +59,7 @@
                             @GetFloorLabel(f.FloorNumber)
                         </button>
                     }
-                    @if (!ReadOnly)
+                    @if (!IsReadOnly)
                     {
                         <button class="fp-floor-btn fp-floor-add" @onclick="ShowAddFloorDialog" data-tooltip="Add floor" data-tooltip-hover-only
                                 disabled="@(_mode == "walls")">+ Floor</button>
@@ -76,7 +81,7 @@
             }
         </div>
         <div class="fp-toolbar-right">
-            @if (!ReadOnly)
+            @if (!IsReadOnly)
             {
                 @if (_selectedFloor != null)
                 {
@@ -136,7 +141,7 @@
                         Reset Sim
                     </button>
                 }
-                @if (!ReadOnly && _plannedAps.Count > 0)
+                @if (!IsReadOnly && _plannedAps.Count > 0)
                 {
                     <button class="fp-btn @(_showPlannedAps ? "active" : "")" @onclick="TogglePlannedAps"
                             data-tooltip="Show/hide planned APs on map and heatmap" data-tooltip-hover-only>
@@ -260,7 +265,7 @@
             }
         }
 
-        @if (!ReadOnly && _selectedBuilding != null && _mode != "walls" && _mode != "aps" && _mode != "plan-aps")
+        @if (!IsReadOnly && _selectedBuilding != null && _mode != "walls" && _mode != "aps" && _mode != "plan-aps")
         {
             <div class="fp-edit-hint fp-wall-hint"><!--!--><span>Click Draw Layout to draw walls, windows, doors, etc.</span></div>
         }
@@ -336,7 +341,7 @@
     }
 
     <!-- Bottom bar -->
-    @if (!ReadOnly && _selectedFloor != null)
+    @if (!IsReadOnly && _selectedFloor != null)
     {
         <div class="fp-bottom-bar">
             <div class="fp-bar-group">
@@ -400,7 +405,7 @@
             </div>
         }
     }
-    else if (!ReadOnly && _selectedBuilding != null)
+    else if (!IsReadOnly && _selectedBuilding != null)
     {
         <div class="fp-bottom-bar">
             <button class="fp-btn" @onclick="StartBuildingMove">Move Building</button>
@@ -1618,6 +1623,18 @@
 @code {
     [Parameter] public string MapHeight { get; set; } = "600px";
     [Parameter] public bool ReadOnly { get; set; }
+
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    /// <summary>
+    /// Read-only when the caller asked for it OR when their role does not reach placing hardware on
+    /// a map. Editing here moves real APs, buildings and floors for everyone on the site, so it is
+    /// operating the network rather than looking at it - and every caller gets the check without
+    /// having to remember to pass anything.
+    /// </summary>
+    private bool IsReadOnly => ReadOnly || !_canEdit;
+
+    private bool _canEdit;
     [Parameter] public List<Iperf3Result> SpeedTestResults { get; set; } = new();
     [Parameter] public List<SignalMapPoint> SignalLogMarkers { get; set; } = new();
     [Parameter] public bool HideDashboardLinks { get; set; }
@@ -1722,6 +1739,9 @@
 
     protected override async Task OnParametersSetAsync()
     {
+        _canEdit = AuthState is null
+            || (await Authz.AuthorizeAsync((await AuthState).User, SiteContext.Slug, Policies.SiteOperator)).Succeeded;
+
         // Sync slider with external time filter from parent
         if (SignalTimeFilterHours.HasValue && SignalTimeFilterHours != _lastSignalTimeFilter)
         {
