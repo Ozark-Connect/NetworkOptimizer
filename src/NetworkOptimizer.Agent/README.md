@@ -168,8 +168,9 @@ re-enroll:
 1. Generate a new enrollment token in the web UI: **Settings > Multi-Site >
    (site) > Agents > Set up agent** (or **New Agent Token** if the site
    already had an agent).
-2. Edit `agent.json` on the agent box: remove the `agentKey` and `siteSlug`
-   fields, and set `enrollmentToken` to the new token.
+2. Edit `agent.json` on the agent box: add or update `enrollmentToken` with
+   the new token. You can also remove `agentKey` and `siteSlug`, but it's
+   not required - the agent replaces them on successful enrollment.
 3. Restart the agent service.
 
 The config file location depends on the install type:
@@ -182,7 +183,7 @@ The config file location depends on the install type:
 
 ```bash
 # Edit the config
-nano <path-to-agent.json>  # remove agentKey + siteSlug, add enrollmentToken
+nano <path-to-agent.json>  # add or update enrollmentToken
 
 # Restart - Docker
 docker restart network-optimizer-agent
