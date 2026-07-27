@@ -17,6 +17,7 @@ public class SiteManagementService : ISiteManagementService
     public const string DefaultSiteSlug = "main";
 
     private readonly ISiteRepository _siteRepository;
+    private readonly Authorization.IEffectiveSiteRoleResolver _siteRoles;
     private readonly IDbContextFactory<NetworkOptimizerDbContext> _mainDbFactory;
     private readonly SiteDatabasePaths _dbPaths;
     private readonly Licensing.LicenseStateService _licenseState;
@@ -29,6 +30,7 @@ public class SiteManagementService : ISiteManagementService
 
     public SiteManagementService(
         ISiteRepository siteRepository,
+        Authorization.IEffectiveSiteRoleResolver siteRoles,
         IDbContextFactory<NetworkOptimizerDbContext> mainDbFactory,
         SiteDatabasePaths dbPaths,
         Licensing.LicenseStateService licenseState,
@@ -41,6 +43,7 @@ public class SiteManagementService : ISiteManagementService
     {
         _siteAccess = siteAccess;
         _siteRepository = siteRepository;
+        _siteRoles = siteRoles;
         _mainDbFactory = mainDbFactory;
         _dbPaths = dbPaths;
         _licenseState = licenseState;
@@ -96,6 +99,7 @@ public class SiteManagementService : ISiteManagementService
         // when the license snapshot is unchanged (e.g. the main site was already covered),
         // so force subscribers to reload rather than relying on a snapshot diff.
         await _licenseState.RecomputeAsync(alwaysNotify: true);
+        _siteRoles.InvalidateAll();
         _changeNotifier.NotifySitesChanged();
         _logger.LogInformation("Multi-site management {State}", enabled ? "enabled" : "disabled");
     }
@@ -155,6 +159,27 @@ public class SiteManagementService : ISiteManagementService
     public async Task UpdateSiteAsync(Site site)
     {
         await _siteRepository.UpdateAsync(site);
+        _siteRoles.InvalidateAll();
+        _changeNotifier.NotifySitesChanged();
+    }
+
+    /// <inheritdoc />
+    public async Task RenameSiteAsync(string siteSlug, string name)
+    {
+        var trimmed = name.Trim();
+        if (trimmed.Length == 0)
+            return;
+
+        var sites = await _siteRepository.GetAllAsync();
+        var site = sites.FirstOrDefault(s => string.Equals(s.Slug, siteSlug, StringComparison.OrdinalIgnoreCase));
+        if (site is null)
+            return;
+
+        // The slug is what the caller was authorized against, so the row is looked up by slug here
+        // rather than taken from the caller - a Site object off the page could name a different one.
+        site.Name = trimmed;
+        await _siteRepository.UpdateAsync(site);
+        _siteRoles.InvalidateAll();
         _changeNotifier.NotifySitesChanged();
     }
 
@@ -180,6 +205,7 @@ public class SiteManagementService : ISiteManagementService
         // pass picks the site up within its cadence, and the next page view or
         // agent connect re-establishes the console connection.
 
+        _siteRoles.InvalidateAll();
         _changeNotifier.NotifySitesChanged();
         _logger.LogInformation("Site {Slug} {State}", site.Slug, enabled ? "enabled" : "disabled");
     }
@@ -225,6 +251,7 @@ public class SiteManagementService : ISiteManagementService
 
         // Free the site's license seat.
         await _licenseState.RecomputeAsync();
+        _siteRoles.InvalidateAll();
         _changeNotifier.NotifySitesChanged();
         _logger.LogInformation("Removed site {Slug} (id {Id}) and its data", site.Slug, site.Id);
     }
@@ -262,6 +289,7 @@ public class SiteManagementService : ISiteManagementService
         // Licensing card reflects the new site immediately (no manual license refresh needed).
         await _activation.AutoAssignAsync();
         await _licenseState.RecomputeAsync();
+        _siteRoles.InvalidateAll();
         _changeNotifier.NotifySitesChanged();
         return site;
     }

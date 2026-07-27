@@ -22,6 +22,8 @@ public class SiteAccessFilterTests
     {
         public void Invalidate(string userId) { }
 
+        public void InvalidateAll() { }
+
         private readonly HashSet<string> _slugs;
         public StubResolver(params string[] slugs) =>
             _slugs = new HashSet<string>(slugs, StringComparer.OrdinalIgnoreCase);
