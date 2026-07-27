@@ -2510,7 +2510,7 @@ a.btn-lg {
 }
 
 .card.danger-zone {
-    border-color: var(--danger-color);
+    border-left: 4px solid var(--danger-color);
 }
 
 .card.danger-zone .card-title {
@@ -2518,7 +2518,7 @@ a.btn-lg {
 }
 
 .card.card-accent {
-    border-color: var(--primary-hover);
+    border-left: 4px solid var(--primary-hover);
 }
 
 .card.card-accent .card-title {
