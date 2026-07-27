@@ -10,6 +10,10 @@
 @using NetworkOptimizer.UniFi.Models
 @using NetworkOptimizer.Core.Models
 @using NetworkOptimizer.Web.Models
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using NetworkOptimizer.Web.Services.Authorization
+@inject IAuthorizationService Authz
 @inject IIperf3SpeedTestService SpeedTestService
 @inject UniFiSshService SshService
 @inject UniFiConnectionService ConnectionService
@@ -378,7 +382,14 @@
                     }
                     else
                     {
-                        <text>Connect to your UniFi controller in <a href="/settings#console-connection">Settings</a> to discover devices.</text>
+                        @if (_canConfigure)
+                        {
+                            <text>Connect to your UniFi controller in <a href="/settings#console-connection">Settings</a> to discover devices.</text>
+                        }
+                        else
+                        {
+                            <text>Device discovery needs the UniFi Console connected, which a site administrator sets up.</text>
+                        }
                     }
                 </div>
             }
@@ -1385,6 +1396,14 @@
 </style>
 
 @code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    /// <summary>
+    /// Whether this caller can open the Settings pages this page points at. Copy only - the controls
+    /// themselves are gated by their own wrappers.
+    /// </summary>
+    private bool _canConfigure;
+
     private bool IsLicenseRestricted => !LicenseState.IsSiteOperational(SiteContext.Slug);
 
     // Resolve the current site's path analyzer (not the main-pinned singleton) so historical
@@ -1502,6 +1521,9 @@
 
     protected override async Task OnInitializedAsync()
     {
+        _canConfigure = AuthState is null
+            || (await Authz.AuthorizeAsync((await AuthState).User, SiteContext.Slug, Policies.SiteAdmin)).Succeeded;
+
         PtrState.RefreshCallback = () => LoadHistory();
         PtrState.NotifyStateChanged = StateHasChanged;
 
