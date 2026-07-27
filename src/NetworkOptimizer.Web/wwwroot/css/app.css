@@ -1,4 +1,4 @@
-/* ============================================
+﻿/* ============================================
    Network Optimizer - Main Stylesheet
    Modern, dark-mode friendly design
    ============================================ */
@@ -2344,13 +2344,15 @@ a.btn-lg {
 /* The actions follow a setup-guide, which carries no bottom margin of its own. */
 #ssh-key .action-buttons {
     margin-top: 1.5rem;
+    gap: 1rem;
 }
 
-/* Link - a button that reads as a link, for the lesser of two adjacent actions */
+/* A button that reads as a link, for the lesser of two adjacent actions. */
 .btn-link {
     background: none;
     border: none;
     padding: 0;
+    font-size: 0.875rem;
     color: var(--primary-hover);
     text-decoration: underline;
     cursor: pointer;
@@ -2814,9 +2816,6 @@ select.form-control {
     position: relative;
 }
 
-/* The block carries its own look rather than relying on an ancestor to supply it: .agent-install and
-   .site-wizard each styled their own pre, so the component rendered as bare text anywhere else. Same
-   values as those two, which still win on source order where they apply. */
 .code-copy-block pre {
     background: var(--bg-primary);
     padding: 0.75rem;
