@@ -110,12 +110,12 @@
                                 </td>
                                 <td class="identity-actions-col">
                                     <div class="identity-row-actions">
-                                        <button type="button" class="btn btn-tertiary btn-sm" @onclick="() => Edit(provider)">
+                                        <button type="button" class="btn btn-secondary btn-sm" @onclick="() => Edit(provider)">
                                             @(provider.ManagedByConfigFile ? "View" : "Edit")
                                         </button>
                                         @if (!provider.ManagedByConfigFile)
                                         {
-                                            <button type="button" class="btn btn-tertiary btn-sm" @onclick="() => ToggleEnabledAsync(provider)">
+                                            <button type="button" class="btn btn-secondary btn-sm" @onclick="() => ToggleEnabledAsync(provider)">
                                                 @(provider.Enabled ? "Disable" : "Enable")
                                             </button>
                                             <button type="button" class="btn btn-danger btn-sm" @onclick="() => DeleteAsync(provider)">Delete</button>

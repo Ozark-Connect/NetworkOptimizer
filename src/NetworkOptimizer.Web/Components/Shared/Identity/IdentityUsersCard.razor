@@ -129,16 +129,16 @@
                                 </td>
                                 <td class="identity-actions-col">
                                     <div class="identity-row-actions">
-                                        <button type="button" class="btn btn-tertiary btn-sm"
+                                        <button type="button" class="btn btn-secondary btn-sm"
                                                 @onclick="() => OpenPasswordReset(user.Id)" disabled="@(_busyUserId == user.Id)">
                                             Reset password
                                         </button>
-                                        <button type="button" class="btn btn-tertiary btn-sm"
+                                        <button type="button" class="btn btn-secondary btn-sm"
                                                 @onclick="() => OpenLinks(user.Id)" disabled="@(_busyUserId == user.Id)">
                                             Identities
                                         </button>
                                         <span class="identity-lock" data-tooltip="@(IsSelf(user) ? "You cannot disable the account you are signed in as" : null)">
-                                            <button type="button" class="btn btn-tertiary btn-sm"
+                                            <button type="button" class="btn btn-secondary btn-sm"
                                                     @onclick="() => SetEnabledAsync(user, !user.IsEnabled)"
                                                     disabled="@(_busyUserId == user.Id || IsSelf(user))">
                                                 @(user.IsEnabled ? "Disable" : "Enable")
