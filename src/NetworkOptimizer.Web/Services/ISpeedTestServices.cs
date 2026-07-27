@@ -50,12 +50,12 @@ public interface IUwnSpeedTestService
     Task<bool> DeleteResultAsync(int id);
 
     /// <summary>Re-assigns a stored result to a different WAN.</summary>
-    [RequireRole(Roles.Admin)]
+    [RequireRole(Roles.Operator)]
     [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "wan_speedtest")]
     Task<bool> UpdateWanAssignmentAsync(int id, string wanNetworkGroup, string? wanName);
 
     /// <summary>Edits the notes on a stored result.</summary>
-    [RequireRole(Roles.Admin)]
+    [RequireRole(Roles.Operator)]
     Task<bool> UpdateNotesAsync(int id, string? notes);
 }
 
@@ -112,11 +112,11 @@ public interface IGatewayWanSpeedTestService
     Task<bool> DeleteResultAsync(int id);
 
     /// <summary>Edits the notes on a stored result.</summary>
-    [RequireRole(Roles.Admin)]
+    [RequireRole(Roles.Operator)]
     Task<bool> UpdateNotesAsync(int id, string? notes);
 
     /// <summary>Re-assigns a stored result to a different WAN.</summary>
-    [RequireRole(Roles.Admin)]
+    [RequireRole(Roles.Operator)]
     [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "wan_speedtest")]
     Task<bool> UpdateWanAssignmentAsync(int id, string wanNetworkGroup, string? wanName);
 }
@@ -166,6 +166,6 @@ public interface IClientSpeedTestService
     Task<bool> DeleteResultAsync(int id);
 
     /// <summary>Edits the notes on a stored result.</summary>
-    [RequireRole(Roles.Admin)]
+    [RequireRole(Roles.Operator)]
     Task<bool> UpdateNotesAsync(int id, string? notes);
 }

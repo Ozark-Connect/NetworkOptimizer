@@ -44,7 +44,7 @@
                 </div>
             </div>
         }
-        @if (Result != null && (OnTestAgain.HasDelegate || OnDelete.HasDelegate || (AvailableWans.Count >= 2 && OnWanReassigned.HasDelegate) || !string.IsNullOrEmpty(Result.DeviceHost)))
+        @if (Result != null && ((_canOperate && OnTestAgain.HasDelegate) || (_canConfigure && OnDelete.HasDelegate) || (_canOperate && AvailableWans.Count >= 2 && OnWanReassigned.HasDelegate) || !string.IsNullOrEmpty(Result.DeviceHost)))
         {
             <div class="detail-actions" @onclick:stopPropagation="true">
                 @if (_canOperate && OnTestAgain.HasDelegate && Result.Direction is not (SpeedTestDirection.ClientToServer or SpeedTestDirection.BrowserToServer or SpeedTestDirection.OpenSpeedTestWan))
@@ -65,7 +65,7 @@
                         </svg>
                     </a>
                 }
-                @if (AvailableWans.Count >= 2 && OnWanReassigned.HasDelegate)
+                @if (_canOperate && AvailableWans.Count >= 2 && OnWanReassigned.HasDelegate)
                 {
                     @if (_wanEditing)
                     {
@@ -214,7 +214,8 @@
                 {
                     <div class="result-notes" @onclick:stopPropagation="true">
                         <textarea class="notes-input"
-                                  placeholder="Add notes..."
+                                  readonly="@(!_canOperate)"
+                                  placeholder="@(_canOperate ? "Add notes..." : "")"
                                   @bind="_notesInput"
                                   @bind:event="oninput"
                                   @bind:after="DebounceSaveNotes"
