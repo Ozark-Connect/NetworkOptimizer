@@ -50,11 +50,13 @@
                             <td>@AgentLabel(wc.AgentId)</td>
                             <td class="hide-mobile">@_targetCounts.GetValueOrDefault(wc.Id)</td>
                             <td style="white-space: nowrap;">
-                                <button class="btn btn-sm btn-danger"
+                                <SiteAdminOnly>
+                                    <button class="btn btn-sm btn-danger"
                                         @onclick="() => DeleteContextAsync(wc.Id)"
                                         title="Remove this context (its targets move back to the primary WAN)">
                                     Remove
                                 </button>
+                                </SiteAdminOnly>
                             </td>
                         </tr>
                     }
@@ -90,9 +92,11 @@
                         </select>
                     </div>
                     <div class="inline-add-form-actions">
-                        <button class="btn btn-sm btn-primary" @onclick="AddContextAsync" disabled="@_adding">
+                        <SiteAdminOnly>
+                            <button class="btn btn-sm btn-primary" @onclick="AddContextAsync" disabled="@_adding">
                             @if (_adding) { <span class="spinner-sm"></span> } else { <span>Add</span> }
                         </button>
+                        </SiteAdminOnly>
                         <button class="btn btn-sm btn-secondary" @onclick="() => _showAdd = false">Cancel</button>
                     </div>
                 </div>
@@ -109,9 +113,11 @@
         }
         else
         {
-            <button class="btn btn-sm btn-secondary" style="margin-top: 0.75rem;" @onclick="ShowAddAsync">
+            <SiteAdminOnly>
+                <button class="btn btn-sm btn-secondary" style="margin-top: 0.75rem;" @onclick="ShowAddAsync">
                 + Add WAN context
             </button>
+            </SiteAdminOnly>
         }
     </div>
         </div>

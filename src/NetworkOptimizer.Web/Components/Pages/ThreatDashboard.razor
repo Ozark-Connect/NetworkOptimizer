@@ -183,6 +183,8 @@
                 </div>
 
                 @* Add new filter form *@
+                @if (_canConfigure)
+                {
                 <div class="noise-filter-form">
                     <div>
                         <label class="noise-filter-label">Source IP</label>
@@ -204,14 +206,14 @@
                         <input type="text" @bind="_newFilterDescription" placeholder="optional"
                                class="noise-filter-input" style="width:200px;" />
                     </div>
-                    <SiteAdminOnly>
-                        <button class="btn btn-sm btn-primary" @onclick="AddNoiseFilterAsync">Add Filter</button>
-                    </SiteAdminOnly>
+                    <button class="btn btn-sm btn-primary" @onclick="AddNoiseFilterAsync">Add Filter</button>
                     @if (!string.IsNullOrEmpty(_newFilterSourceIp) || !string.IsNullOrEmpty(_newFilterDestIp) || !string.IsNullOrEmpty(_newFilterDestPort) || !string.IsNullOrEmpty(_newFilterDescription))
                     {
                         <button class="btn btn-sm btn-secondary" @onclick="ClearFilterForm">Clear</button>
                     }
                 </div>
+
+                }
 
                 @* Existing filters *@
                 @if (_noiseFilters.Count > 0)

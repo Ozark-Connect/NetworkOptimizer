@@ -85,52 +85,64 @@
                         <td style="white-space: nowrap;">
                             @if (sfp.IsMonitoredOnt)
                             {
-                                <button class="btn btn-sm btn-secondary"
+                                <SiteOperatorOnly>
+                                    <button class="btn btn-sm btn-secondary"
                                         @onclick="() => ToggleMonitoringAsync(sfp.Id, false)"
                                         data-tooltip="Stop monitoring this SFP">
                                     Unmonitor
                                 </button>
+                                </SiteOperatorOnly>
                             }
                             else
                             {
-                                <button class="btn btn-sm btn-primary"
+                                <SiteOperatorOnly>
+                                    <button class="btn btn-sm btn-primary"
                                         @onclick="() => ToggleMonitoringAsync(sfp.Id, true)"
                                         data-tooltip="Add this SFP to monitoring">
                                     Monitor
                                 </button>
+                                </SiteOperatorOnly>
                             }
                             @if (sfp.Category == SfpCategory.Standard)
                             {
-                                <button class="btn btn-sm btn-secondary"
+                                <SiteOperatorOnly>
+                                    <button class="btn btn-sm btn-secondary"
                                         @onclick="() => SetCategoryAsync(sfp.Id, SfpCategory.Pon)"
                                         data-tooltip="Mark as PON ONT module"
                                         style="margin-left: 0.25rem;">
                                     Set ONT
                                 </button>
-                                <button class="btn btn-sm btn-secondary"
+                                </SiteOperatorOnly>
+                                <SiteOperatorOnly>
+                                    <button class="btn btn-sm btn-secondary"
                                         @onclick="() => SetCategoryAsync(sfp.Id, SfpCategory.ActiveEthernet)"
                                         data-tooltip="Mark as Active Ethernet (P2P fiber)"
                                         style="margin-left: 0.25rem;">
                                     Set AE
                                 </button>
+                                </SiteOperatorOnly>
                             }
                             else if (sfp.IsPon && !IsPonAutoDetected(sfp))
                             {
-                                <button class="btn btn-sm btn-secondary"
+                                <SiteOperatorOnly>
+                                    <button class="btn btn-sm btn-secondary"
                                         @onclick="() => SetCategoryAsync(sfp.Id, SfpCategory.Standard)"
                                         data-tooltip="Mark as regular SFP"
                                         style="margin-left: 0.25rem;">
                                     Set SFP
                                 </button>
+                                </SiteOperatorOnly>
                             }
                             else if (sfp.IsActiveEthernet)
                             {
-                                <button class="btn btn-sm btn-secondary"
+                                <SiteOperatorOnly>
+                                    <button class="btn btn-sm btn-secondary"
                                         @onclick="() => SetCategoryAsync(sfp.Id, SfpCategory.Standard)"
                                         data-tooltip="Mark as regular SFP"
                                         style="margin-left: 0.25rem;">
                                     Set SFP
                                 </button>
+                                </SiteOperatorOnly>
                             }
                         </td>
                     </tr>

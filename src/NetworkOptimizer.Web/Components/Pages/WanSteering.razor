@@ -275,7 +275,7 @@
                                         <button class="btn btn-sm btn-secondary" @onclick="@(() => MoveRuleDown(rule))" disabled="@(rule.SortOrder >= _rules.Count - 1)" data-tooltip="Move down" data-tooltip-hover-only>&#9660;</button>
                                     </SiteAdminOnly>
                                 </div>
-                                <button class="btn btn-sm btn-secondary" @onclick="@(() => EditRule(rule))">Edit</button>
+                                <button class="btn btn-sm btn-secondary" @onclick="@(() => EditRule(rule))">@(_canConfigure ? "Edit" : "View")</button>
                                 <SiteAdminOnly>
                                     <button class="btn btn-sm btn-danger" @onclick="@(() => DeleteRule(rule))">Delete</button>
                                 </SiteAdminOnly>
@@ -305,6 +305,13 @@
                 This site deploys through its on-site agent, which isn't connected right now.
                 Deploy actions can resume when the agent reconnects.
             </div>
+        }
+        @if (!_canConfigure)
+        {
+            <p class="page-description">
+                Deploying steering to the gateway is a site administrator's action. The status above
+                shows what is currently running.
+            </p>
         }
         <div class="ws-deploy-buttons">
             @if (_status?.IsRunning == true)
@@ -1274,8 +1281,15 @@
                 }
 
                 <div class="ws-edit-actions">
-                    <button class="btn btn-primary btn-sm" @onclick="SaveRule">Save</button>
-                    <button class="btn btn-secondary btn-sm" @onclick="CancelEdit">Cancel</button>
+                    @if (_canConfigure)
+                    {
+                        <button class="btn btn-primary btn-sm" @onclick="SaveRule">Save</button>
+                        <button class="btn btn-secondary btn-sm" @onclick="CancelEdit">Cancel</button>
+                    }
+                    else
+                    {
+                        <button class="btn btn-secondary btn-sm" @onclick="CancelEdit">Close</button>
+                    }
                 </div>
             </div>
         </div>
