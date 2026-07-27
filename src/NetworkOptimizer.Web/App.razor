@@ -224,7 +224,7 @@
                     return;
                 }
 
-                tippy(icon, {
+                var iconOpts = {
                     content: content,
                     allowHTML: true,
                     interactive: true,
@@ -255,7 +255,17 @@
                     onClickOutside(instance, event) {
                         instance.hide();
                     }
-                });
+                };
+                // An icon that DOES something on click must not also open on click: the click
+                // re-renders or navigates, the reference element goes away mid-show, and the popper
+                // is left parented to the body with nothing to position against - it strands itself
+                // in the top-left corner and no longer has a reference to hide it. Hover still shows
+                // it; touch gets nothing, which is what it already got, since the tap acts instead.
+                if (icon.hasAttribute('data-tooltip-hover-only')) {
+                    iconOpts.trigger = 'mouseenter';
+                    iconOpts.touch = false;
+                }
+                tippy(icon, iconOpts);
             });
 
             // Simple tooltips for elements with data-tooltip (not .tooltip-icon)
