@@ -5000,12 +5000,16 @@
     private bool GatewayKeyPathSet => !string.IsNullOrWhiteSpace(gatewayPrivateKeyPath);
 
     /// <summary>
-    /// Device SSH has no equivalent of the gateway's confirmation - the key lands on switches and APs
-    /// through UniFi Network's Device SSH Settings, which we do not read. So a key file still counts
-    /// as replacing the password, but a stored key does not: it may not be on those devices at all.
+    /// Reads the same way as the gateway, deliberately, even though there is nothing to confirm it
+    /// against: keys reach switches and APs through UniFi Network's Device SSH Settings, which we do
+    /// not read. A stored key therefore means "a key is meant to be doing this", not "a key is proven
+    /// to be doing this" - the password stays configured and still authenticates anywhere the key was
+    /// never installed.
     /// </summary>
     private bool DevicePasswordSet =>
-        (hasSshPassword || !string.IsNullOrEmpty(sshPassword)) && !DeviceKeyPathSet;
+        (hasSshPassword || !string.IsNullOrEmpty(sshPassword))
+        && !DeviceKeyPathSet
+        && _sshKey is null;
 
     private bool DeviceKeyPathSet => !string.IsNullOrWhiteSpace(sshPrivateKeyPath);
 
