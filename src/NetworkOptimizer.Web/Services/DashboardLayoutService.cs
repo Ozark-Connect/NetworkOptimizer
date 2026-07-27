@@ -123,6 +123,14 @@ public class DashboardCardConfig
 public class DashboardLayoutService
 {
     private readonly ISystemSettingsService _settings;
+
+    /// <summary>
+    /// Saving goes through the gated admin path, not the plain settings service. The layout is ONE
+    /// setting shared by the whole site, so rearranging it rearranges the dashboard for everybody -
+    /// a Viewer could quietly reorganise what their colleagues see. Reads stay on the plain service,
+    /// which is what every render and background tick needs.
+    /// </summary>
+    private readonly ISystemSettingsAdmin _settingsAdmin;
     private readonly ILogger<DashboardLayoutService> _logger;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -131,9 +139,13 @@ public class DashboardLayoutService
         WriteIndented = false
     };
 
-    public DashboardLayoutService(ISystemSettingsService settings, ILogger<DashboardLayoutService> logger)
+    public DashboardLayoutService(
+        ISystemSettingsService settings,
+        ISystemSettingsAdmin settingsAdmin,
+        ILogger<DashboardLayoutService> logger)
     {
         _settings = settings;
+        _settingsAdmin = settingsAdmin;
         _logger = logger;
     }
 
@@ -170,7 +182,7 @@ public class DashboardLayoutService
     public async Task SaveLayoutAsync(DashboardLayout layout)
     {
         var json = JsonSerializer.Serialize(layout, JsonOptions);
-        await _settings.SetAsync(SystemSettingKeys.DashboardLayout, json);
+        await _settingsAdmin.SetAsync(SystemSettingKeys.DashboardLayout, json);
         _logger.LogDebug("Saved dashboard layout");
     }
 
