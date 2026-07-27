@@ -190,7 +190,7 @@
                     <button class="btn btn-sm btn-primary" @onclick="StartAddWanSchedule">+ Add Test</button>
                     }
                 </div>
-                <p class="schedule-section-desc">Add a separate test for each WAN line - schedule as many as you like.</p>
+                <p class="schedule-section-desc">@(_canConfigure ? "Add a separate test for each WAN line - schedule as many as you like." : "One test per WAN line; a site administrator sets these up.")</p>
                 @{ var wanTasks = _scheduledTasks.Where(t => t.TaskType == "wan_speedtest").ToList(); }
                 @foreach (var task in wanTasks)
                     {
@@ -316,7 +316,7 @@
                         }
                     }
                 </div>
-                <p class="schedule-section-desc">Add a separate test for each device - schedule as many as you like.</p>
+                <p class="schedule-section-desc">@(_canConfigure ? "Add a separate test for each device - schedule as many as you like." : "One test per device; a site administrator sets these up.")</p>
                 @{ var lanTasks = _scheduledTasks.Where(t => t.TaskType == "lan_speedtest").ToList(); }
                 @foreach (var task in lanTasks)
                 {

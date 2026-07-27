@@ -11,6 +11,10 @@
 @rendermode InteractiveServer
 @implements IDisposable
 @using NetworkOptimizer.Web.Services
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using NetworkOptimizer.Web.Services.Authorization
+@inject IAuthorizationService Authz
 @using NetworkOptimizer.Web.Components.Shared.Monitoring
 @using NetworkOptimizer.Web.Services.Monitoring.IspHealth
 @using NetworkOptimizer.Storage.Models
@@ -876,7 +880,7 @@ else
                     </SiteAdminOnly>
                 </div>
                 <div class="card-body" style="text-align: center; padding: 2rem;">
-                    <p class="page-description">No cable modems configured. Add one in <a href="/settings#cable-modem">Settings</a> to start monitoring.</p>
+                    <p class="page-description">@(_canConfigure ? (MarkupString)"No cable modems configured. Add one in <a href=\"/settings#cable-modem\">Settings</a> to start monitoring." : (MarkupString)"No cable modems configured. A site administrator sets these up.")</p>
                 </div>
             </div>
         }
@@ -997,7 +1001,7 @@ else
                     </SiteAdminOnly>
                 </div>
                 <div class="card-body" style="text-align: center; padding: 2rem;">
-                    <p class="page-description">No ONT monitoring configured. <a href="/settings#ont-monitoring">Configure direct device polling</a> for standalone ONTs or SFP modules that don't expose DDM to the gateway.</p>
+                    <p class="page-description">@(_canConfigure ? (MarkupString)"No ONT monitoring configured. <a href=\"/settings#ont-monitoring\">Configure direct device polling</a> for standalone ONTs or SFP modules that don't expose DDM to the gateway." : (MarkupString)"No ONT monitoring configured. A site administrator can set up direct polling for standalone ONTs or SFP modules that don't expose DDM to the gateway.")</p>
                 </div>
             </div>
         }
@@ -1148,7 +1152,7 @@ else
                     </SiteAdminOnly>
                 </div>
                 <div class="card-body" style="text-align: center; padding: 2rem;">
-                    <p class="page-description">No cellular modems configured. Add one in <a href="/settings#cellular-modem">Settings</a> to start monitoring.</p>
+                    <p class="page-description">@(_canConfigure ? (MarkupString)"No cellular modems configured. Add one in <a href=\"/settings#cellular-modem\">Settings</a> to start monitoring." : (MarkupString)"No cellular modems configured. A site administrator sets these up.")</p>
                 </div>
             </div>
         }
@@ -1253,7 +1257,7 @@ else
                     </SiteAdminOnly>
                 </div>
                 <div class="card-body" style="text-align: center; padding: 2rem;">
-                    <p class="page-description">No Starlink terminals configured. Add one in <a href="/settings#starlink">Settings</a> to start monitoring.</p>
+                    <p class="page-description">@(_canConfigure ? (MarkupString)"No Starlink terminals configured. Add one in <a href=\"/settings#starlink\">Settings</a> to start monitoring." : (MarkupString)"No Starlink terminals configured. A site administrator sets these up.")</p>
                 </div>
             </div>
         }
@@ -1631,6 +1635,14 @@ else
 </style>
 
 @code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    /// <summary>
+    /// Whether this caller can reach the Settings pages these empty states point at. Used for copy
+    /// only - the controls themselves are wrapped in SiteAdminOnly / SiteOperatorOnly.
+    /// </summary>
+    private bool _canConfigure;
+
     [SupplyParameterFromQuery(Name = "tab")]
     public string? TabParam { get; set; }
 
@@ -1959,6 +1971,9 @@ else
 
     protected override async Task OnInitializedAsync()
     {
+        _canConfigure = AuthState is null
+            || (await Authz.AuthorizeAsync((await AuthState).User, SiteCtx.Slug, Policies.SiteAdmin)).Succeeded;
+
         ConnectionService.OnConnectionChanged += OnConnectionChanged;
 
         // Restore tab visibility persisted from prerender so the interactive render
