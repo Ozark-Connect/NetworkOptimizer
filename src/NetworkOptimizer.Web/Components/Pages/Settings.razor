@@ -3227,11 +3227,15 @@
                                     {
                                         <tr class="history-details-row site-config-row">
                                             <td colspan="5">
-                                                <div class="site-config-panel">
-                                                    <button type="button" class="site-config-dismiss" @onclick="() => ToggleSiteUsers(site.Id)" aria-label="Dismiss">&times;</button>
-                                                    @* Scoped to this row's site rather than the one in context, so who can
-                                                       reach a site is answered without switching to it first. *@
-                                                    <IdentityAccessCard SiteSlug="@site.Slug" SiteName="@site.Name" />
+                                                <div class="expand-wrapper @(_panelExpanded ? "expanded" : "")">
+                                                    <div class="expand-content">
+                                                        <div class="site-config-panel">
+                                                            <button type="button" class="site-config-dismiss" @onclick="() => ToggleSiteUsers(site.Id)" aria-label="Dismiss">&times;</button>
+                                                            @* Scoped to this row's site rather than the one in context, so who can
+                                                               reach a site is answered without switching to it first. *@
+                                                            <IdentityAccessCard SiteSlug="@site.Slug" SiteName="@site.Name" />
+                                                        </div>
+                                                    </div>
                                                 </div>
                                             </td>
                                         </tr>
@@ -3242,6 +3246,8 @@
                                         var agents = AgentsFor(site.Id).ToList();
                                         <tr class="history-details-row site-config-row">
                                             <td colspan="5">
+                                                <div class="expand-wrapper @(_panelExpanded ? "expanded" : "")">
+                                                    <div class="expand-content">
                                                 <div class="site-config-panel">
                                                     <button type="button" class="site-config-dismiss" @onclick="() => ToggleAgents(site.Id)" aria-label="Dismiss">&times;</button>
                                                     <div class="site-config-section">
@@ -3413,6 +3419,8 @@
                                                             }
                                                         </div>
                                                     }
+                                                </div>
+                                                    </div>
                                                 </div>
                                             </td>
                                         </tr>
@@ -3771,6 +3779,35 @@
     private int? _usersSiteId;
 
     /// <summary>
+    /// Drives the expand transition, one render behind the row appearing. A row rendered already
+    /// carrying "expanded" has nothing to transition from, so opening is staged: render collapsed,
+    /// then expand. Closing runs the reverse and only unmounts once the transition has played, which
+    /// is why the panel's content stays conditional - four sites' access lists should not load just
+    /// to sit collapsed.
+    /// </summary>
+    private bool _panelExpanded;
+
+    private const int PanelTransitionMs = 250;
+
+    /// <summary>Mounts a panel collapsed, then expands it on the next render.</summary>
+    private async Task OpenPanelAsync()
+    {
+        _panelExpanded = false;
+        StateHasChanged();
+        await Task.Delay(16);
+        _panelExpanded = true;
+        StateHasChanged();
+    }
+
+    /// <summary>Collapses a panel and waits for the transition before the caller unmounts it.</summary>
+    private async Task ClosePanelAsync()
+    {
+        _panelExpanded = false;
+        StateHasChanged();
+        await Task.Delay(PanelTransitionMs);
+    }
+
+    /// <summary>
     /// True when this row has either panel open. Both drive the same row highlight, so the selected
     /// row reads the same whichever panel opened it.
     /// </summary>
@@ -3845,18 +3882,36 @@
         return ("offline", "Awaiting", "Enrollment token created; waiting for the agent to enroll");
     }
 
-    private void ToggleSiteUsers(int siteId)
+    private async Task ToggleSiteUsers(int siteId)
     {
-        _usersSiteId = _usersSiteId == siteId ? null : siteId;
-        if (_usersSiteId != null)
-            _expandedSiteId = null;
+        if (_usersSiteId == siteId)
+        {
+            await ClosePanelAsync();
+            _usersSiteId = null;
+            return;
+        }
+
+        _expandedSiteId = null;
+        _usersSiteId = siteId;
+        await OpenPanelAsync();
     }
 
     private async Task ToggleAgents(int siteId)
     {
+        if (_expandedSiteId == siteId)
+        {
+            await ClosePanelAsync();
+            _expandedSiteId = null;
+            _newAgentToken = null;
+            return;
+        }
+
         _usersSiteId = null;
-        _expandedSiteId = _expandedSiteId == siteId ? null : siteId;
+        _expandedSiteId = siteId;
+        _panelExpanded = false;
         _newAgentToken = null;
+        StateHasChanged();
+
         if (_expandedSiteId != null)
         {
             // Opening a site's Configuration clears the Add-a-Site wizard's completed
@@ -3873,6 +3928,9 @@
                     && await OnGatewayDetector.IsAgentOnGatewayAsync(site.Slug);
             }
         }
+
+        // Expanded last, so the panel grows once to its real height rather than twice.
+        await OpenPanelAsync();
     }
 
     // Per-site "console via agent tunnel" flag, stored in the site's own database

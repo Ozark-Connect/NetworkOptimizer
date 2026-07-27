@@ -18310,6 +18310,12 @@ body.kiosk-mode .status-indicators {
     background: var(--bg-hover);
 }
 
+/* The generic row hover paints a lighter tint, so hovering the open row made it look like it had
+   lost its selection. Same specificity as that rule, so this only wins by coming after it. */
+.data-table tr.site-row-selected:hover {
+    background: var(--bg-hover);
+}
+
 .site-name-selected {
     font-weight: 600;
 }
@@ -18319,10 +18325,12 @@ body.kiosk-mode .status-indicators {
     display: flex;
     flex-direction: column;
     gap: 0.85rem;
-    margin: 0.25rem 0 0.75rem;
+    margin: 0 0 0.75rem;
     padding: 2.5rem 1rem 1rem;
     background: var(--bg-tertiary);
-    border-radius: var(--border-radius-lg);
+    /* Square along the top so the panel reads as an extension of the row that opened it, rather
+       than a separate card floating below it. */
+    border-radius: 0 0 var(--border-radius-lg) var(--border-radius-lg);
 }
 
 .site-config-dismiss {
