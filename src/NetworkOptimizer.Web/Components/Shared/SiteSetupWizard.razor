@@ -10,6 +10,7 @@
 @inject NetworkOptimizer.Storage.Services.SiteDbContextFactory SiteDb
 @inject NetworkOptimizer.Web.Services.Licensing.LicenseStateService LicenseState
 @inject SiteSwitchService SiteSwitch
+@inject ISiteConfigurationService SiteConfig
 @implements IDisposable
 
 @* Step 1 creates a site, which is instance administration. Everything after it sets up an existing
@@ -270,6 +271,10 @@
     [Parameter]
     public EventCallback OnSitesChanged { get; set; }
 
+    /// <summary>Raised when the wizard changes a site's own settings, so an open panel can re-read them.</summary>
+    [Parameter]
+    public EventCallback<Site> OnSiteConfigChanged { get; set; }
+
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
 
     /// <summary>Whether this caller may add a site at all - the wizard's first step.</summary>
@@ -504,16 +509,18 @@
 
             if (_featureProxy)
             {
-                // Same per-site flags the Multi-Site panel toggles expose: console
-                // and device reach through the agent tunnel, stored in the site's
-                // own database.
-                await using var db = SiteDb.CreateForSite(_site.Slug, _site.IsDefault);
-                UpsertSetting(db, UniFiConnectionService.ConsoleViaAgentKey, "True");
-                UpsertSetting(db, SiteTunnelRouting.DevicesViaAgentKey, "True");
-                await db.SaveChangesAsync();
+                // The same per-site flags the Multi-Site panel's toggles set, written through the
+                // same gated service - so the panel behind this wizard is looking at one source of
+                // truth rather than at settings this component reached past it to change.
+                await SiteConfig.SetConsoleViaAgentAsync(_site.Slug, true);
+                await SiteConfig.SetDevicesViaAgentAsync(_site.Slug, true);
             }
 
             await OnSitesChanged.InvokeAsync();
+
+            // The configuration panel for this site is usually still open behind the wizard, showing
+            // the checkboxes these options just moved. Tell it to re-read them.
+            await OnSiteConfigChanged.InvokeAsync(_site);
         }
         catch (Exception ex)
         {

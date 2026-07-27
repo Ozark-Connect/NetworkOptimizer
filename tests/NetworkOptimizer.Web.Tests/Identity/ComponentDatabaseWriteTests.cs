@@ -27,7 +27,6 @@ public class ComponentDatabaseWriteTests
         "Monitoring.razor",
         "Settings.razor",
         "SfpModulesCard.razor",
-        "SiteSetupWizard.razor",
         "SnmpDeviceStatusCard.razor",
         "UpnpInspector.razor",
         "WanContextsCard.razor",
