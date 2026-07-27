@@ -3306,10 +3306,10 @@
                                                                             <text>Last seen @agent.LastSeenAt?.ToLocalTime().ToString("MMM d, h:mm tt")</text>
                                                                         }
                                                                     </span>
-                                                                    <button type="button" class="btn btn-secondary btn-sm" @onclick="() => ToggleAgentEnabled(agent)">
+                                                                    <button type="button" class="btn btn-secondary btn-sm" @onclick="() => ToggleAgentEnabled(site, agent)">
                                                                         @(agent.Enabled ? "Disable" : "Enable")
                                                                     </button>
-                                                                    <button type="button" class="btn btn-danger btn-sm" @onclick="() => RemoveAgent(agent)">
+                                                                    <button type="button" class="btn btn-danger btn-sm" @onclick="() => RemoveAgent(site, agent)">
                                                                         Remove
                                                                     </button>
                                                                 </div>
@@ -4082,7 +4082,7 @@
         _creatingAgent = true;
         try
         {
-            var (agent, token) = await AgentEnrollment.CreateAgentAsync(site.Id, NextAgentName(site.Id));
+            var (agent, token) = await AgentEnrollment.CreateAgentAsync(site.Slug, NextAgentName(site.Id));
             _newAgentToken = token;
             _newAgentTokenSiteId = site.Id;
             _newAgentLanSpeedTest = false;
@@ -4094,19 +4094,19 @@
         }
     }
 
-    private async Task ToggleAgentEnabled(SiteAgent agent)
+    private async Task ToggleAgentEnabled(Site site, SiteAgent agent)
     {
-        await AgentEnrollment.SetEnabledAsync(agent.Id, !agent.Enabled);
+        await AgentEnrollment.SetEnabledAsync(site.Slug, agent.Id, !agent.Enabled);
         await LoadAgentsAsync();
     }
 
-    private async Task RemoveAgent(SiteAgent agent)
+    private async Task RemoveAgent(Site site, SiteAgent agent)
     {
         if (!await JS.InvokeAsync<bool>("confirm",
                 $"Remove agent \"{agent.Name}\"? Its enrollment token/key stops working and it disappears from this list."))
             return;
 
-        await AgentEnrollment.DeleteAgentAsync(agent.Id);
+        await AgentEnrollment.DeleteAgentAsync(site.Slug, agent.Id);
         if (_newAgentTokenSiteId == agent.SiteId)
             _newAgentToken = null;
         await LoadAgentsAsync();

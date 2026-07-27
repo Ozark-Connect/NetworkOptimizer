@@ -483,9 +483,9 @@
             var existing = await AgentEnrollment.GetAgentsForSiteAsync(_site.Id);
             var pending = existing.FirstOrDefault(a => a.EnrolledAt == null);
             _agentToken = pending != null
-                ? await AgentEnrollment.ReissueTokenAsync(pending.Id)
+                ? await AgentEnrollment.ReissueTokenAsync(_site.Slug, pending.Id)
                 : null;
-            _agentToken ??= (await AgentEnrollment.CreateAgentAsync(_site.Id, "Agent")).Token;
+            _agentToken ??= (await AgentEnrollment.CreateAgentAsync(_site.Slug, "Agent")).Token;
 
             if (_featureProxy)
             {
