@@ -18319,7 +18319,10 @@ body.kiosk-mode .status-indicators {
     margin-top: 0.5rem;
 }
 
-.site-config-row td {
+/* Direct child, for the same reason as .history-details-row above: the panel row carries both
+   classes, so as a descendant selector this kept zeroing the cells of the table inside the panel
+   even once the other rule was scoped. */
+.site-config-row > td {
     padding: 0;
 }
 
