@@ -101,6 +101,13 @@ public interface IIdentityAdminService
     /// </summary>
     Task<AdminActionResult> ChangeOwnPasswordAsync(string userId, string currentPassword, string newPassword);
 
+    /// <summary>
+    /// Rotates the signed-in user's security stamp, which every application cookie and remembered
+    /// two-factor cookie is validated against - so every session for the account stops being valid.
+    /// The browser that asked keeps its access only because the caller re-issues that one cookie.
+    /// </summary>
+    Task<AdminActionResult> SignOutEverywhereAsync(string userId);
+
     Task<AdminActionResult> GrantGlobalRoleAsync(string userId, string role);
     Task<AdminActionResult> RevokeGlobalRoleAsync(string userId, string role);
 
@@ -301,6 +308,17 @@ public sealed class IdentityAdminService : IIdentityAdminService
         user.PasswordIsTemporary = false;
         await _userManager.UpdateAsync(user);
         Emit(AuditCategories.User, AuditActions.PasswordReset, user, new { self = true });
+        return AdminActionResult.Ok();
+    }
+
+    /// <inheritdoc />
+    public async Task<AdminActionResult> SignOutEverywhereAsync(string userId)
+    {
+        var user = await _userManager.FindByIdAsync(userId);
+        if (user is null) return AdminActionResult.Fail("User not found.");
+
+        await _userManager.UpdateSecurityStampAsync(user);
+        Emit(AuditCategories.Auth, AuditActions.SignedOutEverywhere, user, new { self = true });
         return AdminActionResult.Ok();
     }
 

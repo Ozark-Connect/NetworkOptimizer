@@ -179,6 +179,42 @@ public sealed class AdminPasswordChangeTests : IDisposable
     }
 
     [Fact]
+    public async Task SigningOutEverywhereRotatesTheStampAndLeavesTheCredentialAlone()
+    {
+        const string password = "Original-Pass-1";
+        await SeedAdminSettingsAsync(password);
+
+        await using var provider = BuildProvider();
+        using (var boot = provider.CreateScope())
+            await boot.ServiceProvider.GetRequiredService<IIdentityBootstrapService>().RunAsync();
+
+        string adminId, stampBefore;
+        using (var scope = provider.CreateScope())
+        {
+            var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+            var admin = await userManager.FindByNameAsync(IdentityBootstrapService.AdminUserName);
+            adminId = admin!.Id;
+            stampBefore = await userManager.GetSecurityStampAsync(admin);
+        }
+
+        using (var scope = provider.CreateScope())
+        {
+            var identityAdmin = scope.ServiceProvider.GetRequiredService<IIdentityAdminService>();
+            (await identityAdmin.SignOutEverywhereAsync(adminId)).Succeeded.Should().BeTrue();
+        }
+
+        using (var scope = provider.CreateScope())
+        {
+            var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+            var admin = await userManager.FindByIdAsync(adminId);
+            (await userManager.GetSecurityStampAsync(admin!)).Should()
+                .NotBe(stampBefore, "every live cookie is validated against the stamp, so rotating it is what ends the sessions");
+            (await userManager.CheckPasswordAsync(admin!, password)).Should()
+                .BeTrue("ending sessions must not lock the account out of signing back in");
+        }
+    }
+
+    [Fact]
     public async Task DeletingTheAccountYouAreSignedInAsIsRefused()
     {
         await SeedAdminSettingsAsync("Original-Pass-1");
