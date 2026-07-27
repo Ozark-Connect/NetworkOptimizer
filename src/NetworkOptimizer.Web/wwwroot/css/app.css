@@ -42,6 +42,9 @@
     --bg-card: #161618;
     --bg-hover: #232326;
     --bg-hover-subtle: #1c1c1f;
+    /* Hovering a row that is already expanded. One step above --bg-hover so the row still answers
+       the mouse, without climbing to --bg-elevated and reading as a different surface. */
+    --bg-row-expanded-hover: #27272b;
     --surface: #161618;
     --surface-secondary: #1c1c1f;
 
@@ -4159,9 +4162,12 @@ tr:hover .snmp-row-chevron {
     color: var(--text-secondary);
 }
 
-.snmp-row-expanded,
-.data-table tr.snmp-row-expanded:hover {
+.snmp-row-expanded {
     background: var(--bg-tertiary);
+}
+
+.data-table tr.snmp-row-expanded:hover {
+    background: var(--bg-row-expanded-hover);
 }
 
 .data-table .snmp-detail-row > td {
@@ -6279,9 +6285,12 @@ a.path-hop.hop-clickable:hover {
     background: var(--bg-hover);
 }
 
-.history-row-expanded,
-.data-table tr.history-row-expanded:hover {
+.history-row-expanded {
     background: var(--bg-hover);
+}
+
+.data-table tr.history-row-expanded:hover {
+    background: var(--bg-row-expanded-hover);
 }
 
 .history-details-row {
@@ -18365,7 +18374,7 @@ body.kiosk-mode .status-indicators {
    so without this, hovering the row you just opened makes it look like it closed. Applied the same
    way to .history-row-expanded and .snmp-row-expanded. */
 .data-table tr.site-row-selected:hover {
-    background: var(--bg-hover);
+    background: var(--bg-row-expanded-hover);
 }
 
 .site-name-selected {
