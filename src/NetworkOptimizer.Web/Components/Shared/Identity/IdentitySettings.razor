@@ -3,19 +3,55 @@
    (that site's Access list only, since accounts and sign-in methods are instance-wide). The same
    UX either way - the scoped view is the global one narrowed to what a site admin owns. *@
 
+@inject NavigationManager Navigation
+
 @if (SiteSlug is null)
 {
-    <IdentityUsersCard OnAccessChanged="RefreshAccessAsync" />
-    <IdentityAccessCard @ref="_accessCard" />
+    <IdentityUsersCard OnAccessChanged="RefreshAccessAsync" OnExplainRoles="ExplainRolesAsync" />
+    <IdentityRolesCard @ref="_rolesCard" />
+    <IdentityAccessCard @ref="_accessCard" OnExplainRoles="ExplainRolesAsync" />
     <IdentitySignInCard />
 }
 else
 {
-    <IdentityAccessCard SiteSlug="@SiteSlug" SiteName="@SiteName" />
+    <IdentityAccessCard SiteSlug="@SiteSlug" SiteName="@SiteName" OnExplainRoles="ExplainRolesAsync" />
+    @* Roles read the same whichever scope you are in, so the scoped tab carries the reference too
+       rather than bouncing a site admin to a tab they may not be able to open. *@
+    <IdentityRolesCard @ref="_rolesCard" />
 }
 
 @code {
     private IdentityAccessCard? _accessCard;
+    private IdentityRolesCard? _rolesCard;
+
+    /// <summary>Query flag that opens the Roles panel on arrival, for links from the scoped view.</summary>
+    private const string RolesQueryParam = "roles";
+
+    /// <summary>
+    /// Opens the Roles panel for the tooltip icons beside the role pickers. Both scopes render the
+    /// panel, so this normally opens it in place; the navigation is the fallback for a caller that
+    /// has the pickers without the panel, and it opens on arrival off the query flag.
+    /// </summary>
+    private async Task ExplainRolesAsync()
+    {
+        if (_rolesCard is null)
+        {
+            Navigation.NavigateTo($"/settings?tab=identity&{RolesQueryParam}=1");
+            return;
+        }
+
+        await _rolesCard.OpenAndHighlightAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || _rolesCard is null)
+            return;
+
+        var query = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(new Uri(Navigation.Uri).Query);
+        if (query.TryGetValue(RolesQueryParam, out var arrivedForRoles) && arrivedForRoles == "1")
+            await _rolesCard.OpenAndHighlightAsync();
+    }
 
     /// <summary>
     /// Creating or deleting an account changes that account's site grants in the same step, so the

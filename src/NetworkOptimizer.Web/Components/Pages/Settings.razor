@@ -3242,7 +3242,8 @@
                                                         <div class="site-config-panel">
                                                                                                                         @* Scoped to this row's site rather than the one in context, so who can
                                                                reach a site is answered without switching to it first. *@
-                                                            <IdentityAccessCard SiteSlug="@site.Slug" SiteName="@site.Name" ShowSiteBadge="false" />
+                                                            <IdentityAccessCard SiteSlug="@site.Slug" SiteName="@site.Name" ShowSiteBadge="false"
+                                                                                OnExplainRoles="OpenRolesReference" />
                                                         </div>
                                                     </div>
                                                 </div>
@@ -3898,6 +3899,13 @@
             return ("offline", "Offline", "An agent is enrolled but not currently connected");
         return ("offline", "Awaiting", "Enrollment token created; waiting for the agent to enroll");
     }
+
+    /// <summary>
+    /// A site's Users panel is a row inside the Multi-Site table with no room for the Roles reference,
+    /// so the tooltip icon there sends the reader to the Identity tab, which opens it on arrival.
+    /// Back returns them to this table with the row still expanded.
+    /// </summary>
+    private void OpenRolesReference() => NavigationManager.NavigateTo("/settings?tab=identity&roles=1");
 
     private async Task ToggleSiteUsers(int siteId)
     {

@@ -19193,6 +19193,22 @@ body.kiosk-mode .status-indicators {
     color: var(--text-primary);
 }
 
+.identity-roles-heading {
+    margin-top: 1.25rem;
+    margin-bottom: 0.5rem;
+}
+
+.identity-role-name {
+    font-weight: 600;
+    color: var(--text-primary);
+    white-space: nowrap;
+}
+
+.identity-role-mark {
+    text-align: center;
+    white-space: nowrap;
+}
+
 .identity-section-title {
     margin: 1.75rem 0 0.75rem;
     font-size: 0.95rem;
