@@ -12,7 +12,7 @@
 <div class="card settings-tab-identity" id="identity-access">
     <div class="card-header">
         <h2 class="card-title">Access</h2>
-        @if (_multiSiteEnabled)
+        @if (_multiSiteEnabled && ShowSiteBadge)
         {
             <div class="card-header-badges">
                 @if (SiteSlug is null)
@@ -167,6 +167,12 @@
 
     /// <summary>Friendly site name shown on the scoped badge.</summary>
     [Parameter] public string? SiteName { get; set; }
+
+    /// <summary>
+    /// False where the surrounding UI already names the site - the Sites table renders this inside
+    /// the row for that site, so the badge would repeat what the row just said.
+    /// </summary>
+    [Parameter] public bool ShowSiteBadge { get; set; } = true;
 
     private const string AllSitesTarget = "*";
 
