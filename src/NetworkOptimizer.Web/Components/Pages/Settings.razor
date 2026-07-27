@@ -767,7 +767,9 @@
                 <div class="form-group">
                     <label class="form-label">Public key</label>
                     <CopyableCommand Text="@_sshKey.PublicKey" Tooltip="Copy the public key" />
-                    <small class="form-help">@_sshKey.KeyType &middot; @_sshKey.Fingerprint</small>
+                    <small class="form-help">
+                        @_sshKey.KeyType, fingerprint <code>@_sshKey.Fingerprint</code>
+                    </small>
                 </div>
 
                 @if (CanInstallKeyOnGateway)

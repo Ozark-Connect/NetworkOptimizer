@@ -2814,8 +2814,17 @@ select.form-control {
     position: relative;
 }
 
+/* The block carries its own look rather than relying on an ancestor to supply it: .agent-install and
+   .site-wizard each styled their own pre, so the component rendered as bare text anywhere else. Same
+   values as those two, which still win on source order where they apply. */
 .code-copy-block pre {
+    background: var(--bg-primary);
+    padding: 0.75rem;
     padding-right: 3rem;
+    border-radius: 6px;
+    overflow-x: auto;
+    max-width: 100%;
+    font-size: 0.8125rem;
 }
 
 .code-copy-btn {
