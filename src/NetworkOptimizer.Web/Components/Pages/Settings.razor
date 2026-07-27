@@ -3208,6 +3208,7 @@
                                             }
                                         </td>
                                         <td>
+                                            <div class="site-row-actions">
                                             <div class="btn-group-wrap">
                                                 <button type="button" class="btn @SiteActionButtonClass(site.Id) btn-sm" @onclick="() => ToggleAgents(site.Id)" @onclick:stopPropagation="true">
                                                     Configuration
@@ -3221,6 +3222,7 @@
                                                         Switch to Site
                                                     </button>
                                                 }
+                                            </div>
                                                 @if (IsSiteRowOpen(site.Id))
                                                 {
                                                     <span class="site-row-caret" aria-hidden="true">&#9650;</span>

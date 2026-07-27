@@ -18315,8 +18315,18 @@ body.kiosk-mode .status-indicators {
     cursor: pointer;
 }
 
+/* The caret sits beside the button group, not inside it. btn-group-wrap wraps its children, so a
+   caret placed within it drops to a second line as soon as the buttons fill the row - which no
+   column width can reliably prevent. */
+.site-row-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
 .site-row-caret {
-    margin-left: 0.35rem;
+    flex-shrink: 0;
+    white-space: nowrap;
     color: var(--text-secondary);
     font-size: 0.7rem;
 }
@@ -18325,18 +18335,20 @@ body.kiosk-mode .status-indicators {
     table-layout: fixed;
 }
 
-.sites-table th:nth-child(1) { width: 30%; }
-.sites-table th:nth-child(2) { width: 22%; }
-.sites-table th:nth-child(3) { width: 16%; }
-.sites-table th:nth-child(4) { width: 6%; }
-.sites-table th:nth-child(5) { width: 26%; }
+/* The actions cell carries up to three buttons plus the caret, so it takes the space the first
+   three columns were over-claiming - a short name, a slug and a date all read fine narrower. */
+.sites-table th:nth-child(1) { width: 22%; }
+.sites-table th:nth-child(2) { width: 17%; }
+.sites-table th:nth-child(3) { width: 12%; }
+.sites-table th:nth-child(4) { width: 8%; }
+.sites-table th:nth-child(5) { width: 41%; }
 
 /* Created is hidden below 768px, so its share is redistributed rather than left as a gap. */
 @media (max-width: 768px) {
-    .sites-table th:nth-child(1) { width: 36%; }
-    .sites-table th:nth-child(2) { width: 24%; }
+    .sites-table th:nth-child(1) { width: 28%; }
+    .sites-table th:nth-child(2) { width: 20%; }
     .sites-table th:nth-child(4) { width: 8%; }
-    .sites-table th:nth-child(5) { width: 32%; }
+    .sites-table th:nth-child(5) { width: 44%; }
 }
 
 .data-table tr.site-row-selected {
