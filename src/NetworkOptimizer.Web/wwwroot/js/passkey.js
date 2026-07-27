@@ -22,7 +22,15 @@ window.netoptPasskey = (function () {
 
         const options = PublicKeyCredential.parseCreationOptionsFromJSON(JSON.parse(optionsJson).publicKey
             ?? JSON.parse(optionsJson));
-        const credential = await navigator.credentials.create({ publicKey: options });
+
+        let credential;
+        try {
+            credential = await navigator.credentials.create({ publicKey: options });
+        } catch {
+            // Dismissing the browser's prompt rejects the promise. Reported as "not registered"
+            // rather than thrown, so the caller can say "cancelled or failed" instead of "failed".
+            return false;
+        }
         if (!credential) return false;
 
         const registerRes = await postJson('/api/passkey/register',
@@ -47,19 +55,28 @@ window.netoptPasskey = (function () {
             return false;
         }
 
-        let assertion;
+        let options;
         try {
             const optionsRes = await fetch('/api/passkey/request-options', { credentials: 'same-origin' });
             if (!optionsRes.ok) return failLogin('passkey_failed');
             const optionsJson = await optionsRes.text();
 
-            const options = PublicKeyCredential.parseRequestOptionsFromJSON(JSON.parse(optionsJson).publicKey
+            options = PublicKeyCredential.parseRequestOptionsFromJSON(JSON.parse(optionsJson).publicKey
                 ?? JSON.parse(optionsJson));
-            assertion = await navigator.credentials.get({ publicKey: options });
-        } catch (err) {
-            // Dismissing the browser prompt is a choice, not a failure: leave the page alone.
-            if (err && (err.name === 'NotAllowedError' || err.name === 'AbortError')) return false;
+        } catch {
             return failLogin('passkey_failed');
+        }
+
+        // Past this point the browser owns the screen. Cancelling the prompt, closing a password
+        // manager that had nothing to offer, and letting the ceremony time out all reject here, and
+        // the browser has already said so in its own UI - so none of them put a message on the page.
+        // Which name a given browser or password manager rejects with is not worth telling apart:
+        // nothing reached the server, so there is nothing this page can add.
+        let assertion;
+        try {
+            assertion = await navigator.credentials.get({ publicKey: options });
+        } catch {
+            return false;
         }
 
         if (!assertion) return false;

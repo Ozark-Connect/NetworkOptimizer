@@ -121,6 +121,25 @@
                 <span class="nav-text">Settings</span>
             </NavLink>
         </li>
+        @* The top bar runs out of room on a phone, so logout moves in here and the header button
+           hides - see .nav-item-logout. A form post for the same reason as the header's. *@
+        <AuthorizeView>
+            <Authorized>
+                <li class="nav-item nav-item-logout">
+                    <form method="post" action="/api/auth/logout">
+                        <AntiforgeryToken />
+                        <button type="submit" class="nav-link nav-logout-btn">
+                            <span class="nav-logout-icon">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15m3 0 3-3m0 0-3-3m3 3H9" />
+                                </svg>
+                            </span>
+                            <span class="nav-text">Logout</span>
+                        </button>
+                    </form>
+                </li>
+            </Authorized>
+        </AuthorizeView>
     </ul>
 </nav>
 

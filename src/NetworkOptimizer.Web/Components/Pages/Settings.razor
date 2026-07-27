@@ -49,6 +49,7 @@
 @inject NetworkOptimizer.Web.Services.Identity.IIdentityAdminService IdentityAdmin
 @inject NetworkOptimizer.Web.Services.Identity.ICurrentUserAccessor CurrentUser
 @inject NetworkOptimizer.Web.Services.Identity.IIdentityBootstrapService IdentityBootstrap
+@inject Microsoft.Extensions.Options.IOptions<Microsoft.AspNetCore.Identity.IdentityOptions> IdentityOptions
 @using NetworkOptimizer.Alerts.Models
 @using NetworkOptimizer.Web.Components.Shared
 
@@ -358,7 +359,7 @@
             </div>
 
             <div class="form-group">
-                <label class="form-label">New Password</label>
+                <label class="form-label">New Password <span class="tooltip-icon tooltip-icon-sm" data-tooltip="@_passwordPolicy">?</span></label>
                 <input type="password" class="form-control" @bind="adminNewPassword" @bind:event="oninput" @onclick:stopPropagation="true" @bind:after="OnAdminPasswordInput" placeholder="Enter new password" autocomplete="new-password" />
             </div>
 
@@ -4302,6 +4303,7 @@
 
     // Admin Password
     private AdminPasswordSource adminPasswordSource = AdminPasswordSource.None;
+    private string _passwordPolicy => NetworkOptimizer.Web.Services.Identity.PasswordPolicyText.Describe(IdentityOptions.Value.Password);
     private string adminNewPassword = "";
     private string adminConfirmPassword = "";
     private bool savingAdminPassword = false;

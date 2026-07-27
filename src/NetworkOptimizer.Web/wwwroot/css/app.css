@@ -7258,6 +7258,43 @@ a.path-hop.hop-clickable:hover {
     display: inline-flex;
 }
 
+.nav-item-logout {
+    display: none;
+}
+
+.nav-logout-btn {
+    width: 100%;
+    background: none;
+    border: none;
+    border-left: 2px solid transparent;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.nav-logout-icon {
+    width: 2.5rem;
+    margin-right: 0.5rem;
+    display: flex;
+    justify-content: flex-end;
+    flex-shrink: 0;
+}
+
+.nav-logout-icon svg {
+    width: 1.25rem;
+    height: 1.25rem;
+}
+
+@media (max-width: 768px) {
+    .nav-item-logout {
+        display: block;
+    }
+
+    .logout-form {
+        display: none;
+    }
+}
+
 .logout-btn,
 .account-btn {
     display: flex;
