@@ -61,7 +61,13 @@ window.netoptPasskey = (function () {
 
         if (!assertion) return false;
 
-        const remember = document.querySelector('input[name="rememberMe"]')?.checked ? 'true' : 'false';
+        // Two shapes carry the same choice: a checkbox on the sign-in form, and a hidden field on the
+        // second-factor form where the choice was already made a page earlier. Reading .checked alone
+        // would silently report false for the hidden one.
+        const rememberField = document.querySelector('input[name="rememberMe"]');
+        const remember = !rememberField ? 'false'
+            : rememberField.type === 'checkbox' ? String(rememberField.checked)
+            : String(rememberField.value === 'true');
         const assertRes = await fetch(`/api/passkey/assert?rememberMe=${remember}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
