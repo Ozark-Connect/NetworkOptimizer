@@ -3753,6 +3753,7 @@
         _activeTab = tab;
         NavigationManager.NavigateTo("/settings?tab=" + tab, forceLoad: false, replace: false);
         _lastTabParam = tab;
+        _ = EnsureKeyDeployStatusAsync();
     }
 
     protected override void OnParametersSet()
@@ -5075,7 +5076,6 @@
         try
         {
             _sshKey = await SshKeyService.GetAsync();
-            _keyDeployStatus = await SshKeyDeployment.GetStatusAsync();
             _sshSpeedTestDeviceCount = (await SshService.GetDevicesAsync())
                 .Count(d => d.StartIperf3Server);
         }
@@ -5102,6 +5102,32 @@
         {
             Logger.LogDebug(ex, "Could not determine gateway type for SSH key instructions");
             _gatewayIsConsole = true;
+        }
+    }
+
+    /// <summary>
+    /// Reads the gateway's state once per circuit, on demand. This opens a real SSH session, so it is
+    /// not something to do on every Settings load - most visits never open the Connection tab, and
+    /// with no key stored there is nothing to ask the gateway about. Mutations refresh it explicitly.
+    /// </summary>
+    private async Task EnsureKeyDeployStatusAsync()
+    {
+        if (_sshKey is null || _activeTab != "connection")
+            return;
+
+        // An awaiting-agent answer is "not known yet", so it is not worth keeping - caching it would
+        // hide the install offer for the rest of the circuit even after the agent came online.
+        if (_keyDeployStatus is { AwaitingAgent: false })
+            return;
+
+        try
+        {
+            _keyDeployStatus = await SshKeyDeployment.GetStatusAsync();
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Could not read the gateway's SSH key state");
         }
     }
 

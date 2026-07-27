@@ -2341,12 +2341,18 @@ a.btn-lg {
     margin-top: 0.5rem;
 }
 
-/* Bordered only once a key is stored: this is a statement that key auth is in play for the section,
-   and it should read as one rather than as another line of help text. */
+/* Wraps the value only, not the label - the label stays aligned with every other field header in the
+   card. Bordered only once a key is stored: it states that key auth is in play for the section, so it
+   should read as a statement rather than as another line of help text. */
 .ssh-key-row-set {
+    margin-top: 0.5rem;
     padding: 0.75rem;
     border: 1px solid var(--info-color);
     border-radius: var(--border-radius);
+}
+
+.ssh-key-row-set .form-help {
+    margin-top: 0;
 }
 
 #ssh-key .ssh-key-upload .form-group {
