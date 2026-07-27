@@ -493,9 +493,11 @@
         <div class="card-header">
             <h2 class="card-title">Other Device Speed Test</h2>
             <div class="header-actions">
-                <button class="btn btn-sm btn-secondary" @onclick="ToggleAddDevice">
-                    @(showAddDevice && editingDevice.Id == 0 ? "Cancel" : "Add Device")
-                </button>
+                <SiteAdminOnly>
+                    <button class="btn btn-sm btn-secondary" @onclick="ToggleAddDevice">
+                        @(showAddDevice && editingDevice.Id == 0 ? "Cancel" : "Add Device")
+                    </button>
+                </SiteAdminOnly>
             </div>
         </div>
         <div class="card-body">
@@ -558,7 +560,9 @@
                                         </SiteOperatorOnly>
                                                                                     <button class="btn btn-secondary btn-sm @(device.StartIperf3Server ? "" : "hidden-placeholder")" style="min-width: 5rem;"
                                                     @onclick="() => TestConnection(device)" disabled="@(!sshConfigured && !device.HasOwnCredentials)">Test SSH</button>
-                                        <button class="btn btn-secondary btn-sm" @onclick="() => EditDevice(device)">Edit</button>
+                                        <SiteAdminOnly>
+                                            <button class="btn btn-secondary btn-sm" @onclick="() => EditDevice(device)">Edit</button>
+                                        </SiteAdminOnly>
                                         <SiteAdminOnly>
                                             <button class="btn btn-danger btn-sm" @onclick="() => DeleteDevice(device)">Delete</button>
                                         </SiteAdminOnly>
@@ -787,7 +791,9 @@
                         }
                         else
                         {
-                            <button class="btn btn-sm btn-danger" @onclick="ShowClearHistoryConfirm">Clear History</button>
+                            <SiteAdminOnly>
+                                <button class="btn btn-sm btn-danger" @onclick="ShowClearHistoryConfirm">Clear History</button>
+                            </SiteAdminOnly>
                         }
                     }
                 </div>
