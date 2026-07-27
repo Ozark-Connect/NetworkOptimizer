@@ -4986,11 +4986,26 @@
     /// An auth option is "in use" when it has a value configured. Several can be in use at once - SSH
     /// is handed every configured method and tries them in turn, so this is not a choice between them.
     /// </summary>
-    private bool GatewayPasswordSet => hasGatewayPassword || !string.IsNullOrEmpty(gatewayPassword);
+    /// <summary>
+    /// The gateway's password is not in use once a key is authenticating for it: a key file replaces
+    /// it outright (saving one clears it), and the stored key does the same in practice once it is
+    /// confirmed on the gateway. Confirmed, not merely stored - until the key is actually placed, the
+    /// password is the thing getting us in, and calling it unused would be exactly backwards.
+    /// </summary>
+    private bool GatewayPasswordSet =>
+        (hasGatewayPassword || !string.IsNullOrEmpty(gatewayPassword))
+        && !GatewayKeyPathSet
+        && _keyDeployStatus?.KeyInstalled != true;
 
     private bool GatewayKeyPathSet => !string.IsNullOrWhiteSpace(gatewayPrivateKeyPath);
 
-    private bool DevicePasswordSet => hasSshPassword || !string.IsNullOrEmpty(sshPassword);
+    /// <summary>
+    /// Device SSH has no equivalent of the gateway's confirmation - the key lands on switches and APs
+    /// through UniFi Network's Device SSH Settings, which we do not read. So a key file still counts
+    /// as replacing the password, but a stored key does not: it may not be on those devices at all.
+    /// </summary>
+    private bool DevicePasswordSet =>
+        (hasSshPassword || !string.IsNullOrEmpty(sshPassword)) && !DeviceKeyPathSet;
 
     private bool DeviceKeyPathSet => !string.IsNullOrWhiteSpace(sshPrivateKeyPath);
 
