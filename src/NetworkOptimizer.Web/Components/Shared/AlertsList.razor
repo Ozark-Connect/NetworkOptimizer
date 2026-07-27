@@ -2,6 +2,7 @@
 @using AuditSeverity = NetworkOptimizer.Audit.Models.AuditSeverity
 @inject UniFiConnectionService ConnectionService
 @inject AuditService AuditService
+@inject IAuditScanService AuditScan
 
 <div class="alerts-list">
     @if (isLoading)
@@ -232,7 +233,7 @@
             var issue = activeIssues.FirstOrDefault(i => AuditService.GetIssueKey(i) == alert.IssueKey);
             if (issue != null)
             {
-                await AuditService.DismissIssueAsync(issue);
+                await AuditScan.DismissIssueAsync(issue);
             }
             alerts.Remove(alert);
 

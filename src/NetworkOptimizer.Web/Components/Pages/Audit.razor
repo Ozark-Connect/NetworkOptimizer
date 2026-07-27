@@ -7,6 +7,7 @@
 @using NetworkOptimizer.Web.Components.Shared
 @using AuditSeverity = NetworkOptimizer.Audit.Models.AuditSeverity
 @inject AuditService AuditService
+@inject IAuditScanService AuditScan
 @inject UniFiConnectionService ConnectionService
 @inject NetworkOptimizer.Web.Services.Licensing.LicenseStateService LicenseState
 @inject SiteContextService SiteContext
@@ -1016,7 +1017,7 @@
         try
         {
             // Run audit and progress animation in parallel
-            var auditTask = AuditService.RunAuditAsync(new Services.AuditOptions
+            var auditTask = AuditScan.RunAuditAsync(new Services.AuditOptions
             {
                 IncludeFirewallRules = includeFirewallRules,
                 IncludeVlanSecurity = includeVlanSecurity,
@@ -1486,7 +1487,7 @@
 
     private async Task DismissIssue(Services.AuditIssue issue)
     {
-        await AuditService.DismissIssueAsync(issue);
+        await AuditScan.DismissIssueAsync(issue);
 
         // Move from active to dismissed
         issues.Remove(issue);
@@ -1502,7 +1503,7 @@
 
     private async Task RestoreIssue(Services.AuditIssue issue)
     {
-        await AuditService.RestoreIssueAsync(issue);
+        await AuditScan.RestoreIssueAsync(issue);
 
         // Move from dismissed to active
         dismissedIssues.Remove(issue);
@@ -1530,7 +1531,7 @@
         if (string.IsNullOrEmpty(newPurpose)) return;
 
         _purposeOverrides[networkId] = newPurpose;
-        await AuditService.SaveNetworkPurposeOverrideAsync(networkId, newPurpose);
+        await AuditScan.SaveNetworkPurposeOverrideAsync(networkId, newPurpose);
 
         // Show "Saved" indicator
         _purposeSaved[networkId] = true;
