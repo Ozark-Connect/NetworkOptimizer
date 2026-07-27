@@ -18441,6 +18441,9 @@ body.kiosk-mode .status-indicators {
     color: var(--text-secondary);
     font-size: 0.85rem;
     flex: 1;
+    gap: 0.75rem;
+    display: flex;
+    place-items: center;
 }
 
 .site-agent-actions {
