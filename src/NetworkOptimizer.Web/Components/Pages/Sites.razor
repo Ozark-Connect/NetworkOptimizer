@@ -17,6 +17,7 @@
 @inject NavigationManager NavigationManager
 @using NetworkOptimizer.Storage.Models.Identity
 @inject NetworkOptimizer.Web.Services.Authorization.IEffectiveSiteRoleResolver SiteRoles
+@inject SiteRegistryChangeNotifier ChangeNotifier
 
 <PageTitle>Sites - Network Optimizer</PageTitle>
 
@@ -134,13 +135,11 @@ else
 
     protected override async Task OnInitializedAsync()
     {
-        if (AuthState is not null)
-        {
-            var user = (await AuthState).User;
-            _settingsSlug = await SiteRoles.GetEffectiveRoleAsync(user, SiteContext.Slug) == SiteRole.SiteAdmin
-                ? SiteContext.Slug
-                : await SiteRoles.FirstAdministeredSlugAsync(user);
-        }
+        // The registry can change under an open page - a site removed elsewhere, or access to one
+        // granted or revoked. Both move the answer below, and deleting the site someone administers
+        // used to leave this page offering a settings link to a slug that no longer exists.
+        ChangeNotifier.SitesChanged += OnSitesChanged;
+        await ResolveSettingsSlugAsync();
 
         _enabled = await SiteManagement.IsMultiSiteEnabledAsync();
         if (_enabled)
@@ -170,8 +169,42 @@ else
         _loaded = true;
     }
 
+    /// <summary>
+    /// Which site the settings link opens on: the one in context when they administer it, otherwise
+    /// any site they do. Null hides the link, which is the answer once their last one is gone.
+    /// </summary>
+    private async Task ResolveSettingsSlugAsync()
+    {
+        if (AuthState is null)
+            return;
+
+        var user = (await AuthState).User;
+        _settingsSlug = await SiteRoles.GetEffectiveRoleAsync(user, SiteContext.Slug) == SiteRole.SiteAdmin
+            ? SiteContext.Slug
+            : await SiteRoles.FirstAdministeredSlugAsync(user);
+    }
+
+    private void OnSitesChanged()
+    {
+        _ = InvokeAsync(async () =>
+        {
+            try
+            {
+                await ResolveSettingsSlugAsync();
+                _sites = await SiteAccess.FilterAsync(
+                    (await SiteManagement.GetSitesAsync()).Where(s => s.Enabled), s => s.Slug);
+                StateHasChanged();
+            }
+            catch (ObjectDisposedException)
+            {
+                // Circuit torn down between the event and the dispatch - nothing to update.
+            }
+        });
+    }
+
     public void Dispose()
     {
+        ChangeNotifier.SitesChanged -= OnSitesChanged;
         _pollTimer?.Dispose();
     }
 
