@@ -23,7 +23,7 @@ existing `gateway-ssh` and `device-ssh` cards). It is the only editor.
 
 The places that configure SSH each get a read-only `SshKeyRow` stating which key is in effect and
 linking to the panel - no picker, no per-form generate, and no way to replace the gateway's key from
-the ONT form. With one key per site there is nothing to select: the key is attached wherever SSH
+some other form. With one key per site there is nothing to select: the key is attached wherever SSH
 connects, additively, alongside whatever password or key file is already set.
 
 With no key stored the row states the offer rather than the absence. Someone typing a password into an
@@ -32,16 +32,23 @@ one for them.
 
 ## Where SSH auth is configured
 
-Four places, not the three the original note listed:
+Three, as the original note said:
 
 1. Settings - Connection, gateway SSH - `Settings.razor` ~448
 2. Settings - Connection, Device SSH - `Settings.razor` ~617
 3. LAN Speed Test, per-device override - `SpeedTest.razor` ~690
-4. ONT configuration - `Settings.razor` ~1789, and it does reach SSH: `OntMonitorService.cs:407`
-   passes it into the poll context
 
-`ModemConfiguration.PrivateKeyPath` exists as a model field with validation, but nothing renders an
-input for it, so there is nothing to lock down there.
+Two others look like a fourth and are not:
+
+- **ONT.** It rendered a path field and `OntMonitorService.cs:407` passed the value into a poll
+  context, which is what made it look real - but nothing ever reads
+  `OntPollContext.PrivateKeyPath`, because no ONT provider uses SSH. It asked for a path and dropped
+  it. The field is commented out under "ONT SSH KEY ANCHOR" with what re-enabling it would need.
+- **Cellular modem.** `ModemConfiguration.PrivateKeyPath` exists as a model field with validation,
+  but nothing renders an input for it.
+
+Worth noting for anyone auditing this again: tracing a value to the code that *sets* it is not
+enough. Both of these had a setter and no consumer.
 
 ## The lock-out
 
@@ -109,8 +116,35 @@ on a secondary site would write their key into the main site's database and over
 set, so the two dozen call sites that gate on it are correct at once. Patching them individually is how
 holes survive.
 
+## Installing on a Cloud Gateway
+
+A Cloud Gateway is its own console, so UniFi Network's Device SSH Settings never reaches its root SSH.
+**Install on gateway** places the key over the Gateway SSH connection that already works, through the
+same udm-boot mechanism Adaptive SQM, WAN Steering and Performance Tweaks deploy through, and runs the
+script immediately rather than waiting for a reboot. Placement is verified by reading the gateway back,
+not by trusting an exit code.
+
+- `26-netopt-ssh-key.sh`, clear of everything else we ship (06, 07, 10, 15, 19-21, 25).
+- **Non-destructive, unlike the personal script this is modelled on.** It strips only the lines
+  carrying this exact key and appends it once; rebuilding `authorized_keys` wholesale would be simpler
+  and would silently delete any other key the operator placed there.
+- **Matched on key material, never on our comment.** An uploaded key already on the gateway carries
+  whatever comment its owner gave it, so a comment match would report "not installed" and nag someone
+  to install a key that already worked - and would then leave the same key in the file twice.
+- The button appears only for a Cloud Gateway (a UXG is adopted, so UniFi places keys on it already)
+  and only when Gateway SSH can log in today. That check deliberately avoids `HasCredentials`, which
+  now counts the stored key: the key being installed cannot be what gets us in to install it.
+- **Generate, upload and remove all take the outgoing key off the gateway first.** Without that a
+  revoked key keeps authenticating: the boot script re-places it every boot, and once the stored key
+  is gone there is no key material left to match on, so nothing can ever find it again. If gateway
+  cleanup fails the stored key is kept, because orphaning it cannot be undone from the UI.
+
+Scope limit: presence is checked on the gateway only. Switches and APs take their keys from UniFi
+Network's Device SSH Settings, which we do not read.
+
 ## Still open
 
 - Whether full config export should exist in the hosted build, since stored keys land in the site DB
   and the export bundles every site DB plus the Data Protection keys. A SaaS-fork decision.
-- Automatic key placement on console gateways via udm-boot - tabled, see `TODO.md`.
+- Whether `/root/.ssh/authorized_keys` survives a UniFi OS firmware upgrade. If it does, the boot
+  script is belt-and-braces rather than load-bearing. Checkable read-only on any console gateway.

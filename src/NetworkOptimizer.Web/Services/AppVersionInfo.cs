@@ -22,7 +22,7 @@ public static class AppVersionInfo
     /// "Update agent" callout for enrolled agents reporting an older version
     /// than this, and over-bumping nags agents into pointless upgrades.
     /// </summary>
-    public const string LatestAgentVersion = "2.5.0";
+    public const string LatestAgentVersion = "2.2.0";
 
     /// <summary>Full informational version (e.g. "1.4.2" or "0.0.0-alpha.0.12").</summary>
     public static string Informational { get; }

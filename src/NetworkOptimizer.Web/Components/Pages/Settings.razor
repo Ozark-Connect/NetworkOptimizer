@@ -815,6 +815,19 @@
                     </div>
                 }
 
+                @if (_sshSpeedTestDeviceCount > 0)
+                {
+                    <div class="form-group">
+                        <label class="form-label">Speed test devices</label>
+                        <small class="form-help">
+                            You have @_sshSpeedTestDeviceCount @(_sshSpeedTestDeviceCount == 1 ? "device" : "devices")
+                            that Network Optimizer signs in to over SSH to start iperf3. Add the public key above to
+                            <code>~/.ssh/authorized_keys</code> on each of them to use the key there too. Until you do,
+                            they keep signing in with the password or key they already have.
+                        </small>
+                    </div>
+                }
+
                 <details class="setup-guide">
                     <summary>How to Install the Public Key</summary>
                     <div class="setup-guide-content">
@@ -1826,14 +1839,24 @@
                         </div>
                     </div>
 
+                    @* ONT SSH KEY ANCHOR - re-enable when the first SSH-based ONT provider lands.
+
+                       Hidden because no ONT provider uses SSH today: nothing reads
+                       OntPollContext.PrivateKeyPath, so this asked for a path and then dropped it.
+
+                       Whoever turns it back on: wrap it in <AdminOnly> the way Gateway SSH and Device
+                       SSH are, since a site admin must not be able to name a path on the server, and
+                       wire the provider to the site's stored SSH key - that is attached in
+                       GatewaySshService / UniFiSshService, neither of which ONT goes through.
+                       See docs/features/ssh-key-management.md.
+
+                        <div class="form-group" style="flex: 2;">
+                            <label class="form-label">Private Key Path (optional)</label>
+                            <input type="text" class="form-control" @bind="_editingOnt.PrivateKeyPath" placeholder="/path/to/id_rsa" />
+                            <small class="form-help">For future SSH-based ONT providers. Leave empty for HTTP providers.</small>
+                        </div>
+                    *@
                     <div class="form-row">
-                        <AdminOnly>
-                            <div class="form-group" style="flex: 2;">
-                                <label class="form-label">Private Key Path (optional)</label>
-                                <input type="text" class="form-control" @bind="_editingOnt.PrivateKeyPath" placeholder="/path/to/id_rsa" />
-                                <small class="form-help">For future SSH-based ONT providers. Leave empty for HTTP providers.</small>
-                            </div>
-                        </AdminOnly>
                         <div class="form-group" style="flex: 1;">
                             <label class="form-label">Polling Interval (sec)</label>
                             <input type="number" class="form-control" @bind="_editingOnt.PollingIntervalSeconds" min="60" max="3600" />
@@ -4445,6 +4468,13 @@
     /// <summary>What the gateway already has, for the one-click install. Null until loaded.</summary>
     private SshKeyDeploymentStatus? _keyDeployStatus;
 
+    /// <summary>
+    /// LAN Speed Test targets we SSH into to start iperf3 - typically the user's own servers and
+    /// workstations. A stored key does nothing on those until it is installed there, and nothing else
+    /// in the app would ever mention it.
+    /// </summary>
+    private int _sshSpeedTestDeviceCount;
+
     // Gateway SSH
     private GatewaySshSettings? gatewaySettings;
     private string gatewayHost = "";
@@ -5046,6 +5076,8 @@
         {
             _sshKey = await SshKeyService.GetAsync();
             _keyDeployStatus = await SshKeyDeployment.GetStatusAsync();
+            _sshSpeedTestDeviceCount = (await SshService.GetDevicesAsync())
+                .Count(d => d.StartIperf3Server);
         }
         catch (Exception ex)
         {
