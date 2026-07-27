@@ -2336,6 +2336,20 @@ a.btn-lg {
     background: var(--bg-elevated);
 }
 
+/* Link - a button that reads as a link, for the lesser of two adjacent actions */
+.btn-link {
+    background: none;
+    border: none;
+    padding: 0;
+    color: var(--primary-hover);
+    text-decoration: underline;
+    cursor: pointer;
+}
+
+.btn-link:hover:not(:disabled) {
+    color: var(--text-primary);
+}
+
 /* Tertiary - Elevated grey (for dismiss/subtle actions on tertiary backgrounds) */
 .btn-tertiary {
     background: var(--bg-elevated);

@@ -283,6 +283,26 @@ public class SshClientService
     {
         var authMethods = new List<AuthenticationMethod>();
 
+        // The site's stored key, decrypted into a stream so it is never written to the filesystem.
+        // Offered ahead of a key file only because it is the one the app manages; both are additive,
+        // and password auth below stays a working fallback either way.
+        if (!string.IsNullOrEmpty(connection.StoredPrivateKeyPem))
+        {
+            try
+            {
+                using var pem = new MemoryStream(Encoding.UTF8.GetBytes(connection.StoredPrivateKeyPem));
+                var storedKey = !string.IsNullOrEmpty(connection.StoredPrivateKeyPassphrase)
+                    ? new PrivateKeyFile(pem, connection.StoredPrivateKeyPassphrase)
+                    : new PrivateKeyFile(pem);
+
+                authMethods.Add(new PrivateKeyAuthenticationMethod(connection.Username, storedKey));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning("Failed to load the site's stored SSH key: {Error}", ex.Message);
+            }
+        }
+
         // Prefer key-based auth if configured
         if (!string.IsNullOrEmpty(connection.PrivateKeyPath))
         {
@@ -296,8 +316,10 @@ public class SshClientService
             }
             catch (Exception ex)
             {
-                _logger.LogWarning("Failed to load private key from {Path}: {Error}",
-                    connection.PrivateKeyPath, ex.Message);
+                // The path is logged at Debug rather than Warning: it is a global-Admin-only value, and
+                // the warning line is read by anyone who can see logs.
+                _logger.LogWarning("Failed to load the configured private key file: {Error}", ex.Message);
+                _logger.LogDebug("Private key file that failed to load: {Path}", connection.PrivateKeyPath);
             }
         }
 
@@ -328,6 +350,7 @@ public class SshClientService
         if (authMethods.Count == 0)
         {
             var hint = !string.IsNullOrEmpty(connection.PrivateKeyPath)
+                    || !string.IsNullOrEmpty(connection.StoredPrivateKeyPem)
                 ? " (private key may be invalid or unreadable)"
                 : " (no password or private key configured)";
             throw new InvalidOperationException(

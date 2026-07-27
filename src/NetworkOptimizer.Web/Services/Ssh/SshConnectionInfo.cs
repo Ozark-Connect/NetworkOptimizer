@@ -26,14 +26,28 @@ public class SshConnectionInfo
     /// <summary>Passphrase for encrypted private keys</summary>
     public string? PrivateKeyPassphrase { get; set; }
 
+    /// <summary>
+    /// Decrypted PEM of the site's stored key, when it has one. Additive: it is offered alongside
+    /// whatever else is configured rather than replacing it, so a site with no stored key authenticates
+    /// exactly as it did before stored keys existed.
+    /// </summary>
+    public string? StoredPrivateKeyPem { get; set; }
+
+    /// <summary>Passphrase for <see cref="StoredPrivateKeyPem"/>, for an uploaded encrypted key.</summary>
+    public string? StoredPrivateKeyPassphrase { get; set; }
+
     /// <summary>Connection timeout</summary>
     public TimeSpan Timeout { get; set; } = TimeSpan.FromSeconds(5);
 
     /// <summary>Whether credentials are configured</summary>
-    public bool HasCredentials => !string.IsNullOrEmpty(Password) || !string.IsNullOrEmpty(PrivateKeyPath);
+    public bool HasCredentials => !string.IsNullOrEmpty(Password)
+        || !string.IsNullOrEmpty(PrivateKeyPath)
+        || !string.IsNullOrEmpty(StoredPrivateKeyPem);
 
     /// <summary>Whether to use password auth (vs key-based)</summary>
-    public bool UsePasswordAuth => !string.IsNullOrEmpty(Password) && string.IsNullOrEmpty(PrivateKeyPath);
+    public bool UsePasswordAuth => !string.IsNullOrEmpty(Password)
+        && string.IsNullOrEmpty(PrivateKeyPath)
+        && string.IsNullOrEmpty(StoredPrivateKeyPem);
 
     /// <summary>
     /// Create connection info from gateway SSH settings.

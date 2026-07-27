@@ -659,6 +659,11 @@ builder.Services.AddMutatingService<IWanSteerDeploymentService, WanSteerDeployme
 builder.Services.AddMutatingService<IWanSteerRuleService, WanSteerRuleService>();
 builder.Services.AddMutatingService<ISiteConfigurationService, SiteConfigurationService>();
 builder.Services.AddMutatingService<IPerfTweaksDeploymentService, PerfTweaksDeploymentService>();
+// The site's stored SSH key. Scoped, so its DbContext is the site in context's.
+builder.Services.AddMutatingService<ISshKeyService, SshKeyService>();
+// The SSH settings as the edit forms see them. Separate from IGatewaySshService/IUniFiSshService on
+// purpose: those are on the connection path, which monitoring calls with no caller established.
+builder.Services.AddMutatingService<ISshSettingsAdminService, SshSettingsAdminService>();
 // Per site: the update banner reflects the current site's gateway module deployment
 // state. Scoped so each site's Perf Tweaks / WAN Steering status is its own; a circuit
 // is session-lived, so the compute still runs about once per session.

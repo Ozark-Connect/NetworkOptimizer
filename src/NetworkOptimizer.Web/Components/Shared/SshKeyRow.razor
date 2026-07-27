@@ -1,0 +1,40 @@
+@using NetworkOptimizer.Web.Services.Ssh
+
+@*
+    The site's stored SSH key, as it appears wherever SSH credentials are configured. Read-only by
+    design: everything you can do to the key happens in the one panel in Settings - Connection, so
+    there is no way to replace the gateway's key from, say, the cellular modem form.
+
+    With no key stored this states the offer rather than the absence - someone typing a password into
+    an SSH form is exactly the person who would rather not have one, and is unlikely to know the app
+    can make a key for them. It stays a plain line of text: the feature is optional and must not nag.
+*@
+
+<div class="form-group">
+    <label class="form-label">SSH key</label>
+    @if (Key is not null)
+    {
+        <div class="detail-value">@Key.KeyType &middot; @Key.Fingerprint</div>
+        <small class="form-help"><a href="@ManageUrl">Manage in Settings - Connection</a></small>
+    }
+    else
+    {
+        <small class="form-help">
+            None stored. Network Optimizer can generate one for you, so you do not need to place a key
+            file on the server. <a href="@ManageUrl">Set up an SSH key</a>
+        </small>
+    }
+</div>
+
+@code {
+    /// <summary>The site's stored key, or null when it has none.</summary>
+    [Parameter]
+    public SshKeyInfo? Key { get; set; }
+
+    /// <summary>
+    /// Where the manage link points. Defaults to the panel's anchor, which the Settings anchor map
+    /// routes to the Connection tab; pages outside Settings get there with the same link.
+    /// </summary>
+    [Parameter]
+    public string ManageUrl { get; set; } = "/settings#ssh-key";
+}

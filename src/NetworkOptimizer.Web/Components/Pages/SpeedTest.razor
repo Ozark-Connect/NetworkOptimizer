@@ -13,7 +13,9 @@
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.Components.Authorization
 @using NetworkOptimizer.Web.Services.Authorization
+@using NetworkOptimizer.Web.Services.Ssh
 @inject IAuthorizationService Authz
+@inject ISshKeyService SshKeyService
 @inject IIperf3SpeedTestService SpeedTestService
 @inject UniFiSshService SshService
 @inject UniFiConnectionService ConnectionService
@@ -686,11 +688,15 @@
                             <span class="form-help">Password is encrypted at rest</span>
                         </div>
 
-                        <div class="form-group">
-                            <label class="form-label">SSH Private Key Path</label>
-                            <input type="text" class="form-control" @bind="editingDevice.SshPrivateKeyPath" placeholder="(using global setting)" />
-                            <span class="form-help">Path to private key file on the server (e.g., /app/ssh-keys/id_rsa). Leave blank to use password authentication.</span>
-                        </div>
+                        <SshKeyRow Key="_sshKey" />
+
+                        <AdminOnly>
+                            <div class="form-group">
+                                <label class="form-label">SSH Private Key Path</label>
+                                <input type="text" class="form-control" @bind="editingDevice.SshPrivateKeyPath" placeholder="(using global setting)" />
+                                <span class="form-help">Path to private key file on the server (e.g., /app/ssh-keys/id_rsa). Leave blank to use password authentication.</span>
+                            </div>
+                        </AdminOnly>
                     }
 
                     <div class="action-buttons">
@@ -1519,6 +1525,25 @@
 
     private bool _liveViewLinkEnabled;
 
+    /// <summary>The site's stored SSH key, shown on the per-device override form. Null when it has none.</summary>
+    private SshKeyInfo? _sshKey;
+
+    /// <summary>
+    /// Read-only, and tolerant of failure: the key row is informational, so a site whose key cannot be
+    /// read still gets a working speed test page.
+    /// </summary>
+    private async Task<SshKeyInfo?> LoadSiteSshKey()
+    {
+        try
+        {
+            return await SshKeyService.GetAsync();
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
     protected override async Task OnInitializedAsync()
     {
         _canConfigure = AuthState is null
@@ -1526,6 +1551,8 @@
 
         PtrState.RefreshCallback = () => LoadHistory();
         PtrState.NotifyStateChanged = StateHasChanged;
+
+        _sshKey = await LoadSiteSshKey();
 
         _liveViewLinkEnabled = await Readiness.IsHistoricPlaybackAvailableAsync();
 
