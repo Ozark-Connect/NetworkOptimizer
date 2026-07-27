@@ -18450,6 +18450,16 @@ body.kiosk-mode .status-indicators {
     margin-top: 0.5rem;
 }
 
+/* The upgrade block alternates a one-line heading and a command box, twice over, so each needs to sit
+   off the thing below it. */
+.agent-upgrade-cmd .form-help {
+    margin-bottom: 0.3rem;
+}
+
+.agent-upgrade-cmd .code-copy-block {
+    margin-bottom: 0.5rem;
+}
+
 /* Direct child, for the same reason as .history-details-row above: the panel row carries both
    classes, so as a descendant selector this kept zeroing the cells of the table inside the panel
    even once the other rule was scoped. */
