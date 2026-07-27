@@ -64,7 +64,19 @@
         }
 
         if (!await SiteAccess.IsAuthorizedAsync(SiteContext.Slug))
-            SiteContext.OverrideSite(await SiteAccess.FallbackSlugAsync());
+        {
+            var fallback = await SiteAccess.FallbackSlugAsync();
+            SiteContext.OverrideSite(fallback);
+
+            // Put the address bar back in step. SiteTabSync stamps the URL from the site in context,
+            // but it renders alongside this component rather than after it, so on a circuit that
+            // falls back it stamps the site being taken away before the fallback has happened. The
+            // tab is then reading one site while every service answers for another - access looks
+            // half revoked, and a refresh re-pins the site they no longer hold.
+            var corrected = SiteContextService.WithSiteParam(Navigation.Uri, fallback);
+            if (!string.Equals(corrected, Navigation.Uri, StringComparison.Ordinal))
+                Navigation.NavigateTo(corrected, forceLoad: false, replace: true);
+        }
 
         _siteResolved = true;
     }
