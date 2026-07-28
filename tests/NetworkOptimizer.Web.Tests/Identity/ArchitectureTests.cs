@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using NetworkOptimizer.Storage.Models.Identity;
 using NetworkOptimizer.Web.Endpoints;
+using NetworkOptimizer.Web.Services.Authorization;
 using NetworkOptimizer.Web.Services.Gates;
 using NetworkOptimizer.Web.Services.Identity;
 using Xunit;
@@ -72,6 +73,49 @@ public class ArchitectureTests
         ungated.Should().BeEmpty(
             "every endpoint must carry authorization metadata, be an allowlisted anonymous route, or "
             + "live under /api/public/ (design doc 06 A1)");
+    }
+
+    /// <summary>
+    /// A5: everything a user reaches to manage their OWN account is gated by
+    /// <see cref="Policies.AccountSelfService"/> and nothing narrower.
+    ///
+    /// A role policy looks harmless on these routes and is not. The global-role handler refuses a
+    /// caller whose authorized site set is empty - correct for anything that shows a site, wrong for
+    /// someone's own credentials - so a Viewer with no site grants got a 403 changing their password
+    /// while TOTP enrolment, the one route already on the self-service policy, worked from the same
+    /// page. Nothing in the build noticed, because a policy that exists and is wrong satisfies A1.
+    /// </summary>
+    [Fact]
+    public void A5_AccountEndpointsUseTheSelfServicePolicy()
+    {
+        // Two prefixes, because the surface grew that way: enrolling a second factor posts to
+        // /api/auth/mfa/ while the rest sits under /api/account/. Checking only the obvious one would
+        // have left enrolment - the route this whole policy was introduced for - unguarded.
+        var selfServicePrefixes = new[] { "/api/account/", "/api/auth/mfa/" };
+
+        var wrong = new List<string>();
+
+        foreach (var endpoint in MapAllEndpoints().OfType<RouteEndpoint>())
+        {
+            var route = "/" + endpoint.RoutePattern.RawText?.TrimStart('/');
+            if (!selfServicePrefixes.Any(p => route.StartsWith(p, StringComparison.OrdinalIgnoreCase)))
+                continue;
+
+            var policies = endpoint.Metadata.GetOrderedMetadata<IAuthorizeData>()
+                .Select(a => a.Policy)
+                .Where(p => !string.IsNullOrEmpty(p))
+                .ToList();
+
+            if (!policies.Contains(Policies.AccountSelfService))
+            {
+                var declared = policies.Count > 0 ? string.Join(", ", policies) : "no policy";
+                wrong.Add($"{route} ({declared})");
+            }
+        }
+
+        wrong.Should().BeEmpty(
+            "an account route must be reachable by any signed-in user, including one who can reach no "
+            + "site at all - their own credentials are not a site (design doc 06 A5)");
     }
 
     /// <summary>
