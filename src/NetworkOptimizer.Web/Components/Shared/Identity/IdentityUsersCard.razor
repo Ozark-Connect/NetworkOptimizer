@@ -182,6 +182,8 @@
                                     <td colspan="6">
                                         <div class="identity-inline-form">
                                             <h3 class="identity-inline-title">Linked identities for @user.UserName</h3>
+                                            <div class="site-config-section">
+                                            <div class="site-config-section-title">Linked</div>
                                             @if (_links is null)
                                             {
                                                 <div class="identity-loading"><span class="spinner spinner-sm"></span></div>
@@ -204,9 +206,12 @@
                                                     }
                                                 </ul>
                                             }
+                                            </div>
 
                                             @if (_providers is { Count: > 0 })
                                             {
+                                                <div class="site-config-section identity-link-add">
+                                                <div class="site-config-section-title">Link another identity</div>
                                                 <div class="identity-form-grid">
                                                     <div class="form-group">
                                                         <label class="form-label">Provider</label>
@@ -226,6 +231,7 @@
                                                 <div class="identity-form-actions">
                                                     <button type="button" class="btn btn-primary btn-sm" @onclick="() => LinkAsync(user)">Link identity</button>
                                                     <button type="button" class="btn btn-contrast btn-sm" @onclick="CloseLinks">Close</button>
+                                                </div>
                                                 </div>
                                             }
                                             else
