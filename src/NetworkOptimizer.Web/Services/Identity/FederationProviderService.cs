@@ -31,19 +31,22 @@ public sealed class FederationProviderService : IFederationProviderService
     private readonly IAuditLogger _audit;
     private readonly ICallerContext _caller;
     private readonly DynamicSchemeManager _schemes;
+    private readonly ILogger<FederationProviderService> _logger;
 
     public FederationProviderService(
         IDbContextFactory<AuthDbContext> dbFactory,
         IDataProtectionProvider dp,
         IAuditLogger audit,
         ICallerContext caller,
-        DynamicSchemeManager schemes)
+        DynamicSchemeManager schemes,
+        ILogger<FederationProviderService> logger)
     {
         _dbFactory = dbFactory;
         _protector = dp.CreateProtector("federation.client_secret");
         _audit = audit;
         _caller = caller;
         _schemes = schemes;
+        _logger = logger;
     }
 
     public async Task<IReadOnlyList<FederationProvider>> GetAllAsync()
@@ -137,7 +140,14 @@ public sealed class FederationProviderService : IFederationProviderService
     {
         if (string.IsNullOrEmpty(provider.ClientSecretProtected)) return null;
         try { return _protector.Unprotect(provider.ClientSecretProtected); }
-        catch { return null; }
+        catch (Exception ex)
+        {
+            // Logged, because a lost or rotated data-protection key produces exactly the same null as
+            // "no secret configured" - and the admin then sees a federation login fail with nothing
+            // anywhere pointing at the real cause.
+            _logger.LogWarning(ex, "Stored client secret could not be unprotected; treating it as unset.");
+            return null;
+        }
     }
 
     private static IQueryable<FederationProvider> Include(IQueryable<FederationProvider> q)

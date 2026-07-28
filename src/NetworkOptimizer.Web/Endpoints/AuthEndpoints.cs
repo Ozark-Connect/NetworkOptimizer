@@ -258,8 +258,7 @@ public static class AuthEndpoints
                 return Results.Redirect("/login?error=session_ended");
             }
 
-            var back = context.Request.Query["returnUrl"].ToString();
-            return Results.LocalRedirect(back.StartsWith('/') && !back.StartsWith("//") ? back : "/");
+            return Results.LocalRedirect(SanitizeReturnUrl(context.Request.Query["returnUrl"].ToString()));
         })
             .RequireAuthorization(Policies.RequireViewer);
 
@@ -307,9 +306,7 @@ public static class AuthEndpoints
 
             // Local paths only: this endpoint is reachable with a crafted query, and an open redirect
             // off the back of a signed-in session is worth more to an attacker than the refresh is.
-            var requested = context.Request.Query["returnUrl"].ToString();
-            var target = requested.StartsWith('/') && !requested.StartsWith("//") ? requested : "/";
-            return Results.LocalRedirect(target);
+            return Results.LocalRedirect(SanitizeReturnUrl(context.Request.Query["returnUrl"].ToString()));
         })
             .RequireAuthorization(Policies.RequireViewer);
 
@@ -385,15 +382,28 @@ public static class AuthEndpoints
     }
 
     /// <summary>Rejects open-redirect targets: only same-site relative paths are allowed.</summary>
+    /// <summary>
+    /// The only place a caller-supplied return URL becomes a redirect target. Anything that is not
+    /// unambiguously a path on this site becomes "/".
+    ///
+    /// Backslashes are normalised BEFORE the checks. Browsers resolve <c>/\evil.example</c> and
+    /// <c>\/evil.example</c> as scheme-relative, i.e. off-site, but neither starts with "//" nor
+    /// contains ':' - so the original checks passed them straight through and an open redirect off a
+    /// signed-in session is worth considerably more to an attacker than the redirect itself.
+    /// </summary>
     private static string SanitizeReturnUrl(string? returnUrl)
     {
-        if (string.IsNullOrEmpty(returnUrl) ||
-            !returnUrl.StartsWith('/') ||
-            returnUrl.StartsWith("//") ||
-            returnUrl.Contains(':'))
+        if (string.IsNullOrEmpty(returnUrl))
+            return "/";
+
+        var normalized = returnUrl.Replace('\\', '/');
+        if (!normalized.StartsWith('/') ||
+            normalized.StartsWith("//") ||
+            normalized.Contains(':'))
         {
             return "/";
         }
-        return returnUrl;
+
+        return normalized;
     }
 }
