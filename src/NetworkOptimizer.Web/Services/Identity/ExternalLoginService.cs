@@ -17,6 +17,22 @@ public enum ExternalLoginOutcome
 
     /// <summary>The linked local account is disabled.</summary>
     Disabled,
+
+    /// <summary>Their role requires a second factor and they have none enrolled.</summary>
+    RequiresMfaEnrollment,
+
+    /// <summary>
+    /// Their role requires a second factor and they have a passkey, which proves one when it is the
+    /// credential actually used - so send them to use it.
+    /// </summary>
+    RequiresPasskeySignIn,
+
+    /// <summary>
+    /// Their role requires a second factor and the only one enrolled is an authenticator app, which
+    /// this flow cannot challenge - the provider signed them in and handed us a principal, with no
+    /// step where we could ask. They have to come in locally, where Identity does challenge it.
+    /// </summary>
+    RequiresLocalMfa,
 }
 
 /// <summary>
@@ -37,13 +53,16 @@ public sealed class ExternalLoginService : IExternalLoginService
     private readonly SignInManager<ApplicationUser> _signInManager;
     private readonly IDbContextFactory<AuthDbContext> _authDbFactory;
     private readonly IAuditLogger _audit;
+    private readonly IMfaService _mfa;
 
     public ExternalLoginService(
         UserManager<ApplicationUser> userManager,
         SignInManager<ApplicationUser> signInManager,
         IDbContextFactory<AuthDbContext> authDbFactory,
-        IAuditLogger audit)
+        IAuditLogger audit,
+        IMfaService mfa)
     {
+        _mfa = mfa;
         _userManager = userManager;
         _signInManager = signInManager;
         _authDbFactory = authDbFactory;
@@ -74,6 +93,10 @@ public sealed class ExternalLoginService : IExternalLoginService
             if (provider.RoleMappingMode == RoleMappingMode.IdpAuthoritative)
                 await ResyncMappingsAsync(provider, existing, external);
 
+            var unmet = await SecondFactorUnmetAsync(provider, existing, external, subject);
+            if (unmet is not null)
+                return unmet.Value;
+
             await SignInAsync(existing, provider);
             return ExternalLoginOutcome.SignedIn;
         }
@@ -88,6 +111,13 @@ public sealed class ExternalLoginService : IExternalLoginService
         var created = await JitProvisionAsync(provider, external, subject, loginProvider);
         if (created is null)
             return ExternalLoginOutcome.NoAccount;
+
+        // Applies to a just-created account too: JIT can land someone straight into a role that
+        // requires a second factor, and skipping the check here would make provisioning the way round
+        // it.
+        var unmetForNew = await SecondFactorUnmetAsync(provider, created, external, subject);
+        if (unmetForNew is not null)
+            return unmetForNew.Value;
 
         await SignInAsync(created, provider);
         return ExternalLoginOutcome.SignedIn;
@@ -211,6 +241,76 @@ public sealed class ExternalLoginService : IExternalLoginService
     {
         var admins = await _userManager.GetUsersInRoleAsync(Roles.Admin);
         return admins.Count(a => a.IsEnabled) <= 1;
+    }
+
+
+    /// <summary>
+    /// The role-MFA policy for a federated sign-in - the same requirement local sign-in enforces, which
+    /// this path skipped entirely: a role demanding a second factor was satisfied by simply arriving
+    /// through a provider. Returns null when the sign-in may proceed.
+    ///
+    /// TrustIdpMfa is what decides whether the provider's own second factor counts. It is the setting's
+    /// first use; until now it was stored, shown in the UI, and read by nothing.
+    /// </summary>
+    private async Task<ExternalLoginOutcome?> SecondFactorUnmetAsync(
+        FederationProvider provider, ApplicationUser user, ClaimsPrincipal external, string subject)
+    {
+        if (!await _mfa.RoleRequiresMfaAsync(user))
+            return null;
+
+        if (provider.TrustIdpMfa && IdpAssertedSecondFactor(external))
+            return null;
+
+        if (!await _mfa.HasSecondFactorAsync(user))
+        {
+            EmitRejected(provider, reason: "role requires a second factor and none is enrolled",
+                user: user, subject: subject);
+            return ExternalLoginOutcome.RequiresMfaEnrollment;
+        }
+
+        // A passkey satisfies the requirement only when it is the credential actually used, and here it
+        // was not - the provider authenticated them. An authenticator app cannot be challenged at all
+        // in this flow, so that case goes to local sign-in rather than pointing at a passkey they do
+        // not have.
+        var hasPasskey = (await _userManager.GetPasskeysAsync(user)).Count > 0;
+        var outcome = hasPasskey
+            ? ExternalLoginOutcome.RequiresPasskeySignIn
+            : ExternalLoginOutcome.RequiresLocalMfa;
+
+        EmitRejected(
+            provider,
+            reason: hasPasskey
+                ? "role requires a second factor; the provider did not assert one and the passkey was not used"
+                : "role requires a second factor; only an authenticator app is enrolled and this flow cannot challenge it",
+            user: user,
+            subject: subject);
+        return outcome;
+    }
+
+    /// <summary>
+    /// Whether the provider says it performed a second factor. OIDC states it in amr; SAML states it in
+    /// the authentication context class. Only accepted when the provider is trusted to assert it -
+    /// otherwise anyone able to mint a token for that provider decides our MFA policy.
+    /// </summary>
+    private static bool IdpAssertedSecondFactor(ClaimsPrincipal external)
+    {
+        foreach (var amr in external.FindAll("amr"))
+        {
+            var v = amr.Value;
+            if (v.Equals("mfa", StringComparison.OrdinalIgnoreCase)
+                || v.Equals("otp", StringComparison.OrdinalIgnoreCase)
+                || v.Equals("hwk", StringComparison.OrdinalIgnoreCase)
+                || v.Equals("swk", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        // SAML AuthnContextClassRef, as ITfoxtec surfaces it.
+        var authnContext = external.FindFirst(ClaimTypes.AuthenticationMethod)?.Value;
+        return authnContext is not null
+            && (authnContext.Contains("MultiFactor", StringComparison.OrdinalIgnoreCase)
+                || authnContext.Contains("TimeSyncToken", StringComparison.OrdinalIgnoreCase));
     }
 
     private async Task SignInAsync(ApplicationUser user, FederationProvider provider)

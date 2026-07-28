@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Authentication;
+﻿using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Identity;
 using NetworkOptimizer.Web.Services.Identity;
 
@@ -49,6 +49,11 @@ public static class FederationEndpoints
             {
                 ExternalLoginOutcome.SignedIn => Results.Redirect("/"),
                 ExternalLoginOutcome.Disabled => Results.Redirect("/login?error=account_disabled"),
+                // Same destinations local sign-in uses for the same policy, so the requirement reads
+                // identically however the user arrived.
+                ExternalLoginOutcome.RequiresMfaEnrollment => Results.Redirect("/account/security?setup=required"),
+                ExternalLoginOutcome.RequiresPasskeySignIn => Results.Redirect("/login?error=use_passkey"),
+                ExternalLoginOutcome.RequiresLocalMfa => Results.Redirect("/login?error=mfa_local_required"),
                 _ => Results.Redirect("/login?error=no_account"),
             };
         })
