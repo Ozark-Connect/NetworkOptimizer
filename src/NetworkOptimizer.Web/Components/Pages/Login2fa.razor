@@ -1,4 +1,4 @@
-﻿@page "/login/2fa"
+@page "/login/2fa"
 @layout AuthLayout
 @using NetworkOptimizer.Web.Services
 @* Static SSR: the second-factor step posts to /api/auth/2fa, which issues the cookie. *@
@@ -82,13 +82,25 @@
    not already put their cursor somewhere. *@
 <script suppress-error="BL9992">
     (function () {
+        // Set by the first thing the user does, so nothing below ever pulls focus away from where
+        // they put it themselves. Tab counts: once they are moving through the form it is theirs.
+        var userActed = false;
+        function acted() { userActed = true; }
+        document.addEventListener('pointerdown', acted, { capture: true, once: true });
+        document.addEventListener('keydown', acted, { capture: true, once: true });
+
         function focusField() {
+            if (userActed) return;
             var el = document.getElementById('code');
             if (!el) return;
             var active = document.activeElement;
-            if (active && active !== document.body && active.tagName !== 'HTML') return;
+            // Yield to anywhere a cursor could sensibly be - but not to the heading. FocusOnNavigate
+            // moves focus there when the circuit connects, which is the thing being corrected.
+            if (active && active !== document.body
+                && active.tagName !== 'HTML' && active.tagName !== 'H1') return;
             el.focus();
         }
+
         focusField();
         document.addEventListener('DOMContentLoaded', focusField);
         if (window.Blazor) {
@@ -97,6 +109,16 @@
         else {
             document.addEventListener('enhancedload', focusField);
         }
+
+        // The correction, and the whole reason the earlier attempts could not work: every one of them
+        // runs before the circuit connects, and the router focuses the heading after. So wait for that
+        // to happen and take it back - ONCE. Re-focusing on a schedule is what made the page
+        // impossible to tab through.
+        document.addEventListener('focusin', function onHeading(e) {
+            if (!e.target || e.target.tagName !== 'H1') return;
+            document.removeEventListener('focusin', onHeading, true);
+            focusField();
+        }, true);
     })();
 </script>
 
