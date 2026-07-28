@@ -1,4 +1,4 @@
-@using NetworkOptimizer.Storage.Models.Identity
+﻿@using NetworkOptimizer.Storage.Models.Identity
 @inject IJSRuntime JS
 
 @* Reference material for the Role and Site role pickers, which are the two places someone has to
@@ -6,7 +6,7 @@
    the tooltip icons beside those pickers, not to push the cards below it down the page. *@
 <div class="card settings-tab-identity" id="identity-roles">
     <div class="card-header card-header-collapsible" @onclick="() => _collapsed = !_collapsed">
-        <h2 class="card-title">Roles</h2>
+        <h2 class="card-title">Roles Reference</h2>
         <span class="issue-type-chevron">@(_collapsed ? "▼" : "▲")</span>
     </div>
     <div class="expand-wrapper @(!_collapsed ? "expanded" : "")">
@@ -33,15 +33,15 @@
                             <tr>
                                 <td class="identity-role-name">Operator</td>
                                 <td>
-                                    Runs the network on the sites they can reach - speed tests, optimizer
-                                    changes, audits. No Settings and no account management.
+                                    Runs the network on the sites they can reach - speed tests, Wi-Fi
+                                    scans, acknowledging alerts. No Settings and no account management.
                                 </td>
                             </tr>
                             <tr>
                                 <td class="identity-role-name">Viewer</td>
                                 <td>
                                     Reads the sites they can reach: dashboards, monitoring, past results,
-                                    and reports.
+                                    and reports. Can run a Security Audit, which only reads.
                                 </td>
                             </tr>
                         </tbody>
@@ -62,14 +62,13 @@
                             <tr>
                                 <td class="identity-role-name">Site Admin</td>
                                 <td>
-                                    Everything on that one site, including its own setup - monitoring,
-                                    agent enrollment, renaming it - and who else can reach it. Global
-                                    Settings stay out of reach.
+                                    Everything on that one site: its setup, its deployments, and who
+                                    else can reach it. Global Settings stay out of reach.
                                 </td>
                             </tr>
                             <tr>
                                 <td class="identity-role-name">Site Operator</td>
-                                <td>Operates that site: speed tests, optimizer changes, audits.</td>
+                                <td>Runs that site day to day: speed tests, audits, acknowledging alerts.</td>
                             </tr>
                             <tr>
                                 <td class="identity-role-name">Site Viewer</td>
@@ -105,6 +104,12 @@
                             </tr>
                             <tr>
                                 <td>Run a speed test</td>
+                                <td class="identity-role-mark">@No</td>
+                                <td class="identity-role-mark">@Yes</td>
+                                <td class="identity-role-mark">@Yes</td>
+                            </tr>
+                            <tr>
+                                <td>Run a Wi-Fi scan or apply an optimizer change</td>
                                 <td class="identity-role-mark">@No</td>
                                 <td class="identity-role-mark">@Yes</td>
                                 <td class="identity-role-mark">@Yes</td>
@@ -156,11 +161,10 @@
                 </div>
 
                 <p class="page-description identity-roles-footnote">
-                    <strong>Where the line falls between Operator and Admin:</strong> if the action is part of running the
-                    network day to day, and getting it wrong is fixed by doing it again, an Operator can do
-                    it. If it installs something, removes something, or changes who can get in, it is an
-                    Admin's. So is anything that can take the network off the air while it is wrong -
-                    steering traffic to another WAN is an Admin's even though you might edit it often.
+                    <strong>Operator or Admin:</strong> day-to-day work that a repeat puts right is an
+                    Operator's. Installing, removing, changing who gets in, or anything that can take the
+                    network off the air while it is wrong is an Admin's - WAN Steering included, however
+                    often you edit it.
                 </p>
             </div>
         </div>
