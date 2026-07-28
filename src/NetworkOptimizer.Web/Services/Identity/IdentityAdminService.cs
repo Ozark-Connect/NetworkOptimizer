@@ -459,8 +459,7 @@ public sealed class IdentityAdminService : IIdentityAdminService
         if (!result.Succeeded)
             return AdminActionResult.Fail(Describe(result));
 
-        user.PasswordIsTemporary = false;
-        await _userManager.UpdateAsync(user);
+        await ClearTemporaryPasswordFlagAsync(user);
         await RetireLegacyTokensIfBuiltInAdminAsync(user);
         Emit(AuditCategories.User, AuditActions.PasswordReset, user, new { self = true });
         return AdminActionResult.Ok();
@@ -496,12 +495,7 @@ public sealed class IdentityAdminService : IIdentityAdminService
             : await _userManager.AddPasswordAsync(user, newPassword);
         if (!result.Succeeded) return AdminActionResult.Fail(Describe(result));
 
-        if (user.PasswordIsTemporary)
-        {
-            user.PasswordIsTemporary = false;
-            await _userManager.UpdateAsync(user);
-        }
-
+        await ClearTemporaryPasswordFlagAsync(user);
         await RetireLegacyTokensIfBuiltInAdminAsync(user);
         Emit(AuditCategories.Auth, AuditActions.PasswordChanged, user);
         return AdminActionResult.Ok();
@@ -526,7 +520,13 @@ public sealed class IdentityAdminService : IIdentityAdminService
         if (!create.Succeeded)
             return AdminActionResult.Fail(Describe(create));
 
-        await _userManager.AddToRoleAsync(user, globalRole);
+        // Reported rather than dropped: an account that exists with no role is not the account the
+        // admin asked for, and it is worse than none - it can sign in and is refused everywhere.
+        var roleGranted = await _userManager.AddToRoleAsync(user, globalRole);
+        if (!roleGranted.Succeeded)
+            return AdminActionResult.Fail(
+                $"Created {username}, but the {globalRole} role could not be granted: {Describe(roleGranted)}");
+
         Emit(AuditCategories.User, AuditActions.UserCreated, user, new { globalRole });
 
         // An Admin is SiteAdmin everywhere, so a grant would be noise on the membership list.
@@ -609,11 +609,7 @@ public sealed class IdentityAdminService : IIdentityAdminService
         if (!result.Succeeded) return AdminActionResult.Fail(Describe(result));
 
         // Clearing the temporary flag: an admin-set password is no longer the auto-generated one.
-        if (user.PasswordIsTemporary)
-        {
-            user.PasswordIsTemporary = false;
-            await _userManager.UpdateAsync(user);
-        }
+        await ClearTemporaryPasswordFlagAsync(user);
         await RetireLegacyTokensIfBuiltInAdminAsync(user);
         Emit(AuditCategories.Auth, AuditActions.PasswordReset, user);
         return AdminActionResult.Ok();
@@ -629,8 +625,14 @@ public sealed class IdentityAdminService : IIdentityAdminService
         if (await _userManager.IsInRoleAsync(user, role))
             return AdminActionResult.Ok();
 
-        await _userManager.AddToRoleAsync(user, role);
-        await PermissionsChangedAsync(user);
+        var granted = await _userManager.AddToRoleAsync(user, role);
+        if (!granted.Succeeded)
+            return AdminActionResult.Fail(Describe(granted));
+
+        var changed = await PermissionsChangedAsync(user);
+        if (!changed.Succeeded)
+            return AdminActionResult.Fail(Describe(changed));
+
         Emit(AuditCategories.Rbac, AuditActions.RoleGranted, user, new { role });
         return AdminActionResult.Ok();
     }
@@ -650,8 +652,17 @@ public sealed class IdentityAdminService : IIdentityAdminService
         if (!await _userManager.IsInRoleAsync(user, role))
             return AdminActionResult.Ok();
 
-        await _userManager.RemoveFromRoleAsync(user, role);
-        await PermissionsChangedAsync(user);
+        // Checked, because the failure this drops is the dangerous direction: the row is written
+        // under a concurrency stamp, so a user who signed in since the tab was opened fails the save
+        // and keeps the role - while the audit log records RoleRevoked and the UI says it worked.
+        var revoked = await _userManager.RemoveFromRoleAsync(user, role);
+        if (!revoked.Succeeded)
+            return AdminActionResult.Fail(Describe(revoked));
+
+        var changed = await PermissionsChangedAsync(user);
+        if (!changed.Succeeded)
+            return AdminActionResult.Fail(Describe(changed));
+
         Emit(AuditCategories.Rbac, AuditActions.RoleRevoked, user, new { role });
         return AdminActionResult.Ok();
     }
@@ -710,7 +721,10 @@ public sealed class IdentityAdminService : IIdentityAdminService
             await db.SaveChangesAsync();
         }
 
-        await PermissionsChangedAsync(user);
+        var granted = await PermissionsChangedAsync(user);
+        if (!granted.Succeeded)
+            return AdminActionResult.Fail(Describe(granted));
+
         Emit(AuditCategories.Rbac, AuditActions.MembershipChanged, user, new { targetType = targetType.ToString(), targetId, role = role.ToString() });
         return AdminActionResult.Ok();
     }
@@ -737,7 +751,10 @@ public sealed class IdentityAdminService : IIdentityAdminService
 
             await db.SiteMemberships.Where(m => m.Id == membershipId && m.UserId == userId).ExecuteDeleteAsync();
         }
-        await PermissionsChangedAsync(user);
+        var removed = await PermissionsChangedAsync(user);
+        if (!removed.Succeeded)
+            return AdminActionResult.Fail(Describe(removed));
+
         Emit(AuditCategories.Rbac, AuditActions.MembershipChanged, user, new { removed = membershipId });
         return AdminActionResult.Ok();
     }
@@ -818,13 +835,32 @@ public sealed class IdentityAdminService : IIdentityAdminService
 
     // --- invariants & helpers ---
 
-    /// <summary>True if <paramref name="user"/> is an enabled Admin and no other enabled Admin remains.</summary>
+    /// <summary>
+    /// True if <paramref name="user"/> is an enabled Admin and no other enabled Admin remains.
+    ///
+    /// The count comes from a fresh no-tracking context, NOT from
+    /// <see cref="UserManager{TUser}.GetUsersInRoleAsync"/>. That runs on the scoped context a Blazor
+    /// circuit keeps for its whole life, so EF identity resolution hands back the instances already
+    /// tracked from when the Identity tab was opened - with the IsEnabled values they had then. Two
+    /// admins disabled in different circuits would each see the other as still enabled and both
+    /// writes would pass the check, leaving zero. The write itself still goes through
+    /// <see cref="LoadForUpdateAsync"/>; this is the same staleness one level out, in the cohort
+    /// rather than the target.
+    /// </summary>
     private async Task<bool> IsLastEnabledAdminAsync(ApplicationUser user)
     {
         if (!await _userManager.IsInRoleAsync(user, Roles.Admin) || !user.IsEnabled)
             return false;
-        var admins = await _userManager.GetUsersInRoleAsync(Roles.Admin);
-        return admins.Count(a => a.IsEnabled) <= 1;
+
+        await using var db = await _authDbFactory.CreateDbContextAsync();
+        var enabledAdmins = await db.Users
+            .AsNoTracking()
+            .Where(u => u.IsEnabled && db.UserRoles
+                .Join(db.Roles, ur => ur.RoleId, r => r.Id, (ur, r) => new { ur.UserId, r.Name })
+                .Any(x => x.UserId == u.Id && x.Name == Roles.Admin))
+            .CountAsync();
+
+        return enabledAdmins <= 1;
     }
 
     /// <summary>
@@ -841,6 +877,27 @@ public sealed class IdentityAdminService : IIdentityAdminService
             details: new { reason }));
         _logger.LogWarning("Refused {Action} on {User} ({Reason}).", action, user.UserName, reason);
         return AdminActionResult.Fail(message);
+    }
+
+    /// <summary>
+    /// Clears the "this is still the auto-generated password" nag after a real one is set. Logged
+    /// rather than returned: the password change itself has already succeeded by this point, so
+    /// failing the call would report the opposite of what happened. The cost of losing it is that the
+    /// banner keeps asking for a password the user has already set.
+    /// </summary>
+    private async Task ClearTemporaryPasswordFlagAsync(ApplicationUser user)
+    {
+        if (!user.PasswordIsTemporary)
+            return;
+
+        user.PasswordIsTemporary = false;
+        var update = await _userManager.UpdateAsync(user);
+        if (!update.Succeeded)
+        {
+            _logger.LogWarning(
+                "Password was changed for {User} but the temporary-password flag could not be cleared: {Errors}",
+                user.UserName, Describe(update));
+        }
     }
 
     /// <summary>True when the change targets the account the caller is signed in as.</summary>
@@ -867,10 +924,20 @@ public sealed class IdentityAdminService : IIdentityAdminService
     /// Site access is read from the database rather than the cookie, so dropping the cached resolution
     /// is all it takes for a membership change to apply to the user's very next action.
     /// </summary>
-    private async Task PermissionsChangedAsync(ApplicationUser user)
+    private async Task<IdentityResult> PermissionsChangedAsync(ApplicationUser user)
     {
         user.MembershipVersion++;
-        await _userManager.UpdateAsync(user);
+        var update = await _userManager.UpdateAsync(user);
+        if (!update.Succeeded)
+        {
+            // The version bump IS the signal. Losing it means live circuits never notice the change
+            // and go on running with the old permissions, so the caller has to hear about it rather
+            // than be told the grant landed.
+            _logger.LogWarning(
+                "Membership version bump failed for {User}: {Errors}", user.UserName, Describe(update));
+            return update;
+        }
+
         _siteRoles.Invalidate(user.Id);
 
         // Being granted or denied a site changes the site list this instant, and waiting for the
@@ -878,6 +945,7 @@ public sealed class IdentityAdminService : IIdentityAdminService
         // circuit rebuilds its own filtered list, so the broadcast tells the right person without
         // needing to know who they are.
         _siteRegistryChanges.NotifySitesChanged();
+        return IdentityResult.Success;
     }
 
     private async Task RemoveAllMembershipsAsync(string userId)

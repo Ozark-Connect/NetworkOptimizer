@@ -106,6 +106,15 @@ public sealed class IdentityBootstrapService : IIdentityBootstrapService
             return;
         }
 
+        // A recovery boot re-enables the built-in admin. Disabling it is deliberately allowed (unlike
+        // deleting it) on the stated grounds that break-glass recovers the account - but nothing
+        // acted on that, so the documented way back in did not exist: with the account disabled every
+        // sign-in route refuses it, recovery mode included, and an install whose only other admin had
+        // been lost was unrecoverable. Setting the env var is an explicit, physical-access act by the
+        // operator, which is exactly the authority this should take.
+        if (BreakGlass.IsRecoveryMode && !admin.IsEnabled)
+            await ReenableAdminForRecoveryAsync(admin);
+
         // Existing admin: only the live APP_PASSWORD override re-syncs an already-migrated account,
         // so a changed env var takes effect on restart. Transcoded DB/auto-gen hashes are one-time.
         if (credential.Source == CredentialSource.Environment)
@@ -156,6 +165,34 @@ public sealed class IdentityBootstrapService : IIdentityBootstrapService
             AuditCategories.Audit, AuditActions.MigrationPerformed, AuditOutcomes.Success,
             targetType: "user", targetId: admin.Id, targetName: admin.UserName,
             details: new { source = credential.Source.ToString(), temporaryPassword = credential.IsTemporary }));
+    }
+
+    /// <summary>
+    /// Re-enables the built-in admin on a recovery boot, loudly. This is the other half of the rule
+    /// that lets the account be disabled but never deleted: deleting it is refused because it cannot
+    /// be undone, and disabling it is allowed because this can.
+    /// </summary>
+    private async Task ReenableAdminForRecoveryAsync(ApplicationUser admin)
+    {
+        admin.IsEnabled = true;
+        var result = await _userManager.UpdateAsync(admin);
+        if (!result.Succeeded)
+        {
+            _logger.LogError(
+                "Identity bootstrap: recovery mode could not re-enable the {Admin} account: {Errors}",
+                AdminUserName, Describe(result));
+            return;
+        }
+
+        _logger.LogWarning(
+            "Identity bootstrap: recovery mode re-enabled the disabled {Admin} account for this boot.",
+            AdminUserName);
+
+        _audit.Log(AuditEventBuilder.From(
+            CallerInfo.System("break-glass"),
+            AuditCategories.Auth, AuditActions.BreakGlassUsed, AuditOutcomes.Success,
+            targetType: "user", targetId: admin.Id, targetName: admin.UserName,
+            details: new { reenabled = true }));
     }
 
     private async Task ResyncEnvPasswordAsync(ApplicationUser admin, string envPassword)
