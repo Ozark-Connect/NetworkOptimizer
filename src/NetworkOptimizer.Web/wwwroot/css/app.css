@@ -1911,6 +1911,12 @@ a.stat-card-link:active {
     margin: 0 auto;
 }
 
+@media (max-width: 1500px) {
+    .metric-value.ont-err-counts {
+        font-size: 1.1rem;
+    }
+}
+
 @media (max-width: 768px) {
     .cellular-metrics {
         grid-template-columns: 1fr;
@@ -1919,7 +1925,7 @@ a.stat-card-link:active {
         font-size: 1rem;
     }
     .metric-value.ont-err-counts {
-        font-size: 0.95rem;
+        font-size: 1rem;
     }
 }
 
