@@ -17,6 +17,7 @@
 @inject IJSRuntime JS
 @inject ISiteManagementService SiteManagement
 @inject SiteContextService SiteContext
+@inject IDashboardLayoutAdminService LayoutAdmin
 @implements IDisposable
 @rendermode InteractiveServer
 
@@ -905,7 +906,7 @@
         _layoutSnapshot = null;
         if (_layout != null)
         {
-            await LayoutService.SaveLayoutAsync(_layout);
+            await LayoutAdmin.SaveLayoutAsync(_layout);
         }
     }
 

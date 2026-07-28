@@ -31,6 +31,7 @@
 @inject SystemSettingsService SettingsService
 @inject ApMapService ApMapService
 @inject PullToRefreshState PtrState
+@inject IApMapAdminService ApMapAdmin
 @using NetworkOptimizer.Web.Components.Shared
 
 <PageTitle>LAN Speed Test - Network Optimizer</PageTitle>
@@ -2502,7 +2503,7 @@
     {
         try
         {
-            await ApMapService.SaveApLocationAsync(args.Mac, args.Lat, args.Lng);
+            await ApMapAdmin.SaveApLocationAsync(args.Mac, args.Lat, args.Lng);
 
             var marker = apMapMarkers.FirstOrDefault(m => m.Mac.Equals(args.Mac, StringComparison.OrdinalIgnoreCase));
             if (marker != null)

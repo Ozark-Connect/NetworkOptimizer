@@ -16,6 +16,7 @@
 @inject NetworkOptimizer.Web.Services.Licensing.LicenseStateService LicenseState
 @inject SiteContextService SiteContext
 @inject PullToRefreshState PtrState
+@inject IApMapAdminService ApMapAdmin
 @implements IDisposable
 @rendermode InteractiveServer
 
@@ -1219,7 +1220,7 @@
     {
         try
         {
-            await ApMapService.SaveApLocationAsync(args.Mac, args.Lat, args.Lng);
+            await ApMapAdmin.SaveApLocationAsync(args.Mac, args.Lat, args.Lng);
 
             var marker = _apMapMarkers.FirstOrDefault(m => m.Mac.Equals(args.Mac, StringComparison.OrdinalIgnoreCase));
             if (marker != null)

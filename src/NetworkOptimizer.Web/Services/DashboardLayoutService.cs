@@ -1,5 +1,7 @@
 using System.Text.Json;
 using NetworkOptimizer.Storage.Models;
+using NetworkOptimizer.Storage.Models.Identity;
+using NetworkOptimizer.Web.Services.Gates;
 
 namespace NetworkOptimizer.Web.Services;
 
@@ -120,7 +122,23 @@ public class DashboardCardConfig
 /// <summary>
 /// Manages dashboard layout preferences (card order, visibility, stat items).
 /// </summary>
-public class DashboardLayoutService
+/// <summary>
+/// Saving the dashboard layout (design doc 06, gate 9).
+///
+/// GetLayoutAsync stays ungated - everyone renders the dashboard from it. The save is Site Admin
+/// because the layout is ONE setting shared by everybody on the site, so arranging it rearranges
+/// what every other person sees. Per-user layouts are a follow-up; until then this is the honest
+/// role for it, and it matches the gate already on the Edit Layout button.
+/// </summary>
+[MutatingService(SiteScoped = true)]
+public interface IDashboardLayoutAdminService
+{
+    [RequireRole(Roles.Admin)]
+    [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "dashboard_layout")]
+    Task SaveLayoutAsync(DashboardLayout layout);
+}
+
+public class DashboardLayoutService : IDashboardLayoutAdminService
 {
     private readonly ISystemSettingsService _settings;
 

@@ -1,12 +1,61 @@
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Storage.Models;
+using NetworkOptimizer.Storage.Models.Identity;
+using NetworkOptimizer.Web.Services.Gates;
 
 namespace NetworkOptimizer.Web.Services;
 
 /// <summary>
 /// CRUD service for planned (hypothetical) APs used in coverage planning.
 /// </summary>
-public class PlannedApService
+/// <summary>
+/// Adding and adjusting planned (hypothetical) APs used for coverage planning (design doc 06, gate 9).
+///
+/// GetAllAsync is deliberately not here - planned APs are drawn on the same maps a Viewer is meant to
+/// read in full. Site Operator for the rest: a planned AP exists only in our coverage model and
+/// corresponds to no hardware, so the worst a wrong one does is mislead a plan.
+/// </summary>
+[MutatingService(SiteScoped = true)]
+public interface IPlannedApAdminService
+{
+    [RequireRole(Roles.Operator)]
+    [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "planned_ap")]
+    Task<PlannedAp> CreateAsync(PlannedAp ap);
+
+    [RequireRole(Roles.Operator)]
+    [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "planned_ap")]
+    Task<bool> DeleteAsync(int id);
+
+    [RequireRole(Roles.Operator)]
+    [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "planned_ap")]
+    Task UpdateLocationAsync(int id, double lat, double lng);
+
+    [RequireRole(Roles.Operator)]
+    [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "planned_ap")]
+    Task UpdateFloorAsync(int id, int floor);
+
+    [RequireRole(Roles.Operator)]
+    [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "planned_ap")]
+    Task UpdateOrientationAsync(int id, int deg);
+
+    [RequireRole(Roles.Operator)]
+    [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "planned_ap")]
+    Task UpdateMountTypeAsync(int id, string mountType);
+
+    [RequireRole(Roles.Operator)]
+    [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "planned_ap")]
+    Task UpdateTxPowerAsync(int id, string band, int? txPower);
+
+    [RequireRole(Roles.Operator)]
+    [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "planned_ap")]
+    Task UpdateAntennaModeAsync(int id, string? mode);
+
+    [RequireRole(Roles.Operator)]
+    [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "planned_ap")]
+    Task UpdateNameAsync(int id, string name);
+}
+
+public class PlannedApService : IPlannedApAdminService
 {
     private readonly NetworkOptimizer.Storage.Services.SiteDbContextFactory _siteDbFactory;
     private readonly SiteContextService _siteContext;

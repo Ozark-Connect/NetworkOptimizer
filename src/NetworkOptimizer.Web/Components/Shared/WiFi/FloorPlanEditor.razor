@@ -15,8 +15,10 @@
 @using NetworkOptimizer.Core.Helpers
 @inject SystemSettingsService SystemSettings
 @inject FloorPlanService FloorPlanSvc
+@inject IFloorPlanAdminService FloorPlanAdmin
 @inject ApMapService ApMapSvc
 @inject PlannedApService PlannedApSvc
+@inject IPlannedApAdminService PlannedApAdmin
 @inject HeatmapDataCache HeatmapCache
 @inject AntennaPatternLoader PatternLoader
 @inject NavigationManager Nav
@@ -2351,7 +2353,7 @@
         {
             double aspectRatio = (imgWidth > 0 && imgHeight > 0) ? (double)imgWidth / imgHeight : 0;
             var outline = ComputeBuildingOutline(aspectRatio);
-            await FloorPlanSvc.UpdateFloorImageAsync(imageId,
+            await FloorPlanAdmin.UpdateFloorImageAsync(imageId,
                 swLat: outline.swLat, swLng: outline.swLng,
                 neLat: outline.neLat, neLng: outline.neLng,
                 rotationDeg: outline.rotationDeg);
@@ -2599,7 +2601,7 @@
             _selectedImage.Opacity = opacity;
             await JS.InvokeVoidAsync("fpEditor.setImageOpacity", _selectedImage.Id, opacity);
             var imageId = _selectedImage.Id;
-            DebounceSaveSlider(() => FloorPlanSvc.UpdateFloorImageAsync(imageId, opacity: opacity));
+            DebounceSaveSlider(() => FloorPlanAdmin.UpdateFloorImageAsync(imageId, opacity: opacity));
         }
     }
 
@@ -2611,7 +2613,7 @@
             _selectedImage.RotationDeg = deg;
             await JS.InvokeVoidAsync("fpEditor.setImageRotation", _selectedImage.Id, deg);
             var imageId = _selectedImage.Id;
-            DebounceSaveSlider(() => FloorPlanSvc.UpdateFloorImageAsync(imageId, rotationDeg: (double)deg));
+            DebounceSaveSlider(() => FloorPlanAdmin.UpdateFloorImageAsync(imageId, rotationDeg: (double)deg));
         }
     }
 
@@ -2630,7 +2632,7 @@
         var json = System.Text.Json.JsonSerializer.Serialize(new { top = _cropTop, right = _cropRight, bottom = _cropBottom, left = _cropLeft });
         _selectedImage.CropJson = json;
         var imageId = _selectedImage.Id;
-        DebounceSaveSlider(() => FloorPlanSvc.UpdateFloorImageAsync(imageId, cropJson: json));
+        DebounceSaveSlider(() => FloorPlanAdmin.UpdateFloorImageAsync(imageId, cropJson: json));
     }
 
     private async Task ToggleImagePositionMode()
@@ -2662,7 +2664,7 @@
         img.SwLongitude = swLng;
         img.NeLatitude = neLat;
         img.NeLongitude = neLng;
-        await FloorPlanSvc.UpdateFloorImageAsync(imageId, swLat, swLng, neLat, neLng);
+        await FloorPlanAdmin.UpdateFloorImageAsync(imageId, swLat, swLng, neLat, neLng);
     }
 
     private async Task DeleteSelectedImage()
@@ -2670,7 +2672,7 @@
         _showDeleteUnderlay = false;
         if (_selectedImage == null) return;
         var imageId = _selectedImage.Id;
-        await FloorPlanSvc.DeleteFloorImageAsync(imageId);
+        await FloorPlanAdmin.DeleteFloorImageAsync(imageId);
         _selectedImageId = null;
         _selectedImage = null;
         if (_mode == "image-position")
@@ -2798,14 +2800,14 @@
         var preNeLng = buildingFloors.Max(f => f.NeLongitude);
 
         // Update building center
-        await FloorPlanSvc.UpdateBuildingAsync(buildingId, _selectedBuilding.Name,
+        await FloorPlanAdmin.UpdateBuildingAsync(buildingId, _selectedBuilding.Name,
             _selectedBuilding.CenterLatitude + dLat, _selectedBuilding.CenterLongitude + dLng);
 
         // Shift ALL floors of this building: walls, bounds
         foreach (var floor in buildingFloors)
         {
             // Shift floor bounds
-            await FloorPlanSvc.UpdateFloorAsync(floor.Id,
+            await FloorPlanAdmin.UpdateFloorAsync(floor.Id,
                 swLat: floor.SwLatitude + dLat, swLng: floor.SwLongitude + dLng,
                 neLat: floor.NeLatitude + dLat, neLng: floor.NeLongitude + dLng);
 
@@ -2828,7 +2830,7 @@
                             p.Lat += dLat;
                             p.Lng += dLng;
                         }
-                    await FloorPlanSvc.UpdateFloorAsync(floor.Id,
+                    await FloorPlanAdmin.UpdateFloorAsync(floor.Id,
                         wallsJson: System.Text.Json.JsonSerializer.Serialize(walls, jsonOpts));
                 }
             }
@@ -2934,7 +2936,7 @@
     [JSInvokable]
     public async Task OnPlannedApDragEndFromJs(int plannedId, double lat, double lng)
     {
-        await PlannedApSvc.UpdateLocationAsync(plannedId, lat, lng);
+        await PlannedApAdmin.UpdateLocationAsync(plannedId, lat, lng);
         HeatmapCache.Invalidate();
         await LoadPlannedAps();
         await UpdateApMarkers();
@@ -2944,7 +2946,7 @@
     [JSInvokable]
     public async Task OnPlannedApFloorChangedFromJs(int plannedId, int floor)
     {
-        await PlannedApSvc.UpdateFloorAsync(plannedId, floor);
+        await PlannedApAdmin.UpdateFloorAsync(plannedId, floor);
         HeatmapCache.Invalidate();
         await LoadPlannedAps();
         await InvokeAsync(async () =>
@@ -2958,7 +2960,7 @@
     [JSInvokable]
     public async Task OnPlannedApOrientationChangedFromJs(int plannedId, int deg)
     {
-        await PlannedApSvc.UpdateOrientationAsync(plannedId, deg);
+        await PlannedApAdmin.UpdateOrientationAsync(plannedId, deg);
         HeatmapCache.Invalidate();
         await LoadPlannedAps();
         await InvokeAsync(async () =>
@@ -2972,7 +2974,7 @@
     [JSInvokable]
     public async Task OnPlannedApMountTypeChangedFromJs(int plannedId, string mountType)
     {
-        await PlannedApSvc.UpdateMountTypeAsync(plannedId, mountType);
+        await PlannedApAdmin.UpdateMountTypeAsync(plannedId, mountType);
         HeatmapCache.Invalidate();
         await LoadPlannedAps();
         await InvokeAsync(async () =>
@@ -2986,7 +2988,7 @@
     [JSInvokable]
     public async Task OnPlannedApTxPowerChangedFromJs(int plannedId, string band, int txPower)
     {
-        await PlannedApSvc.UpdateTxPowerAsync(plannedId, band, txPower);
+        await PlannedApAdmin.UpdateTxPowerAsync(plannedId, band, txPower);
         HeatmapCache.Invalidate();
         await LoadPlannedAps();
         await InvokeAsync(async () =>
@@ -3000,7 +3002,7 @@
     [JSInvokable]
     public async Task OnPlannedApAntennaModeChangedFromJs(int plannedId, string? mode)
     {
-        await PlannedApSvc.UpdateAntennaModeAsync(plannedId, mode);
+        await PlannedApAdmin.UpdateAntennaModeAsync(plannedId, mode);
         HeatmapCache.Invalidate();
         await LoadPlannedAps();
         await InvokeAsync(async () =>
@@ -3014,7 +3016,7 @@
     [JSInvokable]
     public async Task OnPlannedApNameChangedFromJs(int plannedId, string name)
     {
-        await PlannedApSvc.UpdateNameAsync(plannedId, name.Trim());
+        await PlannedApAdmin.UpdateNameAsync(plannedId, name.Trim());
         await LoadPlannedAps();
         await UpdateApMarkers();
     }
@@ -3022,7 +3024,7 @@
     [JSInvokable]
     public async Task OnPlannedApDeleteFromJs(int plannedId)
     {
-        await PlannedApSvc.DeleteAsync(plannedId);
+        await PlannedApAdmin.DeleteAsync(plannedId);
         HeatmapCache.Invalidate();
         await LoadPlannedAps();
         if (_plannedAps.Count == 0) _showPlannedAps = false;
@@ -3108,7 +3110,7 @@
                 MountType = mountType,
                 AntennaMode = defaultAntennaMode
             };
-            await PlannedApSvc.CreateAsync(ap);
+            await PlannedApAdmin.CreateAsync(ap);
             HeatmapCache.Invalidate();
             await LoadPlannedAps();
             _showPlannedAps = true;
@@ -3290,7 +3292,7 @@
         _isDrawingShape = false;
         StateHasChanged();
         _selectedFloor.WallsJson = wallsJson;
-        await FloorPlanSvc.UpdateFloorAsync(_selectedFloor.Id, wallsJson: wallsJson);
+        await FloorPlanAdmin.UpdateFloorAsync(_selectedFloor.Id, wallsJson: wallsJson);
         HeatmapCache.Invalidate();
 
         // Auto-update floor bounds and building center from wall extents
@@ -3330,7 +3332,7 @@
         _selectedFloor.SwLongitude = swLng;
         _selectedFloor.NeLatitude = neLat;
         _selectedFloor.NeLongitude = neLng;
-        await FloorPlanSvc.UpdateFloorAsync(_selectedFloor.Id, swLat, swLng, neLat, neLng);
+        await FloorPlanAdmin.UpdateFloorAsync(_selectedFloor.Id, swLat, swLng, neLat, neLng);
     }
 
     // ── Building move mode ───────────────────────────────────────────
@@ -3361,13 +3363,13 @@
             f.SwLongitude += deltaLng;
             f.NeLatitude += deltaLat;
             f.NeLongitude += deltaLng;
-            await FloorPlanSvc.UpdateFloorAsync(f.Id, f.SwLatitude, f.SwLongitude, f.NeLatitude, f.NeLongitude);
+            await FloorPlanAdmin.UpdateFloorAsync(f.Id, f.SwLatitude, f.SwLongitude, f.NeLatitude, f.NeLongitude);
         }
 
         // Update building center
         _selectedBuilding.CenterLatitude = newLat;
         _selectedBuilding.CenterLongitude = newLng;
-        await FloorPlanSvc.UpdateBuildingAsync(_selectedBuilding.Id, _selectedBuilding.Name, newLat, newLng);
+        await FloorPlanAdmin.UpdateBuildingAsync(_selectedBuilding.Id, _selectedBuilding.Name, newLat, newLng);
         HeatmapCache.Invalidate();
 
         // Refresh visuals
@@ -3682,7 +3684,7 @@
         if (_selectedFloor == null) return;
         var material = e.Value?.ToString() ?? "floor_wood";
         _selectedFloor.FloorMaterial = material;
-        await FloorPlanSvc.UpdateFloorAsync(_selectedFloor.Id, floorMaterial: material);
+        await FloorPlanAdmin.UpdateFloorAsync(_selectedFloor.Id, floorMaterial: material);
         HeatmapCache.Invalidate();
         if (_showHeatmap) await ComputeHeatmap();
     }
@@ -3695,7 +3697,7 @@
             if (_selectedFloor != null)
             {
                 _selectedFloor.Opacity = _floorOpacity;
-                await FloorPlanSvc.UpdateFloorAsync(_selectedFloor.Id, opacity: _floorOpacity);
+                await FloorPlanAdmin.UpdateFloorAsync(_selectedFloor.Id, opacity: _floorOpacity);
                 await JS.InvokeVoidAsync("fpEditor.setFloorOpacity", _floorOpacity);
             }
         }
@@ -3708,7 +3710,7 @@
         if (file.Size > 20 * 1024 * 1024) return;
 
         using var stream = file.OpenReadStream(20 * 1024 * 1024);
-        await FloorPlanSvc.SaveFloorImageAsync(_selectedFloor.Id, stream);
+        await FloorPlanAdmin.SaveFloorImageAsync(_selectedFloor.Id, stream);
         _selectedFloor.HasImage = true;
 
         if (_selectedFloor.SwLatitude == 0 && _selectedFloor.NeLatitude == 0 && _selectedBuilding != null)
@@ -3729,7 +3731,7 @@
             _selectedFloor.SwLongitude = centerLng - lngOffset;
             _selectedFloor.NeLatitude = centerLat + latOffset;
             _selectedFloor.NeLongitude = centerLng + lngOffset;
-            await FloorPlanSvc.UpdateFloorAsync(_selectedFloor.Id,
+            await FloorPlanAdmin.UpdateFloorAsync(_selectedFloor.Id,
                 _selectedFloor.SwLatitude, _selectedFloor.SwLongitude,
                 _selectedFloor.NeLatitude, _selectedFloor.NeLongitude);
         }
@@ -3781,7 +3783,7 @@
         if (firstAp != null) { lat = firstAp.Latitude!.Value; lng = firstAp.Longitude!.Value; }
         else if (await GetMapCenterAsync() is { } center) { lat = center.lat; lng = center.lng; }
 
-        var building = await FloorPlanSvc.CreateBuildingAsync(_newBuildingName, lat, lng);
+        var building = await FloorPlanAdmin.CreateBuildingAsync(_newBuildingName, lat, lng);
         HeatmapCache.Invalidate();
         _showAddBuilding = false;
         await LoadBuildings();
@@ -3860,7 +3862,7 @@
         var lngOffset = 25.0 / (111320.0 * cosLat);
 
         _newFloorLabel = _newFloorLabel.Trim();
-        await FloorPlanSvc.CreateFloorAsync(_selectedBuilding.Id, _newFloorNumber, _newFloorLabel,
+        await FloorPlanAdmin.CreateFloorAsync(_selectedBuilding.Id, _newFloorNumber, _newFloorLabel,
             lat - latOffset, lng - lngOffset, lat + latOffset, lng + lngOffset, _newFloorMaterial);
         HeatmapCache.Invalidate();
 
@@ -3903,7 +3905,7 @@
             _selectedApForPlacement = null;
             _selectedCatalogModel = null;
         }
-        await FloorPlanSvc.DeleteFloorAsync(_selectedFloor.Id);
+        await FloorPlanAdmin.DeleteFloorAsync(_selectedFloor.Id);
         HeatmapCache.Invalidate();
         await LoadBuildings();
         _selectedBuilding = _buildings.FirstOrDefault(b => b.Id == _selectedBuildingId);
@@ -3951,7 +3953,7 @@
             _selectedApForPlacement = null;
             _selectedCatalogModel = null;
         }
-        await FloorPlanSvc.DeleteBuildingAsync(_selectedBuilding.Id);
+        await FloorPlanAdmin.DeleteBuildingAsync(_selectedBuilding.Id);
         HeatmapCache.Invalidate();
         await LoadBuildings();
         EnsureGlobalFloorExists();
@@ -4148,7 +4150,7 @@
             floor.NeLongitude = neLng;
             // Keep the in-memory floor consistent so content/position checks below see the walls.
             floor.WallsJson = wallsJson;
-            await FloorPlanSvc.UpdateFloorAsync(floor.Id, swLat: swLat, swLng: swLng, neLat: neLat, neLng: neLng);
+            await FloorPlanAdmin.UpdateFloorAsync(floor.Id, swLat: swLat, swLng: swLng, neLat: neLat, neLng: neLng);
 
             // Update building center from the union of floors that have real content. A bare
             // floor sits at the building's placeholder center, so including it would drag the
@@ -4167,7 +4169,7 @@
                 var centerLng = (unionSwLng + unionNeLng) / 2;
                 _selectedBuilding.CenterLatitude = centerLat;
                 _selectedBuilding.CenterLongitude = centerLng;
-                await FloorPlanSvc.UpdateBuildingAsync(_selectedBuilding.Id, _selectedBuilding.Name, centerLat, centerLng);
+                await FloorPlanAdmin.UpdateBuildingAsync(_selectedBuilding.Id, _selectedBuilding.Name, centerLat, centerLng);
             }
         }
         catch { }

@@ -488,6 +488,10 @@ builder.Services.AddSingleton<NetworkOptimizer.Threats.ThreatCollectionService>(
 builder.Services.AddHostedService(sp => sp.GetRequiredService<NetworkOptimizer.Threats.ThreatCollectionService>());
 builder.Services.AddScoped<NetworkOptimizer.Threats.Interfaces.IThreatRepository, NetworkOptimizer.Storage.Repositories.ThreatRepository>();
 builder.Services.AddScoped<NetworkOptimizer.Web.Services.ThreatDashboardService>();
+// Reads stay on the concrete service (the dashboard is a Viewer surface); the noise-filter writes
+// go through the gate over the same instance.
+builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.IThreatFilterAdminService>(
+    sp => sp.GetRequiredService<NetworkOptimizer.Web.Services.ThreatDashboardService>());
 builder.Services.AddScoped<NetworkOptimizer.Threats.Interfaces.IThreatSettingsAccessor, NetworkOptimizer.Web.Services.ThreatSettingsAccessor>();
 builder.Services.AddSingleton<NetworkOptimizer.Threats.Interfaces.IUniFiClientAccessor, NetworkOptimizer.Web.Services.UniFiClientAccessor>();
 
@@ -643,6 +647,8 @@ builder.Services.AddScoped<NetworkOptimizer.Web.Services.LanFlowMap.LanFlowMapSe
 // Register application services (scoped per request/circuit)
 builder.Services.AddScoped<DashboardService>();
 builder.Services.AddScoped<DashboardLayoutService>();
+builder.Services.AddMutatingService<IDashboardLayoutAdminService>(
+    sp => sp.GetRequiredService<DashboardLayoutService>());
 builder.Services.AddScoped<PullToRefreshState>();
 builder.Services.AddSingleton<FingerprintDatabaseService>(); // Singleton to cache fingerprint data
 builder.Services.AddSingleton<IeeeOuiDatabase>(); // IEEE OUI database for MAC vendor lookup
@@ -702,12 +708,16 @@ builder.Services.AddMutatingService<IWiFiScanService>(sp => sp.GetRequiredServic
 // site's UniFiSshService.
 builder.Services.AddMutatingService<IMeshOptimizationService, MeshOptimizationService>();
 builder.Services.AddScoped<ApMapService>();
+// GetApMapMarkersAsync stays ungated - every map draws AP markers from it, including a Viewer's.
+builder.Services.AddMutatingService<IApMapAdminService>(sp => sp.GetRequiredService<ApMapService>());
 // Per-site: buildings, floor plans, planned APs, and their heatmap cache are
 // per-site data. Scoped so each site's WiFi optimizer / floor plan / heatmap reads
 // its own data (consumers - WiFiOptimizerService, floor-plan endpoints - are scoped).
 builder.Services.AddScoped<FloorPlanService>();
+builder.Services.AddMutatingService<IFloorPlanAdminService>(sp => sp.GetRequiredService<FloorPlanService>());
 builder.Services.AddScoped<HeatmapDataCache>();
 builder.Services.AddScoped<PlannedApService>();
+builder.Services.AddMutatingService<IPlannedApAdminService>(sp => sp.GetRequiredService<PlannedApService>());
 builder.Services.AddSingleton<ConfigTransferService>();
 builder.Services.AddMutatingService<IConfigTransferService>(sp => sp.GetRequiredService<ConfigTransferService>());
 builder.Services.AddSingleton<NetworkOptimizer.WiFi.Data.AntennaPatternLoader>();

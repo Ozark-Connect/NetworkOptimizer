@@ -20,6 +20,7 @@
 @inject ILogger<ThreatDashboard> Logger
 @inject IJSRuntime JS
 @inject PullToRefreshState PtrState
+@inject IThreatFilterAdminService ThreatFilterAdmin
 
 <PageTitle>Threat Intelligence - Network Optimizer</PageTitle>
 
@@ -3791,7 +3792,7 @@ else
         // Must have at least one field
         if (filter.SourceIp == null && filter.DestIp == null && filter.DestPort == null) return;
 
-        await DashboardService.SaveNoiseFilterAsync(filter);
+        await ThreatFilterAdmin.SaveNoiseFilterAsync(filter);
         _newFilterSourceIp = "";
         _newFilterDestIp = "";
         _newFilterDestPort = "";
@@ -3826,7 +3827,7 @@ else
 
     private async Task DeleteFilterAsync(ThreatNoiseFilter filter)
     {
-        await DashboardService.DeleteNoiseFilterAsync(filter.Id);
+        await ThreatFilterAdmin.DeleteNoiseFilterAsync(filter.Id);
         await LoadNoiseFiltersAsync();
         await LoadDataAsync();
     }

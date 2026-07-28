@@ -26,6 +26,21 @@ public class ConcreteInjectionTests
     /// </summary>
     private static readonly HashSet<string> Allowed = new(StringComparer.Ordinal)
     {
+        // These five services expose a READ surface on the concrete class and gate only their writes,
+        // because the reads draw maps, floor plans, AP markers, dashboards and the threat view - all
+        // things a Viewer is meant to see in full. The component injects the concrete to read and the
+        // gated *AdminService interface to write, so these entries are the read half and not debt.
+        "ClientDashboard.razor:ApMapService",
+        "ClientSpeedTest.razor:ApMapService",
+        "Dashboard.razor:DashboardLayoutService",
+        "Dashboard.razor:ThreatDashboardService",
+        "FloorPlanEditor.razor:ApMapService",
+        "FloorPlanEditor.razor:FloorPlanService",
+        "FloorPlanEditor.razor:PlannedApService",
+        "Monitoring.razor:DashboardLayoutService",
+        "SpeedTest.razor:ApMapService",
+        "ThreatDashboard.razor:ThreatDashboardService",
+        "WiFiOptimizer.razor:ApMapService",
         "AirtimeFairness.razor:WiFiOptimizerService",
         "AlertsList.razor:AuditService",
         "ApLoadBalance.razor:WiFiOptimizerService",
