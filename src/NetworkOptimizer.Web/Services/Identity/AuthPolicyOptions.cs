@@ -35,10 +35,12 @@ public sealed class AuthPolicyOptions : IAuthPolicyOptions
     private const string RestrictSitesToMembersKey = "auth.restrict_sites_to_members";
 
     private readonly ISystemSettingsService _settings;
+    private readonly Authorization.SiteRoleCacheTokens _siteRoleCache;
 
-    public AuthPolicyOptions(ISystemSettingsService settings)
+    public AuthPolicyOptions(ISystemSettingsService settings, Authorization.SiteRoleCacheTokens siteRoleCache)
     {
         _settings = settings;
+        _siteRoleCache = siteRoleCache;
     }
 
     /// <inheritdoc />
@@ -52,7 +54,16 @@ public sealed class AuthPolicyOptions : IAuthPolicyOptions
         => await GetBoolAsync(RestrictSitesToMembersKey, defaultValue: true);
 
     /// <inheritdoc />
-    public Task SetRestrictSitesToMembersAsync(bool restrict) => SetBoolAsync(RestrictSitesToMembersKey, restrict);
+    public async Task SetRestrictSitesToMembersAsync(bool restrict)
+    {
+        await SetBoolAsync(RestrictSitesToMembersKey, restrict);
+
+        // This one setting decides whether a global Operator or Viewer role reaches every site, so it
+        // changes the answer for every non-Admin on every site at once. Effective roles and authorized
+        // slug sets are cached for ten minutes, and nothing else here would drop them - toggling it
+        // appeared to do nothing at all until they aged out.
+        _siteRoleCache.InvalidateAll();
+    }
 
     private async Task<bool> GetBoolAsync(string key, bool defaultValue = false)
     {

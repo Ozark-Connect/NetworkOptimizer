@@ -72,31 +72,32 @@ internal static class GateHarness
         return context;
     }
 
-    /// <summary>An install with authentication on, so the gates actually authorize rather than wave through.</summary>
-    private sealed class AuthenticationOnStub : IAdminAuthService
-    {
-        public Task<bool> IsAuthenticationRequiredAsync(CancellationToken cancellationToken = default)
-            => Task.FromResult(true);
+}
 
-        public Task<AdminPasswordSource> GetPasswordSourceAsync(CancellationToken cancellationToken = default)
-            => Task.FromResult(AdminPasswordSource.Database);
+/// <summary>An install with authentication on, so the gates actually authorize rather than wave through.</summary>
+internal sealed class AuthenticationOnStub : IAdminAuthService
+{
+    public Task<bool> IsAuthenticationRequiredAsync(CancellationToken cancellationToken = default)
+        => Task.FromResult(true);
 
-        public Task<bool> ValidatePasswordAsync(string password, CancellationToken cancellationToken = default)
-            => Task.FromResult(false);
+    public Task<AdminPasswordSource> GetPasswordSourceAsync(CancellationToken cancellationToken = default)
+        => Task.FromResult(AdminPasswordSource.Database);
 
-        public Task<AdminSettings?> GetAdminSettingsAsync(CancellationToken cancellationToken = default)
-            => Task.FromResult<AdminSettings?>(null);
+    public Task<bool> ValidatePasswordAsync(string password, CancellationToken cancellationToken = default)
+        => Task.FromResult(false);
 
-        public Task SaveAdminSettingsAsync(string? plainPassword, bool enabled, CancellationToken cancellationToken = default)
-            => Task.CompletedTask;
+    public Task<AdminSettings?> GetAdminSettingsAsync(CancellationToken cancellationToken = default)
+        => Task.FromResult<AdminSettings?>(null);
 
-        public Task ClearDatabasePasswordAsync(CancellationToken cancellationToken = default)
-            => Task.CompletedTask;
+    public Task SaveAdminSettingsAsync(string? plainPassword, bool enabled, CancellationToken cancellationToken = default)
+        => Task.CompletedTask;
 
-        public Task LogStartupConfigurationAsync(CancellationToken cancellationToken = default)
-            => Task.CompletedTask;
+    public Task ClearDatabasePasswordAsync(CancellationToken cancellationToken = default)
+        => Task.CompletedTask;
 
-        public PasswordValidationResult ValidateNewPassword(string password, string confirmPassword)
-            => throw new NotSupportedException();
-    }
+    public Task LogStartupConfigurationAsync(CancellationToken cancellationToken = default)
+        => Task.CompletedTask;
+
+    public PasswordValidationResult ValidateNewPassword(string password, string confirmPassword)
+        => throw new NotSupportedException();
 }
