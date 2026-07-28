@@ -15,6 +15,15 @@ public interface IJwtService
     Task<string> GenerateTokenAsync(string username = "admin");
     Task<ClaimsPrincipal?> ValidateTokenAsync(string token);
     Task<TokenValidationParameters> GetTokenValidationParametersAsync();
+
+    /// <summary>
+    /// Replaces the signing key, so every outstanding legacy <c>auth_token</c> stops validating.
+    /// A legacy JWT carries no security stamp, so rotating the Identity stamp does nothing to it and
+    /// <see cref="Identity.LegacyJwtBridgeMiddleware"/> would keep exchanging a token captured before
+    /// a password change or a sign out everywhere for a brand new cookie. The key is the only thing
+    /// those tokens can be revoked by. SUNSET: goes with the bridge one release after the cutover.
+    /// </summary>
+    Task RotateSigningKeyAsync();
 }
 
 /// <summary>
@@ -133,6 +142,28 @@ public class JwtService : IJwtService
             ValidateLifetime = true,
             ClockSkew = TimeSpan.FromMinutes(1)
         };
+    }
+
+    /// <inheritdoc />
+    public async Task RotateSigningKeyAsync()
+    {
+        using var scope = _serviceProvider.CreateScope();
+        var settingsRepo = scope.ServiceProvider.GetRequiredService<ISettingsRepository>();
+        await settingsRepo.SaveSystemSettingAsync(SecretKeySettingName, GenerateSecretKey());
+
+        // Drop the cache rather than storing the new key: nothing issues legacy tokens any more
+        // (GenerateTokenAsync has no callers), so the next read is only ever a validation, and it
+        // must miss so it reloads whatever is now in the database.
+        _cachedSecretKey = null;
+        _logger.LogInformation("Rotated the legacy JWT signing key; outstanding auth_token cookies no longer validate.");
+    }
+
+    private static string GenerateSecretKey()
+    {
+        var keyBytes = new byte[32];
+        using var rng = RandomNumberGenerator.Create();
+        rng.GetBytes(keyBytes);
+        return Convert.ToBase64String(keyBytes);
     }
 
     /// <summary>
