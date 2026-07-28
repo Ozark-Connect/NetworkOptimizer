@@ -1,3 +1,4 @@
+using System.Text.Json;
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using Moq;
@@ -6481,6 +6482,123 @@ public class FirewallRuleAnalyzerTests
         var issues = _analyzer.CheckInternetDisabledBroadAllow(rules, networks, null);
 
         issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void CheckInternetDisabledBroadAllow_DomainGroupBackedManagementHttps_NoIssue()
+    {
+        const string managementZoneId = "management-zone";
+        const string externalZoneId = "external-zone";
+        var domainGroup = new UniFiFirewallGroup
+        {
+            Id = "group-unifi-cloud",
+            Name = "UniFi Cloud and AFC Domains",
+            GroupType = "domain-group",
+            GroupMembers = new List<string> { "ui.com", "afcapi.qcs.qualcomm.com" }
+        };
+        _analyzer.SetFirewallGroups(new[] { domainGroup });
+        var policies = JsonDocument.Parse(@"[{
+            ""_id"": ""allow-management-ui"",
+            ""name"": ""Allow Management to External UI/AFC HTTPS"",
+            ""enabled"": true,
+            ""action"": ""ALLOW"",
+            ""protocol"": ""tcp"",
+            ""source"": {
+                ""zone_id"": ""management-zone"",
+                ""matching_target"": ""ANY""
+            },
+            ""destination"": {
+                ""web_matching_type"": ""CUSTOM"",
+                ""web_domains"": [],
+                ""web_group_id"": ""group-unifi-cloud"",
+                ""zone_id"": ""external-zone"",
+                ""matching_target"": ""WEB"",
+                ""matching_target_type"": ""OBJECT"",
+                ""port_matching_type"": ""SPECIFIC"",
+                ""port"": ""443""
+            }
+        }]").RootElement;
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, id: "mgmt-net",
+                internetAccessEnabled: false, firewallZoneId: managementZoneId)
+        };
+
+        var rules = _analyzer.ExtractFirewallPolicies(policies);
+        var issues = _analyzer.CheckInternetDisabledBroadAllow(rules, networks, externalZoneId);
+
+        rules.Should().ContainSingle().Which.WebDomains.Should().BeEquivalentTo(domainGroup.GroupMembers);
+        issues.Should().NotContain(issue => issue.Type == "INTERNET_BLOCK_BYPASSED");
+    }
+
+    [Fact]
+    public void CheckInternetDisabledBroadAllow_UnresolvedDomainGroup_NoIssue()
+    {
+        const string externalZoneId = "external-zone";
+        var policies = JsonDocument.Parse(@"[{
+            ""_id"": ""allow-unresolved-web-object"",
+            ""name"": ""Allow unresolved domain object"",
+            ""enabled"": true,
+            ""action"": ""ALLOW"",
+            ""protocol"": ""tcp"",
+            ""source"": {
+                ""matching_target"": ""NETWORK"",
+                ""network_ids"": [""mgmt-net""]
+            },
+            ""destination"": {
+                ""web_domains"": [],
+                ""web_group_id"": ""missing-domain-group"",
+                ""zone_id"": ""external-zone"",
+                ""matching_target"": ""WEB"",
+                ""matching_target_type"": ""OBJECT"",
+                ""port"": ""443""
+            }
+        }]").RootElement;
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, id: "mgmt-net", internetAccessEnabled: false)
+        };
+
+        var rules = _analyzer.ExtractFirewallPolicies(policies);
+        var issues = _analyzer.CheckInternetDisabledBroadAllow(rules, networks, externalZoneId);
+
+        rules.Should().ContainSingle().Which.Should().Match<FirewallRule>(rule =>
+            rule.DestinationMatchingTarget == "WEB" &&
+            rule.HasUnresolvedDestinationDomainGroup);
+        issues.Should().NotContain(issue => issue.Type == "INTERNET_BLOCK_BYPASSED");
+    }
+
+    [Fact]
+    public void CheckInternetDisabledBroadAllow_EmptyWebTargetWithoutObject_ReturnsIssue()
+    {
+        const string externalZoneId = "external-zone";
+        var policies = JsonDocument.Parse(@"[{
+            ""_id"": ""allow-empty-web-target"",
+            ""name"": ""Allow empty web target"",
+            ""enabled"": true,
+            ""action"": ""ALLOW"",
+            ""protocol"": ""tcp"",
+            ""source"": {
+                ""matching_target"": ""NETWORK"",
+                ""network_ids"": [""mgmt-net""]
+            },
+            ""destination"": {
+                ""web_domains"": [],
+                ""zone_id"": ""external-zone"",
+                ""matching_target"": ""WEB"",
+                ""port"": ""443""
+            }
+        }]").RootElement;
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, id: "mgmt-net", internetAccessEnabled: false)
+        };
+
+        var rules = _analyzer.ExtractFirewallPolicies(policies);
+        var issues = _analyzer.CheckInternetDisabledBroadAllow(rules, networks, externalZoneId);
+
+        rules.Should().ContainSingle().Which.HasUnresolvedDestinationDomainGroup.Should().BeFalse();
+        issues.Should().ContainSingle(issue => issue.Type == "INTERNET_BLOCK_BYPASSED");
     }
 
     [Fact]

@@ -1175,6 +1175,72 @@ public class FirewallRuleParserTests
     #region Firewall Group Flattening Tests
 
     [Fact]
+    public void ParseFirewallPolicy_DestinationDomainGroupReference_FlattensToWebDomains()
+    {
+        var domainGroup = new UniFiFirewallGroup
+        {
+            Id = "group-doh",
+            Name = "DoH Providers",
+            GroupType = "domain-group",
+            GroupMembers = new List<string>
+            {
+                "cloudflare-dns.com", "dns.google", "dns.quad9.net", "doh.opendns.com"
+            }
+        };
+        _parser.SetFirewallGroups(new[] { domainGroup });
+
+        var json = JsonDocument.Parse(@"{
+            ""_id"": ""block-doh"",
+            ""destination"": {
+                ""matching_target"": ""WEB"",
+                ""matching_target_type"": ""OBJECT"",
+                ""web_matching_type"": ""CUSTOM"",
+                ""web_domains"": [],
+                ""web_group_id"": ""group-doh"",
+                ""port_matching_type"": ""SPECIFIC"",
+                ""port"": ""443""
+            }
+        }").RootElement;
+
+        var rule = _parser.ParseFirewallPolicy(json);
+
+        rule.Should().NotBeNull();
+        rule!.DestinationMatchingTarget.Should().Be("WEB");
+        rule.WebDomains.Should().BeEquivalentTo(domainGroup.GroupMembers);
+        rule.HasUnresolvedDestinationDomainGroup.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ParseFirewallPolicy_DestinationWebGroupReferencesAddressGroup_DoesNotUseAddressesAsDomains()
+    {
+        var addressGroup = new UniFiFirewallGroup
+        {
+            Id = "group-addresses",
+            Name = "External DNS IPs",
+            GroupType = "address-group",
+            GroupMembers = new List<string> { "1.1.1.1", "8.8.8.8" }
+        };
+        _parser.SetFirewallGroups(new[] { addressGroup });
+
+        var json = JsonDocument.Parse(@"{
+            ""_id"": ""wrong-object-type"",
+            ""destination"": {
+                ""matching_target"": ""WEB"",
+                ""matching_target_type"": ""OBJECT"",
+                ""web_group_id"": ""group-addresses""
+            }
+        }").RootElement;
+
+        var rule = _parser.ParseFirewallPolicy(json);
+
+        rule.Should().NotBeNull();
+        rule!.DestinationMatchingTarget.Should().Be("WEB");
+        rule.WebDomains.Should().BeNull();
+        rule.DestinationIps.Should().BeNull();
+        rule.HasUnresolvedDestinationDomainGroup.Should().BeTrue();
+    }
+
+    [Fact]
     public void ParseFirewallPolicy_DestinationPortGroupReference_FlattensToPortString()
     {
         // Arrange - Set up a port group (DNS port 53)

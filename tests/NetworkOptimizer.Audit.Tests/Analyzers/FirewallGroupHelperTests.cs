@@ -11,6 +11,51 @@ public class FirewallGroupHelperTests
 {
     private readonly Mock<ILogger> _loggerMock = new();
 
+    #region ResolveDomainGroup Tests
+
+    [Fact]
+    public void ResolveDomainGroup_ValidDomainGroup_ReturnsDomains()
+    {
+        var groups = new Dictionary<string, UniFiFirewallGroup>
+        {
+            ["group1"] = new UniFiFirewallGroup
+            {
+                Id = "group1",
+                Name = "DoH Providers",
+                GroupType = "domain-group",
+                GroupMembers = new List<string> { "dns.google", "cloudflare-dns.com" }
+            }
+        };
+
+        var result = FirewallGroupHelper.ResolveDomainGroup("group1", groups, _loggerMock.Object);
+
+        result.Should().BeEquivalentTo("dns.google", "cloudflare-dns.com");
+    }
+
+    [Theory]
+    [InlineData("address-group")]
+    [InlineData("ipv6-address-group")]
+    [InlineData("port-group")]
+    public void ResolveDomainGroup_NonDomainGroup_ReturnsNull(string groupType)
+    {
+        var groups = new Dictionary<string, UniFiFirewallGroup>
+        {
+            ["group1"] = new UniFiFirewallGroup
+            {
+                Id = "group1",
+                Name = "Other Object",
+                GroupType = groupType,
+                GroupMembers = new List<string> { "192.0.2.1" }
+            }
+        };
+
+        var result = FirewallGroupHelper.ResolveDomainGroup("group1", groups, _loggerMock.Object);
+
+        result.Should().BeNull();
+    }
+
+    #endregion
+
     #region IncludesPort Tests
 
     [Theory]
