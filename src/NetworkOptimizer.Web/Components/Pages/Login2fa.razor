@@ -157,7 +157,12 @@
     // form over and nothing the user types can ever match.
     private bool _hasRecoveryCodes => HasRecoveryCodes;
 
-    protected override void OnInitialized() => _useRecovery = Recovery && HasRecoveryCodes;
+    // OnParametersSet, not OnInitialized: enhanced navigation reuses the component instance, so
+    // arriving here from the recovery-code link updated the query and the Recovery parameter while
+    // OnInitialized never ran again. The URL changed, the flag did not, and the page went on showing
+    // the authenticator field - the same URL loaded fresh was fine, which is what made it look like a
+    // broken link rather than stale state.
+    protected override void OnParametersSet() => _useRecovery = Recovery && HasRecoveryCodes;
 
     private string BackUrl()
     {
