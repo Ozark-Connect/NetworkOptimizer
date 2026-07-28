@@ -1,4 +1,4 @@
-@page "/speedtest"
+﻿@page "/speedtest"
 @attribute [Authorize(Policy = Policies.RequireViewer)]
 @rendermode InteractiveServer
 @implements IDisposable
@@ -619,14 +619,14 @@
                     </div>
 
                     <div class="form-group">
-                        <label class="form-check">
+                        <label class="checkbox-label">
                             <input type="checkbox" @bind="editingDevice.Enabled" />
                             <span>Enable for speed testing</span>
                         </label>
                     </div>
 
                     <div class="form-group">
-                        <label class="form-check">
+                        <label class="checkbox-label">
                             <input type="checkbox" @bind="editingDevice.StartIperf3Server" />
                             <span>Start iperf3 server before test</span>
                         </label>
