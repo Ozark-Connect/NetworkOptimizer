@@ -19428,6 +19428,11 @@ body.kiosk-mode .status-indicators {
     grid-template-columns: max-content 1fr max-content;
 }
 
+/* The two sub-cards sit one above the other: what is linked, then how to link another. */
+.identity-link-add {
+    margin-top: 0.75rem;
+}
+
 .identity-link-item,
 .identity-url-item {
     display: contents;
@@ -19437,7 +19442,7 @@ body.kiosk-mode .status-indicators {
 .identity-url-label {
     font-weight: 500;
     color: var(--text-primary);
-    font-size: 0.9rem;
+    font-size: 0.85rem;
 }
 
 .identity-link-subject,

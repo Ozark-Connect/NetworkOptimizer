@@ -77,6 +77,31 @@
             }
         </form>
 
+
+@* autofocus fires when the browser first parses the page, and not when enhanced navigation patches
+   the DOM in - which is what happens arriving here from anywhere inside the app, so the field ends up
+   unfocused exactly when someone is about to type in it. Re-apply on both, and only when the user has
+   not already put their cursor somewhere. *@
+<script suppress-error="BL9992">
+    (function () {
+        function focusField() {
+            var el = document.getElementById('login-username');
+            if (!el) return;
+            var active = document.activeElement;
+            if (active && active !== document.body && active.tagName !== 'HTML') return;
+            el.focus();
+        }
+        focusField();
+        document.addEventListener('DOMContentLoaded', focusField);
+        if (window.Blazor) {
+            Blazor.addEventListener('enhancedload', focusField);
+        }
+        else {
+            document.addEventListener('enhancedload', focusField);
+        }
+    })();
+</script>
+
         @* Revealed by the passkey helper when the browser has no secure context. Rendered here rather
            than redirected to, because the browser knows before it asks the server - a round trip just
            to say this costs a page load and races the error-stripping script. *@
