@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using System.Text.Json.Serialization;
 using NetworkOptimizer.Storage.Models.Identity;
 
@@ -61,7 +61,9 @@ public sealed class IdentityConfigLoader : IIdentityConfigLoader
             provider.Scheme = p.Scheme;
             provider.Type = Enum.TryParse<FederationProviderType>(p.Type, ignoreCase: true, out var t) ? t : FederationProviderType.Oidc;
             provider.DisplayName = p.DisplayName ?? p.Scheme;
-            provider.ButtonLabel = p.ButtonLabel ?? $"Sign in with {provider.DisplayName}";
+            provider.ButtonLabel = string.IsNullOrWhiteSpace(p.ButtonLabel)
+                ? $"Sign in with {provider.DisplayName}"
+                : p.ButtonLabel;
             provider.Enabled = p.Enabled ?? true;
             provider.Authority = p.Authority;
             provider.ClientId = p.ClientId;

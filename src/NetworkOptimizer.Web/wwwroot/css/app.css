@@ -19408,29 +19408,34 @@ body.kiosk-mode .status-indicators {
 }
 
 .identity-link-list,
+/* A grid on the LIST, with each row's cells promoted into it, so every URL starts at the same x - the
+   widest label sets the column for all of them. As independent flex rows each label sized itself and
+   the blocks stepped down the page. */
 .identity-url-list {
     list-style: none;
     margin: 0;
     padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 0.4rem;
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    align-items: center;
+    gap: 0.4rem 0.75rem;
 }
 
 .identity-link-item,
 .identity-url-item {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    gap: 0.5rem;
+    display: contents;
 }
 
 .identity-link-provider,
 .identity-url-label {
     font-weight: 500;
     color: var(--text-primary);
-    min-width: 14rem;
     font-size: 0.9rem;
+}
+
+/* The linked-identity rows are still flex, so they keep the column width the grid now provides here. */
+.identity-link-provider {
+    min-width: 14rem;
 }
 
 .identity-link-subject,
@@ -19442,7 +19447,6 @@ body.kiosk-mode .status-indicators {
 /* The URL sits beside its label in a flex row, so the copy block takes the rest of the line rather
    than collapsing to its content. */
 .identity-url-item .code-copy-block {
-    flex: 1;
     min-width: 0;
 }
 

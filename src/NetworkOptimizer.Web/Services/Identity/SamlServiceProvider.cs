@@ -1,4 +1,4 @@
-using System.Security.Claims;
+﻿using System.Security.Claims;
 using System.Security.Cryptography.X509Certificates;
 using ITfoxtec.Identity.Saml2;
 using ITfoxtec.Identity.Saml2.MvcCore;
@@ -39,14 +39,30 @@ public sealed class SamlServiceProvider : ISamlServiceProvider
         _logger = logger;
     }
 
+
+    /// <summary>
+    /// This install's SAML entity ID: the operator's value when they set one, otherwise our metadata
+    /// URL.
+    ///
+    /// Null-or-EMPTY, not just null. The field is optional and clearing it in the UI stores an empty
+    /// string, so a plain ?? left the entity ID blank - we then issued an AuthnRequest with no issuer
+    /// and accepted an audience of "", which surfaced as a NullReferenceException from inside the SAML
+    /// library rather than anything naming the setting.
+    /// </summary>
+    private static string SpEntityId(FederationProvider provider, string origin)
+        => string.IsNullOrWhiteSpace(provider.SpEntityId)
+            ? $"{origin}/saml/{provider.Scheme}/metadata"
+            : provider.SpEntityId.Trim();
+
     private async Task<Saml2Configuration> BuildConfigAsync(FederationProvider provider, HttpContext context)
     {
         var origin = _origin.Resolve(context);
+        var entityId = SpEntityId(provider, origin);
         var config = new Saml2Configuration
         {
-            Issuer = provider.SpEntityId ?? $"{origin}/saml/{provider.Scheme}/metadata",
+            Issuer = entityId,
             SingleSignOnDestination = null, // populated from IdP metadata below
-            AllowedAudienceUris = { provider.SpEntityId ?? $"{origin}/saml/{provider.Scheme}/metadata" },
+            AllowedAudienceUris = { entityId },
             SignAuthnRequest = false,
         };
         config.RevocationMode = X509RevocationMode.NoCheck;
@@ -82,7 +98,7 @@ public sealed class SamlServiceProvider : ISamlServiceProvider
     {
         var origin = _origin.Resolve(context);
         var config = await BuildConfigAsync(provider, context);
-        var entityId = provider.SpEntityId ?? $"{origin}/saml/{provider.Scheme}/metadata";
+        var entityId = SpEntityId(provider, origin);
 
         var entityDescriptor = new EntityDescriptor(config)
         {
