@@ -190,7 +190,11 @@ public sealed class IdentitySignInService : IIdentitySignInService
             return SignInOutcome.Failed;
         if (!user.IsEnabled)
         {
-            await _signInManager.SignOutAsync();
+            // The pending two-factor state is deliberately left in place. It proves nothing on its
+            // own - this check runs on every attempt to complete, so a disabled account cannot get
+            // in whatever it types - and tearing it down means an admin who disables an account and
+            // changes their mind has made the user re-enter a password they already proved, to
+            // finish a sign-in that was legitimate all along.
             _logger.LogWarning("Second factor refused for {User}: the account is disabled.", user.UserName);
             EmitLogin(user.UserName ?? "", user.Id, AuditActions.LoginFailed, AuditOutcomes.Failure, "totp");
             return SignInOutcome.Failed;
@@ -219,7 +223,11 @@ public sealed class IdentitySignInService : IIdentitySignInService
             return SignInOutcome.Failed;
         if (!user.IsEnabled)
         {
-            await _signInManager.SignOutAsync();
+            // The pending two-factor state is deliberately left in place. It proves nothing on its
+            // own - this check runs on every attempt to complete, so a disabled account cannot get
+            // in whatever it types - and tearing it down means an admin who disables an account and
+            // changes their mind has made the user re-enter a password they already proved, to
+            // finish a sign-in that was legitimate all along.
             _logger.LogWarning("Recovery code refused for {User}: the account is disabled.", user.UserName);
             EmitLogin(user.UserName ?? "", user.Id, AuditActions.LoginFailed, AuditOutcomes.Failure, "recovery_code");
             return SignInOutcome.Failed;
