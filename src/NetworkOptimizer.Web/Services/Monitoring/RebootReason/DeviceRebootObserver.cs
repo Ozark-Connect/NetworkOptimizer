@@ -123,6 +123,7 @@ public sealed class DeviceRebootObserver : BackgroundService
 
         var tracker = _trackers.GetFor(slug);
         var now = DateTime.UtcNow;
+        var sampled = 0;
 
         foreach (var device in devices)
         {
@@ -130,6 +131,8 @@ public sealed class DeviceRebootObserver : BackgroundService
 
             if (string.IsNullOrEmpty(device.Mac) || device.Uptime.TotalSeconds <= 0)
                 continue;
+
+            sampled++;
 
             // The tracker decides what is new and paces its own probing; this only supplies the
             // signal it needs to decide.
@@ -142,5 +145,12 @@ public sealed class DeviceRebootObserver : BackgroundService
                 device.Firmware,
                 now);
         }
+
+        // Says the pass happened even when it changes nothing, which is the normal case: without it
+        // there is no way to tell "observed, nothing new" from "never ran". What each sample leads
+        // to - a first sighting, a detected reboot, a probe result - the tracker logs itself.
+        _logger.LogDebug(
+            "Reboot observation: site {Site}, {Sampled} of {Total} devices reported uptime",
+            slug, sampled, devices.Count);
     }
 }
