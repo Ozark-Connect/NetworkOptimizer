@@ -18,7 +18,6 @@ public class SqmService : ISqmService
     private readonly SiteContextService _siteContext;
 
     // Track SQM state
-    private SqmConfiguration? _currentConfig;
     private TcMonitorResponse? _lastTcStats;
     private DateTime? _lastPollTime;
 
@@ -99,7 +98,7 @@ public class SqmService : ISqmService
         {
             Status = "Active",
             CurrentRate = primaryWan?.RateMbps ?? 0,
-            BaselineRate = _currentConfig?.DownloadSpeed ?? primaryWan?.RateMbps ?? 0,
+            BaselineRate = primaryWan?.RateMbps ?? 0,
             // TODO(latency-monitoring): Get real latency from agent metrics.
             // Requires: Agent infrastructure pushing latency samples to /api/metrics endpoint.
             CurrentLatency = 0,
@@ -702,29 +701,6 @@ public class SqmService : ISqmService
         return config;
     }
 
-    public async Task<bool> DeploySqmAsync(SqmConfiguration config)
-    {
-        _logger.LogInformation("Deploying SQM configuration: {@Config}", config);
-
-        if (!_connectionService.IsConnected)
-        {
-            _logger.LogWarning("Cannot deploy SQM: controller not connected");
-            return false;
-        }
-
-        // TODO(agent-infrastructure): Deploy SQM via the on-site agent once it
-        // grows SSH deployment capability.
-        // Steps: 1) Generate scripts via NetworkOptimizer.Sqm.ScriptGenerator
-        //        2) Push to gateway via agent SSH connection
-        //        3) Verify tc qdisc installation and crontab entry
-
-        await Task.Delay(2000); // Simulate deployment
-
-        _currentConfig = config;
-
-        return true;
-    }
-
     public async Task<string> GenerateSqmScriptsAsync(SqmConfiguration config)
     {
         _logger.LogInformation("Generating SQM scripts for configuration: {@Config}", config);
@@ -736,21 +712,6 @@ public class SqmService : ISqmService
         await Task.Delay(500); // Simulate generation
 
         return "/downloads/sqm-scripts.tar.gz";
-    }
-
-    public async Task<bool> DisableSqmAsync()
-    {
-        _logger.LogInformation("Disabling SQM");
-
-        if (!_connectionService.IsConnected)
-        {
-            _logger.LogWarning("Cannot disable SQM: controller not connected");
-            return false;
-        }
-
-        await Task.Delay(1000); // Simulate operation
-
-        return true;
     }
 }
 

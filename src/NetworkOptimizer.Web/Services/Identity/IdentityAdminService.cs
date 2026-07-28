@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Identity;
 using NetworkOptimizer.Storage.Models.Identity;
 using NetworkOptimizer.Web.Services.Auditing;
+using NetworkOptimizer.Web.Services.Gates;
 
 namespace NetworkOptimizer.Web.Services.Identity;
 
@@ -51,27 +52,42 @@ public sealed record AdminActionResult(bool Succeeded, string? Error = null)
 /// group tables (design doc 06, gate 10 - enforced by architecture test A3). Every mutation audits,
 /// rotates the security stamp / bumps the membership version so sessions revalidate, and upholds the
 /// last-admin and site-ownership invariants (design doc 04). Callers never manipulate Identity directly.
+///
+/// Gated at the service layer (design doc 06, gate 9). Account and role administration is global-Admin
+/// work; the exceptions are the two site-scoped membership calls, which a Site Admin makes for the one
+/// site they administer and which enforce that themselves through
+/// <see cref="IdentityAdminService.RefuseUnlessOwnedAsync"/>, and the self-service password/session
+/// calls, which any signed-in user makes for their OWN account and no one else's.
 /// </summary>
+[MutatingService]
 public interface IIdentityAdminService
 {
+    /// <summary>
+    /// Every account, for the grant pickers. The floor is Viewer rather than Admin because a Site Admin
+    /// with no global role has to pick a user to grant their site to, and there is no "Admin of some
+    /// site" gate to express that; the roster is names only, and every grant it feeds is separately
+    /// ownership-checked.
+    /// </summary>
+    [RequireRole(Roles.Viewer)]
     Task<IReadOnlyList<ApplicationUser>> ListUsersAsync();
-    Task<int> CountUsersAsync();
-    Task<ApplicationUser?> FindByIdAsync(string userId);
-    Task<IReadOnlyList<string>> GetGlobalRolesAsync(ApplicationUser user);
 
     /// <summary>
     /// Every user with the credential and access facts the Identity tab lists: global role, whether
     /// they are enabled, MFA and passkey enrolment, and any linked external identities.
     /// </summary>
+    [RequireRole(Roles.Admin)]
     Task<IReadOnlyList<UserAccountSummary>> ListUserSummariesAsync();
 
     /// <summary>External identities linked to one user (provider scheme plus the IdP-side subject).</summary>
+    [RequireRole(Roles.Admin)]
     Task<IReadOnlyList<LinkedExternalIdentity>> GetExternalLoginsAsync(string userId);
 
     /// <summary>Links an external identity to a local user on an admin's behalf.</summary>
+    [RequireRole(Roles.Admin)]
     Task<AdminActionResult> LinkExternalAsync(string userId, string loginProvider, string providerKey, string? displayName);
 
     /// <summary>Removes a linked external identity (the user keeps any local password).</summary>
+    [RequireRole(Roles.Admin)]
     Task<AdminActionResult> UnlinkExternalAsync(string userId, string loginProvider, string providerKey);
 
     /// <param name="siteTarget">
@@ -80,57 +96,95 @@ public interface IIdentityAdminService
     /// install with users is usually running many sites, where scoping the account IS the task.
     /// Ignored for Admin, which reaches every site regardless.
     /// </param>
+    [RequireRole(Roles.Admin)]
     Task<AdminActionResult> CreateUserAsync(
         string username, string? displayName, string? password, string globalRole, string? siteTarget = null);
+
+    [RequireRole(Roles.Admin)]
     Task<AdminActionResult> SetEnabledAsync(string userId, bool enabled);
+
+    [RequireRole(Roles.Admin)]
     Task<AdminActionResult> DeleteUserAsync(string userId);
+
+    [RequireRole(Roles.Admin)]
     Task<AdminActionResult> SetPasswordAsync(string userId, string newPassword);
 
     /// <summary>
     /// Sets the signed-in user's own password. This is what the Admin Password control in Settings
     /// drives, so a single-admin install changes its password where it always has and the change is
     /// what authenticates at the next sign-in.
+    ///
+    /// Self-service, so the gate is Viewer - and the service refuses any userId but the caller's own,
+    /// because a Viewer-level gate on a method that takes an arbitrary user id is a password reset for
+    /// the whole install.
     /// </summary>
+    [RequireRole(Roles.Viewer)]
     Task<AdminActionResult> SetOwnPasswordAsync(string userId, string newPassword);
 
     /// <summary>
     /// Changes the signed-in user's own password, proving the current one first. Distinct from
     /// <see cref="SetOwnPasswordAsync"/>, which an admin path uses without that proof: self-service
     /// has to establish that whoever is at the keyboard is the account holder and not someone who
-    /// found it unlocked.
+    /// found it unlocked. Refuses any userId but the caller's own.
     /// </summary>
+    [RequireRole(Roles.Viewer)]
     Task<AdminActionResult> ChangeOwnPasswordAsync(string userId, string currentPassword, string newPassword);
 
     /// <summary>
     /// Rotates the signed-in user's security stamp, which every application cookie and remembered
     /// two-factor cookie is validated against - so every session for the account stops being valid.
     /// The browser that asked keeps its access only because the caller re-issues that one cookie.
+    /// Refuses any userId but the caller's own.
     /// </summary>
+    [RequireRole(Roles.Viewer)]
     Task<AdminActionResult> SignOutEverywhereAsync(string userId);
 
+    [RequireRole(Roles.Admin)]
     Task<AdminActionResult> GrantGlobalRoleAsync(string userId, string role);
+
+    [RequireRole(Roles.Admin)]
     Task<AdminActionResult> RevokeGlobalRoleAsync(string userId, string role);
 
+    /// <summary>Every grant one user holds, across sites - the instance-wide Access list.</summary>
+    [RequireRole(Roles.Admin)]
     Task<IReadOnlyList<SiteMembership>> GetMembershipsAsync(string userId);
 
     /// <summary>
     /// Who can reach one site and at what role: the direct memberships on that slug, used by the
     /// per-site Identity tab's Access list.
     /// </summary>
-    Task<IReadOnlyList<SiteAccessGrant>> GetSiteAccessAsync(string siteSlug);
+    [RequireSiteRole(SiteRole.SiteAdmin)]
+    Task<IReadOnlyList<SiteAccessGrant>> GetSiteAccessAsync([SiteSlug] string siteSlug);
 
+    /// <summary>
+    /// Grants a user access. The gate is only a floor: the target may be a site, a group, or all sites,
+    /// so which of those the caller is entitled to change is settled by the site-ownership check inside.
+    /// </summary>
+    [RequireRole(Roles.Viewer)]
     Task<AdminActionResult> AddMembershipAsync(string userId, MembershipTargetType targetType, string? targetId, SiteRole role);
+
+    /// <summary>Revokes one grant. Ownership-checked against what the grant targets, as for adding.</summary>
+    [RequireRole(Roles.Viewer)]
     Task<AdminActionResult> RemoveMembershipAsync(string userId, int membershipId);
 
     /// <summary>Per-role "require MFA" policy, in role-privilege order.</summary>
+    [RequireRole(Roles.Admin)]
     Task<IReadOnlyList<RoleMfaPolicy>> GetRoleMfaPoliciesAsync();
 
     /// <summary>Turns the "require MFA" policy on or off for one global role.</summary>
+    [RequireRole(Roles.Admin)]
     Task<AdminActionResult> SetRoleRequiresMfaAsync(string role, bool requireMfa);
 
+    [RequireRole(Roles.Admin)]
     Task<IReadOnlyList<SiteGroup>> GetSiteGroupsAsync();
+
+    [RequireRole(Roles.Admin)]
     Task<AdminActionResult> CreateSiteGroupAsync(string name);
+
+    [RequireRole(Roles.Admin)]
     Task<AdminActionResult> DeleteSiteGroupAsync(int groupId);
+
+    [RequireRole(Roles.Admin)]
     Task<AdminActionResult> SetSiteGroupMembersAsync(int groupId, IReadOnlyCollection<string> siteSlugs);
 }
 
@@ -195,15 +249,25 @@ public sealed class IdentityAdminService : IIdentityAdminService
             : AdminActionResult.Fail("You can only change access on a site you administer.");
     }
 
+    /// <summary>
+    /// The self-service invariant: a method named "own" must act on the caller's own account and
+    /// nothing else. Its gate is Viewer, so without this an Operator could hand it an Admin's id and
+    /// reset that password. System and no-auth callers are unscoped, as everywhere else.
+    /// Returns null when the change is allowed.
+    /// </summary>
+    private AdminActionResult? RefuseUnlessSelf(string userId)
+    {
+        var caller = _caller.Current;
+        if (caller is null || caller.IsSystem || caller.AuthenticationDisabled)
+            return null;
+
+        return string.Equals(caller.UserId, userId, StringComparison.Ordinal)
+            ? null
+            : AdminActionResult.Fail("You can only change your own account.");
+    }
+
     public async Task<IReadOnlyList<ApplicationUser>> ListUsersAsync()
         => await _userManager.Users.OrderBy(u => u.UserName).ToListAsync();
-
-    public Task<int> CountUsersAsync() => _userManager.Users.CountAsync();
-
-    public Task<ApplicationUser?> FindByIdAsync(string userId) => _userManager.FindByIdAsync(userId)!;
-
-    public async Task<IReadOnlyList<string>> GetGlobalRolesAsync(ApplicationUser user)
-        => (await _userManager.GetRolesAsync(user)).ToList();
 
     /// <inheritdoc />
     public async Task<IReadOnlyList<UserAccountSummary>> ListUserSummariesAsync()
@@ -293,6 +357,8 @@ public sealed class IdentityAdminService : IIdentityAdminService
     /// <inheritdoc />
     public async Task<AdminActionResult> ChangeOwnPasswordAsync(string userId, string currentPassword, string newPassword)
     {
+        if (RefuseUnlessSelf(userId) is { } refusal) return refusal;
+
         var user = await _userManager.FindByIdAsync(userId);
         if (user is null) return AdminActionResult.Fail("User not found.");
 
@@ -317,6 +383,8 @@ public sealed class IdentityAdminService : IIdentityAdminService
     /// <inheritdoc />
     public async Task<AdminActionResult> SignOutEverywhereAsync(string userId)
     {
+        if (RefuseUnlessSelf(userId) is { } refusal) return refusal;
+
         var user = await _userManager.FindByIdAsync(userId);
         if (user is null) return AdminActionResult.Fail("User not found.");
 
@@ -327,6 +395,8 @@ public sealed class IdentityAdminService : IIdentityAdminService
 
     public async Task<AdminActionResult> SetOwnPasswordAsync(string userId, string newPassword)
     {
+        if (RefuseUnlessSelf(userId) is { } refusal) return refusal;
+
         var user = await _userManager.FindByIdAsync(userId);
         if (user is null) return AdminActionResult.Fail("User not found.");
 

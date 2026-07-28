@@ -41,6 +41,7 @@ public sealed class AdminPasswordChangeTests : IDisposable
         services.AddSingleton<IPasswordHasher, PasswordHasher>();
         services.AddSingleton<AdminAuthCache>();
         services.AddScoped<IAdminAuthService, AdminAuthService>();
+        services.AddGatePlumbing();
         return services.BuildServiceProvider();
     }
 
@@ -81,7 +82,7 @@ public sealed class AdminPasswordChangeTests : IDisposable
         }
 
         // What the Admin Password control does: set the signed-in user's own Identity password.
-        using (var scope = provider.CreateScope())
+        using (var scope = provider.ScopeAs(adminId, Roles.Admin))
         {
             var identityAdmin = scope.ServiceProvider.GetRequiredService<IIdentityAdminService>();
             var result = await identityAdmin.SetOwnPasswordAsync(adminId, replacement);
@@ -131,7 +132,7 @@ public sealed class AdminPasswordChangeTests : IDisposable
             adminId = admin.Id;
         }
 
-        using (var scope = provider.CreateScope())
+        using (var scope = provider.ScopeAs(adminId, Roles.Admin))
         {
             var identityAdmin = scope.ServiceProvider.GetRequiredService<IIdentityAdminService>();
             (await identityAdmin.SetOwnPasswordAsync(adminId, "A-Real-Password-3")).Succeeded.Should().BeTrue();
@@ -197,7 +198,7 @@ public sealed class AdminPasswordChangeTests : IDisposable
             stampBefore = await userManager.GetSecurityStampAsync(admin);
         }
 
-        using (var scope = provider.CreateScope())
+        using (var scope = provider.ScopeAs(adminId, Roles.Admin))
         {
             var identityAdmin = scope.ServiceProvider.GetRequiredService<IIdentityAdminService>();
             (await identityAdmin.SignOutEverywhereAsync(adminId)).Succeeded.Should().BeTrue();
@@ -225,7 +226,7 @@ public sealed class AdminPasswordChangeTests : IDisposable
 
         string targetId, stampBefore;
         int versionBefore;
-        using (var scope = provider.CreateScope())
+        using (var scope = provider.AdminScope())
         {
             var identityAdmin = scope.ServiceProvider.GetRequiredService<IIdentityAdminService>();
             (await identityAdmin.CreateUserAsync("colleague", null, "Colleague-Pass-2", Roles.Viewer))
@@ -237,7 +238,7 @@ public sealed class AdminPasswordChangeTests : IDisposable
             versionBefore = target.MembershipVersion;
         }
 
-        using (var scope = provider.CreateScope())
+        using (var scope = provider.AdminScope())
         {
             var identityAdmin = scope.ServiceProvider.GetRequiredService<IIdentityAdminService>();
             (await identityAdmin.GrantGlobalRoleAsync(targetId, Roles.Operator)).Succeeded.Should().BeTrue();
@@ -254,7 +255,7 @@ public sealed class AdminPasswordChangeTests : IDisposable
         }
 
         // Disabling the account is a revocation, and must still end every session it has.
-        using (var scope = provider.CreateScope())
+        using (var scope = provider.AdminScope())
         {
             var identityAdmin = scope.ServiceProvider.GetRequiredService<IIdentityAdminService>();
             (await identityAdmin.SetEnabledAsync(targetId, false)).Succeeded.Should().BeTrue();
@@ -278,7 +279,7 @@ public sealed class AdminPasswordChangeTests : IDisposable
             await boot.ServiceProvider.GetRequiredService<IIdentityBootstrapService>().RunAsync();
 
         string operatorId;
-        using (var scope = provider.CreateScope())
+        using (var scope = provider.AdminScope())
         {
             // A second Admin, so the refusal cannot be the last-admin invariant firing instead.
             var identityAdmin = scope.ServiceProvider.GetRequiredService<IIdentityAdminService>();
@@ -316,7 +317,7 @@ public sealed class AdminPasswordChangeTests : IDisposable
             await boot.ServiceProvider.GetRequiredService<IIdentityBootstrapService>().RunAsync();
 
         string adminId, otherId;
-        using (var scope = provider.CreateScope())
+        using (var scope = provider.AdminScope())
         {
             var identityAdmin = scope.ServiceProvider.GetRequiredService<IIdentityAdminService>();
             // Another Admin exists, so neither refusal below can be the last-admin invariant.
@@ -360,7 +361,7 @@ public sealed class AdminPasswordChangeTests : IDisposable
             await boot.ServiceProvider.GetRequiredService<IIdentityBootstrapService>().RunAsync();
 
         string selfId;
-        using (var scope = provider.CreateScope())
+        using (var scope = provider.AdminScope())
         {
             // A second Admin exists, so neither refusal can be the last-admin invariant firing.
             var identityAdmin = scope.ServiceProvider.GetRequiredService<IIdentityAdminService>();
@@ -404,7 +405,7 @@ public sealed class AdminPasswordChangeTests : IDisposable
             await boot.ServiceProvider.GetRequiredService<IIdentityBootstrapService>().RunAsync();
 
         string adminId, targetId;
-        using (var scope = provider.CreateScope())
+        using (var scope = provider.AdminScope())
         {
             var identityAdmin = scope.ServiceProvider.GetRequiredService<IIdentityAdminService>();
             (await identityAdmin.CreateUserAsync("colleague", null, "Colleague-Pass-2", Roles.Admin))

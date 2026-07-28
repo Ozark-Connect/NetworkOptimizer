@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Storage.Models.Identity;
 using NetworkOptimizer.Web.Services.Auditing;
+using NetworkOptimizer.Web.Services.Gates;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace NetworkOptimizer.Web.Services.Identity;
@@ -84,7 +85,8 @@ public static class IdentityRegistration
         // the admin service raises the same broadcast the registry does. TryAdd because the Web host
         // registers it too, and this keeps a bare identity container (tests) able to build.
         services.TryAddSingleton<SiteRegistryChangeNotifier>();
-        services.AddScoped<IIdentityAdminService, IdentityAdminService>();
+        services.AddMutatingService<IIdentityAdminService, IdentityAdminService>();
+        services.AddScoped<IdentityLoginFacts>();
         services.AddScoped<IMfaService, MfaService>();
         services.AddScoped<IPasskeyService, PasskeyService>();
         services.AddScoped<ICurrentUserAccessor, CurrentUserAccessor>();
