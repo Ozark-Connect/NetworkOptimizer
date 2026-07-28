@@ -30,6 +30,14 @@
                 <input type="hidden" name="@SiteContextService.SiteQueryParam" value="@Site" />
             }
 
+            @if (_hideLocalLogin)
+            {
+                <p class="form-help">
+                    Local sign-in is turned off for this install. Use your identity provider below.
+                </p>
+            }
+            else
+            {
             <div class="form-group login-username-group">
                 <label class="form-label" for="login-username">Username</label>
                 <input id="login-username" name="username" type="text"
@@ -53,6 +61,7 @@
             <button type="submit" class="btn btn-primary login-btn">
                 <span>Sign In</span>
             </button>
+            }
 
             @if (!string.IsNullOrEmpty(ErrorText))
             {
@@ -177,6 +186,17 @@
     private bool _needsPasskey => _error == "use_passkey";
 
     /// <summary>
+    /// SSO-only: showing the username and password fields anyway meant typing credentials and only
+    /// then being told local sign-in is off, which reads as the setting not having applied. It had -
+    /// the check runs on every attempt - the page just never asked.
+    ///
+    /// Never hidden without somewhere else to go: a recovery boot re-enables local Admin sign-in and
+    /// is the way back in, and an install with the toggle on but no enabled provider would otherwise
+    /// have no sign-in at all.
+    /// </summary>
+    private bool _hideLocalLogin;
+
+    /// <summary>
     /// Not a failure: the password was right, but this account's role requires a second factor and its
     /// passkey is the one it holds, so the passkey is what has to be used to get in.
     /// </summary>
@@ -230,6 +250,9 @@
         // empty (a Viewer/Operator shouldn't have to clear it, and it stops advertising "admin").
         _prefillAdmin = await IdentityAdmin.CountUsersAsync() <= 1;
         _providers = await Federation.GetEnabledAsync();
+        _hideLocalLogin = await AuthPolicy.IsLocalLoginDisabledAsync()
+            && !BreakGlass.IsRecoveryMode
+            && _providers.Count > 0;
         // Passkey login is offered whenever any passkey could exist; the button no-ops in an
         // insecure context (the browser helper guards on window.isSecureContext).
         _showPasskey = true;
