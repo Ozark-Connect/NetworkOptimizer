@@ -69,7 +69,8 @@ public interface IMfaService
     Task<ApplicationUser?> GetPendingTwoFactorUserAsync();
 
     /// <summary>Disables MFA and clears the authenticator key.</summary>
-    Task DisableAsync(ApplicationUser user);
+    /// <summary>Turns the authenticator off. False when the write was refused and MFA is still on.</summary>
+    Task<bool> DisableAsync(ApplicationUser user);
 }
 
 /// <inheritdoc />
@@ -141,7 +142,12 @@ public sealed class MfaService : IMfaService
         if (!valid)
             return false;
 
-        await _userManager.SetTwoFactorEnabledAsync(user, true);
+        // A dropped result here would report an enrolment that never happened, which is the worst
+        // direction for this to fail in - the user puts the app away believing they have a second
+        // factor. See IdentityAdminService.LoadForUpdateAsync for how the write comes to fail.
+        if (!(await _userManager.SetTwoFactorEnabledAsync(user, true)).Succeeded)
+            return false;
+
         Emit(AuditActions.MfaEnrolled, user);
         return true;
     }
@@ -176,11 +182,14 @@ public sealed class MfaService : IMfaService
         return codes?.ToList() ?? new List<string>();
     }
 
-    public async Task DisableAsync(ApplicationUser user)
+    public async Task<bool> DisableAsync(ApplicationUser user)
     {
-        await _userManager.SetTwoFactorEnabledAsync(user, false);
+        if (!(await _userManager.SetTwoFactorEnabledAsync(user, false)).Succeeded)
+            return false;
+
         await _userManager.ResetAuthenticatorKeyAsync(user);
         Emit(AuditActions.MfaRemoved, user);
+        return true;
     }
 
     private void Emit(string action, ApplicationUser user)

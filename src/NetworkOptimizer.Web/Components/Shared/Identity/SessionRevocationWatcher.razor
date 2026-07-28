@@ -1,0 +1,58 @@
+@using System.Security.Claims
+@using NetworkOptimizer.Web.Services.Identity
+@inject UserSessionRevocationNotifier Revocations
+@inject NavigationManager Navigation
+@implements IDisposable
+
+@* Renders nothing. It exists so a circuit whose account has just been disabled, deleted, or signed
+   out everywhere goes NOW rather than at the next revalidation, which is a five-minute window.
+
+   Losing a single site already boots a circuit immediately through the site registry broadcast, and
+   losing the whole account is the stronger revocation - it cannot be the slower of the two. The
+   security stamp makes the cookie invalid the instant any of this happens, so reloading is all it
+   takes: the request carries a cookie the server no longer accepts and lands on the sign-in page,
+   instead of sitting on a rendered page it can no longer refresh.
+
+   It lives in a component rather than in the auth-state provider because marshalling onto the
+   circuit needs InvokeAsync, which a component has and the provider does not. *@
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private string? _userId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (AuthState is not null)
+            _userId = (await AuthState).User.FindFirstValue(ClaimTypes.NameIdentifier);
+
+        Revocations.SessionsRevoked += OnRevoked;
+    }
+
+    private void OnRevoked(string userId)
+    {
+        // Every circuit for the account hears this, including other tabs of the browser that asked.
+        // Signing out everywhere re-issues the calling browser's cookie in the same response, so a
+        // reload there picks up the new one and stays signed in - only the sessions that were meant
+        // to end actually end.
+        if (_userId is null || !string.Equals(_userId, userId, StringComparison.Ordinal))
+            return;
+
+        _ = InvokeAsync(() =>
+        {
+            try
+            {
+                Navigation.NavigateTo(Navigation.Uri, forceLoad: true);
+            }
+            catch (ObjectDisposedException)
+            {
+                // Circuit torn down between the event and the dispatch - it is already gone.
+            }
+        });
+    }
+
+    public void Dispose()
+    {
+        Revocations.SessionsRevoked -= OnRevoked;
+    }
+}

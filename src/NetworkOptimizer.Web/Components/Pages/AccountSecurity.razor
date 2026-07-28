@@ -93,6 +93,7 @@
             <p class="account-note">Two-factor authentication is <strong>enabled</strong>.</p>
             <button class="btn btn-secondary btn-sm" @onclick="RegenerateCodesAsync">Regenerate recovery codes</button>
             <button class="btn btn-danger btn-sm" @onclick="DisableMfaAsync">Disable</button>
+            @if (!string.IsNullOrEmpty(_mfaMessage)) { <div class="alert alert-warning">@_mfaMessage</div> }
         }
         else if (_setup is not null)
         {
@@ -266,6 +267,7 @@
     private IReadOnlyList<PasskeySummary> _passkeys = new List<PasskeySummary>();
     private string _passkeyName = "";
     private string? _passkeyMessage;
+    private string? _mfaMessage;
 
     protected override async Task OnInitializedAsync()
     {
@@ -324,7 +326,12 @@
     private async Task DisableMfaAsync()
     {
         if (_user is null) return;
-        await Mfa.DisableAsync(_user);
+        _mfaMessage = null;
+        if (!await Mfa.DisableAsync(_user))
+        {
+            _mfaMessage = "That could not be saved - reload the page and try again.";
+            return;
+        }
         _mfaEnabled = false;
         _recoveryCodes = null;
     }

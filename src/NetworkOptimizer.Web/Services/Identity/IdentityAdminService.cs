@@ -204,6 +204,7 @@ public sealed class IdentityAdminService : IIdentityAdminService
     private readonly ICallerContext _caller;
     private readonly Authorization.IEffectiveSiteRoleResolver _siteRoles;
     private readonly SiteRegistryChangeNotifier _siteRegistryChanges;
+    private readonly UserSessionRevocationNotifier _revocations;
     private readonly ILogger<IdentityAdminService> _logger;
 
     public IdentityAdminService(
@@ -215,6 +216,7 @@ public sealed class IdentityAdminService : IIdentityAdminService
         ICallerContext caller,
         Authorization.IEffectiveSiteRoleResolver siteRoles,
         SiteRegistryChangeNotifier siteRegistryChanges,
+        UserSessionRevocationNotifier revocations,
         ILogger<IdentityAdminService> logger)
     {
         _userManager = userManager;
@@ -225,6 +227,7 @@ public sealed class IdentityAdminService : IIdentityAdminService
         _caller = caller;
         _siteRoles = siteRoles;
         _siteRegistryChanges = siteRegistryChanges;
+        _revocations = revocations;
         _logger = logger;
     }
 
@@ -448,6 +451,7 @@ public sealed class IdentityAdminService : IIdentityAdminService
         var stamped = await _userManager.UpdateSecurityStampAsync(user);
         if (!stamped.Succeeded)
             return AdminActionResult.Fail(Describe(stamped));
+        _revocations.NotifyRevoked(user.Id);
         Emit(AuditCategories.Auth, AuditActions.SignedOutEverywhere, user, new { self = true });
         return AdminActionResult.Ok();
     }
@@ -531,6 +535,8 @@ public sealed class IdentityAdminService : IIdentityAdminService
         if (!update.Succeeded)
             return AdminActionResult.Fail(Describe(update));
         await _userManager.UpdateSecurityStampAsync(user); // revoke live sessions on disable
+        if (!enabled)
+            _revocations.NotifyRevoked(user.Id);
         Emit(AuditCategories.User, enabled ? AuditActions.UserEnabled : AuditActions.UserDisabled, user);
         return AdminActionResult.Ok();
     }
@@ -559,6 +565,9 @@ public sealed class IdentityAdminService : IIdentityAdminService
         var result = await _userManager.DeleteAsync(user);
         if (!result.Succeeded) return AdminActionResult.Fail(Describe(result));
 
+        // The account is gone, so there is no stamp left to fail a revalidation against - the circuit
+        // would keep rendering until it happened to ask. Tell it now.
+        _revocations.NotifyRevoked(user.Id);
         Emit(AuditCategories.User, AuditActions.UserDeleted, user);
         return AdminActionResult.Ok();
     }
