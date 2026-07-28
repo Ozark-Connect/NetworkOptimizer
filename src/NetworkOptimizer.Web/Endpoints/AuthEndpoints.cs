@@ -190,10 +190,14 @@ public static class AuthEndpoints
 
             // Changing the password rotates the security stamp, so every other session is already
             // invalid - but the stamp is only re-checked on an interval, so without this they keep
-            // working for up to five minutes after the credential they hold was replaced. Announced
-            // after the refresh for the same reason sign out everywhere does it in that order: this
-            // browser has to be holding its re-issued cookie before the others are sent to revalidate.
-            revocations.NotifyRevoked(user.Id);
+            // working for up to five minutes after the credential they hold was replaced.
+            //
+            // Announced once THIS response is on the wire, not before it. The watcher sends every
+            // circuit for the account to revalidate, and the calling browser's own circuit is one of
+            // them - announcing inline sends it there still holding the cookie this request is in the
+            // middle of replacing, so the browser that changed its password is the one that gets
+            // signed out.
+            RevokeAfterResponse(context, revocations, user.Id);
             return Results.Redirect("/account/security?pw=done");
         })
             .RequireAuthorization(Policies.AccountSelfService);
@@ -228,10 +232,11 @@ public static class AuthEndpoints
 
             await signInService.RefreshSignInAsync(user);
 
-            // Announced only now, and deliberately not inside the service: every other circuit for
-            // this account is about to be sent to revalidate, and the browser that asked has to be
-            // holding its re-issued cookie before that happens or it races its own other tabs out.
-            revocations.NotifyRevoked(user.Id);
+            // Announced only once this response is on the wire, and deliberately not inside the
+            // service: every other circuit for this account is about to be sent to revalidate, and the
+            // browser that asked has to be holding its re-issued cookie before that happens or it
+            // races its own other tabs - and itself - out.
+            RevokeAfterResponse(context, revocations, user.Id);
             return Results.Redirect("/account/security?sessions=done");
         })
             .RequireAuthorization(Policies.AccountSelfService);
@@ -361,6 +366,24 @@ public static class AuthEndpoints
     /// has an HttpContext to read the pending two-factor cookie from. Resolving it here, once, keeps
     /// both passes agreeing.
     /// </summary>
+    /// <summary>
+    /// Announces a session revocation once this response has been written, rather than during it.
+    ///
+    /// Both callers rotate the security stamp and re-issue the caller's own cookie in the same
+    /// response. The watcher then sends every circuit for the account to <c>/api/account/revalidate</c>
+    /// - including the circuits of the browser that asked. Announcing inline means that browser is
+    /// told to go and prove itself while the cookie proving it is still in flight, so it presents the
+    /// one that was just invalidated and is signed out for changing its own password. Waiting for the
+    /// response puts the new cookie in the browser's hands first.
+    /// </summary>
+    private static void RevokeAfterResponse(
+        HttpContext context, UserSessionRevocationNotifier revocations, string userId)
+        => context.Response.OnCompleted(() =>
+        {
+            revocations.NotifyRevoked(userId);
+            return Task.CompletedTask;
+        });
+
     private static string TwoFactorRedirect(string returnUrl, string site, bool hasRecoveryCodes, bool hasPasskey, bool rememberMe)
     {
         var query = new List<string> { $"returnUrl={Uri.EscapeDataString(returnUrl)}" };
