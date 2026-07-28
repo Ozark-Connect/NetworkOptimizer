@@ -20,10 +20,7 @@ public class UniFiFirewallGroup
     [JsonPropertyName("group_type")]
     public string GroupType { get; set; } = string.Empty; // "address-group", "ipv6-address-group", "port-group"
 
+    // Every group type stores its members here, including ipv6-address-group
     [JsonPropertyName("group_members")]
     public List<string> GroupMembers { get; set; } = new();
-
-    // For IPv6 groups
-    [JsonPropertyName("group_ipv6_members")]
-    public List<string>? GroupIpv6Members { get; set; }
 }
