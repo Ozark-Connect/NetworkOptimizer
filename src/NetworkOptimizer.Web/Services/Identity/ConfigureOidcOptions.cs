@@ -1,7 +1,8 @@
-using Microsoft.AspNetCore.Authentication.OpenIdConnect;
+﻿using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Options;
 using NetworkOptimizer.Storage.Models.Identity;
+using NetworkOptimizer.Web.Services;
 
 namespace NetworkOptimizer.Web.Services.Identity;
 
@@ -63,5 +64,29 @@ public sealed class ConfigureOidcOptions : IConfigureNamedOptions<OpenIdConnectO
 
         options.TokenValidationParameters.NameClaimType = provider.UsernameClaim ?? "preferred_username";
         options.MapInboundClaims = false; // keep raw claim types for our claim mapping
+
+        // The handler builds redirect_uri from the incoming request, which behind a reverse proxy is
+        // plain HTTP on 8042 - so it sends http://... and the provider rejects it for not matching the
+        // registered callback. Use the address the operator declared this install is reached at.
+        var canonical = scope.ServiceProvider.GetRequiredService<CanonicalBaseUrlProvider>();
+        if (canonical.Url is not null)
+        {
+            var signIn = canonical.UrlFor(options.CallbackPath);
+            var signOut = canonical.UrlFor(options.SignedOutCallbackPath);
+
+            options.Events ??= new OpenIdConnectEvents();
+
+            options.Events.OnRedirectToIdentityProvider = context =>
+            {
+                context.ProtocolMessage.RedirectUri = signIn;
+                return Task.CompletedTask;
+            };
+
+            options.Events.OnRedirectToIdentityProviderForSignOut = context =>
+            {
+                context.ProtocolMessage.PostLogoutRedirectUri = signOut;
+                return Task.CompletedTask;
+            };
+        }
     }
 }
