@@ -318,7 +318,12 @@
         </div>
     </div>
 
-    @* Admin login is instance-wide, so the password is only managed on the main site. *@
+    @* Admin login is instance-wide, so the password is only managed on the main site - and only by a
+       global Admin. IsDefault alone answers "are we on the main site", not "may you do this": a Site
+       Admin of the main site reaches Settings here, and would have been shown a control that sets the
+       instance-wide password. The service refuses them, so without this they would be invited into a
+       refusal. *@
+    <AuthorizeView Policy="@Policies.RequireAdmin" Context="globalAdmin">
     @if (SiteContext.IsDefault)
     {
     <!-- 2. Admin Password -->
@@ -402,6 +407,7 @@
         </div>
     </div>
     }
+    </AuthorizeView>
 
     <!-- 3. Gateway SSH -->
     <div class="card settings-tab-connection" id="gateway-ssh">
@@ -7247,7 +7253,7 @@
             string? identityError = null;
             if (signedInUser is not null)
             {
-                var result = await IdentityAdmin.SetOwnPasswordAsync(signedInUser.Id, newPassword);
+                var result = await IdentityAdmin.SetAdminPasswordAsync(signedInUser.Id, newPassword);
                 identityError = result.Succeeded ? null : result.Error;
             }
 

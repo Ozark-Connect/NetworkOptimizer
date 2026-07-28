@@ -110,20 +110,24 @@ public interface IIdentityAdminService
     Task<AdminActionResult> SetPasswordAsync(string userId, string newPassword);
 
     /// <summary>
-    /// Sets the signed-in user's own password. This is what the Admin Password control in Settings
-    /// drives, so a single-admin install changes its password where it always has and the change is
-    /// what authenticates at the next sign-in.
+    /// Backs the <b>Admin Password</b> control in Settings - Application: the signed-in global Admin
+    /// sets their own password where that control has always been, and the change is what
+    /// authenticates at the next sign-in.
     ///
-    /// Self-service, so the gate is Viewer - and the service refuses any userId but the caller's own,
-    /// because a Viewer-level gate on a method that takes an arbitrary user id is a password reset for
-    /// the whole install.
+    /// NOT the self-service path, despite also acting on the caller's own account - that is
+    /// <see cref="ChangeOwnPasswordAsync"/>, which proves the current password first and stays open to
+    /// any signed-in account. This one deliberately proves nothing, because the control it backs is
+    /// the instance's admin credential and predates Identity. That is exactly why it is global Admin:
+    /// at the Viewer floor the self-service calls carry, any signed-in caller could turn a session
+    /// they found unlocked into a credential they know and can come back with. It still refuses any
+    /// userId but the caller's own.
     /// </summary>
-    [RequireRole(Roles.Viewer)]
-    Task<AdminActionResult> SetOwnPasswordAsync(string userId, string newPassword);
+    [RequireRole(Roles.Admin)]
+    Task<AdminActionResult> SetAdminPasswordAsync(string userId, string newPassword);
 
     /// <summary>
     /// Changes the signed-in user's own password, proving the current one first. Distinct from
-    /// <see cref="SetOwnPasswordAsync"/>, which an admin path uses without that proof: self-service
+    /// <see cref="SetAdminPasswordAsync"/>, which an admin path uses without that proof: self-service
     /// has to establish that whoever is at the keyboard is the account holder and not someone who
     /// found it unlocked. Refuses any userId but the caller's own.
     /// </summary>
@@ -481,7 +485,7 @@ public sealed class IdentityAdminService : IIdentityAdminService
         return AdminActionResult.Ok();
     }
 
-    public async Task<AdminActionResult> SetOwnPasswordAsync(string userId, string newPassword)
+    public async Task<AdminActionResult> SetAdminPasswordAsync(string userId, string newPassword)
     {
         if (RefuseUnlessSelf(userId) is { } refusal) return refusal;
 

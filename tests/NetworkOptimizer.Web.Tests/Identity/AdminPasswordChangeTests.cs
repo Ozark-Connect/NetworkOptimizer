@@ -85,7 +85,7 @@ public sealed class AdminPasswordChangeTests : IDisposable
         using (var scope = provider.ScopeAs(adminId, Roles.Admin))
         {
             var identityAdmin = scope.ServiceProvider.GetRequiredService<IIdentityAdminService>();
-            var result = await identityAdmin.SetOwnPasswordAsync(adminId, replacement);
+            var result = await identityAdmin.SetAdminPasswordAsync(adminId, replacement);
             result.Succeeded.Should().BeTrue(result.Error);
         }
 
@@ -135,7 +135,7 @@ public sealed class AdminPasswordChangeTests : IDisposable
         using (var scope = provider.ScopeAs(adminId, Roles.Admin))
         {
             var identityAdmin = scope.ServiceProvider.GetRequiredService<IIdentityAdminService>();
-            (await identityAdmin.SetOwnPasswordAsync(adminId, "A-Real-Password-3")).Succeeded.Should().BeTrue();
+            (await identityAdmin.SetAdminPasswordAsync(adminId, "A-Real-Password-3")).Succeeded.Should().BeTrue();
         }
 
         using (var scope = provider.CreateScope())
