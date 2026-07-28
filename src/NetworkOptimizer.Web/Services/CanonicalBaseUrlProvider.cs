@@ -1,55 +1,63 @@
 namespace NetworkOptimizer.Web.Services;
 
 /// <summary>
-/// The address this install is reached at from outside, as the operator declared it. Anything that has
-/// to hand an absolute URL to a third party - one it will be dialled back on - needs this rather than
-/// the incoming request, because behind a reverse proxy the request arrives as plain HTTP on 8042 and
-/// building from it produces a URL that does not work and, for OIDC, does not match what is registered
-/// with the identity provider.
-///
-/// Same two tiers the canonical-host redirect in Program.cs uses, and deliberately the same order:
+/// The address this install is reached at from outside, as the operator declared it. One tier ladder,
+/// read from configuration at startup, with a named entry point per use - because the three callers
+/// legitimately stop at different rungs, and re-deriving the ladder in each of them is how they drifted
+/// apart in the first place.
 ///
 ///   REVERSE_PROXIED_HOST_NAME  ->  https://host        (no port; 443 implied)
 ///   HOST_NAME                  ->  http://host:8042
-///
-/// HOST_IP is excluded, matching that redirect: it exists so an install stays reachable by any address,
-/// so it is not a statement about the canonical one.
-///
-/// <see cref="AgentServerUrlProvider"/> deliberately implements only the first tier - agents require
-/// HTTPS, so the plain-HTTP fallback is not a valid agent endpoint and it returns null instead. This
-/// provider keeps the fallback, because a LAN install reached on http://host:8042 is a legitimate
-/// deployment for everything that is not an agent.
+///   HOST_IP                    ->  http://ip:8042
 /// </summary>
 public sealed class CanonicalBaseUrlProvider
 {
-    /// <summary>The declared external base URL with no trailing slash, or null when none is declared.</summary>
+    /// <summary>
+    /// Reverse-proxied only, so always HTTPS. Null otherwise, rather than degrading: agents require
+    /// HTTPS, and http://host:8042 is not a valid agent endpoint.
+    /// </summary>
+    public string? HttpsUrl { get; }
+
+    /// <summary>
+    /// The declared host. Excludes HOST_IP, because the canonical-host redirect uses this and an
+    /// install that sets only HOST_IP means to stay reachable at any address - forcing it onto one
+    /// would be the opposite of what it asked for.
+    /// </summary>
     public string? Url { get; }
+
+    /// <summary>
+    /// The whole ladder, HOST_IP included. For absolute URLs handed to a third party that will dial
+    /// them back - OIDC redirect_uri, SAML EntityId and ACS. On an IP-only install the alternative is
+    /// deriving them from whichever address a request arrived on, which varies and then does not match
+    /// what the operator registered with their provider.
+    /// </summary>
+    public string? UrlForCallbacks { get; }
 
     public CanonicalBaseUrlProvider(IConfiguration configuration)
     {
-        var proxied = configuration["REVERSE_PROXIED_HOST_NAME"]?.Trim();
-        if (!string.IsNullOrEmpty(proxied))
-        {
-            // The setting is a bare host elsewhere in the app; tolerate an operator who included the
-            // scheme anyway, the way AgentServerUrlProvider does.
-            Url = (proxied.Contains("://") ? proxied : $"https://{proxied}").TrimEnd('/');
-            return;
-        }
-
-        var host = configuration["HOST_NAME"]?.Trim();
-        Url = string.IsNullOrEmpty(host)
-            ? null
-            : (host.Contains("://") ? host : $"http://{host}:8042").TrimEnd('/');
+        HttpsUrl = Normalize(configuration["REVERSE_PROXIED_HOST_NAME"], "https", port: null);
+        Url = HttpsUrl ?? Normalize(configuration["HOST_NAME"], "http", port: "8042");
+        UrlForCallbacks = Url ?? Normalize(configuration["HOST_IP"], "http", port: "8042");
     }
 
-    /// <summary>
-    /// An absolute URL for a path on this install, or null when no canonical address is declared - in
-    /// which case the caller should leave whatever it was going to do alone and let the request decide.
-    /// </summary>
-    public string? UrlFor(string path)
+    /// <summary>An absolute callback URL for a path, or null when nothing is declared.</summary>
+    public string? CallbackUriFor(string path)
     {
-        if (Url is null)
+        if (UrlForCallbacks is null)
             return null;
-        return string.IsNullOrEmpty(path) ? Url : $"{Url}/{path.TrimStart('/')}";
+        return string.IsNullOrEmpty(path)
+            ? UrlForCallbacks
+            : UrlForCallbacks + (path.StartsWith('/') ? path : "/" + path);
+    }
+
+    /// <summary>The settings are bare hosts; tolerate an operator who included the scheme anyway.</summary>
+    private static string? Normalize(string? value, string scheme, string? port)
+    {
+        var host = value?.Trim();
+        if (string.IsNullOrEmpty(host))
+            return null;
+        if (host.Contains("://"))
+            return host.TrimEnd('/');
+        return port is null ? $"{scheme}://{host}" : $"{scheme}://{host}:{port}";
     }
 }
