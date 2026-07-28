@@ -6601,6 +6601,8 @@ a.path-hop.hop-clickable:hover {
 }
 
 .form-section-header .form-help {
+    display: block;
+    margin-bottom: 1rem;
     color: var(--text-muted);
 }
 
