@@ -51,8 +51,11 @@ public sealed class LegacyJwtBridgeMiddleware
             var admin = await userManager.FindByNameAsync(IdentityBootstrapService.AdminUserName);
             if (admin is { IsEnabled: true })
             {
-                // Issue the Identity cookie for subsequent requests...
-                await signInManager.SignInAsync(admin, isPersistent: false);
+                // Issue the Identity cookie for subsequent requests. Persistent, matching the
+                // Keep me signed in option: the legacy token being exchanged carried up to 30 days
+                // of life, so a session-scoped cookie would silently shorten a session the user
+                // already had. Fourteen days sliding is the longest the application cookie offers.
+                await signInManager.SignInAsync(admin, isPersistent: true);
                 // ...and populate this request's principal so the current request is authenticated.
                 context.User = await signInManager.CreateUserPrincipalAsync(admin);
                 DeleteLegacyCookie(context);
