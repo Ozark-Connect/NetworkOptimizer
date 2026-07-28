@@ -1,4 +1,4 @@
-﻿using System.Security.Claims;
+using System.Security.Claims;
 using System.Security.Cryptography.X509Certificates;
 using ITfoxtec.Identity.Saml2;
 using ITfoxtec.Identity.Saml2.MvcCore;
@@ -183,6 +183,29 @@ public sealed class SamlServiceProvider : ISamlServiceProvider
         try
         {
             var config = await BuildConfigAsync(provider, context);
+
+            // Read the form ourselves first. ASP.NET caches it, so this both guarantees it is parsed
+            // before ITfoxtec looks - reading the body as a string can otherwise consume the stream
+            // and leave Form empty - and lets a missing SAMLResponse say so. Without it the library
+            // dereferences the absent field and the only evidence is a bare NullReferenceException
+            // from inside Read, which says nothing about what was wrong with the request.
+            if (!context.Request.HasFormContentType)
+            {
+                _logger.LogWarning(
+                    "SAML response for {Provider} was not a form POST (content type {ContentType}).",
+                    provider.DisplayName, context.Request.ContentType ?? "(none)");
+                return null;
+            }
+
+            var form = await context.Request.ReadFormAsync();
+            if (string.IsNullOrEmpty(form["SAMLResponse"]))
+            {
+                _logger.LogWarning(
+                    "SAML response for {Provider} carried no SAMLResponse field. Fields present: {Fields}.",
+                    provider.DisplayName, string.Join(", ", form.Keys));
+                return null;
+            }
+
             var genericRequest = await context.Request.ToGenericHttpRequestAsync(readBodyAsString: true);
             var binding = new Saml2PostBinding();
             var response = new Saml2AuthnResponse(config);
@@ -205,7 +228,12 @@ public sealed class SamlServiceProvider : ISamlServiceProvider
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "SAML assertion validation failed for {Provider}.", provider.DisplayName);
+            // Include the exception type: ITfoxtec surfaces audience mismatch, signature failure and a
+            // malformed response all through the same catch, and "validation failed" alone sent us
+            // hunting the wrong one.
+            _logger.LogWarning(ex,
+                "SAML assertion validation failed for {Provider} ({ExceptionType}): {Message}",
+                provider.DisplayName, ex.GetType().Name, ex.Message);
             return null;
         }
     }
