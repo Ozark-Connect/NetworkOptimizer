@@ -1,4 +1,4 @@
-@page "/login"
+﻿@page "/login"
 @layout AuthLayout
 @using NetworkOptimizer.Storage.Models.Identity
 @using NetworkOptimizer.Web.Services
@@ -169,6 +169,18 @@
         "passkey_rejected" => "That passkey wasn't accepted. It may have been removed from the account - "
             + "sign in another way, then register a new one.",
         "passkey_failed" => "Passkey sign-in couldn't be completed. Try again, or sign in with your password.",
+        // Federation outcomes. The user has already authenticated with their identity provider by the
+        // time any of these fire, so naming what went wrong tells them nothing about anyone else's
+        // account - unlike the local-login cases above, these carry no enumeration risk.
+        "no_account" => "You signed in successfully, but there is no Network Optimizer account for you yet. "
+            + "Ask an administrator to add you, or to turn on automatic account creation for your provider.",
+        "account_disabled" => "Your account is disabled. Ask an administrator to re-enable it.",
+        "provider_disabled" => "That sign-in method is turned off. Sign in another way, or ask an administrator.",
+        "external_failed" => "Your identity provider did not complete the sign-in. Try again.",
+        "saml_invalid" => "Your identity provider's response could not be verified. Try again, or ask an "
+            + "administrator to check the SAML configuration.",
+        "saml_misconfigured" => "Single sign-on is not fully configured. Ask an administrator to finish "
+            + "setting up the SAML provider.",
         _ => null,
     };
 

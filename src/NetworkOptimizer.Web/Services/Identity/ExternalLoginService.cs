@@ -1,4 +1,4 @@
-using System.Security.Claims;
+﻿using System.Security.Claims;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Storage.Models.Identity;
@@ -239,8 +239,7 @@ public sealed class ExternalLoginService : IExternalLoginService
             targetName: user?.UserName ?? provider.DisplayName,
             details: new { reason }));
 
-    private static string SchemeKey(FederationProvider provider)
-        => (provider.Type == FederationProviderType.Saml ? "saml:" : "oidc:") + provider.Scheme;
+    private static string SchemeKey(FederationProvider provider) => FederationSchemeKey.For(provider);
 
     private static string? ClaimValue(ClaimsPrincipal principal, string? configured, params string[] fallbacks)
     {

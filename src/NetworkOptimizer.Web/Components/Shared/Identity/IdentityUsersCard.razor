@@ -1,4 +1,4 @@
-@using NetworkOptimizer.Storage.Models
+﻿@using NetworkOptimizer.Storage.Models
 @using NetworkOptimizer.Storage.Models.Identity
 @using NetworkOptimizer.Web.Services.Identity
 @inject IIdentityAdminService IdentityAdmin
@@ -563,8 +563,16 @@
         }
 
         var provider = _providers?.FirstOrDefault(p => p.Scheme == _linkProvider);
+        if (provider is null)
+        {
+            Show("That provider no longer exists.", "warning");
+            return;
+        }
+
+        // The protocol-namespaced key, not the bare scheme: sign-in looks the link up by this exact
+        // string, so storing the scheme alone creates a link that can never match a login.
         var result = await IdentityAdmin.LinkExternalAsync(
-            user.Id, _linkProvider, _linkSubject.Trim(), provider?.DisplayName);
+            user.Id, FederationSchemeKey.For(provider), _linkSubject.Trim(), provider.DisplayName);
         Report(result, $"Linked {provider?.DisplayName ?? _linkProvider} to {user.UserName}.");
         if (result.Succeeded)
         {
