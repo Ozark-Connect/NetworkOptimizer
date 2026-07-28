@@ -29,10 +29,14 @@
                 <option value="@AuditOutcomes.Denied">Denied</option>
                 <option value="@AuditOutcomes.Failure">Failure</option>
             </select>
-            <input class="form-control" placeholder="Actor" @bind="_actor" style="max-width: 160px;" />
-            <input class="form-control" placeholder="Site slug" @bind="_site" style="max-width: 160px;" />
+            @* Bound on input rather than change so Enter carries what is typed: the default binding
+               fires on blur, and Enter does not blur. *@
+            <input class="form-control" placeholder="Actor" @bind="_actor" @bind:event="oninput"
+                   @onkeydown="FilterKeyDownAsync" style="max-width: 160px;" />
+            <input class="form-control" placeholder="Site slug" @bind="_site" @bind:event="oninput"
+                   @onkeydown="FilterKeyDownAsync" style="max-width: 160px;" />
+            <button class="btn btn-primary btn-sm" @onclick="ApplyAsync">Filter</button>
             <div class="audit-filter-actions">
-                <button class="btn btn-primary btn-sm" @onclick="ApplyAsync">Filter</button>
                 <a class="btn btn-secondary btn-sm" href="@ExportUrl("csv")" target="_blank" rel="noopener">Export CSV</a>
                 <a class="btn btn-secondary btn-sm" href="@ExportUrl("json")" target="_blank" rel="noopener">Export JSON</a>
             </div>
@@ -170,6 +174,13 @@
     }
 
     private async Task ApplyAsync() { _skip = 0; await LoadAsync(); }
+
+    /// <summary>Enter in a filter field runs the filter, the same as pressing the button.</summary>
+    private async Task FilterKeyDownAsync(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+            await ApplyAsync();
+    }
     private async Task NextAsync() { _skip += PageSize; await LoadAsync(); }
     private async Task PrevAsync() { _skip = Math.Max(0, _skip - PageSize); await LoadAsync(); }
     private void Toggle(long id) => _expanded = _expanded == id ? null : id;
