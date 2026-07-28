@@ -288,6 +288,19 @@ public sealed class SamlServiceProvider : ISamlServiceProvider
             // reports a bare NullReferenceException from inside the library - with a valid config and a
             // well-formed response, which is what made it look like bad data for so long.
             genericRequest.Binding = binding;
+
+            // What Read is actually given. Assumed twice and checked neither time: the ASP.NET form
+            // being fine says nothing about the converted request ITfoxtec reads.
+            _logger.LogDebug(
+                "SAML generic request for {Provider}: method {Method}, form {FormState}, "
+                + "form keys [{FormKeys}], query keys [{QueryKeys}], body {BodyLength} chars",
+                provider.DisplayName,
+                genericRequest.Method ?? "(null)",
+                genericRequest.Form is null ? "null" : "present",
+                genericRequest.Form is null ? "" : string.Join(", ", genericRequest.Form.AllKeys.Where(k => k is not null)),
+                genericRequest.Query is null ? "" : string.Join(", ", genericRequest.Query.AllKeys.Where(k => k is not null)),
+                genericRequest.Body?.Length ?? -1);
+
             binding.ReadSamlResponse(genericRequest, response);
 
             if (response.Status != Saml2StatusCodes.Success)
