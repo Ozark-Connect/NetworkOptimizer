@@ -4,9 +4,8 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Options;
 using NetworkOptimizer.Storage.Models.Identity;
 using NetworkOptimizer.Web.Services;
-using NetworkOptimizer.Web.Services.Identity;
-
 using NetworkOptimizer.Web.Services.Authorization;
+using NetworkOptimizer.Web.Services.Identity;
 
 namespace NetworkOptimizer.Web.Endpoints;
 
@@ -189,7 +188,7 @@ public static class AuthEndpoints
             await signInService.RefreshSignInAsync(user);
             return Results.Redirect("/account/security?pw=done");
         })
-            .RequireAuthorization(Policies.RequireViewer);
+            .RequireAuthorization(Policies.AccountSelfService);
 
         // Ends every other session for the signed-in user. Posted from a form for the same reason the
         // password change is: rotating the stamp invalidates this browser's cookie too, and only an
@@ -227,7 +226,7 @@ public static class AuthEndpoints
             revocations.NotifyRevoked(user.Id);
             return Results.Redirect("/account/security?sessions=done");
         })
-            .RequireAuthorization(Policies.RequireViewer);
+            .RequireAuthorization(Policies.AccountSelfService);
 
         // Settles whether this cookie is still good, right now. The cookie's security stamp is only
         // re-checked on an interval (5 min), so rotating the stamp does NOT make the cookie stop
@@ -260,7 +259,7 @@ public static class AuthEndpoints
 
             return Results.LocalRedirect(SanitizeReturnUrl(context.Request.Query["returnUrl"].ToString()));
         })
-            .RequireAuthorization(Policies.RequireViewer);
+            .RequireAuthorization(Policies.AccountSelfService);
 
         // Re-issues the caller's own cookie from the current store: new roles, new membership version.
         // A circuit lands here when it notices its permissions have moved on, and goes straight back
@@ -308,7 +307,7 @@ public static class AuthEndpoints
             // off the back of a signed-in session is worth more to an attacker than the refresh is.
             return Results.LocalRedirect(SanitizeReturnUrl(context.Request.Query["returnUrl"].ToString()));
         })
-            .RequireAuthorization(Policies.RequireViewer);
+            .RequireAuthorization(Policies.AccountSelfService);
 
         // Sign out of the application cookie; also clears any residual legacy auth_token cookie
         // during the bridge window. POST, not GET: a GET logout can be fired by any page embedding
