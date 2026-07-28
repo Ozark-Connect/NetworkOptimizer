@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk.Web">
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
@@ -50,6 +50,13 @@
     <PackageReference Include="ITfoxtec.Identity.Saml2.MvcCore" Version="4.20.1" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.7" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" Version="10.0.7" />
+    <!-- ITfoxtec's SAML packages raise Microsoft.IdentityModel.Tokens to 8.18.0 while the OpenID
+         Connect handler brings its JWT reader in at 8.0.1. The reader then calls a Base64UrlEncoder
+         overload that 8.18.0 no longer offers, so every id_token fails to parse at runtime with
+         MissingMethodException - a clean build the whole way. Pin the JWT half to match. -->
+    <PackageReference Include="Microsoft.IdentityModel.JsonWebTokens" Version="8.18.0" />
+    <PackageReference Include="Microsoft.IdentityModel.Protocols.OpenIdConnect" Version="8.18.0" />
+    <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.18.0" />
     <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="10.0.7" />
     <PackageReference Include="QRCoder" Version="1.8.0" />
     <PackageReference Include="Serilog.AspNetCore" Version="10.0.0" />
