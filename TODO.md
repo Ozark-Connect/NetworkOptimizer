@@ -100,9 +100,18 @@ here rather than re-argued each time the question comes up.
 - **The blast radius is the customer's network**, which is exactly the thing this tool exists to keep
   healthy. Analysis that is wrong costs a bad recommendation; a write that is wrong costs an outage.
 
-So today the only mutative UniFi API call is the RF quick scan (`cmd/devmgr`), which is
-self-contained and reversible. Everything else we change goes through our own SSH-deployed
-components, where we control the format and the rollback.
+So today the only mutative controller operation reachable from the app is the RF quick scan
+(`POST .../cmd/devmgr`) - transient and self-contained rather than a config write, though note there
+is no cancel for a scan already running. No reachable feature rewrites a UniFi device or site
+configuration object.
+
+Two full-object PUT helpers do exist on the client and are currently called by nothing:
+`UpdateNetworkConfigAsync` (`rest/networkconf`) and `UpdateTrafficRouteAsync` (`v2 trafficroutes`).
+Wiring either one up is exactly the step this section argues against, so it should be a deliberate
+decision rather than something that happens because a helper was already sitting there.
+
+Everything else we change goes through our own SSH-deployed components, where we control the format
+and the rollback.
 
 Not a permanent no. Revisit when there is a safe path - e.g. read-modify-write with a verified
 round-trip, a diff against the fetched object before sending, and a way to detect concurrent
