@@ -172,6 +172,12 @@ public static class AuthEndpoints
             if (user is null)
                 return Results.Redirect("/login");
 
+            // Captured BEFORE anything rotates: this is the id the asking browser's circuits are
+            // holding right now. Reading it after the refresh names the cookie that was just minted,
+            // which no live circuit can be holding - so nothing matches and the session that asked is
+            // revoked along with the rest. That is the bug this line exists to not have.
+            var sparedSession = context.User.FindFirstValue(NetOptClaims.SessionId);
+
             var form = await context.Request.ReadFormAsync();
             var current = form["currentPassword"].ToString();
             var next = form["newPassword"].ToString();
@@ -197,7 +203,7 @@ public static class AuthEndpoints
             // them - announcing inline sends it there still holding the cookie this request is in the
             // middle of replacing, so the browser that changed its password is the one that gets
             // signed out.
-            RevokeAfterResponse(context, revocations, user.Id);
+            RevokeAfterResponse(context, revocations, user.Id, sparedSession);
             return Results.Redirect("/account/security?pw=done");
         })
             .RequireAuthorization(Policies.AccountSelfService);
@@ -226,6 +232,9 @@ public static class AuthEndpoints
             if (user is null)
                 return Results.Redirect("/login");
 
+            // Captured before the stamp rotates, for the same reason as the password change.
+            var sparedSession = context.User.FindFirstValue(NetOptClaims.SessionId);
+
             var result = await identityAdmin.SignOutEverywhereAsync(user.Id);
             if (!result.Succeeded)
                 return Results.Redirect("/account/security?sessions=failed");
@@ -236,7 +245,7 @@ public static class AuthEndpoints
             // service: every other circuit for this account is about to be sent to revalidate, and the
             // browser that asked has to be holding its re-issued cookie before that happens or it
             // races its own other tabs - and itself - out.
-            RevokeAfterResponse(context, revocations, user.Id);
+            RevokeAfterResponse(context, revocations, user.Id, sparedSession);
             return Results.Redirect("/account/security?sessions=done");
         })
             .RequireAuthorization(Policies.AccountSelfService);
@@ -266,7 +275,7 @@ public static class AuthEndpoints
 
             app.Logger.LogDebug(
                 "Revalidate: user={User} enabled={Enabled} sid={Sid} stillValid={Valid}",
-                user?.UserName ?? "(none)", user?.IsEnabled, 
+                user?.UserName ?? "(none)", user?.IsEnabled,
                 context.User.FindFirstValue(NetOptClaims.SessionId) ?? "(none)", stillValid);
 
             if (!stillValid)
@@ -382,12 +391,9 @@ public static class AuthEndpoints
     /// response puts the new cookie in the browser's hands first.
     /// </summary>
     private static void RevokeAfterResponse(
-        HttpContext context, UserSessionRevocationNotifier revocations, string userId)
+        HttpContext context, UserSessionRevocationNotifier revocations, string userId,
+        string? sparedSession)
     {
-        // Read BEFORE the response is written: this is the id the asking browser's circuits are
-        // holding, and it is what spares them. The replacement cookie carries a different one.
-        var sparedSession = context.User.FindFirstValue(NetOptClaims.SessionId);
-
         context.Response.OnCompleted(() =>
         {
             context.RequestServices.GetRequiredService<ILoggerFactory>()
