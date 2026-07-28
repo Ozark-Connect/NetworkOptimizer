@@ -269,7 +269,9 @@ public static class AuthEndpoints
         app.MapGet("/api/account/session", async (
             HttpContext context,
             ICurrentUserAccessor currentUser,
-            IIdentitySignInService signInService) =>
+            UserManager<ApplicationUser> userManager,
+            IIdentitySignInService signInService,
+            IOptions<IdentityOptions> identityOptions) =>
         {
             var user = await currentUser.GetAsync(context.User);
             if (user is null)
@@ -281,6 +283,23 @@ public static class AuthEndpoints
             {
                 await signInService.SignOutAsync();
                 return Results.Redirect("/login?error=session_ended");
+            }
+
+            // ...and neither must a cookie whose stamp has already been rotated. The stamp is only
+            // re-read on an interval (5 min), so a revoked cookie still authenticates for that long -
+            // long enough to reach this endpoint, which would re-issue it carrying the CURRENT stamp
+            // and launder the revocation away. Polling here would then keep a signed-out session
+            // alive indefinitely, defeating sign out everywhere and password change both. Same
+            // question /api/account/revalidate asks, and it has to be asked here for the same reason.
+            if (userManager.SupportsUserSecurityStamp)
+            {
+                var onCookie = context.User.FindFirstValue(
+                    identityOptions.Value.ClaimsIdentity.SecurityStampClaimType);
+                if (onCookie != await userManager.GetSecurityStampAsync(user))
+                {
+                    await signInService.SignOutAsync();
+                    return Results.Redirect("/login?error=session_ended");
+                }
             }
 
             await signInService.RefreshSignInAsync(user);

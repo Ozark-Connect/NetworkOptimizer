@@ -179,32 +179,57 @@ public sealed class IdentitySignInService : IIdentitySignInService
     /// <inheritdoc />
     public async Task<SignInOutcome> TwoFactorSignInAsync(string code, bool rememberMe, bool rememberMachine)
     {
+        // Resolved BEFORE the sign-in, for two reasons. IsEnabled is our own column and Identity's
+        // pre-sign-in checks know nothing about it, so an account disabled between the password step
+        // and this one would complete the second factor and be handed a session - the password and
+        // passkey routes check it, and this is the route that actually issues the cookie for a
+        // two-factor account. It also keeps the audit attributable: a successful sign-in consumes the
+        // pending two-factor cookie, so asking afterwards can hand back null.
+        var user = await _signInManager.GetTwoFactorAuthenticationUserAsync();
+        if (user is null)
+            return SignInOutcome.Failed;
+        if (!user.IsEnabled)
+        {
+            await _signInManager.SignOutAsync();
+            _logger.LogWarning("Second factor refused for {User}: the account is disabled.", user.UserName);
+            EmitLogin(user.UserName ?? "", user.Id, AuditActions.LoginFailed, AuditOutcomes.Failure, "totp");
+            return SignInOutcome.Failed;
+        }
+
         var normalized = code.Replace(" ", string.Empty).Replace("-", string.Empty);
         var result = await _signInManager.TwoFactorAuthenticatorSignInAsync(normalized, rememberMe, rememberMachine);
-        var user = await _signInManager.GetTwoFactorAuthenticationUserAsync();
         if (result.Succeeded)
         {
-            if (user is not null)
-                EmitLogin(user.UserName ?? "", user.Id, AuditActions.LoginSuccess, AuditOutcomes.Success, "totp");
+            EmitLogin(user.UserName ?? "", user.Id, AuditActions.LoginSuccess, AuditOutcomes.Success, "totp");
             return SignInOutcome.Success;
         }
         if (result.IsLockedOut)
             return SignInOutcome.LockedOut;
-        if (user is not null)
-            EmitLogin(user.UserName ?? "", user.Id, AuditActions.LoginFailed, AuditOutcomes.Failure, "totp");
+        EmitLogin(user.UserName ?? "", user.Id, AuditActions.LoginFailed, AuditOutcomes.Failure, "totp");
         return SignInOutcome.Failed;
     }
 
     /// <inheritdoc />
     public async Task<SignInOutcome> RecoveryCodeSignInAsync(string recoveryCode)
     {
+        // Same order, and for the same reason, as the authenticator route above: this issues a
+        // session, so the disabled check has to happen before it and not after.
+        var user = await _signInManager.GetTwoFactorAuthenticationUserAsync();
+        if (user is null)
+            return SignInOutcome.Failed;
+        if (!user.IsEnabled)
+        {
+            await _signInManager.SignOutAsync();
+            _logger.LogWarning("Recovery code refused for {User}: the account is disabled.", user.UserName);
+            EmitLogin(user.UserName ?? "", user.Id, AuditActions.LoginFailed, AuditOutcomes.Failure, "recovery_code");
+            return SignInOutcome.Failed;
+        }
+
         var normalized = recoveryCode.Replace(" ", string.Empty).Replace("-", string.Empty);
         var result = await _signInManager.TwoFactorRecoveryCodeSignInAsync(normalized);
-        var user = await _signInManager.GetTwoFactorAuthenticationUserAsync();
         if (result.Succeeded)
         {
-            if (user is not null)
-                EmitLogin(user.UserName ?? "", user.Id, AuditActions.RecoveryCodeUsed, AuditOutcomes.Success, "recovery_code");
+            EmitLogin(user.UserName ?? "", user.Id, AuditActions.RecoveryCodeUsed, AuditOutcomes.Success, "recovery_code");
             return SignInOutcome.Success;
         }
         if (result.IsLockedOut)
@@ -222,6 +247,17 @@ public sealed class IdentitySignInService : IIdentitySignInService
             _logger.LogWarning("Passkey sign-in refused for {User}: the account is disabled.", user.UserName);
             EmitLogin(user.UserName ?? "", user.Id, AuditActions.LoginFailed, AuditOutcomes.Failure, "passkey");
             return SignInOutcome.Failed;
+        }
+
+        // A passkey is a local credential, so SSO-only has to refuse it the same way it refuses a
+        // password - otherwise anyone holding a passkey registered before the install went SSO-only
+        // keeps a way in that the setting says does not exist. Break-glass admin recovery is the one
+        // exemption, as it is for the password route.
+        if (await _policy.IsLocalLoginDisabledAsync()
+            && !(BreakGlass.IsRecoveryMode && await _userManager.IsInRoleAsync(user, Roles.Admin)))
+        {
+            _logger.LogWarning("Passkey sign-in blocked for {User}: local login is disabled (SSO-only).", user.UserName);
+            return SignInOutcome.LocalLoginDisabled;
         }
 
         await _signInManager.SignInAsync(user, rememberMe, "passkey");
