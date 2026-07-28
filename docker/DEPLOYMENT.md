@@ -324,6 +324,30 @@ from **Settings > Identity**. It cannot be deleted - break-glass recovery re-ena
 seed reconciles it - but disabling takes it out of use. The last enabled Admin can never be disabled,
 so make sure your own account works before turning the built-in one off.
 
+**Break-glass recovery (`NETOPT_RECOVERY=1`):**
+
+If single sign-on is the only way in and it stops working - the provider is misconfigured, its
+certificate expired, the IdP is down - start the app once with `NETOPT_RECOVERY=1` and an Admin can
+sign in locally again:
+
+```bash
+# Docker: add to .env, then recreate
+echo "NETOPT_RECOVERY=1" >> .env
+docker compose up -d
+```
+
+It applies to that boot only. Remove the variable and restart to close it again.
+
+What it does, and only this:
+
+- The username and password form appears on the sign-in page even while **SSO-only** is turned on
+- A password or passkey sign-in is accepted under SSO-only, **for accounts holding the Admin role only**
+- The built-in `admin` account is re-enabled if it had been disabled
+
+It does **not** waive a second factor. An Admin whose role requires MFA still has to satisfy it, so
+keep recovery codes for that account somewhere you can reach without the app. Every use is written to
+the Audit Log and the sign-in page says recovery mode is active while it is.
+
 ### 3. Deploy Stack
 
 ```bash
