@@ -437,6 +437,7 @@ h1:focus {
 .settings-tabbed.active-security > .settings-tab-security,
 .settings-tabbed.active-application > .settings-tab-application,
 .settings-tabbed.active-identity > .settings-tab-identity,
+.settings-tabbed.active-auditlog > .settings-tab-auditlog,
 .settings-tabbed.active-multisite > .settings-tab-multisite {
     display: block;
 }
@@ -19550,5 +19551,33 @@ body.kiosk-mode .status-indicators {
     .identity-link-item,
     .identity-url-item {
         padding-bottom: 0.5rem;
+    }
+}
+
+.audit-filter-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+}
+
+.audit-filter-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-left: auto;
+}
+
+.audit-pager {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 1rem;
+}
+
+@media (max-width: 768px) {
+    .audit-filter-actions {
+        margin-left: 0;
     }
 }

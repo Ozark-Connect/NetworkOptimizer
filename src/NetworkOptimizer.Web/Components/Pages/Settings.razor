@@ -105,6 +105,18 @@
                 @onclick="@(() => SetActiveTab("identity"))">
             Identity
         </button>
+        @* Beside Identity because it answers the other half of the same question: Identity is who may
+           do what, this is what they did. Global Admin only, matching the /audit-log page, and the
+           log is instance-wide so it is not offered on a scoped site tab. *@
+        <AuthorizeView Policy="@Policies.RequireAdmin" Context="auditAdmin">
+            @if (SiteContext.IsDefault)
+            {
+                <button class="wifi-view-tab @(_activeTab == "auditlog" ? "active" : "")"
+                        @onclick="@(() => SetActiveTab("auditlog"))">
+                    Audit Log
+                </button>
+            }
+        </AuthorizeView>
         <button class="wifi-view-tab @(_activeTab == "multisite" ? "active" : "")"
                 @onclick="@(() => SetActiveTab("multisite"))">
             Multi-Site
@@ -3310,6 +3322,16 @@
                           SiteName="@_currentSiteName" />
     </AuthorizeView>
 
+    @* Settings - Audit Log. Deferred: every tab renders at once and is shown by class, so without
+       this the audit table would be counted and queried on every Settings visit by everyone. It
+       loads the first time the tab is actually opened. *@
+    <AuthorizeView Policy="@Policies.RequireAdmin" Context="auditAdmin">
+        @if (SiteContext.IsDefault)
+        {
+            <AuditLogPanel @ref="_auditLogPanel" Defer="true" Class="settings-tab-auditlog" />
+        }
+    </AuthorizeView>
+
     <!-- Multi-Site -->
     <div class="card settings-tab-multisite" id="multi-site">
         <div class="card-header">
@@ -3755,12 +3777,18 @@
     private static string ResolveTab(string? param) =>
         param != null && ValidTabs.Contains(param) ? param.ToLowerInvariant() : "connection";
 
+    private AuditLogPanel? _auditLogPanel;
+
     private void SetActiveTab(string tab)
     {
         _activeTab = tab;
         NavigationManager.NavigateTo("/settings?tab=" + tab, forceLoad: false, replace: false);
         _lastTabParam = tab;
         _ = EnsureKeyDeployStatusAsync();
+
+        // The panel is rendered but hidden until now, and deliberately does not query on init.
+        if (tab == "auditlog" && _auditLogPanel is not null)
+            _ = _auditLogPanel.EnsureLoadedAsync();
     }
 
     protected override void OnParametersSet()
