@@ -266,6 +266,28 @@ public sealed class IdentityAdminService : IIdentityAdminService
             : AdminActionResult.Fail("You can only change your own account.");
     }
 
+    /// <summary>
+    /// Current display name for each linked-identity key. ASP.NET Identity stores the provider's name
+    /// ON the login row, written once when the identity was linked - it is a copy, not a reference, so
+    /// renaming a provider never reaches it and the old name is shown forever. The provider table is
+    /// the one source of truth for what a provider is called, so resolve against it and keep the
+    /// stored copy only as the fallback for a provider that has since been deleted, where it is the
+    /// last record of what that identity was.
+    /// </summary>
+    private async Task<Dictionary<string, string>> ProviderNamesAsync()
+    {
+        await using var db = await _authDbFactory.CreateDbContextAsync();
+        var providers = await db.FederationProviders
+            .AsNoTracking()
+            .Select(p => new { p.Type, p.Scheme, p.DisplayName })
+            .ToListAsync();
+
+        var names = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var p in providers)
+            names[FederationSchemeKey.For(p.Type, p.Scheme)] = p.DisplayName;
+        return names;
+    }
+
     public async Task<IReadOnlyList<ApplicationUser>> ListUsersAsync()
         => await _userManager.Users.OrderBy(u => u.UserName).ToListAsync();
 
@@ -288,6 +310,8 @@ public sealed class IdentityAdminService : IIdentityAdminService
                 .ToListAsync()).ToHashSet(StringComparer.Ordinal);
         }
 
+        var providerNames = await ProviderNamesAsync();
+
         foreach (var user in users)
         {
             var roles = await _userManager.GetRolesAsync(user);
@@ -300,7 +324,9 @@ public sealed class IdentityAdminService : IIdentityAdminService
                 await _userManager.HasPasswordAsync(user),
                 await _userManager.GetTwoFactorEnabledAsync(user),
                 passkeys.Count,
-                logins.Select(l => l.LoginProvider).ToList(),
+                logins.Select(l => providerNames.TryGetValue(l.LoginProvider, out var name)
+                    ? name
+                    : l.ProviderDisplayName ?? l.LoginProvider).ToList(),
                 HasSiteAccess: globalRole == Roles.Admin || withGrants.Contains(user.Id)));
         }
 
@@ -314,8 +340,12 @@ public sealed class IdentityAdminService : IIdentityAdminService
         if (user is null) return Array.Empty<LinkedExternalIdentity>();
 
         var logins = await _userManager.GetLoginsAsync(user);
+        var names = await ProviderNamesAsync();
         return logins
-            .Select(l => new LinkedExternalIdentity(l.LoginProvider, l.ProviderKey, l.ProviderDisplayName))
+            .Select(l => new LinkedExternalIdentity(
+                l.LoginProvider,
+                l.ProviderKey,
+                names.TryGetValue(l.LoginProvider, out var current) ? current : l.ProviderDisplayName))
             .ToList();
     }
 

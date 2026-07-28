@@ -67,24 +67,29 @@
                                         }
                                     </div>
                                 </td>
-                                <td class="identity-role-cell">
-                                    @* A disabled control receives no mouse events, so the tooltip has to
-                                       live on a wrapper or it never shows. *@
-                                    <span class="identity-lock" data-tooltip="@(IsSelf(user) ? "You cannot change your own role" : null)">
-                                    <select class="form-control identity-role-select" value="@(summary.GlobalRole ?? Roles.Viewer)"
-                                            @onchange="e => ChangeRoleAsync(summary, e.Value?.ToString())"
-                                            disabled="@(_busyUserId == user.Id || IsSelf(user))">
-                                        @foreach (var role in Roles.All)
+                                <td>
+                                    @* The wrapper carries the flex, not the cell: a td that becomes a
+                                       flex container loses vertical-align, so on a row made tall by
+                                       another cell wrapping, the picker floats to the top on its own. *@
+                                    <div class="identity-role-cell">
+                                        @* A disabled control receives no mouse events, so the tooltip has to
+                                           live on a wrapper or it never shows. *@
+                                        <span class="identity-lock" data-tooltip="@(IsSelf(user) ? "You cannot change your own role" : null)">
+                                        <select class="form-control identity-role-select" value="@(summary.GlobalRole ?? Roles.Viewer)"
+                                                @onchange="e => ChangeRoleAsync(summary, e.Value?.ToString())"
+                                                disabled="@(_busyUserId == user.Id || IsSelf(user))">
+                                            @foreach (var role in Roles.All)
+                                            {
+                                                <option value="@role">@role</option>
+                                            }
+                                        </select>
+                                        </span>
+                                        @if (_siteRestrictionActive && !summary.HasSiteAccess)
                                         {
-                                            <option value="@role">@role</option>
+                                            <span class="status-badge status-inactive"
+                                                  data-tooltip="This account is limited to its assigned sites and has none, so it can reach nothing. Grant access under Access.">No site access</span>
                                         }
-                                    </select>
-                                    </span>
-                                    @if (_siteRestrictionActive && !summary.HasSiteAccess)
-                                    {
-                                        <span class="status-badge status-inactive"
-                                              data-tooltip="This account is limited to its assigned sites and has none, so it can reach nothing. Grant access under Access.">No site access</span>
-                                    }
+                                    </div>
                                 </td>
                                 <td class="hide-mobile">
                                     @* What this account can actually sign in with. A badge that only
