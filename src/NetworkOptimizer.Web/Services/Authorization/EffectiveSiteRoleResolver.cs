@@ -86,8 +86,9 @@ public sealed class EffectiveSiteRoleResolver : IEffectiveSiteRoleResolver
         if (_cache.TryGetValue(cacheKey, out SiteRole? cached))
             return cached;
 
+        var tokens = CaptureTokens(userId);
         var role = await ComputeEffectiveRoleAsync(user, userId, slug);
-        _cache.Set(cacheKey, role, EntryOptions(userId));
+        _cache.Set(cacheKey, role, EntryOptions(tokens));
         return role;
     }
 
@@ -106,6 +107,7 @@ public sealed class EffectiveSiteRoleResolver : IEffectiveSiteRoleResolver
         if (_cache.TryGetValue(cacheKey, out string? cached))
             return cached;
 
+        var tokens = CaptureTokens(userId);
         var (memberships, groupSlugs) = await LoadMembershipsAsync(userId);
         string? slug = null;
         foreach (var m in memberships.Where(m => m.SiteRole == SiteRole.SiteAdmin))
@@ -122,7 +124,7 @@ public sealed class EffectiveSiteRoleResolver : IEffectiveSiteRoleResolver
                 break;
         }
 
-        _cache.Set(cacheKey, slug, EntryOptions(userId));
+        _cache.Set(cacheKey, slug, EntryOptions(tokens));
         return slug;
     }
 
@@ -133,15 +135,26 @@ public sealed class EffectiveSiteRoleResolver : IEffectiveSiteRoleResolver
     public void InvalidateAll() => _tokens.InvalidateAll();
 
     /// <summary>
-    /// Ties an entry to its user's cancellation token as well as the ten-minute window, so
+    /// Takes the tokens an entry will be tied to. Called BEFORE the read the entry is built from,
+    /// never at Set time: an invalidation landing during that read removes the sources and the next
+    /// acquire creates fresh ones, so binding at the end would tie a value computed from pre-
+    /// revocation data to a token nothing has cancelled - and serve it for the full ten minutes.
+    /// Capturing first means such an entry is bound to the token that was cancelled mid-read and
+    /// expires immediately, which is the safe direction.
+    /// </summary>
+    private (CancellationToken User, CancellationToken Registry) CaptureTokens(string userId)
+        => (_tokens.ForUser(userId), _tokens.ForRegistry());
+
+    /// <summary>
+    /// Ties an entry to the tokens captured before its read, as well as to the ten-minute window, so
     /// <see cref="Invalidate"/> can drop them all without knowing the site slugs they cover.
     /// </summary>
-    private MemoryCacheEntryOptions EntryOptions(string userId)
+    private static MemoryCacheEntryOptions EntryOptions((CancellationToken User, CancellationToken Registry) tokens)
     {
         return new MemoryCacheEntryOptions()
             .SetAbsoluteExpiration(TimeSpan.FromMinutes(10))
-            .AddExpirationToken(new Microsoft.Extensions.Primitives.CancellationChangeToken(_tokens.ForUser(userId)))
-            .AddExpirationToken(new Microsoft.Extensions.Primitives.CancellationChangeToken(_tokens.ForRegistry()));
+            .AddExpirationToken(new Microsoft.Extensions.Primitives.CancellationChangeToken(tokens.User))
+            .AddExpirationToken(new Microsoft.Extensions.Primitives.CancellationChangeToken(tokens.Registry));
     }
 
 
@@ -172,11 +185,19 @@ public sealed class EffectiveSiteRoleResolver : IEffectiveSiteRoleResolver
         if (_cache.TryGetValue(cacheKey, out IReadOnlySet<string>? cached) && cached is not null)
             return cached;
 
+        var tokens = CaptureTokens(userId);
         var result = await BuildAuthorizedSlugsAsync(user, userId);
-        _cache.Set(cacheKey, result, EntryOptions(userId));
-        _logger?.LogDebug("Authorized sites rebuilt for {UserId} (admin={IsAdmin}, restrict={Restrict}): {Slugs}",
-            userId, user.IsInRole(Roles.Admin), await _policy.IsRestrictSitesToMembersAsync(),
-            string.Join(",", result));
+        _cache.Set(cacheKey, result, EntryOptions(tokens));
+
+        // Guarded: the restriction read is a real round trip and a log argument is evaluated whether
+        // or not the level is enabled, so an unguarded call made one on every uncached resolution.
+        if (_logger?.IsEnabled(LogLevel.Debug) == true)
+        {
+            _logger.LogDebug("Authorized sites rebuilt for {UserId} (admin={IsAdmin}, restrict={Restrict}): {Slugs}",
+                userId, user.IsInRole(Roles.Admin), await _policy.IsRestrictSitesToMembersAsync(),
+                string.Join(",", result));
+        }
+
         return result;
     }
 

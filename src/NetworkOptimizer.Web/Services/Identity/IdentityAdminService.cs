@@ -818,6 +818,7 @@ public sealed class IdentityAdminService : IIdentityAdminService
     {
         await using var db = await _authDbFactory.CreateDbContextAsync();
         await db.SiteGroups.Where(g => g.Id == groupId).ExecuteDeleteAsync();
+        GroupAccessChanged();
         EmitSystemTarget(AuditCategories.Rbac, AuditActions.MembershipChanged, "site_group", groupId.ToString(), new { deleted = groupId });
         return AdminActionResult.Ok();
     }
@@ -829,8 +830,25 @@ public sealed class IdentityAdminService : IIdentityAdminService
         foreach (var slug in siteSlugs.Distinct(StringComparer.OrdinalIgnoreCase))
             db.SiteGroupMembers.Add(new SiteGroupMember { GroupId = groupId, SiteSlug = slug });
         await db.SaveChangesAsync();
+        GroupAccessChanged();
         EmitSystemTarget(AuditCategories.Rbac, AuditActions.MembershipChanged, "site_group", groupId.ToString(), new { members = siteSlugs.Count });
         return AdminActionResult.Ok();
+    }
+
+    /// <summary>
+    /// Drops every cached role resolution after a site group changes.
+    ///
+    /// Unlike a direct membership, a group change moves access for everyone holding a grant that
+    /// points at the group, and the grant rows themselves do not move - so there is no per-user edit
+    /// to hang an invalidation off, and no way to enumerate the affected users without walking every
+    /// grant. Without this the cache went on answering from the old group for its full ten minutes,
+    /// which for a REVOCATION means access is retained rather than merely delayed: taking a site out
+    /// of a group, or deleting the group outright, left everyone in it still reaching that site.
+    /// </summary>
+    private void GroupAccessChanged()
+    {
+        _siteRoles.InvalidateAll();
+        _siteRegistryChanges.NotifySitesChanged();
     }
 
     // --- invariants & helpers ---

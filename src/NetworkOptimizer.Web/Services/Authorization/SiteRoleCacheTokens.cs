@@ -56,7 +56,13 @@ public sealed class SiteRoleCacheTokens
         if (!_tokens.TryRemove(tokenKey, out var source))
             return;
 
+        // Cancelled but deliberately NOT disposed. A caller can be between GetOrAdd returning this
+        // source and reading its Token, and CancellationTokenSource.Token throws
+        // ObjectDisposedException once disposed - so disposing here turns an invalidation burst (the
+        // invalidate-then-broadcast pattern every membership change uses) into a 500 for whichever
+        // request was mid-read. Once removed from the dictionary the source is unreachable and the GC
+        // takes it; there is no timer or registration on it to leak. A racing reader that does get
+        // the token gets a cancelled one, so its entry expires immediately, which is correct.
         source.Cancel();
-        source.Dispose();
     }
 }
