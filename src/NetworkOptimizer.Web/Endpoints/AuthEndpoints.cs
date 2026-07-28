@@ -264,6 +264,11 @@ public static class AuthEndpoints
                 stillValid = onCookie == await userManager.GetSecurityStampAsync(user!);
             }
 
+            app.Logger.LogDebug(
+                "Revalidate: user={User} enabled={Enabled} sid={Sid} stillValid={Valid}",
+                user?.UserName ?? "(none)", user?.IsEnabled, 
+                context.User.FindFirstValue(NetOptClaims.SessionId) ?? "(none)", stillValid);
+
             if (!stillValid)
             {
                 await signInService.SignOutAsync();
@@ -385,6 +390,10 @@ public static class AuthEndpoints
 
         context.Response.OnCompleted(() =>
         {
+            context.RequestServices.GetRequiredService<ILoggerFactory>()
+                .CreateLogger("NetworkOptimizer.Web.Endpoints.AuthEndpoints")
+                .LogDebug("Revocation broadcast for {User}, sparing sid={Spared}",
+                    userId, sparedSession ?? "(none)");
             revocations.NotifyRevoked(userId, sparedSession);
             return Task.CompletedTask;
         });
