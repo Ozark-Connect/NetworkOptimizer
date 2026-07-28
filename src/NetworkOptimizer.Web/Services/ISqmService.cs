@@ -43,19 +43,4 @@ public interface ISqmService
     [RequireRole(Roles.Viewer)]
     Task<List<WanInterfaceInfo>> GetWanInterfacesFromControllerAsync();
 
-    /// <summary>
-    /// Generate the tc-monitor configuration content based on controller WAN settings.
-    /// This can be used to deploy the correct interface mapping to gateways.
-    /// </summary>
-    /// <returns>Configuration string in the format expected by tc-monitor (e.g., "ifbeth4:Comcast ifbeth0:Starlink").</returns>
-    [RequireRole(Roles.Viewer)]
-    Task<string> GenerateTcMonitorConfigAsync();
-
-    /// <summary>
-    /// Generate SQM scripts for the specified configuration.
-    /// </summary>
-    /// <param name="config">The SQM configuration to generate scripts for.</param>
-    /// <returns>The path to the generated scripts archive.</returns>
-    [RequireRole(Roles.Viewer)]
-    Task<string> GenerateSqmScriptsAsync(SqmConfiguration config);
 }
