@@ -13,21 +13,28 @@ namespace NetworkOptimizer.Web.Services;
 [MutatingService(SiteScoped = true)]
 public interface IUwnSpeedTestService
 {
+    // These four are methods rather than properties because they are gated. A gated member is
+    // intercepted, and the interceptor only handles Task-returning members asynchronously - so a
+    // gated property has its role lookup blocked on synchronously, inside the Blazor circuit's
+    // synchronization context. That works while the lookup hits its cache and deadlocks when it
+    // misses and goes to the database, which would present as the WAN speed test page freezing for
+    // no visible reason. Enforced by architecture test A2.
+
     /// <summary>True while a test is in flight (the UI blocks a second concurrent run).</summary>
     [RequireRole(Roles.Viewer)]
-    bool IsRunning { get; }
+    Task<bool> IsRunningAsync();
 
     /// <summary>Live progress of the running test (phase, percent, status line).</summary>
     [RequireRole(Roles.Viewer)]
-    (string Phase, int Percent, string? Status) CurrentProgress { get; }
+    Task<(string Phase, int Percent, string? Status)> GetCurrentProgressAsync();
 
     /// <summary>The most recently completed result, kept for the page to show after a run.</summary>
     [RequireRole(Roles.Viewer)]
-    Iperf3Result? LastCompletedResult { get; }
+    Task<Iperf3Result?> GetLastCompletedResultAsync();
 
     /// <summary>Metadata captured alongside the last run (server, path, interface).</summary>
     [RequireRole(Roles.Viewer)]
-    WanTestMetadata? LastMetadata { get; }
+    Task<WanTestMetadata?> GetLastMetadataAsync();
 
     /// <summary>Raised with the result id once the post-test path analysis finishes.</summary>
     event Action<int>? OnPathAnalysisComplete;
@@ -66,17 +73,20 @@ public interface IUwnSpeedTestService
 [MutatingService(SiteScoped = true)]
 public interface IGatewayWanSpeedTestService
 {
+    // Methods rather than properties for the same reason as IUwnSpeedTestService above: a gated
+    // property blocks its role lookup synchronously on the circuit.
+
     /// <summary>True while a test is in flight.</summary>
     [RequireRole(Roles.Viewer)]
-    bool IsRunning { get; }
+    Task<bool> IsRunningAsync();
 
     /// <summary>Live progress of the running test (phase, percent, status line).</summary>
     [RequireRole(Roles.Viewer)]
-    (string Phase, int Percent, string? Status) CurrentProgress { get; }
+    Task<(string Phase, int Percent, string? Status)> GetCurrentProgressAsync();
 
     /// <summary>The most recently completed result, kept for the page to show after a run.</summary>
     [RequireRole(Roles.Viewer)]
-    Iperf3Result? LastCompletedResult { get; }
+    Task<Iperf3Result?> GetLastCompletedResultAsync();
 
     /// <summary>Raised with the result id once the post-test path analysis finishes.</summary>
     event Action<int>? OnPathAnalysisComplete;

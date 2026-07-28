@@ -151,7 +151,7 @@ public static class ScheduleExecutorRegistration
                 // own WAN. The per-site instance resolves through the registry, and
                 // the service itself refuses sites that are neither (RunTestAsync).
                 var serverService = scope.ServiceProvider.GetRequiredService<IUwnSpeedTestService>();
-                if (serverService.IsRunning)
+                if (await serverService.IsRunningAsync())
                     return (false, null, "WAN speed test is already running");
                 result = await serverService.RunTestAsync(maxMode: maxMode, cancellationToken: ct);
             }
@@ -160,7 +160,7 @@ public static class ScheduleExecutorRegistration
                 // The site's own gateway runs the test and the result lands in the
                 // site's database - resolved by site key through the registry.
                 var gatewayService = scope.ServiceProvider.GetRequiredService<IGatewayWanSpeedTestService>();
-                if (gatewayService.IsRunning)
+                if (await gatewayService.IsRunningAsync())
                     return (false, null, "WAN speed test is already running");
 
                 if (multiInterfaces is { Length: > 1 })

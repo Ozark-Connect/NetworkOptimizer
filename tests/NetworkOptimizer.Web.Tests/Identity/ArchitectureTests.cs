@@ -109,28 +109,20 @@ public class ArchitectureTests
     /// a deadlock rather than a wrong answer. Both are shapes the gate cannot carry, so they are
     /// refused here rather than discovered in production.
     ///
-    /// Scoped to METHODS. Gated property getters have the same problem and seven of them exist today,
-    /// all polled status/progress reads on the two WAN speed-test interfaces
-    /// (IUwnSpeedTestService, IGatewayWanSpeedTestService). Turning those into Task-returning methods
-    /// reaches into speed-test UI that was verified on hardware, so they are a decision rather than a
-    /// cleanup, and failing the build on them would only invite the test to be deleted. The narrower
-    /// rule still closes the shape that was live and fixable - a void or ValueTask METHOD - and the
-    /// property case is recorded in the review findings.
+    /// Covers gated PROPERTIES too, which is why the WAN speed-test services expose their status as
+    /// IsRunningAsync() / GetCurrentProgressAsync() rather than as properties: a property is
+    /// necessarily synchronous, so a gated one can never satisfy this and has to become a method.
     /// </summary>
     [Fact]
-    public void A2_EveryGatedMethodReturnsATask()
+    public void A2_EveryGatedMemberReturnsATask()
     {
         var wrongShape = new List<string>();
         foreach (var iface in MutatingInterfaces())
         {
             foreach (var method in iface.GetMethods())
             {
-                if (GateReflection.IsEventAccessor(method)
-                    || GateReflection.DeclaringProperty(method) is not null
-                    || !GateReflection.HasGate(method))
-                {
+                if (GateReflection.IsEventAccessor(method) || !GateReflection.HasGate(method))
                     continue;
-                }
 
                 var returns = method.ReturnType;
                 var isTask = returns == typeof(Task)

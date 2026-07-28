@@ -58,6 +58,20 @@ public class GatewayWanSpeedTestService : IGatewayWanSpeedTestService
         get { lock (_lock) return _lastCompletedResult; }
     }
 
+    // Task-returning on the gated interface: the gate interceptor only intercepts Task-returning
+    // members asynchronously, so a gated property blocks its role lookup on the circuit. The
+    // properties above stay for this class's own use.
+
+    /// <inheritdoc cref="IGatewayWanSpeedTestService.IsRunningAsync" />
+    public Task<bool> IsRunningAsync() => Task.FromResult(IsRunning);
+
+    /// <inheritdoc cref="IGatewayWanSpeedTestService.GetCurrentProgressAsync" />
+    public Task<(string Phase, int Percent, string? Status)> GetCurrentProgressAsync()
+        => Task.FromResult(CurrentProgress);
+
+    /// <inheritdoc cref="IGatewayWanSpeedTestService.GetLastCompletedResultAsync" />
+    public Task<Iperf3Result?> GetLastCompletedResultAsync() => Task.FromResult(LastCompletedResult);
+
     /// <summary>Fired when background path analysis completes for a result.</summary>
     public event Action<int>? OnPathAnalysisComplete;
 

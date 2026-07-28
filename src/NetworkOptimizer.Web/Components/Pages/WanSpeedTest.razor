@@ -846,18 +846,18 @@
         }
 
         // If a test is already running (user navigated away and back), start polling
-        if (WanSpeedTestService.IsRunning)
+        if (await WanSpeedTestService.IsRunningAsync())
         {
             _isRunning = true;
             _activeTestType = "server";
-            SyncProgressFromService();
+            await SyncProgressFromService();
             StartPolling();
         }
-        else if (GatewayWanTestService.IsRunning)
+        else if (await GatewayWanTestService.IsRunningAsync())
         {
             _isRunning = true;
             _activeTestType = "gateway";
-            SyncGatewayProgressFromService();
+            await SyncGatewayProgressFromService();
             StartPolling();
         }
 
@@ -1947,7 +1947,10 @@
                 _progressPercent = progress.Percent;
                 if (progress.Status != null)
                     _serverStatus = progress.Status;
-                _metadata = WanSpeedTestService.LastMetadata;
+                // Metadata is picked up by the 500 ms poll (SyncProgressFromService) rather than
+                // here: reading it is now an awaitable call and this callback is a synchronous
+                // Action, so fetching it would mean async-void. It is set once early in the test, so
+                // arriving up to one poll late is not visible.
                 InvokeAsync(StateHasChanged);
             },
             maxMode: _maxMode);
@@ -1986,8 +1989,8 @@
         {
             try
             {
-                var serverRunning = WanSpeedTestService.IsRunning;
-                var gatewayRunning = GatewayWanTestService.IsRunning;
+                var serverRunning = await WanSpeedTestService.IsRunningAsync();
+                var gatewayRunning = await GatewayWanTestService.IsRunningAsync();
 
                 if (!serverRunning && !gatewayRunning)
                 {
@@ -1996,12 +1999,10 @@
                     _isRunning = false;
                     _activeTestType = "";
 
-                    var lastResult = testType == "gateway"
-                        ? GatewayWanTestService.LastCompletedResult
-                        : WanSpeedTestService.LastCompletedResult;
-                    _latestResult = lastResult
-                        ?? WanSpeedTestService.LastCompletedResult
-                        ?? GatewayWanTestService.LastCompletedResult;
+                    var serverResult = await WanSpeedTestService.GetLastCompletedResultAsync();
+                    var gatewayResult = await GatewayWanTestService.GetLastCompletedResultAsync();
+                    var lastResult = testType == "gateway" ? gatewayResult : serverResult;
+                    _latestResult = lastResult ?? serverResult ?? gatewayResult;
 
                     await InvokeAsync(async () =>
                     {
@@ -2012,9 +2013,9 @@
                 }
 
                 if (_activeTestType == "gateway")
-                    SyncGatewayProgressFromService();
+                    await SyncGatewayProgressFromService();
                 else
-                    SyncProgressFromService();
+                    await SyncProgressFromService();
 
                 await InvokeAsync(StateHasChanged);
             }
@@ -2028,13 +2029,13 @@
         _pollTimer = null;
     }
 
-    private void SyncProgressFromService()
+    private async Task SyncProgressFromService()
     {
-        var (phase, percent, status) = WanSpeedTestService.CurrentProgress;
+        var (phase, percent, status) = await WanSpeedTestService.GetCurrentProgressAsync();
         _progressPhase = phase;
         if (status != null)
             _serverStatus = status;
-        _metadata = WanSpeedTestService.LastMetadata;
+        _metadata = await WanSpeedTestService.GetLastMetadataAsync();
 
         // Detect phase transitions - set up interpolation for long phases
         if (phase != _interpPhase)
@@ -2063,9 +2064,9 @@
         }
     }
 
-    private void SyncGatewayProgressFromService()
+    private async Task SyncGatewayProgressFromService()
     {
-        var (phase, percent, status) = GatewayWanTestService.CurrentProgress;
+        var (phase, percent, status) = await GatewayWanTestService.GetCurrentProgressAsync();
         _progressPhase = phase;
         _progressPercent = percent;
     }
