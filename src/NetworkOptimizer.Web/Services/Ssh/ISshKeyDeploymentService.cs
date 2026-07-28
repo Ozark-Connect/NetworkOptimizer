@@ -55,14 +55,6 @@ public interface ISshKeyDeploymentService
     [RequireRole(Roles.Admin)]
     [AuditAction(AuditActions.SettingsChanged, TargetType = "ssh_key_deployment")]
     Task<(bool success, string message)> RemoveAsync();
-
-    /// <summary>
-    /// Connects to the gateway offering ONLY the stored key, so success means the key itself
-    /// authenticated. Normal connections offer the password too and fall back to it silently, which
-    /// is what makes "is the key working?" unanswerable from a successful connection or from the logs.
-    /// </summary>
-    [RequireRole(Roles.Operator)]
-    Task<(bool success, string message)> TestKeyAsync();
 }
 
 /// <inheritdoc />
@@ -82,48 +74,18 @@ public sealed class SshKeyDeploymentService : ISshKeyDeploymentService
     private readonly IGatewaySshService _gatewaySsh;
     private readonly IUdmBootService _udmBoot;
     private readonly ISshKeyService _sshKeys;
-    private readonly SshClientService _sshClient;
     private readonly ILogger<SshKeyDeploymentService> _logger;
 
     public SshKeyDeploymentService(
         IGatewaySshService gatewaySsh,
         IUdmBootService udmBoot,
         ISshKeyService sshKeys,
-        SshClientService sshClient,
         ILogger<SshKeyDeploymentService> logger)
     {
         _gatewaySsh = gatewaySsh;
         _udmBoot = udmBoot;
         _sshKeys = sshKeys;
-        _sshClient = sshClient;
         _logger = logger;
-    }
-
-    /// <inheritdoc />
-    public async Task<(bool success, string message)> TestKeyAsync()
-    {
-        if (await _gatewaySsh.IsAwaitingAgentTunnelAsync())
-            return (false, GatewaySshService.AwaitingAgentMessage);
-
-        var connection = await _gatewaySsh.GetConnectionInfoAsync();
-        if (connection is null)
-            return (false, "Gateway SSH is not configured.");
-
-        if (string.IsNullOrEmpty(connection.StoredPrivateKeyPem))
-            return (false, "This site has no stored SSH key.");
-
-        // Strip everything else off the connection: with the password still attached, a successful
-        // connect proves nothing, because SSH.NET would fall back to it without saying so.
-        connection.Password = null;
-        connection.PrivateKeyPath = null;
-
-        var (success, message) = await _sshClient.TestConnectionAsync(connection);
-        _logger.LogInformation(
-            "Stored SSH key test against the gateway: {Result}", success ? "authenticated" : "rejected");
-
-        return success
-            ? (true, "The gateway accepted the stored key.")
-            : (false, $"The gateway did not accept the stored key: {message}");
     }
 
     /// <inheritdoc />

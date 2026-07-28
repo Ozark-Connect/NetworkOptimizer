@@ -815,31 +815,6 @@
                     </div>
                 }
 
-                @if (_keyDeployStatus?.GatewayConfigured == true)
-                {
-                    <div class="form-group">
-                        <label class="form-label">Key authentication</label>
-                        <small class="form-help">
-                            Checks that your gateway accepts this key, by connecting with the key alone.
-                            A key can be installed and still be refused - wrong permissions on
-                            <code>.ssh</code>, or a gateway that does not allow key authentication.
-                        </small>
-                        <div class="action-buttons">
-                            <button class="btn btn-secondary btn-sm" @onclick="TestKeyOnGateway" disabled="@_sshKeyBusy">
-                                @if (_sshKeyBusy)
-                                {
-                                    <span class="spinner"></span>
-                                    <span>Testing...</span>
-                                }
-                                else
-                                {
-                                    <span>Test key</span>
-                                }
-                            </button>
-                        </div>
-                    </div>
-                }
-
                 @if (_sshSpeedTestDeviceCount > 0)
                 {
                     <div class="form-group">
@@ -5096,35 +5071,6 @@
         {
             Logger.LogError(ex, "Failed to install the SSH key on the gateway");
             _sshKeyMessage = $"Could not install the key on the gateway: {ex.Message}";
-            _sshKeyMessageClass = "danger";
-        }
-        finally
-        {
-            _sshKeyBusy = false;
-            StateHasChanged();
-        }
-    }
-
-    /// <summary>
-    /// Proves the key authenticates, which a normal connection cannot: those offer the password too
-    /// and fall back to it without saying so.
-    /// </summary>
-    private async Task TestKeyOnGateway()
-    {
-        _sshKeyBusy = true;
-        _sshKeyMessage = null;
-        StateHasChanged();
-
-        try
-        {
-            var (success, message) = await SshKeyDeployment.TestKeyAsync();
-            _sshKeyMessage = message;
-            _sshKeyMessageClass = success ? "success" : "danger";
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Failed to test the stored SSH key against the gateway");
-            _sshKeyMessage = $"Could not test the key: {ex.Message}";
             _sshKeyMessageClass = "danger";
         }
         finally
