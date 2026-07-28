@@ -212,11 +212,11 @@
                         </select>
                     </div>
                     <div style="display: flex; gap: 0.5rem;">
-                        <SiteAdminOnly>
+                        <SiteOperatorOnly>
                             <button class="btn btn-sm btn-primary" @onclick="AddTargetAsync" disabled="@_addingTarget">
                             @if (_addingTarget) { <span class="spinner-sm"></span> } else { <span>Add</span> }
                         </button>
-                        </SiteAdminOnly>
+                        </SiteOperatorOnly>
                         <button class="btn btn-sm btn-secondary" @onclick="() => _showAddTarget = false">Cancel</button>
                     </div>
                 </div>
@@ -228,11 +228,15 @@
         }
         else
         {
-            <SiteAdminOnly>
+            @* Adding a target is Operator; REMOVING one stays Admin. The target list is curated and
+               expensive to rebuild - it accumulates over time and nothing recreates it - so the
+               asymmetry is deliberate: measuring one more thing is cheap and reversible, losing one
+               that someone established months ago is not. *@
+            <SiteOperatorOnly>
                 <button class="btn btn-sm btn-secondary" style="margin-top: 0.75rem;" @onclick="() => _showAddTarget = true">
                     + Add target
                 </button>
-            </SiteAdminOnly>
+            </SiteOperatorOnly>
         }
     </div>
         </div>

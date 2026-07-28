@@ -101,9 +101,12 @@
                                                             <h4>Custom OID Polling</h4>
                                                             @if (!_showAddForm)
                                                             {
-                                                                <SiteAdminOnly>
+                                                                @* Adding an OID is Operator: it polls one more value and is undone by
+                                                                   removing it. Removing stays Admin, like the latency targets - a curated
+                                                                   list is expensive to rebuild and nothing recreates it. *@
+                                                                <SiteOperatorOnly>
                                                                     <button class="btn btn-sm btn-primary" @onclick:stopPropagation="true" @onclick="ShowAddForm">Add OID</button>
-                                                                </SiteAdminOnly>
+                                                                </SiteOperatorOnly>
                                                             }
                                                         </div>
 
@@ -199,9 +202,9 @@
                                                                     </div>
                                                                 </div>
                                                                 <div class="snmp-form-actions">
-                                                                    <SiteAdminOnly>
+                                                                    <SiteOperatorOnly>
                                                                         <button class="btn btn-sm btn-primary" @onclick="SaveOid" disabled="@_saving">Save</button>
-                                                                    </SiteAdminOnly>
+                                                                    </SiteOperatorOnly>
                                                                     <button class="btn btn-sm btn-contrast" @onclick="CancelAdd">Cancel</button>
                                                                     @if (!string.IsNullOrEmpty(_saveError))
                                                                     {
