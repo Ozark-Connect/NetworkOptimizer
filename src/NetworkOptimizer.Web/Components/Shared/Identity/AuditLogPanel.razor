@@ -185,11 +185,18 @@
         return $"/api/audit/export.{format}{suffix}";
     }
 
+    /// <summary>
+    /// Outcome to badge colour. Both refusals used to map to status-active, which is the GREEN
+    /// success badge, while a success got no class at all and rendered plain - so in a log whose
+    /// entire job is making denials visible, the denials were the green rows. Amber for a refusal
+    /// (the request was understood and turned down) and red for a failure (it broke), which is the
+    /// same distinction the rest of the app draws between provisioning and error.
+    /// </summary>
     private static string OutcomeClass(string outcome) => outcome switch
     {
-        AuditOutcomes.Denied => "status-active",
-        AuditOutcomes.Failure => "status-active",
-        _ => "",
+        AuditOutcomes.Denied => "status-provisioning",
+        AuditOutcomes.Failure => "status-error",
+        _ => "status-active",
     };
 
     private static string? Empty(string v) => string.IsNullOrEmpty(v) ? null : v;
