@@ -12,6 +12,9 @@ public static class AuthorizationRegistration
     public static IServiceCollection AddNetOptAuthorization(this IServiceCollection services)
     {
         services.AddMemoryCache();
+        // Singleton: the invalidation tokens have to outlive the scoped resolvers whose cache entries
+        // are tied to them, and be the same instance for whoever drops them.
+        services.AddSingleton<SiteRoleCacheTokens>();
         services.AddScoped<IEffectiveSiteRoleResolver, EffectiveSiteRoleResolver>();
         services.AddScoped<ISiteAccessFilter, SiteAccessFilter>();
         services.AddScoped<IAuthorizationHandler, SiteRoleHandler>();

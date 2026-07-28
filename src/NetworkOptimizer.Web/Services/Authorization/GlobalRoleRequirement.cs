@@ -25,8 +25,13 @@ public sealed class GlobalRoleRequirement : IAuthorizationRequirement
 public sealed class GlobalRoleHandler : AuthorizationHandler<GlobalRoleRequirement>
 {
     private readonly IAdminAuthService _adminAuth;
+    private readonly ISiteAccessFilter _siteAccess;
 
-    public GlobalRoleHandler(IAdminAuthService adminAuth) => _adminAuth = adminAuth;
+    public GlobalRoleHandler(IAdminAuthService adminAuth, ISiteAccessFilter siteAccess)
+    {
+        _adminAuth = adminAuth;
+        _siteAccess = siteAccess;
+    }
 
     /// <inheritdoc />
     protected override async Task HandleRequirementAsync(
@@ -39,6 +44,16 @@ public sealed class GlobalRoleHandler : AuthorizationHandler<GlobalRoleRequireme
         }
 
         if (context.User.Identity?.IsAuthenticated != true)
+            return;
+
+        // A caller who may see no site at all may open no page that shows one. These policies are
+        // global-role checks, so without this the site restriction narrowed what a non-Admin could
+        // CHANGE while leaving every page readable: the fallback parks a caller with no grants on the
+        // default site, and the pages behind this policy then rendered it. Null means no filtering
+        // applies (auth disabled, background work), which is the single-admin install and must not
+        // narrow. A global Admin always resolves to every site, so this can never lock one out.
+        var authorized = await _siteAccess.AuthorizedSlugsAsync();
+        if (authorized is not null && authorized.Count == 0)
             return;
 
         // An authenticated user with no role claim is a Viewer: read access is "any authenticated".

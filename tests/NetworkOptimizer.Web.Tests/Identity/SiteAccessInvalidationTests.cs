@@ -22,6 +22,10 @@ public sealed class SiteAccessInvalidationTests : IDisposable
     private readonly string _mainDbPath = Path.Combine(Path.GetTempPath(), $"netopt-access-main-{Guid.NewGuid():N}.db");
     private readonly MemoryCache _cache = new(new MemoryCacheOptions());
 
+    // One instance across every resolver the test builds, matching the singleton registration: the
+    // invalidation tokens are what let one resolver drop entries another one wrote.
+    private readonly SiteRoleCacheTokens _tokens = new();
+
     private const string UserId = "user-1";
 
     [Fact]
@@ -90,11 +94,39 @@ public sealed class SiteAccessInvalidationTests : IDisposable
         (await resolver.GetAuthorizedSlugsAsync(principal)).Should().Contain("depot");
     }
 
+    private readonly RestrictedPolicy _policy = new();
+
     private EffectiveSiteRoleResolver BuildResolver() => new(
         new AuthDbContextFactory(_authDbPath),
         new MainDbContextFactory(_mainDbPath),
-        new RestrictedPolicy(),
-        _cache);
+        _policy,
+        _cache,
+        _tokens);
+
+    /// <summary>
+    /// Turning the site restriction off has to apply now, not in ten minutes. It is one global setting
+    /// that decides whether a global Operator or Viewer role reaches every site, so the answer it
+    /// changes is already cached for every user and every site - and nothing about the user changed,
+    /// so none of the per-user invalidation fires. Toggling it appeared to do nothing at all.
+    /// </summary>
+    [Fact]
+    public async Task LiftingTheSiteRestrictionAppliesOnTheNextRead()
+    {
+        await SeedAsync();
+        var resolver = BuildResolver();
+        var principal = PrincipalFor(UserId, Roles.Operator);
+
+        (await resolver.GetEffectiveRoleAsync(principal, "depot")).Should()
+            .BeNull("restricted, and the account holds no grant on depot");
+
+        _policy.Restrict = false;
+        (await resolver.GetEffectiveRoleAsync(principal, "depot")).Should()
+            .BeNull("the cached answer stands until something drops it - this is the stale read itself");
+
+        _tokens.InvalidateAll();
+        (await resolver.GetEffectiveRoleAsync(principal, "depot")).Should()
+            .Be(SiteRole.SiteOperator, "unrestricted, a global Operator role reaches every site");
+    }
 
     private async Task SeedAsync()
     {
@@ -160,10 +192,17 @@ public sealed class SiteAccessInvalidationTests : IDisposable
     /// <summary>The install has the site restriction on, which is the shipped default.</summary>
     private sealed class RestrictedPolicy : IAuthPolicyOptions
     {
+        /// <summary>Flipped directly, standing in for the toggle in Settings - Identity.</summary>
+        public bool Restrict { get; set; } = true;
+
         public Task<bool> IsLocalLoginDisabledAsync() => Task.FromResult(false);
         public Task SetLocalLoginDisabledAsync(bool disabled) => Task.CompletedTask;
-        public Task<bool> IsRestrictSitesToMembersAsync() => Task.FromResult(true);
-        public Task SetRestrictSitesToMembersAsync(bool restrict) => Task.CompletedTask;
+        public Task<bool> IsRestrictSitesToMembersAsync() => Task.FromResult(Restrict);
+        public Task SetRestrictSitesToMembersAsync(bool restrict)
+        {
+            Restrict = restrict;
+            return Task.CompletedTask;
+        }
     }
 
     private sealed class AuthDbContextFactory : IDbContextFactory<AuthDbContext>

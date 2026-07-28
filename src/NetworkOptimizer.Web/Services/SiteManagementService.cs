@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models;
@@ -20,6 +20,7 @@ public class SiteManagementService : ISiteManagementService
     private readonly Authorization.IEffectiveSiteRoleResolver _siteRoles;
     private readonly AgentTunnelRegistry _tunnelRegistry;
     private readonly IDbContextFactory<NetworkOptimizerDbContext> _mainDbFactory;
+    private readonly IDbContextFactory<NetworkOptimizer.Storage.Models.Identity.AuthDbContext> _authDbFactory;
     private readonly SiteDatabasePaths _dbPaths;
     private readonly Licensing.LicenseStateService _licenseState;
     private readonly Licensing.LicenseActivationService _activation;
@@ -34,6 +35,7 @@ public class SiteManagementService : ISiteManagementService
         Authorization.IEffectiveSiteRoleResolver siteRoles,
         AgentTunnelRegistry tunnelRegistry,
         IDbContextFactory<NetworkOptimizerDbContext> mainDbFactory,
+        IDbContextFactory<NetworkOptimizer.Storage.Models.Identity.AuthDbContext> authDbFactory,
         SiteDatabasePaths dbPaths,
         Licensing.LicenseStateService licenseState,
         Licensing.LicenseActivationService activation,
@@ -48,6 +50,7 @@ public class SiteManagementService : ISiteManagementService
         _siteRoles = siteRoles;
         _tunnelRegistry = tunnelRegistry;
         _mainDbFactory = mainDbFactory;
+        _authDbFactory = authDbFactory;
         _dbPaths = dbPaths;
         _licenseState = licenseState;
         _activation = activation;
@@ -235,6 +238,42 @@ public class SiteManagementService : ISiteManagementService
     /// drops its console connection, deletes its agents and registry row, and
     /// deletes its database directory. Irreversible.
     /// </summary>
+    /// <summary>
+    /// Drops everything that grants access to a slug, because the slug is all any of it stores. A slug
+    /// is derived from the site name and only made unique against sites that EXIST, so deleting a site
+    /// and later creating one by the same name reuses the slug - and every stale grant would come back
+    /// to life on a site the operator believes is new. Removal is a revocation; it has to stick.
+    ///
+    /// Covers direct memberships, the site's place in any group, and the federation mappings that would
+    /// re-grant it at the next SSO login.
+    /// </summary>
+    private async Task RemoveAccessGrantsAsync(string slug)
+    {
+        await using var auth = await _authDbFactory.CreateDbContextAsync();
+
+        var memberships = await auth.SiteMemberships
+            .Where(m => m.TargetType == NetworkOptimizer.Storage.Models.Identity.MembershipTargetType.Site
+                && m.TargetId == slug)
+            .ExecuteDeleteAsync();
+
+        var groupRows = await auth.SiteGroupMembers
+            .Where(g => g.SiteSlug == slug)
+            .ExecuteDeleteAsync();
+
+        var mappings = await auth.FederationSiteMappings
+            .Where(m => m.TargetType == NetworkOptimizer.Storage.Models.Identity.MembershipTargetType.Site
+                && m.TargetValue == slug)
+            .ExecuteDeleteAsync();
+
+        if (memberships + groupRows + mappings > 0)
+        {
+            _logger.LogInformation(
+                "Removed access to site {Slug}: {Memberships} membership(s), {GroupRows} group entry(ies), "
+                + "{Mappings} federation mapping(s)",
+                slug, memberships, groupRows, mappings);
+        }
+    }
+
     public async Task DeleteSiteAsync(Site site)
     {
         if (site.IsDefault)
@@ -252,6 +291,7 @@ public class SiteManagementService : ISiteManagementService
         {
             await db.SiteAgents.Where(a => a.SiteId == site.Id).ExecuteDeleteAsync();
         }
+        await RemoveAccessGrantsAsync(site.Slug);
         await _siteRepository.DeleteAsync(site.Id);
 
         // SQLite connection pooling keeps file handles open after the contexts are
