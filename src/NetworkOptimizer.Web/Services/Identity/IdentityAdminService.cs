@@ -451,7 +451,6 @@ public sealed class IdentityAdminService : IIdentityAdminService
         var stamped = await _userManager.UpdateSecurityStampAsync(user);
         if (!stamped.Succeeded)
             return AdminActionResult.Fail(Describe(stamped));
-        _revocations.NotifyRevoked(user.Id);
         Emit(AuditCategories.Auth, AuditActions.SignedOutEverywhere, user, new { self = true });
         return AdminActionResult.Ok();
     }

@@ -1,4 +1,8 @@
-﻿using Microsoft.AspNetCore.Antiforgery;
+using System.Security.Claims;
+using Microsoft.AspNetCore.Antiforgery;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.Extensions.Options;
+using NetworkOptimizer.Storage.Models.Identity;
 using NetworkOptimizer.Web.Services;
 using NetworkOptimizer.Web.Services.Identity;
 
@@ -194,6 +198,7 @@ public static class AuthEndpoints
             ICurrentUserAccessor currentUser,
             IIdentityAdminService identityAdmin,
             IIdentitySignInService signInService,
+            UserSessionRevocationNotifier revocations,
             IAntiforgery antiforgery) =>
         {
             try
@@ -214,7 +219,46 @@ public static class AuthEndpoints
                 return Results.Redirect("/account/security?sessions=failed");
 
             await signInService.RefreshSignInAsync(user);
+
+            // Announced only now, and deliberately not inside the service: every other circuit for
+            // this account is about to be sent to revalidate, and the browser that asked has to be
+            // holding its re-issued cookie before that happens or it races its own other tabs out.
+            revocations.NotifyRevoked(user.Id);
             return Results.Redirect("/account/security?sessions=done");
+        })
+            .RequireAuthorization(Policies.RequireViewer);
+
+        // Settles whether this cookie is still good, right now. The cookie's security stamp is only
+        // re-checked on an interval (5 min), so rotating the stamp does NOT make the cookie stop
+        // working at that instant - a reload inside the window is waved straight through, which is
+        // why disabling an account and signing out everywhere both looked like they did nothing. A
+        // revoked circuit is sent here instead of merely reloading, and this asks the question the
+        // interval was going to get round to asking.
+        app.MapGet("/api/account/revalidate", async (
+            HttpContext context,
+            ICurrentUserAccessor currentUser,
+            UserManager<ApplicationUser> userManager,
+            IIdentitySignInService signInService,
+            IOptions<IdentityOptions> identityOptions) =>
+        {
+            var user = await currentUser.GetAsync(context.User);
+
+            var stillValid = user is not null && user.IsEnabled;
+            if (stillValid && userManager.SupportsUserSecurityStamp)
+            {
+                var onCookie = context.User.FindFirstValue(
+                    identityOptions.Value.ClaimsIdentity.SecurityStampClaimType);
+                stillValid = onCookie == await userManager.GetSecurityStampAsync(user!);
+            }
+
+            if (!stillValid)
+            {
+                await signInService.SignOutAsync();
+                return Results.Redirect("/login?error=session_ended");
+            }
+
+            var back = context.Request.Query["returnUrl"].ToString();
+            return Results.LocalRedirect(back.StartsWith('/') && !back.StartsWith("//") ? back : "/");
         })
             .RequireAuthorization(Policies.RequireViewer);
 
@@ -230,6 +274,14 @@ public static class AuthEndpoints
             var user = await currentUser.GetAsync(context.User);
             if (user is null)
                 return Results.Redirect("/login");
+
+            // Refreshing re-issues the cookie from the store, so a disabled account must never reach
+            // it - that would hand a fresh cookie to someone who has just had access taken away.
+            if (!user.IsEnabled)
+            {
+                await signInService.SignOutAsync();
+                return Results.Redirect("/login?error=session_ended");
+            }
 
             await signInService.RefreshSignInAsync(user);
 
