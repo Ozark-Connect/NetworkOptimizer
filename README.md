@@ -255,7 +255,7 @@ docker compose up -d
 docker logs network-optimizer 2>&1 | grep -A5 "AUTO-GENERATED"
 ```
 
-Open http://localhost:8042
+Open http://localhost:8042 and sign in as **admin** with that password.
 
 ### Quick Start (Proxmox)
 
