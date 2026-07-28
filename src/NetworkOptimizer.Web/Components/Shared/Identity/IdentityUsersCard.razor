@@ -1,4 +1,4 @@
-﻿@using NetworkOptimizer.Storage.Models
+@using NetworkOptimizer.Storage.Models
 @using NetworkOptimizer.Storage.Models.Identity
 @using NetworkOptimizer.Web.Services.Identity
 @inject IIdentityAdminService IdentityAdmin
@@ -67,7 +67,7 @@
                                         }
                                     </div>
                                 </td>
-                                <td>
+                                <td class="identity-role-cell">
                                     @* A disabled control receives no mouse events, so the tooltip has to
                                        live on a wrapper or it never shows. *@
                                     <span class="identity-lock" data-tooltip="@(IsSelf(user) ? "You cannot change your own role" : null)">
@@ -379,6 +379,27 @@
     [Parameter] public EventCallback OnExplainRoles { get; set; }
 
     private async Task ReloadAsync() => _users = await IdentityAdmin.ListUserSummariesAsync();
+
+    /// <summary>
+    /// Re-reads the provider list, for when one is added, renamed or removed in the Sign-In card.
+    /// </summary>
+    public async Task RefreshProvidersAsync()
+    {
+        _providers = await Federation.GetAllAsync();
+        if (_providers.All(p => p.Scheme != _linkProvider))
+            _linkProvider = _providers.FirstOrDefault()?.Scheme ?? "";
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// Re-reads the site restriction, for when it is toggled in the Access card - it decides whether
+    /// the no-access badge means anything.
+    /// </summary>
+    public async Task RefreshSiteRestrictionAsync()
+    {
+        _siteRestrictionActive = await AuthPolicy.IsRestrictSitesToMembersAsync();
+        StateHasChanged();
+    }
 
     /// <summary>True when the row is the account the signed-in admin is using.</summary>
     private bool IsSelf(ApplicationUser user) => user.Id == _currentUserId;

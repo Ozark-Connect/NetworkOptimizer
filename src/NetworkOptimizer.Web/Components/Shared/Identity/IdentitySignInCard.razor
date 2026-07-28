@@ -1,4 +1,4 @@
-﻿@using Microsoft.AspNetCore.Http
+@using Microsoft.AspNetCore.Http
 @using NetworkOptimizer.Storage.Models.Identity
 @using NetworkOptimizer.Web.Services.Identity
 @inject IIdentityAdminService IdentityAdmin
@@ -338,7 +338,18 @@
         await ReloadAsync();
     }
 
-    private async Task ReloadAsync() => _providers = await Federation.GetAllAsync();
+    /// <summary>
+    /// Raised whenever the provider list changes. The Users card offers these same providers when
+    /// linking an identity to an account, so a provider added or renamed here has to reach it - both
+    /// cards are on screen together, and a stale list means picking a scheme that no longer exists.
+    /// </summary>
+    [Parameter] public EventCallback OnProvidersChanged { get; set; }
+
+    private async Task ReloadAsync()
+    {
+        _providers = await Federation.GetAllAsync();
+        await OnProvidersChanged.InvokeAsync();
+    }
 
     private void AddOidc() => Edit(FederationPresets.GenericOidc());
 

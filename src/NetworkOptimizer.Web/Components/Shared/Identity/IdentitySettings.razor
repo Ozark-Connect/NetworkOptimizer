@@ -9,10 +9,11 @@
 
 @if (SiteSlug is null)
 {
-    <IdentityUsersCard OnAccessChanged="RefreshAccessAsync" OnExplainRoles="ExplainRolesAsync" />
+    <IdentityUsersCard @ref="_usersCard" OnAccessChanged="RefreshAccessAsync" OnExplainRoles="ExplainRolesAsync" />
     <IdentityRolesCard @ref="_rolesCard" />
-    <IdentityAccessCard @ref="_accessCard" OnExplainRoles="ExplainRolesAsync" />
-    <IdentitySignInCard />
+    <IdentityAccessCard @ref="_accessCard" OnExplainRoles="ExplainRolesAsync"
+                        OnSiteRestrictionChanged="RefreshSiteRestrictionAsync" />
+    <IdentitySignInCard OnProvidersChanged="RefreshProvidersAsync" />
 }
 else
 {
@@ -25,6 +26,21 @@ else
 @code {
     private IdentityAccessCard? _accessCard;
     private IdentityRolesCard? _rolesCard;
+    private IdentityUsersCard? _usersCard;
+
+    /// <summary>The Users card offers the providers when linking an identity, so it follows the list.</summary>
+    private async Task RefreshProvidersAsync()
+    {
+        if (_usersCard is not null)
+            await _usersCard.RefreshProvidersAsync();
+    }
+
+    /// <summary>The no-access badge in Users only means anything while the restriction is on.</summary>
+    private async Task RefreshSiteRestrictionAsync()
+    {
+        if (_usersCard is not null)
+            await _usersCard.RefreshSiteRestrictionAsync();
+    }
 
     /// <summary>Query flag that opens the Roles panel on arrival, for links from the scoped view.</summary>
     private const string RolesQueryParam = "roles";

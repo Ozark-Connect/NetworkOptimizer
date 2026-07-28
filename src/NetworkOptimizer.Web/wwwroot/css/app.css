@@ -1,4 +1,4 @@
-﻿/* ============================================
+/* ============================================
    Network Optimizer - Main Stylesheet
    Modern, dark-mode friendly design
    ============================================ */
@@ -19299,6 +19299,13 @@ body.kiosk-mode .status-indicators {
 .identity-role-select {
     min-width: 7.5rem;
     padding: 0.35rem 0.5rem;
+}
+
+.identity-role-cell {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem;
 }
 
 .identity-credentials,

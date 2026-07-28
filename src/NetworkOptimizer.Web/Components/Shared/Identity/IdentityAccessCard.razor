@@ -4,6 +4,8 @@
 @inject IIdentityAdminService IdentityAdmin
 @inject IAuthPolicyOptions AuthPolicy
 @inject ISiteManagementService SiteManagement
+@inject NetworkOptimizer.Web.Services.SiteRegistryChangeNotifier ChangeNotifier
+@implements IDisposable
 
 @* Settings - Identity: who can reach which site, and at what role. At global scope this lists every
    grant across all sites; scoped to a site it lists and edits only that site's members. Grants go
@@ -197,6 +199,7 @@
 
     protected override async Task OnInitializedAsync()
     {
+        ChangeNotifier.SitesChanged += OnSitesChanged;
         _multiSiteEnabled = await SiteManagement.IsMultiSiteEnabledAsync();
         _users = await IdentityAdmin.ListUsersAsync();
         _grantUserId = _users.FirstOrDefault()?.Id ?? "";
@@ -260,9 +263,17 @@
         _ => "Site Viewer",
     };
 
+    /// <summary>
+    /// Raised when the site restriction is toggled. The Users card marks accounts with no grants as
+    /// having no access, which is only true while the restriction is on - with it off, a global role
+    /// reaches every site and the badge would be telling the opposite of the truth.
+    /// </summary>
+    [Parameter] public EventCallback OnSiteRestrictionChanged { get; set; }
+
     private async Task SaveRestrictAsync()
     {
         await AuthPolicy.SetRestrictSitesToMembersAsync(_restrictSites);
+        await OnSiteRestrictionChanged.InvokeAsync();
         Show(_restrictSites
             ? "Non-Admin users now see only the sites they are granted."
             : "Global roles apply across every site again.", "success");
@@ -308,5 +319,32 @@
     {
         _message = message;
         _messageClass = cssClass;
+    }
+
+    // Sites created, renamed, enabled or removed anywhere - including the Multi-Site tab sitting
+    // beside this one in the same circuit - have to reach the site picker and the grant labels here.
+    // Settings tabs are built once and kept, so without this the list a tab switch shows is whatever
+    // was true when the page loaded, and only a browser refresh corrected it.
+    private void OnSitesChanged()
+    {
+        _ = InvokeAsync(async () =>
+        {
+            try
+            {
+                _multiSiteEnabled = await SiteManagement.IsMultiSiteEnabledAsync();
+                _sites = await SiteManagement.GetSitesAsync();
+                await ReloadAsync();
+                StateHasChanged();
+            }
+            catch (ObjectDisposedException)
+            {
+                // Circuit torn down between the event and the dispatch - nothing to update.
+            }
+        });
+    }
+
+    public void Dispose()
+    {
+        ChangeNotifier.SitesChanged -= OnSitesChanged;
     }
 }

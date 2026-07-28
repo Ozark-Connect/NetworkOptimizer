@@ -1,5 +1,9 @@
 @inject NavigationManager NavigationManager
 @inject NetworkOptimizer.Web.Services.ISiteManagementService SiteManagement
+@inject NetworkOptimizer.Web.Services.Authorization.ISiteAccessFilter SiteAccess
+@inject NetworkOptimizer.Web.Services.Authorization.IEffectiveSiteRoleResolver SiteRoles
+@inject NetworkOptimizer.Web.Services.SiteRegistryChangeNotifier ChangeNotifier
+@inject AuthenticationStateProvider AuthStateProvider
 @implements IDisposable
 
 <nav class="nav-menu">
@@ -10,7 +14,7 @@
                 <span class="nav-text">Dashboard</span>
             </NavLink>
         </li>
-        @if (_multiSiteEnabled)
+        @if (_showSites)
         {
             <li class="nav-item" @onclick="HandleNavClick">
                 <NavLink class="nav-link" href="/sites">
@@ -147,11 +151,60 @@
     [Parameter]
     public Action? OnNavigate { get; set; }
 
-    private bool _multiSiteEnabled;
+    private bool _showSites;
 
     protected override async Task OnInitializedAsync()
     {
-        _multiSiteEnabled = await SiteManagement.IsMultiSiteEnabledAsync();
+        ChangeNotifier.SitesChanged += OnSitesChanged;
+        await LoadSitesVisibilityAsync();
+    }
+
+    /// <summary>
+    /// Sites earns its place only when there is a choice to make or something to manage. One site and
+    /// nothing to administer means the page lists the site you are already on and offers nothing, so
+    /// it reads as clutter to exactly the accounts least equipped to make sense of it.
+    ///
+    /// The two carve-outs are what stop this hiding the page from the people who need it most: a
+    /// global Admin sees it at one site because adding the second one happens there, and a Site Admin
+    /// sees it because that is where their own site's configuration and access live.
+    /// </summary>
+    private async Task LoadSitesVisibilityAsync()
+    {
+        if (!await SiteManagement.IsMultiSiteEnabledAsync())
+        {
+            _showSites = false;
+            return;
+        }
+
+        var reachable = await SiteAccess.FilterAsync(
+            (await SiteManagement.GetSitesAsync()).Where(s => s.Enabled), s => s.Slug);
+        if (reachable.Count > 1)
+        {
+            _showSites = true;
+            return;
+        }
+
+        var user = (await AuthStateProvider.GetAuthenticationStateAsync()).User;
+        _showSites = user.IsInRole(NetworkOptimizer.Storage.Models.Identity.Roles.Admin)
+            || await SiteRoles.FirstAdministeredSlugAsync(user) is not null;
+    }
+
+    // Raised from whichever circuit changed the registry (create, rename, enable/disable, remove,
+    // multi-site toggle), same as the site switcher - the nav has to follow the same list it does.
+    private void OnSitesChanged()
+    {
+        _ = InvokeAsync(async () =>
+        {
+            try
+            {
+                await LoadSitesVisibilityAsync();
+                StateHasChanged();
+            }
+            catch (ObjectDisposedException)
+            {
+                // Circuit torn down between the event and the dispatch - nothing to update.
+            }
+        });
     }
 
     private void HandleNavClick()
@@ -161,6 +214,6 @@
 
     public void Dispose()
     {
-        // No cleanup needed
+        ChangeNotifier.SitesChanged -= OnSitesChanged;
     }
 }
