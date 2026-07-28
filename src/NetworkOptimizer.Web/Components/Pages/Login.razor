@@ -111,6 +111,38 @@
     })();
 </script>
 
+@* The provider buttons are links sitting outside the sign-in form, so the Keep me signed in checkbox
+   is never submitted with them - a federated sign-in had no way to know what the user chose. Put the
+   answer on the URL at click time; the challenge endpoint carries it across the trip to the IdP.
+   Absent means no, so a browser that never runs this behaves exactly as it did before. *@
+<script suppress-error="BL9992">
+    (function () {
+        function bind() {
+            var links = document.querySelectorAll('a[data-federation]');
+            for (var i = 0; i < links.length; i++) {
+                var link = links[i];
+                if (link.dataset.rememberBound) continue;
+                link.dataset.rememberBound = 'true';
+                link.addEventListener('click', function (e) {
+                    e.preventDefault();
+                    var box = document.querySelector('input[name="rememberMe"]');
+                    var url = new URL(this.getAttribute('href'), window.location.origin);
+                    url.searchParams.set('rememberMe', box && box.checked ? 'true' : 'false');
+                    window.location.href = url.toString();
+                });
+            }
+        }
+        bind();
+        document.addEventListener('DOMContentLoaded', bind);
+        if (window.Blazor) {
+            Blazor.addEventListener('enhancedload', bind);
+        }
+        else {
+            document.addEventListener('enhancedload', bind);
+        }
+    })();
+</script>
+
         @* Revealed by the passkey helper when the browser has no secure context. Rendered here rather
            than redirected to, because the browser knows before it asks the server - a round trip just
            to say this costs a page load and races the error-stripping script. *@
@@ -133,7 +165,7 @@
                     var href = p.Type == FederationProviderType.Saml
                         ? $"/login/saml/{p.Scheme}"
                         : $"/login/external/{p.Scheme}";
-                    <a class="btn btn-secondary login-btn" href="@href">@p.ButtonLabel</a>
+                    <a class="btn btn-secondary login-btn" href="@href" data-federation>@p.ButtonLabel</a>
                 }
             </div>
         }

@@ -19,7 +19,12 @@ public interface ISamlServiceProvider
     Task<string> BuildMetadataAsync(FederationProvider provider, HttpContext context);
 
     /// <summary>Builds the SP-initiated AuthnRequest redirect to the IdP.</summary>
-    Task<IResult> ChallengeAsync(FederationProvider provider, HttpContext context, string returnUrl);
+    /// <param name="rememberMe">
+    /// The Keep me signed in choice, carried to the ACS in RelayState so a SAML sign-in honours it the
+    /// same way a local one does.
+    /// </param>
+    Task<IResult> ChallengeAsync(
+        FederationProvider provider, HttpContext context, string returnUrl, bool rememberMe);
 
     /// <summary>Validates an ACS response (signature, conditions, replay) and returns the asserted claims principal.</summary>
     Task<ClaimsPrincipal?> HandleAssertionAsync(FederationProvider provider, HttpContext context);
@@ -121,7 +126,8 @@ public sealed class SamlServiceProvider : ISamlServiceProvider
         return entityDescriptor.ToXmlDocument().OuterXml;
     }
 
-    public async Task<IResult> ChallengeAsync(FederationProvider provider, HttpContext context, string returnUrl)
+    public async Task<IResult> ChallengeAsync(
+        FederationProvider provider, HttpContext context, string returnUrl, bool rememberMe)
     {
         var config = await BuildConfigAsync(provider, context);
         if (config.SingleSignOnDestination is null)
@@ -129,7 +135,10 @@ public sealed class SamlServiceProvider : ISamlServiceProvider
 
         var request = new Saml2AuthnRequest(config);
         var binding = new Saml2RedirectBinding();
-        binding.SetRelayStateQuery(new Dictionary<string, string> { { "returnUrl", returnUrl } });
+        var relayState = new Dictionary<string, string> { { "returnUrl", returnUrl } };
+        if (rememberMe)
+            relayState["rm"] = "true";
+        binding.SetRelayStateQuery(relayState);
         binding.Bind(request);
 
         RememberRequest(context, provider, request.IdAsString);

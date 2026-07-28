@@ -1,4 +1,5 @@
 ﻿using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.WebUtilities;
 using NetworkOptimizer.Storage.Models.Identity;
 using NetworkOptimizer.Web.Services.Identity;
 
@@ -30,7 +31,8 @@ public static class SamlEndpoints
         {
             var provider = await SamlProviderAsync(providers, scheme);
             if (provider is null || !provider.Enabled) return Results.Redirect("/login?error=provider_disabled");
-            return await saml.ChallengeAsync(provider, ctx, returnUrl: "/");
+            return await saml.ChallengeAsync(
+                provider, ctx, returnUrl: "/", rememberMe: FederationEndpoints.RememberMeRequested(ctx));
         })
             .AllowAnonymous();
 
@@ -44,13 +46,15 @@ public static class SamlEndpoints
 
             // IdP-initiated responses are refused unless explicitly opted in (unsolicited-response risk).
             // SP-initiated flows carry RelayState; its absence signals an unsolicited (IdP-initiated) POST.
-            if (!provider.AllowIdpInitiated && string.IsNullOrEmpty(ctx.Request.Form["RelayState"]))
+            var relayState = ctx.Request.Form["RelayState"].ToString();
+            if (!provider.AllowIdpInitiated && string.IsNullOrEmpty(relayState))
                 return Results.Redirect("/login?error=saml_unsolicited");
 
             var principal = await saml.HandleAssertionAsync(provider, ctx);
             if (principal is null) return Results.Redirect("/login?error=saml_invalid");
 
-            var outcome = await externalLogin.ProcessAsync(provider, principal);
+            var rememberMe = RememberMeFromRelayState(relayState);
+            var outcome = await externalLogin.ProcessAsync(provider, principal, rememberMe);
             return outcome switch
             {
                 ExternalLoginOutcome.SignedIn => Results.Redirect("/"),
@@ -60,13 +64,25 @@ public static class SamlEndpoints
                 ExternalLoginOutcome.RequiresMfaEnrollment => Results.Redirect("/account/security?setup=required"),
                 ExternalLoginOutcome.RequiresPasskeySignIn => Results.Redirect("/login?error=use_passkey"),
                 // The pending two-factor state is set, so the existing code entry page completes it.
-                ExternalLoginOutcome.RequiresTwoFactor => Results.Redirect("/login/2fa?returnUrl=%2F"),
+                ExternalLoginOutcome.RequiresTwoFactor
+                    => Results.Redirect(FederationEndpoints.TwoFactorPath(rememberMe)),
                 ExternalLoginOutcome.RequiresLocalMfa => Results.Redirect("/login?error=mfa_local_required"),
                 _ => Results.Redirect("/login?error=no_account"),
             };
         })
             .AllowAnonymous();
     }
+
+    /// <summary>
+    /// Recovers the Keep me signed in choice from RelayState, where the SP-initiated challenge put it.
+    /// The IdP echoes RelayState back verbatim, so this is influenceable by whoever controls the
+    /// response - it decides only how long a cookie that sign-in has already earned lasts, never
+    /// whether one is issued.
+    /// </summary>
+    private static bool RememberMeFromRelayState(string relayState)
+        => !string.IsNullOrEmpty(relayState)
+            && QueryHelpers.ParseNullableQuery(relayState)?.TryGetValue("rm", out var rm) == true
+            && rm.ToString() == "true";
 
     private static async Task<FederationProvider?> SamlProviderAsync(IFederationProviderService providers, string scheme)
     {
