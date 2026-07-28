@@ -1,4 +1,4 @@
-using ApexCharts;
+﻿using ApexCharts;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Mvc.ViewFeatures;
 using Microsoft.AspNetCore.StaticFiles;
@@ -250,6 +250,7 @@ builder.Services.AddSingleton<AgentIperf3Service>();
 builder.Services.AddSingleton<AgentUwnService>();
 builder.Services.AddSingleton<AgentProbeService>();
 builder.Services.AddSingleton<AgentSnmpQueryService>();
+builder.Services.AddSingleton<CanonicalBaseUrlProvider>();
 builder.Services.AddSingleton<AgentServerUrlProvider>();
 
 // Register repository pattern (scoped - same lifetime as DbContext)
@@ -1179,17 +1180,11 @@ if (!app.Environment.IsDevelopment())
 // Host enforcement: redirect to canonical host if configured
 // Only REVERSE_PROXIED_HOST_NAME or HOST_NAME trigger redirects
 // HOST_IP alone does NOT redirect (allows users to access via any hostname)
-var canonicalHost = builder.Configuration["REVERSE_PROXIED_HOST_NAME"];
-var canonicalScheme = "https";
-var canonicalPort = (string?)null; // No port for reverse proxy (443 implied)
-
-if (string.IsNullOrEmpty(canonicalHost))
-{
-    canonicalHost = builder.Configuration["HOST_NAME"];
-    canonicalScheme = "http";
-    canonicalPort = "8042";
-}
-// Note: HOST_IP intentionally NOT used for redirects
+// The two tiers, and the HOST_IP exclusion, now live in CanonicalBaseUrlProvider so that anything
+// needing this install's external address agrees with this redirect - OIDC's redirect_uri being the
+// case that found the gap.
+var canonicalBase = app.Services.GetRequiredService<CanonicalBaseUrlProvider>();
+var canonicalHost = canonicalBase.Url is null ? null : new Uri(canonicalBase.Url).Host;
 
 if (!string.IsNullOrEmpty(canonicalHost))
 {
@@ -1216,8 +1211,7 @@ if (!string.IsNullOrEmpty(canonicalHost))
         if (!string.Equals(requestHost, canonicalHost, StringComparison.OrdinalIgnoreCase))
         {
             // Build redirect URL
-            var port = canonicalPort != null ? $":{canonicalPort}" : "";
-            var redirectUrl = $"{canonicalScheme}://{canonicalHost}{port}{context.Request.Path}{context.Request.QueryString}";
+            var redirectUrl = $"{canonicalBase.Url}{context.Request.Path}{context.Request.QueryString}";
 
             // 302 redirect (not 301 to avoid browser caching)
             context.Response.Redirect(redirectUrl, permanent: false);
