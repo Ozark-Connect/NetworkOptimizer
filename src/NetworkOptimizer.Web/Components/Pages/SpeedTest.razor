@@ -678,7 +678,7 @@
                         </div>
 
                         <div class="form-group">
-                            <label class="form-label @InheritedLabel(DeviceUsernameOverridden)">SSH Username@(UsingGlobal(DeviceUsernameOverridden))</label>
+                            <label class="form-label @InheritedLabel(DeviceUsernameOverridden)">SSH Username</label>
                             <input type="text" class="form-control" autocomplete="off" @bind="editingDevice.SshUsername" placeholder="(using global setting)" />
                         </div>
 
@@ -692,7 +692,7 @@
 
                         <AdminOnly>
                             <div class="form-group">
-                                <label class="form-label @InheritedLabel(DeviceKeyPathOverridden)">SSH Private Key Path@(UsingGlobal(DeviceKeyPathOverridden))</label>
+                                <label class="form-label @InheritedLabel(DeviceKeyPathOverridden)">SSH Private Key Path</label>
                                 <input type="text" class="form-control" @bind="editingDevice.SshPrivateKeyPath" placeholder="(using global setting)" />
                                 <span class="form-help">Path to private key file on the server (e.g., /app/ssh-keys/id_rsa). Leave blank to use password authentication.</span>
                             </div>
@@ -1543,17 +1543,16 @@
     /// </summary>
     private bool DevicePasswordInPlay => DevicePasswordOverridden && _sshKey is null;
 
-    private string DevicePasswordNote =>
-        _sshKey is not null ? " (Not in use)"
-        : DevicePasswordOverridden ? ""
-        : " (Using global setting)";
+    private string DevicePasswordNote => _sshKey is not null ? " (Not in use)" : "";
 
     private bool DeviceKeyPathOverridden => !string.IsNullOrWhiteSpace(editingDevice?.SshPrivateKeyPath);
 
-    /// <summary>Dims the header of a field that is inheriting rather than overriding.</summary>
+    /// <summary>
+    /// Dims the header of a field that is inheriting rather than overriding. No wording with it - the
+    /// placeholder already says "(using global setting)" in the field itself.
+    /// </summary>
     private static string InheritedLabel(bool overridden) => overridden ? "" : "form-label-unused";
 
-    private static string UsingGlobal(bool overridden) => overridden ? "" : " (Using global setting)";
 
     /// <summary>The site's stored SSH key, shown on the per-device override form. Null when it has none.</summary>
     private SshKeyInfo? _sshKey;
