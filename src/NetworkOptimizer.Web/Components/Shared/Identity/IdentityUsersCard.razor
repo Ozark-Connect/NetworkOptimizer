@@ -7,6 +7,8 @@
 @inject ISiteManagementService SiteManagement
 @inject IAuthPolicyOptions AuthPolicy
 @inject SiteContextService SiteContext
+@inject NetworkOptimizer.Web.Services.SiteRegistryChangeNotifier ChangeNotifier
+@implements IDisposable
 @inject Microsoft.Extensions.Options.IOptions<Microsoft.AspNetCore.Identity.IdentityOptions> IdentityOptions
 
 @* Settings - Identity: the instance-wide account list. Create, enable/disable, delete, change role,
@@ -361,6 +363,7 @@
 
     protected override async Task OnInitializedAsync()
     {
+        ChangeNotifier.SitesChanged += OnSitesChanged;
         _multiSiteEnabled = await SiteManagement.IsMultiSiteEnabledAsync();
         _siteRestrictionActive = await AuthPolicy.IsRestrictSitesToMembersAsync();
         _sites = await SiteManagement.GetSitesAsync();
@@ -633,5 +636,32 @@
     {
         _message = message;
         _messageClass = cssClass;
+    }
+
+    // Whether an account holds any grant at all is what the no-access badge reports, and a grant can
+    // be made from the Access card beside this one or from the Multi-Site site table. A membership
+    // change raises the same broadcast the site registry does, so following it covers every route in
+    // without this card having to know which one was taken.
+    private void OnSitesChanged()
+    {
+        _ = InvokeAsync(async () =>
+        {
+            try
+            {
+                _multiSiteEnabled = await SiteManagement.IsMultiSiteEnabledAsync();
+                _sites = await SiteManagement.GetSitesAsync();
+                await ReloadAsync();
+                StateHasChanged();
+            }
+            catch (ObjectDisposedException)
+            {
+                // Circuit torn down between the event and the dispatch - nothing to update.
+            }
+        });
+    }
+
+    public void Dispose()
+    {
+        ChangeNotifier.SitesChanged -= OnSitesChanged;
     }
 }
