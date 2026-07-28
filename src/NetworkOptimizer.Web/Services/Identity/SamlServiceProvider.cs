@@ -1,4 +1,4 @@
-using System.Security.Claims;
+﻿using System.Security.Claims;
 using System.Security.Cryptography.X509Certificates;
 using ITfoxtec.Identity.Saml2;
 using ITfoxtec.Identity.Saml2.MvcCore;
@@ -115,6 +115,49 @@ public sealed class SamlServiceProvider : ISamlServiceProvider
     }
 
 
+
+    /// <summary>
+    /// Describes the response's shape at Debug so a parse failure inside the library can be traced to
+    /// what was actually sent. Element names, the status code and the issuer only - never the assertion
+    /// itself, which carries the subject's identity.
+    /// </summary>
+    private void LogResponseShape(FederationProvider provider, string samlResponseBase64)
+    {
+        try
+        {
+            var xml = System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(samlResponseBase64));
+            var doc = System.Xml.Linq.XDocument.Parse(xml);
+            var root = doc.Root;
+            if (root is null)
+                return;
+
+            const string Protocol = "urn:oasis:names:tc:SAML:2.0:protocol";
+            const string Assertion = "urn:oasis:names:tc:SAML:2.0:assertion";
+
+            var status = root.Element(System.Xml.Linq.XName.Get("Status", Protocol))
+                ?.Element(System.Xml.Linq.XName.Get("StatusCode", Protocol))
+                ?.Attribute("Value")?.Value;
+
+            _logger.LogDebug(
+                "SAML response for {Provider}: root <{Root}>, issuer {Issuer}, status {Status}, "
+                + "destination {Destination}, inResponseTo {InResponseTo}, assertion {HasAssertion}, "
+                + "encrypted {HasEncrypted}, signature {HasSignature}",
+                provider.DisplayName,
+                root.Name.LocalName,
+                root.Element(System.Xml.Linq.XName.Get("Issuer", Assertion))?.Value ?? "(none)",
+                status ?? "(none)",
+                root.Attribute("Destination")?.Value ?? "(none)",
+                root.Attribute("InResponseTo")?.Value ?? "(none)",
+                root.Element(System.Xml.Linq.XName.Get("Assertion", Assertion)) is not null,
+                root.Element(System.Xml.Linq.XName.Get("EncryptedAssertion", Assertion)) is not null,
+                root.Elements().Any(e => e.Name.LocalName == "Signature"));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not describe the SAML response shape for {Provider}.", provider.DisplayName);
+        }
+    }
+
     /// <summary>
     /// Correlation cookie name for a provider. One per provider so two IdPs in flight at once do not
     /// clobber each other.
@@ -205,6 +248,8 @@ public sealed class SamlServiceProvider : ISamlServiceProvider
                     provider.DisplayName, string.Join(", ", form.Keys));
                 return null;
             }
+
+            LogResponseShape(provider, form["SAMLResponse"]!);
 
             var genericRequest = await context.Request.ToGenericHttpRequestAsync(readBodyAsString: true);
             var binding = new Saml2PostBinding();
