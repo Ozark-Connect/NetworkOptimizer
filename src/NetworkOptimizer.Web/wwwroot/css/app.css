@@ -7319,6 +7319,38 @@ a.path-hop.hop-clickable:hover {
     gap: 1rem;
 }
 
+/* The sign-in-method buttons follow .login-divider, which is already a rule. */
+.login-footer-undivided {
+    padding-top: 0;
+    border-top: none;
+}
+
+.login-divider {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-top: 1.5rem;
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+}
+
+.login-divider::before,
+.login-divider::after {
+    content: "";
+    flex: 1;
+    min-width: 0;
+    height: 1px;
+    background: var(--border-color);
+}
+
+.login-divider-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
 /* The provider buttons are anchors, so the global a:hover recoloured their text blue on hover while
    the passkey <button> beside them kept the button colour. They are buttons here, not links. */
 .login-footer a.btn:hover {

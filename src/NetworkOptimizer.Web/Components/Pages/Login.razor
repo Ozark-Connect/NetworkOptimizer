@@ -51,13 +51,6 @@
                        class="form-control" placeholder="Enter your password" autocomplete="current-password" />
             </div>
 
-            @* Without this the cookie is session-scoped whatever ExpireTimeSpan says, so the
-               fourteen-day lifetime never applied and the browser discarded the cookie on close.
-               Same treatment as Remember this device on the second-factor form. *@
-            <label class="remember-device">
-                <input type="checkbox" name="rememberMe" value="true" checked /> Keep me signed in
-            </label>
-
             <button type="submit" class="btn btn-primary login-btn">
                 <span>Sign In</span>
             </button>
@@ -84,6 +77,20 @@
             {
                 <div class="alert alert-info">@PromptText</div>
             }
+
+            @* Without this the cookie is session-scoped whatever ExpireTimeSpan says, so the
+               fourteen-day lifetime never applied and the browser discarded the cookie on close.
+               Same treatment as Remember this device on the second-factor form.
+
+               It sits on the rule between the form and the provider buttons because it governs both,
+               which reading it inside the password block did not convey. It stays inside the form
+               regardless - moved out, the password post stops carrying it. *@
+            <div class="login-divider">
+                <label class="login-divider-label">
+                    <input type="checkbox" name="rememberMe" value="true" checked /> Keep me signed in
+                </label>
+                <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Applies to every sign-in method">?</span>
+            </div>
         </form>
 
 
@@ -120,7 +127,7 @@
 
         @if (_providers.Count > 0 || _showPasskey)
         {
-            <div class="login-footer">
+            <div class="login-footer login-footer-undivided">
                 @if (_showPasskey)
                 {
                     <button type="button" class="btn @(_needsPasskey ? "btn-primary" : "btn-secondary") login-btn"
