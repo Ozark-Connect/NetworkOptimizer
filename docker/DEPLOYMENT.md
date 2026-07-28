@@ -870,7 +870,7 @@ chmod 700 data/
 
 ### Credential encryption key
 
-Network Optimizer encrypts stored secrets (UniFi credentials, gateway SSH passwords, alert-channel secrets) at rest with a per-install key. By default that key lives in the data directory next to the database (`data/.credential_key`), so **a copy of the data volume - including any backup - can decrypt everything.** Treat the data volume accordingly: back it up encrypted, restrict access, and don't sync it to plain cloud storage.
+Network Optimizer encrypts stored secrets (UniFi credentials, gateway SSH passwords and private keys, alert-channel secrets, and identity-provider client secrets) at rest with a per-install key. By default that key lives in the data directory next to the database (`data/.credential_key`), so **a copy of the data volume - including any backup - can decrypt everything.** Treat the data volume accordingly: back it up encrypted, restrict access, and don't sync it to plain cloud storage.
 
 To keep the key off the data volume, point `NO_CREDENTIAL_KEY_FILE` at a path outside it - most cleanly a Docker secret:
 
