@@ -45,11 +45,12 @@ public sealed class CallerContextMiddleware
 /// available to a live circuit and are left null; audit records what it has. On an install with
 /// authentication disabled the circuit runs as the local no-auth caller.
 /// </summary>
-public sealed class CallerContextCircuitHandler : CircuitHandler
+public sealed class CallerContextCircuitHandler : CircuitHandler, IDisposable
 {
     private readonly ICallerContext _caller;
     private readonly AuthenticationStateProvider _authState;
     private readonly IAdminAuthService _adminAuth;
+    private string? _circuitId;
 
     public CallerContextCircuitHandler(
         ICallerContext caller,
@@ -59,16 +60,50 @@ public sealed class CallerContextCircuitHandler : CircuitHandler
         _caller = caller;
         _authState = authState;
         _adminAuth = adminAuth;
+        _authState.AuthenticationStateChanged += OnAuthenticationStateChanged;
     }
 
     public override async Task OnCircuitOpenedAsync(Circuit circuit, CancellationToken cancellationToken)
     {
-        var state = await _authState.GetAuthenticationStateAsync();
-        if (state.User.Identity?.IsAuthenticated == true)
-            _caller.SetUser(CallerInfo.ForUser(state.User, sourceIp: null, userAgent: null, correlationId: circuit.Id));
-        else if (!await _adminAuth.IsAuthenticationRequiredAsync(cancellationToken))
-            _caller.SetUser(CallerInfo.LocalNoAuth(sourceIp: null, userAgent: null, correlationId: circuit.Id));
-        else
-            _caller.SetUser(CallerInfo.Anonymous(state.User, sourceIp: null, userAgent: null, correlationId: circuit.Id));
+        _circuitId = circuit.Id;
+        await CaptureAsync(await _authState.GetAuthenticationStateAsync(), cancellationToken);
     }
+
+    /// <summary>
+    /// Re-captures the snapshot whenever the circuit's authentication state moves.
+    ///
+    /// The capture used to happen only at OnCircuitOpenedAsync, which was correct for every case that
+    /// ends the circuit - a disabled account is anonymized server-side and the page unmounts. It was
+    /// not correct for the one case that does NOT: the revalidating provider anonymizes a circuit
+    /// whose refresh the client never carried out, and without this the interceptor went on
+    /// authorizing from the principal captured when the tab opened, roles and all. The gate has to see
+    /// the same user the rest of the circuit does.
+    /// </summary>
+    private void OnAuthenticationStateChanged(Task<AuthenticationState> task)
+    {
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await CaptureAsync(await task, CancellationToken.None);
+            }
+            catch
+            {
+                // A circuit torn down mid-flight is the ordinary way this ends; the snapshot dies with
+                // it. Swallowing here keeps a disposed scope from surfacing as an unhandled exception.
+            }
+        });
+    }
+
+    private async Task CaptureAsync(AuthenticationState state, CancellationToken cancellationToken)
+    {
+        if (state.User.Identity?.IsAuthenticated == true)
+            _caller.SetUser(CallerInfo.ForUser(state.User, sourceIp: null, userAgent: null, correlationId: _circuitId));
+        else if (!await _adminAuth.IsAuthenticationRequiredAsync(cancellationToken))
+            _caller.SetUser(CallerInfo.LocalNoAuth(sourceIp: null, userAgent: null, correlationId: _circuitId));
+        else
+            _caller.SetUser(CallerInfo.Anonymous(state.User, sourceIp: null, userAgent: null, correlationId: _circuitId));
+    }
+
+    public void Dispose() => _authState.AuthenticationStateChanged -= OnAuthenticationStateChanged;
 }

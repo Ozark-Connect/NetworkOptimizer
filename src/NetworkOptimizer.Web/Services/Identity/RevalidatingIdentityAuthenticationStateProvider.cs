@@ -24,6 +24,14 @@ public sealed class RevalidatingIdentityAuthenticationStateProvider
     private readonly IdentityOptions _options;
     private readonly NavigationManager _navigation;
 
+    /// <summary>
+    /// True once a membership refresh has been asked for and not yet taken effect. One circuit, one
+    /// chance: see the same mismatch on the next tick and the refresh is not being carried out.
+    /// </summary>
+    private bool _membershipRefreshAsked;
+
+    private readonly ILogger<RevalidatingIdentityAuthenticationStateProvider> _logger;
+
     public RevalidatingIdentityAuthenticationStateProvider(
         ILoggerFactory loggerFactory,
         IServiceScopeFactory scopeFactory,
@@ -34,6 +42,7 @@ public sealed class RevalidatingIdentityAuthenticationStateProvider
         _scopeFactory = scopeFactory;
         _options = optionsAccessor.Value;
         _navigation = navigation;
+        _logger = loggerFactory.CreateLogger<RevalidatingIdentityAuthenticationStateProvider>();
     }
 
     /// <summary>Worst-case staleness for a live circuit (design doc 02: ~5 min, configurable).</summary>
@@ -85,9 +94,33 @@ public sealed class RevalidatingIdentityAuthenticationStateProvider
         if (principalMembership is not null &&
             principalMembership != user.MembershipVersion.ToString())
         {
+            // ...but only once. The refresh above is a navigation the CLIENT has to carry out, so on
+            // its own it is a request, not enforcement: a client that drops the command keeps a live
+            // circuit whose captured principal still carries the old roles, and every later tick took
+            // this same return-true path, so nothing ever caught up with it. A demoted Admin could
+            // hold Admin indefinitely that way. An honest client completes the navigation, which ends
+            // this circuit, so it never reaches a second tick still mismatched - seeing the SAME
+            // mismatch twice running means the refresh is not happening, and then the session is
+            // dropped rather than asked again. A tab that merely failed to navigate (throttled in the
+            // background, say) recovers with a reload.
+            if (_membershipRefreshAsked)
+            {
+                _logger?.LogWarning(
+                    "Circuit for {User} still reports membership version {Stale} after a refresh was "
+                    + "issued; ending the session rather than asking again.",
+                    user.UserName, principalMembership);
+                return false;
+            }
+
+            _membershipRefreshAsked = true;
             var returnUrl = "/" + _navigation.ToBaseRelativePath(_navigation.Uri);
             _navigation.NavigateTo(
                 $"/api/account/session?returnUrl={Uri.EscapeDataString(returnUrl)}", forceLoad: true);
+        }
+        else
+        {
+            // Back in step - either the refresh landed or the change was reverted.
+            _membershipRefreshAsked = false;
         }
 
         return true;
