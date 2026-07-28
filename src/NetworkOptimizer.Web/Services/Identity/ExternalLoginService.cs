@@ -102,12 +102,27 @@ public sealed class ExternalLoginService : IExternalLoginService
                 return ExternalLoginOutcome.Disabled;
             }
 
-            if (provider.RoleMappingMode == RoleMappingMode.IdpAuthoritative)
-                await ResyncMappingsAsync(provider, existing, external);
+            // Worked out before the second-factor check and applied only after it passes. The check
+            // has to see the roles this login WILL hold - a resync that raises someone into a role
+            // demanding MFA must demand it on this very login, not the next one - while a refusal has
+            // to leave the store as it found it. Resyncing first did the opposite on both counts: the
+            // check read the pre-resync roles, and a refused login kept the role it had just written.
+            var resyncRoles = provider.RoleMappingMode == RoleMappingMode.IdpAuthoritative
+                ? ComputeResyncRoles(provider, external)
+                : null;
 
-            var unmet = await SecondFactorUnmetAsync(provider, existing, external, subject, rememberMe);
+            // The union, deliberately: a role being removed still counts until it is actually gone
+            // (and the last-admin rule can keep it), so the stricter of the two answers wins.
+            var effectiveRoles = (await _userManager.GetRolesAsync(existing)).ToHashSet();
+            if (resyncRoles is not null)
+                effectiveRoles.UnionWith(resyncRoles);
+
+            var unmet = await SecondFactorUnmetAsync(provider, existing, external, subject, rememberMe, effectiveRoles);
             if (unmet is not null)
                 return unmet.Value;
+
+            if (resyncRoles is not null)
+                await ApplyResyncAsync(provider, existing, external, resyncRoles);
 
             await SignInAsync(existing, provider, rememberMe);
             return ExternalLoginOutcome.SignedIn;
@@ -126,8 +141,10 @@ public sealed class ExternalLoginService : IExternalLoginService
 
         // Applies to a just-created account too: JIT can land someone straight into a role that
         // requires a second factor, and skipping the check here would make provisioning the way round
-        // it.
-        var unmetForNew = await SecondFactorUnmetAsync(provider, created, external, subject, rememberMe);
+        // it. Its mappings are already written, so the stored roles ARE the effective ones - and an
+        // account that cannot sign in yet grants nothing by existing.
+        var unmetForNew = await SecondFactorUnmetAsync(
+            provider, created, external, subject, rememberMe, await _userManager.GetRolesAsync(created));
         if (unmetForNew is not null)
             return unmetForNew.Value;
 
@@ -213,19 +230,30 @@ public sealed class ExternalLoginService : IExternalLoginService
     }
 
     /// <summary>
-    /// IdP-authoritative resync at every login: recompute roles from claims. The last-admin invariant
-    /// is never violated - a demotion that would remove the final Admin is skipped and audited.
+    /// The roles an IdP-authoritative resync would land the user on, computed from the claims alone
+    /// and writing nothing. Split out from <see cref="ApplyResyncAsync"/> so the second-factor check
+    /// can run against the roles the login is ABOUT to have and still leave the store untouched if it
+    /// refuses - resyncing first meant a refused login kept the role it had just been granted.
     /// </summary>
-    private async Task ResyncMappingsAsync(FederationProvider provider, ApplicationUser user, ClaimsPrincipal external)
+    private HashSet<string> ComputeResyncRoles(FederationProvider provider, ClaimsPrincipal external)
     {
         var groups = GroupValues(external, provider.GroupsClaim);
-        var desiredRoles = provider.RoleMappings
+        return provider.RoleMappings
             .Where(m => groups.Contains(m.GroupOrClaimValue))
             .Select(m => m.GlobalRole)
             .Where(r => Roles.All.Contains(r))
             .Distinct()
             .ToHashSet();
+    }
 
+    /// <summary>
+    /// IdP-authoritative resync at every login: apply the roles <see cref="ComputeResyncRoles"/>
+    /// worked out. The last-admin invariant is never violated - a demotion that would remove the
+    /// final Admin is skipped and audited.
+    /// </summary>
+    private async Task ApplyResyncAsync(
+        FederationProvider provider, ApplicationUser user, ClaimsPrincipal external, HashSet<string> desiredRoles)
+    {
         var currentRoles = (await _userManager.GetRolesAsync(user)).ToHashSet();
 
         foreach (var add in desiredRoles.Except(currentRoles))
@@ -266,9 +294,9 @@ public sealed class ExternalLoginService : IExternalLoginService
     /// </summary>
     private async Task<ExternalLoginOutcome?> SecondFactorUnmetAsync(
         FederationProvider provider, ApplicationUser user, ClaimsPrincipal external, string subject,
-        bool rememberMe)
+        bool rememberMe, IEnumerable<string> effectiveRoles)
     {
-        if (!await _mfa.RoleRequiresMfaAsync(user))
+        if (!await _mfa.AnyRoleRequiresMfaAsync(effectiveRoles))
             return null;
 
         if (provider.TrustIdpMfa && IdpAssertedSecondFactor(external))

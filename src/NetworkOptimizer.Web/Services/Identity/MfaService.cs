@@ -31,6 +31,14 @@ public interface IMfaService
     /// <summary>Any of the user's global roles has <see cref="ApplicationRole.RequireMfa"/> set.</summary>
     Task<bool> RoleRequiresMfaAsync(ApplicationUser user);
 
+    /// <summary>
+    /// The same question asked of a role set rather than of a stored user, for a caller deciding
+    /// whether a sign-in may proceed BEFORE it writes the roles that sign-in would grant. Asking it
+    /// of the user would answer for the roles they hold now, which is the wrong set when an
+    /// IdP-authoritative resync is about to change them.
+    /// </summary>
+    Task<bool> AnyRoleRequiresMfaAsync(IEnumerable<string> roleNames);
+
     /// <summary>Begins TOTP enrollment: resets/returns the authenticator key and the otpauth URI for the QR.</summary>
     Task<AuthenticatorSetup> BeginEnrollmentAsync(ApplicationUser user);
 
@@ -107,9 +115,12 @@ public sealed class MfaService : IMfaService
             || (await _userManager.GetPasskeysAsync(user)).Count > 0;
 
     public async Task<bool> RoleRequiresMfaAsync(ApplicationUser user)
+        => await AnyRoleRequiresMfaAsync(await _userManager.GetRolesAsync(user));
+
+    /// <inheritdoc />
+    public async Task<bool> AnyRoleRequiresMfaAsync(IEnumerable<string> roleNames)
     {
-        var roles = await _userManager.GetRolesAsync(user);
-        foreach (var roleName in roles)
+        foreach (var roleName in roleNames)
         {
             var appRole = await _roleManager.FindByNameAsync(roleName);
             if (appRole?.RequireMfa == true)
