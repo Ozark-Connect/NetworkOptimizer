@@ -48,7 +48,13 @@ public enum ExternalLoginOutcome
 /// </summary>
 public interface IExternalLoginService
 {
-    Task<ExternalLoginOutcome> ProcessAsync(FederationProvider provider, ClaimsPrincipal external);
+    /// <param name="rememberMe">
+    /// The Keep me signed in choice made on the login page, carried across the round trip to the IdP
+    /// (in the external cookie's properties for OIDC, in RelayState for SAML). Without it every
+    /// federated sign-in issued a session-scoped cookie whatever the user asked for.
+    /// </param>
+    Task<ExternalLoginOutcome> ProcessAsync(
+        FederationProvider provider, ClaimsPrincipal external, bool rememberMe);
 }
 
 /// <inheritdoc />
@@ -75,7 +81,8 @@ public sealed class ExternalLoginService : IExternalLoginService
     }
 
     /// <inheritdoc />
-    public async Task<ExternalLoginOutcome> ProcessAsync(FederationProvider provider, ClaimsPrincipal external)
+    public async Task<ExternalLoginOutcome> ProcessAsync(
+        FederationProvider provider, ClaimsPrincipal external, bool rememberMe)
     {
         var subject = ClaimValue(external, provider.SubjectClaim, ClaimTypes.NameIdentifier, "sub");
         if (string.IsNullOrEmpty(subject))
@@ -98,11 +105,11 @@ public sealed class ExternalLoginService : IExternalLoginService
             if (provider.RoleMappingMode == RoleMappingMode.IdpAuthoritative)
                 await ResyncMappingsAsync(provider, existing, external);
 
-            var unmet = await SecondFactorUnmetAsync(provider, existing, external, subject);
+            var unmet = await SecondFactorUnmetAsync(provider, existing, external, subject, rememberMe);
             if (unmet is not null)
                 return unmet.Value;
 
-            await SignInAsync(existing, provider);
+            await SignInAsync(existing, provider, rememberMe);
             return ExternalLoginOutcome.SignedIn;
         }
 
@@ -120,11 +127,11 @@ public sealed class ExternalLoginService : IExternalLoginService
         // Applies to a just-created account too: JIT can land someone straight into a role that
         // requires a second factor, and skipping the check here would make provisioning the way round
         // it.
-        var unmetForNew = await SecondFactorUnmetAsync(provider, created, external, subject);
+        var unmetForNew = await SecondFactorUnmetAsync(provider, created, external, subject, rememberMe);
         if (unmetForNew is not null)
             return unmetForNew.Value;
 
-        await SignInAsync(created, provider);
+        await SignInAsync(created, provider, rememberMe);
         return ExternalLoginOutcome.SignedIn;
     }
 
@@ -258,7 +265,8 @@ public sealed class ExternalLoginService : IExternalLoginService
     /// first use; until now it was stored, shown in the UI, and read by nothing.
     /// </summary>
     private async Task<ExternalLoginOutcome?> SecondFactorUnmetAsync(
-        FederationProvider provider, ApplicationUser user, ClaimsPrincipal external, string subject)
+        FederationProvider provider, ApplicationUser user, ClaimsPrincipal external, string subject,
+        bool rememberMe)
     {
         if (!await _mfa.RoleRequiresMfaAsync(user))
             return null;
@@ -280,7 +288,7 @@ public sealed class ExternalLoginService : IExternalLoginService
         if (await _mfa.IsEnabledAsync(user))
         {
             var result = await _signInManager.ExternalLoginSignInAsync(
-                SchemeKey(provider), subject, isPersistent: false, bypassTwoFactor: false);
+                SchemeKey(provider), subject, isPersistent: rememberMe, bypassTwoFactor: false);
 
             if (result.RequiresTwoFactor)
             {
@@ -338,12 +346,12 @@ public sealed class ExternalLoginService : IExternalLoginService
                 || authnContext.Contains("TimeSyncToken", StringComparison.OrdinalIgnoreCase));
     }
 
-    private async Task SignInAsync(ApplicationUser user, FederationProvider provider)
+    private async Task SignInAsync(ApplicationUser user, FederationProvider provider, bool rememberMe)
     {
         user.LastLoginAt = DateTime.UtcNow;
         user.LastLoginMethod = SchemeKey(provider);
         await _userManager.UpdateAsync(user);
-        await _signInManager.SignInAsync(user, isPersistent: false, SchemeKey(provider));
+        await _signInManager.SignInAsync(user, isPersistent: rememberMe, SchemeKey(provider));
 
         _audit.Log(AuditEventBuilder.From(
             CallerInfo.System($"federation:{SchemeKey(provider)}") with { UserId = user.Id, ActorName = user.UserName ?? "" },

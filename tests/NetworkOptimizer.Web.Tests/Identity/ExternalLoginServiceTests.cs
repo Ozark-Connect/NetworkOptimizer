@@ -81,7 +81,7 @@ public sealed class ExternalLoginServiceTests : IDisposable
         var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
 
         var fed = Provider(roleMappings: ("netopt-ops", Roles.Operator));
-        var outcome = await svc.ProcessAsync(fed, External("okta|001", "alice", "alice@example.com", "netopt-ops"));
+        var outcome = await svc.ProcessAsync(fed, External("okta|001", "alice", "alice@example.com", "netopt-ops"), rememberMe: false);
 
         outcome.Should().Be(ExternalLoginOutcome.SignedIn);
         var user = await userManager.FindByLoginAsync("oidc:okta", "okta|001");
@@ -99,8 +99,8 @@ public sealed class ExternalLoginServiceTests : IDisposable
         var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
         var fed = Provider();
 
-        await svc.ProcessAsync(fed, External("okta|002", "bob"));
-        await svc.ProcessAsync(fed, External("okta|002", "bob-renamed-upstream"));
+        await svc.ProcessAsync(fed, External("okta|002", "bob"), rememberMe: false);
+        await svc.ProcessAsync(fed, External("okta|002", "bob-renamed-upstream"), rememberMe: false);
 
         userManager.Users.Count(u => u.UserName!.StartsWith("bob")).Should().Be(1, "the existing link is reused");
     }
@@ -113,7 +113,7 @@ public sealed class ExternalLoginServiceTests : IDisposable
         var svc = scope.ServiceProvider.GetRequiredService<IExternalLoginService>();
         var fed = Provider(jit: JitProvisioningMode.Off);
 
-        (await svc.ProcessAsync(fed, External("okta|003", "carol")))
+        (await svc.ProcessAsync(fed, External("okta|003", "carol"), rememberMe: false))
             .Should().Be(ExternalLoginOutcome.NoAccount);
     }
 
@@ -126,8 +126,8 @@ public sealed class ExternalLoginServiceTests : IDisposable
         var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
         var fed = Provider();
 
-        var o1 = await svc.ProcessAsync(fed, External("okta|100", "dave", "shared@example.com"));
-        var o2 = await svc.ProcessAsync(fed, External("okta|200", "dave", "shared@example.com"));
+        var o1 = await svc.ProcessAsync(fed, External("okta|100", "dave", "shared@example.com"), rememberMe: false);
+        var o2 = await svc.ProcessAsync(fed, External("okta|200", "dave", "shared@example.com"), rememberMe: false);
 
         o1.Should().Be(ExternalLoginOutcome.SignedIn);
         o2.Should().Be(ExternalLoginOutcome.SignedIn);
@@ -149,7 +149,7 @@ public sealed class ExternalLoginServiceTests : IDisposable
 
         // Provision a federated user as Admin, then re-login with no admin group under authoritative mode.
         var fedGrant = Provider(mode: RoleMappingMode.IdpAuthoritative, roleMappings: ("admins", Roles.Admin));
-        await svc.ProcessAsync(fedGrant, External("okta|900", "erin", groups: "admins"));
+        await svc.ProcessAsync(fedGrant, External("okta|900", "erin", groups: "admins"), rememberMe: false);
         var erin = await userManager.FindByLoginAsync("oidc:okta", "okta|900");
 
         // Remove the seeded local admin so erin is the ONLY enabled Admin.
@@ -157,10 +157,31 @@ public sealed class ExternalLoginServiceTests : IDisposable
         if (seededAdmin is not null) { seededAdmin.IsEnabled = false; await userManager.UpdateAsync(seededAdmin); }
 
         var fedRevoke = Provider(mode: RoleMappingMode.IdpAuthoritative, roleMappings: ("admins", Roles.Admin));
-        await svc.ProcessAsync(fedRevoke, External("okta|900", "erin")); // no groups now
+        await svc.ProcessAsync(fedRevoke, External("okta|900", "erin"), rememberMe: false); // no groups now
 
         (await userManager.IsInRoleAsync(erin!, Roles.Admin))
             .Should().BeTrue("resync must not demote the last remaining Admin");
+    }
+
+    /// <summary>
+    /// Keep me signed in is chosen on the login page and acted on after the round trip to the IdP, so
+    /// the federated path has to carry it. It did not: every federated sign-in issued a session-scoped
+    /// cookie whatever the user asked for.
+    /// </summary>
+    [Fact]
+    public async Task RememberMe_DecidesFederatedCookiePersistence()
+    {
+        await using var provider = await BuildAsync();
+        using var scope = provider.CreateScope();
+        var svc = scope.ServiceProvider.GetRequiredService<IExternalLoginService>();
+        var auth = (NoOpAuthService)scope.ServiceProvider.GetRequiredService<IAuthenticationService>();
+        var fed = Provider();
+
+        await svc.ProcessAsync(fed, External("okta|300", "frank"), rememberMe: true);
+        auth.LastSignIn!.IsPersistent.Should().BeTrue();
+
+        await svc.ProcessAsync(fed, External("okta|301", "grace"), rememberMe: false);
+        auth.LastSignIn!.IsPersistent.Should().BeFalse();
     }
 
     private sealed class StaticHttpContextAccessor : IHttpContextAccessor
@@ -172,10 +193,17 @@ public sealed class ExternalLoginServiceTests : IDisposable
 
     private sealed class NoOpAuthService : IAuthenticationService
     {
+        /// <summary>The properties of the last cookie issued, so persistence can be asserted.</summary>
+        public AuthenticationProperties? LastSignIn { get; private set; }
+
         public Task<AuthenticateResult> AuthenticateAsync(HttpContext c, string? s) => Task.FromResult(AuthenticateResult.NoResult());
         public Task ChallengeAsync(HttpContext c, string? s, AuthenticationProperties? p) => Task.CompletedTask;
         public Task ForbidAsync(HttpContext c, string? s, AuthenticationProperties? p) => Task.CompletedTask;
-        public Task SignInAsync(HttpContext c, string? s, ClaimsPrincipal p, AuthenticationProperties? pr) => Task.CompletedTask;
+        public Task SignInAsync(HttpContext c, string? s, ClaimsPrincipal p, AuthenticationProperties? pr)
+        {
+            LastSignIn = pr;
+            return Task.CompletedTask;
+        }
         public Task SignOutAsync(HttpContext c, string? s, AuthenticationProperties? p) => Task.CompletedTask;
     }
 
