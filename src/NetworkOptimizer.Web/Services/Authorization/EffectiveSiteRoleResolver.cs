@@ -1,8 +1,6 @@
-using System.Collections.Concurrent;
 using System.Security.Claims;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
-using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Models.Identity;
 using NetworkOptimizer.Web.Services.Identity;
@@ -252,6 +250,15 @@ public sealed class EffectiveSiteRoleResolver : IEffectiveSiteRoleResolver
     {
         await using var mainDb = await _mainDbFactory.CreateDbContextAsync();
         var slugs = await mainDb.Sites.AsNoTracking().Select(s => s.Slug).ToListAsync();
-        return new HashSet<string>(slugs, StringComparer.OrdinalIgnoreCase);
+        var all = new HashSet<string>(slugs, StringComparer.OrdinalIgnoreCase);
+
+        // The main site is implicit until multi-site is turned on: EnsureDefaultSiteAsync runs only
+        // from SetMultiSiteEnabledAsync(true), so an install that never enabled it has NO rows here.
+        // Without this the set is empty for everyone including a global Admin, and the empty-set
+        // refusal in GlobalRoleHandler - which exists to catch "no grants at all" - fires on every
+        // page instead, locking the install out of a Settings tab it needs to reach to fix it.
+        // Empty must keep meaning "granted nothing", never "no registry yet".
+        all.Add(SiteManagementService.DefaultSiteSlug);
+        return all;
     }
 }
