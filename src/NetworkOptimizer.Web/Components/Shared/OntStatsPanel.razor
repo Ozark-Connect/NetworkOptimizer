@@ -285,7 +285,7 @@ else
                 {
                     <div class="metric-row">
                         <span class="metric-label" data-tooltip="@($"BIP / {midErrTip} / dropped GEM frames (cumulative)")">@($"BIP/{midErrLabel}/Drops:")</span>
-                        <span class="metric-value">@FmtCount(stats?.BipErrors) / @FmtCount(midErr) / @FmtCount(stats?.GemRxDropped)</span>
+                        <span class="metric-value ont-err-counts">@FmtCount(stats?.BipErrors) / @FmtCount(midErr) / @FmtCount(stats?.GemRxDropped)</span>
                     </div>
                 }
                 @if (!hasPonSupplement)

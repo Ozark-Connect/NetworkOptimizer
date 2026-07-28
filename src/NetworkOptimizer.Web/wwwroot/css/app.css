@@ -1918,6 +1918,9 @@ a.stat-card-link:active {
     .metric-row {
         font-size: 1rem;
     }
+    .metric-value.ont-err-counts {
+        font-size: 0.95rem;
+    }
 }
 
 .learning-progress {
