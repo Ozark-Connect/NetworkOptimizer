@@ -32,6 +32,10 @@ public sealed class AppUserClaimsPrincipalFactory
     {
         var identity = await base.GenerateClaimsAsync(user);
         identity.AddClaim(new Claim(NetOptClaims.MembershipVersion, user.MembershipVersion.ToString()));
+
+        // New on every principal, which means new on every cookie: a refresh issues a different one,
+        // so the session that just refreshed can be told apart from the sessions that did not.
+        identity.AddClaim(new Claim(NetOptClaims.SessionId, Guid.NewGuid().ToString("N")));
         if (!string.IsNullOrEmpty(user.DisplayName))
             identity.AddClaim(new Claim(ClaimTypes.GivenName, user.DisplayName));
 

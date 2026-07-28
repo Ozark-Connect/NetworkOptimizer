@@ -23,22 +23,32 @@
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
 
     private string? _userId;
+    private string? _sessionId;
 
     protected override async Task OnInitializedAsync()
     {
         if (AuthState is not null)
-            _userId = (await AuthState).User.FindFirstValue(ClaimTypes.NameIdentifier);
+        {
+            var user = (await AuthState).User;
+            _userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+            _sessionId = user.FindFirstValue(NetOptClaims.SessionId);
+        }
 
         Revocations.SessionsRevoked += OnRevoked;
     }
 
-    private void OnRevoked(string userId)
+    private void OnRevoked(string userId, string? exceptSessionId)
     {
-        // Every circuit for the account hears this, including other tabs of the browser that asked.
-        // Signing out everywhere re-issues the calling browser's cookie in the same response, so a
-        // reload there picks up the new one and stays signed in - only the sessions that were meant
-        // to end actually end.
+        // Every circuit for the account hears this, including the circuits of the browser that asked.
         if (_userId is null || !string.Equals(_userId, userId, StringComparison.Ordinal))
+            return;
+
+        // Spared: this is the session that asked. Its replacement cookie is on the way but cannot
+        // arrive before this message did, so sending it to revalidate would have it present the very
+        // cookie the request just replaced - signing someone out for changing their own password.
+        // Every tab of that browser shares the cookie and so shares this id, which is right: they are
+        // one session, and it is the one being kept.
+        if (exceptSessionId is not null && string.Equals(_sessionId, exceptSessionId, StringComparison.Ordinal))
             return;
 
         _ = InvokeAsync(() =>

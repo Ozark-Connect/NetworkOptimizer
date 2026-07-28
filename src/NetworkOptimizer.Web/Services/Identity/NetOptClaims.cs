@@ -22,4 +22,17 @@ public static class NetOptClaims
     /// Require MFA set.
     /// </summary>
     public const string MfaSetupPending = "netopt:mfa_setup";
+
+    /// <summary>
+    /// Identifies the COOKIE a principal was built from - a fresh value every time one is issued, so
+    /// two browsers signed in as the same account never share one, and every circuit of a single
+    /// browser does.
+    ///
+    /// It exists so a self-service revocation can spare the session that asked for it. Changing your
+    /// own password revokes every session for the account including your own, and the replacement
+    /// cookie cannot reach the browser before the revocation reaches its circuits - so without a way
+    /// to name the asking session, the browser that changed the password is signed out by its own
+    /// action. Ordering alone does not fix it: a SignalR message beats an HTTP round trip every time.
+    /// </summary>
+    public const string SessionId = "netopt:sid";
 }

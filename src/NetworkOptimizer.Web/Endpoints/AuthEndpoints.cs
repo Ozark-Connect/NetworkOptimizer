@@ -378,11 +378,17 @@ public static class AuthEndpoints
     /// </summary>
     private static void RevokeAfterResponse(
         HttpContext context, UserSessionRevocationNotifier revocations, string userId)
-        => context.Response.OnCompleted(() =>
+    {
+        // Read BEFORE the response is written: this is the id the asking browser's circuits are
+        // holding, and it is what spares them. The replacement cookie carries a different one.
+        var sparedSession = context.User.FindFirstValue(NetOptClaims.SessionId);
+
+        context.Response.OnCompleted(() =>
         {
-            revocations.NotifyRevoked(userId);
+            revocations.NotifyRevoked(userId, sparedSession);
             return Task.CompletedTask;
         });
+    }
 
     private static string TwoFactorRedirect(string returnUrl, string site, bool hasRecoveryCodes, bool hasPasskey, bool rememberMe)
     {

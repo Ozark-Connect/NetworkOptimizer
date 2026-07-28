@@ -12,9 +12,20 @@ namespace NetworkOptimizer.Web.Services.Identity;
 /// </summary>
 public sealed class UserSessionRevocationNotifier
 {
-    /// <summary>Raised with the id of the account whose sessions have been revoked.</summary>
-    public event Action<string>? SessionsRevoked;
+    /// <summary>
+    /// Raised with the id of the account whose sessions have been revoked, and the session id spared -
+    /// null when every session goes.
+    /// </summary>
+    public event Action<string, string?>? SessionsRevoked;
 
-    /// <summary>Announces a revocation. Safe to call when nothing is listening.</summary>
-    public void NotifyRevoked(string userId) => SessionsRevoked?.Invoke(userId);
+    /// <summary>
+    /// Announces a revocation. Safe to call when nothing is listening.
+    /// </summary>
+    /// <param name="exceptSessionId">
+    /// The <see cref="NetOptClaims.SessionId"/> of the session that asked for this, which keeps its
+    /// place: a self-service revocation ends your OTHER sessions, not the one you are sitting in.
+    /// An admin revoking someone else passes null - all of that account's sessions go.
+    /// </param>
+    public void NotifyRevoked(string userId, string? exceptSessionId = null)
+        => SessionsRevoked?.Invoke(userId, exceptSessionId);
 }
