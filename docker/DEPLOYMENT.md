@@ -67,7 +67,7 @@ docker compose up -d
 **Verify Installation:**
 
 ```bash
-# Check logs for the auto-generated admin password
+# Check logs for the built-in admin account's auto-generated password
 docker logs network-optimizer 2>&1 | grep -A5 "AUTO-GENERATED"
 
 # Verify health
@@ -171,7 +171,7 @@ The interactive script will:
 
 **After Installation:**
 ```bash
-# Get the auto-generated admin password
+# Get the built-in admin account's auto-generated password
 pct exec <CT_ID> -- docker logs network-optimizer 2>&1 | grep -A5 "AUTO-GENERATED"
 
 # Access the web UI
@@ -246,7 +246,7 @@ See [Native Deployment Guide](NATIVE-DEPLOYMENT.md) for macOS and Linux instruct
 
 Network Optimizer can be installed as two Home Assistant add-ons. See [issue #201](https://github.com/Ozark-Connect/NetworkOptimizer/issues/201) for setup instructions and discussion.
 
-For the initial admin password, check the add-on's **Log** tab instead of using the `docker logs` command.
+For the built-in **admin** account's initial password, check the add-on's **Log** tab instead of using the `docker logs` command.
 
 ### 6. Multi-Site On-Site Agent
 
@@ -310,14 +310,19 @@ TZ=America/Chicago
 
 If you're placing Network Optimizer behind a reverse proxy, you'll also need to configure the hostname and proxy-related variables in `.env`. See [HTTPS with Reverse Proxy](#https-with-reverse-proxy) and [`.env.example`](.env.example) for details.
 
-**Admin Password:**
+**Admin Account:**
 
-On first run, an auto-generated password is displayed in the logs. After logging in,
-go to **Settings > Admin Password** to set your own password (recommended).
+The built-in account is **admin**. On first run its auto-generated password is displayed in the logs.
+After logging in, go to **Settings > Admin Password** to set your own password (recommended).
 
 Password precedence: Database (Settings UI) > `APP_PASSWORD` env var > Auto-generated
 
 Optionally, set `APP_PASSWORD` in `.env` if you want to configure a password before first login.
+
+To harden the install, create your own account, give it the Admin role, and then disable **admin**
+from **Settings > Identity**. It cannot be deleted - break-glass recovery re-enables it and the boot
+seed reconciles it - but disabling takes it out of use. The last enabled Admin can never be disabled,
+so make sure your own account works before turning the built-in one off.
 
 ### 3. Deploy Stack
 

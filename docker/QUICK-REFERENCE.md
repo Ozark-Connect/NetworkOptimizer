@@ -39,12 +39,12 @@ docker compose -f docker-compose.macos.yml build
 docker compose -f docker-compose.macos.yml up -d
 ```
 
-### First Run - Get Admin Password
+### First Run - Get the admin Password
 ```bash
 docker logs network-optimizer 2>&1 | grep -A5 "AUTO-GENERATED"
 ```
 
-Access at: **http://localhost:8042**
+Access at: **http://localhost:8042** - sign in as **admin**.
 
 ## Common Commands
 
@@ -99,7 +99,7 @@ HOST_IP=                   # Required for bridge networking
 3. Auto-generated on first run (check logs)
 
 **Set permanent password:**
-1. Log in with auto-generated password from logs
+1. Log in as **admin** with the auto-generated password from logs
 2. Go to Settings → Admin Password
 3. Enter and save new password
 

@@ -49,7 +49,7 @@ launchctl load ~/Library/LaunchAgents/net.ozarkconnect.networkoptimizer.plist
 - **Web UI**: http://localhost:8042 or http://\<your-mac-ip\>:8042
 - **SpeedTest**: http://localhost:3005 or http://\<your-mac-ip\>:3005
 
-On first run, check the logs for the auto-generated admin password:
+On first run, check the logs for the built-in **admin** account's auto-generated password, then sign in as **admin**:
 
 ```bash
 grep -A5 'AUTO-GENERATED' ~/network-optimizer/logs/stdout.log

@@ -53,14 +53,14 @@ docker compose -f docker-compose.macos.yml up -d
 
 ### First Run
 
-1. **Get the auto-generated admin password:**
+1. **Get the built-in admin account's auto-generated password:**
    ```bash
    docker logs network-optimizer 2>&1 | grep -A5 "AUTO-GENERATED"
    ```
    On first run, a secure password is generated and displayed in the logs.
 
 2. **Access the Web UI:**
-   - Network Optimizer: http://localhost:8042 (use password from logs)
+   - Network Optimizer: http://localhost:8042 (sign in as **admin** with the password from the logs)
    - Wait ~60 seconds on first startup
 
 3. **Set a permanent password:**
