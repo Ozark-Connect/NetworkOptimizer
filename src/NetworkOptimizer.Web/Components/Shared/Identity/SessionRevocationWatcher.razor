@@ -2,7 +2,6 @@
 @using NetworkOptimizer.Web.Services.Identity
 @inject UserSessionRevocationNotifier Revocations
 @inject NavigationManager Navigation
-@inject ILogger<SessionRevocationWatcher> Logger
 @implements IDisposable
 
 @* Renders nothing. It exists so a circuit whose account has just been disabled, deleted, or signed
@@ -49,11 +48,6 @@
         // cookie the request just replaced - signing someone out for changing their own password.
         // Every tab of that browser shares the cookie and so shares this id, which is right: they are
         // one session, and it is the one being kept.
-        Logger.LogDebug(
-            "Revocation heard: mine={Mine} spared={Spared} match={Match}",
-            _sessionId ?? "(none)", exceptSessionId ?? "(none)",
-            string.Equals(_sessionId, exceptSessionId, StringComparison.Ordinal));
-
         if (exceptSessionId is not null && string.Equals(_sessionId, exceptSessionId, StringComparison.Ordinal))
             return;
 
