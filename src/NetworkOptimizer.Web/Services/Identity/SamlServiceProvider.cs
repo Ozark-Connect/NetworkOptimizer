@@ -1,4 +1,4 @@
-﻿using System.Security.Claims;
+using System.Security.Claims;
 using System.Security.Cryptography.X509Certificates;
 using ITfoxtec.Identity.Saml2;
 using ITfoxtec.Identity.Saml2.MvcCore;
@@ -250,6 +250,18 @@ public sealed class SamlServiceProvider : ISamlServiceProvider
             }
 
             LogResponseShape(provider, form["SAMLResponse"]!);
+
+            // The other half of the picture: a well-formed response that still fails to parse usually
+            // means the config it is being read against is missing something, and the signing
+            // certificates are the piece the reader needs to build the token.
+            _logger.LogDebug(
+                "SAML config for {Provider}: issuer {Issuer}, audiences [{Audiences}], "
+                + "signing certs {CertCount}, sso destination {Sso}",
+                provider.DisplayName,
+                config.Issuer ?? "(none)",
+                string.Join(", ", config.AllowedAudienceUris),
+                config.SignatureValidationCertificates?.Count ?? 0,
+                config.SingleSignOnDestination?.OriginalString ?? "(none)");
 
             var genericRequest = await context.Request.ToGenericHttpRequestAsync(readBodyAsString: true);
             var binding = new Saml2PostBinding();
