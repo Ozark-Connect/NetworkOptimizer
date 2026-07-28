@@ -583,9 +583,13 @@ builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.WanSummar
 // Devices UniFi reports as upgrading/provisioning, so the offline path can stay quiet for a
 // restart that was asked for. Site-keyed internally, hence one singleton rather than a registry.
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.DeviceTransitionTracker>();
-// Per-site device reboot trackers: the collection tier feeds uptime samples in, the
-// dashboard reads the reason behind each device's current boot back out.
+// Per-site device reboot trackers: uptime samples go in - from the collection tier where it is
+// running, and from DeviceRebootObserver regardless - and the dashboard reads the reason behind
+// each device's current boot back out.
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.RebootReason.DeviceRebootRegistry>();
+// Observes device uptime from the console alone, so reboot reasons resolve whether or not
+// monitoring is collecting anything.
+builder.Services.AddHostedService<NetworkOptimizer.Web.Services.Monitoring.RebootReason.DeviceRebootObserver>();
 builder.Services.AddScoped(sp => sp.GetRequiredService<NetworkOptimizer.Web.Services.Monitoring.RebootReason.DeviceRebootRegistry>()
     .GetFor(sp.GetRequiredService<SiteContextService>().Slug));
 // ISP Health is per site: the registry owns one IspHealthService (with its own

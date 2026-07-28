@@ -60,7 +60,8 @@
                         <span class="reboot-reason-icon @(Device.RebootWasUnexpected ? "reboot-unexpected" : "")"
                               data-tooltip="@UptimeTooltip" data-tooltip-click>@(Device.RebootWasUnexpected ? "⚠" : "↻")</span>
                     }
-                    <span class="detail-value uptime-value" data-tooltip="@UptimeTooltip" data-tooltip-click>@Device.Uptime</span>
+                    <span class="detail-value uptime-value @(UptimeTooltip is null ? null : "has-reboot-reason")"
+                          data-tooltip="@UptimeTooltip" data-tooltip-click>@Device.Uptime</span>
                 </div>
             }
             @if (Device.ClientCount.HasValue)
@@ -117,7 +118,7 @@
 }
 
 <style>
-    .uptime-value {
+    .uptime-value.has-reboot-reason {
         cursor: help;
     }
 
