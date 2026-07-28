@@ -73,9 +73,28 @@ public static class MutatingServiceRegistration
         where TInterface : class
         where TImpl : class, TInterface
     {
-        services.AddSingleton<TImpl>();
-        services.AddScoped(sp => Proxy<TInterface>(sp, sp.GetRequiredService<TImpl>()));
+        // The instance is held behind a private holder rather than registered as TImpl. Registering
+        // the implementation as its own service type puts an UNGATED instance in the container, and
+        // architecture test A2 cannot see that: it scans constructor dependencies, so a
+        // GetRequiredService<TImpl>() from a component or a background job resolves the raw service
+        // and skips authorization and the audit envelope entirely. AddMutatingService (above) already
+        // avoids this by constructing inside the proxy factory; this overload has to keep one shared
+        // instance, so it keeps it somewhere nothing else can name.
+        services.AddSingleton(sp => new MutatingSingletonHolder<TImpl>(ActivatorUtilities.CreateInstance<TImpl>(sp)));
+        services.AddScoped(sp => Proxy<TInterface>(sp, sp.GetRequiredService<MutatingSingletonHolder<TImpl>>().Instance));
         return services;
+    }
+
+    /// <summary>
+    /// Holds the single instance behind <see cref="AddMutatingSingleton{TInterface,TImpl}"/> so the
+    /// implementation type itself is never a resolvable service. Private to this file by intent: if
+    /// something outside can name it, it can reach the ungated instance, which is the whole point of
+    /// not registering TImpl.
+    /// </summary>
+    private sealed class MutatingSingletonHolder<T>(T instance)
+        where T : class
+    {
+        public T Instance { get; } = instance;
     }
 
     private static TInterface Proxy<TInterface>(IServiceProvider sp, TInterface target)

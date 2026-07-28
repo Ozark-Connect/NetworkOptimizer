@@ -7133,9 +7133,9 @@
         }
     }
 
-    private void CancelImport()
+    private async Task CancelImport()
     {
-        ConfigTransfer.CancelPendingImport();
+        await ConfigTransfer.CancelPendingImportAsync();
         importPreview = null;
         importError = null;
         showImportConfirm = false;

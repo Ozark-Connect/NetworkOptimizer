@@ -12,11 +12,12 @@ namespace NetworkOptimizer.Web.Services;
 [MutatingService(SiteScoped = true)]
 public interface IGatewaySpeedTestService
 {
-    /// <summary>
-    /// Gets whether a speed test is currently running.
-    /// </summary>
-    [RequireRole(Roles.Viewer)]
-    bool IsTestRunning { get; }
+    // IsTestRunning is deliberately NOT on this interface. A gated property is a synchronous member,
+    // and the interceptor only intercepts Task-returning members asynchronously - so every read
+    // blocked on the site-role lookup inside a Blazor circuit's synchronization context, which
+    // deadlocks whenever that lookup misses its cache and goes to the database. It had no callers
+    // through the interface, so the gate protected nothing and risked a hang. The implementation
+    // keeps the property for its own use. Enforced by architecture test A2.
 
     /// <summary>
     /// Get the gateway SSH settings (creates default if none exist).
@@ -87,8 +88,11 @@ public interface IGatewaySpeedTestService
 
     /// <summary>
     /// Get the last speed test result.
+    ///
+    /// Returns a Task despite reading a field: a gated member has to be Task-returning or the
+    /// interceptor blocks on its role lookup synchronously (see A2).
     /// </summary>
     /// <returns>The last result, or null if no test has been run.</returns>
     [RequireRole(Roles.Viewer)]
-    GatewaySpeedTestResult? GetLastResult();
+    Task<GatewaySpeedTestResult?> GetLastResultAsync();
 }

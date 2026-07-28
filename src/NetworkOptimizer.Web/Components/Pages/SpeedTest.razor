@@ -1691,7 +1691,7 @@
         {
             var settings = await GatewaySpeedTestService.GetSettingsAsync();
             gatewayConfigured = settings.Enabled && settings.HasCredentials && !string.IsNullOrEmpty(settings.Host);
-            gatewayLastResult = GatewaySpeedTestService.GetLastResult();
+            gatewayLastResult = await GatewaySpeedTestService.GetLastResultAsync();
         }
         catch
         {

@@ -76,7 +76,24 @@ public sealed class MethodSecurityInterceptor : AsyncInterceptorBase
             .GetCustomAttribute<MutatingServiceAttribute>()?.SiteScoped ?? false;
 
         if (!caller.IsSystem && !caller.AuthenticationDisabled)
+        {
+            // A method on a gated interface that declares no gate is refused, not waved through.
+            // Authorization used to be skipped entirely in that case, so the "every mutating service
+            // is gated" guarantee rested wholly on architecture test A2 - a build-time check over a
+            // source file, which cannot see a method added on a branch where tests were not run, and
+            // could not see one at all for an interface reached by an anonymous caller (the login
+            // circuit runs one). Failing closed makes the runtime agree with the invariant, and A2
+            // stays as the check that tells you at build time instead of at 3am.
+            // Event add/remove accessors are subscription plumbing rather than an action, and A2
+            // exempts them for the same reason.
+            if (requireGlobal is null && requireSite is null && !GateReflection.IsEventAccessor(method))
+            {
+                Deny(caller, auditAttr, siteSlug,
+                    $"{method.DeclaringType?.Name}.{method.Name} declares no role gate");
+            }
+
             await AuthorizeAsync(caller, requireGlobal, requireSite, siteSlug, auditAttr, siteScoped);
+        }
 
         if (auditAttr is null)
         {

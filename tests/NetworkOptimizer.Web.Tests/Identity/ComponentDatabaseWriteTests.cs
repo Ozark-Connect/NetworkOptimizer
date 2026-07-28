@@ -39,7 +39,7 @@ public class ComponentDatabaseWriteTests
 
         var offenders = Directory
             .EnumerateFiles(componentsRoot, "*.razor", SearchOption.AllDirectories)
-            .Where(razor => File.ReadAllText(razor).Contains("SaveChangesAsync", StringComparison.Ordinal))
+            .Where(razor => WritesToTheDatabase(File.ReadAllText(razor)))
             .Select(Path.GetFileName)
             .Where(name => name is not null && !Allowed.Contains(name))
             .OrderBy(name => name, StringComparer.Ordinal)
@@ -57,7 +57,7 @@ public class ComponentDatabaseWriteTests
 
         var writing = Directory
             .EnumerateFiles(componentsRoot, "*.razor", SearchOption.AllDirectories)
-            .Where(razor => File.ReadAllText(razor).Contains("SaveChangesAsync", StringComparison.Ordinal))
+            .Where(razor => WritesToTheDatabase(File.ReadAllText(razor)))
             .Select(Path.GetFileName)
             .ToHashSet(StringComparer.Ordinal);
 
@@ -65,6 +65,21 @@ public class ComponentDatabaseWriteTests
 
         stale.Should().BeEmpty("these no longer write directly - drop them from the list so it keeps shrinking");
     }
+
+    /// <summary>
+    /// A component reaching the database directly, by any of the ways EF offers.
+    ///
+    /// Matching only SaveChangesAsync left the guard blind to ExecuteUpdateAsync and
+    /// ExecuteDeleteAsync, which bypass the change tracker entirely and never call it - so a new
+    /// component could write straight to the database and this list would go on claiming it could
+    /// only shrink. Those two are in use elsewhere in this very suite, so it was not a theoretical
+    /// gap.
+    /// </summary>
+    private static bool WritesToTheDatabase(string source)
+        => source.Contains("SaveChangesAsync", StringComparison.Ordinal)
+            || source.Contains("SaveChanges(", StringComparison.Ordinal)
+            || source.Contains("ExecuteUpdateAsync", StringComparison.Ordinal)
+            || source.Contains("ExecuteDeleteAsync", StringComparison.Ordinal);
 
     private static string FindWebProjectRoot()
     {

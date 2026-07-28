@@ -57,8 +57,7 @@ public class ConcreteInjectionTests
         var implementations = ImplementationsOf(gated, webRoot);
 
         var offenders = new List<string>();
-        foreach (var razor in Directory.EnumerateFiles(
-                     Path.Combine(webRoot, "Components"), "*.razor", SearchOption.AllDirectories))
+        foreach (var razor in ComponentFiles(webRoot))
         {
             var text = File.ReadAllText(razor);
             var component = Path.GetFileName(razor);
@@ -79,6 +78,17 @@ public class ConcreteInjectionTests
             + "the audit envelope - inject the interface, or add a reviewed allowlist entry saying why");
     }
 
+    /// <summary>
+    /// Every component file, markup AND code-behind. Scanning only *.razor missed a partial class in
+    /// Component.razor.cs injecting the concrete implementation - the same bypass, in the file the
+    /// [Inject] property is most likely to live in once a component grows past inline code.
+    /// </summary>
+    private static IEnumerable<string> ComponentFiles(string webRoot)
+        => Directory.EnumerateFiles(
+                Path.Combine(webRoot, "Components"), "*.razor", SearchOption.AllDirectories)
+            .Concat(Directory.EnumerateFiles(
+                Path.Combine(webRoot, "Components"), "*.razor.cs", SearchOption.AllDirectories));
+
     [Fact]
     public void The_allowlist_has_no_stale_entries()
     {
@@ -88,8 +98,7 @@ public class ConcreteInjectionTests
         var implementations = ImplementationsOf(gated, webRoot);
 
         var live = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var razor in Directory.EnumerateFiles(
-                     Path.Combine(webRoot, "Components"), "*.razor", SearchOption.AllDirectories))
+        foreach (var razor in ComponentFiles(webRoot))
         {
             var text = File.ReadAllText(razor);
             var component = Path.GetFileName(razor);

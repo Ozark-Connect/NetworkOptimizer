@@ -597,7 +597,7 @@ public class GatewaySpeedTestService : IGatewaySpeedTestService
     /// <summary>
     /// Get the last speed test result
     /// </summary>
-    public GatewaySpeedTestResult? GetLastResult() => _lastResult;
+    public Task<GatewaySpeedTestResult?> GetLastResultAsync() => Task.FromResult(_lastResult);
 
     /// <summary>
     /// Check if a test is currently running

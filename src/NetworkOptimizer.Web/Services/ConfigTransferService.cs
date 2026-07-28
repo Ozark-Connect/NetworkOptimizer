@@ -456,7 +456,7 @@ public class ConfigTransferService : IConfigTransferService
     /// <summary>
     /// Cancel a pending import and clean up temp files.
     /// </summary>
-    public void CancelPendingImport()
+    public Task CancelPendingImportAsync()
     {
         if (_pendingImportPath != null)
         {
@@ -464,6 +464,7 @@ public class ConfigTransferService : IConfigTransferService
         }
         _pendingImportPath = null;
         _pendingPreview = null;
+        return Task.CompletedTask;
     }
 
     private async Task PruneHistoryTablesAsync(string dbPath)

@@ -25,7 +25,14 @@ public interface IConfigTransferService
     [AuditAction(AuditActions.DbRestored, Category = AuditCategories.Settings, TargetType = "config_archive")]
     Task ApplyImportAsync();
 
-    /// <summary>Discards a staged import without applying it.</summary>
+    /// <summary>
+    /// Discards a staged import without applying it.
+    ///
+    /// Returns a Task despite doing no I/O: the gate interceptor only intercepts Task-returning
+    /// members asynchronously, so a void gated method has its role lookup blocked on synchronously -
+    /// inside a Blazor circuit's synchronization context, which is a deadlock rather than a wrong
+    /// answer. Enforced by architecture test A2.
+    /// </summary>
     [RequireRole(Roles.Admin)]
-    void CancelPendingImport();
+    Task CancelPendingImportAsync();
 }

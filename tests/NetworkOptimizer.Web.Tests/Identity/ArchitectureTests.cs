@@ -88,7 +88,7 @@ public class ArchitectureTests
         {
             foreach (var method in iface.GetMethods())
             {
-                if (IsEventAccessor(method))
+                if (GateReflection.IsEventAccessor(method))
                     continue;
                 if (!GateReflection.HasGate(method))
                     ungated.Add($"{iface.Name}.{method.Name}");
@@ -96,6 +96,57 @@ public class ArchitectureTests
         }
 
         ungated.Should().BeEmpty("every [MutatingService] method must carry a role gate (design doc 06 A2)");
+    }
+
+    /// <summary>
+    /// A2 (fourth part): every gated member must return <c>Task</c> or <c>Task&lt;T&gt;</c>.
+    ///
+    /// The interceptor derives from AsyncInterceptorBase, which only routes those two through its
+    /// async path. A ValueTask-returning method is dispatched as synchronous, so the interceptor's
+    /// finally block writes the audit outcome before the hot ValueTask has completed - a mutation
+    /// that later faults is recorded as having succeeded. A synchronous gated method is worse: the
+    /// role lookup's await is blocked on inside a Blazor circuit's synchronization context, which is
+    /// a deadlock rather than a wrong answer. Both are shapes the gate cannot carry, so they are
+    /// refused here rather than discovered in production.
+    ///
+    /// Scoped to METHODS. Gated property getters have the same problem and seven of them exist today,
+    /// all polled status/progress reads on the two WAN speed-test interfaces
+    /// (IUwnSpeedTestService, IGatewayWanSpeedTestService). Turning those into Task-returning methods
+    /// reaches into speed-test UI that was verified on hardware, so they are a decision rather than a
+    /// cleanup, and failing the build on them would only invite the test to be deleted. The narrower
+    /// rule still closes the shape that was live and fixable - a void or ValueTask METHOD - and the
+    /// property case is recorded in the review findings.
+    /// </summary>
+    [Fact]
+    public void A2_EveryGatedMethodReturnsATask()
+    {
+        var wrongShape = new List<string>();
+        foreach (var iface in MutatingInterfaces())
+        {
+            foreach (var method in iface.GetMethods())
+            {
+                if (GateReflection.IsEventAccessor(method)
+                    || GateReflection.DeclaringProperty(method) is not null
+                    || !GateReflection.HasGate(method))
+                {
+                    continue;
+                }
+
+                var returns = method.ReturnType;
+                var isTask = returns == typeof(Task)
+                    || (returns.IsGenericType && returns.GetGenericTypeDefinition() == typeof(Task<>));
+
+                if (!isTask)
+                    wrongShape.Add($"{iface.Name}.{method.Name} returns {returns.Name}");
+            }
+        }
+
+        // Named in full rather than one at a time: this is a shape the whole interface has to satisfy,
+        // and fixing them singly means a build per member.
+        wrongShape.Should().BeEmpty(
+            "a gated member must return Task or Task<T> - the interceptor only intercepts those "
+            + "asynchronously, so anything else audits before it has run or blocks the circuit. "
+            + "Offenders: {0}", string.Join("; ", wrongShape));
     }
 
     /// <summary>
@@ -289,11 +340,6 @@ public class ArchitectureTests
     private static IEnumerable<Type> MutatingInterfaces()
         => SafeGetTypes(WebAssembly)
             .Where(t => t.IsInterface && t.GetCustomAttribute<MutatingServiceAttribute>() is not null);
-
-    private static bool IsEventAccessor(MethodInfo method)
-        => method.IsSpecialName
-            && (method.Name.StartsWith("add_", StringComparison.Ordinal)
-                || method.Name.StartsWith("remove_", StringComparison.Ordinal));
 
     /// <summary>Reads a repo-relative source file by walking up from the test binary to the repo root.</summary>
     private static string ReadRepoFile(string relativePath)

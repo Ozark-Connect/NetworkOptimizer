@@ -85,9 +85,9 @@ public static class ConfigTransferEndpoints
             }
         });
 
-        group.MapDelete("/api/config/backups/pending", (IConfigTransferService service) =>
+        group.MapDelete("/api/config/backups/pending", async (IConfigTransferService service) =>
         {
-            service.CancelPendingImport();
+            await service.CancelPendingImportAsync();
             return Results.Ok(new { message = "Pending backup cancelled" });
         });
     }
