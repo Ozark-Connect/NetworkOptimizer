@@ -7293,6 +7293,10 @@ a.path-hop.hop-clickable:hover {
 .login-btn {
     width: 100%;
     padding: 0.875rem 1.5rem;
+    /* Form controls do not inherit the page font, so the passkey <button> rendered in the browser's
+       system UI font while the provider <a> next to it used ours. Same size and weight either way,
+       which is why it read as a mismatch rather than an obvious one. */
+    font-family: inherit;
     font-size: 1rem;
     font-weight: 500;
     display: flex;
