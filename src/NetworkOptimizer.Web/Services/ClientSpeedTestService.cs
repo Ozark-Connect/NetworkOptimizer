@@ -381,6 +381,7 @@ public class ClientSpeedTestService
             (r.PathAnalysis == null ||
              r.PathAnalysis.Path == null ||
              !r.PathAnalysis.Path.IsValid))
+            .Where(r => PathAnalysisRetryGate.TryClaim(nameof(ClientSpeedTestService), r.Id))
             .ToList();
 
         if (needsRetry.Count > 0)
@@ -427,6 +428,7 @@ public class ClientSpeedTestService
             (r.PathAnalysis == null ||
              r.PathAnalysis.Path == null ||
              !r.PathAnalysis.Path.IsValid))
+            .Where(r => PathAnalysisRetryGate.TryClaim(nameof(ClientSpeedTestService), r.Id))
             .ToList();
 
         if (needsRetry.Count > 0)

@@ -291,10 +291,13 @@ public abstract class WanSpeedTestServiceBase
             .Select(r => new { r.Id, r.WanNetworkGroup })
             .ToList();
 
-        if (needsRetry.Count > 0)
+        // Gated: this list is rebuilt on every read, and on WAN Speed Test a completed analysis reloads
+        // the page that produced it - so an unresolvable path would re-arm itself forever.
+        var claimed = needsRetry.Where(item => PathAnalysisRetryGate.TryClaim(GetType().Name, item.Id)).ToList();
+        if (claimed.Count > 0)
         {
-            Logger.LogInformation("Retrying path analysis in background for {Count} WAN results", needsRetry.Count);
-            foreach (var item in needsRetry)
+            Logger.LogInformation("Retrying path analysis in background for {Count} WAN results", claimed.Count);
+            foreach (var item in claimed)
                 _ = Task.Run(async () => await AnalyzePathInBackgroundAsync(item.Id, resolvedWanGroup: item.WanNetworkGroup));
         }
 
@@ -329,6 +332,7 @@ public abstract class WanSpeedTestServiceBase
         await db.SaveChangesAsync();
 
         Logger.LogInformation("Reassigned WAN for result {Id} to {Group} ({Name})", id, wanNetworkGroup, wanName);
+        PathAnalysisRetryGate.Forget(GetType().Name, id);
         _ = Task.Run(async () => await AnalyzePathInBackgroundAsync(id, resolvedWanGroup: wanNetworkGroup), CancellationToken.None);
 
         return true;
