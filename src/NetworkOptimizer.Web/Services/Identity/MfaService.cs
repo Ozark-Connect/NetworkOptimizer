@@ -92,42 +92,39 @@ public sealed class MfaService : IMfaService
     private readonly SignInManager<ApplicationUser> _signInManager;
     private readonly IAuditLogger _audit;
     private readonly ICallerContext _caller;
+    private readonly MfaRequirementFacts _facts;
 
     public MfaService(
         UserManager<ApplicationUser> userManager,
         RoleManager<ApplicationRole> roleManager,
         SignInManager<ApplicationUser> signInManager,
         IAuditLogger audit,
-        ICallerContext caller)
+        ICallerContext caller,
+        MfaRequirementFacts facts)
     {
         _userManager = userManager;
         _roleManager = roleManager;
         _signInManager = signInManager;
         _audit = audit;
         _caller = caller;
+        _facts = facts;
     }
 
     public Task<bool> IsEnabledAsync(ApplicationUser user) => _userManager.GetTwoFactorEnabledAsync(user);
 
-    /// <inheritdoc />
-    public async Task<bool> HasSecondFactorAsync(ApplicationUser user)
-        => await _userManager.GetTwoFactorEnabledAsync(user)
-            || (await _userManager.GetPasskeysAsync(user)).Count > 0;
-
-    public async Task<bool> RoleRequiresMfaAsync(ApplicationUser user)
-        => await AnyRoleRequiresMfaAsync(await _userManager.GetRolesAsync(user));
+    // The three predicates live in MfaRequirementFacts so the claims factory can ask the same
+    // questions without depending on this service (which needs SignInManager, which needs the
+    // factory). Delegating keeps one implementation of each.
 
     /// <inheritdoc />
-    public async Task<bool> AnyRoleRequiresMfaAsync(IEnumerable<string> roleNames)
-    {
-        foreach (var roleName in roleNames)
-        {
-            var appRole = await _roleManager.FindByNameAsync(roleName);
-            if (appRole?.RequireMfa == true)
-                return true;
-        }
-        return false;
-    }
+    public Task<bool> HasSecondFactorAsync(ApplicationUser user) => _facts.HasSecondFactorAsync(user);
+
+    /// <inheritdoc />
+    public Task<bool> RoleRequiresMfaAsync(ApplicationUser user) => _facts.RoleRequiresMfaAsync(user);
+
+    /// <inheritdoc />
+    public Task<bool> AnyRoleRequiresMfaAsync(IEnumerable<string> roleNames)
+        => _facts.AnyRoleRequiresMfaAsync(roleNames);
 
     public async Task<AuthenticatorSetup> BeginEnrollmentAsync(ApplicationUser user)
     {

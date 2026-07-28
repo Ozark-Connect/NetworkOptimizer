@@ -176,6 +176,10 @@ public class ArchitectureTests
             nameof(AppUserClaimsPrincipalFactory),
             nameof(RevalidatingIdentityAuthenticationStateProvider),
             nameof(MfaService),
+            // The must-enrol predicates MfaService and the claims factory share. It is identity
+            // infrastructure by the same argument MfaService is - it exists precisely so the factory
+            // can ask MfaService's questions without depending on MfaService.
+            nameof(MfaRequirementFacts),
             "PasskeyService",
             "CurrentUserAccessor",
             "ExternalLoginService",

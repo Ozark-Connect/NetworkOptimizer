@@ -20,6 +20,7 @@ public static class AuthorizationRegistration
         services.AddScoped<IAuthorizationHandler, SiteRoleHandler>();
         services.AddScoped<IAuthorizationHandler, GlobalRoleHandler>();
         services.AddScoped<IAuthorizationHandler, ManageSettingsHandler>();
+        services.AddScoped<IAuthorizationHandler, AccountSelfServiceHandler>();
 
         // Global policies go through GlobalRoleRequirement rather than RequireRole so the
         // "authentication disabled for this install" case is answered in one handler, and so the role
@@ -30,6 +31,9 @@ public static class AuthorizationRegistration
             // "Viewer" is any authenticated user; per-site visibility is enforced by the site-scoped
             // policies and the site-context filter, not by requiring a specific global role here.
             .AddPolicy(Policies.RequireViewer, p => p.AddRequirements(new GlobalRoleRequirement(Roles.Viewer)))
+            // Signed in and nothing more, so a session still owing a second factor can reach the one
+            // page that lets it enrol. Everything under it acts on the caller's own account only.
+            .AddPolicy(Policies.AccountSelfService, p => p.AddRequirements(new AccountSelfServiceRequirement()))
             .AddPolicy(Policies.ManageSettings, p => p.AddRequirements(new ManageSettingsRequirement()))
             .AddPolicy(Policies.SiteViewer, p => p.AddRequirements(new SiteRoleRequirement(SiteRole.SiteViewer)))
             .AddPolicy(Policies.SiteOperator, p => p.AddRequirements(new SiteRoleRequirement(SiteRole.SiteOperator)))

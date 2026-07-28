@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using NetworkOptimizer.Storage.Models.Identity;
+using NetworkOptimizer.Web.Services.Identity;
 
 namespace NetworkOptimizer.Web.Services.Authorization;
 
@@ -44,6 +45,15 @@ public sealed class GlobalRoleHandler : AuthorizationHandler<GlobalRoleRequireme
         }
 
         if (context.User.Identity?.IsAuthenticated != true)
+            return;
+
+        // A role demands a second factor this account has not enrolled. The sign-in deliberately
+        // leaves them holding a cookie - enrolling requires a session, and there is nowhere else to
+        // do it from - so the cookie has to be worth nothing until they finish. Refusing here is what
+        // makes that true: the redirect into the setup page is guidance, and guidance is not
+        // enforcement to anything that ignores redirects. Policies.AccountSelfService is the one way
+        // out, and it is what the security page and the enrolment endpoint use.
+        if (context.User.HasClaim(c => c.Type == NetOptClaims.MfaSetupPending))
             return;
 
         // A caller who may see no site at all may open no page that shows one. These policies are

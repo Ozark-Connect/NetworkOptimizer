@@ -144,8 +144,9 @@ public static class AuthEndpoints
             return Results.Redirect("/account/security?enroll=done");
         })
             // Enrolling your own second factor: signed in is the only requirement. A user in the
-            // must-enroll state already holds a cookie, so this stays reachable for them.
-            .RequireAuthorization(Policies.RequireViewer);
+            // must-enroll state holds a cookie every other gate refuses, so this has to be the one
+            // policy that admits it - otherwise the requirement could never be satisfied.
+            .RequireAuthorization(Policies.AccountSelfService);
 
         // Self-service password change. Posted rather than handled in the circuit for the same reason
         // as enrolment: changing a password rotates the security stamp, and only an HTTP response can

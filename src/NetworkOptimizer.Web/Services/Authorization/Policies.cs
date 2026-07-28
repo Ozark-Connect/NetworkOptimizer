@@ -19,6 +19,13 @@ public static class Policies
     public const string RequireViewer = "RequireViewer";
 
     /// <summary>
+    /// Signed in, and nothing more - the caller's own account surface. Distinct from
+    /// <see cref="RequireViewer"/> because it admits a session that still owes the install a second
+    /// factor, which is the one thing such a session is allowed to do.
+    /// </summary>
+    public const string AccountSelfService = "AccountSelfService";
+
+    /// <summary>
     /// Reaching Settings: global Admin anywhere, or Site Admin on the managed site in context.
     /// </summary>
     public const string ManageSettings = "ManageSettings";

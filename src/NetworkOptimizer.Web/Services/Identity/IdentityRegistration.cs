@@ -98,6 +98,9 @@ public static class IdentityRegistration
         services.AddHttpClient();
         services.AddScoped<ISamlServiceProvider, SamlServiceProvider>();
 
+        // The must-enrol predicates, shared by MfaService and the claims factory (which cannot depend
+        // on MfaService without closing a DI cycle through SignInManager).
+        services.AddScoped<MfaRequirementFacts>();
         // Ambient caller context (user vs system) for authorization + audit attribution.
         services.AddScoped<ICallerContext, CallerContext>();
         // Hands enrollment recovery codes from the endpoint to the page across the redirect.

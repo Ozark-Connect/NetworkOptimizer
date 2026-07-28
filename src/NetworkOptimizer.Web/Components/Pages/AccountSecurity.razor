@@ -1,5 +1,5 @@
 @page "/account/security"
-@attribute [Authorize(Policy = Policies.RequireViewer)]
+@attribute [Authorize(Policy = Policies.AccountSelfService)]
 @rendermode InteractiveServer
 @using Microsoft.AspNetCore.Components.Authorization
 @using NetworkOptimizer.Storage.Models.Identity

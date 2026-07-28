@@ -205,7 +205,7 @@ public sealed class IdentityAdminService : IIdentityAdminService
     private readonly Authorization.IEffectiveSiteRoleResolver _siteRoles;
     private readonly SiteRegistryChangeNotifier _siteRegistryChanges;
     private readonly UserSessionRevocationNotifier _revocations;
-    private readonly IJwtService _legacyJwt;
+    private readonly IJwtService? _legacyJwt;
     private readonly ILogger<IdentityAdminService> _logger;
 
     public IdentityAdminService(
@@ -218,8 +218,8 @@ public sealed class IdentityAdminService : IIdentityAdminService
         Authorization.IEffectiveSiteRoleResolver siteRoles,
         SiteRegistryChangeNotifier siteRegistryChanges,
         UserSessionRevocationNotifier revocations,
-        IJwtService legacyJwt,
-        ILogger<IdentityAdminService> logger)
+        ILogger<IdentityAdminService> logger,
+        IJwtService? legacyJwt = null)
     {
         _userManager = userManager;
         _roleManager = roleManager;
@@ -241,12 +241,18 @@ public sealed class IdentityAdminService : IIdentityAdminService
     /// which is to say a password change and a sign out everywhere would both appear to work and
     /// revoke nothing. Only the signing key can retire those tokens. The admin account is the only
     /// principal a legacy token maps to, so no other account needs this.
+    ///
+    /// Optional by design: a container with no <see cref="IJwtService"/> is one where legacy tokens
+    /// cannot exist, so there is nothing to retire. That is what makes this removable in one piece.
     /// SUNSET: remove with <see cref="LegacyJwtBridgeMiddleware"/> one release after the cutover.
     /// </summary>
     private async Task RetireLegacyTokensIfBuiltInAdminAsync(ApplicationUser user)
     {
-        if (string.Equals(user.UserName, IdentityBootstrapService.AdminUserName, StringComparison.OrdinalIgnoreCase))
+        if (_legacyJwt is not null
+            && string.Equals(user.UserName, IdentityBootstrapService.AdminUserName, StringComparison.OrdinalIgnoreCase))
+        {
             await _legacyJwt.RotateSigningKeyAsync();
+        }
     }
 
     /// <summary>
