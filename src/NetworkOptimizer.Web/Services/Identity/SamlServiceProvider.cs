@@ -243,11 +243,6 @@ public sealed class SamlServiceProvider : ISamlServiceProvider
         {
             var config = await BuildConfigAsync(provider, context);
 
-            // Read the form ourselves first. ASP.NET caches it, so this both guarantees it is parsed
-            // before ITfoxtec looks - reading the body as a string can otherwise consume the stream
-            // and leave Form empty - and lets a missing SAMLResponse say so. Without it the library
-            // dereferences the absent field and the only evidence is a bare NullReferenceException
-            // from inside Read, which says nothing about what was wrong with the request.
             if (!context.Request.HasFormContentType)
             {
                 _logger.LogWarning(
@@ -256,50 +251,30 @@ public sealed class SamlServiceProvider : ISamlServiceProvider
                 return null;
             }
 
-            var form = await context.Request.ReadFormAsync();
-            if (string.IsNullOrEmpty(form["SAMLResponse"]))
+            // readBodyAsString: false. The POST binding reads Form, and asking for the body instead
+            // left Form null on the converted request - which is the absent thing the reader was
+            // dereferencing. Convert once and read only the result: touching context.Request.Form
+            // first consumes the stream, and then neither Form nor Body survives the conversion.
+            var genericRequest = await context.Request.ToGenericHttpRequestAsync(readBodyAsString: false);
+
+            var samlResponse = genericRequest.Form?["SAMLResponse"];
+            if (string.IsNullOrEmpty(samlResponse))
             {
                 _logger.LogWarning(
-                    "SAML response for {Provider} carried no SAMLResponse field. Fields present: {Fields}.",
-                    provider.DisplayName, string.Join(", ", form.Keys));
+                    "SAML response for {Provider} carried no SAMLResponse field. Form {FormState}, keys [{Keys}].",
+                    provider.DisplayName,
+                    genericRequest.Form is null ? "null" : "present",
+                    genericRequest.Form is null
+                        ? ""
+                        : string.Join(", ", genericRequest.Form.AllKeys.Where(k => k is not null)));
                 return null;
             }
 
-            LogResponseShape(provider, form["SAMLResponse"]!);
+            LogResponseShape(provider, samlResponse);
 
-            // The other half of the picture: a well-formed response that still fails to parse usually
-            // means the config it is being read against is missing something, and the signing
-            // certificates are the piece the reader needs to build the token.
-            _logger.LogDebug(
-                "SAML config for {Provider}: issuer {Issuer}, audiences [{Audiences}], "
-                + "signing certs {CertCount}, sso destination {Sso}",
-                provider.DisplayName,
-                config.Issuer ?? "(none)",
-                string.Join(", ", config.AllowedAudienceUris),
-                config.SignatureValidationCertificates?.Count ?? 0,
-                config.SingleSignOnDestination?.OriginalString ?? "(none)");
-
-            var genericRequest = await context.Request.ToGenericHttpRequestAsync(readBodyAsString: true);
             var binding = new Saml2PostBinding();
             var response = new Saml2AuthnResponse(config);
-
-            // The binding has to be attached to the request, not just used to read it. ITfoxtec reaches
-            // back through request.Binding while reading, so leaving it unset dereferences null and
-            // reports a bare NullReferenceException from inside the library - with a valid config and a
-            // well-formed response, which is what made it look like bad data for so long.
             genericRequest.Binding = binding;
-
-            // What Read is actually given. Assumed twice and checked neither time: the ASP.NET form
-            // being fine says nothing about the converted request ITfoxtec reads.
-            _logger.LogDebug(
-                "SAML generic request for {Provider}: method {Method}, form {FormState}, "
-                + "form keys [{FormKeys}], query keys [{QueryKeys}], body {BodyLength} chars",
-                provider.DisplayName,
-                genericRequest.Method ?? "(null)",
-                genericRequest.Form is null ? "null" : "present",
-                genericRequest.Form is null ? "" : string.Join(", ", genericRequest.Form.AllKeys.Where(k => k is not null)),
-                genericRequest.Query is null ? "" : string.Join(", ", genericRequest.Query.AllKeys.Where(k => k is not null)),
-                genericRequest.Body?.Length ?? -1);
 
             binding.ReadSamlResponse(genericRequest, response);
 
