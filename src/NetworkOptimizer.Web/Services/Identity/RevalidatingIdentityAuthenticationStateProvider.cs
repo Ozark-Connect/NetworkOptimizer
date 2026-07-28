@@ -58,13 +58,23 @@ public sealed class RevalidatingIdentityAuthenticationStateProvider
         if (!user.IsEnabled)
             return false;
 
-        // Security stamp covers credential/global-role/2FA/sign-out-everywhere revocation.
+        // Security stamp covers credential/global-role/2FA/sign-out-everywhere revocation - but the
+        // stamp on THIS PRINCIPAL is not the same question as the stamp on the browser's cookie, and
+        // only the cookie decides whether the session is still good. Signing out everywhere rotates
+        // the stamp and hands the browser that asked a fresh cookie; its live circuit still holds the
+        // principal captured before that, so killing the circuit on the mismatch booted the very
+        // session the refresh existed to preserve - five minutes later, which is a mystery to whoever
+        // it happens to. Send it to the endpoint instead: that sees the real cookie, refuses a
+        // genuinely revoked one, and lands a good one back where it was with a current principal.
         if (userManager.SupportsUserSecurityStamp)
         {
             var principalStamp = principal.FindFirstValue(_options.ClaimsIdentity.SecurityStampClaimType);
             var userStamp = await userManager.GetSecurityStampAsync(user);
             if (principalStamp != userStamp)
-                return false;
+            {
+                Revalidate();
+                return true;
+            }
         }
 
         // Permissions changed since this cookie was issued. The account is still valid - only what it
@@ -81,5 +91,13 @@ public sealed class RevalidatingIdentityAuthenticationStateProvider
         }
 
         return true;
+    }
+
+    /// <summary>Hands the decision to the endpoint, which is the only place the real cookie is seen.</summary>
+    private void Revalidate()
+    {
+        var returnUrl = "/" + _navigation.ToBaseRelativePath(_navigation.Uri);
+        _navigation.NavigateTo(
+            $"/api/account/revalidate?returnUrl={Uri.EscapeDataString(returnUrl)}", forceLoad: true);
     }
 }

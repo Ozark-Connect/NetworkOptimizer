@@ -8,10 +8,13 @@
    out everywhere goes NOW rather than at the next revalidation, which is a five-minute window.
 
    Losing a single site already boots a circuit immediately through the site registry broadcast, and
-   losing the whole account is the stronger revocation - it cannot be the slower of the two. The
-   security stamp makes the cookie invalid the instant any of this happens, so reloading is all it
-   takes: the request carries a cookie the server no longer accepts and lands on the sign-in page,
-   instead of sitting on a rendered page it can no longer refresh.
+   losing the whole account is the stronger revocation - it cannot be the slower of the two.
+
+   Reloading alone is NOT enough, which is what made the first attempt look like it did nothing: the
+   cookie's security stamp is re-checked on an interval, so rotating the stamp does not make the
+   cookie stop working at that instant and a reload inside the window is waved straight through. The
+   circuit is sent to /api/account/revalidate, which asks the question the interval was going to get
+   round to asking and ends the session there and then if the answer has changed.
 
    It lives in a component rather than in the auth-state provider because marshalling onto the
    circuit needs InvokeAsync, which a component has and the provider does not. *@
@@ -42,7 +45,9 @@
         {
             try
             {
-                Navigation.NavigateTo(Navigation.Uri, forceLoad: true);
+                var back = "/" + Navigation.ToBaseRelativePath(Navigation.Uri);
+                Navigation.NavigateTo(
+                    $"/api/account/revalidate?returnUrl={Uri.EscapeDataString(back)}", forceLoad: true);
             }
             catch (ObjectDisposedException)
             {
