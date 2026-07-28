@@ -58,10 +58,15 @@ public sealed class ConfigureOidcOptions : IConfigureNamedOptions<OpenIdConnectO
         options.RemoteSignOutPath = $"/signout-oidc/{schemeKey}";
 
         options.Scope.Clear();
-        foreach (var s in (provider.Scopes ?? "openid profile email").Split(' ', StringSplitOptions.RemoveEmptyEntries))
+        // Null-or-empty: these are optional fields, and clearing one in the UI stores "" rather than
+        // null. A plain ?? left the scopes blank, which asks the provider for nothing at all.
+        var scopes = string.IsNullOrWhiteSpace(provider.Scopes) ? "openid profile email" : provider.Scopes;
+        foreach (var s in scopes.Split(' ', StringSplitOptions.RemoveEmptyEntries))
             options.Scope.Add(s);
 
-        options.TokenValidationParameters.NameClaimType = provider.UsernameClaim ?? "preferred_username";
+        options.TokenValidationParameters.NameClaimType = string.IsNullOrWhiteSpace(provider.UsernameClaim)
+            ? "preferred_username"
+            : provider.UsernameClaim.Trim();
         options.MapInboundClaims = false; // keep raw claim types for our claim mapping
 
         // The handler builds redirect_uri from the incoming request, which behind a reverse proxy is
