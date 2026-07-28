@@ -867,22 +867,25 @@ reads, so Phases 2/3/5 start at classification, not parsing. `talk_devices` is o
 
 ## Standalone Controller Support
 
-### API Path Differences: verify against a real standalone controller
+### Legacy Network Server API paths: test coverage
 
-The detection is **implemented**, not missing: `DetectLoginType` probes `GET /login` (200 vs 404),
-`DetectControllerType` probes the proxied sysinfo endpoint, `BuildApiPath` / `BuildV2ApiPath` emit both
-path shapes, and standalone login goes to `/api/login`.
+The non-proxied `/api/s/{site}/...` root belongs to the **legacy UniFi Network Server** only. UniFi OS
+Server and the gateway consoles (UDM, UCG) all go through `/proxy/network/...`, so this branch is
+narrower than "standalone controller" suggests.
 
 | Controller Type | API Path Pattern |
 |-----------------|------------------|
-| UniFi OS (UDM/UCG) | `https://<ip>/proxy/network/api/s/{site}/stat/sta` |
-| Standalone Controller | `https://<ip>/api/s/{site}/stat/sta` |
+| UniFi OS (UDM / UCG / UniFi OS Server) | `https://<ip>/proxy/network/api/s/{site}/stat/sta` |
+| Legacy Network Server | `https://<ip>/api/s/{site}/stat/sta` |
 
-What is missing is evidence that it works: no test exercises standalone path detection, and no live
-verification against a standalone controller is on record. Open work:
-- [ ] Exercise `UniFiApiClient` path detection in tests
-- [ ] Verify all API endpoints against a real standalone controller
-- [ ] Confirm whether the authentication flow differs in practice
+Detection is implemented and has worked in practice: `DetectLoginType` probes `GET /login`,
+`DetectControllerType` probes the proxied sysinfo endpoint, `BuildApiPath` / `BuildV2ApiPath` emit both
+shapes, and legacy login goes to `/api/login`. It has been exercised in lab testing and some users run
+it, but not regularly, and Ubiquiti keeps steering people off the legacy server - so this is low
+priority and unlikely to grow.
+
+- [ ] Add test coverage for the path and login detection, so the legacy branch cannot rot silently
+  between releases that nobody exercises it in.
 
 ## Channel Recommendation: Learn From Tried Configs (Outcome History)
 
