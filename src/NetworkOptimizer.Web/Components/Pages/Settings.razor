@@ -1,4 +1,4 @@
-﻿@page "/settings"
+@page "/settings"
 @attribute [Authorize(Policy = Policies.ManageSettings)]
 @rendermode InteractiveServer
 @implements IDisposable
@@ -741,7 +741,6 @@
                 {
                     <p class="form-help">
                         Creates an Ed25519 key.
-                        <button class="btn-link" @onclick="GenerateRsaSshKey">Need RSA for older firmware?</button>
                     </p>
                 }
 
@@ -5177,7 +5176,6 @@
 
     private Task GenerateSshKey() => CreateSshKey(SshKeyType.Ed25519);
 
-    private Task GenerateRsaSshKey() => CreateSshKey(SshKeyType.Rsa4096);
 
     private async Task CreateSshKey(SshKeyType type)
     {
