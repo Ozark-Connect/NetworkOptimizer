@@ -306,14 +306,19 @@
     private async Task RevokeAsync(AccessRow grant)
     {
         var result = await IdentityAdmin.RemoveMembershipAsync(grant.UserId, grant.MembershipId);
-        Report(result, $"Revoked {grant.UserName}'s access to {grant.SiteLabel}.");
+        Report(result, $"Revoked {grant.UserName}'s access to {grant.SiteLabel}.", "info");
         if (result.Succeeded)
             await ReloadAsync();
     }
 
-    private void Report(AdminActionResult result, string success)
+    /// <summary>
+    /// Green says "that worked out well". Taking access away, disabling an account or deleting one is
+    /// the operator getting what they asked for, not good news - it reads as neutral, so the colour
+    /// carries meaning when something really is a success or a refusal.
+    /// </summary>
+    private void Report(AdminActionResult result, string success, string successClass = "success")
         => Show(result.Succeeded ? success : result.Error ?? "That change was refused.",
-                result.Succeeded ? "success" : "warning");
+                result.Succeeded ? successClass : "warning");
 
     private void Show(string message, string cssClass)
     {

@@ -427,6 +427,58 @@ public sealed class AdminPasswordChangeTests : IDisposable
         }
     }
 
+    /// <summary>
+    /// The identity context is scoped, and a Blazor circuit is one scope for its whole life - so the
+    /// user list an admin loaded when the tab opened stays tracked. If that account signs in
+    /// afterwards, its row moves on; a query hands back the stale tracked instance rather than the new
+    /// values, and a write against it fails its concurrency check. That failure was dropped, so
+    /// disabling the account reported success and left it able to go on signing in.
+    /// </summary>
+    [Fact]
+    public async Task DisablingStillWorksAfterTheAccountHasSignedInElsewhere()
+    {
+        await SeedAdminSettingsAsync("Original-Pass-1");
+
+        await using var provider = BuildProvider();
+        using (var boot = provider.CreateScope())
+            await boot.ServiceProvider.GetRequiredService<IIdentityBootstrapService>().RunAsync();
+
+        string targetId;
+        using (var scope = provider.AdminScope())
+        {
+            var identityAdmin = scope.ServiceProvider.GetRequiredService<IIdentityAdminService>();
+            (await identityAdmin.CreateUserAsync("colleague", null, "Colleague-Pass-2", Roles.Viewer))
+                .Succeeded.Should().BeTrue();
+            targetId = (await scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>()
+                .FindByNameAsync("colleague"))!.Id;
+        }
+
+        // One long-lived scope, standing in for the admin's circuit: it reads the user list now...
+        using var adminScope = provider.ScopeAs("test-admin", Roles.Admin);
+        var admin = adminScope.ServiceProvider.GetRequiredService<IIdentityAdminService>();
+        (await admin.ListUserSummariesAsync()).Should().Contain(s => s.User.Id == targetId);
+
+        // ...and meanwhile the account signs in, which stamps its row from a different scope.
+        using (var theirScope = provider.CreateScope())
+        {
+            var users = theirScope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+            var them = await users.FindByIdAsync(targetId);
+            them!.LastLoginAt = DateTime.UtcNow;
+            them.LastLoginMethod = "password";
+            (await users.UpdateAsync(them)).Succeeded.Should().BeTrue();
+        }
+
+        var result = await admin.SetEnabledAsync(targetId, false);
+        result.Succeeded.Should().BeTrue(result.Error);
+
+        using (var check = provider.CreateScope())
+        {
+            var users = check.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+            (await users.FindByIdAsync(targetId))!.IsEnabled.Should()
+                .BeFalse("the account has to actually be disabled, not merely reported as disabled");
+        }
+    }
+
     private static System.Security.Claims.ClaimsPrincipal PrincipalFor(string userId)
         => new(new System.Security.Claims.ClaimsIdentity(
             new[]

@@ -194,6 +194,12 @@ public sealed class IdentityAdminService : IIdentityAdminService
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly RoleManager<ApplicationRole> _roleManager;
     private readonly IDbContextFactory<AuthDbContext> _authDbFactory;
+
+    /// <summary>
+    /// The scoped context <see cref="UserManager{TUser}"/> itself writes through - NOT one from the
+    /// factory above, which would be a different instance with a different change tracker.
+    /// </summary>
+    private readonly AuthDbContext _db;
     private readonly IAuditLogger _audit;
     private readonly ICallerContext _caller;
     private readonly Authorization.IEffectiveSiteRoleResolver _siteRoles;
@@ -204,6 +210,7 @@ public sealed class IdentityAdminService : IIdentityAdminService
         UserManager<ApplicationUser> userManager,
         RoleManager<ApplicationRole> roleManager,
         IDbContextFactory<AuthDbContext> authDbFactory,
+        AuthDbContext db,
         IAuditLogger audit,
         ICallerContext caller,
         Authorization.IEffectiveSiteRoleResolver siteRoles,
@@ -213,6 +220,7 @@ public sealed class IdentityAdminService : IIdentityAdminService
         _userManager = userManager;
         _roleManager = roleManager;
         _authDbFactory = authDbFactory;
+        _db = db;
         _audit = audit;
         _caller = caller;
         _siteRoles = siteRoles;
@@ -288,6 +296,25 @@ public sealed class IdentityAdminService : IIdentityAdminService
         return names;
     }
 
+    /// <summary>
+    /// Loads a user with values fresh from the database, for every path that is about to change one.
+    ///
+    /// The identity context is scoped, and in Blazor Server a scope is the whole circuit - so the user
+    /// list this card loaded when the tab was opened is still tracked an hour later. A query returns
+    /// the instance already being tracked rather than overwriting its values, so its concurrency stamp
+    /// stays as it was at page load. If the account has signed in since (which stamps LastLoginAt and
+    /// rotates the stamp), the write silently fails its concurrency check - and because these callers
+    /// ignored the result, the UI reported the change had been made while nothing had. Disabling an
+    /// account that way left it able to go on signing in.
+    /// </summary>
+    private async Task<ApplicationUser?> LoadForUpdateAsync(string userId)
+    {
+        var user = await _userManager.FindByIdAsync(userId);
+        if (user is not null)
+            await _db.Entry(user).ReloadAsync();
+        return user;
+    }
+
     public async Task<IReadOnlyList<ApplicationUser>> ListUsersAsync()
         => await _userManager.Users.OrderBy(u => u.UserName).ToListAsync();
 
@@ -352,7 +379,7 @@ public sealed class IdentityAdminService : IIdentityAdminService
     /// <inheritdoc />
     public async Task<AdminActionResult> LinkExternalAsync(string userId, string loginProvider, string providerKey, string? displayName)
     {
-        var user = await _userManager.FindByIdAsync(userId);
+        var user = await LoadForUpdateAsync(userId);
         if (user is null) return AdminActionResult.Fail("User not found.");
 
         var existing = await _userManager.FindByLoginAsync(loginProvider, providerKey);
@@ -373,7 +400,7 @@ public sealed class IdentityAdminService : IIdentityAdminService
     /// <inheritdoc />
     public async Task<AdminActionResult> UnlinkExternalAsync(string userId, string loginProvider, string providerKey)
     {
-        var user = await _userManager.FindByIdAsync(userId);
+        var user = await LoadForUpdateAsync(userId);
         if (user is null) return AdminActionResult.Fail("User not found.");
 
         var result = await _userManager.RemoveLoginAsync(user, loginProvider, providerKey);
@@ -389,7 +416,7 @@ public sealed class IdentityAdminService : IIdentityAdminService
     {
         if (RefuseUnlessSelf(userId) is { } refusal) return refusal;
 
-        var user = await _userManager.FindByIdAsync(userId);
+        var user = await LoadForUpdateAsync(userId);
         if (user is null) return AdminActionResult.Fail("User not found.");
 
         // Nothing to prove against, and no password to replace - a passkey or federated account gets
@@ -415,10 +442,12 @@ public sealed class IdentityAdminService : IIdentityAdminService
     {
         if (RefuseUnlessSelf(userId) is { } refusal) return refusal;
 
-        var user = await _userManager.FindByIdAsync(userId);
+        var user = await LoadForUpdateAsync(userId);
         if (user is null) return AdminActionResult.Fail("User not found.");
 
-        await _userManager.UpdateSecurityStampAsync(user);
+        var stamped = await _userManager.UpdateSecurityStampAsync(user);
+        if (!stamped.Succeeded)
+            return AdminActionResult.Fail(Describe(stamped));
         Emit(AuditCategories.Auth, AuditActions.SignedOutEverywhere, user, new { self = true });
         return AdminActionResult.Ok();
     }
@@ -427,7 +456,7 @@ public sealed class IdentityAdminService : IIdentityAdminService
     {
         if (RefuseUnlessSelf(userId) is { } refusal) return refusal;
 
-        var user = await _userManager.FindByIdAsync(userId);
+        var user = await LoadForUpdateAsync(userId);
         if (user is null) return AdminActionResult.Fail("User not found.");
 
         // A federated-only account (or one carried over from an install that never had a local
@@ -487,7 +516,7 @@ public sealed class IdentityAdminService : IIdentityAdminService
 
     public async Task<AdminActionResult> SetEnabledAsync(string userId, bool enabled)
     {
-        var user = await _userManager.FindByIdAsync(userId);
+        var user = await LoadForUpdateAsync(userId);
         if (user is null) return AdminActionResult.Fail("User not found.");
 
         if (!enabled && IsSelf(userId))
@@ -498,7 +527,9 @@ public sealed class IdentityAdminService : IIdentityAdminService
             return RefuseLastAdmin(user, "disable");
 
         user.IsEnabled = enabled;
-        await _userManager.UpdateAsync(user);
+        var update = await _userManager.UpdateAsync(user);
+        if (!update.Succeeded)
+            return AdminActionResult.Fail(Describe(update));
         await _userManager.UpdateSecurityStampAsync(user); // revoke live sessions on disable
         Emit(AuditCategories.User, enabled ? AuditActions.UserEnabled : AuditActions.UserDisabled, user);
         return AdminActionResult.Ok();
@@ -506,7 +537,7 @@ public sealed class IdentityAdminService : IIdentityAdminService
 
     public async Task<AdminActionResult> DeleteUserAsync(string userId)
     {
-        var user = await _userManager.FindByIdAsync(userId);
+        var user = await LoadForUpdateAsync(userId);
         if (user is null) return AdminActionResult.Fail("User not found.");
 
         // Deleting the account you are signed in as revokes your own session mid-action, so it is
@@ -534,7 +565,7 @@ public sealed class IdentityAdminService : IIdentityAdminService
 
     public async Task<AdminActionResult> SetPasswordAsync(string userId, string newPassword)
     {
-        var user = await _userManager.FindByIdAsync(userId);
+        var user = await LoadForUpdateAsync(userId);
         if (user is null) return AdminActionResult.Fail("User not found.");
 
         var token = await _userManager.GeneratePasswordResetTokenAsync(user);
@@ -555,7 +586,7 @@ public sealed class IdentityAdminService : IIdentityAdminService
     {
         if (!Roles.All.Contains(role))
             return AdminActionResult.Fail($"Unknown role '{role}'.");
-        var user = await _userManager.FindByIdAsync(userId);
+        var user = await LoadForUpdateAsync(userId);
         if (user is null) return AdminActionResult.Fail("User not found.");
 
         if (await _userManager.IsInRoleAsync(user, role))
@@ -569,7 +600,7 @@ public sealed class IdentityAdminService : IIdentityAdminService
 
     public async Task<AdminActionResult> RevokeGlobalRoleAsync(string userId, string role)
     {
-        var user = await _userManager.FindByIdAsync(userId);
+        var user = await LoadForUpdateAsync(userId);
         if (user is null) return AdminActionResult.Fail("User not found.");
 
         if (role == Roles.Admin && IsSelf(userId))
@@ -616,7 +647,7 @@ public sealed class IdentityAdminService : IIdentityAdminService
 
     public async Task<AdminActionResult> AddMembershipAsync(string userId, MembershipTargetType targetType, string? targetId, SiteRole role)
     {
-        var user = await _userManager.FindByIdAsync(userId);
+        var user = await LoadForUpdateAsync(userId);
         if (user is null) return AdminActionResult.Fail("User not found.");
 
         if (await RefuseUnlessOwnedAsync(targetType, targetId) is { } refusal)
@@ -649,7 +680,7 @@ public sealed class IdentityAdminService : IIdentityAdminService
 
     public async Task<AdminActionResult> RemoveMembershipAsync(string userId, int membershipId)
     {
-        var user = await _userManager.FindByIdAsync(userId);
+        var user = await LoadForUpdateAsync(userId);
         if (user is null) return AdminActionResult.Fail("User not found.");
 
         await using (var db = await _authDbFactory.CreateDbContextAsync())
