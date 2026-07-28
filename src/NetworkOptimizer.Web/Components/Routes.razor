@@ -1,4 +1,4 @@
-﻿@rendermode InteractiveServer
+@rendermode InteractiveServer
 @using NetworkOptimizer.Storage.Models.Identity
 @using NetworkOptimizer.Web.Services.Authorization
 @using NetworkOptimizer.Web.Services.Identity
@@ -31,13 +31,26 @@
                 </div>
             </NotAuthorized>
         </AuthorizeRouteView>
-        <FocusOnNavigate RouteData="routeData" Selector="h1" />
+        <FocusOnNavigate RouteData="routeData" Selector="@FocusSelector" />
     </Found>
 </Router>
 }
 <SiteTabSync />
 
 @code {
+    /// <summary>
+    /// What gets focus after a navigation. The heading everywhere, because announcing it is what a
+    /// screen reader needs - except on the sign-in pages, which exist to take a keystroke.
+    ///
+    /// This is what kept beating the login page's own autofocus. The page focuses its field while it
+    /// is still static HTML, around 20ms in; this runs when the circuit connects, nearer 170ms, and
+    /// moved focus to the h1 every time. Nothing on the page was stealing it - the router was.
+    /// </summary>
+    private string FocusSelector =>
+        Navigation.Uri.Contains("/login", StringComparison.OrdinalIgnoreCase)
+            ? "input[autofocus]"
+            : "h1";
+
     private bool _siteResolved;
 
     protected override async Task OnInitializedAsync()

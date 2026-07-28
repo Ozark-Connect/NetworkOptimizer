@@ -1,4 +1,4 @@
-﻿@page "/login"
+@page "/login"
 @layout AuthLayout
 @using NetworkOptimizer.Storage.Models.Identity
 @using NetworkOptimizer.Web.Services
@@ -93,29 +93,6 @@
             </div>
         </form>
 
-
-@* TEMPORARY focus trace - says who takes focus and when, so the thief is named rather than guessed
-   at. Remove once the autofocus loss is understood. *@
-<script suppress-error="BL9992">
-    (function () {
-        var t0 = Date.now();
-        function tag(el) {
-            if (!el) return '(null)';
-            return el.tagName + (el.id ? '#' + el.id : '') + (el.className ? '.' + String(el.className).split(' ')[0] : '');
-        }
-        function log(what, el, extra) {
-            console.log('[focus +' + (Date.now() - t0) + 'ms] ' + what + ' ' + tag(el) + (extra || ''));
-        }
-        document.addEventListener('focusin', function (e) { log('GAINED', e.target); }, true);
-        document.addEventListener('focusout', function (e) { log('LOST', e.target, ' -> ' + tag(e.relatedTarget)); }, true);
-        document.addEventListener('DOMContentLoaded', function () { log('DOMContentLoaded, active =', document.activeElement); });
-        if (window.Blazor) {
-            Blazor.addEventListener('enhancedload', function () { log('enhancedload, active =', document.activeElement); });
-        }
-        setTimeout(function () { log('t+1s, active =', document.activeElement); }, 1000);
-        setTimeout(function () { log('t+3s, active =', document.activeElement); }, 3000);
-    })();
-</script>
 
 @* autofocus fires when the browser first parses the page, and not when enhanced navigation patches
    the DOM in - which is what happens arriving here from anywhere inside the app, so the field ends up
