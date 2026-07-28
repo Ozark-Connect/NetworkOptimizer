@@ -679,40 +679,6 @@ public class SqmService : ISqmService
         return false;
     }
 
-    /// <summary>
-    /// Generate the tc-monitor configuration content based on controller WAN settings
-    /// This can be used to deploy the correct interface mapping to gateways
-    /// </summary>
-    public async Task<string> GenerateTcMonitorConfigAsync()
-    {
-        var wans = await GetWanInterfacesFromControllerAsync();
-
-        if (wans.Count == 0)
-        {
-            return "# No WAN interfaces found in controller configuration\n# Format: interface:name\nifbeth2:WAN1 ifbeth0:WAN2";
-        }
-
-        // Generate interface configuration in the format expected by tc-monitor
-        // Format: "ifbeth4:Comcast ifbeth0:Starlink"
-        var config = string.Join(" ", wans
-            .Where(w => !string.IsNullOrEmpty(w.TcInterface))
-            .Select(w => $"{w.TcInterface}:{w.Name}"));
-
-        return config;
-    }
-
-    public async Task<string> GenerateSqmScriptsAsync(SqmConfiguration config)
-    {
-        _logger.LogInformation("Generating SQM scripts for configuration: {@Config}", config);
-
-        // TODO(sqm-scripts): Integrate NetworkOptimizer.Sqm.ScriptGenerator.
-        // Requires: Finalized script templates for CAKE qdisc configuration.
-        // Should generate: sqm-start.sh, sqm-stop.sh, crontab entry, tc-monitor.sh
-
-        await Task.Delay(500); // Simulate generation
-
-        return "/downloads/sqm-scripts.tar.gz";
-    }
 }
 
 public class SqmStatusData
@@ -732,16 +698,6 @@ public class SqmStatusData
     // Live TC data
     public List<TcInterfaceStats>? TcInterfaces { get; set; }
     public DateTime? TcMonitorTimestamp { get; set; }
-}
-
-public class SqmConfiguration
-{
-    public string Interface { get; set; } = "";
-    public int DownloadSpeed { get; set; }
-    public int UploadSpeed { get; set; }
-    public bool EnableSpeedtest { get; set; }
-    public bool EnableLatencyMonitoring { get; set; }
-    public string BlendingRatio { get; set; } = "6040";
 }
 
 public class SpeedtestResult
