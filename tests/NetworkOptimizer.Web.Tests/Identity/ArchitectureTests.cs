@@ -101,12 +101,12 @@ public class ArchitectureTests
     /// <summary>
     /// A2 (second half): a gate is only enforced if the interface is actually proxied, so every
     /// <see cref="MutatingServiceAttribute"/> interface must be registered through one of the
-    /// <c>AddMutatingService</c> overloads in Program.cs.
+    /// <c>AddMutatingService</c> overloads in the composition root.
     /// </summary>
     [Fact]
     public void A2_EveryMutatingServiceIsRegisteredThroughTheGate()
     {
-        var programSource = ReadRepoFile("src/NetworkOptimizer.Web/Program.cs");
+        var programSource = CompositionRootSource();
         var unregistered = MutatingInterfaces()
             .Where(i => !programSource.Contains($"AddMutatingService<{i.Name}", StringComparison.Ordinal)
                 && !programSource.Contains($"AddMutatingService<{i.Name},", StringComparison.Ordinal)
@@ -134,7 +134,7 @@ public class ArchitectureTests
             "SpeedTestServiceRegistry", // owns the per-site instances the gated registrations proxy
         };
 
-        var programSource = ReadRepoFile("src/NetworkOptimizer.Web/Program.cs");
+        var programSource = CompositionRootSource();
         var implementations = SafeGetTypes(WebAssembly)
             .Where(t => t.IsClass && !t.IsAbstract)
             .Where(t => t.GetInterfaces().Any(i => i.GetCustomAttribute<MutatingServiceAttribute>() is not null))
@@ -272,6 +272,15 @@ public class ArchitectureTests
                 && serviceType != typeof(Guid)
                 && serviceType != typeof(decimal);
     }
+
+    /// <summary>
+    /// Every file that registers services at startup. Program.cs is the composition root, but the
+    /// identity registrations were long enough to live in an extension method Program.cs calls; that is
+    /// a file split, not a second container, so the registration checks read both.
+    /// </summary>
+    private static string CompositionRootSource()
+        => ReadRepoFile("src/NetworkOptimizer.Web/Program.cs")
+            + ReadRepoFile("src/NetworkOptimizer.Web/Services/Identity/IdentityRegistration.cs");
 
     private static IEnumerable<Type> MutatingInterfaces()
         => SafeGetTypes(WebAssembly)

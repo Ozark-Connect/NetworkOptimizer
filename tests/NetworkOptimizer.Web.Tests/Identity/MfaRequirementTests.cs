@@ -46,6 +46,7 @@ public sealed class MfaRequirementTests : IDisposable
             .AddCookie(IdentityConstants.TwoFactorUserIdScheme);
         services.AddSingleton<IHttpContextAccessor, HttpContextAccessor>();
         services.AddSingleton<IAuthPolicyOptions, StubAuthPolicy>();
+        services.AddGatePlumbing();
         return services.BuildServiceProvider();
     }
 
@@ -158,7 +159,7 @@ public sealed class MfaRequirementTests : IDisposable
     {
         await using var provider = await BuildWithSchemaAsync();
 
-        using (var scope = provider.CreateScope())
+        using (var scope = provider.AdminScope())
         {
             var user = await CreateUserAsync(scope, "passkeyadmin");
             await AddPasskeyAsync(scope, user);

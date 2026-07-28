@@ -6,7 +6,7 @@
 @inject IAdminAuthService AdminAuth
 @inject IFederationProviderService Federation
 @inject IAuthPolicyOptions AuthPolicy
-@inject IIdentityAdminService IdentityAdmin
+@inject IdentityLoginFacts LoginFacts
 @inject PersistentComponentState PageState
 @implements IDisposable
 @* Static SSR (no interactive render mode): sign-in issues a Set-Cookie via a form POST to
@@ -248,7 +248,7 @@
         // Pre-fill "admin" only on a single-account install (the migration/first-run state), so the
         // seamless single-admin login keeps its muscle memory. Once a second user exists, leave it
         // empty (a Viewer/Operator shouldn't have to clear it, and it stops advertising "admin").
-        _prefillAdmin = await IdentityAdmin.CountUsersAsync() <= 1;
+        _prefillAdmin = await LoginFacts.IsSingleAccountInstallAsync();
         _providers = await Federation.GetEnabledAsync();
         _hideLocalLogin = await AuthPolicy.IsLocalLoginDisabledAsync()
             && !BreakGlass.IsRecoveryMode

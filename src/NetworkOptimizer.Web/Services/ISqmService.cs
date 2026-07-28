@@ -52,27 +52,10 @@ public interface ISqmService
     Task<string> GenerateTcMonitorConfigAsync();
 
     /// <summary>
-    /// Deploy SQM configuration to the gateway.
-    /// </summary>
-    /// <param name="config">The SQM configuration to deploy.</param>
-    /// <returns>True if deployment succeeded, false otherwise.</returns>
-    [RequireRole(Roles.Admin)]
-    [AuditAction(AuditActions.SqmApplied, TargetType = "wan")]
-    Task<bool> DeploySqmAsync(SqmConfiguration config);
-
-    /// <summary>
     /// Generate SQM scripts for the specified configuration.
     /// </summary>
     /// <param name="config">The SQM configuration to generate scripts for.</param>
     /// <returns>The path to the generated scripts archive.</returns>
     [RequireRole(Roles.Viewer)]
     Task<string> GenerateSqmScriptsAsync(SqmConfiguration config);
-
-    /// <summary>
-    /// Disable SQM on the gateway.
-    /// </summary>
-    /// <returns>True if SQM was successfully disabled, false otherwise.</returns>
-    [RequireRole(Roles.Admin)]
-    [AuditAction(AuditActions.SqmReverted, TargetType = "wan")]
-    Task<bool> DisableSqmAsync();
 }

@@ -38,9 +38,13 @@ public sealed class MembershipOwnershipTests : IDisposable
         private readonly string _slug;
         public SiteAdminOf(string slug) => _slug = slug;
 
+        // A global Admin administers every site, exactly as EffectiveSiteRoleResolver has it - without
+        // that, a site-scoped gate refuses the global Admin the test is acting as.
         public Task<SiteRole?> GetEffectiveRoleAsync(ClaimsPrincipal user, string slug) =>
             Task.FromResult<SiteRole?>(
-                string.Equals(slug, _slug, StringComparison.OrdinalIgnoreCase) ? SiteRole.SiteAdmin : null);
+                user.IsInRole(Roles.Admin) || string.Equals(slug, _slug, StringComparison.OrdinalIgnoreCase)
+                    ? SiteRole.SiteAdmin
+                    : null);
 
         public Task<IReadOnlySet<string>> GetAuthorizedSlugsAsync(ClaimsPrincipal user) =>
             Task.FromResult<IReadOnlySet<string>>(new HashSet<string> { _slug });
@@ -67,6 +71,7 @@ public sealed class MembershipOwnershipTests : IDisposable
         services.AddSingleton<IAuditLogger>(new NoOpAuditLogger());
         services.AddScoped<ICallerContext, CallerContext>();
         services.AddScoped<IEffectiveSiteRoleResolver>(_ => new SiteAdminOf(OwnedSite));
+        services.AddGatePlumbing(OwnedSite);
         return services.BuildServiceProvider();
     }
 
