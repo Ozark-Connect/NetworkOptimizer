@@ -109,6 +109,15 @@ public sealed class FederationProviderService : IFederationProviderService
         _audit.Log(AuditEventBuilder.From(_caller.Current, AuditCategories.Federation,
             enabled ? AuditActions.ProviderEnabled : AuditActions.ProviderDisabled,
             targetType: "provider", targetId: provider.Scheme, targetName: provider.DisplayName));
+
+        // The scheme registry follows the toggle, exactly as it follows a save or a delete. Without
+        // this, enabling a provider that was created disabled leaves it with no registered scheme -
+        // the challenge then throws "No authentication handler is registered" until the app restarts.
+        // Disabling had the mirror problem: the scheme stayed live and kept accepting sign-ins.
+        if (enabled)
+            await _schemes.SyncAsync();
+        else
+            await _schemes.RemoveAsync(provider.Scheme);
     }
 
     public async Task DeleteAsync(int id)
