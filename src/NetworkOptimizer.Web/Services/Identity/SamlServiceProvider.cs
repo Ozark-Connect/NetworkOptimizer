@@ -1,4 +1,4 @@
-﻿using System.Security.Claims;
+using System.Security.Claims;
 using System.Security.Cryptography.X509Certificates;
 using ITfoxtec.Identity.Saml2;
 using ITfoxtec.Identity.Saml2.MvcCore;
@@ -282,6 +282,12 @@ public sealed class SamlServiceProvider : ISamlServiceProvider
             var genericRequest = await context.Request.ToGenericHttpRequestAsync(readBodyAsString: true);
             var binding = new Saml2PostBinding();
             var response = new Saml2AuthnResponse(config);
+
+            // The binding has to be attached to the request, not just used to read it. ITfoxtec reaches
+            // back through request.Binding while reading, so leaving it unset dereferences null and
+            // reports a bare NullReferenceException from inside the library - with a valid config and a
+            // well-formed response, which is what made it look like bad data for so long.
+            genericRequest.Binding = binding;
             binding.ReadSamlResponse(genericRequest, response);
 
             if (response.Status != Saml2StatusCodes.Success)
