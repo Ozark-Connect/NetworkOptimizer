@@ -1,4 +1,4 @@
-@using Microsoft.AspNetCore.Http
+﻿@using Microsoft.AspNetCore.Http
 @using NetworkOptimizer.Storage.Models.Identity
 @using NetworkOptimizer.Web.Services.Identity
 @inject IIdentityAdminService IdentityAdmin
@@ -200,8 +200,13 @@
                             <input class="form-control" @bind="_editing.IdpMetadataUrl" placeholder="https://idp.example.com/metadata" disabled="@_editing.ManagedByConfigFile" />
                         </div>
                         <div class="form-group">
-                            <label class="form-label">Service provider entity ID</label>
-                            <input class="form-control" @bind="_editing.SpEntityId" disabled="@_editing.ManagedByConfigFile" />
+                            <label class="form-label">Service provider entity ID (optional)</label>
+                            <input class="form-control" @bind="_editing.SpEntityId" placeholder="@DefaultSpEntityId"
+                                   disabled="@_editing.ManagedByConfigFile" />
+                            <small class="form-help">
+                                This install's own identity, not the provider's. Leave blank to use the
+                                default shown, and set the same value as the audience at your identity provider.
+                            </small>
                         </div>
                     </div>
                 }
@@ -263,7 +268,7 @@
                     {
                         <li class="identity-url-item">
                             <span class="identity-url-label">@label</span>
-                            <code class="identity-url-value">@url</code>
+                            <CopyableCommand Text="@url" Tooltip="@($"Copy the {label.ToLowerInvariant()}")" />
                         </li>
                     }
                 </ul>
@@ -355,6 +360,22 @@
         _editing = provider;
         _newSecret = "";
         _message = null;
+    }
+
+    /// <summary>
+    /// What SpEntityId falls back to when left blank - the same expression SamlServiceProvider uses, so
+    /// the placeholder shows the value that will actually be sent rather than a description of it.
+    /// </summary>
+    private string DefaultSpEntityId
+    {
+        get
+        {
+            var origin = CanonicalOrigin.Configured;
+            var scheme = string.IsNullOrWhiteSpace(_editing?.Scheme) ? "<scheme>" : _editing.Scheme;
+            return origin is null
+                ? $"https://<this install>/saml/{scheme}/metadata"
+                : $"{origin}/saml/{scheme}/metadata";
+        }
     }
 
     private async Task SaveAsync()

@@ -19430,12 +19430,20 @@ body.kiosk-mode .status-indicators {
     font-weight: 500;
     color: var(--text-primary);
     min-width: 14rem;
+    font-size: 0.9rem;
 }
 
 .identity-link-subject,
 .identity-url-value {
     color: var(--text-secondary);
     word-break: break-all;
+}
+
+/* The URL sits beside its label in a flex row, so the copy block takes the rest of the line rather
+   than collapsing to its content. */
+.identity-url-item .code-copy-block {
+    flex: 1;
+    min-width: 0;
 }
 
 @media (max-width: 768px) {
