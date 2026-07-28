@@ -53,6 +53,8 @@ public static class FederationEndpoints
                 // identically however the user arrived.
                 ExternalLoginOutcome.RequiresMfaEnrollment => Results.Redirect("/account/security?setup=required"),
                 ExternalLoginOutcome.RequiresPasskeySignIn => Results.Redirect("/login?error=use_passkey"),
+                // The pending two-factor state is set, so the existing code entry page completes it.
+                ExternalLoginOutcome.RequiresTwoFactor => Results.Redirect("/login/2fa?returnUrl=%2F"),
                 ExternalLoginOutcome.RequiresLocalMfa => Results.Redirect("/login?error=mfa_local_required"),
                 _ => Results.Redirect("/login?error=no_account"),
             };

@@ -28,9 +28,14 @@ public enum ExternalLoginOutcome
     RequiresPasskeySignIn,
 
     /// <summary>
-    /// Their role requires a second factor and the only one enrolled is an authenticator app, which
-    /// this flow cannot challenge - the provider signed them in and handed us a principal, with no
-    /// step where we could ask. They have to come in locally, where Identity does challenge it.
+    /// Their role requires a second factor and an authenticator app is enrolled. Identity's pending
+    /// two-factor state has been established, so the caller sends them to the code entry page.
+    /// </summary>
+    RequiresTwoFactor,
+
+    /// <summary>
+    /// Their role requires a second factor, none of the enrolled ones can be challenged here, and the
+    /// two-factor state could not be established. They come in locally instead.
     /// </summary>
     RequiresLocalMfa,
 }
@@ -268,23 +273,43 @@ public sealed class ExternalLoginService : IExternalLoginService
             return ExternalLoginOutcome.RequiresMfaEnrollment;
         }
 
-        // A passkey satisfies the requirement only when it is the credential actually used, and here it
-        // was not - the provider authenticated them. An authenticator app cannot be challenged at all
-        // in this flow, so that case goes to local sign-in rather than pointing at a passkey they do
-        // not have.
-        var hasPasskey = (await _userManager.GetPasskeysAsync(user)).Count > 0;
-        var outcome = hasPasskey
-            ? ExternalLoginOutcome.RequiresPasskeySignIn
-            : ExternalLoginOutcome.RequiresLocalMfa;
+        // An authenticator app CAN be challenged here: signing in through Identity's external path
+        // rather than signing the principal in directly leaves the pending two-factor state behind, and
+        // the existing /login/2fa page picks it up. Preferred over the passkey route when both are
+        // enrolled, because it completes the sign-in the user actually started.
+        if (await _mfa.IsEnabledAsync(user))
+        {
+            var result = await _signInManager.ExternalLoginSignInAsync(
+                SchemeKey(provider), subject, isPersistent: false, bypassTwoFactor: false);
 
+            if (result.RequiresTwoFactor)
+            {
+                EmitRejected(provider, reason: "role requires a second factor; sent to authenticator entry",
+                    user: user, subject: subject);
+                return ExternalLoginOutcome.RequiresTwoFactor;
+            }
+
+            // Two-factor state could not be established, so there is nothing to complete. Refuse rather
+            // than fall through to a session that never proved a second factor.
+            EmitRejected(provider,
+                reason: $"role requires a second factor; external two-factor sign-in did not challenge ({result})",
+                user: user, subject: subject);
+            return ExternalLoginOutcome.RequiresLocalMfa;
+        }
+
+        // A passkey satisfies the requirement only when it is the credential actually used, and here it
+        // was not - the provider authenticated them.
+        var hasPasskey = (await _userManager.GetPasskeysAsync(user)).Count > 0;
         EmitRejected(
             provider,
             reason: hasPasskey
                 ? "role requires a second factor; the provider did not assert one and the passkey was not used"
-                : "role requires a second factor; only an authenticator app is enrolled and this flow cannot challenge it",
+                : "role requires a second factor; nothing enrolled can be challenged here",
             user: user,
             subject: subject);
-        return outcome;
+        return hasPasskey
+            ? ExternalLoginOutcome.RequiresPasskeySignIn
+            : ExternalLoginOutcome.RequiresLocalMfa;
     }
 
     /// <summary>
