@@ -156,6 +156,7 @@ public static class AuthEndpoints
             ICurrentUserAccessor currentUser,
             IIdentityAdminService identityAdmin,
             IIdentitySignInService signInService,
+            UserSessionRevocationNotifier revocations,
             IAntiforgery antiforgery) =>
         {
             try
@@ -186,6 +187,13 @@ public static class AuthEndpoints
                 return Results.Redirect("/account/security?pw=failed");
 
             await signInService.RefreshSignInAsync(user);
+
+            // Changing the password rotates the security stamp, so every other session is already
+            // invalid - but the stamp is only re-checked on an interval, so without this they keep
+            // working for up to five minutes after the credential they hold was replaced. Announced
+            // after the refresh for the same reason sign out everywhere does it in that order: this
+            // browser has to be holding its re-issued cookie before the others are sent to revalidate.
+            revocations.NotifyRevoked(user.Id);
             return Results.Redirect("/account/security?pw=done");
         })
             .RequireAuthorization(Policies.AccountSelfService);
