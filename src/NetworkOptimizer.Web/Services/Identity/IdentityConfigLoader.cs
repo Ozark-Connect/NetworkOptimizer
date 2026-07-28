@@ -21,16 +21,30 @@ public interface IIdentityConfigLoader
 public sealed class IdentityConfigLoader : IIdentityConfigLoader
 {
     private readonly IFederationProviderService _providers;
+    private readonly IFederationAdminService _providerAdmin;
+    private readonly ICallerContext _caller;
     private readonly ILogger<IdentityConfigLoader> _logger;
 
-    public IdentityConfigLoader(IFederationProviderService providers, ILogger<IdentityConfigLoader> logger)
+    public IdentityConfigLoader(
+        IFederationProviderService providers,
+        IFederationAdminService providerAdmin,
+        ICallerContext caller,
+        ILogger<IdentityConfigLoader> logger)
     {
         _providers = providers;
+        _providerAdmin = providerAdmin;
+        _caller = caller;
         _logger = logger;
     }
 
     public async Task ApplyAsync()
     {
+        // Writing a provider is gated on global Admin, and this runs at boot from a mounted file with
+        // nobody signed in. That is precisely what a system scope is for: the operator who mounted the
+        // file IS the authority, and the audit trail attributes the change to the config loader rather
+        // than to a person who was not there.
+        using var _system = _caller.BeginSystemScope("identity-config");
+
         var path = Environment.GetEnvironmentVariable("NETOPT_IDENTITY_CONFIG") ?? "/app/config/identity.json";
         if (!File.Exists(path))
             return;
@@ -81,7 +95,7 @@ public sealed class IdentityConfigLoader : IIdentityConfigLoader
             var envSecret = Environment.GetEnvironmentVariable($"NETOPT_FED_{p.Scheme.ToUpperInvariant().Replace('-', '_')}_SECRET");
             var secret = envSecret ?? p.ClientSecret;
 
-            await _providers.SaveAsync(provider, secret);
+            await _providerAdmin.SaveAsync(provider, secret);
         }
 
         _logger.LogInformation("Applied {Count} IaC-managed federation providers from {Path}.", config.Providers.Count, path);

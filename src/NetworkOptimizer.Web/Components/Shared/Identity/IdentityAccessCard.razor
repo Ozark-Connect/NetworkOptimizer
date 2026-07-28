@@ -3,6 +3,7 @@
 @using NetworkOptimizer.Web.Services.Identity
 @inject IIdentityAdminService IdentityAdmin
 @inject IAuthPolicyOptions AuthPolicy
+@inject IAuthPolicyAdminService AuthPolicyAdmin
 @inject ISiteManagementService SiteManagement
 @inject NetworkOptimizer.Web.Services.SiteRegistryChangeNotifier ChangeNotifier
 @implements IDisposable
@@ -272,7 +273,7 @@
 
     private async Task SaveRestrictAsync()
     {
-        await AuthPolicy.SetRestrictSitesToMembersAsync(_restrictSites);
+        await AuthPolicyAdmin.SetRestrictSitesToMembersAsync(_restrictSites);
         await OnSiteRestrictionChanged.InvokeAsync();
         Show(_restrictSites
             ? "Non-Admin users now see only the sites they are granted."

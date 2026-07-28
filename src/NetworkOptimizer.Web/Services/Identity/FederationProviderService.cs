@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Storage.Models.Identity;
 using NetworkOptimizer.Web.Services.Auditing;
+using NetworkOptimizer.Web.Services.Gates;
 
 namespace NetworkOptimizer.Web.Services.Identity;
 
@@ -15,16 +16,40 @@ public interface IFederationProviderService
     Task<IReadOnlyList<FederationProvider>> GetAllAsync();
     Task<IReadOnlyList<FederationProvider>> GetEnabledAsync();
     Task<FederationProvider?> GetBySchemeAsync(string scheme);
-    Task<int> SaveAsync(FederationProvider provider, string? newClientSecret);
-    Task SetEnabledAsync(int id, bool enabled);
-    Task DeleteAsync(int id);
 
     /// <summary>Decrypts a stored client secret for handler configuration (never exposed to the UI).</summary>
     string? UnprotectClientSecret(FederationProvider provider);
+
+    // Save/SetEnabled/Delete are NOT here. The sign-in page reads this interface anonymously to draw
+    // its provider buttons, and the OIDC and SAML handlers read it while configuring themselves with
+    // no caller established, so it cannot be gated. Leaving the mutations on it meant anything holding
+    // it could register an identity provider - and an attacker-chosen IdP with JIT provisioning and
+    // role mapping signs in as whoever it likes. They live on IFederationAdminService below.
+}
+
+/// <summary>
+/// Adding, changing and removing identity providers (design doc 06, gate 9).
+///
+/// Global Admin without exception: a provider row decides who may authenticate to this instance and
+/// what roles they arrive holding, so writing one is at least as powerful as editing accounts
+/// directly. Separate from <see cref="IFederationProviderService"/> because that has to answer
+/// anonymous callers - see the note there.
+/// </summary>
+[MutatingService]
+public interface IFederationAdminService
+{
+    [RequireRole(Roles.Admin)]
+    Task<int> SaveAsync(FederationProvider provider, string? newClientSecret);
+
+    [RequireRole(Roles.Admin)]
+    Task SetEnabledAsync(int id, bool enabled);
+
+    [RequireRole(Roles.Admin)]
+    Task DeleteAsync(int id);
 }
 
 /// <inheritdoc />
-public sealed class FederationProviderService : IFederationProviderService
+public sealed class FederationProviderService : IFederationProviderService, IFederationAdminService
 {
     private readonly IDbContextFactory<AuthDbContext> _dbFactory;
     /// <summary>

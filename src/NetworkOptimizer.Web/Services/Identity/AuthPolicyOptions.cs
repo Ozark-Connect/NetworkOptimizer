@@ -1,3 +1,7 @@
+using NetworkOptimizer.Storage.Models.Identity;
+using NetworkOptimizer.Web.Services.Auditing;
+using NetworkOptimizer.Web.Services.Gates;
+
 namespace NetworkOptimizer.Web.Services.Identity;
 
 /// <summary>
@@ -13,8 +17,10 @@ public interface IAuthPolicyOptions
     /// </summary>
     Task<bool> IsLocalLoginDisabledAsync();
 
-    /// <summary>Sets the SSO-only local-login toggle.</summary>
-    Task SetLocalLoginDisabledAsync(bool disabled);
+    // The setters are NOT here. This interface is read by the sign-in page as an anonymous caller and
+    // by the authorization handlers on every check, so it cannot be gated - and leaving a setter on it
+    // meant anything holding it could flip the two settings that decide who gets in and which sites a
+    // role reaches, with no service-tier check at all. They live on IAuthPolicyAdminService below.
 
     /// <summary>
     /// When on, Operators and Viewers reach only the sites they are granted; when off, a global role
@@ -24,12 +30,33 @@ public interface IAuthPolicyOptions
     /// </summary>
     Task<bool> IsRestrictSitesToMembersAsync();
 
+}
+
+/// <summary>
+/// Changing the two instance-wide authentication policies (design doc 06, gate 9).
+///
+/// Separate from <see cref="IAuthPolicyOptions"/> because that one has to stay ungated - the login
+/// page reads it before anyone is authenticated, and every authorization check reads it - while these
+/// two writes are among the most powerful in the product. Turning the site restriction OFF hands
+/// every global Viewer and Operator every site at once, and turning local login off decides whether
+/// passwords work at all. Both are global Admin and both are audited.
+/// </summary>
+[MutatingService]
+public interface IAuthPolicyAdminService
+{
+    /// <summary>Sets the SSO-only local-login toggle.</summary>
+    [RequireRole(Roles.Admin)]
+    [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "auth_policy")]
+    Task SetLocalLoginDisabledAsync(bool disabled);
+
     /// <summary>Sets the per-site restriction toggle.</summary>
+    [RequireRole(Roles.Admin)]
+    [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "auth_policy")]
     Task SetRestrictSitesToMembersAsync(bool restrict);
 }
 
 /// <inheritdoc />
-public sealed class AuthPolicyOptions : IAuthPolicyOptions
+public sealed class AuthPolicyOptions : IAuthPolicyOptions, IAuthPolicyAdminService
 {
     private const string LocalLoginDisabledKey = "auth.local_login_disabled";
     private const string RestrictSitesToMembersKey = "auth.restrict_sites_to_members";

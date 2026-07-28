@@ -11,6 +11,9 @@
 @inject NetworkOptimizer.Web.Services.PullToRefreshState PtrState
 @inject NetworkOptimizer.Web.Services.ISystemSettingsService SettingsService
 @inject NetworkOptimizer.Web.Services.SiteContextService SiteContext
+@inject Microsoft.AspNetCore.Authorization.IAuthorizationService Authz
+@using NetworkOptimizer.Web.Services.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
 
 @* Date/time filter (left) + Refresh. The live/cached view (the effective auto-computed window, which
    auto-fallback may have reduced below the configured target) is the only state where Refresh is
@@ -127,7 +130,7 @@ else if (_report == null)
                     <span>Pick your access network technology so ISP Health can grade against the right expectations. You can also set it during <a href="/monitoring?tab=performance&amp;discover=1">Upstream Discovery</a>.</span>
                 </div>
                 <div class="banner-actions">
-                    <select class="form-control" style="max-width: 240px;" aria-label="Access technology" @onchange="OnAccessTechnologyChanged">
+                    <select class="form-control" style="max-width: 240px;" aria-label="Access technology" disabled="@(!_canOperate)" @onchange="OnAccessTechnologyChanged">
                         <option value="" selected disabled>Select technology...</option>
                         @foreach (var tech in ProfileTechOptions)
                         {
@@ -218,7 +221,7 @@ else
                      data-tooltip="Thresholds are tuned per access technology; change it to re-score." data-tooltip-hover-only>
                     Scored as @r.Profile.DisplayName &middot; @ScoredWindowLabel(r)
                     <span class="isp-profile-chip-caret"></span>
-                    <select class="isp-profile-chip-select" aria-label="Access technology"
+                    <select class="isp-profile-chip-select" aria-label="Access technology" disabled="@(!_canOperate)"
                             value="@((int)r.AccessTechnology)" @onchange="OnAccessTechnologyChanged">
                         @foreach (var tech in ProfileTechOptions)
                         {
@@ -349,8 +352,8 @@ else
                         @dimension.Name
                         @if (dimension == r.AccessDimension)
                         {
-                            <select class="isp-access-tech-select" aria-label="Access technology"
-                                    data-tooltip="Thresholds are tuned per access technology; change it to re-score." data-tooltip-hover-only
+                            <select class="isp-access-tech-select" aria-label="Access technology" disabled="@(!_canOperate)"
+                                    data-tooltip="@(_canOperate ? "Thresholds are tuned per access technology; change it to re-score." : "Thresholds are tuned per access technology. An operator sets this.")" data-tooltip-hover-only
                                     value="@((int)r.AccessTechnology)" @onchange="OnAccessTechnologyChanged">
                                 @foreach (var tech in ProfileTechOptions)
                                 {
@@ -863,8 +866,21 @@ else
         StateHasChanged();
     }
 
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    /// <summary>
+    /// Whether the caller may change the scored access technology. Operator, not Admin: it retunes
+    /// how this site is judged rather than changing anything the network does, and a wrong choice is
+    /// corrected by choosing again. Viewers see the current technology and cannot move it - the
+    /// setting is stored per site, so it changes the score everyone reads, not just their own view.
+    /// </summary>
+    private bool _canOperate;
+
     protected override async Task OnInitializedAsync()
     {
+        _canOperate = AuthState is null
+            || (await Authz.AuthorizeAsync((await AuthState).User, SiteContext.Slug, Policies.SiteOperator)).Succeeded;
+
         // Pull-to-refresh on this tab recomputes the scorecard (the Refresh button's action)
         // instead of the layout's full-page-reload fallback.
         PtrState.RefreshCallback = RefreshAsync;
@@ -1103,6 +1119,10 @@ else
     /// </summary>
     private async Task OnAccessTechnologyChanged(ChangeEventArgs e)
     {
+        // The selects are disabled for a Viewer, but a disabled control is a statement to the browser
+        // and the browser is not the thing being trusted. Refused here as well.
+        if (!_canOperate)
+            return;
         if (!int.TryParse(e.Value?.ToString(), out var techValue))
             return;
         if (_refreshing || _windowComputing)

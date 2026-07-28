@@ -79,7 +79,11 @@ public static class IdentityRegistration
 
         services.AddScoped<IIdentityBootstrapService, IdentityBootstrapService>();
         services.AddScoped<IIdentitySignInService, IdentitySignInService>();
-        services.AddScoped<IAuthPolicyOptions, AuthPolicyOptions>();
+        // Reads ungated (the login page and every authorization check need them before, or without,
+        // a caller); the two writes gated through IAuthPolicyAdminService over the same instance.
+        services.AddScoped<AuthPolicyOptions>();
+        services.AddScoped<IAuthPolicyOptions>(sp => sp.GetRequiredService<AuthPolicyOptions>());
+        services.AddMutatingService<IAuthPolicyAdminService>(sp => sp.GetRequiredService<AuthPolicyOptions>());
 
         // Granting or revoking a site is a change to the site list every open circuit is showing, so
         // the admin service raises the same broadcast the registry does. TryAdd because the Web host
@@ -92,7 +96,12 @@ public static class IdentityRegistration
         services.AddScoped<IPasskeyService, PasskeyService>();
         services.AddScoped<ICurrentUserAccessor, CurrentUserAccessor>();
         services.AddScoped<IExternalLoginService, ExternalLoginService>();
-        services.AddScoped<IFederationProviderService, FederationProviderService>();
+        // Reads ungated (the sign-in page draws provider buttons anonymously, and the OIDC/SAML
+        // handlers configure themselves with no caller); the three writes gated over the same
+        // instance, because registering an identity provider decides who may authenticate at all.
+        services.AddScoped<FederationProviderService>();
+        services.AddScoped<IFederationProviderService>(sp => sp.GetRequiredService<FederationProviderService>());
+        services.AddMutatingService<IFederationAdminService>(sp => sp.GetRequiredService<FederationProviderService>());
         services.AddScoped<ICanonicalOrigin, CanonicalOrigin>();
         services.AddScoped<IIdentityConfigLoader, IdentityConfigLoader>();
         services.AddHttpClient();

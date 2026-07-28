@@ -4,6 +4,8 @@
 @inject IIdentityAdminService IdentityAdmin
 @inject IFederationProviderService Federation
 @inject IAuthPolicyOptions AuthPolicy
+@inject IFederationAdminService FederationAdmin
+@inject IAuthPolicyAdminService AuthPolicyAdmin
 @inject ISiteManagementService SiteManagement
 @inject ICanonicalOrigin CanonicalOrigin
 @inject IHttpContextAccessor HttpContextAccessor
@@ -402,7 +404,7 @@
         _saving = true;
         try
         {
-            await Federation.SaveAsync(_editing, string.IsNullOrEmpty(_newSecret) ? null : _newSecret);
+            await FederationAdmin.SaveAsync(_editing, string.IsNullOrEmpty(_newSecret) ? null : _newSecret);
             _newSecret = "";
             await ReloadAsync();
             _editing = null;
@@ -420,14 +422,14 @@
 
     private async Task ToggleEnabledAsync(FederationProvider provider)
     {
-        await Federation.SetEnabledAsync(provider.Id, !provider.Enabled);
+        await FederationAdmin.SetEnabledAsync(provider.Id, !provider.Enabled);
         await ReloadAsync();
 
         // Turning off the last provider would strand an SSO-only install, so restore local sign-in.
         if (!_hasEnabledProvider && _localLoginDisabled)
         {
             _localLoginDisabled = false;
-            await AuthPolicy.SetLocalLoginDisabledAsync(false);
+            await AuthPolicyAdmin.SetLocalLoginDisabledAsync(false);
             Show("Local sign-in was re-enabled: no identity provider is left to sign in with.", "info");
             return;
         }
@@ -437,13 +439,13 @@
 
     private async Task DeleteAsync(FederationProvider provider)
     {
-        await Federation.DeleteAsync(provider.Id);
+        await FederationAdmin.DeleteAsync(provider.Id);
         await ReloadAsync();
 
         if (!_hasEnabledProvider && _localLoginDisabled)
         {
             _localLoginDisabled = false;
-            await AuthPolicy.SetLocalLoginDisabledAsync(false);
+            await AuthPolicyAdmin.SetLocalLoginDisabledAsync(false);
         }
 
         if (_editing?.Id == provider.Id)
@@ -454,7 +456,7 @@
 
     private async Task SaveLocalLoginAsync()
     {
-        await AuthPolicy.SetLocalLoginDisabledAsync(_localLoginDisabled);
+        await AuthPolicyAdmin.SetLocalLoginDisabledAsync(_localLoginDisabled);
         Show(_localLoginDisabled
             ? "The login page now offers single sign-on only."
             : "Username and password sign-in is available again.", "success");
