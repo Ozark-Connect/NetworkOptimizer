@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using NetworkOptimizer.Storage.Services;
 using Xunit;
 
@@ -327,6 +327,86 @@ public class CredentialProtectionServiceTests : IDisposable
 
         // Assert
         act.Should().NotThrow();
+    }
+
+    #endregion
+
+    #region NO_CREDENTIAL_KEY_FILE Tests
+
+    // These live in this class deliberately: NO_CREDENTIAL_KEY_FILE is process-wide, and the only
+    // other place a CredentialProtectionService is constructed is this class's own constructor.
+    // xUnit runs tests within a class sequentially, so nothing can observe the variable while set.
+
+    /// <summary>Sets the variable for the duration of an action, then puts it back.</summary>
+    private static void WithKeyFile(string? path, Action act)
+    {
+        var original = Environment.GetEnvironmentVariable("NO_CREDENTIAL_KEY_FILE");
+        Environment.SetEnvironmentVariable("NO_CREDENTIAL_KEY_FILE", path);
+        try { act(); }
+        finally { Environment.SetEnvironmentVariable("NO_CREDENTIAL_KEY_FILE", original); }
+    }
+
+    [Fact]
+    public void SuppliedKey_ThatIsMissing_RefusesToStart()
+    {
+        // The failure this exists to prevent: generating a replacement key here starts cleanly and
+        // leaves every stored secret undecryptable. Routine once the key is fetched from a vault at
+        // boot, where an unreachable vault lands exactly here.
+        var missing = Path.Combine(_tempKeyDir, "never_written");
+
+        WithKeyFile(missing, () =>
+        {
+            var act = () => new CredentialProtectionService();
+
+            act.Should().Throw<InvalidOperationException>().WithMessage("*could not be read*");
+            File.Exists(missing).Should().BeFalse("an externally supplied key is never generated here");
+        });
+    }
+
+    [Fact]
+    public void SuppliedKey_ThatIsEmpty_RefusesToStart()
+    {
+        // A half-finished write, not a key.
+        var empty = Path.Combine(_tempKeyDir, "empty_key");
+        File.WriteAllBytes(empty, Array.Empty<byte>());
+
+        WithKeyFile(empty, () =>
+        {
+            var act = () => new CredentialProtectionService();
+
+            act.Should().Throw<InvalidOperationException>().WithMessage("*is empty*");
+        });
+    }
+
+    [Fact]
+    public void SuppliedKey_IsUsedAsGiven_AndNotRewritten()
+    {
+        var supplied = Path.Combine(_tempKeyDir, "supplied_key");
+        var bytes = new byte[64];
+        for (var i = 0; i < bytes.Length; i++)
+            bytes[i] = (byte)i;
+        File.WriteAllBytes(supplied, bytes);
+
+        WithKeyFile(supplied, () =>
+        {
+            var service = new CredentialProtectionService();
+
+            service.Decrypt(service.Encrypt("secret")).Should().Be("secret");
+            File.ReadAllBytes(supplied).Should().Equal(bytes, "the supplied key is read, never rewritten");
+        });
+    }
+
+    [Fact]
+    public void SuppliedKey_ThatIsBlank_FallsBackToTheDataDirectory()
+    {
+        // Whitespace is treated as unset, so an empty value in a compose file does not become a
+        // path that then fails to read.
+        WithKeyFile("   ", () =>
+        {
+            var act = () => new CredentialProtectionService();
+
+            act.Should().NotThrow();
+        });
     }
 
     #endregion
