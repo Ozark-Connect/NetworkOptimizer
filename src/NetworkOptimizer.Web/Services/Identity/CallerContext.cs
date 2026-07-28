@@ -1,4 +1,4 @@
-using System.Security.Claims;
+﻿using System.Security.Claims;
 
 namespace NetworkOptimizer.Web.Services.Identity;
 
@@ -56,6 +56,24 @@ public sealed record CallerInfo
         UserAgent = Truncate(userAgent, 512),
         CorrelationId = correlationId,
     };
+
+    /// <summary>
+    /// An unauthenticated caller. Anonymous is a real caller, not missing plumbing: the login page runs
+    /// a circuit, and anything gated it touches must be DENIED by authorization rather than throwing
+    /// "no caller context is set", which points whoever reads it at BeginSystemScope for a problem that
+    /// has nothing to do with background work.
+    /// </summary>
+    public static CallerInfo Anonymous(
+        ClaimsPrincipal? principal, string? sourceIp, string? userAgent, string? correlationId)
+        => new()
+        {
+            IsSystem = false,
+            Principal = principal,
+            ActorName = "anonymous",
+            SourceIp = sourceIp,
+            UserAgent = Truncate(userAgent, 512),
+            CorrelationId = correlationId,
+        };
 
     /// <summary>Builds a user caller from a signed-in principal plus request metadata.</summary>
     public static CallerInfo ForUser(ClaimsPrincipal user, string? sourceIp, string? userAgent, string? correlationId)

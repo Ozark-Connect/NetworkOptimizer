@@ -1,4 +1,4 @@
-using System.Security.Claims;
+﻿using System.Security.Claims;
 using System.Security.Cryptography.X509Certificates;
 using ITfoxtec.Identity.Saml2;
 using ITfoxtec.Identity.Saml2.MvcCore;
@@ -105,10 +105,77 @@ public sealed class SamlServiceProvider : ISamlServiceProvider
         if (config.SingleSignOnDestination is null)
             return Results.Redirect("/login?error=saml_misconfigured");
 
+        var request = new Saml2AuthnRequest(config);
         var binding = new Saml2RedirectBinding();
         binding.SetRelayStateQuery(new Dictionary<string, string> { { "returnUrl", returnUrl } });
-        binding.Bind(new Saml2AuthnRequest(config));
+        binding.Bind(request);
+
+        RememberRequest(context, provider, request.IdAsString);
         return Results.Redirect(binding.RedirectLocation.OriginalString);
+    }
+
+
+    /// <summary>
+    /// Correlation cookie name for a provider. One per provider so two IdPs in flight at once do not
+    /// clobber each other.
+    /// </summary>
+    private static string CorrelationCookie(FederationProvider provider) => $"netopt_saml_{provider.Scheme}";
+
+    /// <summary>
+    /// Remembers the AuthnRequest we just issued so the response can be tied back to it.
+    ///
+    /// SameSite=None because the IdP POSTs the response cross-site and a Lax cookie would not be sent -
+    /// which forces Secure, and therefore HTTPS. On a plain-HTTP install the cookie is not set at all
+    /// and correlation is skipped rather than rejecting every login; the warning says so. SAML over
+    /// plain HTTP is already outside sensible practice, and silently breaking such an install would be
+    /// worse than declining to add a check it cannot carry.
+    /// </summary>
+    private void RememberRequest(HttpContext context, FederationProvider provider, string requestId)
+    {
+        if (!context.Request.IsHttps && !(_origin.Configured?.StartsWith("https://") ?? false))
+        {
+            _logger.LogWarning(
+                "SAML request correlation is off for {Provider}: it needs a Secure cookie, which needs "
+                + "HTTPS. Responses cannot be tied to the request that started them.", provider.DisplayName);
+            return;
+        }
+
+        context.Response.Cookies.Append(CorrelationCookie(provider), requestId, new CookieOptions
+        {
+            HttpOnly = true,
+            Secure = true,
+            SameSite = SameSiteMode.None,
+            IsEssential = true,
+            Expires = DateTimeOffset.UtcNow.AddMinutes(15),
+            Path = "/",
+        });
+    }
+
+    /// <summary>
+    /// Ties a response back to the request that started it, and consumes the cookie so the same
+    /// assertion cannot be posted twice - single use is what makes this replay protection as well as
+    /// correlation.
+    /// </summary>
+    private bool ConsumeRequestCorrelation(HttpContext context, FederationProvider provider, string? inResponseTo)
+    {
+        var name = CorrelationCookie(provider);
+        var expected = context.Request.Cookies[name];
+        context.Response.Cookies.Delete(name);
+
+        if (string.IsNullOrEmpty(expected))
+        {
+            // No cookie: either an IdP-initiated response (already refused upstream unless the provider
+            // opted in), or an install that cannot set one. Both are decided before this point.
+            return true;
+        }
+
+        if (string.Equals(expected, inResponseTo, StringComparison.Ordinal))
+            return true;
+
+        _logger.LogWarning(
+            "SAML response for {Provider} did not answer the request we issued - InResponseTo {Actual} "
+            + "does not match. Rejected.", provider.DisplayName, inResponseTo ?? "(absent)");
+        return false;
     }
 
     public async Task<ClaimsPrincipal?> HandleAssertionAsync(FederationProvider provider, HttpContext context)
@@ -128,6 +195,12 @@ public sealed class SamlServiceProvider : ISamlServiceProvider
             }
 
             binding.Unbind(genericRequest, response);
+
+            // Correlate only AFTER Unbind, which is what validates the signature: deciding anything on
+            // the strength of an unverified InResponseTo would be trusting the attacker's own value.
+            if (!ConsumeRequestCorrelation(context, provider, response.InResponseTo?.Value))
+                return null;
+
             return response.ClaimsIdentity is null ? null : new ClaimsPrincipal(response.ClaimsIdentity);
         }
         catch (Exception ex)

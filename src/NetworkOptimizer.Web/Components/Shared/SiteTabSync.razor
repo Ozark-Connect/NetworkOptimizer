@@ -1,4 +1,4 @@
-@* Keeps the tab's ?site= selector in the address bar (history.replaceState, no
+﻿@* Keeps the tab's ?site= selector in the address bar (history.replaceState, no
    reload) whenever multi-site is enabled, so refresh, duplicate-tab, and the
    reconnect auto-reload all land back on this tab's site instead of the browser
    default. Also feeds the fetch wrapper in site-context.js the slug it stamps
@@ -8,6 +8,8 @@
 @inject SiteContextService SiteContext
 @inject ISiteManagementService SiteManagement
 @inject IJSRuntime JS
+@inject Microsoft.AspNetCore.Components.Authorization.AuthenticationStateProvider AuthState
+@inject IAdminAuthService AdminAuth
 
 @code {
     private bool _active;
@@ -15,6 +17,17 @@
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (!firstRender)
+            return;
+
+        // Nothing to sync for a caller who is not signed in - there is no site selection to keep, and
+        // the login page runs a circuit like any other. IsMultiSiteEnabledAsync is gated at Viewer, so
+        // asking anyway throws an authorization denial out of OnAfterRenderAsync, which Blazor surfaces
+        // as an unhandled circuit error on the login page.
+        //
+        // Mirrors how the caller context decides: an install with authentication turned off has no
+        // authenticated principal either, and tab sync must keep working there.
+        var user = (await AuthState.GetAuthenticationStateAsync()).User;
+        if (user.Identity?.IsAuthenticated != true && await AdminAuth.IsAuthenticationRequiredAsync())
             return;
 
         _active = await SiteManagement.IsMultiSiteEnabledAsync();
