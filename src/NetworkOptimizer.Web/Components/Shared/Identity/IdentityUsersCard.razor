@@ -518,7 +518,8 @@
         try
         {
             var result = await IdentityAdmin.SetEnabledAsync(user.Id, enabled);
-            Report(result, $"{user.UserName} is now {(enabled ? "enabled" : "disabled")}.");
+            Report(result, $"{user.UserName} is now {(enabled ? "enabled" : "disabled")}.",
+                   enabled ? "success" : "info");
         }
         finally
         {
@@ -533,7 +534,7 @@
         try
         {
             var result = await IdentityAdmin.DeleteUserAsync(user.Id);
-            Report(result, $"Deleted {user.UserName}.");
+            Report(result, $"Deleted {user.UserName}.", "info");
         }
         finally
         {
@@ -620,7 +621,7 @@
     private async Task UnlinkAsync(ApplicationUser user, LinkedExternalIdentity link)
     {
         var result = await IdentityAdmin.UnlinkExternalAsync(user.Id, link.LoginProvider, link.ProviderKey);
-        Report(result, $"Unlinked {link.DisplayName ?? link.LoginProvider} from {user.UserName}.");
+        Report(result, $"Unlinked {link.DisplayName ?? link.LoginProvider} from {user.UserName}.", "info");
         if (result.Succeeded)
         {
             _links = await IdentityAdmin.GetExternalLoginsAsync(user.Id);
@@ -628,9 +629,14 @@
         }
     }
 
-    private void Report(AdminActionResult result, string success)
+    /// <summary>
+    /// Green says "that worked out well". Taking access away, disabling an account or deleting one is
+    /// the operator getting what they asked for, not good news - it reads as neutral, so the colour
+    /// carries meaning when something really is a success or a refusal.
+    /// </summary>
+    private void Report(AdminActionResult result, string success, string successClass = "success")
         => Show(result.Succeeded ? success : result.Error ?? "That change was refused.",
-                result.Succeeded ? "success" : "warning");
+                result.Succeeded ? successClass : "warning");
 
     private void Show(string message, string cssClass)
     {
