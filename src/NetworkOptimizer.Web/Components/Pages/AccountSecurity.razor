@@ -11,6 +11,7 @@
 @inject IJSRuntime JS
 @inject MfaEnrollmentCodes EnrollmentCodes
 @inject Microsoft.Extensions.Options.IOptions<Microsoft.AspNetCore.Identity.IdentityOptions> IdentityOptions
+@inject ILogger<AccountSecurity> Logger
 
 <PageTitle>Security - Network Optimizer</PageTitle>
 
@@ -295,7 +296,18 @@
     {
         if (firstRender)
         {
-            _secureContext = await JS.InvokeAsync<bool>("eval", "window.isSecureContext === true");
+            try
+            {
+                _secureContext = await JS.InvokeAsync<bool>("eval", "window.isSecureContext === true");
+            }
+            catch (Exception ex)
+            {
+                // Assume not secure: the page uses this to decide whether to offer passkeys at all,
+                // and offering a ceremony the browser will refuse reads as the feature being broken.
+                Logger.LogWarning(ex, "Could not determine whether the browser context is secure; assuming it is not.");
+                _secureContext = false;
+            }
+
             StateHasChanged();
         }
     }
@@ -354,8 +366,13 @@
                 _passkeyMessage = "Passkey registration was cancelled or failed.";
             }
         }
-        catch
+        catch (Exception ex)
         {
+            // The user-facing message stays deliberately vague, but the reason must reach the log:
+            // WebAuthn failures are all but undiagnosable without it, and "failed in the browser"
+            // covers an insecure origin, a mismatched relying-party id and a refused authenticator
+            // alike.
+            Logger.LogWarning(ex, "Passkey registration failed in the browser for {User}.", _user?.UserName);
             _passkeyMessage = "Passkey registration failed in the browser.";
         }
     }
