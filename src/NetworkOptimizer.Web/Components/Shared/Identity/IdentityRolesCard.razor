@@ -34,7 +34,8 @@
                                 <td class="identity-role-name">Operator</td>
                                 <td>
                                     Runs the network on the sites they can reach - speed tests, Wi-Fi
-                                    scans, acknowledging alerts. No Settings and no account management.
+                                    scans, acknowledging alerts, and tuning what is monitored. No
+                                    Settings and no account management.
                                 </td>
                             </tr>
                             <tr>
@@ -118,6 +119,20 @@
                                 <td>Acknowledge or resolve an alert</td>
                                 <td class="identity-role-mark">@No</td>
                                 <td class="identity-role-mark">@Yes</td>
+                                <td class="identity-role-mark">@Yes</td>
+                            </tr>
+                            <tr>
+                                <td>Add a monitoring target or tune a threshold</td>
+                                <td class="identity-role-mark">@No</td>
+                                <td class="identity-role-mark">@Yes</td>
+                                <td class="identity-role-mark">@Yes</td>
+                            </tr>
+                            @* Stated as its own row because the asymmetry with the row above is the
+                               surprising part, and a rule nobody can find reads as a bug. *@
+                            <tr>
+                                <td>Remove a monitoring target</td>
+                                <td class="identity-role-mark">@No</td>
+                                <td class="identity-role-mark">@No</td>
                                 <td class="identity-role-mark">@Yes</td>
                             </tr>
                             <tr>
