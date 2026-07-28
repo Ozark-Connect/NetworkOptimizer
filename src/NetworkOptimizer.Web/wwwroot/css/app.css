@@ -19407,18 +19407,25 @@ body.kiosk-mode .status-indicators {
     margin-top: 1rem;
 }
 
+/* Both are grids on the LIST with each row's cells promoted into it, so columns line up across rows
+   instead of every row sizing itself. They differ in how many columns they have, which is why they
+   cannot share one rule: a link row is provider / subject / action. */
 .identity-link-list,
-/* A grid on the LIST, with each row's cells promoted into it, so every URL starts at the same x - the
-   widest label sets the column for all of them. As independent flex rows each label sized itself and
-   the blocks stepped down the page. */
 .identity-url-list {
     list-style: none;
     margin: 0;
     padding: 0;
     display: grid;
-    grid-template-columns: max-content 1fr;
     align-items: center;
     gap: 0.4rem 0.75rem;
+}
+
+.identity-url-list {
+    grid-template-columns: max-content 1fr;
+}
+
+.identity-link-list {
+    grid-template-columns: max-content 1fr max-content;
 }
 
 .identity-link-item,
@@ -19431,11 +19438,6 @@ body.kiosk-mode .status-indicators {
     font-weight: 500;
     color: var(--text-primary);
     font-size: 0.9rem;
-}
-
-/* The linked-identity rows are still flex, so they keep the column width the grid now provides here. */
-.identity-link-provider {
-    min-width: 14rem;
 }
 
 .identity-link-subject,
@@ -19479,8 +19481,16 @@ body.kiosk-mode .status-indicators {
         width: 100%;
     }
 
-    .identity-link-provider,
-    .identity-url-label {
-        min-width: 0;
+    /* One column on a phone: three columns of provider, subject and action leave nothing readable,
+       and the subject is a long opaque identifier. Each cell takes its own line instead. */
+    .identity-link-list,
+    .identity-url-list {
+        grid-template-columns: 1fr;
+        gap: 0.25rem;
+    }
+
+    .identity-link-item,
+    .identity-url-item {
+        padding-bottom: 0.5rem;
     }
 }
