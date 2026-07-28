@@ -7310,6 +7310,9 @@ a.path-hop.hop-clickable:hover {
     margin-top: 1.5rem;
     padding-top: 1.5rem;
     border-top: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
 }
 
 .login-footer .text-muted {
