@@ -2368,6 +2368,11 @@ a.btn-lg {
     margin-bottom: 1rem;
 }
 
+/* The Private key field opens the upload form, so it needs clearing from the buttons above it. */
+#ssh-key .ssh-key-upload .form-group:first-child {
+    margin-top: 1rem;
+}
+
 #ssh-key .ssh-key-public {
     margin-bottom: 1.25rem;
 }
