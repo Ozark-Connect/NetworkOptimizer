@@ -155,12 +155,18 @@ public sealed class AuditForwardingConfig : IAuditForwardingConfig
 {
     private const string Prefix = "audit.forward.";
     private readonly ISystemSettingsService _settings;
-    private readonly Microsoft.AspNetCore.DataProtection.IDataProtector _protector;
+    /// <summary>
+    /// The product's one credential protection, as used by the SSH passwords, the console password
+    /// and the notification-channel secrets - not a second key store of its own.
+    /// </summary>
+    private readonly NetworkOptimizer.Storage.Services.ICredentialProtectionService _secrets;
 
-    public AuditForwardingConfig(ISystemSettingsService settings, Microsoft.AspNetCore.DataProtection.IDataProtectionProvider dp)
+    public AuditForwardingConfig(
+        ISystemSettingsService settings,
+        NetworkOptimizer.Storage.Services.ICredentialProtectionService secrets)
     {
         _settings = settings;
-        _protector = dp.CreateProtector("audit.forward.webhook.secret");
+        _secrets = secrets;
     }
 
     public async Task<AuditForwardingSettings> GetAsync()
@@ -191,7 +197,7 @@ public sealed class AuditForwardingConfig : IAuditForwardingConfig
         await _settings.SetGlobalAsync(Prefix + "webhook.enabled", s.WebhookEnabled ? "true" : "false");
         await _settings.SetGlobalAsync(Prefix + "webhook.url", s.WebhookUrl);
         if (!string.IsNullOrEmpty(s.WebhookSecret))
-            await _settings.SetGlobalAsync(Prefix + "webhook.secret", _protector.Protect(s.WebhookSecret));
+            await _settings.SetGlobalAsync(Prefix + "webhook.secret", _secrets.Encrypt(s.WebhookSecret));
         await _settings.SetGlobalAsync(Prefix + "categories", string.Join(",", s.Categories));
     }
 
@@ -204,7 +210,7 @@ public sealed class AuditForwardingConfig : IAuditForwardingConfig
     private string? Unprotect(string? protectedValue)
     {
         if (string.IsNullOrEmpty(protectedValue)) return null;
-        try { return _protector.Unprotect(protectedValue); }
+        try { return _secrets.Decrypt(protectedValue); }
         catch { return null; }
     }
 }

@@ -27,7 +27,14 @@ public interface IFederationProviderService
 public sealed class FederationProviderService : IFederationProviderService
 {
     private readonly IDbContextFactory<AuthDbContext> _dbFactory;
-    private readonly IDataProtector _protector;
+    /// <summary>
+    /// The same credential protection the SSH passwords, console password and notification-channel
+    /// secrets use. Deliberately NOT raw Data Protection with its own purpose string: that is a
+    /// second key store, so a restore needs both key files and getting one without the other leaves
+    /// half the product's secrets readable and half not - which reads as corruption rather than as a
+    /// missing file.
+    /// </summary>
+    private readonly NetworkOptimizer.Storage.Services.ICredentialProtectionService _secrets;
     private readonly IAuditLogger _audit;
     private readonly ICallerContext _caller;
     private readonly DynamicSchemeManager _schemes;
@@ -35,14 +42,14 @@ public sealed class FederationProviderService : IFederationProviderService
 
     public FederationProviderService(
         IDbContextFactory<AuthDbContext> dbFactory,
-        IDataProtectionProvider dp,
+        NetworkOptimizer.Storage.Services.ICredentialProtectionService secrets,
         IAuditLogger audit,
         ICallerContext caller,
         DynamicSchemeManager schemes,
         ILogger<FederationProviderService> logger)
     {
         _dbFactory = dbFactory;
-        _protector = dp.CreateProtector("federation.client_secret");
+        _secrets = secrets;
         _audit = audit;
         _caller = caller;
         _schemes = schemes;
@@ -73,7 +80,7 @@ public sealed class FederationProviderService : IFederationProviderService
         var isNew = provider.Id == 0;
 
         if (!string.IsNullOrEmpty(newClientSecret))
-            provider.ClientSecretProtected = _protector.Protect(newClientSecret);
+            provider.ClientSecretProtected = _secrets.Encrypt(newClientSecret);
 
         if (isNew)
         {
@@ -139,7 +146,7 @@ public sealed class FederationProviderService : IFederationProviderService
     public string? UnprotectClientSecret(FederationProvider provider)
     {
         if (string.IsNullOrEmpty(provider.ClientSecretProtected)) return null;
-        try { return _protector.Unprotect(provider.ClientSecretProtected); }
+        try { return _secrets.Decrypt(provider.ClientSecretProtected); }
         catch (Exception ex)
         {
             // Logged, because a lost or rotated data-protection key produces exactly the same null as
