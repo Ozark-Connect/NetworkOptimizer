@@ -233,7 +233,13 @@ public sealed class IdentitySignInService : IIdentitySignInService
             return SignInOutcome.Failed;
         }
 
-        var normalized = recoveryCode.Replace(" ", string.Empty).Replace("-", string.Empty);
+        // The separator is PART of the code. Identity issues and stores recovery codes as
+        // XXXXX-XXXXX, so stripping the dash - which this did - meant a correct code could never
+        // match and no recovery code worked at all. Whitespace goes, case is forgiven, and a code
+        // typed without the separator has it put back rather than tried twice: a second attempt
+        // would count against lockout.
+        var typed = recoveryCode.Replace(" ", string.Empty).Trim().ToUpperInvariant();
+        var normalized = typed.Length == 10 && !typed.Contains('-') ? typed.Insert(5, "-") : typed;
         var result = await _signInManager.TwoFactorRecoveryCodeSignInAsync(normalized);
         if (result.Succeeded)
         {
