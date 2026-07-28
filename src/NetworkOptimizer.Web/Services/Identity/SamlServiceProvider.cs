@@ -1,4 +1,4 @@
-using System.Security.Claims;
+﻿using System.Security.Claims;
 using System.Security.Cryptography.X509Certificates;
 using ITfoxtec.Identity.Saml2;
 using ITfoxtec.Identity.Saml2.MvcCore;
@@ -65,6 +65,12 @@ public sealed class SamlServiceProvider : ISamlServiceProvider
             AllowedAudienceUris = { entityId },
             SignAuthnRequest = false,
         };
+        // Trust here is the metadata pin, not a CA chain: we fetched the signing certificate from the
+        // provider's own metadata over HTTPS and only accept signatures made by that key. SAML IdP
+        // signing certificates are self-signed as a matter of course - Auth0, Okta, ADFS all are - so
+        // ChainTrust, the library's default, rejects every real provider with "self-signed
+        // certificate" while adding nothing: a CA has no say in which key this IdP signs with.
+        config.CertificateValidationMode = System.ServiceModel.Security.X509CertificateValidationMode.None;
         config.RevocationMode = X509RevocationMode.NoCheck;
 
         // Load IdP metadata (URL or pasted XML) to discover the SSO destination + signing certs.
