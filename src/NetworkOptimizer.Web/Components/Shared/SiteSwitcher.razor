@@ -91,7 +91,12 @@
                 // their data carry on showing it - access looks half taken away, and the address bar
                 // still names a site that is no longer theirs. A reload settles all of it: the root
                 // component falls back to a site they do hold and rewrites the URL to match.
-                if (_enabled && _sites.Count > 0 && _sites.All(site => site.Slug != SiteContext.Slug))
+                // Deliberately not guarded on the list being non-empty: losing your LAST site is
+                // exactly when the circuit is standing on something it no longer holds, and skipping
+                // the reload there left the one user who had lost everything as the only one who was
+                // never moved. With no sites left the reload lands on the refusal page, which is the
+                // honest answer.
+                if (_enabled && _sites.All(site => site.Slug != SiteContext.Slug))
                 {
                     NavigationManager.NavigateTo(NavigationManager.Uri, forceLoad: true);
                     return;

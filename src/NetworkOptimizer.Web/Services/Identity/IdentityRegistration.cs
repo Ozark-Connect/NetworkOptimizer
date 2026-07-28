@@ -85,6 +85,7 @@ public static class IdentityRegistration
         // the admin service raises the same broadcast the registry does. TryAdd because the Web host
         // registers it too, and this keeps a bare identity container (tests) able to build.
         services.TryAddSingleton<SiteRegistryChangeNotifier>();
+        services.TryAddSingleton<UserSessionRevocationNotifier>();
         services.AddMutatingService<IIdentityAdminService, IdentityAdminService>();
         services.AddScoped<IdentityLoginFacts>();
         services.AddScoped<IMfaService, MfaService>();
