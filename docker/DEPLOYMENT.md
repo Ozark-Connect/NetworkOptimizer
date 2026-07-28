@@ -893,6 +893,8 @@ Create the key once, out of band, before first start:
 head -c 64 /dev/urandom > credential_key && chmod 600 credential_key
 ```
 
+With `NO_CREDENTIAL_KEY_FILE` set, the key is read and never generated: if the file is missing, unreadable, or empty, Network Optimizer **refuses to start** rather than minting a replacement. That is deliberate - a fresh key would start cleanly and leave every stored secret undecryptable. If you want the key generated for you, leave the variable unset and let it live in the data directory.
+
 Now a leak of the data volume no longer includes the key. **Migration note:** to switch an *existing* install to `NO_CREDENTIAL_KEY_FILE`, copy the current `data/.credential_key` bytes into the new location first - a fresh key cannot decrypt already-stored secrets.
 
 **Config exports are secret too.** A `.nopt` config export bundles the credential key so the imported backup can decrypt its own secrets, and its file-level encryption is light obfuscation rather than a real barrier. So treat `.nopt` files exactly like the data volume - they effectively contain your stored credentials. Store and transfer them accordingly.

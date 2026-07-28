@@ -1,4 +1,4 @@
-using System.Security.Cryptography;
+﻿using System.Security.Cryptography;
 using System.Text;
 using Microsoft.Extensions.Logging;
 
@@ -124,21 +124,22 @@ public class CredentialProtectionService : ICredentialProtectionService
         // volume - so a leak or backup of the data volume does not also hand over the
         // key. When unset, the key lives beside the database in the data directory,
         // which then must be treated as secret material (see DEPLOYMENT.md).
-        // WARNING: pointing an EXISTING install at a new/empty path generates a fresh
-        // key and makes previously-stored secrets undecryptable; move the existing
-        // .credential_key contents to the new path first.
+        // WARNING: pointing an EXISTING install at a new/empty path makes
+        // previously-stored secrets undecryptable; move the existing .credential_key
+        // contents to the new path first.
         var overridePath = Environment.GetEnvironmentVariable("NO_CREDENTIAL_KEY_FILE");
+        if (!string.IsNullOrWhiteSpace(overridePath))
+            return ReadSuppliedKey(overridePath.Trim());
+
         // In Docker, default to /app/data; otherwise use LocalApplicationData.
         var isDocker = string.Equals(Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER"), "true", StringComparison.OrdinalIgnoreCase);
-        var keyFilePath = !string.IsNullOrWhiteSpace(overridePath)
-            ? overridePath.Trim()
-            : isDocker
-                ? "/app/data/.credential_key"
-                : Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                    "NetworkOptimizer",
-                    ".credential_key"
-                );
+        var keyFilePath = isDocker
+            ? "/app/data/.credential_key"
+            : Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "NetworkOptimizer",
+                ".credential_key"
+            );
 
         try
         {
@@ -184,5 +185,51 @@ public class CredentialProtectionService : ICredentialProtectionService
             var fallback = Environment.MachineName + KeyPurpose + Environment.UserName;
             return Encoding.UTF8.GetBytes(fallback.PadRight(64, 'X'));
         }
+    }
+
+    /// <summary>
+    /// Reads a key the operator supplied through NO_CREDENTIAL_KEY_FILE. Throws rather than
+    /// generating or falling back, because setting that variable is a statement that the key is
+    /// managed OUTSIDE this application - so a missing file means the supply failed, not that a key
+    /// is wanted.
+    ///
+    /// Generating one instead is silent and looks like nothing happened: the app starts, every
+    /// stored ENC: value is undecryptable against the new key, and anything saved afterwards is
+    /// encrypted under it - leaving a mixture that restoring the real key only half repairs. The
+    /// same is true of the machine-name fallback further up, which in a container derives from the
+    /// container id and so differs on every recreate.
+    ///
+    /// That is an edge case when the path is a file sitting on the host, and routine when the key is
+    /// fetched from a vault at every boot: an unreachable vault, a flapped tunnel, or losing a
+    /// start-order race all land here. Refusing to start is recoverable in a way that quietly
+    /// re-keying is not.
+    /// </summary>
+    private static byte[] ReadSuppliedKey(string keyFilePath)
+    {
+        byte[] key;
+        try
+        {
+            key = File.ReadAllBytes(keyFilePath);
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException(
+                $"NO_CREDENTIAL_KEY_FILE is set to '{keyFilePath}', which could not be read. The " +
+                "credential key is supplied externally, so no key is generated to replace it - " +
+                "doing that would make every stored secret undecryptable. Fix the file or unset " +
+                "NO_CREDENTIAL_KEY_FILE to let the key live in the data directory.", ex);
+        }
+
+        // A zero-length file is a half-finished write, not a key. Length is otherwise not policed:
+        // an operator's own key material has always been taken as-is, whatever its size.
+        if (key.Length == 0)
+        {
+            throw new InvalidOperationException(
+                $"NO_CREDENTIAL_KEY_FILE is set to '{keyFilePath}', which is empty. That is an " +
+                "incomplete write rather than a key; using it would make every stored secret " +
+                "undecryptable.");
+        }
+
+        return key;
     }
 }
