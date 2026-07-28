@@ -44,11 +44,12 @@ public static class SamlEndpoints
             var provider = await SamlProviderAsync(providers, scheme);
             if (provider is null || !provider.Enabled) return Results.Redirect("/login?error=provider_disabled");
 
-            // IdP-initiated responses are refused unless explicitly opted in (unsolicited-response risk).
-            // SP-initiated flows carry RelayState; its absence signals an unsolicited (IdP-initiated) POST.
+            // AllowIdpInitiated is enforced inside HandleAssertionAsync, against this server's own
+            // record of the AuthnRequests it issued. It used to be decided here from the presence of
+            // RelayState - but that is an attacker-supplied form field, so posting RelayState=x made
+            // any unsolicited response look solicited and turned the setting off entirely. Nothing the
+            // POST carries can be trusted for this, and none of it is signature-checked until Unbind.
             var relayState = ctx.Request.Form["RelayState"].ToString();
-            if (!provider.AllowIdpInitiated && string.IsNullOrEmpty(relayState))
-                return Results.Redirect("/login?error=saml_unsolicited");
 
             var principal = await saml.HandleAssertionAsync(provider, ctx);
             if (principal is null) return Results.Redirect("/login?error=saml_invalid");

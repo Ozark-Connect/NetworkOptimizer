@@ -101,6 +101,9 @@ public static class IdentityRegistration
         // The must-enrol predicates, shared by MfaService and the claims factory (which cannot depend
         // on MfaService without closing a DI cycle through SignInManager).
         services.AddScoped<MfaRequirementFacts>();
+        // Singleton: the AuthnRequest that starts a SAML login and the response that answers it are
+        // different requests, and the assertion-replay record has to outlive both.
+        services.AddSingleton<SamlRequestStore>();
         // Ambient caller context (user vs system) for authorization + audit attribution.
         services.AddScoped<ICallerContext, CallerContext>();
         // Hands enrollment recovery codes from the endpoint to the page across the redirect.

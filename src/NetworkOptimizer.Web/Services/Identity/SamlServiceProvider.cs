@@ -35,12 +35,18 @@ public sealed class SamlServiceProvider : ISamlServiceProvider
 {
     private readonly ICanonicalOrigin _origin;
     private readonly IHttpClientFactory _httpClientFactory;
+    private readonly SamlRequestStore _requests;
     private readonly ILogger<SamlServiceProvider> _logger;
 
-    public SamlServiceProvider(ICanonicalOrigin origin, IHttpClientFactory httpClientFactory, ILogger<SamlServiceProvider> logger)
+    public SamlServiceProvider(
+        ICanonicalOrigin origin,
+        IHttpClientFactory httpClientFactory,
+        SamlRequestStore requests,
+        ILogger<SamlServiceProvider> logger)
     {
         _origin = origin;
         _httpClientFactory = httpClientFactory;
+        _requests = requests;
         _logger = logger;
     }
 
@@ -54,15 +60,36 @@ public sealed class SamlServiceProvider : ISamlServiceProvider
     /// and accepted an audience of "", which surfaced as a NullReferenceException from inside the SAML
     /// library rather than anything naming the setting.
     /// </summary>
-    private static string SpEntityId(FederationProvider provider, string origin)
-        => string.IsNullOrWhiteSpace(provider.SpEntityId)
-            ? $"{origin}/saml/{provider.Scheme}/metadata"
-            : provider.SpEntityId.Trim();
-
-    private async Task<Saml2Configuration> BuildConfigAsync(FederationProvider provider, HttpContext context)
+    private string? SpEntityId(FederationProvider provider)
     {
-        var origin = _origin.Resolve(context);
-        var entityId = SpEntityId(provider, origin);
+        if (!string.IsNullOrWhiteSpace(provider.SpEntityId))
+            return provider.SpEntityId.Trim();
+
+        // Derived ONLY from a declared origin, never from _origin.Resolve, which falls back to the
+        // request's own Host header. That value becomes AllowedAudienceUris, so on an install with no
+        // canonical origin configured an attacker POSTing with Host: other-sp.example would make this
+        // SP accept an assertion addressed to a DIFFERENT service provider - one they may legitimately
+        // hold an account at, in the same IdP tenant. The audience is the check that says "this
+        // assertion was meant for us", so it cannot be chosen by the caller.
+        var declared = _origin.Configured?.TrimEnd('/');
+        return string.IsNullOrEmpty(declared)
+            ? null
+            : $"{declared}/saml/{provider.Scheme}/metadata";
+    }
+
+    private async Task<Saml2Configuration?> BuildConfigAsync(FederationProvider provider, HttpContext context)
+    {
+        var entityId = SpEntityId(provider);
+        if (entityId is null)
+        {
+            _logger.LogError(
+                "SAML is unusable for {Provider}: this install has no canonical origin declared "
+                + "(REVERSE_PROXIED_HOST_NAME / HOST_NAME / HOST_IP) and no SP entity ID set, so the "
+                + "audience would be taken from the request's own Host header. Set one of them.",
+                provider.DisplayName);
+            return null;
+        }
+
         var config = new Saml2Configuration
         {
             Issuer = entityId,
@@ -109,7 +136,9 @@ public sealed class SamlServiceProvider : ISamlServiceProvider
     {
         var origin = _origin.Resolve(context);
         var config = await BuildConfigAsync(provider, context);
-        var entityId = SpEntityId(provider, origin);
+        if (config is null)
+            throw new InvalidOperationException(
+                "SAML metadata cannot be published until a canonical origin or an SP entity ID is configured.");
 
         var entityDescriptor = new EntityDescriptor(config)
         {
@@ -130,7 +159,7 @@ public sealed class SamlServiceProvider : ISamlServiceProvider
         FederationProvider provider, HttpContext context, string returnUrl, bool rememberMe)
     {
         var config = await BuildConfigAsync(provider, context);
-        if (config.SingleSignOnDestination is null)
+        if (config is null || config.SingleSignOnDestination is null)
             return Results.Redirect("/login?error=saml_misconfigured");
 
         var request = new Saml2AuthnRequest(config);
@@ -141,6 +170,10 @@ public sealed class SamlServiceProvider : ISamlServiceProvider
         binding.SetRelayStateQuery(relayState);
         binding.Bind(request);
 
+        // Recorded twice on purpose. The cookie ties the response to THIS BROWSER and only exists
+        // over HTTPS; the store ties it to a request this SERVER issued and works everywhere. The
+        // store is what makes the solicited-only rule enforceable on a plain-HTTP install.
+        _requests.RememberRequest(provider.Scheme, request.IdAsString);
         RememberRequest(context, provider, request.IdAsString);
         return Results.Redirect(binding.RedirectLocation.OriginalString);
     }
@@ -236,12 +269,14 @@ public sealed class SamlServiceProvider : ISamlServiceProvider
         var expected = context.Request.Cookies[name];
         context.Response.Cookies.Delete(name);
 
+        // An absent cookie is NOT a pass. It used to be, on the stated grounds that the two cases it
+        // could mean were both decided upstream - but the upstream check keyed on RelayState, a field
+        // the caller supplies, so anyone could produce the "solicited" appearance and then arrive here
+        // with no cookie and be waved through. The solicited-only rule is now decided by the server's
+        // own record of what it issued (see AcceptResponseAsync); this cookie is an ADDITIONAL tie to
+        // the browser that started the flow, applied when there is one to check.
         if (string.IsNullOrEmpty(expected))
-        {
-            // No cookie: either an IdP-initiated response (already refused upstream unless the provider
-            // opted in), or an install that cannot set one. Both are decided before this point.
             return true;
-        }
 
         if (string.Equals(expected, inResponseTo, StringComparison.Ordinal))
             return true;
@@ -252,11 +287,49 @@ public sealed class SamlServiceProvider : ISamlServiceProvider
         return false;
     }
 
+    /// <summary>
+    /// Decides whether a signature-verified response may be accepted at all: single use, and
+    /// solicited unless the provider opted into IdP-initiated.
+    ///
+    /// Both questions are answered from this server's own record rather than from anything in the
+    /// POST. IdP-initiated used to be inferred from the presence of RelayState, which the caller
+    /// controls outright, so <c>RelayState=x</c> turned the switch off; and nothing enforced single
+    /// use at all, which the SAML Web Browser SSO profile requires of a bearer assertion.
+    /// </summary>
+    private bool AcceptResponse(FederationProvider provider, Saml2AuthnResponse response)
+    {
+        if (!_requests.TryMarkAssertionSeen(provider.Scheme, response.IdAsString))
+        {
+            _logger.LogWarning(
+                "SAML response for {Provider} has already been used (assertion {Id}). Rejected as a replay.",
+                provider.DisplayName, response.IdAsString ?? "(no id)");
+            return false;
+        }
+
+        var inResponseTo = response.InResponseTo?.Value;
+        var answersOurRequest = _requests.ConsumeRequest(provider.Scheme, inResponseTo);
+        if (answersOurRequest)
+            return true;
+
+        if (!provider.AllowIdpInitiated)
+        {
+            _logger.LogWarning(
+                "SAML response for {Provider} does not answer a request this server issued "
+                + "(InResponseTo {Actual}), and IdP-initiated sign-in is off. Rejected.",
+                provider.DisplayName, inResponseTo ?? "(absent)");
+            return false;
+        }
+
+        return true;
+    }
+
     public async Task<ClaimsPrincipal?> HandleAssertionAsync(FederationProvider provider, HttpContext context)
     {
         try
         {
             var config = await BuildConfigAsync(provider, context);
+            if (config is null)
+                return null;
 
             if (!context.Request.HasFormContentType)
             {
@@ -301,8 +374,12 @@ public sealed class SamlServiceProvider : ISamlServiceProvider
 
             binding.Unbind(genericRequest, response);
 
-            // Correlate only AFTER Unbind, which is what validates the signature: deciding anything on
-            // the strength of an unverified InResponseTo would be trusting the attacker's own value.
+            // Everything below runs only AFTER Unbind, which is what validates the signature: deciding
+            // anything on the strength of an unverified InResponseTo or assertion id would be trusting
+            // the attacker's own values.
+            if (!AcceptResponse(provider, response))
+                return null;
+
             if (!ConsumeRequestCorrelation(context, provider, response.InResponseTo?.Value))
                 return null;
 
