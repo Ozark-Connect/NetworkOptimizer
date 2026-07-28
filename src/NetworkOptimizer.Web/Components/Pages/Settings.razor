@@ -750,7 +750,10 @@
                     <div class="ssh-key-upload">
                         <div class="form-group">
                             <label class="form-label">Private key</label>
-                            <InputFile class="form-control" OnChange="OnSshKeyFileSelected" accept=".pem,.key,.txt" />
+                            @* No accept filter: the usual names are id_rsa and id_ed25519, with no
+                               extension at all, so filtering by one hides exactly the files people
+                               have. The key is validated by parsing it, which is the real check. *@
+                            <InputFile class="form-control" OnChange="OnSshKeyFileSelected" />
                             <small class="form-help">Choose a key file, or paste it below.</small>
                         </div>
                         <div class="form-group">
