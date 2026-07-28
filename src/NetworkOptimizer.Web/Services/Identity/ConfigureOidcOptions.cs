@@ -2,7 +2,6 @@
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Options;
 using NetworkOptimizer.Storage.Models.Identity;
-using NetworkOptimizer.Web.Services;
 
 namespace NetworkOptimizer.Web.Services.Identity;
 
@@ -68,11 +67,11 @@ public sealed class ConfigureOidcOptions : IConfigureNamedOptions<OpenIdConnectO
         // The handler builds redirect_uri from the incoming request, which behind a reverse proxy is
         // plain HTTP on 8042 - so it sends http://... and the provider rejects it for not matching the
         // registered callback. Use the address the operator declared this install is reached at.
-        var canonical = scope.ServiceProvider.GetRequiredService<CanonicalBaseUrlProvider>();
-        if (canonical.Url is not null)
+        var canonical = scope.ServiceProvider.GetRequiredService<ICanonicalOrigin>();
+        if (canonical.Configured is not null)
         {
-            var signIn = canonical.UrlFor(options.CallbackPath);
-            var signOut = canonical.UrlFor(options.SignedOutCallbackPath);
+            var signIn = canonical.ConfiguredUriFor(options.CallbackPath);
+            var signOut = canonical.ConfiguredUriFor(options.SignedOutCallbackPath);
 
             options.Events ??= new OpenIdConnectEvents();
 

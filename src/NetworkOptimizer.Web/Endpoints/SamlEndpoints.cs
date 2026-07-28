@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Identity;
+﻿using Microsoft.AspNetCore.Identity;
 using NetworkOptimizer.Storage.Models.Identity;
 using NetworkOptimizer.Web.Services.Identity;
 
@@ -43,10 +43,9 @@ public static class SamlEndpoints
             if (provider is null || !provider.Enabled) return Results.Redirect("/login?error=provider_disabled");
 
             // IdP-initiated responses are refused unless explicitly opted in (unsolicited-response risk).
+            // SP-initiated flows carry RelayState; its absence signals an unsolicited (IdP-initiated) POST.
             if (!provider.AllowIdpInitiated && string.IsNullOrEmpty(ctx.Request.Form["RelayState"]))
-            {
-                // SP-initiated flows carry RelayState; its absence signals an unsolicited (IdP-initiated) POST.
-            }
+                return Results.Redirect("/login?error=saml_unsolicited");
 
             var principal = await saml.HandleAssertionAsync(provider, ctx);
             if (principal is null) return Results.Redirect("/login?error=saml_invalid");
