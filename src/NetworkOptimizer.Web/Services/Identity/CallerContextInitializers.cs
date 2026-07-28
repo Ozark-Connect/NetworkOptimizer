@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Components.Authorization;
+﻿using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Components.Server.Circuits;
 
 namespace NetworkOptimizer.Web.Services.Identity;
@@ -28,6 +28,10 @@ public sealed class CallerContextMiddleware
         else if (!await adminAuth.IsAuthenticationRequiredAsync(context.RequestAborted))
         {
             caller.SetUser(CallerInfo.LocalNoAuth(sourceIp, userAgent, context.TraceIdentifier));
+        }
+        else
+        {
+            caller.SetUser(CallerInfo.Anonymous(context.User, sourceIp, userAgent, context.TraceIdentifier));
         }
 
         await _next(context);
@@ -64,5 +68,7 @@ public sealed class CallerContextCircuitHandler : CircuitHandler
             _caller.SetUser(CallerInfo.ForUser(state.User, sourceIp: null, userAgent: null, correlationId: circuit.Id));
         else if (!await _adminAuth.IsAuthenticationRequiredAsync(cancellationToken))
             _caller.SetUser(CallerInfo.LocalNoAuth(sourceIp: null, userAgent: null, correlationId: circuit.Id));
+        else
+            _caller.SetUser(CallerInfo.Anonymous(state.User, sourceIp: null, userAgent: null, correlationId: circuit.Id));
     }
 }

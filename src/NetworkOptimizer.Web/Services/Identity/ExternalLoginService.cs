@@ -67,7 +67,7 @@ public sealed class ExternalLoginService : IExternalLoginService
         {
             if (!existing.IsEnabled)
             {
-                EmitRejected(provider, reason: "account disabled", user: existing);
+                EmitRejected(provider, reason: "account disabled", user: existing, subject: subject);
                 return ExternalLoginOutcome.Disabled;
             }
 
@@ -81,7 +81,7 @@ public sealed class ExternalLoginService : IExternalLoginService
         // No link. JIT-provision or reject - never auto-link by email.
         if (provider.JitProvisioning != JitProvisioningMode.CreateOnFirstLogin)
         {
-            EmitRejected(provider, reason: "no linked account and JIT is off");
+            EmitRejected(provider, reason: "no linked account and JIT is off", subject: subject);
             return ExternalLoginOutcome.NoAccount;
         }
 
@@ -110,7 +110,16 @@ public sealed class ExternalLoginService : IExternalLoginService
 
         var create = await _userManager.CreateAsync(user);
         if (!create.Succeeded)
+        {
+            // Silently returning null here made a failed create indistinguishable from "no account",
+            // with nothing recorded to say a create had even been attempted.
+            EmitRejected(
+                provider,
+                reason: "JIT provisioning failed: "
+                    + string.Join("; ", create.Errors.Select(e => e.Description)),
+                subject: subject);
             return null;
+        }
 
         await _userManager.AddLoginAsync(user, new UserLoginInfo(loginProvider, subject, provider.DisplayName));
         await ApplyMappingsAsync(provider, user, external, isInitial: true);
@@ -231,13 +240,22 @@ public sealed class ExternalLoginService : IExternalLoginService
         return $"{baseName}-{Guid.NewGuid():N}";
     }
 
-    private void EmitRejected(FederationProvider provider, string reason, ApplicationUser? user = null)
+    /// <summary>
+    /// Records a refused federated sign-in. The subject is included because without it "no account" is
+    /// unanswerable: the operator cannot tell whether the provider sent something unexpected or whether
+    /// the link they created does not match it - which is exactly the question a rejected login raises.
+    /// It is an opaque provider-assigned identifier, not a credential, and the login it belongs to has
+    /// already been refused. loginProvider is recorded alongside it because the link is stored and
+    /// looked up under that exact key, and a mismatch there looks identical to a missing account.
+    /// </summary>
+    private void EmitRejected(
+        FederationProvider provider, string reason, ApplicationUser? user = null, string? subject = null)
         => _audit.Log(AuditEventBuilder.From(
             CallerInfo.System($"federation:{SchemeKey(provider)}"),
             AuditCategories.Auth, AuditActions.FederatedLoginRejected, AuditOutcomes.Denied,
             targetType: user is null ? "provider" : "user", targetId: user?.Id ?? provider.Scheme,
             targetName: user?.UserName ?? provider.DisplayName,
-            details: new { reason }));
+            details: new { reason, subject, loginProvider = SchemeKey(provider) }));
 
     private static string SchemeKey(FederationProvider provider) => FederationSchemeKey.For(provider);
 

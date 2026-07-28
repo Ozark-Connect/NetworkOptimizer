@@ -7319,6 +7319,12 @@ a.path-hop.hop-clickable:hover {
     gap: 1rem;
 }
 
+/* The provider buttons are anchors, so the global a:hover recoloured their text blue on hover while
+   the passkey <button> beside them kept the button colour. They are buttons here, not links. */
+.login-footer a.btn:hover {
+    color: var(--text-primary);
+}
+
 .login-footer .text-muted {
     color: var(--text-muted);
     font-size: 0.8125rem;
