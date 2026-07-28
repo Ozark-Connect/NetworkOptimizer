@@ -26,4 +26,15 @@ public sealed class IdentityLoginFacts
         await using var db = await _authDbFactory.CreateDbContextAsync();
         return await db.Users.AsNoTracking().CountAsync() <= 1;
     }
+
+    /// <summary>
+    /// True when any account holds a passkey. The sign-in page cannot ask "does this user have one"
+    /// before knowing who is signing in, so this is the whole-install answer - enough to tell an
+    /// offer apart from a dead end.
+    /// </summary>
+    public async Task<bool> AnyPasskeysAsync()
+    {
+        await using var db = await _authDbFactory.CreateDbContextAsync();
+        return await db.Passkeys.AsNoTracking().AnyAsync();
+    }
 }
