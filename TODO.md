@@ -85,6 +85,30 @@ before/after on the NAS + Mac sites (and ideally a fleet sample), not a blind ed
   width-ratio discount. Shifts external magnitudes - re-validate on the saturated scale (pooled
   weights now enter the score through `w/(1+w/6)`, so the impact is smaller than it was raw).
 
+## Applying a channel plan to UniFi (considered, deliberately out of scope for now)
+
+The recommendation ends at a plan the user applies by hand. That is a decision, not an oversight, and
+the reasoning generalises to any mutative config operation against UniFi Network - so it is recorded
+here rather than re-argued each time the question comes up.
+
+- **UniFi Network has no PATCH.** Every change is a full-config PUT/POST, so writing one field means
+  writing back the entire object - including the ~90% we have no intention of touching. Get any of
+  that wrong, or have the console change it concurrently, and the site's configuration is damaged.
+- **Their REST API has a history of bugs and loose form.** Parsing is not necessarily strict, and a
+  release can reinterpret or break a payload shape. On read-only calls that is harmless; on a
+  mutative call the same surprise can wipe an AP's configuration.
+- **The blast radius is the customer's network**, which is exactly the thing this tool exists to keep
+  healthy. Analysis that is wrong costs a bad recommendation; a write that is wrong costs an outage.
+
+So today the only mutative UniFi API call is the RF quick scan (`cmd/devmgr`), which is
+self-contained and reversible. Everything else we change goes through our own SSH-deployed
+components, where we control the format and the rollback.
+
+Not a permanent no. Revisit when there is a safe path - e.g. read-modify-write with a verified
+round-trip, a diff against the fetched object before sending, and a way to detect concurrent
+modification. Until then, treat "we compute it, the user applies it" as the intended shape of any
+feature that would otherwise write to the controller.
+
 ## LAN Speed Test
 
 ### Path Analysis Enhancements
@@ -911,6 +935,12 @@ width-provenance rules so an unprovable width is recorded as unknown rather than
 `MergeLongTermOutcomes` folds those measurements into `HistoricalStress` age-decayed on a 60-day
 half-life, where measured data wins over inferred wherever both exist. One deliberate ordering rule
 inside that: a resident sibling's LIVE read outranks stale own-outcome memory.
+
+Known ceiling, following from applying being out of scope (see "Applying a channel plan to UniFi"):
+the collector sees the resulting live channel and width, but nothing ties an observed state back to a
+specific recommendation - so the loop cannot tell a followed recommendation from a change the user
+made for their own reasons. Outcomes are still attributed correctly; only the "did our advice help"
+question stays out of reach.
 
 Remaining:
 
