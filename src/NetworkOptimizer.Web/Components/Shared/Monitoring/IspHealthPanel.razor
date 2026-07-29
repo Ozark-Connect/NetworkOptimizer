@@ -62,9 +62,10 @@
                     </div>
                     <div class="custom-range-actions">
                         <button class="btn btn-sm btn-secondary" @onclick="() => _showCustomPopover = false">Cancel</button>
-                        <SiteOperatorOnly>
-                            <button class="btn btn-sm btn-primary" @onclick="ApplyCustomAsync">Apply</button>
-                        </SiteOperatorOnly>
+                        @* Not gated: choosing a window is a READ. Every other time control here (the
+                           presets, the shift arrows) is open to a Viewer, so gating only the custom
+                           range left them able to look at any period except the one they picked. *@
+                        <button class="btn btn-sm btn-primary" @onclick="ApplyCustomAsync">Apply</button>
                     </div>
                 </div>
             </div>
