@@ -4,10 +4,12 @@
 @using Microsoft.AspNetCore.Components.Authorization
 @using NetworkOptimizer.Storage.Models.Identity
 @using NetworkOptimizer.Web.Services.Identity
+@using NetworkOptimizer.Web.Services.Authorization
 @inject IMfaService Mfa
 @inject IPasskeyService Passkeys
 @inject ICurrentUserAccessor CurrentUser
 @inject AuthenticationStateProvider AuthState
+@inject NavigationManager Navigation
 @inject IJSRuntime JS
 @inject MfaEnrollmentCodes EnrollmentCodes
 @inject Microsoft.Extensions.Options.IOptions<Microsoft.AspNetCore.Identity.IdentityOptions> IdentityOptions
@@ -387,6 +389,19 @@
                 _passkeys = await Passkeys.ListAsync(principal);
                 _passkeyName = "";
                 _passkeyMessage = "Passkey registered.";
+
+                // The passkey IS the second factor the role was waiting for, but the cookie still says
+                // it is outstanding: the claim is computed when the principal is built, and registering
+                // through the browser never rebuilds one. The card stops asking while every gate goes on
+                // refusing - enrol, then get bounced back here by the very redirect that sent you.
+                // Enabling an authenticator does not hit this because it posts, and only an HTTP
+                // response can re-issue the cookie. This is that response.
+                if (principal.IsConfinedToMfaEnrollment())
+                {
+                    Navigation.NavigateTo(
+                        "/api/account/session?returnUrl=/account/security", forceLoad: true);
+                    return;
+                }
             }
             else
             {
