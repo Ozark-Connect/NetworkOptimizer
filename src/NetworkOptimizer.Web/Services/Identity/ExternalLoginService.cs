@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.Extensions.Options;
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Storage.Models.Identity;
 using NetworkOptimizer.Web.Services.Auditing;
@@ -66,6 +67,7 @@ public sealed class ExternalLoginService : IExternalLoginService
     private readonly IAuditLogger _audit;
     private readonly IMfaService _mfa;
     private readonly ILogger<ExternalLoginService> _logger;
+    private readonly IOptions<IdentityOptions> _identityOptions;
 
     public ExternalLoginService(
         UserManager<ApplicationUser> userManager,
@@ -73,9 +75,11 @@ public sealed class ExternalLoginService : IExternalLoginService
         IDbContextFactory<AuthDbContext> authDbFactory,
         IAuditLogger audit,
         IMfaService mfa,
-        ILogger<ExternalLoginService> logger)
+        ILogger<ExternalLoginService> logger,
+        IOptions<IdentityOptions> identityOptions)
     {
         _logger = logger;
+        _identityOptions = identityOptions;
         _mfa = mfa;
         _userManager = userManager;
         _signInManager = signInManager;
@@ -158,8 +162,8 @@ public sealed class ExternalLoginService : IExternalLoginService
     private async Task<ApplicationUser?> JitProvisionAsync(
         FederationProvider provider, ClaimsPrincipal external, string subject, string loginProvider)
     {
-        var username = await UniqueUsernameAsync(
-            ClaimValue(external, provider.UsernameClaim, ClaimTypes.Name, "preferred_username") ?? subject);
+        var username = await UniqueUsernameAsync(SanitizeUsername(
+            ClaimValue(external, provider.UsernameClaim, ClaimTypes.Name, "preferred_username") ?? subject));
 
         var user = new ApplicationUser
         {
@@ -401,6 +405,27 @@ public sealed class ExternalLoginService : IExternalLoginService
             CallerInfo.System($"federation:{SchemeKey(provider)}") with { UserId = user.Id, ActorName = user.UserName ?? "" },
             AuditCategories.Auth, AuditActions.LoginSuccess, AuditOutcomes.Success,
             targetType: "user", targetId: user.Id, targetName: user.UserName));
+    }
+
+    /// <summary>
+    /// Strips whatever Identity will not accept in a username. The last fallback for the name is the
+    /// subject, and a subject is an IdP's identifier rather than a name - Auth0 issues
+    /// <c>auth0|68f0...</c>, and the pipe fails Identity's allowed-character check. Provisioning then
+    /// failed for every user of that provider, which reads as "automatic account creation does not
+    /// work" rather than as a claim that needs configuring.
+    ///
+    /// The allowed set comes from IdentityOptions rather than a copy of it here, so a deployment that
+    /// tightens or loosens it stays consistent. A candidate left empty by the filter falls back to a
+    /// generated name, since something has to be stored.
+    /// </summary>
+    private string SanitizeUsername(string candidate)
+    {
+        var allowed = _identityOptions.Value.User.AllowedUserNameCharacters;
+        if (string.IsNullOrEmpty(allowed))
+            return candidate;
+
+        var kept = new string(candidate.Where(allowed.Contains).ToArray());
+        return string.IsNullOrWhiteSpace(kept) ? $"user{Guid.NewGuid():N}"[..16] : kept;
     }
 
     private async Task<string> UniqueUsernameAsync(string candidate)
