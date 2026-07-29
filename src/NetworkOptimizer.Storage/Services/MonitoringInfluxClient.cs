@@ -1177,6 +1177,11 @@ from(bucket: ""{_longtermBucket}"")
                 BootedAt = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow),
             });
         }
+        // Order on assembly: the Flux result is NOT globally ordered. pivot emits a separate table
+        // whenever a row's field set differs, and those tables arrive after the main one - so an
+        // interval where a device reported some fields but not others comes back at the END.
+        results.Sort((a, b) => a.BootedAt.CompareTo(b.BootedAt));
+
         return results;
     }
 
@@ -1217,6 +1222,11 @@ from(bucket: ""{_bucket}"")
                 RateOutBps = AsDoubleOrNull(record.GetValueByKey("rate_out_bps"))
             });
         }
+        // Order on assembly: the Flux result is NOT globally ordered. pivot emits a separate table
+        // whenever a row's field set differs, and those tables arrive after the main one - so an
+        // interval where a device reported some fields but not others comes back at the END.
+        results.Sort((a, b) => a.Time.CompareTo(b.Time));
+
         return results;
     }
 
@@ -1270,6 +1280,11 @@ from(bucket: ""{_bucket}"")
                 RateOutBps = rateOut.TryGetValue(key, out var ro) ? ro : null,
             });
         }
+        // Order on assembly: the Flux result is NOT globally ordered. pivot emits a separate table
+        // whenever a row's field set differs, and those tables arrive after the main one - so an
+        // interval where a device reported some fields but not others comes back at the END.
+        results.Sort((a, b) => a.Time.CompareTo(b.Time));
+
         return results;
     }
 
@@ -1342,6 +1357,12 @@ from(bucket: ""{_bucket}"")
             }
             list.Add(point);
         }
+        // Order on assembly: the Flux result is NOT globally ordered. pivot emits a separate table
+        // whenever a row's field set differs, and those tables arrive after the main one - so an
+        // interval where a device reported some fields but not others comes back at the END.
+        foreach (var series in results.Values)
+            series.Sort((a, b) => a.Time.CompareTo(b.Time));
+
         return results;
     }
 
@@ -1521,6 +1542,11 @@ from(bucket: ""{_bucket}"")
                 UploadBps = AsDoubleOrNull(record.GetValueByKey("rate_out_bps"))
             });
         }
+        // Order on assembly: the Flux result is NOT globally ordered. pivot emits a separate table
+        // whenever a row's field set differs, and those tables arrive after the main one - so an
+        // interval where a device reported some fields but not others comes back at the END.
+        results.Sort((a, b) => a.Time.CompareTo(b.Time));
+
         return results;
     }
 
@@ -1564,6 +1590,11 @@ from(bucket: ""{_bucket}"")
             });
         }
         results.Sort((a, b) => a.Time.CompareTo(b.Time));
+        // Order on assembly: the Flux result is NOT globally ordered. pivot emits a separate table
+        // whenever a row's field set differs, and those tables arrive after the main one - so an
+        // interval where a device reported some fields but not others comes back at the END.
+        results.Sort((a, b) => a.Time.CompareTo(b.Time));
+
         return results;
     }
 
@@ -1897,6 +1928,11 @@ union(tables: [rtt, loss])
                 LossPercent = AsDoubleOrNull(record.GetValueByKey("loss_percent"))
             });
         }
+        // Order on assembly: the Flux result is NOT globally ordered. pivot emits a separate table
+        // whenever a row's field set differs, and those tables arrive after the main one - so an
+        // interval where a device reported some fields but not others comes back at the END.
+        results.Sort((a, b) => a.Time.CompareTo(b.Time));
+
         return results;
     }
 
@@ -1929,6 +1965,11 @@ from(bucket: ""{_bucket}"")
                 LossPercent = AsDoubleOrNull(record.GetValueByKey("loss_percent"))
             });
         }
+        // Order on assembly: the Flux result is NOT globally ordered. pivot emits a separate table
+        // whenever a row's field set differs, and those tables arrive after the main one - so an
+        // interval where a device reported some fields but not others comes back at the END.
+        results.Sort((a, b) => a.Time.CompareTo(b.Time));
+
         return results;
     }
 
@@ -2093,6 +2134,12 @@ from(bucket: ""{_longtermBucket}"")
                 LanBufferOverflow = AsLongOrNull(record.GetValueByKey("lan_buffer_overflow")),
             });
         }
+        // Order on assembly: the Flux result is NOT globally ordered. pivot emits a separate table
+        // whenever a row's field set differs, and those tables arrive after the main one - so an
+        // interval where a device reported some fields but not others comes back at the END.
+        foreach (var series in results.Values)
+            series.Sort((a, b) => a.Time.CompareTo(b.Time));
+
         return results;
     }
 
@@ -2150,6 +2197,12 @@ from(bucket: ""{_longtermBucket}"")
                 Carrier = record.GetValueByKey("carrier") as string,
             });
         }
+        // Order on assembly: the Flux result is NOT globally ordered. pivot emits a separate table
+        // whenever a row's field set differs, and those tables arrive after the main one - so an
+        // interval where a device reported some fields but not others comes back at the END.
+        foreach (var series in results.Values)
+            series.Sort((a, b) => a.Time.CompareTo(b.Time));
+
         return results;
     }
 
@@ -2212,6 +2265,12 @@ union(tables: [gauges, deltas])
                 UncorrDelta = AsLongOrNull(record.GetValueByKey("uncorrectables_delta")),
             });
         }
+        // Order on assembly: the Flux result is NOT globally ordered. pivot emits a separate table
+        // whenever a row's field set differs, and those tables arrive after the main one - so an
+        // interval where a device reported some fields but not others comes back at the END.
+        foreach (var series in results.Values)
+            series.Sort((a, b) => a.Time.CompareTo(b.Time));
+
         return results;
     }
 
@@ -2286,6 +2345,12 @@ union(tables: [gauges, peaks, deltas])
                 AlertCount = AsIntOrNull(record.GetValueByKey("alert_count")),
             });
         }
+        // Order on assembly: the Flux result is NOT globally ordered. pivot emits a separate table
+        // whenever a row's field set differs, and those tables arrive after the main one - so an
+        // interval where a device reported some fields but not others comes back at the END.
+        foreach (var series in results.Values)
+            series.Sort((a, b) => a.Time.CompareTo(b.Time));
+
         return results;
     }
 
@@ -2343,6 +2408,12 @@ from(bucket: ""{_longtermBucket}"")
                 PonLinkStatus = record.GetValueByKey("pon_link_status") as string,
             });
         }
+        // Order on assembly: the Flux result is NOT globally ordered. pivot emits a separate table
+        // whenever a row's field set differs, and those tables arrive after the main one - so an
+        // interval where a device reported some fields but not others comes back at the END.
+        foreach (var series in results.Values)
+            series.Sort((a, b) => a.Time.CompareTo(b.Time));
+
         return results;
     }
 
@@ -2411,6 +2482,11 @@ from(bucket: ""{_longtermBucket}"")
                 ClientName = record.GetValueByKey("client_name") as string,
             });
         }
+        // Order on assembly: the Flux result is NOT globally ordered. pivot emits a separate table
+        // whenever a row's field set differs, and those tables arrive after the main one - so an
+        // interval where a device reported some fields but not others comes back at the END.
+        results.Sort((a, b) => a.Time.CompareTo(b.Time));
+
         return results;
     }
 
@@ -2440,6 +2516,11 @@ from(bucket: ""{_longtermBucket}"")
                 RxThroughputBps = AsDoubleOrNull(record.GetValueByKey("rx_throughput_bps")),
             });
         }
+        // Order on assembly: the Flux result is NOT globally ordered. pivot emits a separate table
+        // whenever a row's field set differs, and those tables arrive after the main one - so an
+        // interval where a device reported some fields but not others comes back at the END.
+        results.Sort((a, b) => a.Time.CompareTo(b.Time));
+
         return results;
     }
 
