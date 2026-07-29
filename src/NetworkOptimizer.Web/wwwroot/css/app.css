@@ -7328,8 +7328,10 @@ a.path-hop.hop-clickable:hover {
 
 /* The row gap is the label-to-tooltip spacing; the rules add their own margin on top of it so the
    line can breathe without the tooltip drifting away from the words it belongs to. */
-/* Same treatment as the deep-link card highlight elsewhere: primary border plus a one-pixel ring. */
-.card-setup-required {
+/* Marks a card as the one being pointed at - a deep link's target, or the thing a page is asking
+   the user to act on. Pages had been redefining this treatment locally; put it with .card so the
+   next one reuses it instead. */
+.card-highlight {
     border-color: var(--primary-color);
     box-shadow: 0 0 0 1px var(--primary-color);
 }

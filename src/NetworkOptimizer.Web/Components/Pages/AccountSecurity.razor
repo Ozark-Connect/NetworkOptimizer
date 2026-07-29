@@ -83,7 +83,7 @@
     </div>
 }
 
-<div class="card @(_setupRequired ? "card-setup-required" : null)">
+<div class="card @(_setupRequired ? "card-highlight" : null)">
     <div class="card-header"><span class="card-title">Authenticator app (TOTP)</span></div>
     <div class="card-body">
         @if (_setupRequired)
@@ -168,7 +168,7 @@
     </div>
 </div>
 
-<div class="card @(_setupRequired ? "card-setup-required" : null)">
+<div class="card @(_setupRequired ? "card-highlight" : null)">
     <div class="card-header"><span class="card-title">Passkeys</span></div>
     <div class="card-body">
         @if (_setupRequired)
