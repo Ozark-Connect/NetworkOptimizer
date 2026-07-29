@@ -3,6 +3,7 @@
 // render as shaded x-axis ranges, path shifts as annotation lines.
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
+import { valueSortedTooltip, tooltipHeld } from './chart-tooltip.js?v=5';
 
 const PALETTE = ['#2ba89a', '#3b82f6', '#a78bfa', '#ef5858', '#f59e0b', '#10b981'];
 const POLL_MS = 60000;
@@ -79,30 +80,10 @@ function buildOpts() {
             theme: 'dark',
             shared: true,
             x: { format: 'MMM dd, HH:mm' },
-            // Rows ordered by RTT desc so the tooltip's vertical order matches the
-            // chart lines at the hovered instant (highest line = first row).
-            custom({ series, dataPointIndex, w }) {
-                const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-                const fmt = v => v.toFixed(1) + ' ms';
-                const rows = [];
-                let ts = null;
-                for (let i = 0; i < series.length; i++) {
-                    const v = series[i]?.[dataPointIndex];
-                    if (v == null) continue;
-                    ts ??= w.globals.seriesX[i]?.[dataPointIndex];
-                    rows.push({ name: w.globals.seriesNames[i], color: w.globals.colors[i % w.globals.colors.length], v });
-                }
-                rows.sort((a, b) => b.v - a.v);
-                const when = ts ? new Date(ts).toLocaleString(undefined, { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }) : '';
-                return (when ? '<div class="apexcharts-tooltip-title" style="font-family:Helvetica, Arial, sans-serif;font-size:12px">' + esc(when) + '</div>' : '')
-                    + rows.map(r =>
-                        '<div class="apexcharts-tooltip-series-group apexcharts-active" style="display:flex">'
-                        + '<span class="apexcharts-tooltip-marker" style="background-color:' + r.color + ';border-radius:50%;width:12px;height:12px"></span>'
-                        + '<div class="apexcharts-tooltip-text" style="font-family:Helvetica, Arial, sans-serif;font-size:12px"><div class="apexcharts-tooltip-y-group">'
-                        + '<span class="apexcharts-tooltip-text-y-label">' + esc(r.name) + ': </span>'
-                        + '<span class="apexcharts-tooltip-text-y-value">' + esc(fmt(r.v)) + '</span>'
-                        + '</div></div></div>').join('');
-            },
+            // The shared renderer: rows ordered by value so they match the vertical order of the
+            // lines, plus a hover dot on each. Its own format because this axis prints a bare
+            // number under an "ms" title while the tooltip has always carried the unit.
+            custom: (ctx) => valueSortedTooltip(ctx, { format: v => v.toFixed(1) + ' ms', omitSeconds: true }),
         },
         noData: { text: 'No path data in the last 24 hours', style: { color: '#64748b' } },
     };
@@ -215,7 +196,8 @@ export async function mount(elId, fromISO = null, toISO = null, hidden = null) {
     chart = new ApexCharts(el, buildOpts());
     await chart.render();
     await loadAndUpdate();
-    pollTimer = setInterval(loadAndUpdate, POLL_MS);
+    // Guarded at the tick, not inside loadAndUpdate, so an explicit reload is never suppressed.
+    pollTimer = setInterval(() => { if (!tooltipHeld(el)) loadAndUpdate(); }, POLL_MS);
 }
 
 export async function reload() {

@@ -79,10 +79,13 @@ function paintHoverDots(w, dataPointIndex) {
     }
 }
 
-export function valueSortedTooltip({ series, dataPointIndex, w }) {
+export function valueSortedTooltip({ series, dataPointIndex, w }, options = {}) {
     paintHoverDots(w, dataPointIndex);
     const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-    const fmt = w.config.yaxis?.[0]?.labels?.formatter ?? (v => v);
+    // The axis formatter by default, since it is already right for the chart. An explicit one
+    // is for charts whose axis deliberately omits a unit that the tooltip should still carry -
+    // ISP Health's axis reads "12.4" under an "ms" title, but its tooltip says "12.4 ms".
+    const fmt = options.format ?? w.config.yaxis?.[0]?.labels?.formatter ?? (v => v);
     const rows = [];
     let ts = null;
     for (let i = 0; i < series.length; i++) {
@@ -92,7 +95,13 @@ export function valueSortedTooltip({ series, dataPointIndex, w }) {
         rows.push({ name: w.globals.seriesNames[i], color: w.globals.colors[i % w.globals.colors.length], v });
     }
     rows.sort((a, b) => b.v - a.v);
-    const when = ts ? new Date(ts).toLocaleString(undefined, { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) : '';
+    // Seconds by default, because the Monitoring charts poll fast enough for them to mean
+    // something. A chart on a slower cadence can drop them - ISP Health polls once a minute over a
+    // 24 hour window, where a seconds field is noise and was never shown before this was shared.
+    const timeParts = options.omitSeconds
+        ? { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }
+        : { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false };
+    const when = ts ? new Date(ts).toLocaleString(undefined, timeParts) : '';
     return (when ? '<div class="apexcharts-tooltip-title" style="font-family:Helvetica, Arial, sans-serif;font-size:12px">' + esc(when) + '</div>' : '')
         + rows.map(r =>
             '<div class="apexcharts-tooltip-series-group apexcharts-active" style="display:flex">'
