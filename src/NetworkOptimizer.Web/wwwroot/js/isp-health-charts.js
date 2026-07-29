@@ -259,10 +259,12 @@ export async function mount(elId, fromISO = null, toISO = null, hidden = null) {
     el.parentElement.classList.add('isp-chart-wrap');
     el.parentElement.appendChild(resetBtn);
 
-    // Below the plot, where the legend it replaces used to sit.
+    // Immediately after the plot, where the legend it replaces used to sit. NOT appended to the
+    // parent: that wrapper holds more than the chart (the Dig deeper block among it), so appending
+    // put the chips at the bottom of the card instead of under the lines they filter.
     badgesEl = document.createElement('div');
     badgesEl.className = 'wan-filter-badges isp-chart-badges';
-    el.parentElement.appendChild(badgesEl);
+    el.parentElement.insertBefore(badgesEl, el.nextSibling);
 
     chart = new ApexCharts(el, buildOpts());
     await chart.render();
