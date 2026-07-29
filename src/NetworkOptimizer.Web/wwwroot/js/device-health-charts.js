@@ -3,7 +3,14 @@
 // device-health-charts, and future chart sets share one implementation.
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=4';
-import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=4';
+import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=5';
+
+// A device answers SNMP but can still miss a single field on a poll - a temperature or
+// memory OID that times out is written as no value rather than a zero, so the row arrives
+// with that one field absent. Measured over 24h these holes are 30-210s (98% of intervals
+// are the normal 30s cadence, nothing beyond 310s), so 5 minutes spans every one of them
+// with headroom while leaving a genuine outage broken.
+const GAP_BRIDGE_MS = 5 * 60 * 1000;
 
 const PALETTE = window.Apex?.colors || ['#7EB26D', '#EAB839', '#6ED0E0', '#EF843C', '#E24D42', '#1F78C1'];
 const _colorCache = {};
@@ -171,7 +178,7 @@ async function loadAndUpdate() {
     const makeSeries = (field) => data.devices.map(d => ({
         name: d.name,
         color: hashColor(d.name),
-        data: alignedPoints(d.data || [], p => p[field]),
+        data: alignedPoints(d.data || [], p => p[field], 'time', GAP_BRIDGE_MS),
     }));
     if (tempChart) tempChart.updateSeries(makeSeries('temp'), false);
     if (cpuChart) cpuChart.updateSeries(makeSeries('cpu'), false);

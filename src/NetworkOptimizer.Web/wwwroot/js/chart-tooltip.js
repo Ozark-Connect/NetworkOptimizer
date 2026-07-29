@@ -113,8 +113,21 @@ export function valueSortedTooltip({ series, dataPointIndex, w }) {
  * a series shorter than the hovered index throws and the loop abandons every dot after it.
  * That is the "sometimes several dots, usually just one" behaviour.
  *
- * A null y breaks the line exactly where the filter used to remove the point, so the plot is
- * unchanged, and valueSortedTooltip skips nulls so the gaps cost no tooltip rows.
+ * A null y CUTS the line where the filter used to span it: dropping a point makes its
+ * neighbours adjacent, so the plot joined across the hole, while a null ends one segment and
+ * starts another. valueSortedTooltip skips nulls either way, so the gaps still cost no
+ * tooltip rows - only the stroke differs. Pass `gapBridgeMs` where that visible cut is wrong.
+ *
+ * `gapBridgeMs` restores the spanning stroke without losing the index alignment above:
+ *   - a null run whose bracketing readings sit within the budget is interpolated, so the
+ *     line carries and the array keeps its length and indices;
+ *   - a longer run stays null and breaks the line, which is what a real outage should look
+ *     like;
+ *   - a stretch with no ROW at all - the query uses createEmpty:false, so an outage yields
+ *     no row rather than a null one - gets a null inserted, because otherwise the two
+ *     readings either side are adjacent and the line spans the outage silently.
+ * The insert keys off row timestamps, which every field of one source array shares, so all
+ * of that array's series receive the same insertions and stay aligned with each other.
  *
  * A series with no readings at all comes back empty and should be dropped by the caller: the
  * dot pass skips empty series safely, and an all-null line draws nothing anyway.
@@ -123,9 +136,33 @@ export function valueSortedTooltip({ series, dataPointIndex, w }) {
  * (several devices or targets on one chart) can still hold genuinely different timestamps,
  * which no per-series transform can reconcile.
  */
-export function alignedPoints(pts, sel, timeKey = 'time') {
+export function alignedPoints(pts, sel, timeKey = 'time', gapBridgeMs = 0) {
     if (!pts?.some(p => sel(p) != null)) return [];
-    return pts.map(p => ({ x: new Date(p[timeKey]).getTime(), y: sel(p) ?? null }));
+    const out = pts.map(p => ({ x: new Date(p[timeKey]).getTime(), y: sel(p) ?? null }));
+    if (gapBridgeMs <= 0) return out;
+
+    for (let i = 0; i < out.length; i++) {
+        if (out[i].y != null) continue;
+        let end = i;
+        while (end < out.length && out[end].y == null) end++;
+        // A run at either edge has nothing to interpolate between, so it stays null.
+        const prev = i > 0 ? out[i - 1] : null;
+        const next = end < out.length ? out[end] : null;
+        if (prev && next && next.x - prev.x <= gapBridgeMs) {
+            const span = next.x - prev.x;
+            for (let j = i; j < end; j++)
+                out[j].y = prev.y + (next.y - prev.y) * ((out[j].x - prev.x) / span);
+        }
+        i = end - 1;
+    }
+
+    const withBreaks = [];
+    for (let i = 0; i < out.length; i++) {
+        if (i > 0 && out[i].x - out[i - 1].x > gapBridgeMs)
+            withBreaks.push({ x: out[i - 1].x + 1, y: null });
+        withBreaks.push(out[i]);
+    }
+    return withBreaks;
 }
 
 /**
