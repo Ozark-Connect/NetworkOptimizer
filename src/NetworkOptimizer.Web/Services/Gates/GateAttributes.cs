@@ -30,6 +30,23 @@ public sealed class RequireSiteRoleAttribute : Attribute
 }
 
 /// <summary>
+/// Marks a gated method as part of the account's own self-service surface, so it stays callable by a
+/// session that <see cref="Authorization.MfaEnrollmentGuard"/> otherwise confines to enrolment.
+///
+/// The confinement exists to make a not-yet-enrolled session worthless, but it cannot swallow the
+/// account's own maintenance: enrolment happens from a live session, and someone told to enrol may
+/// equally have been told to change a password first. The role gate still applies - this only exempts
+/// the method from the enrolment confinement, never from its <see cref="RequireRoleAttribute"/>.
+///
+/// Reserve it for methods that act solely on the caller's own account and prove the caller is its
+/// holder. Anything that acts on the instance or on another account must not carry it.
+/// </summary>
+[AttributeUsage(AttributeTargets.Method, AllowMultiple = false)]
+public sealed class SelfServiceActionAttribute : Attribute
+{
+}
+
+/// <summary>
 /// Marks the parameter carrying the site slug that a <see cref="RequireSiteRoleAttribute"/> gate (and
 /// the audit envelope) authorizes/records against.
 /// </summary>

@@ -7345,7 +7345,14 @@
 
         try
         {
-            await AdminAuth.ClearDatabasePasswordAsync();
+            var cleared = await IdentityAdmin.ClearAdminPasswordAsync();
+            if (!cleared.Succeeded)
+            {
+                adminPasswordMessage = cleared.Error ?? "Could not clear the database password";
+                adminPasswordMessageClass = "danger";
+                return;
+            }
+
             adminPasswordSource = await AdminAuth.GetPasswordSourceAsync();
 
             if (adminPasswordSource == AdminPasswordSource.Environment)

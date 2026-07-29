@@ -132,7 +132,20 @@ public interface IIdentityAdminService
     /// found it unlocked. Refuses any userId but the caller's own.
     /// </summary>
     [RequireRole(Roles.Viewer)]
+    [SelfServiceAction]
     Task<AdminActionResult> ChangeOwnPasswordAsync(string userId, string currentPassword, string newPassword);
+
+    /// <summary>
+    /// Clears the database-stored admin password behind the <b>Admin Password</b> control in
+    /// Settings - Application, so the install falls back to APP_PASSWORD or a generated one.
+    ///
+    /// Gated for the same reason as <see cref="SetAdminPasswordAsync"/>: it changes what authenticates
+    /// the instance, and the page wrapper around the control is not what should be deciding that. The
+    /// set path went through this service while the clear path went straight to the raw settings
+    /// service - two halves of one control, one of them gated and audited, the other neither.
+    /// </summary>
+    [RequireRole(Roles.Admin)]
+    Task<AdminActionResult> ClearAdminPasswordAsync();
 
     /// <summary>
     /// Rotates the signed-in user's security stamp, which every application cookie and remembered
@@ -141,6 +154,7 @@ public interface IIdentityAdminService
     /// Refuses any userId but the caller's own.
     /// </summary>
     [RequireRole(Roles.Viewer)]
+    [SelfServiceAction]
     Task<AdminActionResult> SignOutEverywhereAsync(string userId);
 
     [RequireRole(Roles.Admin)]
@@ -507,6 +521,14 @@ public sealed class IdentityAdminService : IIdentityAdminService
         await SyncAdminSettingsIfBuiltInAdminAsync(user, newPassword);
         await RetireLegacyTokensIfBuiltInAdminAsync(user);
         Emit(AuditCategories.Auth, AuditActions.PasswordChanged, user);
+        return AdminActionResult.Ok();
+    }
+
+    /// <inheritdoc />
+    public async Task<AdminActionResult> ClearAdminPasswordAsync()
+    {
+        await _adminAuth.ClearDatabasePasswordAsync();
+        EmitSystemTarget(AuditCategories.Auth, AuditActions.PasswordChanged, "admin_password", "instance");
         return AdminActionResult.Ok();
     }
 

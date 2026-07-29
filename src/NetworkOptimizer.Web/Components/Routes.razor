@@ -14,7 +14,14 @@
         @* Gate 4 (design doc 06): page [Authorize] policies decide navigation. The policies succeed
            when the install has authentication disabled, so nothing changes for those installs. *@
         <AuthorizeRouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)">
-            <NotAuthorized>
+            <NotAuthorized Context="refused">
+                @if (refused.User.IsConfinedToMfaEnrollment())
+                {
+                    @* Refused only because enrolment is outstanding: that has somewhere to go. *@
+                    <MfaEnrollmentRedirect />
+                }
+                else
+                {
                 <div class="page-content">
                     <div class="empty-state">
                         <div class="empty-icon">
@@ -29,6 +36,7 @@
                         <a class="btn btn-primary" href="/">Go to Dashboard</a>
                     </div>
                 </div>
+                }
             </NotAuthorized>
         </AuthorizeRouteView>
         <FocusOnNavigate RouteData="routeData" Selector="h1" />

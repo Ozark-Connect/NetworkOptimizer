@@ -1,5 +1,6 @@
 @page "/denied"
 @using Microsoft.AspNetCore.Authorization
+@using NetworkOptimizer.Web.Services.Authorization
 @attribute [Authorize]
 @inject SiteContextService SiteContext
 
@@ -9,6 +10,13 @@
 
 <PageTitle>No access - Network Optimizer</PageTitle>
 
+@if (_enrollmentPending)
+{
+    @* Reached here rather than through the router's refusal - same state, same destination. *@
+    <MfaEnrollmentRedirect />
+}
+else
+{
 <div class="page-content">
     <div class="empty-state">
         <div class="empty-icon">
@@ -25,3 +33,16 @@
         <a class="btn btn-primary" href="@SiteContextService.WithSiteParam("/", SiteContext.Slug)">Go to Dashboard</a>
     </div>
 </div>
+}
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private bool _enrollmentPending;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (AuthState is not null)
+            _enrollmentPending = (await AuthState).User.IsConfinedToMfaEnrollment();
+    }
+}

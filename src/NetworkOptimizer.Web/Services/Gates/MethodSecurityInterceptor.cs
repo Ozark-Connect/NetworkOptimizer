@@ -92,7 +92,8 @@ public sealed class MethodSecurityInterceptor : AsyncInterceptorBase
                     $"{method.DeclaringType?.Name}.{method.Name} declares no role gate");
             }
 
-            await AuthorizeAsync(caller, requireGlobal, requireSite, siteSlug, auditAttr, siteScoped);
+            var selfService = method.GetCustomAttribute<SelfServiceActionAttribute>() is not null;
+            await AuthorizeAsync(caller, requireGlobal, requireSite, siteSlug, auditAttr, siteScoped, selfService);
         }
 
         if (auditAttr is null)
@@ -123,10 +124,19 @@ public sealed class MethodSecurityInterceptor : AsyncInterceptorBase
         RequireSiteRoleAttribute? requireSite,
         string? siteSlug,
         AuditActionAttribute? auditAttr,
-        bool siteScoped)
+        bool siteScoped,
+        bool selfService)
     {
         if (caller.Principal is null)
             Deny(caller, auditAttr, siteSlug, "no principal");
+
+        // Enrolment is outstanding: this session may call nothing gated, whatever its roles say. The
+        // rank check below reads role claims directly rather than going through GlobalRoleHandler, so
+        // it does not inherit that handler's refusal and has to make it here (see MfaEnrollmentGuard).
+        // [SelfServiceAction] is the exception, and it is the same carve-out Policies.AccountSelfService
+        // makes at the page and endpoint: the account can still maintain itself while confined.
+        if (!selfService && caller.Principal!.IsConfinedToMfaEnrollment())
+            Deny(caller, auditAttr, siteSlug, "second factor not yet enrolled");
 
         if (requireGlobal is not null)
         {
