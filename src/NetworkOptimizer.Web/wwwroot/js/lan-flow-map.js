@@ -199,6 +199,11 @@ const CLOUD_TIER = {
     Unresolved: 2,
 };
 
+// How close to "now" an EXPLICIT seek must land before it counts as live rather than
+// historic. Deliberately far tighter than the scrubber's own minute of slack: a click
+// names an instant, so only one at the live edge should keep playing.
+const ExplicitSeekLiveToleranceMs = 1000;
+
 export class LanFlowMap {
     constructor(canvasEl, options = {}) {
         this.canvas = canvasEl;
@@ -2700,7 +2705,7 @@ export class LanFlowMap {
     // not-yet-flushed instant visible to _startHistoricPlayback, so stepping and
     // immediately hitting play resumes from the stepped position instead of a
     // requantized slider value.
-    _queueScrubChange(val, at) {
+    _queueScrubChange(val, at, explicit = false) {
         this._pendingScrubAt = at;
         const now = Date.now();
         const sinceLastFire = now - this._scrubberLastFire;
@@ -2708,7 +2713,7 @@ export class LanFlowMap {
         const fire = () => {
             this._scrubberLastFire = Date.now();
             this._pendingScrubAt = null;
-            this._onScrubberChange(val, at);
+            this._onScrubberChange(val, at, explicit);
         };
         if (sinceLastFire >= 500) fire();
         else this._scrubberInputDebounce = setTimeout(fire, 500 - sinceLastFire);
@@ -2728,8 +2733,11 @@ export class LanFlowMap {
         const val = this._timeToScrubberValue(t);
         range.value = val;
         this._onScrubberInput(val, at);
-        if (this._mode === 'live' && !this._isLiveValue(val, at)) this._enterHistoricScrub();
-        this._queueScrubChange(val, at);
+        // Explicit: only a click at the live edge itself means live. t is already clamped to the
+        // window end, so a click at or past "now" lands within the tight tolerance and stays live.
+        if (this._mode === 'live' && !this._isLiveValue(val, at, ExplicitSeekLiveToleranceMs))
+            this._enterHistoricScrub();
+        this._queueScrubChange(val, at, true);
     }
 
     _onScrubberInput(value, at = null) {
@@ -2742,8 +2750,8 @@ export class LanFlowMap {
         flowData.publishScrubber(value, rightLabel, this._playbackSpeed);
     }
 
-    async _onScrubberChange(value, at = null) {
-        if (this._isLiveValue(value, at)) {
+    async _onScrubberChange(value, at = null, explicit = false) {
+        if (this._isLiveValue(value, at, explicit ? ExplicitSeekLiveToleranceMs : 60000)) {
             // Snap back to live.
             this._stopHistoricPlayback();
             this._mode = 'live';
@@ -2852,9 +2860,14 @@ export class LanFlowMap {
     // parked "10 minutes ago" must not read (or snap) as Live. Callers that
     // already resolved the value to an instant pass it so the check agrees with
     // the time they are actually working with.
-    _isLiveValue(value, at = null) {
+    /// A minute of slack so releasing the scrubber near the right edge means "live" without
+    /// having to land on it exactly. An EXPLICIT seek passes a tight tolerance instead: clicking
+    /// a spot on the WAN Live chart names an instant, and treating anything inside the last
+    /// minute as "you meant live" is what made the most recent minute unseekable - the playhead
+    /// appeared and the chart carried on playing.
+    _isLiveValue(value, at = null, toleranceMs = 60000) {
         if (value < 9998) return false;
-        return Date.now() - (at ?? this._scrubberValueToTime(value)).getTime() < 60000;
+        return Date.now() - (at ?? this._scrubberValueToTime(value)).getTime() < toleranceMs;
     }
 
     // Widest selectable span: capped by the primary bucket's 90-day retention and,
