@@ -2482,7 +2482,12 @@
     {
         try
         {
-            var active = _unresolvedAlerts.Where(a => a.Status == AlertStatus.Active).ToList();
+            // Everything unresolved, not just what is still Active. Acknowledge All moves the whole
+            // list to Acknowledged, after which a Resolve All scoped to Active matched nothing and
+            // silently did nothing - leaving one-by-one as the only way through. Resolving something
+            // already acknowledged is what the button says it does. ResolveAllIncidents has always
+            // read this way.
+            var active = _unresolvedAlerts.Where(a => a.Status != AlertStatus.Resolved).ToList();
             var now = DateTime.UtcNow;
             foreach (var alert in active)
             {
@@ -2503,7 +2508,8 @@
     {
         try
         {
-            var acknowledged = _unresolvedAlerts.Where(a => a.Status == AlertStatus.Acknowledged).ToList();
+            // Same reasoning: whichever section's Resolve All you press, it clears the unresolved list.
+            var acknowledged = _unresolvedAlerts.Where(a => a.Status != AlertStatus.Resolved).ToList();
             var now = DateTime.UtcNow;
             foreach (var alert in acknowledged)
             {

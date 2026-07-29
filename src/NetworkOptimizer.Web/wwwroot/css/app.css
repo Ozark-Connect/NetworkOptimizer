@@ -15084,6 +15084,11 @@ a.affected-client:hover {
     background: white;
 }
 
+.identity-actions-note {
+    color: var(--text-muted);
+    font-size: 0.85rem;
+}
+
 .mi-form-fields,
 .ws-edit-fields {
     border: none;

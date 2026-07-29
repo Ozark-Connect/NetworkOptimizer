@@ -6,6 +6,8 @@
 @inject IAuthPolicyAdminService AuthPolicyAdmin
 @inject ISiteManagementService SiteManagement
 @inject NetworkOptimizer.Web.Services.SiteRegistryChangeNotifier ChangeNotifier
+@inject AuthenticationStateProvider AuthStateProvider
+@inject NetworkOptimizer.Web.Services.Identity.ICurrentUserAccessor CurrentUser
 @implements IDisposable
 
 @* Settings - Identity: who can reach which site, and at what role. At global scope this lists every
@@ -106,7 +108,17 @@
                                 }
                                 <td>@Describe(grant.SiteRole)</td>
                                 <td class="identity-actions-col">
-                                    <button type="button" class="btn btn-secondary btn-sm" @onclick="() => RevokeAsync(grant)">Revoke</button>
+                                    @if (IsOwnGrant(grant))
+                                    {
+                                        @* Refused at the service, so offering it would only invite a
+                                           refusal. Losing your own grant strands you outside the page
+                                           you would undo it from. *@
+                                        <span class="identity-actions-note" data-tooltip="Ask another administrator to change your own access">Your access</span>
+                                    }
+                                    else
+                                    {
+                                        <button type="button" class="btn btn-secondary btn-sm" @onclick="() => RevokeAsync(grant)">Revoke</button>
+                                    }
                                 </td>
                             </tr>
                         }
@@ -188,6 +200,15 @@
     private bool _multiSiteEnabled;
 
     private string _grantUserId = "";
+    private string? _selfUserId;
+    private bool _callerIsGlobalAdmin;
+
+    /// <summary>
+    /// A grant belonging to the caller, where the caller's reach depends on it. A global Admin opens
+    /// every site by role, so their own rows are bookkeeping and stay editable.
+    /// </summary>
+    private bool IsOwnGrant(AccessRow grant)
+        => !_callerIsGlobalAdmin && _selfUserId is not null && grant.UserId == _selfUserId;
     private string _grantTarget = AllSitesTarget;
     private SiteRole _grantRole = SiteRole.SiteViewer;
     private bool _granting;
@@ -199,7 +220,13 @@
     {
         ChangeNotifier.SitesChanged += OnSitesChanged;
         _multiSiteEnabled = await SiteManagement.IsMultiSiteEnabledAsync();
+        var principal = (await AuthStateProvider.GetAuthenticationStateAsync()).User;
+        _selfUserId = (await CurrentUser.GetAsync(principal))?.Id;
+        _callerIsGlobalAdmin = principal.IsInRole(NetworkOptimizer.Storage.Models.Identity.Roles.Admin);
+
         _users = await IdentityAdmin.ListUsersAsync();
+        if (!_callerIsGlobalAdmin && _selfUserId is not null)
+            _users = _users.Where(u => u.Id != _selfUserId).ToList();
         _grantUserId = _users.FirstOrDefault()?.Id ?? "";
         _sites = await SiteManagement.GetSitesAsync();
         if (SiteSlug is null)
