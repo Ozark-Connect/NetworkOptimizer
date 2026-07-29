@@ -12,7 +12,69 @@
  * Skips null points rather than printing them: a series with no reading at this instant
  * has nothing to say, and a row of blanks pushes the values that matter off the bottom.
  */
+const SVG_NS = 'http://www.w3.org/2000/svg';
+const DOT_LAYER = 'netopt-hover-dots';
+
+/**
+ * A dot on EVERY line at the hovered instant, drawn by us.
+ *
+ * ApexCharts will not do this for these charts. Its hover-marker pass only runs when the
+ * hovered series already has marker elements (`hasMarkers`), and with `markers.size: 0`
+ * there are none - so usually nothing was drawn at all. When a chart happened to contain
+ * nulls the library created virtual markers, which flipped it onto an index-based path
+ * that reads pointsArray[series][hoveredIndex] and throws on any series that is shorter,
+ * keeping whatever it had drawn so far. That is the none/one/several behaviour: it was
+ * data-dependent, not random. Giving markers a real size would fix the path and put a
+ * visible dot on every point of every series, which on a month of samples is a smear -
+ * and `newPointSize` refuses to enlarge a marker whose default size is 0, so there is no
+ * invisible-at-rest option to reach for.
+ *
+ * Drawing them here costs one <circle> per visible series per hover and needs no marker
+ * elements at all. Nulls are skipped, so a line with no reading at this instant has no dot
+ * rather than one parked on the axis.
+ */
+function paintHoverDots(w, dataPointIndex) {
+    const inner = w.globals.dom.baseEl.querySelector('.apexcharts-inner');
+    if (!inner) return;
+
+    let layer = inner.querySelector('.' + DOT_LAYER);
+    if (!layer) {
+        layer = document.createElementNS(SVG_NS, 'g');
+        layer.setAttribute('class', DOT_LAYER);
+        // Never swallow a pointer event: these sit over the plot, and the chart needs the
+        // mouse to keep reaching it or the tooltip flickers as the pointer crosses a dot.
+        layer.setAttribute('pointer-events', 'none');
+        inner.appendChild(layer);
+
+        // The dots outlive the tooltip otherwise - ApexCharts hides its own tooltip on the
+        // way out and knows nothing about this layer.
+        const host = w.globals.dom.baseEl;
+        host.addEventListener('mouseleave', () => { layer.innerHTML = ''; });
+    }
+
+    while (layer.firstChild) layer.removeChild(layer.firstChild);
+
+    const points = w.globals.pointsArray;
+    for (let i = 0; i < points.length; i++) {
+        if (w.globals.collapsedSeriesIndices?.indexOf(i) >= 0) continue;
+        const p = points[i]?.[dataPointIndex];
+        if (!p) continue;
+        const [cx, cy] = p;
+        if (cx == null || cy == null || isNaN(cx) || isNaN(cy)) continue;
+
+        const dot = document.createElementNS(SVG_NS, 'circle');
+        dot.setAttribute('cx', cx);
+        dot.setAttribute('cy', cy);
+        dot.setAttribute('r', 4);
+        dot.setAttribute('fill', w.globals.colors[i % w.globals.colors.length]);
+        dot.setAttribute('stroke', '#0f0f11');
+        dot.setAttribute('stroke-width', 2);
+        layer.appendChild(dot);
+    }
+}
+
 export function valueSortedTooltip({ series, dataPointIndex, w }) {
+    paintHoverDots(w, dataPointIndex);
     const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
     const fmt = w.config.yaxis?.[0]?.labels?.formatter ?? (v => v);
     const rows = [];

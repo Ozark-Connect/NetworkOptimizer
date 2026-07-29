@@ -3,7 +3,7 @@
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=4';
-import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=2';
+import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=3';
 
 const PALETTE = window.Apex?.colors || ['#4269d0', '#efb118', '#ff725c', '#6cc5b0', '#3ca951', '#ff8ab7'];
 const _esc = document.createElement('span');
@@ -45,10 +45,9 @@ function baseOpts(height, yTitle, yFormatter, extra) {
             type: 'gradient',
             gradient: { shadeIntensity: 0.3, opacityFrom: 0.4, opacityTo: 0.05 },
         },
-        // No markers at rest; on hover ApexCharts draws one per series. Sized explicitly
-        // because the fallback is size + markers.hover.sizeOffset, and with size 0 that
-        // offset alone produced a dot far larger than the line it belongs to.
-        markers: { size: 0, hover: { size: 4 } },
+        // Stays 0: the library's hover markers are the flaky ones, and any non-zero size puts
+        // a permanent dot on every sample. valueSortedTooltip draws the hover dots instead.
+        markers: { size: 0 },
         dataLabels: { enabled: false },
         xaxis: {
             type: 'datetime',
