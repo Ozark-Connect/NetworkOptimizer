@@ -127,6 +127,11 @@ export function valueSortedTooltip({ series, dataPointIndex, w }, options = {}) 
  * starts another. valueSortedTooltip skips nulls either way, so the gaps still cost no
  * tooltip rows - only the stroke differs. Pass `gapBridgeMs` where that visible cut is wrong.
  *
+ * `interpolateNulls` turns the bridging half off while keeping the break half. A caller whose rows
+ * already carry explicit nulls may want those drawn as the breaks they are, and still needs a break
+ * inserted where there is no row at all - the two halves are independent, and ISP Health wants only
+ * the second.
+ *
  * `gapBridgeMs` restores the spanning stroke without losing the index alignment above:
  *   - a null run whose bracketing readings sit within the budget is interpolated, so the
  *     line carries and the array keeps its length and indices;
@@ -158,7 +163,7 @@ function medianDelta(pts) {
     return deltas[deltas.length >> 1];
 }
 
-export function alignedPoints(pts, sel, timeKey = 'time', gapBridgeMs = 0) {
+export function alignedPoints(pts, sel, timeKey = 'time', gapBridgeMs = 0, interpolateNulls = true) {
     if (!pts?.some(p => sel(p) != null)) return [];
     const out = pts.map(p => ({ x: new Date(p[timeKey]).getTime(), y: sel(p) ?? null }));
     if (gapBridgeMs <= 0) return out;
@@ -177,7 +182,7 @@ export function alignedPoints(pts, sel, timeKey = 'time', gapBridgeMs = 0) {
     // outage should look like.
     const budget = Math.max(gapBridgeMs, 2.5 * medianDelta(out));
 
-    for (let i = 0; i < out.length; i++) {
+    for (let i = 0; interpolateNulls && i < out.length; i++) {
         if (out[i].y != null) continue;
         let end = i;
         while (end < out.length && out[end].y == null) end++;

@@ -3,7 +3,7 @@
 // render as shaded x-axis ranges, path shifts as annotation lines.
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
-import { valueSortedTooltip, tooltipHeld } from './chart-tooltip.js?v=6';
+import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=7';
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=4';
 
 const PALETTE = ['#2ba89a', '#3b82f6', '#a78bfa', '#ef5858', '#f59e0b', '#10b981'];
@@ -13,6 +13,10 @@ let chart = null;
 let pollTimer = null;
 let fetchController = null;
 let resetBtn = null;
+// Floor for the gap budget; past ~17 h the server's buckets are wider than this and alignedPoints
+// scales off their own cadence instead. Below it, a single missed minute is noise rather than an
+// outage and should not chop the line.
+const GAP_BRIDGE_MS = 5 * 60 * 1000;
 let isZoomed = false;
 // The drag-zoom window, kept so a series toggle can put it back. Toggling visibility redraws from
 // the chart's default axis, which is not a zoom event and so leaves nothing behind to restore from.
@@ -187,7 +191,13 @@ async function loadAndUpdate() {
         const series = (json.asns || []).map((a, i) => ({
             name: a.name,
             color: PALETTE[i % PALETTE.length],
-            data: (a.points || []).map(p => ({ x: new Date(p.time).getTime(), y: p.value })),
+            // A total outage leaves NO row for that stretch - the endpoint's merged axis is built
+            // from the buckets that exist - so the readings either side were adjacent and the line
+            // carried straight over it. A null is inserted where the cadence breaks, which draws
+            // the gap the other tabs draw. Interpolation stays off: where the endpoint already
+            // nulled a series because that ASN alone went quiet, that break is the truth and is
+            // drawn as-is.
+            data: alignedPoints(a.points || [], p => p.value, 'time', GAP_BRIDGE_MS, false),
         }));
 
         asnMeta = series.map(x => ({ name: x.name, color: x.color }));
