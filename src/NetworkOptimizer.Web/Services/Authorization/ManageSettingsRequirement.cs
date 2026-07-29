@@ -40,6 +40,12 @@ public sealed class ManageSettingsHandler : AuthorizationHandler<ManageSettingsR
     protected override async Task HandleRequirementAsync(
         AuthorizationHandlerContext context, ManageSettingsRequirement requirement)
     {
+        // TEMPORARY entry trace: proves whether the handler is entered at all, and for which site.
+        _logger.LogDebug(
+            "ManageSettings ENTER: user={User} authed={Authed}",
+            context.User.Identity?.Name ?? "(anon)",
+            context.User.Identity?.IsAuthenticated == true);
+
         // Authentication disabled for the install: the local operator does everything, as before.
         if (!await _adminAuth.IsAuthenticationRequiredAsync())
         {
@@ -57,7 +63,18 @@ public sealed class ManageSettingsHandler : AuthorizationHandler<ManageSettingsR
         if (_siteContext.IsDefault)
             return;
 
-        var effective = await _resolver.GetEffectiveRoleAsync(context.User, _siteContext.Slug);
+        string slug;
+        SiteRole? effective;
+        try
+        {
+            slug = _siteContext.Slug;
+            effective = await _resolver.GetEffectiveRoleAsync(context.User, slug);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "ManageSettings: resolving the site role threw");
+            throw;
+        }
 
         // TEMPORARY trace: a Site Admin of the default site is being refused Settings while the same
         // account admits fine on a managed site, and every value on the path reads correct. Says what
@@ -66,7 +83,7 @@ public sealed class ManageSettingsHandler : AuthorizationHandler<ManageSettingsR
             "ManageSettings: user={User} id={Id} slug={Slug} effective={Effective} globalAdmin={Admin}",
             context.User.Identity?.Name ?? "(anon)",
             context.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "(none)",
-            _siteContext.Slug,
+            slug,
             effective?.ToString() ?? "(null)",
             context.User.IsInRole(Roles.Admin));
 
