@@ -1,5 +1,4 @@
 using NetworkOptimizer.Storage.Models.Identity;
-using NetworkOptimizer.Web.Services.Auditing;
 using NetworkOptimizer.Web.Services.Gates;
 
 namespace NetworkOptimizer.Web.Services.Identity;
@@ -63,11 +62,16 @@ public sealed class AuthPolicyOptions : IAuthPolicyOptions, IAuthPolicyAdminServ
 
     private readonly ISystemSettingsService _settings;
     private readonly Authorization.SiteRoleCacheTokens _siteRoleCache;
+    private readonly SiteRegistryChangeNotifier _siteRegistryChanges;
 
-    public AuthPolicyOptions(ISystemSettingsService settings, Authorization.SiteRoleCacheTokens siteRoleCache)
+    public AuthPolicyOptions(
+        ISystemSettingsService settings,
+        Authorization.SiteRoleCacheTokens siteRoleCache,
+        SiteRegistryChangeNotifier siteRegistryChanges)
     {
         _settings = settings;
         _siteRoleCache = siteRoleCache;
+        _siteRegistryChanges = siteRegistryChanges;
     }
 
     /// <inheritdoc />
@@ -90,6 +94,12 @@ public sealed class AuthPolicyOptions : IAuthPolicyOptions, IAuthPolicyAdminServ
         // slug sets are cached for ten minutes, and nothing else here would drop them - toggling it
         // appeared to do nothing at all until they aged out.
         _siteRoleCache.InvalidateAll();
+
+        // And say so, the same way granting or revoking access does. There is no per-user row to bump
+        // here - the setting moves every Operator and Viewer at once - so this is the group-access
+        // shape: drop the cache, then tell the live circuits their site list has moved. Without it a
+        // signed-in user kept the old set of sites in front of them until they navigated.
+        _siteRegistryChanges.NotifySitesChanged();
     }
 
     private async Task<bool> GetBoolAsync(string key, bool defaultValue = false)
