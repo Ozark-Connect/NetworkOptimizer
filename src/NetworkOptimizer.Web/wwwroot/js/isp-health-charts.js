@@ -14,6 +14,12 @@ let pollTimer = null;
 let fetchController = null;
 let resetBtn = null;
 let isZoomed = false;
+// The drag-zoom window, kept so a series toggle can put it back. Toggling visibility redraws from
+// the chart's default axis, which is not a zoom event and so leaves nothing behind to restore from.
+let zoomWindow = null;
+// Set while WE re-apply that window, so the resulting event is not mistaken for a user gesture and
+// echoed back to the Blazor panel as a fresh zoom.
+let restoringZoom = false;
 let dotNetRef = null;
 // null = default 48 h cached view; { from, to } ISO strings = a filter-selected window.
 let win = null;
@@ -43,6 +49,8 @@ function buildOpts() {
             events: {
                 zoomed: (ctx, opts) => {
                     const min = opts?.xaxis?.min, max = opts?.xaxis?.max;
+                    zoomWindow = min != null ? { min, max } : null;
+                    if (restoringZoom) return;
                     setZoomed(min != null);
                     notifyZoom(min, max);
                 },
@@ -159,6 +167,7 @@ function notifyZoom(min, max, scrollToChart = false) {
 function resetZoom() {
     if (!chart) return;
     chart.updateOptions({ xaxis: { min: undefined, max: undefined } }, false, false);
+    zoomWindow = null;
     setZoomed(false);
     notifyZoom(null, null, true);
     loadAndUpdate();
@@ -204,6 +213,19 @@ function applySeriesVisibility() {
         if (seriesVisibility[m.name] === false) chart.hideSeries(m.name);
         else chart.showSeries(m.name);
     });
+
+    // hideSeries/showSeries redraw against the default axis range, so a chip click threw away a
+    // drag-zoom - you would zoom into an event, isolate the provider you wanted to look at, and
+    // land back on the whole window. Filtering and zooming are answers to the same question here,
+    // so they have to survive each other. Re-applied rather than prevented, because the library
+    // gives no way to toggle a series without that redraw.
+    if (zoomWindow) {
+        restoringZoom = true;
+        chart.zoomX(zoomWindow.min, zoomWindow.max);
+        // Cleared on a later tick: zoomX redraws asynchronously, so the event it raises has not
+        // arrived yet and clearing inline would let it through as a user gesture.
+        setTimeout(() => { restoringZoom = false; }, 0);
+    }
 }
 
 /// Chips below the plot, matching the other chart tabs: a plain click isolates one series (and
@@ -315,6 +337,8 @@ export function unmount() {
     fetchController?.abort();
     if (resetBtn) { resetBtn.remove(); resetBtn = null; }
     isZoomed = false;
+    zoomWindow = null;
+    restoringZoom = false;
     dotNetRef = null;
     win = null;
     hiddenTypes = new Set();
