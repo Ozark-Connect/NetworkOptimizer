@@ -7329,11 +7329,11 @@ a.path-hop.hop-clickable:hover {
 /* The row gap is the label-to-tooltip spacing; the rules add their own margin on top of it so the
    line can breathe without the tooltip drifting away from the words it belongs to. */
 /* Marks a card as the one being pointed at - a deep link's target, or the thing a page is asking
-   the user to act on. Pages had been redefining this treatment locally; put it with .card so the
-   next one reuses it instead. */
+   the user to act on. .card carries no border, so this is a ring rather than a border-color: the
+   same 3px primary halo the focus state uses, which is why it reads as deliberate rather than as a
+   hairline stuck to the edge. */
 .card-highlight {
-    border-color: var(--primary-color);
-    box-shadow: 0 0 0 1px var(--primary-color);
+    box-shadow: 0 0 0 3px rgba(5, 89, 201, 0.2);
 }
 
 .login-divider {
