@@ -92,13 +92,18 @@
                 @onclick="@(() => SetActiveTab("security"))">
             Security &amp; Alerts
         </button>
-        @if (SiteContext.IsDefault)
-        {
-            <button class="wifi-view-tab @(_activeTab == "application" ? "active" : "")"
-                    @onclick="@(() => SetActiveTab("application"))">
-                Application
-            </button>
-        }
+        @* Instance-wide, and every card inside is Admin-only - so a Site Admin of the main site was
+           offered a tab that renders nothing. A managed site has no Application tab at all, and the
+           main site's admin should see what any site's admin sees. *@
+        <AuthorizeView Policy="@Policies.RequireAdmin" Context="applicationTab">
+            @if (SiteContext.IsDefault)
+            {
+                <button class="wifi-view-tab @(_activeTab == "application" ? "active" : "")"
+                        @onclick="@(() => SetActiveTab("application"))">
+                    Application
+                </button>
+            }
+        </AuthorizeView>
         @* Identity is instance-wide on the default site and scoped to the site elsewhere, so the
            tab is always present; the cards inside adjust to the scope. *@
         <button class="wifi-view-tab @(_activeTab == "identity" ? "active" : "")"
@@ -117,10 +122,13 @@
                 </button>
             }
         </AuthorizeView>
-        <button class="wifi-view-tab @(_activeTab == "multisite" ? "active" : "")"
-                @onclick="@(() => SetActiveTab("multisite"))">
-            Multi-Site
-        </button>
+        @* Managing the set of sites is instance-wide, so it is not a site admin's tab either. *@
+        <AuthorizeView Policy="@Policies.RequireAdmin" Context="multiSiteTab">
+            <button class="wifi-view-tab @(_activeTab == "multisite" ? "active" : "")"
+                    @onclick="@(() => SetActiveTab("multisite"))">
+                Multi-Site
+            </button>
+        </AuthorizeView>
     </div>
     <button class="wifi-tabs-scroll-btn wifi-tabs-scroll-right" onclick="this.parentElement.querySelector('.wifi-view-tabs').scrollBy({left: 200, behavior: 'smooth'})">&#8250;</button>
 </div>
@@ -3314,11 +3322,18 @@
     </AdminOnly>
     }
 
-    @* Settings - Identity: instance-wide on the default site, scoped to the site elsewhere.
-       Gated by policy, so a Viewer or Operator never sees the tab's contents. *@
-    <AuthorizeView Policy="@(SiteContext.IsDefault ? Policies.RequireAdmin : Policies.SiteAdmin)"
-                   Resource="@SiteContext.Slug">
-        <IdentitySettings SiteSlug="@(SiteContext.IsDefault ? null : SiteContext.Slug)"
+    @* Settings - Identity: instance-wide for a global Admin, scoped to the site for a Site Admin.
+       Gated by policy, so a Viewer or Operator never sees the tab's contents.
+
+       The scope follows the ROLE, not which site you are standing on. Keying it on the default site
+       demanded global Admin there, so a Site Admin of the main site got an empty tab - they
+       administer a site like any other, and for most installs the main site is the only one there
+       is. They get that site's access list, exactly as they would on a managed site; the
+       instance-wide view of every account stays with Admin. *@
+    <AuthorizeView Policy="@Policies.SiteAdmin" Resource="@SiteContext.Slug" Context="identityScope">
+        <IdentitySettings SiteSlug="@(SiteContext.IsDefault && identityScope.User.IsInRole(NetworkOptimizer.Storage.Models.Identity.Roles.Admin)
+                                      ? null
+                                      : SiteContext.Slug)"
                           SiteName="@_currentSiteName" />
     </AuthorizeView>
 
