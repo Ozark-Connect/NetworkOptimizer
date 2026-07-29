@@ -1,9 +1,15 @@
 @using NetworkOptimizer.Web.Services.Ssh
 
 @*
-    The site's stored SSH key, as it appears wherever SSH credentials are configured. Read-only by
-    design: everything you can do to the key happens in the one panel in Settings - Connection, so
-    there is no way to replace the gateway's key from, say, the cellular modem form.
+    The site's Managed SSH Key, as it appears wherever SSH credentials are configured. It says
+    "Managed" because it sits directly above Private Key Path, which is a key file an administrator
+    placed on the server: two different credentials that both read as "SSH key" until one of them
+    says whose it is. Stacked together and unqualified, "None stored, we can generate one" and "set
+    by an administrator" looked like the form contradicting itself.
+
+    Read-only by design: everything you can do to the key happens in the one panel in
+    Settings - Connection, so there is no way to replace the gateway's key from, say, the cellular
+    modem form.
 
     With no key stored this states the offer rather than the absence - someone typing a password into
     an SSH form is exactly the person who would rather not have one, and is unlikely to know the app
@@ -11,7 +17,7 @@
 *@
 
 <div class="form-group ssh-key-row">
-    <label class="form-label @(Key is null ? "form-label-unused" : "")">SSH key@(Key is null ? " (Not in use)" : "")</label>
+    <label class="form-label @(Key is null ? "form-label-unused" : "")">Managed SSH Key@(Key is null ? " (Not in use)" : "")</label>
     @if (Key is not null)
     {
         <div class="ssh-key-row-set">
