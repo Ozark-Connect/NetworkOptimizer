@@ -145,10 +145,37 @@ export function valueSortedTooltip({ series, dataPointIndex, w }, options = {}) 
  * (several devices or targets on one chart) can still hold genuinely different timestamps,
  * which no per-series transform can reconcile.
  */
+/**
+ * Typical spacing between consecutive rows, used to scale the gap budget to whatever aggregate
+ * window the server chose. Median rather than mean so one long outage in the range cannot inflate
+ * it. Needs at least three points to mean anything; below that the caller's own value stands.
+ */
+function medianDelta(pts) {
+    if (pts.length < 3) return 0;
+    const deltas = [];
+    for (let i = 1; i < pts.length; i++) deltas.push(pts[i].x - pts[i - 1].x);
+    deltas.sort((a, b) => a - b);
+    return deltas[deltas.length >> 1];
+}
+
 export function alignedPoints(pts, sel, timeKey = 'time', gapBridgeMs = 0) {
     if (!pts?.some(p => sel(p) != null)) return [];
     const out = pts.map(p => ({ x: new Date(p[timeKey]).getTime(), y: sel(p) ?? null }));
     if (gapBridgeMs <= 0) return out;
+
+    // The budget must follow the data's own cadence, not a wall-clock constant. The server picks an
+    // aggregate window from the range asked for, so at 24h / 7d / 30d the rows are minutes or hours
+    // apart - and a fixed budget smaller than the bucket makes EVERY pair of points too far apart,
+    // inserting a null between all of them. Every segment then breaks, and with markers.size 0 an
+    // isolated point draws nothing at all: the chart went blank except for the newest stretch,
+    // where the buckets were still tighter than the constant. The tooltip kept reporting values,
+    // because the data was always there - only the strokes were gone.
+    //
+    // Scaling off the median row spacing keeps the caller's value as a FLOOR for dense ranges while
+    // letting a coarse one breathe. A gap of up to a couple of buckets bridges, which at these
+    // zooms is under a pixel of chart; anything longer still breaks the line, which is what a real
+    // outage should look like.
+    const budget = Math.max(gapBridgeMs, 2.5 * medianDelta(out));
 
     for (let i = 0; i < out.length; i++) {
         if (out[i].y != null) continue;
@@ -157,7 +184,7 @@ export function alignedPoints(pts, sel, timeKey = 'time', gapBridgeMs = 0) {
         // A run at either edge has nothing to interpolate between, so it stays null.
         const prev = i > 0 ? out[i - 1] : null;
         const next = end < out.length ? out[end] : null;
-        if (prev && next && next.x - prev.x <= gapBridgeMs) {
+        if (prev && next && next.x - prev.x <= budget) {
             const span = next.x - prev.x;
             for (let j = i; j < end; j++)
                 out[j].y = prev.y + (next.y - prev.y) * ((out[j].x - prev.x) / span);
@@ -167,7 +194,7 @@ export function alignedPoints(pts, sel, timeKey = 'time', gapBridgeMs = 0) {
 
     const withBreaks = [];
     for (let i = 0; i < out.length; i++) {
-        if (i > 0 && out[i].x - out[i - 1].x > gapBridgeMs)
+        if (i > 0 && out[i].x - out[i - 1].x > budget)
             withBreaks.push({ x: out[i - 1].x + 1, y: null });
         withBreaks.push(out[i]);
     }
