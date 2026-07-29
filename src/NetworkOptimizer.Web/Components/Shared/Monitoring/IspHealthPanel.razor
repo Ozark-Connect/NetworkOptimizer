@@ -316,25 +316,27 @@ else
                             }
                             @if (issue.OutageStarts.Count > 0)
                             {
-                                <div class="issue-ack">
-                                    <span>Caused by something you did (pulled a cable, swapped equipment)?</span>
-                                    @foreach (var start in issue.OutageStarts)
-                                    {
-                                        @if (_ackPending.Contains(start))
+                                @* The question goes with the answer. Gating only the link left a Viewer
+                                   being asked whether this was their doing with no way to say so. *@
+                                <SiteOperatorOnly>
+                                    <div class="issue-ack">
+                                        <span>Caused by something you did (pulled a cable, swapped equipment)?</span>
+                                        @foreach (var start in issue.OutageStarts)
                                         {
-                                            <span class="isp-outage-ack">excluding...</span>
-                                        }
-                                        else
-                                        {
-                                            <SiteOperatorOnly>
+                                            @if (_ackPending.Contains(start))
+                                            {
+                                                <span class="isp-outage-ack">excluding...</span>
+                                            }
+                                            else
+                                            {
                                                 <a class="isp-outage-ack @AckLockClass" href="javascript:void(0)"
-                                               data-tooltip="Exclude this event from ISP Health scoring"
-                                               data-tooltip-hover-only
-                                               @onclick="() => AcknowledgeOutageAsync(start)">that was me@(issue.OutageStarts.Count > 1 ? $" ({EventTimeLabel(start)})" : "")</a>
-                                            </SiteOperatorOnly>
+                                                   data-tooltip="Exclude this event from ISP Health scoring"
+                                                   data-tooltip-hover-only
+                                                   @onclick="() => AcknowledgeOutageAsync(start)">that was me@(issue.OutageStarts.Count > 1 ? $" ({EventTimeLabel(start)})" : "")</a>
+                                            }
                                         }
-                                    }
-                                </div>
+                                    </div>
+                                </SiteOperatorOnly>
                             }
                         </div>
                     </div>
