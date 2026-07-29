@@ -14,20 +14,23 @@
    point there is no reason to keep saying it to whoever signs in next. *@
 @if (SiteSlug is null && !_introDismissed)
 {
-    @* settings-tab-identity is load-bearing, not decoration: every Settings tab renders at once and
-       the active tab reveals its cards with .settings-tabbed.active-identity > .settings-tab-identity.
-       A card without it is simply never shown. *@
-    <div class="card settings-tab-identity identity-intro-card">
-        <div class="card-body">
-            <h3 class="identity-intro-title">There is a lot here, and none of it is required</h3>
-            <p class="identity-intro-body">
+    @* The standard dismissible info banner, same shape as the LAN schedule one. settings-tab-identity
+       is load-bearing: every Settings tab renders at once and the active tab reveals its own children,
+       so without it this shows on every tab instead of this one. *@
+    <div class="alert alert-info settings-tab-identity" style="margin-bottom:1rem;">
+        <div class="banner-content">
+            <span class="banner-icon banner-icon-info">i</span>
+            <div class="banner-text" style="flex:1;">
+                <strong>There is a lot here, and none of it is required</strong>
                 Most installs run happily on one administrator and one password, and that stays true.
                 When you want to add another person, limit someone to a single site, turn on
                 multi-factor sign-in, or sign in through your own identity provider, this is where you
                 will find it.
-            </p>
+            </div>
+            <div class="banner-actions">
+                <button class="btn btn-sm btn-tertiary" @onclick="DismissIntroAsync">Got it</button>
+            </div>
         </div>
-        <button class="btn btn-sm btn-tertiary identity-intro-dismiss" @onclick="DismissIntroAsync">Got it</button>
     </div>
 }
 

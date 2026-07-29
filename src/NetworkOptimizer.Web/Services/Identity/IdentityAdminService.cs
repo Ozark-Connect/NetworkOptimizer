@@ -304,6 +304,18 @@ public sealed class IdentityAdminService : IIdentityAdminService
     /// arrive from the browser, so the UI cannot be the thing enforcing this.
     /// Returns null when the change is allowed.
     /// </summary>
+    /// <summary>
+    /// Whether the caller's reach survives losing this grant. A global Admin opens every site by role,
+    /// so their site grants are bookkeeping; everyone else is standing on the grant they are editing.
+    /// System callers and auth-disabled installs have no principal to protect.
+    /// </summary>
+    private bool CallerOutranksSiteGrants()
+    {
+        var caller = _caller.Current;
+        return caller is null || caller.IsSystem || caller.AuthenticationDisabled
+            || caller.Principal is null || caller.Principal.IsInRole(Roles.Admin);
+    }
+
     private async Task<AdminActionResult?> RefuseUnlessOwnedAsync(MembershipTargetType targetType, string? targetId)
     {
         var caller = _caller.Current;
@@ -815,6 +827,19 @@ public sealed class IdentityAdminService : IIdentityAdminService
         if (await RefuseUnlessOwnedAsync(targetType, targetId) is { } refusal)
             return refusal;
 
+        // Granting is an upsert, so "add a grant for yourself" is also how you REWRITE your own role
+        // on a site - demoting yourself out of the admin rights you needed to be here. Refused for the
+        // same reason as revoking your own grant, and only downwards: raising your own role is already
+        // barred by the ownership check, which demands you administer the site to touch it at all.
+        if (IsSelf(userId) && !CallerOutranksSiteGrants()
+            && targetType == MembershipTargetType.Site && !string.IsNullOrEmpty(targetId))
+        {
+            var current = await _siteRoles.GetEffectiveRoleAsync(_caller.Current!.Principal!, targetId);
+            if (current is not null && role < current)
+                return Refuse(user, AuditCategories.Rbac, AuditActions.MembershipChanged, "self",
+                    "You cannot lower your own role on a site. Ask another administrator to change it.");
+        }
+
         await using (var db = await _authDbFactory.CreateDbContextAsync())
         {
             var exists = await db.SiteMemberships.AnyAsync(m =>
@@ -865,6 +890,13 @@ public sealed class IdentityAdminService : IIdentityAdminService
 
             if (await RefuseUnlessOwnedAsync(target.TargetType, target.TargetId) is { } refusal)
                 return refusal;
+
+            // Removing your own grant is how you lock yourself out of a site, and it cannot be undone
+            // from the page you would undo it on - that page is what you just lost. Same reasoning as
+            // refusing to drop your own Admin role.
+            if (IsSelf(userId) && !CallerOutranksSiteGrants())
+                return Refuse(user, AuditCategories.Rbac, AuditActions.MembershipChanged, "self",
+                    "You cannot remove your own access to a site. Ask another administrator to change it.");
 
             await db.SiteMemberships.Where(m => m.Id == membershipId && m.UserId == userId).ExecuteDeleteAsync();
         }
