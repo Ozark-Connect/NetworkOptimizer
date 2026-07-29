@@ -624,8 +624,10 @@ public class SnmpPoller : ISnmpPoller
             highSpeedByIdx.Count > 0 ? highSpeedByIdx.Keys
                 : nameByIdx.Count > 0 ? nameByIdx.Keys
                 : aliasByIdx.Keys);
+        // Debug rather than Information: this is a fixed property of the device, and the slow
+        // tier re-derives it on every metadata refresh, so anything louder repeats all day.
         if (ifXOffset != 0)
-            _logger.LogInformation(
+            _logger.LogDebug(
                 "Device {Ip} publishes ifXTable at ifIndex offset {Offset}; rebasing onto the ifTable index space so HC counters resolve per port.",
                 ip, ifXOffset);
 
@@ -875,7 +877,8 @@ public class SnmpPoller : ISnmpPoller
     ///
     /// Detection is deliberately narrow so a conforming device can never be reindexed: the two
     /// index sets must be the same size, share no index at all, and line up under a single
-    /// constant. Any overlap means the tables already agree and the answer is 0.
+    /// constant. Anything else - including a uniform shift whose ranges still overlap - is
+    /// refused and returns 0, leaving the lookups exactly as they were.
     /// </summary>
     internal static long DetectIfXTableIndexOffset(
         IEnumerable<string> ifTableIndexes, IEnumerable<string> ifXTableIndexes)
