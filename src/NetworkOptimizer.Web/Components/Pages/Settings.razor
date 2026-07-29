@@ -3148,7 +3148,7 @@
         <div class="card-body">
             <div class="data-actions">
                 <div class="action-item">
-                    <h4>Export Configuration</h4>
+                    <h4>Back Up</h4>
                     <p>Download an encrypted backup of your configuration</p>
                     <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
                         <button class="btn btn-primary" @onclick="() => ExportConfig(ExportType.Full)" disabled="@isExporting">
@@ -3173,7 +3173,7 @@
                         </button>
                     </div>
                     <p class="form-hint" style="margin-top: 0.5rem;">
-                        Both include controller credentials, SSH keys, and data protection keys. Full adds floor plans, speed test history, audit results, signal logs, etc. Settings Only exports just configuration without history data.
+                        Both include controller credentials, SSH keys, and data protection keys. Full adds floor plans, speed test history, audit results, signal logs, etc. Settings Only exports just configuration without history data. InfluxDB is not included: the connection settings come back, the monitoring history does not.
                         @if (_multiSiteEnabled)
                         {
                             <text> This backup covers <strong>every managed site</strong>, not just the current one - each site's database is bundled in.</text>
@@ -3186,7 +3186,7 @@
                 </div>
 
                 <div class="action-item">
-                    <h4>Import Configuration</h4>
+                    <h4>Restore</h4>
                     <p>Restore settings from a .nopt backup file</p>
 
                     @if (importApplied)

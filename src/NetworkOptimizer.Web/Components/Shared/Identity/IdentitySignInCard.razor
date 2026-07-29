@@ -411,11 +411,17 @@
         _saving = true;
         try
         {
+            // Read before _editing is cleared: the nudge only makes sense while the provider is still
+            // disabled. Saving an edit to one that is already live was being told to enable it.
+            var needsEnabling = !_editing.Enabled;
+
             await FederationAdmin.SaveAsync(_editing, string.IsNullOrEmpty(_newSecret) ? null : _newSecret);
             _newSecret = "";
             await ReloadAsync();
             _editing = null;
-            Show("Provider saved. Enable it to put its button on the login page.", "success");
+            Show(needsEnabling
+                ? "Provider saved. Enable it to put its button on the login page."
+                : "Provider saved.", "success");
         }
         catch (Exception ex)
         {

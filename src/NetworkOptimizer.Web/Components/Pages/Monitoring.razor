@@ -635,6 +635,9 @@ else
                     Raise a <a href="/alerts?tab=rules">Device: Temperature High</a> alert when a device runs above these limits.
                     Leave blank to use the default of @DefaultTempPlaceholder&deg;C. Hot-running models (e.g. high-PoE switches) may need a higher value to avoid noise.
                 </p>
+                @* Save below is Site Operator, so the fields are too. Disabled as a set rather than
+                   one attribute per input, so a field added later stays covered. *@
+                <fieldset class="threshold-fieldset" disabled="@(!_canOperate)">
                 <div class="threshold-fields" style="margin-top: 0.75rem;">
                     <div class="form-group">
                         <label class="form-label">Switch high temperature (&deg;C)</label>
@@ -647,6 +650,7 @@ else
                                placeholder="@DefaultTempPlaceholder" @bind="_gatewayTempThresholdInput" @bind:after="ResetThresholdSavedFlags" />
                     </div>
                 </div>
+                </fieldset>
                 <div class="input-with-button" style="margin-top: 1rem;">
                     <SiteOperatorOnly>
                         <button class="btn btn-primary btn-sm" @onclick="SaveTempThresholdsAsync" disabled="@_savingTempThresholds">
@@ -783,6 +787,9 @@ else
                 </p>
 
                 <h3 class="chart-title" style="margin-top: 0.75rem;">PON</h3>
+                @* Save below is Site Operator, so the fields are too. Disabled as a set rather than
+                   one attribute per input, so a field added later stays covered. *@
+                <fieldset class="threshold-fieldset" disabled="@(!_canOperate)">
                 <div class="threshold-fields">
                     <div class="form-group">
                         <label class="form-label">Temperature high (&deg;C)</label>
@@ -830,6 +837,7 @@ else
                 </div>
                 <p class="form-help">Generic SFP+ modules have no standard optical envelope, so only a temperature ceiling is checked.</p>
 
+                </fieldset>
                 <div class="input-with-button" style="margin-top: 1rem;">
                     <SiteOperatorOnly>
                         <button class="btn btn-primary btn-sm" @onclick="SaveSfpThresholdsAsync" disabled="@_savingSfpThresholds">
@@ -1096,6 +1104,9 @@ else
                     values under SFP Alert Thresholds.
                 </p>
 
+                @* Save below is Site Operator, so the fields are too. Disabled as a set rather than
+                   one attribute per input, so a field added later stays covered. *@
+                <fieldset class="threshold-fieldset" disabled="@(!_canOperate)">
                 <div class="threshold-fields">
                     <div class="form-group">
                         <label class="form-label">Temperature high (&deg;C)</label>
@@ -1112,6 +1123,7 @@ else
                     Not all ONTs report a temperature - the alert only fires for the ones that do.
                 </p>
 
+                </fieldset>
                 <div class="input-with-button" style="margin-top: 1rem;">
                     <SiteOperatorOnly>
                         <button class="btn btn-primary btn-sm" @onclick="SaveOntThresholdsAsync" disabled="@_savingOntThresholds">
@@ -1647,6 +1659,9 @@ else
 @code {
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
 
+    /// <summary>Site Operator on this site: what the threshold forms are gated on.</summary>
+    private bool _canOperate;
+
     /// <summary>
     /// Whether this caller can reach the Settings pages these empty states point at. Used for copy
     /// only - the controls themselves are wrapped in SiteAdminOnly / SiteOperatorOnly.
@@ -1983,6 +1998,10 @@ else
     {
         _canConfigure = AuthState is null
             || (await Authz.AuthorizeAsync((await AuthState).User, SiteCtx.Slug, Policies.SiteAdmin)).Succeeded;
+
+        // The threshold forms are Site Operator work, not Site Admin, so they need their own answer.
+        _canOperate = AuthState is null
+            || (await Authz.AuthorizeAsync((await AuthState).User, SiteCtx.Slug, Policies.SiteOperator)).Succeeded;
 
         ConnectionService.OnConnectionChanged += OnConnectionChanged;
 
