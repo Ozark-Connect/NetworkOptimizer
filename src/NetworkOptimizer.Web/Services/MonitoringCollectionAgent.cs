@@ -480,18 +480,39 @@ public class MonitoringCollectionAgent : BackgroundService
                             }
                         }
                     }
+                    // A device that returned interfaces answered the octet walk this cycle,
+                    // so the poll succeeded even when no interface emitted a rate: a seeded
+                    // baseline, unchanged counters and a sparse counter table are all
+                    // rate-less but healthy. Gating success on a calculated rate excluded
+                    // responsive devices whose HC counter table covers only internal
+                    // interfaces (UCG-Fiber, USC-8 - issue #1067), which also stopped their
+                    // device health polling for the whole exclusion window. The octet walk
+                    // runs first as the reachability probe, so an unreachable device, a
+                    // rotated community and a device that doesn't speak SNMP at all
+                    // (USW-Flex-Mini) still return nothing and count as failures. Matches
+                    // the on-site agent path in SnmpRunner, which has always counted only
+                    // an empty interface list as a failure.
+                    if (interfaces.Count > 0)
+                    {
+                        _snmpFailures.NoteSuccess(mac);
+                        _snmpLastPolled[mac] = now;
+                    }
+                    else
+                    {
+                        NoteSnmpFailure(mac);
+                    }
+
+                    // The aggregates still require a real rate: recording a zero sum for a
+                    // rate-less poll would punch a false dip into the LAN throughput chart.
                     if (anyRate)
                     {
-                        // Successful SNMP poll - reset the failure counter. APs are
-                        // the only fabric-sum holdout: their radio "interfaces"
+                        // APs are the only fabric-sum holdout: their radio "interfaces"
                         // over-count beacons / retries / MIMO duplicates so the sum
                         // doesn't represent useful payload. Switches, gateways and
                         // cellular modems all see sum(rx)/sum(tx) as a coherent
                         // fabric I/O total - ShouldMonitor() already strips loopback,
                         // tunnels and bridges, so the surviving interfaces are
                         // physical ports.
-                        _snmpFailures.NoteSuccess(mac);
-                        _snmpLastPolled[mac] = now;
                         if (device.DeviceType == NetworkOptimizer.Core.Enums.DeviceType.Switch
                             || device.DeviceType == NetworkOptimizer.Core.Enums.DeviceType.Gateway
                             || device.DeviceType == NetworkOptimizer.Core.Enums.DeviceType.CellularModem)
@@ -507,13 +528,6 @@ public class MonitoringCollectionAgent : BackgroundService
                             // uploads on aggregateInBps and downloads on aggregateOutBps.
                             _liveStats.RecordInterfaceAggregate(device.Mac, apMeshUplinkOutBps.Value, apMeshUplinkInBps.Value, now);
                         }
-                    }
-                    else
-                    {
-                        // SNMP returned no usable data. If the device is otherwise reachable
-                        // (recent fabric ping succeeded), it likely doesn't support SNMP;
-                        // count the failure and maybe exclude it.
-                        NoteSnmpFailure(mac);
                     }
                 }
                 catch (Exception ex)
