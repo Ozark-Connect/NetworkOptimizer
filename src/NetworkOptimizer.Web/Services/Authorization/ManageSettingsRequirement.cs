@@ -4,10 +4,10 @@ using NetworkOptimizer.Storage.Models.Identity;
 namespace NetworkOptimizer.Web.Services.Authorization;
 
 /// <summary>
-/// Reaching the Settings page: a global Admin anywhere, or a Site Admin on the managed site being
-/// viewed. Site-scoped settings (monitoring setup, agent enrolment, that site's Identity tab) belong
-/// to the site's own admin; the default site carries the instance-wide settings, so it stays Admin-only
-/// (design doc 04).
+/// Reaching the Settings page: a global Admin anywhere, or a Site Admin on the site being viewed -
+/// the default site included. Site-scoped settings (monitoring setup, agent enrolment, that site's
+/// Identity tab) belong to the site's own admin, and the main site has those like any other. The
+/// instance-wide cards that also live on that page carry their own Admin gates (design doc 04).
 /// </summary>
 public sealed class ManageSettingsRequirement : IAuthorizationRequirement
 {
@@ -22,15 +22,12 @@ public sealed class ManageSettingsHandler : AuthorizationHandler<ManageSettingsR
     private readonly IAdminAuthService _adminAuth;
     private readonly IEffectiveSiteRoleResolver _resolver;
     private readonly SiteContextService _siteContext;
-    private readonly ILogger<ManageSettingsHandler> _logger;
 
     public ManageSettingsHandler(
         IAdminAuthService adminAuth,
         IEffectiveSiteRoleResolver resolver,
-        SiteContextService siteContext,
-        ILogger<ManageSettingsHandler> logger)
+        SiteContextService siteContext)
     {
-        _logger = logger;
         _adminAuth = adminAuth;
         _resolver = resolver;
         _siteContext = siteContext;
@@ -40,12 +37,6 @@ public sealed class ManageSettingsHandler : AuthorizationHandler<ManageSettingsR
     protected override async Task HandleRequirementAsync(
         AuthorizationHandlerContext context, ManageSettingsRequirement requirement)
     {
-        // TEMPORARY entry trace: proves whether the handler is entered at all, and for which site.
-        _logger.LogDebug(
-            "ManageSettings ENTER: user={User} authed={Authed}",
-            context.User.Identity?.Name ?? "(anon)",
-            context.User.Identity?.IsAuthenticated == true);
-
         // Authentication disabled for the install: the local operator does everything, as before.
         if (!await _adminAuth.IsAuthenticationRequiredAsync())
         {
@@ -59,34 +50,13 @@ public sealed class ManageSettingsHandler : AuthorizationHandler<ManageSettingsR
             return;
         }
 
-        // The default site holds the instance-wide settings, so a site role never grants it.
-        if (_siteContext.IsDefault)
-            return;
-
-        string slug;
-        SiteRole? effective;
-        try
-        {
-            slug = _siteContext.Slug;
-            effective = await _resolver.GetEffectiveRoleAsync(context.User, slug);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "ManageSettings: resolving the site role threw");
-            throw;
-        }
-
-        // TEMPORARY trace: a Site Admin of the default site is being refused Settings while the same
-        // account admits fine on a managed site, and every value on the path reads correct. Says what
-        // the handler actually asked and what it got back. Remove once understood.
-        _logger.LogDebug(
-            "ManageSettings: user={User} id={Id} slug={Slug} effective={Effective} globalAdmin={Admin}",
-            context.User.Identity?.Name ?? "(anon)",
-            context.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "(none)",
-            slug,
-            effective?.ToString() ?? "(null)",
-            context.User.IsInRole(Roles.Admin));
-
+        // The site being viewed decides this, including the default one. It used to be refused
+        // outright on the grounds that it holds the instance-wide settings - but "instance-wide" is a
+        // property of particular CARDS, not of the site, and those carry their own Admin gates
+        // (Admin Password, Audit Log, Multi-Site, the instance view of Identity). Refusing the whole
+        // page instead meant a Site Admin of the main site could administer nothing, which for a
+        // single-site install is every site they have.
+        var effective = await _resolver.GetEffectiveRoleAsync(context.User, _siteContext.Slug);
         if (effective == SiteRole.SiteAdmin)
             context.Succeed(requirement);
     }
