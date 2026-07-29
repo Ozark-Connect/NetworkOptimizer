@@ -167,6 +167,14 @@ public class IspTargetHealth
     public required string TargetId { get; init; }
     public required string Name { get; init; }
 
+    /// <summary>
+    /// The hop's monitored address, for the UI to show on hover. Hops are labelled by ASN name
+    /// (e.g. "PenTeleData 1"), which is readable but tells you nothing about WHICH router answered -
+    /// so an operator comparing our reading against their own traceroute had no way to line the two
+    /// up (#1070). Null when the target has since been removed.
+    /// </summary>
+    public string? Address { get; init; }
+
     /// <summary>Displayed RTT: winsorized mean over the window.</summary>
     public double? RttMs { get; init; }
 
@@ -666,6 +674,10 @@ public class IspHealthInputs
 
     /// <summary>One series per ISP target (AsnName carries the target name) for the breakout.</summary>
     public List<AsnSeries> IspTargetSeries { get; init; } = new();
+
+    /// <summary>Monitored address per target id, so the ISP Network breakout can name the hop it read.</summary>
+    public IReadOnlyDictionary<string, string> TargetAddresses { get; init; } =
+        new Dictionary<string, string>();
 
     /// <summary>Per-target series pooled for packet loss (ISP + transit + anycast DNS targets).</summary>
     public List<List<LatencySample>> LossPoolSeries { get; init; } = new();

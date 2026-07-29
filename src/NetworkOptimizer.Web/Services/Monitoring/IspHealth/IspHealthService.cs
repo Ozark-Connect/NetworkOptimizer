@@ -1050,6 +1050,10 @@ public class IspHealthService
             AccessHopSeries = accessHopSeries,
             FirstHopTargetId = firstHopTargetId,
             IspTargetSeries = ispTargetSeries,
+            TargetAddresses = targets
+                .Where(t => !string.IsNullOrWhiteSpace(t.Address))
+                .GroupBy(t => t.TargetId)
+                .ToDictionary(g => g.Key, g => g.First().Address),
             LossPoolSeries = lossPool,
             TransitAsnSeries = transitGrading,
             IspAsnSeries = ispGrading,
