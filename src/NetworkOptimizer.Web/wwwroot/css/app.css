@@ -15083,8 +15083,20 @@ a.affected-client:hover {
     background: white;
 }
 
-.wan-speedtest .toggle-switch input:disabled + .toggle-slider {
+.mi-form-fields,
+.ws-edit-fields {
+    border: none;
+    padding: 0;
+    margin: 0;
+    min-width: 0;
+}
+
+.toggle-switch input:disabled + .toggle-slider {
     opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.toggle-switch:has(input:disabled) {
     cursor: not-allowed;
 }
 

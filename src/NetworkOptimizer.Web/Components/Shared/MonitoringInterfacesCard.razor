@@ -189,6 +189,11 @@
                 {
                 <div class="mi-add-section">
                     <h3>@(!_canConfigure ? "Monitoring interface" : _editing.Id > 0 ? "Edit monitoring interface" : "Add a monitoring interface")</h3>
+                    @* Below Site Admin this form is the only way to READ the record, so it stays open and
+                       becomes a viewer. A fieldset rather than an attribute per input: the fields must not
+                       invite edits that Save would never accept, and one wrapper cannot be forgotten the
+                       next time a field is added here. *@
+                    <fieldset class="mi-form-fields" disabled="@(!_canConfigure)">
                     <div class="form-row">
                         <div class="form-group mi-grow-2">
                             <label class="form-label">Modem/ONT IP</label>
@@ -294,6 +299,8 @@
                             </div>
                         </div>
                     </details>
+
+                    </fieldset>
 
                     <div class="action-buttons">
                         <SiteAdminOnly>

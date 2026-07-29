@@ -1201,6 +1201,10 @@
     {
         <div class="ws-edit-card">
             <div class="card-body">
+                @* Below Site Admin, Edit reads View and this form is how the rule is read. The fields are
+                   disabled as a set so it cannot invite an edit that Save would refuse - one wrapper, so a
+                   field added later is covered without anyone remembering to. *@
+                <fieldset class="ws-edit-fields" disabled="@(!_canConfigure)">
                 <div class="form-group">
                     <label class="form-label">Name</label>
                     <input type="text" class="form-control" @bind="_editForm.Name" placeholder="e.g., Steam Downloads" />
@@ -1279,6 +1283,8 @@
                         }
                     </div>
                 }
+
+                </fieldset>
 
                 <div class="ws-edit-actions">
                     @if (_canConfigure)
