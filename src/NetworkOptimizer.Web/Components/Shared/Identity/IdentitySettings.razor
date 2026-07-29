@@ -47,7 +47,7 @@ else
     <IdentityAccessCard SiteSlug="@SiteSlug" SiteName="@SiteName" OnExplainRoles="ExplainRolesAsync" />
     @* Roles read the same whichever scope you are in, so the scoped tab carries the reference too
        rather than bouncing a site admin to a tab they may not be able to open. *@
-    <IdentityRolesCard @ref="_rolesCard" />
+    <IdentityRolesCard @ref="_rolesCard" SiteSlug="@SiteSlug" />
 }
 
 @code {

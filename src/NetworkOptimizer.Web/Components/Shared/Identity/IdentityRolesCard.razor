@@ -19,6 +19,14 @@
                     that counts, so a site grant can raise someone but never lower them.
                 </p>
 
+                @* The global Role table and the site-restriction note are instance-wide, so neither is
+                   actionable from a site's own Identity view: the reader cannot see or change an
+                   account's Role from here, and the checkbox lives on the page they cannot open. The
+                   paragraph above STAYS - it explains that a global role sets a floor and a site grant
+                   can only raise, which is the thing that surprises people granting site roles. *@
+                @if (SiteSlug is null)
+                {
+
                 <h3 class="identity-inline-title identity-roles-heading">Role</h3>
                 <div class="table-responsive">
                     <table class="data-table">
@@ -56,6 +64,7 @@
                     Operator or Viewer reaches only what they have been granted; off, and a global role
                     reaches every site whether it is granted or not. Admins reach every site either way.
                 </p>
+                }
 
                 <h3 class="identity-inline-title identity-roles-heading">Site role</h3>
                 <div class="table-responsive">
@@ -200,6 +209,9 @@
 </div>
 
 @code {
+    /// <summary>Set when the card is shown inside a single site's Identity view.</summary>
+    [Parameter] public string? SiteSlug { get; set; }
+
     private const string Yes = "✓";
     private const string No = "-";
 
