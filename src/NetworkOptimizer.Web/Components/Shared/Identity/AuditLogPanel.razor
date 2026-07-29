@@ -121,7 +121,6 @@
     private int _total;
     private int _skip;
     private bool _loading = true;
-    private bool _loaded;
     private long? _expanded;
 
     private string _category = "";
@@ -142,12 +141,18 @@
         await LoadAsync();
     }
 
-    /// <summary>Loads on first reveal, and does nothing on every reveal after that.</summary>
-    public async Task EnsureLoadedAsync()
+    /// <summary>
+    /// Reloads every time the tab is revealed. It used to load once and no-op afterwards, which meant
+    /// a tab reopened later still showed the page it was first given - and an audit log is the one
+    /// table where new rows are the entire point of looking. Opening the tab is a deliberate act, so
+    /// the query is not the thing Defer exists to avoid; that is the Settings visit by someone who
+    /// never opens this tab at all.
+    ///
+    /// Filters and paging are kept: this refreshes the view you were looking at rather than resetting
+    /// it, so a filtered investigation survives switching tabs and coming back.
+    /// </summary>
+    public async Task RefreshAsync()
     {
-        if (_loaded)
-            return;
-
         await LoadAsync();
         StateHasChanged();
     }
@@ -170,7 +175,6 @@
         _total = await AuditQuery.CountAsync(filter);
         _events = (await AuditQuery.QueryAsync(filter)).ToList();
         _loading = false;
-        _loaded = true;
     }
 
     private async Task ApplyAsync() { _skip = 0; await LoadAsync(); }
