@@ -695,7 +695,7 @@
 
                         <SshKeyRow Key="_sshKey" />
 
-                        <AdminOnly>
+                        <AdminOnly NotAuthorized="@DeviceKeyFileNote">
                             <div class="form-group">
                                 <label class="form-label @InheritedLabel(DeviceKeyPathOverridden)">SSH Private Key Path</label>
                                 <input type="text" class="form-control" @bind="editingDevice.SshPrivateKeyPath" placeholder="(using global setting)" />
@@ -1552,6 +1552,22 @@
 
     private bool DeviceKeyPathOverridden => !string.IsNullOrWhiteSpace(editingDevice?.SshPrivateKeyPath);
 
+    /// <summary>Whether the site's device SSH settings name a key file, regardless of this device.</summary>
+    private bool _globalDeviceKeyFileConfigured;
+
+    /// <summary>
+    /// What a caller below global Admin sees in place of the path field: naming a path is theirs to use
+    /// but not to set or read, so there is no read-only input here, only a statement of what is
+    /// authenticating. It used to be nothing at all, which read as "no key" on a device using one.
+    /// </summary>
+    private RenderFragment? DeviceKeyFileNote =>
+        !(DeviceKeyPathOverridden || _globalDeviceKeyFileConfigured)
+            ? null
+            : @<div class="form-group">
+                   <label class="form-label">SSH Private Key Path</label>
+                   <span class="form-help">Set by an administrator. This key authenticates the connection.</span>
+               </div>;
+
     /// <summary>
     /// Dims the header of a field that is inheriting rather than overriding. No wording with it - the
     /// placeholder already says "(using global setting)" in the field itself.
@@ -1587,6 +1603,8 @@
         PtrState.NotifyStateChanged = StateHasChanged;
 
         _sshKey = await LoadSiteSshKey();
+        _globalDeviceKeyFileConfigured =
+            !string.IsNullOrWhiteSpace((await SshService.GetSettingsAsync())?.PrivateKeyPath);
 
         _liveViewLinkEnabled = await Readiness.IsHistoricPlaybackAvailableAsync();
 
