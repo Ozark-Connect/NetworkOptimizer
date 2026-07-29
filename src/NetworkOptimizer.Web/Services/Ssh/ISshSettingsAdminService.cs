@@ -81,9 +81,18 @@ public sealed class SshSettingsAdminService : ISshSettingsAdminService
     public async Task<GatewaySshSettings> GetGatewayForEditAsync()
     {
         var settings = await Gateway.GetSettingsAsync(forceRefresh: true);
-        if (!MayUseKeyFilePath)
-            settings.PrivateKeyPath = null;
-        return settings;
+        if (MayUseKeyFilePath)
+            return settings;
+
+        // Redact a COPY. GetSettingsAsync hands back the instance it caches, so nulling the path on it
+        // took the path out of the cache - and the connection path reads that same cache. One caller
+        // below global Admin opening this form left the gateway with no key file for every consumer,
+        // monitoring probes and SQM deployment included, until the cache expired. A failed SSH test
+        // forces a refresh and so re-poisoned it every time, which is why it looked like the test broke
+        // SSH: the test was the thing reloading the settings.
+        var redacted = settings.ShallowCopy();
+        redacted.PrivateKeyPath = null;
+        return redacted;
     }
 
     /// <inheritdoc />
@@ -104,9 +113,13 @@ public sealed class SshSettingsAdminService : ISshSettingsAdminService
     public async Task<UniFiSshSettings> GetDeviceForEditAsync()
     {
         var settings = await Device.GetSettingsAsync();
-        if (!MayUseKeyFilePath)
-            settings.PrivateKeyPath = null;
-        return settings;
+        if (MayUseKeyFilePath)
+            return settings;
+
+        // A copy, for the same reason as the gateway above.
+        var redacted = settings.ShallowCopy();
+        redacted.PrivateKeyPath = null;
+        return redacted;
     }
 
     /// <inheritdoc />

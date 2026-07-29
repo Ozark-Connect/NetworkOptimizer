@@ -55,4 +55,11 @@ public class UniFiSshSettings
     /// <summary>Check if credentials are configured</summary>
     public bool HasCredentials =>
         !string.IsNullOrEmpty(Password) || !string.IsNullOrEmpty(PrivateKeyPath) || HasStoredKey;
+
+    /// <summary>
+    /// A field-for-field copy, for callers that must alter what they hand out without altering the
+    /// original. <see cref="MemberwiseClone"/> rather than an object initializer deliberately: a copy
+    /// listing properties by hand silently stops copying the next column somebody adds.
+    /// </summary>
+    public UniFiSshSettings ShallowCopy() => (UniFiSshSettings)MemberwiseClone();
 }
