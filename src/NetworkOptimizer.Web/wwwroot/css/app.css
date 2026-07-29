@@ -7328,9 +7328,10 @@ a.path-hop.hop-clickable:hover {
 
 /* The row gap is the label-to-tooltip spacing; the rules add their own margin on top of it so the
    line can breathe without the tooltip drifting away from the words it belongs to. */
-/* The two ways to satisfy an MFA requirement, marked while the account still owes one. */
+/* Same treatment as the deep-link card highlight elsewhere: primary border plus a one-pixel ring. */
 .card-setup-required {
-    border-color: var(--info-color);
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 1px var(--primary-color);
 }
 
 .login-divider {

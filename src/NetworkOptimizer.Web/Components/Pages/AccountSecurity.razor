@@ -78,8 +78,8 @@
 @if (_setupRequired)
 {
     <div class="alert alert-warning">
-        Your role requires a second factor. Set up either of the highlighted options below to continue -
-        one is enough.
+        Your role uses two-step sign-in. Set up whichever of the two below suits you - an authenticator
+        app or a passkey - and you are all set. Either one on its own does the job.
     </div>
 }
 
@@ -296,6 +296,15 @@
             _mfaEnabled = await Mfa.IsEnabledAsync(_user);
             _hasPassword = await Mfa.HasPasswordAsync(_user);
             _passkeys = await Passkeys.ListAsync(principal);
+
+            // The requirement, not how they arrived. Keyed on the query string alone, the guidance
+            // and the highlight vanished the moment someone reloaded or opened the page themselves -
+            // which is most of the times they will look at it while still owing a factor.
+            if (!_setupRequired)
+            {
+                _setupRequired = await Mfa.RoleRequiresMfaAsync(_user)
+                    && !await Mfa.HasSecondFactorAsync(_user);
+            }
 
             _passkeyIsOnlyWayIn = _passkeys.Count > 0
                 && !_mfaEnabled
