@@ -1,4 +1,4 @@
-﻿using System.Security.Claims;
+using System.Security.Claims;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Storage.Models.Identity;
@@ -65,14 +65,17 @@ public sealed class ExternalLoginService : IExternalLoginService
     private readonly IDbContextFactory<AuthDbContext> _authDbFactory;
     private readonly IAuditLogger _audit;
     private readonly IMfaService _mfa;
+    private readonly ILogger<ExternalLoginService> _logger;
 
     public ExternalLoginService(
         UserManager<ApplicationUser> userManager,
         SignInManager<ApplicationUser> signInManager,
         IDbContextFactory<AuthDbContext> authDbFactory,
         IAuditLogger audit,
-        IMfaService mfa)
+        IMfaService mfa,
+        ILogger<ExternalLoginService> logger)
     {
+        _logger = logger;
         _mfa = mfa;
         _userManager = userManager;
         _signInManager = signInManager;
@@ -221,7 +224,10 @@ public sealed class ExternalLoginService : IExternalLoginService
             {
                 db.SiteMemberships.Add(new SiteMembership
                 {
-                    UserId = user.Id, TargetType = m.TargetType, TargetId = m.TargetValue, SiteRole = m.SiteRole,
+                    UserId = user.Id,
+                    TargetType = m.TargetType,
+                    TargetId = m.TargetValue,
+                    SiteRole = m.SiteRole,
                 });
             }
         }
@@ -304,8 +310,18 @@ public sealed class ExternalLoginService : IExternalLoginService
 
         if (!await _mfa.HasSecondFactorAsync(user))
         {
-            EmitRejected(provider, reason: "role requires a second factor and none is enrolled",
-                user: user, subject: subject);
+            // Signed in deliberately, exactly as the local password route does. The principal carries
+            // MfaSetupPending, which every gate refuses except the account security page - so the
+            // cookie is worth nothing but enrolling, and enrolling needs a session because there is
+            // nowhere else to do it from.
+            //
+            // Returning without one sent an unauthenticated browser to /account/security, whose own
+            // gate bounced it to /login with nothing said: a federated user in an MFA-requiring role
+            // simply landed back on the sign-in page, twice, with no explanation.
+            await SignInAsync(user, provider, rememberMe);
+            _logger.LogInformation(
+                "Federated sign-in for {User} needs second-factor enrolment; session admits enrolment only.",
+                user.UserName);
             return ExternalLoginOutcome.RequiresMfaEnrollment;
         }
 
