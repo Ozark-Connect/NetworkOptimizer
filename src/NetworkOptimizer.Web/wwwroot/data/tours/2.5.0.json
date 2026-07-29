@@ -62,7 +62,7 @@
       "badge": "improved",
       "body": "Hops are named by the network they belong to, so a provider with several of them reads as the same name more than once. **Hover** a hop and it now shows what traceroute would: the address it answered on and its reverse-DNS name. The list is ordered by round trip time, so a later hop that answers faster sits higher.",
       "placement": "top",
-      "requires": [],
+      "requires": ["isp-health"],
       "optional": true
     },
     {
