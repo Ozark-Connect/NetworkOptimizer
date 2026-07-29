@@ -156,6 +156,11 @@ public class FirewallRule
     public List<string>? DestinationNetworkIds { get; init; }
 
     /// <summary>
+    /// True when a destination web_group_id was present but its domain-group members could not be resolved.
+    /// </summary>
+    public bool HasUnresolvedDestinationDomainGroup { get; init; }
+
+    /// <summary>
     /// ICMP type name (ANY, ECHO_REQUEST, etc.) - for ICMP protocol
     /// </summary>
     public string? IcmpTypename { get; init; }

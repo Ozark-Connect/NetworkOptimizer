@@ -33,13 +33,17 @@ public class ModemMonitorRegistry : BackgroundService
     private readonly ILogger<ModemMonitorRegistry> _logger;
     private readonly ConcurrentDictionary<string, SiteModemMonitors> _instances = new(StringComparer.OrdinalIgnoreCase);
 
+    private readonly NetworkOptimizer.Core.ISiteWorkGate _siteWorkGate;
+
     public ModemMonitorRegistry(
         IServiceProvider serviceProvider,
         IDbContextFactory<NetworkOptimizerDbContext> mainDbFactory,
+        NetworkOptimizer.Core.ISiteWorkGate siteWorkGate,
         ILogger<ModemMonitorRegistry> logger)
     {
         _serviceProvider = serviceProvider;
         _mainDbFactory = mainDbFactory;
+        _siteWorkGate = siteWorkGate;
         _logger = logger;
     }
 
@@ -128,7 +132,7 @@ public class ModemMonitorRegistry : BackgroundService
                     .Where(s => s.Enabled && !s.IsDefault)
                     .Select(s => s.Slug)
                     .ToListAsync(ct);
-                foreach (var slug in slugs)
+                foreach (var slug in slugs.Where(_siteWorkGate.IsSiteOperational))
                     enabled.Add(slug);
             }
         }
@@ -142,7 +146,11 @@ public class ModemMonitorRegistry : BackgroundService
         // around for status reads; re-enabling flips them back on.
         foreach (var (slug, bundle) in _instances)
         {
-            if (slug == SiteManagementService.DefaultSiteSlug) continue;
+            // The default site's monitors are driven by demand rather than by this reconcile, so it
+            // is normally left alone here - but a site licensing has closed stops like any other,
+            // otherwise the single-site install (the common one) would keep polling while restricted.
+            if (slug == SiteManagementService.DefaultSiteSlug && _siteWorkGate.IsSiteOperational(slug))
+                continue;
             if (!enabled.Contains(slug))
                 SetActive(bundle, false);
         }

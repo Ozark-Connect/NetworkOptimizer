@@ -6,6 +6,8 @@ using NetworkOptimizer.Threats.CrowdSec;
 using NetworkOptimizer.Threats.Enrichment;
 using NetworkOptimizer.Threats.Interfaces;
 using NetworkOptimizer.Threats.Models;
+using NetworkOptimizer.Storage.Models.Identity;
+using NetworkOptimizer.Web.Services.Gates;
 using NetworkOptimizer.UniFi.Models;
 
 namespace NetworkOptimizer.Web.Services;
@@ -13,7 +15,27 @@ namespace NetworkOptimizer.Web.Services;
 /// <summary>
 /// Scoped service providing aggregated data for the Threat Intelligence Dashboard.
 /// </summary>
-public class ThreatDashboardService
+/// <summary>
+/// Changing the threat noise filters (design doc 06, gate 9).
+///
+/// Every read stays off this interface - Threat Intelligence is a dashboard, and a Viewer is meant to
+/// read all of it. Only the filters are gated, and they are Site Admin rather than Operator because a
+/// noise filter SUPPRESSES rows: unlike tuning what is measured, the failure mode is a threat nobody
+/// is shown, which matches the gate the page already applies to them.
+/// </summary>
+[MutatingService(SiteScoped = true)]
+public interface IThreatFilterAdminService
+{
+    [RequireRole(Roles.Admin)]
+    [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "threat_noise_filter")]
+    Task SaveNoiseFilterAsync(ThreatNoiseFilter filter, CancellationToken cancellationToken = default);
+
+    [RequireRole(Roles.Admin)]
+    [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "threat_noise_filter")]
+    Task DeleteNoiseFilterAsync(int filterId, CancellationToken cancellationToken = default);
+}
+
+public class ThreatDashboardService : IThreatFilterAdminService
 {
     private readonly ExposureValidator _exposureValidator;
     private readonly CrowdSecEnrichmentService _crowdSecService;

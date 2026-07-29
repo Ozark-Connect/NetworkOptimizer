@@ -1,0 +1,149 @@
+@* Settings - Identity. One component, two scopes: instance-wide when no site slug is supplied
+   (Users, Access, and Sign-In across every site), and scoped to a single site when one is
+   (that site's Access list only, since accounts and sign-in methods are instance-wide). The same
+   UX either way - the scoped view is the global one narrowed to what a site admin owns. *@
+
+@using Microsoft.AspNetCore.Components.Routing
+@inject NavigationManager Navigation
+@inject NetworkOptimizer.Web.Services.SystemSettingsService SettingsService
+@implements IDisposable
+
+@* Instance-wide view only. The scoped view belongs to a site admin who came here to do a specific
+   job, and telling them this is optional would be wrong as well as unhelpful. Dismissal is a system
+   setting rather than per user: the reassurance is about the install, so once someone has taken the
+   point there is no reason to keep saying it to whoever signs in next. *@
+@if (SiteSlug is null && !_introDismissed)
+{
+    @* The standard dismissible info banner, same shape as the LAN schedule one. settings-tab-identity
+       is load-bearing: every Settings tab renders at once and the active tab reveals its own children,
+       so without it this shows on every tab instead of this one. *@
+    <div class="alert alert-info settings-tab-identity" style="margin-bottom:1rem;">
+        <div class="banner-content">
+            <span class="banner-icon banner-icon-info">i</span>
+            <div class="banner-text" style="flex:1;">
+                <strong>There is a lot here, and none of it is required</strong>
+                Most installs run happily on one administrator and one password, and that stays true.
+                When you want to add another person, limit someone to a single site, turn on
+                multi-factor sign-in, or sign in through your own identity provider, this is where you
+                will find it.
+            </div>
+            <div class="banner-actions">
+                <button class="btn btn-sm btn-tertiary" @onclick="DismissIntroAsync">Got it</button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (SiteSlug is null)
+{
+    <IdentityUsersCard @ref="_usersCard" OnAccessChanged="RefreshAccessAsync" OnExplainRoles="ExplainRolesAsync" />
+    <IdentityRolesCard @ref="_rolesCard" />
+    <IdentityAccessCard @ref="_accessCard" OnExplainRoles="ExplainRolesAsync"
+                        OnSiteRestrictionChanged="RefreshSiteRestrictionAsync" />
+    <IdentitySignInCard OnProvidersChanged="RefreshProvidersAsync" />
+}
+else
+{
+    <IdentityAccessCard SiteSlug="@SiteSlug" SiteName="@SiteName" OnExplainRoles="ExplainRolesAsync" />
+    @* Roles read the same whichever scope you are in, so the scoped tab carries the reference too
+       rather than bouncing a site admin to a tab they may not be able to open. *@
+    <IdentityRolesCard @ref="_rolesCard" SiteSlug="@SiteSlug" />
+}
+
+@code {
+    private bool _introDismissed = true; // hidden until the stored flag is read, so it cannot flash in
+    private IdentityAccessCard? _accessCard;
+    private IdentityRolesCard? _rolesCard;
+    private IdentityUsersCard? _usersCard;
+
+    private async Task DismissIntroAsync()
+    {
+        _introDismissed = true;
+        await SettingsService.SetGlobalAsync("banner.identity_intro_dismissed", "true");
+    }
+
+    /// <summary>The Users card offers the providers when linking an identity, so it follows the list.</summary>
+    private async Task RefreshProvidersAsync()
+    {
+        if (_usersCard is not null)
+            await _usersCard.RefreshProvidersAsync();
+    }
+
+    /// <summary>The no-access badge in Users only means anything while the restriction is on.</summary>
+    private async Task RefreshSiteRestrictionAsync()
+    {
+        if (_usersCard is not null)
+            await _usersCard.RefreshSiteRestrictionAsync();
+    }
+
+    /// <summary>Query flag that opens the Roles panel on arrival, for links from the scoped view.</summary>
+    private const string RolesQueryParam = "roles";
+
+    /// <summary>
+    /// Opens the Roles panel for the tooltip icons beside the role pickers. Both scopes render the
+    /// panel, so this normally opens it in place; the navigation is the fallback for a caller that
+    /// has the pickers without the panel, and it opens on arrival off the query flag.
+    /// </summary>
+    private async Task ExplainRolesAsync()
+    {
+        if (_rolesCard is null)
+        {
+            Navigation.NavigateTo($"/settings?tab=identity&{RolesQueryParam}=1");
+            return;
+        }
+
+        await _rolesCard.OpenAndHighlightAsync();
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        Navigation.LocationChanged += HandleLocationChanged;
+
+        // Global, not GetAsync: the site-scoped pair reads the CURRENT site's database, so a
+        // dismissal on the main site would leave the card still showing on every other one.
+        if (SiteSlug is null)
+            _introDismissed = await SettingsService.GetGlobalAsync("banner.identity_intro_dismissed") != null;
+    }
+
+    /// <summary>
+    /// Every Settings tab is rendered at once and shown by class, so arriving from another tab does
+    /// not remount this component and firstRender never comes round again. The location change is the
+    /// only signal that someone has just asked for the panel.
+    /// </summary>
+    private void HandleLocationChanged(object? sender, LocationChangedEventArgs e)
+        => _ = InvokeAsync(OpenRolesIfRequestedAsync);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+            await OpenRolesIfRequestedAsync();
+    }
+
+    private async Task OpenRolesIfRequestedAsync()
+    {
+        if (_rolesCard is null)
+            return;
+
+        var query = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(new Uri(Navigation.Uri).Query);
+        if (query.TryGetValue(RolesQueryParam, out var arrivedForRoles) && arrivedForRoles == "1")
+            await _rolesCard.OpenAndHighlightAsync();
+    }
+
+    public void Dispose() => Navigation.LocationChanged -= HandleLocationChanged;
+
+    /// <summary>
+    /// Creating or deleting an account changes that account's site grants in the same step, so the
+    /// Access card below is stale as soon as the Users card finishes.
+    /// </summary>
+    private async Task RefreshAccessAsync()
+    {
+        if (_accessCard is not null)
+            await _accessCard.RefreshAsync();
+    }
+
+    /// <summary>Null for the instance-wide view; a site slug scopes the tab to that site.</summary>
+    [Parameter] public string? SiteSlug { get; set; }
+
+    /// <summary>Friendly site name shown on the scoped badge.</summary>
+    [Parameter] public string? SiteName { get; set; }
+}

@@ -18,7 +18,7 @@ namespace NetworkOptimizer.Web.Services;
 /// Service for running WAN speed tests via UWN's distributed HTTP speed test network.
 /// Executes the local uwnspeedtest Go binary and parses its JSON output.
 /// </summary>
-public class UwnSpeedTestService : WanSpeedTestServiceBase
+public class UwnSpeedTestService : WanSpeedTestServiceBase, IUwnSpeedTestService
 {
     private readonly IConfiguration _configuration;
     private readonly UniFiConnectionService _connectionService;
@@ -86,6 +86,9 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase
     {
         var scope = _scopeFactory.CreateScope();
         scope.ServiceProvider.GetRequiredService<SiteContextService>().OverrideSite(SiteSlug);
+        // The child scope has no user caller, so gated services resolved from it run as system
+        // (design doc 06). The scope owns the caller context, so the restore handle dies with it.
+        Identity.SystemScope.Enter(scope.ServiceProvider, "speedtest:wan");
         return scope;
     }
 

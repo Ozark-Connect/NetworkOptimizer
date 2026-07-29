@@ -7,7 +7,7 @@ using NetworkOptimizer.Web.Services.Ssh;
 
 namespace NetworkOptimizer.Web.Services;
 
-public class WanSteerDeploymentService
+public class WanSteerDeploymentService : IWanSteerDeploymentService
 {
     private const string RemoteDir = "/data/wan-steer";
     private const string RemoteBinaryPath = "/data/wan-steer/wansteer";

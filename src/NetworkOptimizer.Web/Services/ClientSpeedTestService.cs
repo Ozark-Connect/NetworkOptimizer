@@ -15,7 +15,7 @@ namespace NetworkOptimizer.Web.Services;
 /// results land in that site's database and enrichment (client lookup, path
 /// analysis, topology snapshots) runs against that site's console connection.
 /// </summary>
-public class ClientSpeedTestService
+public class ClientSpeedTestService : IClientSpeedTestService
 {
     private readonly ILogger<ClientSpeedTestService> _logger;
     private readonly IDbContextFactory<NetworkOptimizerDbContext> _dbFactory;
@@ -381,6 +381,7 @@ public class ClientSpeedTestService
             (r.PathAnalysis == null ||
              r.PathAnalysis.Path == null ||
              !r.PathAnalysis.Path.IsValid))
+            .Where(r => PathAnalysisRetryGate.TryClaim(nameof(ClientSpeedTestService), r.Id))
             .ToList();
 
         if (needsRetry.Count > 0)
@@ -427,6 +428,7 @@ public class ClientSpeedTestService
             (r.PathAnalysis == null ||
              r.PathAnalysis.Path == null ||
              !r.PathAnalysis.Path.IsValid))
+            .Where(r => PathAnalysisRetryGate.TryClaim(nameof(ClientSpeedTestService), r.Id))
             .ToList();
 
         if (needsRetry.Count > 0)

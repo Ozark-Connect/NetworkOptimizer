@@ -1,22 +1,91 @@
-@rendermode InteractiveServer
+﻿@rendermode InteractiveServer
+@using NetworkOptimizer.Storage.Models.Identity
+@using NetworkOptimizer.Web.Services.Authorization
+@using NetworkOptimizer.Web.Services.Identity
 @inject NavigationManager Navigation
 @inject SiteContextService SiteContext
+@inject ICallerContext Caller
+@inject ISiteAccessFilter SiteAccess
 
+@if (_siteResolved)
+{
 <Router AppAssembly="typeof(Program).Assembly">
     <Found Context="routeData">
-        <RouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)" />
+        @* Gate 4 (design doc 06): page [Authorize] policies decide navigation. The policies succeed
+           when the install has authentication disabled, so nothing changes for those installs. *@
+        <AuthorizeRouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)">
+            <NotAuthorized Context="refused">
+                @if (refused.User.IsConfinedToMfaEnrollment())
+                {
+                    @* Refused only because enrolment is outstanding: that has somewhere to go. *@
+                    <MfaEnrollmentRedirect />
+                }
+                else
+                {
+                <div class="page-content">
+                    <div class="empty-state">
+                        <div class="empty-icon">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z" />
+                            </svg>
+                        </div>
+                        <h2>You do not have access to this page</h2>
+                        <p class="page-description">
+                            Ask an administrator for the access you need, or head back to the dashboard.
+                        </p>
+                        <a class="btn btn-primary" href="/">Go to Dashboard</a>
+                    </div>
+                </div>
+                }
+            </NotAuthorized>
+        </AuthorizeRouteView>
         <FocusOnNavigate RouteData="routeData" Selector="h1" />
     </Found>
 </Router>
+}
 <SiteTabSync />
 
 @code {
-    protected override void OnInitialized()
+    private bool _siteResolved;
+
+    protected override async Task OnInitializedAsync()
     {
         // Pin this scope to the site in the tab's URL before the Router renders
         // anything that could resolve the site context. The circuit's WebSocket
         // upgrade request only carries the shared site cookie, so without this pin
         // every tab of the browser would collapse onto the same site.
         SiteContext.PinFromUri(Navigation.Uri);
+
+        // A circuit is its own DI scope, so the request middleware's correction does not reach it and
+        // the pin above has to be re-checked here. The pinned slug comes from the browser's URL and
+        // is validated only as "a real site with a database" - never as one this caller may open.
+        //
+        // An install with authentication off has no principal to check and has always seen every
+        // site, so it short-circuits. Holding Admin does NOT short-circuit: whether a role reaches
+        // every site is a question the role name cannot answer on its own, and the check below is
+        // cheap for a caller who does reach them all.
+        var caller = Caller.Current;
+        if (caller is null || caller.AuthenticationDisabled || caller.Principal is null)
+        {
+            _siteResolved = true;
+            return;
+        }
+
+        if (!await SiteAccess.IsAuthorizedAsync(SiteContext.Slug))
+        {
+            var fallback = await SiteAccess.FallbackSlugAsync();
+            SiteContext.OverrideSite(fallback);
+
+            // Put the address bar back in step. SiteTabSync stamps the URL from the site in context,
+            // but it renders alongside this component rather than after it, so on a circuit that
+            // falls back it stamps the site being taken away before the fallback has happened. The
+            // tab is then reading one site while every service answers for another - access looks
+            // half revoked, and a refresh re-pins the site they no longer hold.
+            var corrected = SiteContextService.WithSiteParam(Navigation.Uri, fallback);
+            if (!string.Equals(corrected, Navigation.Uri, StringComparison.Ordinal))
+                Navigation.NavigateTo(corrected, forceLoad: false, replace: true);
+        }
+
+        _siteResolved = true;
     }
 }

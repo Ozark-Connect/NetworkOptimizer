@@ -1,4 +1,5 @@
 @page "/audit"
+@attribute [Authorize(Policy = Policies.RequireViewer)]
 @using NetworkOptimizer.Audit.Models
 @using NetworkOptimizer.Core.Enums
 @using NetworkOptimizer.Core.Helpers
@@ -6,6 +7,7 @@
 @using NetworkOptimizer.Web.Components.Shared
 @using AuditSeverity = NetworkOptimizer.Audit.Models.AuditSeverity
 @inject AuditService AuditService
+@inject IAuditScanService AuditScan
 @inject UniFiConnectionService ConnectionService
 @inject NetworkOptimizer.Web.Services.Licensing.LicenseStateService LicenseState
 @inject SiteContextService SiteContext
@@ -13,6 +15,8 @@
 @inject ILogger<Audit> Logger
 @inject NavigationManager NavigationManager
 @inject PullToRefreshState PtrState
+@inject Microsoft.AspNetCore.Authorization.IAuthorizationService Authz
+@inject Microsoft.AspNetCore.Components.Authorization.AuthenticationStateProvider AuthState
 @implements IDisposable
 @rendermode InteractiveServer
 
@@ -52,17 +56,17 @@
     <div class="card">
         <div class="card-body">
             <div class="audit-controls">
-                <button class="btn btn-primary" @onclick="RunAudit" disabled="@(isRunning || !ConnectionService.IsConnected || IsLicenseRestricted)" style="min-width: 140px;">
-                    @if (isRunning)
-                    {
-                        <span class="spinner"></span>
-                        <span>Running...</span>
-                    }
-                    else
-                    {
-                        <span>Run Full Audit</span>
-                    }
-                </button>
+                                    <button class="btn btn-primary" @onclick="RunAudit" disabled="@(isRunning || !ConnectionService.IsConnected || IsLicenseRestricted)" style="min-width: 140px;">
+                        @if (isRunning)
+                        {
+                            <span class="spinner"></span>
+                            <span>Running...</span>
+                        }
+                        else
+                        {
+                            <span>Run Full Audit</span>
+                        }
+                    </button>
 
                 @if (_isStandalone)
                 {
@@ -188,9 +192,9 @@
                                 <div class="issue-header">
                                     <span class="issue-severity">@GetSeverityDisplayName(issue.Severity)</span>
                                     <span class="issue-category">@issue.Category</span>
-                                    <button class="btn btn-sm btn-ghost issue-action" @onclick="() => RestoreIssue(issue)" title="Restore this issue">
+                                    <SiteAdminOnly><button class="btn btn-sm btn-ghost issue-action" @onclick="() => RestoreIssue(issue)" title="Restore this issue">
                                         Restore
-                                    </button>
+                                    </button></SiteAdminOnly>
                                 </div>
                                 <div class="issue-title">@issue.Title</div>
                                 <div class="issue-description">@FormatIssueText(issue.Description)</div>
@@ -284,9 +288,9 @@
                                                     </span>
                                                 </span>
                                             }
-                                            <button class="btn btn-sm btn-ghost issue-action" @onclick="() => DismissIssue(issue)" @onclick:stopPropagation="true" title="Dismiss this issue">
+                                            <SiteAdminOnly><button class="btn btn-sm btn-ghost issue-action" @onclick="() => DismissIssue(issue)" @onclick:stopPropagation="true" title="Dismiss this issue">
                                                 Dismiss
-                                            </button>
+                                            </button></SiteAdminOnly>
                                         </div>
                                         <div class="issue-title">@issue.Title</div>
                                         <div class="issue-description">@FormatIssueText(issue.Description)</div>
@@ -424,9 +428,9 @@
                                                                 {
                                                                     <span class="context-item"><strong>Rules:</strong> @FormatCoveringRules(issue.CoveringRules)</span>
                                                                 }
-                                                                <button class="btn btn-sm btn-ghost issue-action" @onclick="() => DismissIssue(issue)" @onclick:stopPropagation="true" title="Dismiss this issue">
+                                                                <SiteAdminOnly><button class="btn btn-sm btn-ghost issue-action" @onclick="() => DismissIssue(issue)" @onclick:stopPropagation="true" title="Dismiss this issue">
                                                                     Dismiss
-                                                                </button>
+                                                                </button></SiteAdminOnly>
                                                             </div>
                                                         }
                                                         else if (!isDeviceGroup)
@@ -434,17 +438,17 @@
                                                             @* Non-device group: show description per item *@
                                                             <div class="issue-context">
                                                                 <span class="context-item issue-item-description">@FormatIssueText(issue.Description)</span>
-                                                                <button class="btn btn-sm btn-ghost issue-action" @onclick="() => DismissIssue(issue)" @onclick:stopPropagation="true" title="Dismiss this issue">
+                                                                <SiteAdminOnly><button class="btn btn-sm btn-ghost issue-action" @onclick="() => DismissIssue(issue)" @onclick:stopPropagation="true" title="Dismiss this issue">
                                                                     Dismiss
-                                                                </button>
+                                                                </button></SiteAdminOnly>
                                                             </div>
                                                         }
                                                         else
                                                         {
                                                             <div class="issue-context">
-                                                                <button class="btn btn-sm btn-ghost issue-action" @onclick="() => DismissIssue(issue)" @onclick:stopPropagation="true" title="Dismiss this issue">
+                                                                <SiteAdminOnly><button class="btn btn-sm btn-ghost issue-action" @onclick="() => DismissIssue(issue)" @onclick:stopPropagation="true" title="Dismiss this issue">
                                                                     Dismiss
-                                                                </button>
+                                                                </button></SiteAdminOnly>
                                                             </div>
                                                         }
                                                     </div>
@@ -488,9 +492,9 @@
                                 <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd" /></svg>
                             </span>
                             <span>Purpose changes will take effect on the next audit run.</span>
-                            <button class="btn btn-sm btn-primary" @onclick="RunAudit" disabled="@(isRunning || !ConnectionService.IsConnected)">
-                                Re-run Audit
-                            </button>
+                                                            <button class="btn btn-sm btn-primary" @onclick="RunAudit" disabled="@(isRunning || !ConnectionService.IsConnected)">
+                                    Re-run Audit
+                                </button>
                         </div>
                     }
                     <div class="table-responsive">
@@ -514,6 +518,7 @@
                                         <div class="purpose-cell-inner">
                                             <select class="purpose-select"
                                                     value="@GetEffectivePurpose(network.Id, network.Purpose)"
+                                                    disabled="@(!_canOperate)"
                                                     @onchange="e => OnPurposeChanged(network.Id, e.Value?.ToString())">
                                                 @foreach (var purpose in _purposeOptions)
                                                 {
@@ -939,8 +944,15 @@
         ("Unknown", "Unclassified")
     ];
 
+    /// <summary>True when the caller may operate this site, i.e. may reassign a network's purpose.</summary>
+    private bool _canOperate;
+
     protected override async Task OnInitializedAsync()
     {
+        var user = (await AuthState.GetAuthenticationStateAsync()).User;
+        _canOperate = (await Authz.AuthorizeAsync(
+            user, SiteContext.Slug, NetworkOptimizer.Web.Services.Authorization.Policies.SiteOperator)).Succeeded;
+
         PtrState.RefreshCallback = async () => { if (hasResults) await RunAudit(); };
         PtrState.NotifyStateChanged = StateHasChanged;
 
@@ -1005,7 +1017,7 @@
         try
         {
             // Run audit and progress animation in parallel
-            var auditTask = AuditService.RunAuditAsync(new Services.AuditOptions
+            var auditTask = AuditScan.RunAuditAsync(new Services.AuditOptions
             {
                 IncludeFirewallRules = includeFirewallRules,
                 IncludeVlanSecurity = includeVlanSecurity,
@@ -1475,7 +1487,7 @@
 
     private async Task DismissIssue(Services.AuditIssue issue)
     {
-        await AuditService.DismissIssueAsync(issue);
+        await AuditScan.DismissIssueAsync(issue);
 
         // Move from active to dismissed
         issues.Remove(issue);
@@ -1491,7 +1503,7 @@
 
     private async Task RestoreIssue(Services.AuditIssue issue)
     {
-        await AuditService.RestoreIssueAsync(issue);
+        await AuditScan.RestoreIssueAsync(issue);
 
         // Move from dismissed to active
         dismissedIssues.Remove(issue);
@@ -1519,7 +1531,7 @@
         if (string.IsNullOrEmpty(newPurpose)) return;
 
         _purposeOverrides[networkId] = newPurpose;
-        await AuditService.SaveNetworkPurposeOverrideAsync(networkId, newPurpose);
+        await AuditScan.SaveNetworkPurposeOverrideAsync(networkId, newPurpose);
 
         // Show "Saved" indicator
         _purposeSaved[networkId] = true;

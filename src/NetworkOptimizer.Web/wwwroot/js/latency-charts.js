@@ -6,6 +6,8 @@
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=4';
+import { valueSortedTooltip, tooltipHeld } from './chart-tooltip.js?v=7';
+import { renderFilterReset, isFiltered } from './chart-filter.js?v=4';
 
 const PALETTE = window.Apex?.colors || ['#7EB26D', '#EAB839', '#6ED0E0', '#EF843C', '#E24D42', '#1F78C1'];
 const _colorCache = {};
@@ -87,6 +89,8 @@ function baseChartOpts(type, yTitle, yFormatter, extraOpts) {
             animations: { enabled: false },
         },
         stroke: { curve: 'smooth', width: 2 },
+        // Stays 0: the library's hover markers are the flaky ones, and any non-zero size puts
+        // a permanent dot on every sample. valueSortedTooltip draws the hover dots instead.
         markers: { size: 0 },
         dataLabels: { enabled: false },
         xaxis: {
@@ -118,31 +122,6 @@ function baseChartOpts(type, yTitle, yFormatter, extraOpts) {
     };
 }
 
-// Shared tooltip renderer: rows ordered by value desc so the tooltip matches the
-// vertical order of the lines at the hovered instant. Values format through the
-// chart's own y-axis formatter, so units stay correct per chart.
-function valueSortedTooltip({ series, dataPointIndex, w }) {
-    const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-    const fmt = w.config.yaxis?.[0]?.labels?.formatter ?? (v => v);
-    const rows = [];
-    let ts = null;
-    for (let i = 0; i < series.length; i++) {
-        const v = series[i]?.[dataPointIndex];
-        if (v == null) continue;
-        ts ??= w.globals.seriesX[i]?.[dataPointIndex];
-        rows.push({ name: w.globals.seriesNames[i], color: w.globals.colors[i % w.globals.colors.length], v });
-    }
-    rows.sort((a, b) => b.v - a.v);
-    const when = ts ? new Date(ts).toLocaleString(undefined, { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) : '';
-    return (when ? '<div class="apexcharts-tooltip-title" style="font-family:Helvetica, Arial, sans-serif;font-size:12px">' + esc(when) + '</div>' : '')
-        + rows.map(r =>
-            '<div class="apexcharts-tooltip-series-group apexcharts-active" style="display:flex">'
-            + '<span class="apexcharts-tooltip-marker" style="background-color:' + r.color + ';border-radius:50%;width:12px;height:12px"></span>'
-            + '<div class="apexcharts-tooltip-text" style="font-family:Helvetica, Arial, sans-serif;font-size:12px"><div class="apexcharts-tooltip-y-group">'
-            + '<span class="apexcharts-tooltip-text-y-label">' + esc(r.name) + ': </span>'
-            + '<span class="apexcharts-tooltip-text-y-value">' + esc(fmt(r.v)) + '</span>'
-            + '</div></div></div>').join('');
-}
 
 function buildRttOpts() {
     return baseChartOpts('line', 'ms',
@@ -222,6 +201,7 @@ async function fetchData() {
 
 function renderBadges(container) {
     const el = container.querySelector('.latency-filter-badges');
+    if (el) el.dataset.tour = 'chart-series-filter';
     if (!el) return;
     if (targetMeta.length <= 1) { el.innerHTML = ''; return; }
 
@@ -261,6 +241,14 @@ function renderBadges(container) {
             if (lastFetchData) renderStatsTable(container, false);
         });
     }
+
+    // Last: the chip rebuild above wipes the row, so the reset is re-added after it.
+    renderFilterReset(el, isFiltered(visibility), () => {
+        visibility = {};
+        updateChartVisibility();
+        renderBadges(container);
+        if (lastFetchData) renderStatsTable(container, false);
+    });
 }
 
 function updateChartVisibility() {
@@ -462,7 +450,7 @@ function startPoll() {
     if (windowOffset !== 0 || isCustomRange) return;
     if (!isVisible()) return;
     const interval = POLL_INTERVALS[currentRangeHours] || 30000;
-    pollTimer = setInterval(loadAndUpdate, interval);
+    pollTimer = setInterval(() => { if (!tooltipHeld(document.getElementById(containerId))) loadAndUpdate(); }, interval);
 }
 
 function stopPoll() {

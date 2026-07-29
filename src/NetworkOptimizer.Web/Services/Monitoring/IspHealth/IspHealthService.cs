@@ -1050,6 +1050,7 @@ public class IspHealthService
             AccessHopSeries = accessHopSeries,
             FirstHopTargetId = firstHopTargetId,
             IspTargetSeries = ispTargetSeries,
+            TargetAddresses = await ResolveHopAddressesAsync(ispTargets, ct),
             LossPoolSeries = lossPool,
             TransitAsnSeries = transitGrading,
             IspAsnSeries = ispGrading,
@@ -1779,4 +1780,31 @@ public class IspHealthService
             kv => kv.Key,
             kv => kv.Value.Select(p => new LatencySample(p.Time, p.RttAvgMs, p.RttMaxMs, p.JitterMs, p.LossPercent)).ToList());
     }
+
+    /// <summary>
+    /// Address and PTR name per access hop, for the ISP Network breakout.
+    ///
+    /// Only AccessIsp targets are resolved: they are the only ones broken out per target, and every
+    /// other monitored target would be a DNS lookup nobody ever sees. Resolved together rather than in
+    /// sequence so a hop with no PTR costs the timeout once instead of adding to a queue, and the
+    /// cache means a warm instance does no lookups at all.
+    /// </summary>
+    private static async Task<IReadOnlyDictionary<string, string>> ResolveHopAddressesAsync(
+        List<MonitoringTarget> ispTargets, CancellationToken ct)
+    {
+        var withAddress = ispTargets
+            .Where(t => !string.IsNullOrWhiteSpace(t.Address))
+            .GroupBy(t => t.TargetId)
+            .Select(g => g.First())
+            .ToList();
+
+        var resolved = await Task.WhenAll(withAddress.Select(async t =>
+        {
+            var (ip, hostname) = await ReverseDnsCache.ResolveAsync(t.Address, ct);
+            return (t.TargetId, Display: ReverseDnsCache.Format(ip, hostname));
+        }));
+
+        return resolved.ToDictionary(r => r.TargetId, r => r.Display);
+    }
+
 }

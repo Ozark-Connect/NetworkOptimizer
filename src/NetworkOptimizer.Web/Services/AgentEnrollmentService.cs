@@ -1,4 +1,4 @@
-using System.Security.Cryptography;
+﻿using System.Security.Cryptography;
 using System.Text;
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Storage.Models;
@@ -11,7 +11,7 @@ namespace NetworkOptimizer.Web.Services;
 /// through the main-database factory. Raw tokens and keys are returned exactly
 /// once; only SHA-256 hashes are stored.
 /// </summary>
-public class AgentEnrollmentService
+public class AgentEnrollmentService : IAgentEnrollmentService
 {
     /// <summary>Agents reporting within this window count as online.</summary>
     public static readonly TimeSpan OnlineWindow = TimeSpan.FromMinutes(2);
@@ -25,12 +25,15 @@ public class AgentEnrollmentService
     private readonly IDbContextFactory<NetworkOptimizerDbContext> _mainDbFactory;
     private readonly AgentTunnelRegistry _tunnelRegistry;
     private readonly ILogger<AgentEnrollmentService> _logger;
+    private readonly Authorization.ISiteAccessFilter _siteAccess;
 
     public AgentEnrollmentService(
         IDbContextFactory<NetworkOptimizerDbContext> mainDbFactory,
         AgentTunnelRegistry tunnelRegistry,
+        Authorization.ISiteAccessFilter siteAccess,
         ILogger<AgentEnrollmentService> logger)
     {
+        _siteAccess = siteAccess;
         _mainDbFactory = mainDbFactory;
         _tunnelRegistry = tunnelRegistry;
         _logger = logger;
@@ -40,6 +43,12 @@ public class AgentEnrollmentService
     public async Task<List<SiteAgent>> GetAgentsForSiteAsync(int siteId)
     {
         await using var db = await _mainDbFactory.CreateDbContextAsync();
+        // The site id arrives from the caller, so authorization for it is asked here rather than
+        // assumed from whatever page supplied it.
+        var slug = await db.Sites.Where(x => x.Id == siteId).Select(x => x.Slug).FirstOrDefaultAsync();
+        if (slug is not null && !await _siteAccess.IsAuthorizedAsync(slug))
+            return new List<SiteAgent>();
+
         return await db.SiteAgents
             .Where(a => a.SiteId == siteId)
             .OrderByDescending(a => a.CreatedAt)
@@ -50,15 +59,27 @@ public class AgentEnrollmentService
     public async Task<List<SiteAgent>> GetAllAgentsAsync()
     {
         await using var db = await _mainDbFactory.CreateDbContextAsync();
-        return await db.SiteAgents.ToListAsync();
+        var agents = await db.SiteAgents.ToListAsync();
+
+        // Agent rows name the sites they serve, so the same narrowing the site list gets applies
+        // here. Background scopes are unfiltered, as always.
+        var slugsById = await db.Sites.AsNoTracking().ToDictionaryAsync(x => x.Id, x => x.Slug);
+        return await _siteAccess.FilterAsync(agents, a => slugsById.GetValueOrDefault(a.SiteId) ?? "");
     }
 
     /// <summary>
     /// Registers a new agent for a site and returns its one-time enrollment
     /// token. The token is not retrievable afterwards.
     /// </summary>
-    public async Task<(SiteAgent Agent, string Token)> CreateAgentAsync(int siteId, string name)
+    public async Task<(SiteAgent Agent, string Token)> CreateAgentAsync(string siteSlug, string name)
     {
+        await using var db = await _mainDbFactory.CreateDbContextAsync();
+
+        // The slug is what was authorized, so it is also what decides the site the agent lands on.
+        var siteId = await db.Sites.Where(x => x.Slug == siteSlug).Select(x => x.Id).FirstOrDefaultAsync();
+        if (siteId == 0)
+            throw new InvalidOperationException($"No site with slug '{siteSlug}'.");
+
         var token = TokenPrefix + Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
         var agent = new SiteAgent
         {
@@ -68,11 +89,43 @@ public class AgentEnrollmentService
             TokenCreatedAt = DateTime.UtcNow,
         };
 
-        await using var db = await _mainDbFactory.CreateDbContextAsync();
         db.SiteAgents.Add(agent);
         await db.SaveChangesAsync();
         _logger.LogInformation("Created agent {Name} (id {Id}) for site {SiteId}", agent.Name, agent.Id, siteId);
         return (agent, token);
+    }
+
+    /// <summary>
+    /// Closes an agent's tunnel from this end. The key is only checked when the stream opens, so a
+    /// removed or disabled agent whose connection is already up keeps relaying monitoring, SSH and
+    /// console traffic until something unrelated interrupts it - a restart, or a network blip. That
+    /// is not a revocation. The agent sees its stream close and retries on its own backoff; the key
+    /// no longer resolves, so the reconnect is refused. Same mechanism license enforcement uses.
+    /// </summary>
+    private void DropLiveTunnel(int agentId, string agentName, string reason)
+    {
+        foreach (var connection in _tunnelRegistry.GetAll().Where(c => c.AgentId == agentId))
+        {
+            _logger.LogInformation("Dropping tunnel for agent {Name} (id {Id}): {Reason}",
+                agentName, agentId, reason);
+            connection.Drop();
+        }
+    }
+
+    /// <summary>
+    /// The agent, but only if it belongs to the site the caller was authorized against. Everything
+    /// that acts on an agent id goes through here: the id is the caller's to choose, the slug is the
+    /// one the gate checked, and an agent that does not sit on that slug is not theirs to touch.
+    /// </summary>
+    private static async Task<SiteAgent?> AgentOnSiteAsync(
+        NetworkOptimizerDbContext db, string siteSlug, int agentId)
+    {
+        var agent = await db.SiteAgents.FindAsync(agentId);
+        if (agent is null)
+            return null;
+
+        var slug = await db.Sites.Where(x => x.Id == agent.SiteId).Select(x => x.Slug).FirstOrDefaultAsync();
+        return string.Equals(slug, siteSlug, StringComparison.OrdinalIgnoreCase) ? agent : null;
     }
 
     /// <summary>
@@ -81,10 +134,10 @@ public class AgentEnrollmentService
     /// row instead of piling up duplicates. Returns null if the agent is gone or
     /// already enrolled.
     /// </summary>
-    public async Task<string?> ReissueTokenAsync(int agentId)
+    public async Task<string?> ReissueTokenAsync(string siteSlug, int agentId)
     {
         await using var db = await _mainDbFactory.CreateDbContextAsync();
-        var agent = await db.SiteAgents.FindAsync(agentId);
+        var agent = await AgentOnSiteAsync(db, siteSlug, agentId);
         if (agent == null || agent.EnrolledAt != null)
             return null;
 
@@ -98,15 +151,16 @@ public class AgentEnrollmentService
     }
 
     /// <summary>Removes an agent registration entirely (its token/key stop working).</summary>
-    public async Task DeleteAgentAsync(int agentId)
+    public async Task DeleteAgentAsync(string siteSlug, int agentId)
     {
         await using var db = await _mainDbFactory.CreateDbContextAsync();
-        var agent = await db.SiteAgents.FindAsync(agentId);
+        var agent = await AgentOnSiteAsync(db, siteSlug, agentId);
         if (agent == null)
             return;
 
         db.SiteAgents.Remove(agent);
         await db.SaveChangesAsync();
+        DropLiveTunnel(agent.Id, agent.Name, "removed");
         _logger.LogInformation("Removed agent {Name} (id {Id}) for site {SiteId}", agent.Name, agent.Id, agent.SiteId);
     }
 
@@ -241,16 +295,19 @@ public class AgentEnrollmentService
     }
 
     /// <summary>Enables or disables an agent. Disabled agents cannot enroll or heartbeat.</summary>
-    public async Task SetEnabledAsync(int agentId, bool enabled)
+    public async Task SetEnabledAsync(string siteSlug, int agentId, bool enabled)
     {
         await using var db = await _mainDbFactory.CreateDbContextAsync();
-        var agent = await db.SiteAgents.FindAsync(agentId);
+        var agent = await AgentOnSiteAsync(db, siteSlug, agentId);
         if (agent == null)
             return;
 
         agent.Enabled = enabled;
         agent.UpdatedAt = DateTime.UtcNow;
         await db.SaveChangesAsync();
+
+        if (!enabled)
+            DropLiveTunnel(agent.Id, agent.Name, "disabled");
     }
 
     /// <summary>Whether a last-seen timestamp counts as online right now.</summary>

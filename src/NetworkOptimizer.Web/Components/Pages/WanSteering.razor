@@ -1,15 +1,19 @@
 @page "/wan-steering"
+@attribute [Authorize(Policy = Policies.RequireViewer)]
 @implements IDisposable
-@inject WanSteerDeploymentService DeployService
+@using Microsoft.AspNetCore.Components.Authorization
+@using NetworkOptimizer.Web.Services.Authorization
+@inject IAuthorizationService Authz
+@inject IWanSteerDeploymentService DeployService
 @inject UniFiConnectionService ConnectionService
-@inject NetworkOptimizer.Storage.Services.SiteDbContextFactory SiteDb
+@inject IWanSteerRuleService RuleService
 @inject SiteContextService SiteCtx
 @inject NetworkOptimizer.Web.Services.Licensing.LicenseStateService LicenseState
 @inject SiteTunnelRouting TunnelRouting
 @inject IGatewaySshService GatewaySshService
 @inject ILogger<WanSteering> Logger
 @inject PullToRefreshState PtrState
-@inject SqmDeploymentService SqmDeploymentService
+@inject ISqmDeploymentService SqmDeploymentService
 @inject ModuleUpdateNotificationService ModuleUpdates
 @rendermode InteractiveServer
 @using NetworkOptimizer.Storage.Models
@@ -140,17 +144,19 @@
             {
                 <div class="alert alert-warning" style="margin-top: 1rem;">
                     <strong>UDM Boot Required:</strong> WAN Steering uses a boot script in <code>/data/on_boot.d/</code> that requires udm-boot to persist across reboots. Without it, iptables rules will silently stop being applied after a reboot or firmware update.
-                    <button class="btn btn-sm btn-primary" style="margin-left: 0.5rem;" @onclick="InstallUdmBoot" disabled="@_isInstallingUdmBoot">
-                        @if (_isInstallingUdmBoot)
-                        {
-                            <span class="spinner spinner-sm"></span>
-                            <span>Installing...</span>
-                        }
-                        else
-                        {
-                            <span>Install UDM Boot</span>
-                        }
-                    </button>
+                    <SiteAdminOnly>
+                        <button class="btn btn-sm btn-primary" style="margin-left: 0.5rem;" @onclick="InstallUdmBoot" disabled="@_isInstallingUdmBoot">
+                            @if (_isInstallingUdmBoot)
+                            {
+                                <span class="spinner spinner-sm"></span>
+                                <span>Installing...</span>
+                            }
+                            else
+                            {
+                                <span>Install UDM Boot</span>
+                            }
+                        </button>
+                    </SiteAdminOnly>
                 </div>
             }
         }
@@ -224,14 +230,16 @@
         <h2 class="card-title">Traffic Rules</h2>
         @if (_editingRuleId == null)
         {
-            <button class="btn btn-sm btn-primary" @onclick="AddRule">Add Rule</button>
+            <SiteAdminOnly>
+                <button class="btn btn-sm btn-primary" @onclick="AddRule">Add Rule</button>
+            </SiteAdminOnly>
         }
     </div>
     <div class="card-body">
         @if (_rules.Count == 0 && _editingRuleId == null)
         {
             <div class="empty-state">
-                <p>No traffic rules configured. Add a rule to steer traffic to a specific WAN interface.</p>
+                <p>@(_canConfigure ? "No traffic rules configured. Add a rule to steer traffic to a specific WAN interface." : "No traffic rules configured. Rules steer traffic to a specific WAN interface; a site administrator adds them.")</p>
             </div>
         }
         else
@@ -248,7 +256,7 @@
                         <div class="ws-rule-row">
                             <div class="ws-rule-left">
                                 <label class="checkbox-label" data-tooltip="@(rule.Enabled ? "Enabled" : "Disabled")" data-tooltip-hover-only>
-                                    <input type="checkbox" checked="@rule.Enabled" @onchange="@(e => ToggleRuleEnabled(rule, (bool)(e.Value ?? false)))" />
+                                    <input type="checkbox" checked="@rule.Enabled" @onchange="@(e => ToggleRuleEnabled(rule, (bool)(e.Value ?? false)))" disabled="@(!_canConfigure)" />
                                 </label>
                                 <div class="ws-rule-info">
                                     <div class="ws-rule-name @(rule.Enabled ? "" : "ws-rule-disabled")">@rule.Name</div>
@@ -262,11 +270,15 @@
                                 }
                                 <span class="status-badge status-active">@rule.TargetWanKey</span>
                                 <div class="ws-sort-buttons">
-                                    <button class="btn btn-sm btn-secondary" @onclick="@(() => MoveRuleUp(rule))" disabled="@(rule.SortOrder == 0)" data-tooltip="Move up" data-tooltip-hover-only>&#9650;</button>
-                                    <button class="btn btn-sm btn-secondary" @onclick="@(() => MoveRuleDown(rule))" disabled="@(rule.SortOrder >= _rules.Count - 1)" data-tooltip="Move down" data-tooltip-hover-only>&#9660;</button>
+                                    <SiteAdminOnly>
+                                        <button class="btn btn-sm btn-secondary" @onclick="@(() => MoveRuleUp(rule))" disabled="@(rule.SortOrder == 0)" data-tooltip="Move up" data-tooltip-hover-only>&#9650;</button>
+                                        <button class="btn btn-sm btn-secondary" @onclick="@(() => MoveRuleDown(rule))" disabled="@(rule.SortOrder >= _rules.Count - 1)" data-tooltip="Move down" data-tooltip-hover-only>&#9660;</button>
+                                    </SiteAdminOnly>
                                 </div>
-                                <button class="btn btn-sm btn-secondary" @onclick="@(() => EditRule(rule))">Edit</button>
-                                <button class="btn btn-sm btn-danger" @onclick="@(() => DeleteRule(rule))">Delete</button>
+                                <button class="btn btn-sm btn-secondary" @onclick="@(() => EditRule(rule))">@(_canConfigure ? "Edit" : "View")</button>
+                                <SiteAdminOnly>
+                                    <button class="btn btn-sm btn-danger" @onclick="@(() => DeleteRule(rule))">Delete</button>
+                                </SiteAdminOnly>
                             </div>
                         </div>
                     </div>
@@ -294,40 +306,59 @@
                 Deploy actions can resume when the agent reconnects.
             </div>
         }
+        @if (!_canConfigure)
+        {
+            <p class="page-description">
+                Only a Site Admin can deploy WAN Steering to the gateway. The status above shows what
+                is running there now.
+            </p>
+        }
         <div class="ws-deploy-buttons">
             @if (_status?.IsRunning == true)
             {
-                <button class="btn btn-primary" @onclick="ReloadConfigAsync" disabled="@(_isDeploying || _siteAgentOffline || IsLicenseRestricted)">
-                    @if (_isDeploying)
-                    {
-                        <span class="spinner spinner-sm"></span>
-                        <span>Deploying...</span>
-                    }
-                    else
-                    {
-                        <span>Deploy Config</span>
-                    }
-                </button>
-                <button class="btn btn-secondary" @onclick="DeployAsync" disabled="@(_isDeploying || _siteAgentOffline || IsLicenseRestricted)">Redeploy</button>
-                <button class="btn btn-secondary" @onclick="StopAsync" disabled="@(_isDeploying || _siteAgentOffline)">Stop</button>
-                <button class="btn btn-danger btn-sm" @onclick="RemoveAsync" disabled="@(_isDeploying || _siteAgentOffline)" data-tooltip="Stop daemon and remove all files from gateway" data-tooltip-hover-only>Remove</button>
+                <SiteAdminOnly>
+                    <button class="btn btn-primary" @onclick="ReloadConfigAsync" disabled="@(_isDeploying || _siteAgentOffline || IsLicenseRestricted)">
+                        @if (_isDeploying)
+                        {
+                            <span class="spinner spinner-sm"></span>
+                            <span>Deploying...</span>
+                        }
+                        else
+                        {
+                            <span>Deploy Config</span>
+                        }
+                    </button>
+                </SiteAdminOnly>
+                <SiteAdminOnly>
+                    <button class="btn btn-secondary" @onclick="DeployAsync" disabled="@(_isDeploying || _siteAgentOffline || IsLicenseRestricted)">Redeploy</button>
+                </SiteAdminOnly>
+                <SiteAdminOnly>
+                    <button class="btn btn-secondary" @onclick="StopAsync" disabled="@(_isDeploying || _siteAgentOffline)">Stop</button>
+                </SiteAdminOnly>
+                <SiteAdminOnly>
+                    <button class="btn btn-danger btn-sm" @onclick="RemoveAsync" disabled="@(_isDeploying || _siteAgentOffline)" data-tooltip="Stop daemon and remove all files from gateway" data-tooltip-hover-only>Remove</button>
+                </SiteAdminOnly>
             }
             else
             {
-                <button class="btn btn-primary" @onclick="DeployAsync" disabled="@(_isDeploying || _siteAgentOffline || IsLicenseRestricted)">
-                    @if (_isDeploying)
-                    {
-                        <span class="spinner spinner-sm"></span>
-                        <span>Deploying...</span>
-                    }
-                    else
-                    {
-                        <span>Deploy</span>
-                    }
-                </button>
+                <SiteAdminOnly>
+                    <button class="btn btn-primary" @onclick="DeployAsync" disabled="@(_isDeploying || _siteAgentOffline || IsLicenseRestricted)">
+                        @if (_isDeploying)
+                        {
+                            <span class="spinner spinner-sm"></span>
+                            <span>Deploying...</span>
+                        }
+                        else
+                        {
+                            <span>Deploy</span>
+                        }
+                    </button>
+                </SiteAdminOnly>
                 @if (_status?.BinaryDeployed == true)
                 {
-                    <button class="btn btn-danger btn-sm" @onclick="RemoveAsync" disabled="@(_isDeploying || _siteAgentOffline)" data-tooltip="Stop daemon and remove all files from gateway" data-tooltip-hover-only>Remove</button>
+                    <SiteAdminOnly>
+                        <button class="btn btn-danger btn-sm" @onclick="RemoveAsync" disabled="@(_isDeploying || _siteAgentOffline)" data-tooltip="Stop daemon and remove all files from gateway" data-tooltip-hover-only>Remove</button>
+                    </SiteAdminOnly>
                 }
             }
         </div>
@@ -532,6 +563,14 @@
 </style>
 
 @code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    /// <summary>
+    /// Steering decides which uplink traffic leaves by, so a wrong rule takes connectivity down
+    /// rather than skewing a measurement. Site Admin, matching the service gates.
+    /// </summary>
+    private bool _canConfigure;
+
     private bool IsLicenseRestricted => !LicenseState.IsSiteOperational(SiteCtx.Slug);
 
     // State
@@ -579,6 +618,9 @@
 
     protected override async Task OnInitializedAsync()
     {
+        _canConfigure = AuthState is null
+            || (await Authz.AuthorizeAsync((await AuthState).User, SiteCtx.Slug, Policies.SiteAdmin)).Succeeded;
+
         PtrState.RefreshCallback = () => RefreshStatusAsync();
         PtrState.NotifyStateChanged = StateHasChanged;
 
@@ -622,10 +664,7 @@
     {
         try
         {
-            await using var db = SiteDb.CreateForSite(SiteCtx.Slug, SiteCtx.IsDefault);
-            _rules = await db.WanSteerTrafficClasses
-                .OrderBy(r => r.SortOrder)
-                .ToListAsync();
+            _rules = await RuleService.ListAsync();
         }
         catch (Exception ex)
         {
@@ -787,32 +826,7 @@
 
         try
         {
-            await using var db = SiteDb.CreateForSite(SiteCtx.Slug, SiteCtx.IsDefault);
-
-            if (_editingRuleId == 0)
-            {
-                _editForm.SortOrder = _rules.Count;
-                db.WanSteerTrafficClasses.Add(_editForm);
-            }
-            else
-            {
-                var existing = await db.WanSteerTrafficClasses.FindAsync(_editForm.Id);
-                if (existing != null)
-                {
-                    existing.Name = _editForm.Name;
-                    existing.Enabled = _editForm.Enabled;
-                    existing.Probability = _editForm.Probability;
-                    existing.TargetWanKey = _editForm.TargetWanKey;
-                    existing.SrcCidrsJson = _editForm.SrcCidrsJson;
-                    existing.SrcMacsJson = _editForm.SrcMacsJson;
-                    existing.DstCidrsJson = _editForm.DstCidrsJson;
-                    existing.Protocol = _editForm.Protocol;
-                    existing.SrcPortsJson = _editForm.SrcPortsJson;
-                    existing.DstPortsJson = _editForm.DstPortsJson;
-                }
-            }
-
-            await db.SaveChangesAsync();
+            await RuleService.SaveAsync(_editForm);
             _hasUndeployedChanges = true;
             await LoadRulesAsync();
             _editingRuleId = null;
@@ -839,19 +853,7 @@
     {
         try
         {
-            await using var db = SiteDb.CreateForSite(SiteCtx.Slug, SiteCtx.IsDefault);
-            var entity = await db.WanSteerTrafficClasses.FindAsync(rule.Id);
-            if (entity != null)
-            {
-                db.WanSteerTrafficClasses.Remove(entity);
-                await db.SaveChangesAsync();
-
-                // Re-number sort orders
-                var remaining = await db.WanSteerTrafficClasses.OrderBy(r => r.SortOrder).ToListAsync();
-                for (int i = 0; i < remaining.Count; i++)
-                    remaining[i].SortOrder = i;
-                await db.SaveChangesAsync();
-            }
+            await RuleService.DeleteAsync(rule.Id);
 
             _hasUndeployedChanges = true;
             await LoadRulesAsync();
@@ -866,14 +868,8 @@
     {
         try
         {
-            await using var db = SiteDb.CreateForSite(SiteCtx.Slug, SiteCtx.IsDefault);
-            var entity = await db.WanSteerTrafficClasses.FindAsync(rule.Id);
-            if (entity != null)
-            {
-                entity.Enabled = enabled;
-                await db.SaveChangesAsync();
-                _hasUndeployedChanges = true;
-            }
+            await RuleService.SetEnabledAsync(rule.Id, enabled);
+            _hasUndeployedChanges = true;
             rule.Enabled = enabled;
         }
         catch (Exception ex)
@@ -902,15 +898,8 @@
     {
         try
         {
-            await using var db = SiteDb.CreateForSite(SiteCtx.Slug, SiteCtx.IsDefault);
-            var entityA = await db.WanSteerTrafficClasses.FindAsync(a.Id);
-            var entityB = await db.WanSteerTrafficClasses.FindAsync(b.Id);
-            if (entityA != null && entityB != null)
-            {
-                (entityA.SortOrder, entityB.SortOrder) = (entityB.SortOrder, entityA.SortOrder);
-                await db.SaveChangesAsync();
-                _hasUndeployedChanges = true;
-            }
+            await RuleService.SwapSortOrderAsync(a.Id, b.Id);
+            _hasUndeployedChanges = true;
             await LoadRulesAsync();
         }
         catch (Exception ex)
@@ -1212,6 +1201,10 @@
     {
         <div class="ws-edit-card">
             <div class="card-body">
+                @* Below Site Admin, Edit reads View and this form is how the rule is read. The fields are
+                   disabled as a set so it cannot invite an edit that Save would refuse - one wrapper, so a
+                   field added later is covered without anyone remembering to. *@
+                <fieldset class="ws-edit-fields" disabled="@(!_canConfigure)">
                 <div class="form-group">
                     <label class="form-label">Name</label>
                     <input type="text" class="form-control" @bind="_editForm.Name" placeholder="e.g., Steam Downloads" />
@@ -1291,9 +1284,18 @@
                     </div>
                 }
 
+                </fieldset>
+
                 <div class="ws-edit-actions">
-                    <button class="btn btn-primary btn-sm" @onclick="SaveRule">Save</button>
-                    <button class="btn btn-secondary btn-sm" @onclick="CancelEdit">Cancel</button>
+                    @if (_canConfigure)
+                    {
+                        <button class="btn btn-primary btn-sm" @onclick="SaveRule">Save</button>
+                        <button class="btn btn-secondary btn-sm" @onclick="CancelEdit">Cancel</button>
+                    }
+                    else
+                    {
+                        <button class="btn btn-secondary btn-sm" @onclick="CancelEdit">Close</button>
+                    }
                 </div>
             </div>
         </div>

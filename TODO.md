@@ -1,5 +1,26 @@
 # Network Optimizer - TODO / Future Enhancements
 
+## SSH key placement on console gateways (udm-boot)
+
+TABLED, and quite likely overtaken by UniFi shipping key support for console SSH themselves.
+
+On a Cloud Gateway the gateway is also the console, so UniFi Network's Device SSH Settings does not
+reach its root SSH and the public key has to be placed by hand once. We could close that loop the way
+Adaptive SQM, WAN Steering and Performance Tweaks already do: use the configured username and password
+to install a udm-boot script that re-places the key, so it survives firmware upgrades.
+
+Why it is tabled rather than built:
+
+- It does not remove the bootstrap step, only the repeat. Placing the script still needs working
+  password auth, so "SSH in once" happens either way. The win is narrower than it looks.
+- It is a new gateway deployment target, with its own deploy/undeploy lifecycle and a lockout failure
+  mode, on top of a feature that is complete without it.
+
+**Settle this first, it sizes the whole item:** whether `/root/.ssh/authorized_keys` actually survives
+a UniFi OS firmware upgrade. `/etc/systemd/system` does, which is why udm-boot works at all. If
+authorized_keys persists too, this is nearly moot and should be dropped. If it does not, it is worth
+doing whatever UniFi ship. Checkable read-only on any console gateway.
+
 ## Channel Recommendation: Engine Follow-ups (recalibration-sensitive)
 
 Everything below is TABLED - none are release-critical. These items shift the recommendation
@@ -378,8 +399,12 @@ Suggested order: congestion / path-shift / outage navigation first (cheap, consi
 - ISP Health currently grades a single (primary) WAN. Several inputs are read globally rather than scoped to the WAN being scored:
   - **Upstream ancestry / `hopOrderKnown`** (`IspHealthService.ComputeAsync`): `UpstreamDiscoveries` are queried across all WANs. Rows carry `WanInterface`, and the tracer persists per-WAN, but the scorer reads them globally - so a second WAN's discovery data can flip the jitter-absolve gate (and the routes-through witnesses) for a WAN that has no ancestry of its own. Scope the discovery query and `hopOrderKnown` by `WanInterface`.
   - **Targets / series / rates** are likewise resolved for the primary WAN only; per-WAN scoring needs each WAN's own targets, latency series, throughput, and expected speeds.
+  - **Throughput and expected speeds can pair the wrong link** (`ResolveWanCounterAsync`): counters resolve to the CONFIGURED primary's `CounterIfName` but fall back to the ACTIVE uplink (`DiscoveredDevice.WanInterfaceNames`), while `ResolveExpectedSpeedsAsync` always returns the configured primary's plan speeds (falling back to `SqmWanConfigurations` WAN1). On the fallback path that divides active-WAN bytes by the primary WAN's plan: a 100 Mbps LTE failover against a 1 Gbps fiber plan reads ~10% utilization. The load figure is not cosmetic - `avgLoad` sets the Packet Loss ceiling quadratically (`ScorePacketLoss`), `LoadClassifier` splits loaded from idle samples, and `CongestionTopology.Load` drives `LoadCoincident` - so understated load grades a saturated link against the strictest (idle) loss ceiling.
+  - **Load context goes dark during failover** even on the non-fallback path: probes traverse the secondary WAN while the primary's counters read ~0, so the entire window classifies as idle. Load context has to key off the WAN the probes actually used, not the configured primary.
+  - **The usage fingerprint is the one input that SHOULD span all WANs** (`BuildUsageFingerprintAsync`): it asks "was the user doing anything in this hour", not "how loaded is the link being graded". It is primary-only today, so hours carried by a secondary read idle, understating those hour bins and softening outage `UsageWeight` toward `UsageWeightFloor`. Give it its own all-WAN query when the rest goes per-WAN.
+  - **Latent trap:** `MonitoringInfluxClient.QueryGatewayWanRatesAsync` sums whatever interface list it is handed (`group([_time,_field]) |> sum()`). Nothing sums today because every ISP Health caller passes exactly one name - `GetWanInterfaceNames` returns a single active-uplink counter interface despite the plural name - but if that ever widens, every load computation silently becomes total-WAN over primary-WAN-plan with no error. `Monitoring.razor` `GetWanRates` carries a "do not widen this" comment; the ISP Health resolver has no equivalent guard.
 - Plan: grade ISP Health per-WAN (one report per active WAN), keyed by `WanInterface` end-to-end, and surface a per-WAN selector in the UI. Until then, secondary WANs are not separately graded.
-- **Relevant code:** `IspHealthService.ComputeAsync` (TODO marker at the discoveries query), `UpstreamTracerService.PersistHopOrderAsync` (already per-WAN), `MonitoringPathView` (already WAN-scoped).
+- **Relevant code:** `IspHealthService.ComputeAsync` (TODO marker at the discoveries query), `UpstreamTracerService.PersistHopOrderAsync` (already per-WAN), `MonitoringPathView` (already WAN-scoped), `IspHealthService.ResolveWanCounterAsync` / `QueryWanRatesAsync` / `BuildUsageFingerprintAsync` / `ResolveExpectedSpeedsAsync`, `IspHealthScorer.ComputeAverageLoad` + `ScorePacketLoss`, `MonitoringInfluxClient.QueryGatewayWanRatesAsync`.
 
 ### Segmented Loaded Latency: Access (ISP) vs Transit
 - The loaded-latency factor produces a single "+N ms under load" figure today. With hop ordering known (`hopOrderKnown` + `ancestorIpsByTargetId`), the loaded rise can be **attributed by path segment**: the elevation on hops inside the ISP's access ASN vs. the *additional* elevation that only appears on hops **beyond** that ASN (transit/peering). The transit-segment value is the corroborated loaded delta at downstream transit hops minus the delta already present at the ISP-ASN boundary.
@@ -956,3 +981,97 @@ only on `UniFiApiClient`).
   - *Perf (profile, don't assume):* the per-AP fallback recomputes `ScoreAssignment` per candidate and
     `ScanReadingForScoring` loops siblings for current-channel reads - both negligible at small n but
     worth checking on large sites before they bite.
+
+## Retention: alerts and audit events are never pruned
+
+The Application Settings card carried an "Alert Retention (days)" field wired to a `SaveAppSettings`
+stub that did nothing, so the value never persisted. The field and its dead Save button were removed
+rather than made to persist a number nothing reads - storing it would have turned a visibly broken
+control into an invisibly broken one.
+
+Nothing in the solution consumes a retention value today:
+- `IAlertRepository` has no delete/prune method at all - alert history grows without bound.
+- `AlertEngine.ClearOldAlerts(TimeSpan)` exists in Monitoring with **zero callers**.
+- `IAuditRepository.DeleteOldAuditsAsync` exists with **zero callers**, so the audit retention
+  design doc 05 specifies (365 days + a row cap, with `audit.pruned` itself audited) is unimplemented.
+
+The real fix, as one piece of work:
+- [ ] Add pruning to `IAlertRepository` and run it from a background service, mirroring how the
+  monitoring collectors are hosted. Per-site DBs mean the job has to walk every site, not just main.
+- [ ] Implement audit pruning to doc 05: time-based default 365d plus a row-count cap, emitting an
+  `audit.pruned` event with count and range.
+- [ ] Reinstate the settings UI once something consumes the values, saving through the gated
+  `ISystemSettingsAdmin` so the change is Admin-only and audited like every other settings write.
+
+
+## Identity review leftovers
+
+Three findings from the security review of this branch, accepted rather than fixed. Each was traced
+to a concrete failure and then judged not worth the change it would take.
+
+### Two admins disabling each other at the same instant
+
+`SetEnabledAsync` counts the enabled admins, then writes. The count now comes from a fresh
+no-tracking context (it used to read stale tracked entities, which was the real bug), but the check
+and the write are still two steps: two admins disabling each other within the same instant can both
+see two admins, both pass, and leave none.
+
+Not fixed because the two halves go through different contexts - the count through the DbContext
+factory, the write through `UserManager` on the scoped one. Making them atomic means either a
+transaction spanning both, or dropping to a conditional `ExecuteUpdateAsync`, which bypasses
+`UserManager` and loses the concurrency stamp, the security-stamp rotation and the revocation notify
+that the same method also performs.
+
+The outcome is also no longer terminal: break-glass re-enables the built-in `admin` on a
+`NETOPT_RECOVERY=1` boot, so the worst case is a restart with an env var rather than a rebuilt
+install. Revisit if the identity tables ever move behind a repository that owns both operations.
+
+### Encrypted SAML assertions are not implemented
+
+`FederationProvider.WantAssertionsEncrypted` and `SamlDecryptionCertProtected` exist as columns and
+nothing else - no UI, no reader, no decryption certificate wired into the SAML configuration. Nothing
+misleading is on screen, because neither is exposed; the gap is that design doc 03 lists encrypted
+assertions among the SAML features as though they ship.
+
+- [ ] Either implement them (decryption certificate upload, wire it into `Saml2Configuration`, and
+  enforce the flag by refusing an unencrypted assertion when it is set), or drop the columns and
+  correct doc 03. Do not enforce the flag alone: with no decryption certificate the library cannot
+  read an encrypted assertion, so enforcement without the rest of the feature fails every login.
+
+### SecureContext reads a forwarded header directly
+
+`SecureContext.IsSecure` reads `X-Forwarded-Proto` off the request. `CanonicalOrigin` documents why
+it deliberately does NOT do that - the header is attacker-supplied unless `UseForwardedHeaders` plus
+`TRUSTED_PROXIES` has already rewritten `Request.Scheme`.
+
+Low, because the only consumer decides whether to offer the passkey UI, and the browser independently
+refuses a WebAuthn ceremony in a non-secure context - so spoofing the header buys an attacker a button
+that then fails. It becomes real the moment `IsSecure` is used for anything the browser does not
+separately gate.
+
+- [ ] Resolve the scheme through `context.Request.Scheme` the way `CanonicalOrigin` does.
+
+### Guided tours are not aware of who is taking them
+
+Now that roles and per-site access exist, two assumptions in the tour engine no longer hold. Neither
+is a regression - the engine predates RBAC - but both are wrong for any install with more than the
+one built-in account.
+
+**Steps are not gated by role or scope.** `TourService` consults `SiteContextService` for the
+`gateway-ssh` / `multi-site` / `has-agent` predicates and for rewriting `?site=`, and that is all the
+context it has. There is no role check and no default-site check, so a step anchored on Settings -
+Identity or Settings - Audit Log is offered to a Viewer, and to a Site Admin standing on a non-default
+site, who cannot reach either. They land on a page that refuses them, mid-tour.
+
+**Tour state is install-wide, not per user.** `TourStateService` reads and writes the single
+`AdminSettings` row (`TourOffers`, plus `LastSeenAppVersion` / `FirstSeenVersion` stamped by
+`TourStartupService`). So the first account to be offered a tour consumes it for everyone, one user's
+Later defers it for the whole install, and a new user added later never sees anything.
+
+- [ ] Add role/scope predicates so a step can declare what it needs (`global-admin`, `site-admin`,
+  `default-site` are the ones the current candidate steps want) and resolve them from `ICallerContext`
+  the way the existing predicates resolve from site state. Until then, mark any Admin-only or
+  default-site-only step `"optional": true` so a missing target skips rather than breaks.
+- [ ] Move the offer/defer state per user, keeping the install-level version stamps where they are -
+  `FirstSeenVersion` is a fact about the install, but "has this person been offered 2.5.0" is a fact
+  about the person.

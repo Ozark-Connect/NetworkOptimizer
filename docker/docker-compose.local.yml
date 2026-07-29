@@ -33,6 +33,9 @@ services:
       - HOST_NAME=${HOST_NAME:-}
       # Reverse proxy hostname (e.g., optimizer.example.com) - overrides HOST_NAME for API URLs
       - REVERSE_PROXIED_HOST_NAME=${REVERSE_PROXIED_HOST_NAME:-}
+      - TRUSTED_PROXIES=${TRUSTED_PROXIES:-}
+      - TRUSTED_PROXY_HOPS=${TRUSTED_PROXY_HOPS:-}
+      - TRUST_CF_CONNECTING_IP=${TRUST_CF_CONNECTING_IP:-}
       # OpenSpeedTest configuration (for UI display and CORS)
       - OPENSPEEDTEST_PORT=${OPENSPEEDTEST_PORT:-3005}
       - OPENSPEEDTEST_HOST=${OPENSPEEDTEST_HOST:-}
@@ -72,6 +75,9 @@ services:
       - OPENSPEEDTEST_HTTPS_PORT=${OPENSPEEDTEST_HTTPS_PORT:-443}
       # For result reporting URL
       - REVERSE_PROXIED_HOST_NAME=${REVERSE_PROXIED_HOST_NAME:-}
+      - TRUSTED_PROXIES=${TRUSTED_PROXIES:-}
+      - TRUSTED_PROXY_HOPS=${TRUSTED_PROXY_HOPS:-}
+      - TRUST_CF_CONNECTING_IP=${TRUST_CF_CONNECTING_IP:-}
     logging:
       driver: "json-file"
       options:

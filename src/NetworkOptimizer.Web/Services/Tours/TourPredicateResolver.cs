@@ -1,4 +1,6 @@
+using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Storage.Models;
+using NetworkOptimizer.Storage.Services;
 
 namespace NetworkOptimizer.Web.Services.Tours;
 
@@ -16,20 +18,31 @@ public class TourPredicateResolver
     public const string MultiSite = "multi-site";
     public const string HasAgent = "has-agent";
 
+    /// <summary>
+    /// The site has ISP Health to show: at least one enabled Access ISP target, which is what the
+    /// ISP Network card lists. Without it the tab has no report and Monitoring opens on Setup, so a
+    /// step needing it must be filtered out BEFORE the driver navigates - "optional" only skips the
+    /// step once you have already been taken there.
+    /// </summary>
+    public const string IspHealth = "isp-health";
+
     private readonly SiteManagementService _siteManagement;
     private readonly GatewaySshRegistry _gatewaySshRegistry;
     private readonly AgentEnrollmentService _agentEnrollment;
+    private readonly SiteDbContextFactory _siteDbFactory;
     private readonly ILogger<TourPredicateResolver> _logger;
 
     public TourPredicateResolver(
         SiteManagementService siteManagement,
         GatewaySshRegistry gatewaySshRegistry,
         AgentEnrollmentService agentEnrollment,
+        SiteDbContextFactory siteDbFactory,
         ILogger<TourPredicateResolver> logger)
     {
         _siteManagement = siteManagement;
         _gatewaySshRegistry = gatewaySshRegistry;
         _agentEnrollment = agentEnrollment;
+        _siteDbFactory = siteDbFactory;
         _logger = logger;
     }
 
@@ -94,8 +107,10 @@ public class TourPredicateResolver
             _logger.LogDebug(ex, "Tour predicate {Predicate} evaluation failed", HasAgent);
         }
 
-        // Per-site predicates.
+        // Per-site predicates. Each is evaluated on its own, so one throwing cannot take the
+        // others down with it - a site whose database is unreachable simply qualifies for neither.
         var gatewaySshSites = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var ispHealthSites = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var site in sites)
         {
             try
@@ -107,9 +122,21 @@ public class TourPredicateResolver
             {
                 _logger.LogDebug(ex, "Tour predicate {Predicate} evaluation failed for site {Slug}", GatewaySsh, site.Slug);
             }
+
+            try
+            {
+                if (await HasIspHealthAsync(site.Slug, site.IsDefault))
+                    ispHealthSites.Add(site.Slug);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Tour predicate {Predicate} evaluation failed for site {Slug}", IspHealth, site.Slug);
+            }
         }
         if (gatewaySshSites.Count > 0)
             qualifying[GatewaySsh] = gatewaySshSites;
+        if (ispHealthSites.Count > 0)
+            qualifying[IspHealth] = ispHealthSites;
 
         return new PredicateContext
         {
@@ -123,5 +150,17 @@ public class TourPredicateResolver
     {
         var settings = await _gatewaySshRegistry.GetFor(slug).GetSettingsAsync();
         return settings != null && !string.IsNullOrEmpty(settings.Host) && settings.HasCredentials && settings.Enabled;
+    }
+
+    /// <summary>
+    /// Whether the site has an enabled Access ISP target. Deliberately a row check rather than
+    /// asking IspHealthService: a report is computed on demand and computing one to decide whether
+    /// to offer a tour step would be an expensive answer to a cheap question.
+    /// </summary>
+    private async Task<bool> HasIspHealthAsync(string slug, bool isDefault)
+    {
+        using var db = _siteDbFactory.CreateForSite(slug, isDefault);
+        return await db.MonitoringTargets.AsNoTracking()
+            .AnyAsync(t => t.Enabled && t.TargetType == MonitoringTargetType.AccessIsp);
     }
 }

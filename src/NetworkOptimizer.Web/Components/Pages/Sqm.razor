@@ -1,7 +1,8 @@
 @page "/sqm"
+@attribute [Authorize(Policy = Policies.RequireViewer)]
 @implements IDisposable
 @inject ISqmService SqmService
-@inject SqmDeploymentService DeploymentService
+@inject ISqmDeploymentService DeploymentService
 @inject UniFiConnectionService ConnectionService
 @inject NetworkOptimizer.Storage.Interfaces.ISpeedTestRepository SpeedTestRepository
 @inject TcMonitorClient SqmMonitorClient
@@ -11,6 +12,8 @@
 @inject IJSRuntime JS
 @inject ILogger<Sqm> Logger
 @inject PullToRefreshState PtrState
+@inject Microsoft.AspNetCore.Authorization.IAuthorizationService Authz
+@inject Microsoft.AspNetCore.Components.Authorization.AuthenticationStateProvider AuthState
 @rendermode InteractiveServer
 @using SqmConfig = NetworkOptimizer.Sqm.Models.SqmConfiguration
 @using NetworkOptimizer.Sqm.Models
@@ -140,17 +143,19 @@
                     {
                         <div class="alert alert-warning" style="margin-top: 1rem;">
                             <strong>UDM Boot Required:</strong> Boot scripts in <code>/data/on_boot.d/</code> will not persist after firmware upgrades or run on boot without udm-boot installed.
-                            <button class="btn btn-sm btn-primary" style="margin-left: 0.5rem;" @onclick="InstallUdmBoot" disabled="@isInstallingUdmBoot">
-                                @if (isInstallingUdmBoot)
-                                {
-                                    <span class="spinner-border spinner-border-sm"></span>
-                                    <span>Installing...</span>
-                                }
-                                else
-                                {
-                                    <span>Install UDM Boot</span>
-                                }
-                            </button>
+                            <SiteAdminOnly>
+                                <button class="btn btn-sm btn-primary" style="margin-left: 0.5rem;" @onclick="InstallUdmBoot" disabled="@isInstallingUdmBoot">
+                                    @if (isInstallingUdmBoot)
+                                    {
+                                        <span class="spinner-border spinner-border-sm"></span>
+                                        <span>Installing...</span>
+                                    }
+                                    else
+                                    {
+                                        <span>Install UDM Boot</span>
+                                    }
+                                </button>
+                            </SiteAdminOnly>
                         </div>
                     }
                 }
@@ -419,6 +424,9 @@
     }
 
     <!-- Manual SQM Adjustment (show if deployed OR monitor has active WANs) -->
+    @* Running an adjustment is an Operator action, so the whole card is hidden below that rather than
+       showing a Viewer a card whose only control refuses them. *@
+    <SiteOperatorOnly>
     @if (deploymentStatus?.IsDeployed == true || (sqmMonitorData != null && (sqmMonitorData.Wan1?.Active == true || sqmMonitorData.Wan2?.Active == true)))
     {
         <div class="card">
@@ -436,31 +444,31 @@
                 <div class="adjustment-buttons">
                     @if (wan1Config.Enabled && IsWanActiveInMonitor(wan1Config.Name))
                     {
-                        <button class="btn btn-primary" @onclick="() => TriggerSqmAdjustment(wan1Config.Name)" disabled="@IsAnySpeedtestRunning">
-                            @if (isRunningAdjustment && adjustmentWan == wan1Config.Name)
-                            {
-                                <span class="spinner-border spinner-border-sm"></span>
-                                <span>Running...</span>
-                            }
-                            else
-                            {
-                                <span>Adjust @wan1Config.Name</span>
-                            }
-                        </button>
+                            <button class="btn btn-primary" @onclick="() => TriggerSqmAdjustment(wan1Config.Name)" disabled="@IsAnySpeedtestRunning">
+                                @if (isRunningAdjustment && adjustmentWan == wan1Config.Name)
+                                {
+                                    <span class="spinner-border spinner-border-sm"></span>
+                                    <span>Running...</span>
+                                }
+                                else
+                                {
+                                    <span>Adjust @wan1Config.Name</span>
+                                }
+                            </button>
                     }
                     @if (wan2Config.Enabled && IsWanActiveInMonitor(wan2Config.Name))
                     {
-                        <button class="btn btn-primary" @onclick="() => TriggerSqmAdjustment(wan2Config.Name)" disabled="@IsAnySpeedtestRunning">
-                            @if (isRunningAdjustment && adjustmentWan == wan2Config.Name)
-                            {
-                                <span class="spinner-border spinner-border-sm"></span>
-                                <span>Running...</span>
-                            }
-                            else
-                            {
-                                <span>Adjust @wan2Config.Name</span>
-                            }
-                        </button>
+                            <button class="btn btn-primary" @onclick="() => TriggerSqmAdjustment(wan2Config.Name)" disabled="@IsAnySpeedtestRunning">
+                                @if (isRunningAdjustment && adjustmentWan == wan2Config.Name)
+                                {
+                                    <span class="spinner-border spinner-border-sm"></span>
+                                    <span>Running...</span>
+                                }
+                                else
+                                {
+                                    <span>Adjust @wan2Config.Name</span>
+                                }
+                            </button>
                     }
                 </div>
                 @if ((HasFailedSpeedtest || HasLastError) && string.IsNullOrEmpty(adjustmentMessage))
@@ -469,7 +477,7 @@
                         <strong>Warning:</strong> @(HasLastError
                             ? "One or more WAN connections reported an error. See the error details on the WAN cards above."
                             : "One or more WAN connections had a failed speedtest (measured 0 Mbps). This usually indicates the speedtest CLI couldn't connect or timed out.")
-                        <a href="./sqm#check-logs">Check the logs</a> in the Deployment & Debugging section below for details.
+                        <a href="./sqm#check-logs">Check the logs</a> in the Debugging section below for details.
                     </div>
                 }
                 @if (!string.IsNullOrEmpty(adjustmentMessage))
@@ -481,6 +489,7 @@
             </div>
         </div>
     }
+    </SiteOperatorOnly>
 
     <!-- Primary WAN Configuration (only show if at least one WAN has Smart Queues enabled) -->
     @if (sqmEligibleWans.Any())
@@ -492,7 +501,7 @@
             </div>
             <div class="card-header-right">
                 <label class="toggle-label" @onclick:stopPropagation>
-                    <input type="checkbox" @bind="wan1Config.Enabled" @bind:after="() => OnEnabledChanged(wan1Config, wan1AvailableInterfaces)" />
+                    <input type="checkbox" @bind="wan1Config.Enabled" @bind:after="() => OnEnabledChanged(wan1Config, wan1AvailableInterfaces)" disabled="@(!_canOperate)" />
                     <span>Enable Adaptive SQM</span>
                 </label>
                 <span class="issue-type-chevron">@(_wan1Collapsed ? "▼" : "▲")</span>
@@ -500,7 +509,7 @@
         </div>
         <div class="expand-wrapper @(!_wan1Collapsed ? "expanded" : "")">
             <div class="expand-content">
-                <div class="card-body @(!wan1Config.Enabled ? "disabled-section" : "")">
+                <div class="card-body @(!wan1Config.Enabled || !_canOperate ? "disabled-section" : "")">
             <div class="form-row">
                 <div class="form-group">
                     <label class="form-label">Connection Name</label>
@@ -676,7 +685,7 @@
             </div>
             <div class="card-header-right">
                 <label class="toggle-label" @onclick:stopPropagation>
-                    <input type="checkbox" @bind="wan2Config.Enabled" @bind:after="() => OnEnabledChanged(wan2Config, wan2AvailableInterfaces)" />
+                    <input type="checkbox" @bind="wan2Config.Enabled" @bind:after="() => OnEnabledChanged(wan2Config, wan2AvailableInterfaces)" disabled="@(!_canOperate)" />
                     <span>Enable Adaptive SQM</span>
                 </label>
                 <span class="issue-type-chevron">@(_wan2Collapsed ? "▼" : "▲")</span>
@@ -684,7 +693,7 @@
         </div>
         <div class="expand-wrapper @(!_wan2Collapsed ? "expanded" : "")">
             <div class="expand-content">
-                <div class="card-body @(!wan2Config.Enabled ? "disabled-section" : "")">
+                <div class="card-body @(!wan2Config.Enabled || !_canOperate ? "disabled-section" : "")">
             <div class="form-row">
                 <div class="form-group">
                     <label class="form-label">Connection Name</label>
@@ -849,11 +858,14 @@
     }
 
     <!-- Deployment Actions (show if WANs available OR scripts are deployed but need cleanup) -->
+    @* Deployment is Operator, reading logs is Viewer, so they are separate cards rather than one card
+       with mixed gating inside it. A Viewer sees only Debugging, below. *@
+    <SiteOperatorOnly>
     @if (sqmEligibleWans.Any() || deploymentStatus?.IsDeployed == true)
     {
     <div class="card">
         <div class="card-header">
-            <h2 class="card-title">Deployment & Debugging</h2>
+            <h2 class="card-title">Deployment</h2>
         </div>
         <div class="card-body">
             @if (!sqmEligibleWans.Any() && deploymentStatus?.IsDeployed == true)
@@ -864,17 +876,19 @@
                     The scripts and scheduled tasks will not function correctly. You should either re-enable Smart Queues in UniFi, or remove the deployed scripts.
                 </div>
                 <div class="action-buttons">
-                    <button class="btn btn-danger" @onclick="RemoveSqm" disabled="@isDeploying">
-                        @if (isDeploying)
-                        {
-                            <span class="spinner-border spinner-border-sm"></span>
-                            <span>Removing...</span>
-                        }
-                        else
-                        {
-                            <span>Remove Adaptive SQM</span>
-                        }
-                    </button>
+                    <SiteAdminOnly>
+                        <button class="btn btn-danger" @onclick="RemoveSqm" disabled="@isDeploying">
+                            @if (isDeploying)
+                            {
+                                <span class="spinner-border spinner-border-sm"></span>
+                                <span>Removing...</span>
+                            }
+                            else
+                            {
+                                <span>Remove Adaptive SQM</span>
+                            }
+                        </button>
+                    </SiteAdminOnly>
                 </div>
             }
             else
@@ -900,26 +914,35 @@
                     </div>
                 }
 
+                @* Deploying settings, including enabling or disabling a WAN, is Operator: it adjusts a
+                   running system and is undone by deploying again. Removing tears the feature off the
+                   gateway and stays Admin. *@
                 <div class="action-buttons">
-                    <button class="btn btn-primary" @onclick="DeploySqm" disabled="@(isDeploying || IsLicenseRestricted)">
-                        @if (isDeploying)
-                        {
-                            <span class="spinner-border spinner-border-sm"></span>
-                            <span>Deploying...</span>
-                        }
-                        else
-                        {
-                            <span>@(deploymentStatus?.IsDeployed == true ? "Deploy Settings" : "Deploy SQM Scripts")</span>
-                        }
-                    </button>
-                    <span title="@(deploymentStatus?.IsDeployed != true ? "Deploy SQM scripts first" : "")">
-                        <button class="btn btn-secondary" @onclick="DeployTcMonitor" disabled="@(isDeploying || deploymentStatus?.IsDeployed != true || IsLicenseRestricted)">
-                            Deploy SQM Monitor Only
+                    <SiteOperatorOnly>
+                        <button class="btn btn-primary" @onclick="DeploySqm" disabled="@(isDeploying || IsLicenseRestricted)">
+                            @if (isDeploying)
+                            {
+                                <span class="spinner-border spinner-border-sm"></span>
+                                <span>Deploying...</span>
+                            }
+                            else
+                            {
+                                <span>@(deploymentStatus?.IsDeployed == true ? "Deploy Settings" : "Deploy SQM Scripts")</span>
+                            }
                         </button>
+                    </SiteOperatorOnly>
+                    <span title="@(deploymentStatus?.IsDeployed != true ? "Deploy SQM scripts first" : "")">
+                        <SiteOperatorOnly>
+                            <button class="btn btn-secondary" @onclick="DeployTcMonitor" disabled="@(isDeploying || deploymentStatus?.IsDeployed != true || IsLicenseRestricted)">
+                                Deploy SQM Monitor Only
+                            </button>
+                        </SiteOperatorOnly>
                     </span>
-                    <button class="btn btn-danger" @onclick="RemoveSqm" disabled="@(isDeploying || deploymentStatus?.IsDeployed != true)">
-                        Remove Adaptive SQM
-                    </button>
+                    <SiteAdminOnly>
+                        <button class="btn btn-danger" @onclick="RemoveSqm" disabled="@(isDeploying || deploymentStatus?.IsDeployed != true)">
+                            Remove Adaptive SQM
+                        </button>
+                    </SiteAdminOnly>
                 </div>
 
             }
@@ -942,10 +965,21 @@
                 </div>
             }
 
-            @if (deploymentStatus?.IsDeployed == true)
-            {
-                <div class="check-logs-section" style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--border-color);" id="check-logs">
-                    <h4 style="margin-bottom: 0.75rem;">Check SQM Logs</h4>
+        </div>
+    </div>
+    }
+    </SiteOperatorOnly>
+
+    @* Debugging: reading SQM logs is already Viewer at the service layer, so this card is not gated.
+       It is the only card on this page a Viewer sees. *@
+    @if (deploymentStatus?.IsDeployed == true)
+    {
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">Debugging</h2>
+            </div>
+            <div class="card-body">
+                <div class="check-logs-section" id="check-logs">
                     <div class="action-buttons">
                         @if (wan1Config.Enabled && !string.IsNullOrEmpty(wan1Config.Name))
                         {
@@ -977,17 +1011,16 @@
                         }
                     </div>
                 </div>
-            }
 
-            @if (!string.IsNullOrEmpty(wanLogOutput))
-            {
-                <div class="deployment-log" style="margin-top: 1rem;">
-                    <h4>@wanLogTitle</h4>
-                    <pre class="log-output">@wanLogOutput</pre>
-                </div>
-            }
+                @if (!string.IsNullOrEmpty(wanLogOutput))
+                {
+                    <div class="deployment-log" style="margin-top: 1rem;">
+                        <h4>@wanLogTitle</h4>
+                        <pre class="log-output">@wanLogOutput</pre>
+                    </div>
+                }
+            </div>
         </div>
-    </div>
     }
 
 </div>
@@ -1686,6 +1719,9 @@
     // Auto-refresh timer (1 minute interval)
     private System.Threading.Timer? _refreshTimer;
 
+    /// <summary>True when the caller may operate this site, i.e. may change and deploy SQM settings.</summary>
+    private bool _canOperate;
+
     protected override void OnInitialized()
     {
         UpdateCalculatedSpeeds(wan1Config);
@@ -1730,6 +1766,12 @@
     {
         if (firstRender)
         {
+            // The WAN forms save on change rather than behind a Save button, so a caller who cannot
+            // deploy must not be given editable fields - every edit would fire a save the gate
+            // refuses. Read-only rather than hidden: the current shaping settings are worth seeing.
+            var user = (await AuthState.GetAuthenticationStateAsync()).User;
+            _canOperate = (await Authz.AuthorizeAsync(user, SiteContext.Slug, Policies.SiteOperator)).Succeeded;
+
             // Load saved WAN configs from database
             await LoadSavedConfigsAsync();
             StateHasChanged();

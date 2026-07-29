@@ -1,4 +1,5 @@
 @page "/network-tools"
+@attribute [Authorize(Policy = Policies.RequireViewer)]
 @rendermode InteractiveServer
 @implements IDisposable
 @using NetworkOptimizer.Web.Services
@@ -7,6 +8,10 @@
 @using NetworkOptimizer.Core.Enums
 @using NetworkOptimizer.UniFi
 @using NetworkOptimizer.UniFi.Models
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using NetworkOptimizer.Web.Services.Authorization
+@inject IAuthorizationService Authz
 @inject NetworkOptimizer.Monitoring.Probes.LocalProbeExecutor LocalProbe
 @inject ProbeExecutorFactory ExecutorFactory
 @inject UniFiConnectionService ConnectionService
@@ -68,9 +73,15 @@
             else if (_sshCredentialsMissing)
             {
                 <div class="alert alert-warning">
-                    Network Optimizer doesn't have working SSH credentials for this device
-                    yet. Configure them in <a href="/settings#device-ssh">Settings &gt; Device SSH</a>
-                    to run probes from this vantage.
+                    Network Optimizer doesn't have working SSH credentials for this device yet.
+                    @if (_canConfigure)
+                    {
+                        <text>Configure them in <a href="/settings#device-ssh">Settings &gt; Device SSH</a> to run probes from this vantage.</text>
+                    }
+                    else
+                    {
+                        <text>A site administrator sets those up before probes can run from this vantage.</text>
+                    }
                 </div>
             }
         </div>
@@ -268,7 +279,14 @@
             {
                 <div class="alert alert-warning">
                     Gateway SSH isn't configured, so Network Optimizer can't read these.
-                    Set it up in <a href="/settings#gateway-ssh">Settings &gt; Gateway SSH</a>.
+                    @if (_canConfigure)
+                    {
+                        <text>Set it up in <a href="/settings#gateway-ssh">Settings &gt; Gateway SSH</a>.</text>
+                    }
+                    else
+                    {
+                        <text>A site administrator sets that up.</text>
+                    }
                 </div>
             }
 
@@ -494,6 +512,14 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
 }
 
 @code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    /// <summary>
+    /// Whether this caller can open the Settings pages this page points at. Copy only - the controls
+    /// themselves are gated by their own wrappers.
+    /// </summary>
+    private bool _canConfigure;
+
     private string _fromKey = "server"; // "server" or "device:{mac}"
     private string _targetAddress = "1.1.1.1";
     private ProbeMode _probeMode = ProbeMode.Icmp;
@@ -541,6 +567,9 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
 
     protected override async Task OnInitializedAsync()
     {
+        _canConfigure = AuthState is null
+            || (await Authz.AuthorizeAsync((await AuthState).User, SiteContext.Slug, Policies.SiteAdmin)).Succeeded;
+
         var capTask = LocalProbe.GetCapabilityAsync();
         var devicesTask = LoadDevicesAsync();
         var wanTask = LoadWanInterfacesAsync();

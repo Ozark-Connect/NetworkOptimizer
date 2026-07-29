@@ -23,8 +23,10 @@
                         out of ISP Health scoring; you can re-enable it anytime in Latency Targets below.
                     </p>
                     <div class="flaky-toolbar">
-                        <button class="btn btn-sm btn-primary" @onclick="DisableAllAsync" disabled="@_busy"
+                        <SiteOperatorOnly>
+                            <button class="btn btn-sm btn-primary" @onclick="DisableAllAsync" disabled="@_busy"
                                 data-tooltip="Disable every flagged target">Disable all</button>
+                        </SiteOperatorOnly>
                     </div>
                     <div class="table-responsive">
                         <table class="data-table flaky-table">
@@ -46,7 +48,9 @@
                                             @($"{f.LossPct:0.0}% loss")<span class="hide-mobile"> vs @($"{f.BaselinePct:0.0}% peer median")</span>
                                         </td>
                                         <td class="col-actions">
-                                            <button class="btn btn-sm btn-primary" @onclick="() => DisableAsync(f)" disabled="@_busy">Disable</button>
+                                            <SiteOperatorOnly>
+                                                <button class="btn btn-sm btn-primary" @onclick="() => DisableAsync(f)" disabled="@_busy">Disable</button>
+                                            </SiteOperatorOnly>
                                         </td>
                                     </tr>
                                 }

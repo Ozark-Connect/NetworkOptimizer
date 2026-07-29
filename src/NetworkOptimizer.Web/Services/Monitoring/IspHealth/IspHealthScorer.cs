@@ -271,7 +271,7 @@ public class IspHealthScorer
             IspAsnDimension = ispAsnDimension,
             TransitAsns = transitAsns,
             IspAsns = ispAsns,
-            IspTargets = inputs.IspTargetSeries.Select(s => BuildIspTargetHealth(s, inputs.FirstHopTargetId, ispHopGrades, _options.RttWinsorPercentile, inputs.NotTracedTargetIds)).ToList(),
+            IspTargets = inputs.IspTargetSeries.Select(s => BuildIspTargetHealth(s, inputs.FirstHopTargetId, ispHopGrades, _options.RttWinsorPercentile, inputs.NotTracedTargetIds, inputs.TargetAddresses)).ToList(),
             CongestionEvents = inputs.CongestionEvents,
             PathShifts = inputs.PathShifts,
             Outages = inputs.Outages,
@@ -1544,7 +1544,7 @@ public class IspHealthScorer
     /// </summary>
     private const int DisableSuggestMaxJitterScore = 70;
 
-    private IspTargetHealth BuildIspTargetHealth(AsnSeries series, string? firstHopTargetId, List<IspAsnHealth> hopGrades, double winsorPercentile, IReadOnlySet<string> notTracedTargetIds)
+    private IspTargetHealth BuildIspTargetHealth(AsnSeries series, string? firstHopTargetId, List<IspAsnHealth> hopGrades, double winsorPercentile, IReadOnlySet<string> notTracedTargetIds, IReadOnlyDictionary<string, string> targetAddresses)
     {
         var rtts = series.Samples.Where(s => s.RttAvgMs.HasValue).Select(s => s.RttAvgMs!.Value).ToList();
         var jitters = series.Samples.Select(s => s.EffectiveJitterMs).Where(j => j.HasValue).Select(j => j!.Value).ToList();
@@ -1560,6 +1560,7 @@ public class IspHealthScorer
         {
             TargetId = targetId,
             Name = series.AsnName ?? targetId,
+            Address = targetAddresses.GetValueOrDefault(targetId),
             RttMs = SeriesStats.WinsorizedMean(rtts, winsorPercentile),
             ScoredJitterMs = grade?.ScoredJitterMs ?? rawScored,
             RawJitterMs = grade?.RawJitterMs ?? rawScored,

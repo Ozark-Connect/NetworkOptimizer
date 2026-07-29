@@ -1,0 +1,380 @@
+@using NetworkOptimizer.Storage.Models
+@using NetworkOptimizer.Storage.Models.Identity
+@using NetworkOptimizer.Web.Services.Identity
+@inject IIdentityAdminService IdentityAdmin
+@inject IAuthPolicyOptions AuthPolicy
+@inject IAuthPolicyAdminService AuthPolicyAdmin
+@inject ISiteManagementService SiteManagement
+@inject NetworkOptimizer.Web.Services.SiteRegistryChangeNotifier ChangeNotifier
+@inject AuthenticationStateProvider AuthStateProvider
+@inject NetworkOptimizer.Web.Services.Identity.ICurrentUserAccessor CurrentUser
+@implements IDisposable
+
+@* Settings - Identity: who can reach which site, and at what role. At global scope this lists every
+   grant across all sites; scoped to a site it lists and edits only that site's members. Grants go
+   through IdentityAdminService, which bumps the membership version so live sessions revalidate. *@
+
+<div class="card settings-tab-identity" id="identity-access">
+    <div class="card-header">
+        <h2 class="card-title">Access</h2>
+        @* Badged only when the card is scoped to one site. A "Global" badge on the instance-wide view
+           read as though these grants were themselves global, when what the view actually holds is
+           every grant, most of them belonging to a single site. The site badge answers "which site am
+           I looking at"; with no badge, the answer is "all of them", which is the page you are on. *@
+        @if (_multiSiteEnabled && ShowSiteBadge && SiteSlug is not null)
+        {
+            <div class="card-header-badges">
+                <span class="status-badge site-context-badge" data-tooltip="These grants apply to this site only">@(SiteName ?? SiteSlug)</span>
+            </div>
+        }
+    </div>
+    <div class="card-body">
+        <p class="section-description">
+            @if (SiteSlug is null)
+            {
+                <text>
+                    Per-site access on top of a user's global role. A Viewer can be made
+                    <strong>Site Operator</strong> or <strong>Site Admin</strong> on individual sites without
+                    becoming an instance-wide Admin.
+                </text>
+            }
+            else
+            {
+                <text>
+                    Who can reach this site, and at what role. These grants are in addition to whatever a
+                    user's global role already allows.
+                </text>
+            }
+        </p>
+
+        @if (SiteSlug is null)
+        {
+            <div class="form-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" @bind="_restrictSites" @bind:after="SaveRestrictAsync" />
+                    Operators and Viewers see only their assigned sites
+                </label>
+                <p class="form-help">
+                    Without this, anyone with a global role can see every site regardless of the grants
+                    below. Admins are unaffected.
+                </p>
+            </div>
+        }
+
+        @if (_message is not null)
+        {
+            <div class="alert alert-@_messageClass">@_message</div>
+        }
+
+        @if (_grants is null)
+        {
+            <div class="identity-loading"><span class="spinner spinner-sm"></span></div>
+        }
+        else if (_grants.Count == 0)
+        {
+            <div class="empty-state empty-state-small">
+                <div class="empty-icon">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 0 1 8.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0 1 11.964-3.07M12 6.375a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0Zm8.25 2.25a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 5.25 0Z" />
+                    </svg>
+                </div>
+                <h3>No per-site grants yet</h3>
+                <p>Everyone reaches @(SiteSlug is null ? "every site" : "this site") through their global role.</p>
+            </div>
+        }
+        else
+        {
+            <div class="table-responsive">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>User</th>
+                            @if (SiteSlug is null)
+                            {
+                                <th>Site</th>
+                            }
+                            <th>Site role <span class="tooltip-icon tooltip-icon-sm" role="button" data-tooltip-hover-only data-tooltip="Click to see what each role can and cannot do" @onclick="() => OnExplainRoles.InvokeAsync()">?</span></th>
+                            <th class="identity-actions-col"></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var grant in _grants)
+                        {
+                            <tr>
+                                <td><span class="identity-user-name">@grant.UserName</span></td>
+                                @if (SiteSlug is null)
+                                {
+                                    <td>@grant.SiteLabel</td>
+                                }
+                                <td>@Describe(grant.SiteRole)</td>
+                                <td class="identity-actions-col">
+                                    @if (IsOwnGrant(grant))
+                                    {
+                                        @* Refused at the service, so offering it would only invite a
+                                           refusal. Losing your own grant strands you outside the page
+                                           you would undo it from. *@
+                                        <span class="identity-actions-note" data-tooltip="Ask another administrator to change your own access">Your access</span>
+                                    }
+                                    else
+                                    {
+                                        <button type="button" class="btn btn-secondary btn-sm" @onclick="() => RevokeAsync(grant)">Revoke</button>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+
+        @if (_users is { Count: > 0 })
+        {
+            <div class="identity-inline-form identity-add-form">
+                <h3 class="identity-inline-title">Grant access</h3>
+                <div class="identity-form-grid">
+                    <div class="form-group">
+                        <label class="form-label">User</label>
+                        <select class="form-control" @bind="_grantUserId">
+                            @foreach (var user in _users)
+                            {
+                                <option value="@user.Id">@user.UserName</option>
+                            }
+                        </select>
+                    </div>
+                    @if (SiteSlug is null)
+                    {
+                        <div class="form-group">
+                            <label class="form-label">Site</label>
+                            <select class="form-control" @bind="_grantTarget">
+                                <option value="@AllSitesTarget">All sites</option>
+                                @foreach (var site in _sites)
+                                {
+                                    <option value="@site.Slug">@site.Name</option>
+                                }
+                            </select>
+                        </div>
+                    }
+                    <div class="form-group">
+                        <label class="form-label">Site role <span class="tooltip-icon tooltip-icon-sm tooltip-icon-contrast" role="button" data-tooltip-hover-only data-tooltip="Click to see what each role can and cannot do" @onclick="() => OnExplainRoles.InvokeAsync()">?</span></label>
+                        <select class="form-control" @bind="_grantRole">
+                            <option value="@SiteRole.SiteViewer">Site Viewer</option>
+                            <option value="@SiteRole.SiteOperator">Site Operator</option>
+                            <option value="@SiteRole.SiteAdmin">Site Admin</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="identity-form-actions">
+                    <button type="button" class="btn btn-primary btn-sm" @onclick="GrantAsync" disabled="@_granting">
+                        @(_granting ? "Granting..." : "Grant access")
+                    </button>
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    /// <summary>Null for the instance-wide view; a site slug scopes the card to that site.</summary>
+    /// <summary>Raised by the role tooltip icons; the parent opens the Roles reference panel.</summary>
+    [Parameter] public EventCallback OnExplainRoles { get; set; }
+
+    [Parameter] public string? SiteSlug { get; set; }
+
+    /// <summary>Friendly site name shown on the scoped badge.</summary>
+    [Parameter] public string? SiteName { get; set; }
+
+    /// <summary>
+    /// False where the surrounding UI already names the site - the Sites table renders this inside
+    /// the row for that site, so the badge would repeat what the row just said.
+    /// </summary>
+    [Parameter] public bool ShowSiteBadge { get; set; } = true;
+
+    private const string AllSitesTarget = "*";
+
+    private sealed record AccessRow(int MembershipId, string UserId, string? UserName, string SiteLabel, SiteRole SiteRole);
+
+    private List<AccessRow>? _grants;
+    private IReadOnlyList<ApplicationUser> _users = Array.Empty<ApplicationUser>();
+    private List<Site> _sites = new();
+    private bool _restrictSites;
+    private bool _multiSiteEnabled;
+
+    private string _grantUserId = "";
+    private string? _selfUserId;
+    private bool _callerIsGlobalAdmin;
+
+    /// <summary>
+    /// A grant belonging to the caller, where the caller's reach depends on it. A global Admin opens
+    /// every site by role, so their own rows are bookkeeping and stay editable.
+    /// </summary>
+    private bool IsOwnGrant(AccessRow grant)
+        => !_callerIsGlobalAdmin && _selfUserId is not null && grant.UserId == _selfUserId;
+    private string _grantTarget = AllSitesTarget;
+    private SiteRole _grantRole = SiteRole.SiteViewer;
+    private bool _granting;
+
+    private string? _message;
+    private string _messageClass = "info";
+
+    protected override async Task OnInitializedAsync()
+    {
+        ChangeNotifier.SitesChanged += OnSitesChanged;
+        _multiSiteEnabled = await SiteManagement.IsMultiSiteEnabledAsync();
+        var principal = (await AuthStateProvider.GetAuthenticationStateAsync()).User;
+        _selfUserId = (await CurrentUser.GetAsync(principal))?.Id;
+        _callerIsGlobalAdmin = principal.IsInRole(NetworkOptimizer.Storage.Models.Identity.Roles.Admin);
+
+        _users = await IdentityAdmin.ListUsersAsync();
+        if (!_callerIsGlobalAdmin && _selfUserId is not null)
+            _users = _users.Where(u => u.Id != _selfUserId).ToList();
+        _grantUserId = _users.FirstOrDefault()?.Id ?? "";
+        _sites = await SiteManagement.GetSitesAsync();
+        if (SiteSlug is null)
+            _restrictSites = await AuthPolicy.IsRestrictSitesToMembersAsync();
+        else
+            _grantTarget = SiteSlug;
+
+        await ReloadAsync();
+    }
+
+    /// <summary>
+    /// Reloads the grant list from outside the component. Creating a user now grants a site in the
+    /// same step, so the Access list is stale the moment the Users card finishes and has to be told.
+    /// </summary>
+    public async Task RefreshAsync()
+    {
+        // The global view derives grants by walking _users, so a new account has to be in that list
+        // before its grant can be found at all. Deletion only looked correct because the account was
+        // already there and simply stopped returning memberships.
+        _users = await IdentityAdmin.ListUsersAsync();
+        if (string.IsNullOrEmpty(_grantUserId) || _users.All(u => u.Id != _grantUserId))
+            _grantUserId = _users.FirstOrDefault()?.Id ?? "";
+
+        await ReloadAsync();
+        StateHasChanged();
+    }
+
+    private async Task ReloadAsync()
+    {
+        if (SiteSlug is not null)
+        {
+            var siteGrants = await IdentityAdmin.GetSiteAccessAsync(SiteSlug);
+            _grants = siteGrants
+                .Select(g => new AccessRow(g.MembershipId, g.UserId, g.UserName, SiteName ?? SiteSlug, g.SiteRole))
+                .ToList();
+            return;
+        }
+
+        var rows = new List<AccessRow>();
+        foreach (var user in _users)
+        {
+            foreach (var membership in await IdentityAdmin.GetMembershipsAsync(user.Id))
+                rows.Add(new AccessRow(membership.Id, user.Id, user.UserName, LabelFor(membership), membership.SiteRole));
+        }
+        _grants = rows.OrderBy(r => r.UserName).ThenBy(r => r.SiteLabel).ToList();
+    }
+
+    private string LabelFor(SiteMembership membership) => membership.TargetType switch
+    {
+        MembershipTargetType.AllSites => "All sites",
+        MembershipTargetType.Group => $"Group: {membership.TargetId}",
+        _ => _sites.FirstOrDefault(s => s.Slug == membership.TargetId)?.Name ?? membership.TargetId ?? "",
+    };
+
+    private static string Describe(SiteRole role) => role switch
+    {
+        SiteRole.SiteAdmin => "Site Admin",
+        SiteRole.SiteOperator => "Site Operator",
+        _ => "Site Viewer",
+    };
+
+    /// <summary>
+    /// Raised when the site restriction is toggled. The Users card marks accounts with no grants as
+    /// having no access, which is only true while the restriction is on - with it off, a global role
+    /// reaches every site and the badge would be telling the opposite of the truth.
+    /// </summary>
+    [Parameter] public EventCallback OnSiteRestrictionChanged { get; set; }
+
+    private async Task SaveRestrictAsync()
+    {
+        await AuthPolicyAdmin.SetRestrictSitesToMembersAsync(_restrictSites);
+        await OnSiteRestrictionChanged.InvokeAsync();
+        Show(_restrictSites
+            ? "Non-Admin users now see only the sites they are granted."
+            : "Global roles apply across every site again.", "success");
+    }
+
+    private async Task GrantAsync()
+    {
+        if (string.IsNullOrEmpty(_grantUserId))
+        {
+            Show("Choose a user.", "warning");
+            return;
+        }
+
+        _granting = true;
+        try
+        {
+            var targetType = _grantTarget == AllSitesTarget ? MembershipTargetType.AllSites : MembershipTargetType.Site;
+            var targetId = targetType == MembershipTargetType.AllSites ? null : _grantTarget;
+            var result = await IdentityAdmin.AddMembershipAsync(_grantUserId, targetType, targetId, _grantRole);
+            Report(result, "Access granted.");
+            if (result.Succeeded)
+                await ReloadAsync();
+        }
+        finally
+        {
+            _granting = false;
+        }
+    }
+
+    private async Task RevokeAsync(AccessRow grant)
+    {
+        var result = await IdentityAdmin.RemoveMembershipAsync(grant.UserId, grant.MembershipId);
+        Report(result, $"Revoked {grant.UserName}'s access to {grant.SiteLabel}.", "info");
+        if (result.Succeeded)
+            await ReloadAsync();
+    }
+
+    /// <summary>
+    /// Green says "that worked out well". Taking access away, disabling an account or deleting one is
+    /// the operator getting what they asked for, not good news - it reads as neutral, so the colour
+    /// carries meaning when something really is a success or a refusal.
+    /// </summary>
+    private void Report(AdminActionResult result, string success, string successClass = "success")
+        => Show(result.Succeeded ? success : result.Error ?? "That change was refused.",
+                result.Succeeded ? successClass : "warning");
+
+    private void Show(string message, string cssClass)
+    {
+        _message = message;
+        _messageClass = cssClass;
+    }
+
+    // Sites created, renamed, enabled or removed anywhere - including the Multi-Site tab sitting
+    // beside this one in the same circuit - have to reach the site picker and the grant labels here.
+    // Settings tabs are built once and kept, so without this the list a tab switch shows is whatever
+    // was true when the page loaded, and only a browser refresh corrected it.
+    private void OnSitesChanged()
+    {
+        _ = InvokeAsync(async () =>
+        {
+            try
+            {
+                _multiSiteEnabled = await SiteManagement.IsMultiSiteEnabledAsync();
+                _sites = await SiteManagement.GetSitesAsync();
+                await ReloadAsync();
+                StateHasChanged();
+            }
+            catch (ObjectDisposedException)
+            {
+                // Circuit torn down between the event and the dispatch - nothing to update.
+            }
+        });
+    }
+
+    public void Dispose()
+    {
+        ChangeNotifier.SitesChanged -= OnSitesChanged;
+    }
+}

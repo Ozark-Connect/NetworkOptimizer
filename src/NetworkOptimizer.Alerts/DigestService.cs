@@ -29,17 +29,24 @@ public class DigestService : BackgroundService
     /// </summary>
     private const int CollapseThreshold = 10;
 
+    private readonly NetworkOptimizer.Core.ISiteWorkGate? _siteWorkGate;
+
     public DigestService(
         ILogger<DigestService> logger,
         IServiceScopeFactory scopeFactory,
         IEnumerable<IAlertDeliveryChannel> deliveryChannels,
-        IScheduleSiteContext? siteContext = null)
+        IScheduleSiteContext? siteContext = null,
+        NetworkOptimizer.Core.ISiteWorkGate? siteWorkGate = null)
     {
         _logger = logger;
         _scopeFactory = scopeFactory;
         _deliveryChannels = deliveryChannels;
         _siteContext = siteContext;
+        _siteWorkGate = siteWorkGate;
     }
+
+    /// <summary>Whether background work may run for a site; no gate wired means yes (fail-open).</summary>
+    private bool MayRunForSite(string? siteKey) => _siteWorkGate?.IsSiteOperational(siteKey) ?? true;
 
     private string DefaultSiteKey => _siteContext?.DefaultKey ?? "";
 
@@ -100,6 +107,13 @@ public class DigestService : BackgroundService
         foreach (var siteKey in await GetSiteKeysAsync(cancellationToken))
         {
             if (cancellationToken.IsCancellationRequested) break;
+            // A digest is an outbound notification, so a closed site must not send one.
+            if (!MayRunForSite(siteKey))
+            {
+                _logger.LogDebug("Skipping digests for non-operational site {Site}",
+                    siteKey.Length == 0 ? "main" : siteKey);
+                continue;
+            }
             try
             {
                 await CheckSiteDigestsAsync(siteKey, cancellationToken);

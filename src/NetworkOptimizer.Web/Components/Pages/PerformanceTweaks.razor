@@ -1,8 +1,9 @@
 @page "/perf-tweaks"
+@attribute [Authorize(Policy = Policies.RequireViewer)]
 @implements IDisposable
 @inject UniFiConnectionService ConnectionService
 @inject IGatewaySshService GatewaySshService
-@inject PerfTweaksDeploymentService DeployService
+@inject IPerfTweaksDeploymentService DeployService
 @inject ModuleUpdateNotificationService ModuleUpdates
 @inject NetworkOptimizer.Web.Services.Licensing.LicenseStateService LicenseState
 @inject SiteContextService SiteContext
@@ -150,17 +151,19 @@
                     {
                         <div class="alert alert-warning" style="margin-top: 1rem;">
                             <strong>UDM Boot Required:</strong> Performance tweaks use boot scripts in <code>/data/on_boot.d/</code> that require udm-boot to persist across reboots.
-                            <button class="btn btn-sm btn-primary" style="margin-left: 0.5rem;" @onclick="InstallUdmBoot" disabled="@_isInstallingUdmBoot">
-                                @if (_isInstallingUdmBoot)
-                                {
-                                    <span class="spinner spinner-sm"></span>
-                                    <span>Installing...</span>
-                                }
-                                else
-                                {
-                                    <span>Install UDM Boot</span>
-                                }
-                            </button>
+                            <SiteAdminOnly>
+                                <button class="btn btn-sm btn-primary" style="margin-left: 0.5rem;" @onclick="InstallUdmBoot" disabled="@_isInstallingUdmBoot">
+                                    @if (_isInstallingUdmBoot)
+                                    {
+                                        <span class="spinner spinner-sm"></span>
+                                        <span>Installing...</span>
+                                    }
+                                    else
+                                    {
+                                        <span>Install UDM Boot</span>
+                                    }
+                                </button>
+                            </SiteAdminOnly>
                         </div>
                     }
 
@@ -360,7 +363,8 @@
                     <div class="pt-actions">
                         @if (effectiveStatus == TweakDisplayStatus.NotDeployed)
                         {
-                            <button class="btn btn-primary btn-sm"
+                            <SiteAdminOnly>
+                                <button class="btn btn-primary btn-sm"
                                     disabled="@(!_canDeploy || _deployingTweakId == def.Id || exclusiveOtherActive || (def.Id == "sfp-sgmiiplus" && _status?.SfpModuleAlreadyLoaded == true) || (def.Id == "sfp-sgmiiplus-port6" && _status?.SfpPort6ModuleAlreadyLoaded == true) || ((def.Id == "sfp-sgmiiplus" || def.Id == "sfp-sgmiiplus-port6") && _status?.SfpQcaSsdkMissing == true) || (def.Id == "mongodb-ssd" && _status?.SsdAvailable != true) || IsLicenseRestricted)"
                                     @onclick="() => ShowDeployConfirmation(def.Id)"
                                     data-tooltip="@(!_canDeploy ? (_status?.FirmwareSupported != true ? "Unsupported firmware" : "Install UDM Boot first") : null)">
@@ -374,32 +378,104 @@
                                     <span>Deploy</span>
                                 }
                             </button>
-                            <button class="btn btn-secondary btn-sm" @onclick="() => MarkAsManual(def.Id)" disabled="@(_deployingTweakId != null || _removingTweakId != null)">
-                                Mark as Manually Deployed
-                            </button>
+                            </SiteAdminOnly>
+                            <SiteAdminOnly>
+                                <SiteAdminOnly>
+                                    <button class="btn btn-secondary btn-sm" @onclick="() => MarkAsManual(def.Id)" disabled="@(_deployingTweakId != null || _removingTweakId != null)">
+                                    Mark as Manually Deployed
+                                </button>
+                                </SiteAdminOnly>
+                            </SiteAdminOnly>
                         }
                         else if (effectiveStatus == TweakDisplayStatus.Active)
                         {
                             @if (tweakStatus?.ScriptOutdated == true)
                             {
-                                <button class="btn btn-sm btn-primary" @onclick="() => ShowDeployConfirmation(def.Id)" disabled="@(_deployingTweakId == def.Id || IsLicenseRestricted)">
-                                    @if (_deployingTweakId == def.Id)
-                                    {
-                                        <span class="spinner spinner-sm"></span>
-                                        <span>Updating...</span>
-                                    }
-                                    else
-                                    {
-                                        <span>Update</span>
-                                    }
-                                </button>
+                                <SiteAdminOnly>
+                                    <SiteAdminOnly>
+                                        <button class="btn btn-sm btn-primary" @onclick="() => ShowDeployConfirmation(def.Id)" disabled="@(_deployingTweakId == def.Id || IsLicenseRestricted)">
+                                        @if (_deployingTweakId == def.Id)
+                                        {
+                                            <span class="spinner spinner-sm"></span>
+                                            <span>Updating...</span>
+                                        }
+                                        else
+                                        {
+                                            <span>Update</span>
+                                        }
+                                    </button>
+                                    </SiteAdminOnly>
+                                </SiteAdminOnly>
                             }
                             <button class="btn btn-sm btn-secondary" @onclick="RefreshStatus" disabled="@_isLoading">
                                 Check Status
                             </button>
                             @if (tweakStatus?.IsManuallyDeployed != true)
                             {
-                                <button class="btn btn-sm btn-danger" @onclick="() => ShowRemoveConfirmation(def.Id)" disabled="@(_removingTweakId == def.Id || _deployingTweakId == def.Id)">
+                                <SiteAdminOnly>
+                                    <SiteAdminOnly>
+                                        <button class="btn btn-sm btn-danger" @onclick="() => ShowRemoveConfirmation(def.Id)" disabled="@(_removingTweakId == def.Id || _deployingTweakId == def.Id)">
+                                        @if (_removingTweakId == def.Id)
+                                        {
+                                            <span class="spinner spinner-sm"></span>
+                                            <span>Removing...</span>
+                                        }
+                                        else
+                                        {
+                                            <span>Remove</span>
+                                        }
+                                    </button>
+                                    </SiteAdminOnly>
+                                </SiteAdminOnly>
+                            }
+                        }
+                        else if (effectiveStatus == TweakDisplayStatus.Manual)
+                        {
+                            <button class="btn btn-sm btn-secondary" @onclick="RefreshStatus" disabled="@_isLoading">
+                                Check Status
+                            </button>
+                            <SiteAdminOnly>
+                                <button class="btn btn-sm btn-outline-primary" @onclick="() => UnmarkManual(def.Id)">
+                                Unmark Manual
+                            </button>
+                            </SiteAdminOnly>
+                        }
+                        else if (effectiveStatus == TweakDisplayStatus.Detected)
+                        {
+                            <SiteAdminOnly>
+                                <SiteAdminOnly>
+                                    <button class="btn btn-sm btn-primary" @onclick="() => MarkAsManual(def.Id)" disabled="@(_deployingTweakId != null || _removingTweakId != null)">
+                                    Mark as Manually Deployed
+                                </button>
+                                </SiteAdminOnly>
+                            </SiteAdminOnly>
+                            <button class="btn btn-sm btn-secondary" @onclick="RefreshStatus" disabled="@_isLoading">
+                                Check Status
+                            </button>
+                        }
+                        else if (effectiveStatus == TweakDisplayStatus.Issue)
+                        {
+                            <SiteAdminOnly>
+                                <SiteAdminOnly>
+                                    <button class="btn btn-sm btn-primary" @onclick="() => ShowDeployConfirmation(def.Id)" disabled="@(_deployingTweakId == def.Id || IsLicenseRestricted)">
+                                    @if (_deployingTweakId == def.Id)
+                                    {
+                                        <span class="spinner spinner-sm"></span>
+                                        <span>Redeploying...</span>
+                                    }
+                                    else
+                                    {
+                                        <span>Redeploy</span>
+                                    }
+                                </button>
+                                </SiteAdminOnly>
+                            </SiteAdminOnly>
+                            <button class="btn btn-sm btn-secondary" @onclick="RefreshStatus" disabled="@_isLoading">
+                                Check Status
+                            </button>
+                            <SiteAdminOnly>
+                                <SiteAdminOnly>
+                                    <button class="btn btn-sm btn-danger" @onclick="() => ShowRemoveConfirmation(def.Id)" disabled="@(_removingTweakId == def.Id || _deployingTweakId == def.Id)">
                                     @if (_removingTweakId == def.Id)
                                     {
                                         <span class="spinner spinner-sm"></span>
@@ -410,53 +486,8 @@
                                         <span>Remove</span>
                                     }
                                 </button>
-                            }
-                        }
-                        else if (effectiveStatus == TweakDisplayStatus.Manual)
-                        {
-                            <button class="btn btn-sm btn-secondary" @onclick="RefreshStatus" disabled="@_isLoading">
-                                Check Status
-                            </button>
-                            <button class="btn btn-sm btn-outline-primary" @onclick="() => UnmarkManual(def.Id)">
-                                Unmark Manual
-                            </button>
-                        }
-                        else if (effectiveStatus == TweakDisplayStatus.Detected)
-                        {
-                            <button class="btn btn-sm btn-primary" @onclick="() => MarkAsManual(def.Id)" disabled="@(_deployingTweakId != null || _removingTweakId != null)">
-                                Mark as Manually Deployed
-                            </button>
-                            <button class="btn btn-sm btn-secondary" @onclick="RefreshStatus" disabled="@_isLoading">
-                                Check Status
-                            </button>
-                        }
-                        else if (effectiveStatus == TweakDisplayStatus.Issue)
-                        {
-                            <button class="btn btn-sm btn-primary" @onclick="() => ShowDeployConfirmation(def.Id)" disabled="@(_deployingTweakId == def.Id || IsLicenseRestricted)">
-                                @if (_deployingTweakId == def.Id)
-                                {
-                                    <span class="spinner spinner-sm"></span>
-                                    <span>Redeploying...</span>
-                                }
-                                else
-                                {
-                                    <span>Redeploy</span>
-                                }
-                            </button>
-                            <button class="btn btn-sm btn-secondary" @onclick="RefreshStatus" disabled="@_isLoading">
-                                Check Status
-                            </button>
-                            <button class="btn btn-sm btn-danger" @onclick="() => ShowRemoveConfirmation(def.Id)" disabled="@(_removingTweakId == def.Id || _deployingTweakId == def.Id)">
-                                @if (_removingTweakId == def.Id)
-                                {
-                                    <span class="spinner spinner-sm"></span>
-                                    <span>Removing...</span>
-                                }
-                                else
-                                {
-                                    <span>Remove</span>
-                                }
-                            </button>
+                                </SiteAdminOnly>
+                            </SiteAdminOnly>
                         }
                     </div>
 

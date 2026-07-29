@@ -8,7 +8,7 @@ namespace NetworkOptimizer.Audit.Analyzers;
 
 /// <summary>
 /// Parses firewall rules from UniFi API responses.
-/// Supports flattening of port lists (port groups) and IP lists (address groups)
+/// Supports flattening of port lists, IP lists, and web domains from firewall groups
 /// when firewall groups are provided.
 /// </summary>
 public class FirewallRuleParser
@@ -37,7 +37,7 @@ public class FirewallRuleParser
     }
 
     /// <summary>
-    /// Set firewall groups for flattening port_group_id and ip_group_id references.
+    /// Set firewall groups for flattening port_group_id, ip_group_id, and web_group_id references.
     /// Call this before ExtractFirewallPolicies to enable group resolution.
     /// </summary>
     public void SetFirewallGroups(IEnumerable<UniFiFirewallGroup>? groups)
@@ -256,6 +256,7 @@ public class FirewallRuleParser
         bool destMatchOppositeIps = false;
         bool destMatchOppositeNetworks = false;
         bool destMatchOppositePorts = false;
+        bool hasUnresolvedDestDomainGroup = false;
         bool hasUnresolvedDestPortGroup = false;
         if (policy.TryGetProperty("destination", out var dest) && dest.ValueKind == JsonValueKind.Object)
         {
@@ -308,8 +309,28 @@ public class FirewallRuleParser
                     .ToList();
             }
 
-            // Flatten IP group reference (matching_target_type == "OBJECT" with ip_group_id)
             var matchingTargetType = dest.GetStringOrNull("matching_target_type");
+            var webGroupId = dest.GetStringOrNull("web_group_id");
+            if (matchingTargetType == "OBJECT" && !string.IsNullOrEmpty(webGroupId))
+            {
+                var groupDomains = ResolveDomainGroup(webGroupId);
+                if (groupDomains != null && groupDomains.Count > 0)
+                {
+                    webDomains = webDomains == null
+                        ? groupDomains
+                        : webDomains.Concat(groupDomains).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                    _logger.LogDebug("Flattened destination domain group {GroupId} to {Count} domains for rule {RuleName}",
+                        webGroupId, groupDomains.Count, name);
+                }
+                else
+                {
+                    hasUnresolvedDestDomainGroup = true;
+                    _logger.LogWarning("Failed to resolve destination domain group {GroupId} for rule {RuleName}",
+                        webGroupId, name);
+                }
+            }
+
+            // Flatten IP group reference (matching_target_type == "OBJECT" with ip_group_id)
             var ipGroupId = dest.GetStringOrNull("ip_group_id");
             if (matchingTargetType == "OBJECT" && !string.IsNullOrEmpty(ipGroupId))
             {
@@ -377,6 +398,7 @@ public class FirewallRuleParser
             DestinationMatchOppositeIps = destMatchOppositeIps,
             DestinationMatchOppositeNetworks = destMatchOppositeNetworks,
             DestinationMatchOppositePorts = destMatchOppositePorts,
+            HasUnresolvedDestinationDomainGroup = hasUnresolvedDestDomainGroup,
             HasUnresolvedDestinationPortGroup = hasUnresolvedDestPortGroup,
             // Connection state matching
             ConnectionStateType = connectionStateType,
@@ -728,6 +750,12 @@ public class FirewallRuleParser
     /// </summary>
     private List<string>? ResolveAddressGroup(string groupId)
         => FirewallGroupHelper.ResolveAddressGroup(groupId, _firewallGroups, _logger);
+
+    /// <summary>
+    /// Resolve a domain group ID to a list of web domains.
+    /// </summary>
+    private List<string>? ResolveDomainGroup(string groupId)
+        => FirewallGroupHelper.ResolveDomainGroup(groupId, _firewallGroups, _logger);
 
     /// <summary>
     /// Resolve a port group ID to a comma-separated port string (e.g., "53,80,443" or "4001-4003")

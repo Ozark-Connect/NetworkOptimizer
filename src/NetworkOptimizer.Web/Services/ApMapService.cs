@@ -1,16 +1,54 @@
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Web.Models;
+using NetworkOptimizer.Storage.Models.Identity;
+using NetworkOptimizer.Web.Services.Gates;
 using NetworkOptimizer.WiFi.Data;
 using NetworkOptimizer.WiFi.Models;
 
 namespace NetworkOptimizer.Web.Services;
 
 /// <summary>
+/// Placing an access point on the map (design doc 06, gate 9).
+///
+/// The READ - <see cref="ApMapService.GetApMapMarkersAsync"/> - is deliberately not here. Every map
+/// in the product draws AP markers from it, and a Viewer is meant to see maps, signal, AP locations
+/// and RF propagation in full; gating the read would empty those maps for exactly the role that
+/// exists to look at them. Only moving an AP is gated.
+///
+/// Site Operator: it records where we think a radio is, which changes what our own coverage and
+/// signal views compute, and nothing on the network. The maps already offer a view-only mode - this
+/// is the boundary behind it, because a hidden edit button is not one.
+/// </summary>
+[MutatingService(SiteScoped = true)]
+public interface IApMapAdminService
+{
+    /// <summary>Moves an AP to a position (and optionally a floor and height).</summary>
+    [RequireRole(Roles.Operator)]
+    [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "ap_location")]
+    Task SaveApLocationAsync(string mac, double lat, double lng, int? floor = null, double? heightM = null);
+
+    /// <summary>Sets which floor an AP sits on.</summary>
+    [RequireRole(Roles.Operator)]
+    [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "ap_location")]
+    Task SaveApFloorAsync(string mac, int floor);
+
+    /// <summary>Sets an AP's orientation in degrees.</summary>
+    [RequireRole(Roles.Operator)]
+    [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "ap_location")]
+    Task SaveApOrientationAsync(string mac, int orientationDeg);
+
+    /// <summary>Sets how an AP is mounted (ceiling, wall, and so on).</summary>
+    [RequireRole(Roles.Operator)]
+    [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "ap_location")]
+    Task SaveApMountTypeAsync(string mac, string mountType);
+}
+
+/// <summary>
 /// Provides AP map marker data by joining UniFi AP snapshots with saved locations,
 /// and handles persisting AP location changes.
 /// </summary>
-public class ApMapService
+public class ApMapService : IApMapAdminService
 {
     private readonly WiFiOptimizerService _wifiService;
     private readonly IDbContextFactory<NetworkOptimizerDbContext> _dbFactory;

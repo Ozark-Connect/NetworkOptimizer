@@ -1,4 +1,5 @@
 @page "/client-speedtest"
+@attribute [Authorize(Policy = Policies.RequireViewer)]
 @rendermode InteractiveServer
 @implements IDisposable
 @using NetworkOptimizer.Web.Services
@@ -8,7 +9,7 @@
 @using NetworkOptimizer.Web.Models
 @using NetworkOptimizer.Core.Helpers
 @using NetworkOptimizer.UniFi
-@inject ClientSpeedTestService ClientSpeedTestService
+@inject IClientSpeedTestService ClientSpeedTestService
 @inject NavigationManager NavigationManager
 @inject IConfiguration Configuration
 @inject IJSRuntime JS
@@ -20,6 +21,7 @@
 @inject SiteContextService SiteContext
 @inject MonitoringReadinessService Readiness
 @inject SiteSpeedTestTargetResolver SiteTarget
+@inject IApMapAdminService ApMapAdmin
 
 @* Uses unified Iperf3Result model with Direction field to distinguish test sources *@
 
@@ -1289,7 +1291,7 @@
     {
         try
         {
-            await ApMapService.SaveApLocationAsync(args.Mac, args.Lat, args.Lng);
+            await ApMapAdmin.SaveApLocationAsync(args.Mac, args.Lat, args.Lng);
 
             // Update local state
             var marker = apMapMarkers.FirstOrDefault(m => m.Mac.Equals(args.Mac, StringComparison.OrdinalIgnoreCase));

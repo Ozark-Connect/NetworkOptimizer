@@ -4,6 +4,7 @@ using NetworkOptimizer.Monitoring;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Services;
 using NetworkOptimizer.Web.Services;
+using NetworkOptimizer.Web.Services.Authorization;
 
 namespace NetworkOptimizer.Web.Endpoints;
 
@@ -11,7 +12,13 @@ public static class SnmpEndpoints
 {
     public static void Map(WebApplication app)
     {
-        app.MapPost("/api/monitoring/snmp/oid-check", async (
+        // Gate 2 (design doc 06): every endpoint is mapped onto a group that carries its
+        // authorization policy, which is what architecture test A1 checks. Reads are any
+        // authenticated user, running a test is Operator, and changes are Admin.
+        var read = app.MapGroup("").RequireAuthorization(Policies.RequireViewer);
+        var admin = app.MapGroup("").RequireAuthorization(Policies.RequireAdmin);
+
+        read.MapPost("/api/monitoring/snmp/oid-check", async (
             TestOidRequest request,
             UniFiConnectionService connectionService,
             SiteDbContextFactory siteDbFactory,
@@ -87,7 +94,7 @@ public static class SnmpEndpoints
             }
         });
 
-        app.MapGet("/api/monitoring/snmp/custom-oids/{deviceMac}", async (
+        read.MapGet("/api/monitoring/snmp/custom-oids/{deviceMac}", async (
             string deviceMac,
             SiteDbContextFactory siteDbFactory,
             SiteContextService siteContext,
@@ -111,7 +118,7 @@ public static class SnmpEndpoints
             return Results.Ok(oids);
         });
 
-        app.MapPost("/api/monitoring/snmp/custom-oids", async (
+        admin.MapPost("/api/monitoring/snmp/custom-oids", async (
             SaveCustomOidRequest request,
             SiteDbContextFactory siteDbFactory,
             SiteContextService siteContext,
@@ -158,7 +165,7 @@ public static class SnmpEndpoints
             return Results.Ok();
         });
 
-        app.MapDelete("/api/monitoring/snmp/custom-oids/{id:int}", async (
+        admin.MapDelete("/api/monitoring/snmp/custom-oids/{id:int}", async (
             int id,
             SiteDbContextFactory siteDbFactory,
             SiteContextService siteContext,

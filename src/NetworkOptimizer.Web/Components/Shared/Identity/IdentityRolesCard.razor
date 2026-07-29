@@ -1,0 +1,244 @@
+﻿@using NetworkOptimizer.Storage.Models.Identity
+@inject IJSRuntime JS
+
+@* Reference material for the Role and Site role pickers, which are the two places someone has to
+   make a decision they cannot undo by guessing. Collapsed by default: it is here to be opened from
+   the tooltip icons beside those pickers, not to push the cards below it down the page. *@
+<div class="card settings-tab-identity" id="identity-roles">
+    <div class="card-header card-header-collapsible" @onclick="() => _collapsed = !_collapsed">
+        <h2 class="card-title">Roles Reference</h2>
+        <span class="issue-type-chevron">@(_collapsed ? "▼" : "▲")</span>
+    </div>
+    <div class="expand-wrapper @(!_collapsed ? "expanded" : "")">
+        <div class="expand-content">
+            <div class="card-body">
+                <p class="page-description">
+                    Access comes from two places: the <strong>Role</strong> on the account, which applies
+                    everywhere, and any <strong>Site role</strong> granted under <strong>Access</strong>,
+                    which applies to one site. On a given site whichever of the two is higher is the one
+                    that counts, so a site grant can raise someone but never lower them.
+                </p>
+
+                @* The global Role table and the site-restriction note are instance-wide, so neither is
+                   actionable from a site's own Identity view: the reader cannot see or change an
+                   account's Role from here, and the checkbox lives on the page they cannot open. The
+                   paragraph above STAYS - it explains that a global role sets a floor and a site grant
+                   can only raise, which is the thing that surprises people granting site roles. *@
+                @if (SiteSlug is null)
+                {
+
+                <h3 class="identity-inline-title identity-roles-heading">Role</h3>
+                <div class="table-responsive">
+                    <table class="data-table">
+                        <tbody>
+                            <tr>
+                                <td class="identity-role-name">Admin</td>
+                                <td>
+                                    Everything, everywhere: accounts and roles, sign-in methods, licensing,
+                                    and all of Settings. Counts as Site Admin on every site.
+                                </td>
+                            </tr>
+                            <tr>
+                                <td class="identity-role-name">Operator</td>
+                                <td>
+                                    Runs the network on the sites they can reach - speed tests, Wi-Fi
+                                    scans, acknowledging alerts, and tuning what is monitored. No
+                                    Settings and no account management.
+                                </td>
+                            </tr>
+                            <tr>
+                                <td class="identity-role-name">Viewer</td>
+                                <td>
+                                    Reads the sites they can reach: dashboards, monitoring, maps, signal
+                                    and coverage, past results, and reports. Can run a Security Audit
+                                    and any client speed test, which measure without changing anything.
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <p class="page-description identity-roles-footnote">
+                    <strong>Which sites they can reach</strong> is the checkbox under <strong>Access</strong>:
+                    <strong>Operators and Viewers see only their assigned sites</strong>. On, and an
+                    Operator or Viewer reaches only what they have been granted; off, and a global role
+                    reaches every site whether it is granted or not. Admins reach every site either way.
+                </p>
+                }
+
+                <h3 class="identity-inline-title identity-roles-heading">Site role</h3>
+                <div class="table-responsive">
+                    <table class="data-table">
+                        <tbody>
+                            <tr>
+                                <td class="identity-role-name">Site Admin</td>
+                                <td>
+                                    Everything on that one site: its setup, its deployments, and who
+                                    else can reach it. Global Settings stay out of reach.
+                                </td>
+                            </tr>
+                            <tr>
+                                <td class="identity-role-name">Site Operator</td>
+                                <td>Runs that site day to day: speed tests, audits, acknowledging alerts.</td>
+                            </tr>
+                            <tr>
+                                <td class="identity-role-name">Site Viewer</td>
+                                <td>Reads that site.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <h3 class="identity-inline-title identity-roles-heading">Some examples</h3>
+                <div class="table-responsive">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th></th>
+                                <th class="identity-role-mark">Viewer</th>
+                                <th class="identity-role-mark">Operator</th>
+                                <th class="identity-role-mark">Admin</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>See dashboards, monitoring, and past results</td>
+                                <td class="identity-role-mark">@Yes</td>
+                                <td class="identity-role-mark">@Yes</td>
+                                <td class="identity-role-mark">@Yes</td>
+                            </tr>
+                            <tr>
+                                <td>Run a security audit</td>
+                                <td class="identity-role-mark">@Yes</td>
+                                <td class="identity-role-mark">@Yes</td>
+                                <td class="identity-role-mark">@Yes</td>
+                            </tr>
+                            <tr>
+                                <td>Run a speed test</td>
+                                <td class="identity-role-mark">@No</td>
+                                <td class="identity-role-mark">@Yes</td>
+                                <td class="identity-role-mark">@Yes</td>
+                            </tr>
+                            <tr>
+                                <td>Run a Wi-Fi channel scan</td>
+                                <td class="identity-role-mark">@No</td>
+                                <td class="identity-role-mark">@Yes</td>
+                                <td class="identity-role-mark">@Yes</td>
+                            </tr>
+                            <tr>
+                                <td>Acknowledge or resolve an alert</td>
+                                <td class="identity-role-mark">@No</td>
+                                <td class="identity-role-mark">@Yes</td>
+                                <td class="identity-role-mark">@Yes</td>
+                            </tr>
+                            <tr>
+                                <td>Add a monitoring target or tune an alert threshold</td>
+                                <td class="identity-role-mark">@No</td>
+                                <td class="identity-role-mark">@Yes</td>
+                                <td class="identity-role-mark">@Yes</td>
+                            </tr>
+                            @* Stated as its own row because the asymmetry with the row above is the
+                               surprising part, and a rule nobody can find reads as a bug. *@
+                            <tr>
+                                <td>Remove a monitoring target</td>
+                                <td class="identity-role-mark">@No</td>
+                                <td class="identity-role-mark">@No</td>
+                                <td class="identity-role-mark">@Yes</td>
+                            </tr>
+                            <tr>
+                                <td>Place an access point or edit a floor plan</td>
+                                <td class="identity-role-mark">@No</td>
+                                <td class="identity-role-mark">@Yes</td>
+                                <td class="identity-role-mark">@Yes</td>
+                            </tr>
+                            <tr>
+                                <td>Arrange the dashboard, or filter threat noise</td>
+                                <td class="identity-role-mark">@No</td>
+                                <td class="identity-role-mark">@No</td>
+                                <td class="identity-role-mark">@Yes</td>
+                            </tr>
+                            <tr>
+                                <td>Change an alert rule or a schedule</td>
+                                <td class="identity-role-mark">@No</td>
+                                <td class="identity-role-mark">@No</td>
+                                <td class="identity-role-mark">@Yes</td>
+                            </tr>
+                            <tr>
+                                <td>Steer traffic to a different WAN</td>
+                                <td class="identity-role-mark">@No</td>
+                                <td class="identity-role-mark">@No</td>
+                                <td class="identity-role-mark">@Yes</td>
+                            </tr>
+                            <tr>
+                                <td>Dismiss a Security Audit issue</td>
+                                <td class="identity-role-mark">@No</td>
+                                <td class="identity-role-mark">@No</td>
+                                <td class="identity-role-mark">@Yes</td>
+                            </tr>
+                            <tr>
+                                <td>Deploy Adaptive SQM to the gateway</td>
+                                <td class="identity-role-mark">@No</td>
+                                <td class="identity-role-mark">@Yes</td>
+                                <td class="identity-role-mark">@Yes</td>
+                            </tr>
+                            <tr>
+                                <td>Enroll or remove an agent</td>
+                                <td class="identity-role-mark">@No</td>
+                                <td class="identity-role-mark">@No</td>
+                                <td class="identity-role-mark">@Yes</td>
+                            </tr>
+                            <tr>
+                                <td>Add an account or change a role</td>
+                                <td class="identity-role-mark">@No</td>
+                                <td class="identity-role-mark">@No</td>
+                                <td class="identity-role-mark">@Yes</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <p class="page-description identity-roles-footnote">
+                    <strong>Operator or Admin:</strong> day-to-day work that a repeat puts right is an
+                    Operator's. Installing, removing, changing who gets in, or anything that can take the
+                    network off the air while it is wrong is an Admin's - WAN Steering included, however
+                    often you edit it.
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    /// <summary>Set when the card is shown inside a single site's Identity view.</summary>
+    [Parameter] public string? SiteSlug { get; set; }
+
+    private const string Yes = "✓";
+    private const string No = "-";
+
+    private bool _collapsed = true;
+
+    /// <summary>
+    /// Opens the panel and flashes it, for the tooltip icons beside the Role and Site role pickers.
+    /// The delay lets the expand animation settle so the scroll lands on the panel's final position -
+    /// same sequence the Monitoring deep-links use.
+    /// </summary>
+    public async Task OpenAndHighlightAsync()
+    {
+        _collapsed = false;
+        StateHasChanged();
+
+        await Task.Delay(400);
+        await JS.InvokeVoidAsync("eval", @"
+            (function() {
+                var el = document.getElementById('identity-roles');
+                if (el) {
+                    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    el.style.transition = 'outline-color 0.3s';
+                    el.style.outline = '2px solid rgba(59, 130, 246, 0.5)';
+                    el.style.outlineOffset = '4px';
+                    el.style.borderRadius = '12px';
+                    setTimeout(function() { el.style.outline = ''; el.style.outlineOffset = ''; }, 2000);
+                }
+            })();");
+    }
+}

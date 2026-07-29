@@ -11,6 +11,9 @@
 @inject NetworkOptimizer.Web.Services.PullToRefreshState PtrState
 @inject NetworkOptimizer.Web.Services.ISystemSettingsService SettingsService
 @inject NetworkOptimizer.Web.Services.SiteContextService SiteContext
+@inject Microsoft.AspNetCore.Authorization.IAuthorizationService Authz
+@using NetworkOptimizer.Web.Services.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
 
 @* Date/time filter (left) + Refresh. The live/cached view (the effective auto-computed window, which
    auto-fallback may have reduced below the configured target) is the only state where Refresh is
@@ -59,6 +62,9 @@
                     </div>
                     <div class="custom-range-actions">
                         <button class="btn btn-sm btn-secondary" @onclick="() => _showCustomPopover = false">Cancel</button>
+                        @* Not gated: choosing a window is a READ. Every other time control here (the
+                           presets, the shift arrows) is open to a Viewer, so gating only the custom
+                           range left them able to look at any period except the one they picked. *@
                         <button class="btn btn-sm btn-primary" @onclick="ApplyCustomAsync">Apply</button>
                     </div>
                 </div>
@@ -125,7 +131,7 @@ else if (_report == null)
                     <span>Pick your access network technology so ISP Health can grade against the right expectations. You can also set it during <a href="/monitoring?tab=performance&amp;discover=1">Upstream Discovery</a>.</span>
                 </div>
                 <div class="banner-actions">
-                    <select class="form-control" style="max-width: 240px;" aria-label="Access technology" @onchange="OnAccessTechnologyChanged">
+                    <select class="form-control" style="max-width: 240px;" aria-label="Access technology" disabled="@(!_canOperate)" @onchange="OnAccessTechnologyChanged">
                         <option value="" selected disabled>Select technology...</option>
                         @foreach (var tech in ProfileTechOptions)
                         {
@@ -213,10 +219,10 @@ else
             <div class="isp-health-hero-gauge">
                 <IspHealthScoreGauge Score="r.OverallScore" Label="ISP Health" />
                 <div class="isp-health-profile-chip isp-health-profile-chip-selectable"
-                     data-tooltip="Thresholds are tuned per access technology; change it to re-score." data-tooltip-hover-only>
+                     data-tooltip="@(_canOperate ? "Thresholds are tuned per access technology; change it to re-score." : "Thresholds are tuned per access technology. A Site Operator or Admin can change it.")" data-tooltip-hover-only>
                     Scored as @r.Profile.DisplayName &middot; @ScoredWindowLabel(r)
                     <span class="isp-profile-chip-caret"></span>
-                    <select class="isp-profile-chip-select" aria-label="Access technology"
+                    <select class="isp-profile-chip-select" aria-label="Access technology" disabled="@(!_canOperate)"
                             value="@((int)r.AccessTechnology)" @onchange="OnAccessTechnologyChanged">
                         @foreach (var tech in ProfileTechOptions)
                         {
@@ -311,23 +317,27 @@ else
                             }
                             @if (issue.OutageStarts.Count > 0)
                             {
-                                <div class="issue-ack">
-                                    <span>Caused by something you did (pulled a cable, swapped equipment)?</span>
-                                    @foreach (var start in issue.OutageStarts)
-                                    {
-                                        @if (_ackPending.Contains(start))
+                                @* The question goes with the answer. Gating only the link left a Viewer
+                                   being asked whether this was their doing with no way to say so. *@
+                                <SiteOperatorOnly>
+                                    <div class="issue-ack">
+                                        <span>Caused by something you did (pulled a cable, swapped equipment)?</span>
+                                        @foreach (var start in issue.OutageStarts)
                                         {
-                                            <span class="isp-outage-ack">excluding...</span>
+                                            @if (_ackPending.Contains(start))
+                                            {
+                                                <span class="isp-outage-ack">excluding...</span>
+                                            }
+                                            else
+                                            {
+                                                <a class="isp-outage-ack @AckLockClass" href="javascript:void(0)"
+                                                   data-tooltip="Exclude this event from ISP Health scoring"
+                                                   data-tooltip-hover-only
+                                                   @onclick="() => AcknowledgeOutageAsync(start)">that was me@(issue.OutageStarts.Count > 1 ? $" ({EventTimeLabel(start)})" : "")</a>
+                                            }
                                         }
-                                        else
-                                        {
-                                            <a class="isp-outage-ack @AckLockClass" href="javascript:void(0)"
-                                               data-tooltip="Exclude this event from ISP Health scoring"
-                                               data-tooltip-hover-only
-                                               @onclick="() => AcknowledgeOutageAsync(start)">that was me@(issue.OutageStarts.Count > 1 ? $" ({EventTimeLabel(start)})" : "")</a>
-                                        }
-                                    }
-                                </div>
+                                    </div>
+                                </SiteOperatorOnly>
                             }
                         </div>
                     </div>
@@ -345,8 +355,8 @@ else
                         @dimension.Name
                         @if (dimension == r.AccessDimension)
                         {
-                            <select class="isp-access-tech-select" aria-label="Access technology"
-                                    data-tooltip="Thresholds are tuned per access technology; change it to re-score." data-tooltip-hover-only
+                            <select class="isp-access-tech-select" aria-label="Access technology" disabled="@(!_canOperate)"
+                                    data-tooltip="@(_canOperate ? "Thresholds are tuned per access technology; change it to re-score." : "Thresholds are tuned per access technology. A Site Operator or Admin can change it.")" data-tooltip-hover-only
                                     value="@((int)r.AccessTechnology)" @onchange="OnAccessTechnologyChanged">
                                 @foreach (var tech in ProfileTechOptions)
                                 {
@@ -357,7 +367,7 @@ else
                     </h2>
                     <span class="isp-dimension-score @ScoreTextClass(dimension.Score)">@(dimension.Score?.ToString() ?? "--")</span>
                 </div>
-                <div class="card-body isp-card-body-tight-top">
+                <div class="card-body isp-card-body-tight-top" data-tour="@(dimension == r.IspAsnDimension ? "isp-network-hops" : null)">
                     @if (dimension == r.IspAsnDimension)
                     {
                         var ispTargets = r.IspTargets.OrderBy(t => t.RttMs ?? double.MaxValue).ToList();
@@ -366,8 +376,21 @@ else
                             @<div class="isp-hop">
                                 <div class="isp-hop-row">
                                     <div class="isp-hop-main">
+                                        @* The label is the ASN name, so several hops read as "Provider 1,
+                                           2, 5" and none of them says which router answered. The address on
+                                           hover is what lets someone line our reading up against their own
+                                           traceroute (#1070). *@
                                         <div class="isp-hop-name">
-                                            @target.Name
+                                            @if (!string.IsNullOrWhiteSpace(target.Address))
+                                            {
+                                                @* No hover-only: the address is worth reading at leisure, and clicking to pin it is the only
+                                                   way on touch. The name is not a link, so a click has nothing else to do. *@
+                                                <span class="isp-hop-name-text" data-tooltip="@target.Address">@target.Name</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="isp-hop-name-text">@target.Name</span>
+                                            }
                                             @if (target.IsGradedHop)
                                             {
                                                 <span class="isp-target-badge isp-target-graded" data-tooltip="The lowest-RTT ISP hop; access-layer idle latency is measured from it">Lowest RTT</span>
@@ -598,15 +621,19 @@ else
                                 else if (outage.Acknowledged)
                                 {
                                     <span class="isp-outage-ack isp-outage-ack-done">that was me &middot; not scored
-                                        <a href="javascript:void(0)" class="@AckLockClass" @onclick="() => UnacknowledgeOutageAsync(outage.Start)">undo</a>
+                                        <SiteOperatorOnly>
+                                            <a href="javascript:void(0)" class="@AckLockClass" @onclick="() => UnacknowledgeOutageAsync(outage.Start)">undo</a>
+                                        </SiteOperatorOnly>
                                     </span>
                                 }
                                 else if (outage.Scope != OutageScope.Local)
                                 {
-                                    <a class="isp-outage-ack @AckLockClass" href="javascript:void(0)"
+                                    <SiteOperatorOnly>
+                                        <a class="isp-outage-ack @AckLockClass" href="javascript:void(0)"
                                        data-tooltip="Your own doing (pulled a cable, re-seated a connector, swapped equipment)? Click to exclude this event from ISP Health scoring."
                                        data-tooltip-hover-only
                                        @onclick="() => AcknowledgeOutageAsync(outage.Start)">that was me</a>
+                                    </SiteOperatorOnly>
                                 }
                             </div>
                             @if (outage.Tiers.Any(t => t.WentDark))
@@ -855,8 +882,21 @@ else
         StateHasChanged();
     }
 
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    /// <summary>
+    /// Whether the caller may change the scored access technology. Operator, not Admin: it retunes
+    /// how this site is judged rather than changing anything the network does, and a wrong choice is
+    /// corrected by choosing again. Viewers see the current technology and cannot move it - the
+    /// setting is stored per site, so it changes the score everyone reads, not just their own view.
+    /// </summary>
+    private bool _canOperate;
+
     protected override async Task OnInitializedAsync()
     {
+        _canOperate = AuthState is null
+            || (await Authz.AuthorizeAsync((await AuthState).User, SiteContext.Slug, Policies.SiteOperator)).Succeeded;
+
         // Pull-to-refresh on this tab recomputes the scorecard (the Refresh button's action)
         // instead of the layout's full-page-reload fallback.
         PtrState.RefreshCallback = RefreshAsync;
@@ -1095,6 +1135,10 @@ else
     /// </summary>
     private async Task OnAccessTechnologyChanged(ChangeEventArgs e)
     {
+        // The selects are disabled for a Viewer, but a disabled control is a statement to the browser
+        // and the browser is not the thing being trusted. Refused here as well.
+        if (!_canOperate)
+            return;
         if (!int.TryParse(e.Value?.ToString(), out var techValue))
             return;
         if (_refreshing || _windowComputing)

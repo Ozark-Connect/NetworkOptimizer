@@ -1,8 +1,10 @@
 @using NetworkOptimizer.Storage.Models
 @using NetworkOptimizer.Web.Services
 @implements IDisposable
-@inject SiteManagementService SiteManagement
-@inject AgentEnrollmentService AgentEnrollment
+@inject SiteRegistryChangeNotifier ChangeNotifier
+@inject ISiteManagementService SiteManagement
+@inject NetworkOptimizer.Web.Services.Authorization.ISiteAccessFilter SiteAccess
+@inject IAgentEnrollmentService AgentEnrollment
 @inject AgentTunnelRegistry TunnelRegistry
 @inject NavigationManager NavigationManager
 
@@ -70,9 +72,14 @@
 
     protected override async Task OnInitializedAsync()
     {
+        // The poll below refreshes agent counts but not the site list, so a site removed or a grant
+        // revoked while the dashboard is open would linger on this card.
+        ChangeNotifier.SitesChanged += OnSitesChanged;
+
         if (await SiteManagement.IsMultiSiteEnabledAsync())
         {
-            _sites = (await SiteManagement.GetSitesAsync()).Where(s => s.Enabled).ToList();
+            _sites = await SiteAccess.FilterAsync(
+                (await SiteManagement.GetSitesAsync()).Where(s => s.Enabled), s => s.Slug);
             _agents = await AgentEnrollment.GetAllAgentsAsync();
 
             // Same 10s refresh as the Sites and Settings pages, so the Agents
@@ -92,8 +99,26 @@
         }
     }
 
+    private void OnSitesChanged()
+    {
+        _ = InvokeAsync(async () =>
+        {
+            try
+            {
+                _sites = await SiteAccess.FilterAsync(
+                    (await SiteManagement.GetSitesAsync()).Where(s => s.Enabled), s => s.Slug);
+                StateHasChanged();
+            }
+            catch (ObjectDisposedException)
+            {
+                // Circuit torn down between the event and the dispatch - nothing to update.
+            }
+        });
+    }
+
     public void Dispose()
     {
+        ChangeNotifier.SitesChanged -= OnSitesChanged;
         _pollTimer?.Dispose();
     }
 }

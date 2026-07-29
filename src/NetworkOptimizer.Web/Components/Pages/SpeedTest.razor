@@ -1,4 +1,5 @@
 @page "/speedtest"
+@attribute [Authorize(Policy = Policies.RequireViewer)]
 @rendermode InteractiveServer
 @implements IDisposable
 @using NetworkOptimizer.Web.Services
@@ -9,10 +10,16 @@
 @using NetworkOptimizer.UniFi.Models
 @using NetworkOptimizer.Core.Models
 @using NetworkOptimizer.Web.Models
-@inject Iperf3SpeedTestService SpeedTestService
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using NetworkOptimizer.Web.Services.Authorization
+@using NetworkOptimizer.Web.Services.Ssh
+@inject IAuthorizationService Authz
+@inject ISshKeyService SshKeyService
+@inject IIperf3SpeedTestService SpeedTestService
 @inject UniFiSshService SshService
 @inject UniFiConnectionService ConnectionService
-@inject GatewaySpeedTestService GatewaySpeedTestService
+@inject IGatewaySpeedTestService GatewaySpeedTestService
 @inject SpeedTestServiceRegistry SpeedTestRegistry
 @inject SiteContextService SiteContext
 @inject MonitoringReadinessService Readiness
@@ -24,6 +31,7 @@
 @inject SystemSettingsService SettingsService
 @inject ApMapService ApMapService
 @inject PullToRefreshState PtrState
+@inject IApMapAdminService ApMapAdmin
 @using NetworkOptimizer.Web.Components.Shared
 
 <PageTitle>LAN Speed Test - Network Optimizer</PageTitle>
@@ -255,30 +263,32 @@
 
                 <!-- Actions -->
                 <div class="gateway-actions">
-                    <button class="btn btn-primary test-button" style="width: 9.5rem;" @onclick="RunGatewaySpeedTest" disabled="@(gatewayRunning || IsLicenseRestricted)">
-                        @if (gatewayRunning)
-                        {
-                            <div class="test-progress">
-                                <div class="progress-bar" style="width: @(testProgressPercent)%"></div>
-                            </div>
-                            <span class="test-phase">@testProgressPhase...</span>
-                        }
-                        else
-                        {
-                            <span>Run Gateway Test</span>
-                        }
-                    </button>
-                    <button class="btn btn-secondary" style="min-width: 7.5rem;" @onclick="CheckGatewayIperf3" disabled="@gatewayCheckingIperf3">
-                        @if (gatewayCheckingIperf3)
-                        {
-                            <span class="spinner"></span>
-                            <span>Checking...</span>
-                        }
-                        else
-                        {
-                            <span>Check iperf3</span>
-                        }
-                    </button>
+                    <SiteOperatorOnly>
+                        <button class="btn btn-primary test-button" style="width: 9.5rem;" @onclick="RunGatewaySpeedTest" disabled="@(gatewayRunning || IsLicenseRestricted)">
+                            @if (gatewayRunning)
+                            {
+                                <div class="test-progress">
+                                    <div class="progress-bar" style="width: @(testProgressPercent)%"></div>
+                                </div>
+                                <span class="test-phase">@testProgressPhase...</span>
+                            }
+                            else
+                            {
+                                <span>Run Gateway Test</span>
+                            }
+                        </button>
+                    </SiteOperatorOnly>
+                                            <button class="btn btn-secondary" style="min-width: 7.5rem;" @onclick="CheckGatewayIperf3" disabled="@gatewayCheckingIperf3">
+                            @if (gatewayCheckingIperf3)
+                            {
+                                <span class="spinner"></span>
+                                <span>Checking...</span>
+                            }
+                            else
+                            {
+                                <span>Check iperf3</span>
+                            }
+                        </button>
                     <button class="btn btn-secondary" @onclick="@(() => NavigationManager.NavigateTo("/settings#gateway-ssh"))">Settings</button>
                 </div>
 
@@ -375,7 +385,14 @@
                     }
                     else
                     {
-                        <text>Connect to your UniFi controller in <a href="/settings#console-connection">Settings</a> to discover devices.</text>
+                        @if (_canConfigure)
+                        {
+                            <text>Connect to your UniFi controller in <a href="/settings#console-connection">Settings</a> to discover devices.</text>
+                        }
+                        else
+                        {
+                            <text>Device discovery needs the UniFi Console connected, which a site administrator sets up.</text>
+                        }
                     }
                 </div>
             }
@@ -422,6 +439,7 @@
                                 </td>
                                 <td>
                                     <div class="action-buttons">
+                                        <SiteOperatorOnly>
                                         <button class="btn btn-primary btn-sm test-button"
                                                 @onclick="() => RunSpeedTestOnDiscovered(device)"
                                                 disabled="@(isRunningTest || !isOnline || !sshConfigured || string.IsNullOrEmpty(device.IpAddress))">
@@ -437,6 +455,7 @@
                                                 <span>Run Test</span>
                                             }
                                         </button>
+                                        </SiteOperatorOnly>
                                     </div>
                                 </td>
                             </tr>
@@ -490,9 +509,11 @@
         <div class="card-header">
             <h2 class="card-title">Other Device Speed Test</h2>
             <div class="header-actions">
-                <button class="btn btn-sm btn-secondary" @onclick="ToggleAddDevice">
-                    @(showAddDevice && editingDevice.Id == 0 ? "Cancel" : "Add Device")
-                </button>
+                <SiteAdminOnly>
+                    <button class="btn btn-sm btn-secondary" @onclick="ToggleAddDevice">
+                        @(showAddDevice && editingDevice.Id == 0 ? "Cancel" : "Add Device")
+                    </button>
+                </SiteAdminOnly>
             </div>
         </div>
         <div class="card-body">
@@ -537,24 +558,32 @@
                                 </td>
                                 <td>
                                     <div class="action-buttons">
-                                        <button class="btn btn-primary btn-sm test-button" @onclick="() => RunSpeedTest(device)"
-                                                disabled="@(isRunningTest || !device.Enabled || (!sshConfigured && !device.HasOwnCredentials) || IsLicenseRestricted)">
-                                            @if (runningTestHost == device.Host)
-                                            {
-                                                <div class="test-progress">
-                                                    <div class="progress-bar" style="width: @(testProgressPercent)%"></div>
-                                                </div>
-                                                <span class="test-phase">@testProgressPhase...</span>
-                                            }
-                                            else
-                                            {
-                                                <span>Run Test</span>
-                                            }
-                                        </button>
-                                        <button class="btn btn-secondary btn-sm @(device.StartIperf3Server ? "" : "hidden-placeholder")" style="min-width: 5rem;"
-                                                @onclick="() => TestConnection(device)" disabled="@(!sshConfigured && !device.HasOwnCredentials)">Test SSH</button>
-                                        <button class="btn btn-secondary btn-sm" @onclick="() => EditDevice(device)">Edit</button>
-                                        <button class="btn btn-danger btn-sm" @onclick="() => DeleteDevice(device)">Delete</button>
+                                        <SiteOperatorOnly>
+                                            <button class="btn btn-primary btn-sm test-button" @onclick="() => RunSpeedTest(device)"
+                                                    disabled="@(isRunningTest || !device.Enabled || (!sshConfigured && !device.HasOwnCredentials) || IsLicenseRestricted)">
+                                                @if (runningTestHost == device.Host)
+                                                {
+                                                    <div class="test-progress">
+                                                        <div class="progress-bar" style="width: @(testProgressPercent)%"></div>
+                                                    </div>
+                                                    <span class="test-phase">@testProgressPhase...</span>
+                                                }
+                                                else
+                                                {
+                                                    <span>Run Test</span>
+                                                }
+                                            </button>
+                                        </SiteOperatorOnly>
+                                        <SiteOperatorOnly>
+                                            <button class="btn btn-secondary btn-sm @(device.StartIperf3Server ? "" : "hidden-placeholder")" style="min-width: 5rem;"
+                                                    @onclick="() => TestConnection(device)" disabled="@(!sshConfigured && !device.HasOwnCredentials)">Test SSH</button>
+                                        </SiteOperatorOnly>
+                                        <SiteAdminOnly>
+                                            <button class="btn btn-secondary btn-sm" @onclick="() => EditDevice(device)">Edit</button>
+                                        </SiteAdminOnly>
+                                        <SiteAdminOnly>
+                                            <button class="btn btn-danger btn-sm" @onclick="() => DeleteDevice(device)">Delete</button>
+                                        </SiteAdminOnly>
                                     </div>
                                 </td>
                             </tr>
@@ -565,7 +594,7 @@
             }
             else if (!showAddDevice)
             {
-                <p class="empty-state">No saved devices. Click "Add Device" to add a server or other device for testing.</p>
+                <p class="empty-state">@(_canConfigure ? "No saved devices. Click \"Add Device\" to add a server or other device for testing." : "No saved devices. A site administrator adds servers and other devices for testing.")</p>
             }
 
             @if (showAddDevice || editingDevice.Id > 0)
@@ -595,14 +624,14 @@
                     </div>
 
                     <div class="form-group">
-                        <label class="form-check">
+                        <label class="checkbox-label">
                             <input type="checkbox" @bind="editingDevice.Enabled" />
                             <span>Enable for speed testing</span>
                         </label>
                     </div>
 
                     <div class="form-group">
-                        <label class="form-check">
+                        <label class="checkbox-label">
                             <input type="checkbox" @bind="editingDevice.StartIperf3Server" />
                             <span>Start iperf3 server before test</span>
                         </label>
@@ -654,35 +683,41 @@
                         </div>
 
                         <div class="form-group">
-                            <label class="form-label">SSH Username</label>
+                            <label class="form-label @InheritedLabel(DeviceUsernameOverridden)">SSH Username</label>
                             <input type="text" class="form-control" autocomplete="off" @bind="editingDevice.SshUsername" placeholder="(using global setting)" />
                         </div>
 
                         <div class="form-group">
-                            <label class="form-label">SSH Password</label>
+                            <label class="form-label @(DevicePasswordInPlay ? "" : "form-label-unused")">SSH Password@(DevicePasswordNote)</label>
                             <input type="password" class="form-control" autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore @bind="editingDevicePassword" placeholder="@(!string.IsNullOrWhiteSpace(editingDevice.SshPrivateKeyPath) ? "(using SSH key)" : editingDeviceHasSavedPassword ? "Saved – enter new to update" : "(using global setting)")" />
                             <span class="form-help">Password is encrypted at rest</span>
                         </div>
 
-                        <div class="form-group">
-                            <label class="form-label">SSH Private Key Path</label>
-                            <input type="text" class="form-control" @bind="editingDevice.SshPrivateKeyPath" placeholder="(using global setting)" />
-                            <span class="form-help">Path to private key file on the server (e.g., /app/ssh-keys/id_rsa). Leave blank to use password authentication.</span>
-                        </div>
+                        <SshKeyRow Key="_sshKey" />
+
+                        <AdminOnly NotAuthorized="@DeviceKeyFileNote">
+                            <div class="form-group">
+                                <label class="form-label @InheritedLabel(DeviceKeyPathOverridden)">SSH Private Key Path</label>
+                                <input type="text" class="form-control" @bind="editingDevice.SshPrivateKeyPath" placeholder="(using global setting)" />
+                                <span class="form-help">Path to private key file on the server (e.g., /app/ssh-keys/id_rsa). Leave blank to use password authentication.</span>
+                            </div>
+                        </AdminOnly>
                     }
 
                     <div class="action-buttons">
-                        <button class="btn btn-primary" @onclick="SaveDevice" disabled="@savingDevice">
-                            @if (savingDevice)
-                            {
-                                <span class="spinner"></span>
-                                <span>Saving...</span>
-                            }
-                            else
-                            {
-                                <span>@(editingDevice.Id > 0 ? "Update Device" : "Add Device")</span>
-                            }
-                        </button>
+                        <SiteAdminOnly>
+                            <button class="btn btn-primary" @onclick="SaveDevice" disabled="@savingDevice">
+                                @if (savingDevice)
+                                {
+                                    <span class="spinner"></span>
+                                    <span>Saving...</span>
+                                }
+                                else
+                                {
+                                    <span>@(editingDevice.Id > 0 ? "Update Device" : "Add Device")</span>
+                                }
+                            </button>
+                        </SiteAdminOnly>
                         <button class="btn btn-secondary" @onclick="CancelEdit">Cancel</button>
                     </div>
                 </div>
@@ -761,22 +796,26 @@
                         {
                             <span class="confirm-inline">
                                 <span class="confirm-text">Delete all history?</span>
-                                <button class="btn btn-sm btn-danger" @onclick="ConfirmClearHistory" disabled="@clearingHistory">
-                                    @if (clearingHistory)
-                                    {
-                                        <span class="spinner-sm"></span>
-                                    }
-                                    else
-                                    {
-                                        <span>Yes, delete</span>
-                                    }
-                                </button>
+                                <SiteAdminOnly>
+                                    <button class="btn btn-sm btn-danger" @onclick="ConfirmClearHistory" disabled="@clearingHistory">
+                                        @if (clearingHistory)
+                                        {
+                                            <span class="spinner-sm"></span>
+                                        }
+                                        else
+                                        {
+                                            <span>Yes, delete</span>
+                                        }
+                                    </button>
+                                </SiteAdminOnly>
                                 <button class="btn btn-sm btn-secondary" @onclick="CancelClearHistory" disabled="@clearingHistory">Cancel</button>
                             </span>
                         }
                         else
                         {
-                            <button class="btn btn-sm btn-danger" @onclick="ShowClearHistoryConfirm">Clear History</button>
+                            <SiteAdminOnly>
+                                <button class="btn btn-sm btn-danger" @onclick="ShowClearHistoryConfirm">Clear History</button>
+                            </SiteAdminOnly>
                         }
                     }
                 </div>
@@ -1368,6 +1407,14 @@
 </style>
 
 @code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    /// <summary>
+    /// Whether this caller can open the Settings pages this page points at. Copy only - the controls
+    /// themselves are gated by their own wrappers.
+    /// </summary>
+    private bool _canConfigure;
+
     private bool IsLicenseRestricted => !LicenseState.IsSiteOperational(SiteContext.Slug);
 
     // Resolve the current site's path analyzer (not the main-pinned singleton) so historical
@@ -1483,10 +1530,81 @@
 
     private bool _liveViewLinkEnabled;
 
+
+    /// <summary>
+    /// These fields override the global Device SSH settings, so blank does not mean the credential is
+    /// unused - it means this device inherits it. Saying "not in use" over a working inherited
+    /// credential would be wrong, so the header says where the value is coming from instead.
+    /// </summary>
+    private bool DeviceUsernameOverridden => !string.IsNullOrWhiteSpace(editingDevice?.SshUsername);
+
+    private bool DevicePasswordOverridden =>
+        editingDeviceHasSavedPassword || !string.IsNullOrEmpty(editingDevicePassword);
+
+    /// <summary>
+    /// Whether this device's password is going to be the thing that authenticates. A stored key takes
+    /// over wherever it is installed, so a password set right here still will not be used - which is
+    /// a different statement from "you did not set one", and the header says which.
+    /// </summary>
+    private bool DevicePasswordInPlay => DevicePasswordOverridden && _sshKey is null;
+
+    private string DevicePasswordNote => _sshKey is not null ? " (Not in use)" : "";
+
+    private bool DeviceKeyPathOverridden => !string.IsNullOrWhiteSpace(editingDevice?.SshPrivateKeyPath);
+
+    /// <summary>Whether the site's device SSH settings name a key file, regardless of this device.</summary>
+    private bool _globalDeviceKeyFileConfigured;
+
+    /// <summary>
+    /// What a caller below global Admin sees in place of the path field: naming a path is theirs to use
+    /// but not to set or read, so there is no read-only input here, only a statement of what is
+    /// authenticating. It used to be nothing at all, which read as "no key" on a device using one.
+    /// </summary>
+    private RenderFragment? DeviceKeyFileNote =>
+        !(DeviceKeyPathOverridden || _globalDeviceKeyFileConfigured)
+            ? null
+            : @<div class="form-group">
+                   <label class="form-label">SSH Private Key Path</label>
+                   <span class="form-help">Set by an administrator. This key authenticates the connection.</span>
+               </div>;
+
+    /// <summary>
+    /// Dims the header of a field that is inheriting rather than overriding. No wording with it - the
+    /// placeholder already says "(using global setting)" in the field itself.
+    /// </summary>
+    private static string InheritedLabel(bool overridden) => overridden ? "" : "form-label-unused";
+
+
+    /// <summary>The site's stored SSH key, shown on the per-device override form. Null when it has none.</summary>
+    private SshKeyInfo? _sshKey;
+
+    /// <summary>
+    /// Read-only, and tolerant of failure: the key row is informational, so a site whose key cannot be
+    /// read still gets a working speed test page.
+    /// </summary>
+    private async Task<SshKeyInfo?> LoadSiteSshKey()
+    {
+        try
+        {
+            return await SshKeyService.GetAsync();
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
     protected override async Task OnInitializedAsync()
     {
+        _canConfigure = AuthState is null
+            || (await Authz.AuthorizeAsync((await AuthState).User, SiteContext.Slug, Policies.SiteAdmin)).Succeeded;
+
         PtrState.RefreshCallback = () => LoadHistory();
         PtrState.NotifyStateChanged = StateHasChanged;
+
+        _sshKey = await LoadSiteSshKey();
+        _globalDeviceKeyFileConfigured =
+            !string.IsNullOrWhiteSpace((await SshService.GetSettingsAsync())?.PrivateKeyPath);
 
         _liveViewLinkEnabled = await Readiness.IsHistoricPlaybackAvailableAsync();
 
@@ -1596,7 +1714,7 @@
         {
             var settings = await GatewaySpeedTestService.GetSettingsAsync();
             gatewayConfigured = settings.Enabled && settings.HasCredentials && !string.IsNullOrEmpty(settings.Host);
-            gatewayLastResult = GatewaySpeedTestService.GetLastResult();
+            gatewayLastResult = await GatewaySpeedTestService.GetLastResultAsync();
         }
         catch
         {
@@ -2407,7 +2525,7 @@
     {
         try
         {
-            await ApMapService.SaveApLocationAsync(args.Mac, args.Lat, args.Lng);
+            await ApMapAdmin.SaveApLocationAsync(args.Mac, args.Lat, args.Lng);
 
             var marker = apMapMarkers.FirstOrDefault(m => m.Mac.Equals(args.Mac, StringComparison.OrdinalIgnoreCase));
             if (marker != null)

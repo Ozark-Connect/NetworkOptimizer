@@ -106,6 +106,36 @@ public class DeviceRebootTracker
     /// <param name="uptimeSeconds">Uptime reported by this sample.</param>
     /// <param name="firmwareVersion">Reported firmware, used to spot an upgrade across the boot.</param>
     /// <param name="observedAt">Sample time.</param>
+    /// <summary>
+    /// Where an uptime sample came from. The monitoring tiers read system-stats.uptime; the console
+    /// observer reads the device's own uptime field. The two do not always agree, so only one may
+    /// speak for a site at a time - see <see cref="MonitoringIsFeeding"/>.
+    /// </summary>
+    public enum UptimeSource
+    {
+        /// <summary>A monitoring collection tier. The default, so existing callers are unchanged.</summary>
+        Monitoring,
+
+        /// <summary>DeviceRebootObserver, which only speaks when monitoring is not.</summary>
+        Console,
+    }
+
+    private readonly ConcurrentDictionary<string, DateTime> _lastMonitoringSampleByMac = new();
+
+    /// <summary>
+    /// True when a monitoring tier has fed THIS DEVICE recently, which means the console observer
+    /// must keep quiet about it: the two read different uptime fields, and letting both write would
+    /// have the tracker see a new boot every time the source alternated.
+    ///
+    /// Per device rather than per site, because the tiers feed per device and skip the ones that
+    /// answer no health data. A site-wide flag would silence the observer for exactly those devices
+    /// - the ones nothing else is reporting - which is the case it exists to cover.
+    /// </summary>
+    public bool MonitoringIsFeeding(string deviceMac, TimeSpan within)
+        => !string.IsNullOrWhiteSpace(deviceMac)
+            && _lastMonitoringSampleByMac.TryGetValue(Normalize(deviceMac), out var last)
+            && DateTime.UtcNow - last < within;
+
     public void RecordUptimeSample(
         string deviceMac,
         string? deviceName,
@@ -113,10 +143,14 @@ public class DeviceRebootTracker
         string? host,
         long? uptimeSeconds,
         string? firmwareVersion,
-        DateTime observedAt)
+        DateTime observedAt,
+        UptimeSource source = UptimeSource.Monitoring)
     {
         if (string.IsNullOrWhiteSpace(deviceMac) || uptimeSeconds is null or <= 0)
             return;
+
+        if (source == UptimeSource.Monitoring)
+            _lastMonitoringSampleByMac[Normalize(deviceMac)] = DateTime.UtcNow;
 
         var mac = Normalize(deviceMac);
         var bootedAt = observedAt.ToUniversalTime().AddSeconds(-uptimeSeconds.Value);

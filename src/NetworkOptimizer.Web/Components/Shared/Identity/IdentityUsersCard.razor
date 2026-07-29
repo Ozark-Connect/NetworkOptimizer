@@ -1,0 +1,668 @@
+@using NetworkOptimizer.Storage.Models
+@using NetworkOptimizer.Storage.Models.Identity
+@using NetworkOptimizer.Web.Services.Identity
+@inject IIdentityAdminService IdentityAdmin
+@inject IFederationProviderService Federation
+@inject ICurrentUserAccessor CurrentUser
+@inject ISiteManagementService SiteManagement
+@inject IAuthPolicyOptions AuthPolicy
+@inject SiteContextService SiteContext
+@inject NetworkOptimizer.Web.Services.SiteRegistryChangeNotifier ChangeNotifier
+@implements IDisposable
+@inject Microsoft.Extensions.Options.IOptions<Microsoft.AspNetCore.Identity.IdentityOptions> IdentityOptions
+
+@* Settings - Identity: the instance-wide account list. Create, enable/disable, delete, change role,
+   reset another user's password, and link or unlink an external identity. Everything runs through
+   IdentityAdminService, which holds the last-admin invariant and audits each change. *@
+
+<div class="card settings-tab-identity" id="identity-users" data-tour="identity">
+    <div class="card-header">
+        <h2 class="card-title">Users</h2>
+        @if (_multiSiteEnabled)
+        {
+            <div class="card-header-badges">
+                <span class="status-badge global-badge" data-tooltip="Applies to all sites (instance-wide)">Global</span>
+            </div>
+        }
+    </div>
+    <div class="card-body">
+        <p class="section-description">
+            Accounts that can sign in to Network Optimizer. <strong>Admin</strong> can do everything,
+            <strong>Operator</strong> adds running speed tests to read access, and <strong>Viewer</strong>
+            is read-only.
+        </p>
+
+        @if (_message is not null)
+        {
+            <div class="alert alert-@_messageClass">@_message</div>
+        }
+
+        @if (_users is null)
+        {
+            <div class="identity-loading"><span class="spinner spinner-sm"></span></div>
+        }
+        else
+        {
+            <div class="table-responsive">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>User</th>
+                            <th>Role <span class="tooltip-icon tooltip-icon-sm" role="button" data-tooltip-hover-only data-tooltip="Click to see what each role can and cannot do" @onclick="() => OnExplainRoles.InvokeAsync()">?</span></th>
+                            <th class="hide-mobile">Sign-in</th>
+                            <th class="hide-mobile">Last sign-in</th>
+                            <th>Status</th>
+                            <th class="identity-actions-col"></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var summary in _users)
+                        {
+                            var user = summary.User;
+                            <tr>
+                                <td>
+                                    <div class="identity-user">
+                                        <span class="identity-user-name">@user.UserName</span>
+                                        @if (!string.IsNullOrWhiteSpace(user.DisplayName))
+                                        {
+                                            <span class="identity-user-display">@user.DisplayName</span>
+                                        }
+                                    </div>
+                                </td>
+                                <td>
+                                    @* The wrapper carries the flex, not the cell: a td that becomes a
+                                       flex container loses vertical-align, so on a row made tall by
+                                       another cell wrapping, the picker floats to the top on its own. *@
+                                    <div class="identity-role-cell">
+                                        @* A disabled control receives no mouse events, so the tooltip has to
+                                           live on a wrapper or it never shows. *@
+                                        <span class="identity-lock" data-tooltip="@(IsSelf(user) ? "You cannot change your own role" : null)">
+                                        <select class="form-control identity-role-select" value="@(summary.GlobalRole ?? Roles.Viewer)"
+                                                @onchange="e => ChangeRoleAsync(summary, e.Value?.ToString())"
+                                                disabled="@(_busyUserId == user.Id || IsSelf(user))">
+                                            @foreach (var role in Roles.All)
+                                            {
+                                                <option value="@role">@role</option>
+                                            }
+                                        </select>
+                                        </span>
+                                        @if (_siteRestrictionActive && !summary.HasSiteAccess)
+                                        {
+                                            <span class="status-badge status-inactive"
+                                                  data-tooltip="This account is limited to its assigned sites and has none, so it can reach nothing. Grant access under Access.">No site access</span>
+                                        }
+                                    </div>
+                                </td>
+                                <td class="hide-mobile">
+                                    @* What this account can actually sign in with. A badge that only
+                                       restates itself carries no tooltip. *@
+                                    <div class="identity-credentials">
+                                        @if (summary.HasPassword)
+                                        {
+                                            <span class="status-badge status-info">Password</span>
+                                        }
+                                        @if (summary.MfaEnabled)
+                                        {
+                                            <span class="status-badge status-active" data-tooltip="Authenticator app enrolled as a second factor">MFA</span>
+                                        }
+                                        @if (summary.PasskeyCount > 0)
+                                        {
+                                            <span class="status-badge status-active"
+                                                  data-tooltip="@($"{summary.PasskeyCount} passkey{(summary.PasskeyCount == 1 ? "" : "s")} registered")">Passkey</span>
+                                        }
+                                        @foreach (var provider in summary.LinkedProviders)
+                                        {
+                                            <span class="status-badge status-info" data-tooltip="Signs in through this identity provider">@provider</span>
+                                        }
+                                        @if (!summary.HasPassword && summary.PasskeyCount == 0 && summary.LinkedProviders.Count == 0)
+                                        {
+                                            <span class="status-badge status-inactive" data-tooltip="This account has no way to sign in until a password is set or an identity is linked">None</span>
+                                        }
+                                    </div>
+                                </td>
+                                <td class="hide-mobile">
+                                    @if (user.LastLoginAt is { } last)
+                                    {
+                                        <span data-tooltip="@($"Method: {user.LastLoginMethod ?? "password"}")">@last.ToLocalTime().ToString("g")</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="identity-muted">Never</span>
+                                    }
+                                </td>
+                                <td>
+                                    <span class="status-badge status-@(user.IsEnabled ? "active" : "inactive")">
+                                        @(user.IsEnabled ? "Enabled" : "Disabled")
+                                    </span>
+                                </td>
+                                <td class="identity-actions-col">
+                                    <div class="identity-row-actions">
+                                        <button type="button" class="btn btn-secondary btn-sm"
+                                                @onclick="() => OpenPasswordReset(user.Id)" disabled="@(_busyUserId == user.Id)">
+                                            Reset password
+                                        </button>
+                                        <button type="button" class="btn btn-secondary btn-sm"
+                                                @onclick="() => OpenLinks(user.Id)" disabled="@(_busyUserId == user.Id)">
+                                            Identities
+                                        </button>
+                                        <span class="identity-lock" data-tooltip="@(IsSelf(user) ? "You cannot disable the account you are signed in as" : null)">
+                                            <button type="button" class="btn btn-secondary btn-sm"
+                                                    @onclick="() => SetEnabledAsync(user, !user.IsEnabled)"
+                                                    disabled="@(_busyUserId == user.Id || IsSelf(user))">
+                                                @(user.IsEnabled ? "Disable" : "Enable")
+                                            </button>
+                                        </span>
+                                        <span class="identity-lock" data-tooltip="@UndeletableReason(user)">
+                                            <button type="button" class="btn btn-danger btn-sm"
+                                                    @onclick="() => DeleteAsync(user)"
+                                                    disabled="@(_busyUserId == user.Id || UndeletableReason(user) is not null)">
+                                                Delete
+                                            </button>
+                                        </span>
+                                    </div>
+                                </td>
+                            </tr>
+
+                            @if (_passwordResetUserId == user.Id)
+                            {
+                                <tr class="identity-inline-row">
+                                    <td colspan="6">
+                                        <div class="identity-inline-form">
+                                            <div class="form-group">
+                                                <label class="form-label">New password for @user.UserName <span class="tooltip-icon tooltip-icon-sm tooltip-icon-contrast" data-tooltip="@_passwordPolicy">?</span></label>
+                                                <input type="password" class="form-control" @bind="_newPassword"
+                                                       autocomplete="new-password" placeholder="Enter a new password" />
+                                                <p class="form-help">The user signs in with this password next time. Their MFA and passkeys are unchanged.</p>
+                                            </div>
+                                            <div class="identity-form-actions">
+                                                <button type="button" class="btn btn-primary btn-sm" @onclick="() => ResetPasswordAsync(user)">Set password</button>
+                                                <button type="button" class="btn btn-contrast btn-sm" @onclick="ClosePasswordReset">Cancel</button>
+                                            </div>
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+
+                            @if (_linksUserId == user.Id)
+                            {
+                                <tr class="identity-inline-row">
+                                    <td colspan="6">
+                                        <div class="identity-inline-form">
+                                            <h3 class="identity-inline-title">Linked identities for @user.UserName</h3>
+                                            <div class="site-config-section">
+                                            <div class="site-config-section-title">Linked</div>
+                                            @if (_links is null)
+                                            {
+                                                <div class="identity-loading"><span class="spinner spinner-sm"></span></div>
+                                            }
+                                            else if (_links.Count == 0)
+                                            {
+                                                <p class="form-help">No external identity is linked to this account.</p>
+                                            }
+                                            else
+                                            {
+                                                <ul class="identity-link-list">
+                                                    @foreach (var link in _links)
+                                                    {
+                                                        <li class="identity-link-item">
+                                                            <span class="identity-link-provider">@(link.DisplayName ?? link.LoginProvider)</span>
+                                                            <code class="identity-link-subject">@link.ProviderKey</code>
+                                                            <button type="button" class="btn btn-contrast btn-sm"
+                                                                    @onclick="() => UnlinkAsync(user, link)">Unlink</button>
+                                                        </li>
+                                                    }
+                                                </ul>
+                                            }
+                                            </div>
+
+                                            @if (_providers is { Count: > 0 })
+                                            {
+                                                <div class="site-config-section identity-link-add">
+                                                <div class="site-config-section-title">Link another identity</div>
+                                                <div class="identity-form-grid">
+                                                    <div class="form-group">
+                                                        <label class="form-label">Provider</label>
+                                                        <select class="form-control" @bind="_linkProvider">
+                                                            @foreach (var provider in _providers)
+                                                            {
+                                                                <option value="@provider.Scheme">@provider.DisplayName</option>
+                                                            }
+                                                        </select>
+                                                    </div>
+                                                    <div class="form-group">
+                                                        <label class="form-label">Subject at the provider</label>
+                                                        <input class="form-control" @bind="_linkSubject" placeholder="The sub / NameID / user_id value" />
+                                                        <p class="form-help">Links an existing account to an identity provider without waiting for a first sign-in.</p>
+                                                    </div>
+                                                </div>
+                                                <div class="identity-form-actions">
+                                                    <button type="button" class="btn btn-primary btn-sm" @onclick="() => LinkAsync(user)">Link identity</button>
+                                                    <button type="button" class="btn btn-contrast btn-sm" @onclick="CloseLinks">Close</button>
+                                                </div>
+                                                </div>
+                                            }
+                                            else
+                                            {
+                                                <div class="identity-form-actions">
+                                                    <p class="form-help">Add a provider under Sign-In to link identities.</p>
+                                                    <button type="button" class="btn btn-contrast btn-sm" @onclick="CloseLinks">Close</button>
+                                                </div>
+                                            }
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+
+            @if (_addingUser)
+            {
+                <div class="identity-inline-form identity-add-form">
+                    <h3 class="identity-inline-title">Add a user</h3>
+                    <div class="identity-form-grid">
+                        <div class="form-group">
+                            <label class="form-label">Username</label>
+                            <input class="form-control" @bind="_newUserName" placeholder="john" autocomplete="off" />
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Display name (optional)</label>
+                            <input class="form-control" @bind="_newDisplayName" placeholder="John Smith" autocomplete="off" />
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Password <span class="tooltip-icon tooltip-icon-sm tooltip-icon-contrast" data-tooltip="@_passwordPolicy">?</span></label>
+                            <input type="password" class="form-control" @bind="_newUserPassword" autocomplete="new-password" placeholder="Initial password" />
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Role <span class="tooltip-icon tooltip-icon-sm tooltip-icon-contrast" role="button" data-tooltip-hover-only data-tooltip="Click to see what each role can and cannot do" @onclick="() => OnExplainRoles.InvokeAsync()">?</span></label>
+                            <select class="form-control" @bind="_newUserRole">
+                                @foreach (var role in Roles.All)
+                                {
+                                    <option value="@role">@role</option>
+                                }
+                            </select>
+                        </div>
+                        @* Scoping a user to a site is the whole job when you run many of them, so it
+                           belongs here rather than as a second trip to Access. With multi-site off there
+                           is one site and nothing to choose, so the field is skipped and the main site is
+                           granted outright - a single-site admin adding accounts for security should not
+                           be handed site paperwork. An Admin reaches every site regardless. *@
+                        @if (_newUserRole != Roles.Admin && _multiSiteEnabled)
+                        {
+                            <div class="form-group">
+                                <label class="form-label">Site access</label>
+                                <select class="form-control" @bind="_newUserSiteTarget">
+                                    @foreach (var site in _sites)
+                                    {
+                                        <option value="@site.Slug">@site.Name</option>
+                                    }
+                                    <option value="@AllSitesTarget">All sites</option>
+                                    <option value="">None for now</option>
+                                </select>
+                                <p class="form-help">
+                                    Can be changed, and more sites added, under Access. Pick
+                                    <strong>None for now</strong> to stage an account before its site exists.
+                                </p>
+                            </div>
+                        }
+                    </div>
+                    <div class="identity-form-actions">
+                        <button type="button" class="btn btn-primary btn-sm" @onclick="CreateUserAsync" disabled="@_creating">
+                            @(_creating ? "Creating..." : "Create user")
+                        </button>
+                        <button type="button" class="btn btn-contrast btn-sm" @onclick="() => _addingUser = false">Cancel</button>
+                    </div>
+                </div>
+            }
+            else
+            {
+                <div class="identity-card-actions">
+                    <button type="button" class="btn btn-primary btn-sm" @onclick="StartAddUser">Add user</button>
+                </div>
+            }
+        }
+    </div>
+</div>
+
+@code {
+    /// <summary>The signed-in user, so the card never offers to delete the account in use.</summary>
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private bool _multiSiteEnabled;
+    private bool _siteRestrictionActive;
+
+    /// <summary>The configured policy, so the hint cannot drift from what the validator enforces.</summary>
+    private string _passwordPolicy => PasswordPolicyText.Describe(IdentityOptions.Value.Password);
+    private string? _currentUserId;
+    private IReadOnlyList<UserAccountSummary>? _users;
+    private IReadOnlyList<FederationProvider>? _providers;
+    private IReadOnlyList<LinkedExternalIdentity>? _links;
+
+    private string? _message;
+    private string _messageClass = "info";
+    private string? _busyUserId;
+
+    private bool _addingUser;
+    private bool _creating;
+    private string _newUserName = "";
+    private string _newDisplayName = "";
+    private string _newUserPassword = "";
+    private string _newUserRole = Roles.Viewer;
+    private string _newUserSiteTarget = "";
+
+    private const string AllSitesTarget = "*";
+    private List<Site> _sites = new();
+
+    private string? _passwordResetUserId;
+    private string _newPassword = "";
+
+    private string? _linksUserId;
+    private string _linkProvider = "";
+    private string _linkSubject = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        ChangeNotifier.SitesChanged += OnSitesChanged;
+        _multiSiteEnabled = await SiteManagement.IsMultiSiteEnabledAsync();
+        _siteRestrictionActive = await AuthPolicy.IsRestrictSitesToMembersAsync();
+        _sites = await SiteManagement.GetSitesAsync();
+
+        if (AuthState is not null)
+        {
+            var principal = (await AuthState).User;
+            if (principal.Identity?.IsAuthenticated == true)
+                _currentUserId = (await CurrentUser.GetAsync(principal))?.Id;
+        }
+
+        await ReloadAsync();
+        _providers = await Federation.GetAllAsync();
+        _linkProvider = _providers.FirstOrDefault()?.Scheme ?? "";
+    }
+
+    /// <summary>Raised after a change that also affects site grants, so the Access card can reload.</summary>
+    [Parameter] public EventCallback OnAccessChanged { get; set; }
+
+    /// <summary>Raised by the role tooltip icons; the parent opens the Roles reference panel.</summary>
+    [Parameter] public EventCallback OnExplainRoles { get; set; }
+
+    private async Task ReloadAsync() => _users = await IdentityAdmin.ListUserSummariesAsync();
+
+    /// <summary>
+    /// Re-reads the provider list, for when one is added, renamed or removed in the Sign-In card.
+    /// </summary>
+    public async Task RefreshProvidersAsync()
+    {
+        _providers = await Federation.GetAllAsync();
+        if (_providers.All(p => p.Scheme != _linkProvider))
+            _linkProvider = _providers.FirstOrDefault()?.Scheme ?? "";
+
+        // The rows too, not just the picker. Each user's sign-in badges name the providers they are
+        // linked to, resolved live from the provider list when the summaries are built - so a rename
+        // reached the dropdown immediately and left every badge showing the old name until something
+        // else happened to reload the table.
+        await ReloadAsync();
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// Re-reads the site restriction, for when it is toggled in the Access card - it decides whether
+    /// the no-access badge means anything.
+    /// </summary>
+    public async Task RefreshSiteRestrictionAsync()
+    {
+        _siteRestrictionActive = await AuthPolicy.IsRestrictSitesToMembersAsync();
+        StateHasChanged();
+    }
+
+    /// <summary>True when the row is the account the signed-in admin is using.</summary>
+    private bool IsSelf(ApplicationUser user) => user.Id == _currentUserId;
+
+    /// <summary>
+    /// Why this account cannot be deleted, or null when it can. Mirrors the refusals
+    /// IdentityAdminService enforces, so the button explains itself instead of failing on click.
+    /// </summary>
+    private string? UndeletableReason(ApplicationUser user)
+    {
+        if (IsSelf(user))
+            return "You cannot delete the account you are signed in as";
+        if (string.Equals(user.UserName, IdentityBootstrapService.AdminUserName, StringComparison.OrdinalIgnoreCase))
+            return $"The built-in {IdentityBootstrapService.AdminUserName} account cannot be deleted. Disable it instead";
+        return null;
+    }
+
+    private void StartAddUser()
+    {
+        _addingUser = true;
+        _newUserName = "";
+        _newDisplayName = "";
+        _newUserPassword = "";
+        _newUserRole = Roles.Viewer;
+
+        // With multi-site off, grant the main site by slug rather than All sites: it is the same thing
+        // today, but it does not silently widen to every client site if multi-site is enabled later.
+        // Otherwise default to the site being administered, which is what a new account usually needs.
+        _newUserSiteTarget = !_multiSiteEnabled
+            ? SiteManagementService.DefaultSiteSlug
+            : _sites.Any(s => s.Slug == SiteContext.Slug)
+                ? SiteContext.Slug
+                : _sites.FirstOrDefault()?.Slug ?? AllSitesTarget;
+    }
+
+    private async Task CreateUserAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_newUserName))
+        {
+            Show("Enter a username.", "warning");
+            return;
+        }
+
+        _creating = true;
+        try
+        {
+            var result = await IdentityAdmin.CreateUserAsync(
+                _newUserName.Trim(),
+                string.IsNullOrWhiteSpace(_newDisplayName) ? null : _newDisplayName.Trim(),
+                string.IsNullOrEmpty(_newUserPassword) ? null : _newUserPassword,
+                _newUserRole,
+                _newUserSiteTarget);
+            Report(result, $"Created {_newUserName.Trim()}.");
+            if (result.Succeeded)
+            {
+                _addingUser = false;
+                await ReloadAsync();
+                await OnAccessChanged.InvokeAsync();
+            }
+        }
+        finally
+        {
+            _creating = false;
+        }
+    }
+
+    private async Task ChangeRoleAsync(UserAccountSummary summary, string? role)
+    {
+        if (string.IsNullOrEmpty(role) || role == summary.GlobalRole)
+            return;
+
+        _busyUserId = summary.User.Id;
+        try
+        {
+            // One call, so the target's live sessions get ONE permissions signal once the whole change
+            // has landed. Grant-then-revoke from here fired one per step, and the first reloads their
+            // tab - which lost the second and left them on the role they were being moved off.
+            var change = await IdentityAdmin.SetGlobalRoleAsync(summary.User.Id, role);
+            if (!change.Succeeded)
+            {
+                Report(change, "");
+                return;
+            }
+
+            Show($"{summary.User.UserName} is now {role}.", "success");
+        }
+        finally
+        {
+            _busyUserId = null;
+            await ReloadAsync();
+        }
+    }
+
+    private async Task SetEnabledAsync(ApplicationUser user, bool enabled)
+    {
+        _busyUserId = user.Id;
+        try
+        {
+            var result = await IdentityAdmin.SetEnabledAsync(user.Id, enabled);
+            Report(result, $"{user.UserName} is now {(enabled ? "enabled" : "disabled")}.",
+                   enabled ? "success" : "info");
+        }
+        finally
+        {
+            _busyUserId = null;
+            await ReloadAsync();
+        }
+    }
+
+    private async Task DeleteAsync(ApplicationUser user)
+    {
+        _busyUserId = user.Id;
+        try
+        {
+            var result = await IdentityAdmin.DeleteUserAsync(user.Id);
+            Report(result, $"Deleted {user.UserName}.", "info");
+        }
+        finally
+        {
+            _busyUserId = null;
+            await ReloadAsync();
+            // Deleting an account takes its grants with it.
+            await OnAccessChanged.InvokeAsync();
+        }
+    }
+
+    private void OpenPasswordReset(string userId)
+    {
+        _passwordResetUserId = userId;
+        _linksUserId = null;
+        _newPassword = "";
+    }
+
+    private void ClosePasswordReset()
+    {
+        _passwordResetUserId = null;
+        _newPassword = "";
+    }
+
+    private async Task ResetPasswordAsync(ApplicationUser user)
+    {
+        if (string.IsNullOrEmpty(_newPassword))
+        {
+            Show("Enter a new password.", "warning");
+            return;
+        }
+
+        var result = await IdentityAdmin.SetPasswordAsync(user.Id, _newPassword);
+        Report(result, $"Password reset for {user.UserName}.");
+        if (result.Succeeded)
+        {
+            ClosePasswordReset();
+            await ReloadAsync();
+        }
+    }
+
+    private async Task OpenLinks(string userId)
+    {
+        _linksUserId = userId;
+        _passwordResetUserId = null;
+        _linkSubject = "";
+        _links = null;
+        _links = await IdentityAdmin.GetExternalLoginsAsync(userId);
+    }
+
+    private void CloseLinks()
+    {
+        _linksUserId = null;
+        _links = null;
+    }
+
+    private async Task LinkAsync(ApplicationUser user)
+    {
+        if (string.IsNullOrWhiteSpace(_linkProvider) || string.IsNullOrWhiteSpace(_linkSubject))
+        {
+            Show("Choose a provider and enter the subject value.", "warning");
+            return;
+        }
+
+        var provider = _providers?.FirstOrDefault(p => p.Scheme == _linkProvider);
+        if (provider is null)
+        {
+            Show("That provider no longer exists.", "warning");
+            return;
+        }
+
+        // The protocol-namespaced key, not the bare scheme: sign-in looks the link up by this exact
+        // string, so storing the scheme alone creates a link that can never match a login.
+        var result = await IdentityAdmin.LinkExternalAsync(
+            user.Id, FederationSchemeKey.For(provider), _linkSubject.Trim(), provider.DisplayName);
+        Report(result, $"Linked {provider?.DisplayName ?? _linkProvider} to {user.UserName}.");
+        if (result.Succeeded)
+        {
+            _linkSubject = "";
+            _links = await IdentityAdmin.GetExternalLoginsAsync(user.Id);
+            await ReloadAsync();
+        }
+    }
+
+    private async Task UnlinkAsync(ApplicationUser user, LinkedExternalIdentity link)
+    {
+        var result = await IdentityAdmin.UnlinkExternalAsync(user.Id, link.LoginProvider, link.ProviderKey);
+        Report(result, $"Unlinked {link.DisplayName ?? link.LoginProvider} from {user.UserName}.", "info");
+        if (result.Succeeded)
+        {
+            _links = await IdentityAdmin.GetExternalLoginsAsync(user.Id);
+            await ReloadAsync();
+        }
+    }
+
+    /// <summary>
+    /// Green says "that worked out well". Taking access away, disabling an account or deleting one is
+    /// the operator getting what they asked for, not good news - it reads as neutral, so the colour
+    /// carries meaning when something really is a success or a refusal.
+    /// </summary>
+    private void Report(AdminActionResult result, string success, string successClass = "success")
+        => Show(result.Succeeded ? success : result.Error ?? "That change was refused.",
+                result.Succeeded ? successClass : "warning");
+
+    private void Show(string message, string cssClass)
+    {
+        _message = message;
+        _messageClass = cssClass;
+    }
+
+    // Whether an account holds any grant at all is what the no-access badge reports, and a grant can
+    // be made from the Access card beside this one or from the Multi-Site site table. A membership
+    // change raises the same broadcast the site registry does, so following it covers every route in
+    // without this card having to know which one was taken.
+    private void OnSitesChanged()
+    {
+        _ = InvokeAsync(async () =>
+        {
+            try
+            {
+                _multiSiteEnabled = await SiteManagement.IsMultiSiteEnabledAsync();
+                _sites = await SiteManagement.GetSitesAsync();
+                await ReloadAsync();
+                StateHasChanged();
+            }
+            catch (ObjectDisposedException)
+            {
+                // Circuit torn down between the event and the dispatch - nothing to update.
+            }
+        });
+    }
+
+    public void Dispose()
+    {
+        ChangeNotifier.SitesChanged -= OnSitesChanged;
+    }
+}

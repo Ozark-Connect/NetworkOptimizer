@@ -8,13 +8,13 @@ using NetworkOptimizer.Web.Services.Ssh;
 
 namespace NetworkOptimizer.Web.Services;
 
-public class PerfTweaksDeploymentService
+public class PerfTweaksDeploymentService : IPerfTweaksDeploymentService
 {
     private readonly ILogger<PerfTweaksDeploymentService> _logger;
     private readonly IGatewaySshService _gatewaySsh;
     private readonly NetworkOptimizer.Storage.Services.SiteDbContextFactory _siteDbFactory;
     private readonly SiteContextService _siteContext;
-    private readonly SqmDeploymentService _sqmDeployment;
+    private readonly ISqmDeploymentService _sqmDeployment;
 
     private const string OnBootDir = "/data/on_boot.d";
     private const string PerfTweaksDir = "/data/perf-tweaks";
@@ -60,7 +60,7 @@ public class PerfTweaksDeploymentService
         IGatewaySshService gatewaySsh,
         NetworkOptimizer.Storage.Services.SiteDbContextFactory siteDbFactory,
         SiteContextService siteContext,
-        SqmDeploymentService sqmDeployment,
+        ISqmDeploymentService sqmDeployment,
         Licensing.LicenseStateService licenseState)
     {
         _logger = logger;

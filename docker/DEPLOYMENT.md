@@ -67,7 +67,7 @@ docker compose up -d
 **Verify Installation:**
 
 ```bash
-# Check logs for the auto-generated admin password
+# Check logs for the built-in admin account's auto-generated password
 docker logs network-optimizer 2>&1 | grep -A5 "AUTO-GENERATED"
 
 # Verify health
@@ -171,7 +171,7 @@ The interactive script will:
 
 **After Installation:**
 ```bash
-# Get the auto-generated admin password
+# Get the built-in admin account's auto-generated password
 pct exec <CT_ID> -- docker logs network-optimizer 2>&1 | grep -A5 "AUTO-GENERATED"
 
 # Access the web UI
@@ -246,7 +246,7 @@ See [Native Deployment Guide](NATIVE-DEPLOYMENT.md) for macOS and Linux instruct
 
 Network Optimizer can be installed as two Home Assistant add-ons. See [issue #201](https://github.com/Ozark-Connect/NetworkOptimizer/issues/201) for setup instructions and discussion.
 
-For the initial admin password, check the add-on's **Log** tab instead of using the `docker logs` command.
+For the built-in **admin** account's initial password, check the add-on's **Log** tab instead of using the `docker logs` command.
 
 ### 6. Multi-Site On-Site Agent
 
@@ -310,14 +310,43 @@ TZ=America/Chicago
 
 If you're placing Network Optimizer behind a reverse proxy, you'll also need to configure the hostname and proxy-related variables in `.env`. See [HTTPS with Reverse Proxy](#https-with-reverse-proxy) and [`.env.example`](.env.example) for details.
 
-**Admin Password:**
+**Admin Account:**
 
-On first run, an auto-generated password is displayed in the logs. After logging in,
-go to **Settings > Admin Password** to set your own password (recommended).
+The built-in account is **admin**. On first run its auto-generated password is displayed in the logs.
+After logging in, go to **Settings > Admin Password** to set your own password (recommended).
 
 Password precedence: Database (Settings UI) > `APP_PASSWORD` env var > Auto-generated
 
 Optionally, set `APP_PASSWORD` in `.env` if you want to configure a password before first login.
+
+To harden the install, create your own account, give it the Admin role, and then disable **admin**
+from **Settings > Identity**. It cannot be deleted - break-glass recovery re-enables it and the boot
+seed reconciles it - but disabling takes it out of use. The last enabled Admin can never be disabled,
+so make sure your own account works before turning the built-in one off.
+
+**Break-glass recovery (`NETOPT_RECOVERY=1`):**
+
+If single sign-on is the only way in and it stops working - the provider is misconfigured, its
+certificate expired, the IdP is down - start the app once with `NETOPT_RECOVERY=1` and an Admin can
+sign in locally again:
+
+```bash
+# Docker: add to .env, then recreate
+echo "NETOPT_RECOVERY=1" >> .env
+docker compose up -d
+```
+
+It applies to that boot only. Remove the variable and restart to close it again.
+
+What it does, and only this:
+
+- The username and password form appears on the sign-in page even while **SSO-only** is turned on
+- A password or passkey sign-in is accepted under SSO-only, **for accounts holding the Admin role only**
+- The built-in `admin` account is re-enabled if it had been disabled
+
+It does **not** waive a second factor. An Admin whose role requires MFA still has to satisfy it, so
+keep recovery codes for that account somewhere you can reach without the app. Every use is written to
+the Audit Log and the sign-in page says recovery mode is active while it is.
 
 ### 3. Deploy Stack
 
@@ -865,7 +894,7 @@ chmod 700 data/
 
 ### Credential encryption key
 
-Network Optimizer encrypts stored secrets (UniFi credentials, gateway SSH passwords, alert-channel secrets) at rest with a per-install key. By default that key lives in the data directory next to the database (`data/.credential_key`), so **a copy of the data volume - including any backup - can decrypt everything.** Treat the data volume accordingly: back it up encrypted, restrict access, and don't sync it to plain cloud storage.
+Network Optimizer encrypts stored secrets (UniFi credentials, gateway SSH passwords and private keys, alert-channel secrets, and identity-provider client secrets) at rest with a per-install key. By default that key lives in the data directory next to the database (`data/.credential_key`), so **a copy of the data volume - including any backup - can decrypt everything.** Treat the data volume accordingly: back it up encrypted, restrict access, and don't sync it to plain cloud storage.
 
 To keep the key off the data volume, point `NO_CREDENTIAL_KEY_FILE` at a path outside it - most cleanly a Docker secret:
 
@@ -887,6 +916,8 @@ Create the key once, out of band, before first start:
 ```bash
 head -c 64 /dev/urandom > credential_key && chmod 600 credential_key
 ```
+
+With `NO_CREDENTIAL_KEY_FILE` set, the key is read and never generated: if the file is missing, unreadable, or empty, Network Optimizer **refuses to start** rather than minting a replacement. That is deliberate - a fresh key would start cleanly and leave every stored secret undecryptable. If you want the key generated for you, leave the variable unset and let it live in the data directory.
 
 Now a leak of the data volume no longer includes the key. **Migration note:** to switch an *existing* install to `NO_CREDENTIAL_KEY_FILE`, copy the current `data/.credential_key` bytes into the new location first - a fresh key cannot decrypt already-stored secrets.
 

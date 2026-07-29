@@ -4,11 +4,35 @@ using NetworkOptimizer.UniFi.Models;
 namespace NetworkOptimizer.Audit.Analyzers;
 
 /// <summary>
-/// Shared helper for resolving firewall group references (port groups and address groups)
+/// Shared helper for resolving firewall group references (port, address, and domain groups)
 /// and checking port specifications.
 /// </summary>
 public static class FirewallGroupHelper
 {
+    /// <summary>
+    /// Resolve a domain group ID to its web domains.
+    /// </summary>
+    public static List<string>? ResolveDomainGroup(
+        string groupId,
+        Dictionary<string, UniFiFirewallGroup>? firewallGroups,
+        ILogger? logger = null)
+    {
+        if (firewallGroups == null || !firewallGroups.TryGetValue(groupId, out var group))
+        {
+            logger?.LogDebug("Domain group {GroupId} not found in loaded groups", groupId);
+            return null;
+        }
+
+        if (group.GroupType != "domain-group")
+        {
+            logger?.LogWarning("Group {GroupId} ({GroupName}) is type '{GroupType}', expected domain-group",
+                groupId, group.Name, group.GroupType);
+            return null;
+        }
+
+        return group.GroupMembers?.Count > 0 ? group.GroupMembers.ToList() : null;
+    }
+
     /// <summary>
     /// Resolve a port group ID to a comma-separated port string (e.g., "53,80,443" or "4001-4003")
     /// </summary>

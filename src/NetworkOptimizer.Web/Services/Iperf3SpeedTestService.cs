@@ -571,6 +571,7 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
             (r.PathAnalysis == null ||
              r.PathAnalysis.Path == null ||
              !r.PathAnalysis.Path.IsValid))
+            .Where(r => PathAnalysisRetryGate.TryClaim(nameof(Iperf3SpeedTestService), r.Id))
             .ToList();
 
         if (needsRetry.Count > 0)

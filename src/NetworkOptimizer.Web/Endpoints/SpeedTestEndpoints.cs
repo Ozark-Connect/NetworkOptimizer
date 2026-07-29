@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Web.Services;
+using NetworkOptimizer.Web.Services.Authorization;
 
 namespace NetworkOptimizer.Web.Endpoints;
 
@@ -8,15 +9,22 @@ public static class SpeedTestEndpoints
 {
     public static void MapSpeedTestEndpoints(this WebApplication app)
     {
+        // Gate 2 (design doc 06): every endpoint is mapped onto a group that carries its
+        // authorization policy, which is what architecture test A1 checks. Reads are any
+        // authenticated user, running a test is Operator, and changes are Admin.
+        var read = app.MapGroup("").RequireAuthorization(Policies.RequireViewer);
+        var operate = app.MapGroup("").RequireAuthorization(Policies.RequireOperator);
+        var admin = app.MapGroup("").RequireAuthorization(Policies.RequireAdmin);
+
         // --- LAN iperf3 Speed Test ---
 
-        app.MapGet("/api/speedtest/devices", async (Iperf3SpeedTestService service) =>
+        read.MapGet("/api/speedtest/devices", async (IIperf3SpeedTestService service) =>
         {
             var devices = await service.GetDevicesAsync();
             return Results.Ok(devices);
         });
 
-        app.MapPost("/api/speedtest/devices/{deviceId:int}/results", async (int deviceId, Iperf3SpeedTestService service) =>
+        operate.MapPost("/api/speedtest/devices/{deviceId:int}/results", async (int deviceId, IIperf3SpeedTestService service) =>
         {
             var devices = await service.GetDevicesAsync();
             var device = devices.FirstOrDefault(d => d.Id == deviceId);
@@ -27,7 +35,7 @@ public static class SpeedTestEndpoints
             return Results.Ok(result);
         });
 
-        app.MapGet("/api/speedtest/results", async (Iperf3SpeedTestService service, string? deviceHost = null, int count = 50) =>
+        read.MapGet("/api/speedtest/results", async (IIperf3SpeedTestService service, string? deviceHost = null, int count = 50) =>
         {
             // Validate count parameter is within reasonable bounds
             if (count < 1) count = 1;
@@ -140,9 +148,20 @@ public static class SpeedTestEndpoints
             var service = speedTestRegistry
                 .GetFor(string.IsNullOrEmpty(siteSlug) ? SiteManagementService.DefaultSiteSlug : siteSlug)
                 .ClientSpeedTest;
-            var result = await service.RecordOpenSpeedTestResultAsync(
-                clientIp, download, upload, ping, jitter, downloadData, uploadData, userAgent,
-                latitude, longitude, locationAccuracy, duration, externalServerId);
+            Iperf3Result result;
+            try
+            {
+                result = await service.RecordOpenSpeedTestResultAsync(
+                    clientIp, download, upload, ping, jitter, downloadData, uploadData, userAgent,
+                    latitude, longitude, locationAccuracy, duration, externalServerId);
+            }
+            catch (NetworkOptimizer.Web.Services.Licensing.LicenseRestrictedException)
+            {
+                // Recording a new result is an operation, so a restricted site declines it. This is a
+                // policy refusal, not a server fault: without the catch it surfaces as a 500 and reads
+                // like the relay is broken.
+                return Results.StatusCode(StatusCodes.Status403Forbidden);
+            }
 
             // Check if this is a new high score for download speed on this device
             // The "d" param from JS is always the client's download. Due to server perspective swap:
@@ -239,7 +258,14 @@ public static class SpeedTestEndpoints
             var clientSpeedTest = speedTestRegistry
                 .GetFor(string.IsNullOrEmpty(siteSlug) ? SiteManagementService.DefaultSiteSlug : siteSlug)
                 .ClientSpeedTest;
-            await Iperf3ClientResultRecorder.RecordAsync(clientSpeedTest, json, logger);
+            try
+            {
+                await Iperf3ClientResultRecorder.RecordAsync(clientSpeedTest, json, logger);
+            }
+            catch (NetworkOptimizer.Web.Services.Licensing.LicenseRestrictedException)
+            {
+                return Results.StatusCode(StatusCodes.Status403Forbidden);
+            }
 
             return Results.Ok(new { success = true });
         }).RequireCors("SpeedTestCors").RequireRateLimiting("PublicSpeedTest");
@@ -249,6 +275,7 @@ public static class SpeedTestEndpoints
         app.MapPost("/api/public/speedtest/topology-snapshots", (HttpContext context,
             SpeedTestServiceRegistry speedTestRegistry,
             NetworkOptimizer.Storage.Services.SiteDbContextFactory siteDbFactory,
+            NetworkOptimizer.Web.Services.Licensing.LicenseStateService licenseState,
             ILoggerFactory loggerFactory) =>
         {
             // Same optional site routing as the results endpoint: a slug-tagged test
@@ -275,6 +302,16 @@ public static class SpeedTestEndpoints
             // Relayed posts carry the real client IP as a param (see the results
             // endpoint); it MUST match the IP the result posts under so the mid-test
             // snapshot keys line up for the merge in AnalyzePathAsync.
+            // Capturing a snapshot queries the site's console and writes to its database, so a
+            // restricted site does neither. Declined the same way as an unprovisioned site rather
+            // than by throwing: this is fire-and-forget and the browser ignores the response.
+            if (!licenseState.IsSiteOperational(siteSlug))
+            {
+                loggerFactory.CreateLogger("SpeedTestRelay")
+                    .LogDebug("Skipping topology snapshot: site '{Slug}' is not operational", siteSlug);
+                return Results.Ok(new { success = false, skipped = "site not operational" });
+            }
+
             var relayedClientIp = context.Request.Query["client_ip"].ToString();
             var clientIp = relayed && !string.IsNullOrEmpty(relayedClientIp)
                 ? relayedClientIp
@@ -288,7 +325,7 @@ public static class SpeedTestEndpoints
         }).RequireCors("SpeedTestCors").RequireRateLimiting("PublicSpeedTest");
 
         // Authenticated endpoint for viewing client speed test results
-        app.MapGet("/api/speedtest/client-results", async (ClientSpeedTestService service, string? ip = null, string? mac = null, int count = 50) =>
+        read.MapGet("/api/speedtest/client-results", async (IClientSpeedTestService service, string? ip = null, string? mac = null, int count = 50) =>
         {
             if (count < 1) count = 1;
             if (count > 1000) count = 1000;
@@ -306,7 +343,7 @@ public static class SpeedTestEndpoints
         });
 
         // Authenticated endpoint for viewing WAN client speed test results (external OpenSpeedTest servers)
-        app.MapGet("/api/speedtest/wan-client-results", async (ClientSpeedTestService service, int count = 50, int hours = 0) =>
+        read.MapGet("/api/speedtest/wan-client-results", async (IClientSpeedTestService service, int count = 50, int hours = 0) =>
         {
             if (count < 1) count = 1;
             if (count > 1000) count = 1000;
@@ -315,7 +352,7 @@ public static class SpeedTestEndpoints
         });
 
         // Authenticated endpoint for deleting a client speed test result
-        app.MapDelete("/api/speedtest/client-results/{id:int}", async (int id, ClientSpeedTestService service) =>
+        admin.MapDelete("/api/speedtest/client-results/{id:int}", async (int id, IClientSpeedTestService service) =>
         {
             var deleted = await service.DeleteResultAsync(id);
             return deleted ? Results.NoContent() : Results.NotFound();

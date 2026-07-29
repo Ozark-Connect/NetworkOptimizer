@@ -30,14 +30,14 @@
 
     <h4 class="agent-flavor-title">Docker</h4>
     <p class="form-hint">Pulls the agent image and compose template, writes the config, and starts it.</p>
-    <pre><code>@DockerOneLiner()</code></pre>
+    <CopyableCommand Text="@DockerOneLiner()" Tooltip="Copy the Docker install command" />
 
     <h4 class="agent-flavor-title">Bare metal (systemd)</h4>
     <p class="form-hint">
         No Docker required - downloads a self-contained binary and installs a <code>netopt-agent</code>
         systemd service.
     </p>
-    <pre><code>@NativeOneLiner()</code></pre>
+    <CopyableCommand Text="@NativeOneLiner()" Tooltip="Copy the native install command" />
 
     <h4 class="agent-flavor-title">On a UniFi gateway</h4>
     <p class="form-hint">
@@ -45,7 +45,7 @@
         Monitoring-only - it installs to <code>/data</code> with a memory-fenced service. UniFi gateways
         SSH in as root, so run it there directly:
     </p>
-    <pre><code>@GatewayOneLiner()</code></pre>
+    <CopyableCommand Text="@GatewayOneLiner()" Tooltip="Copy the gateway install command" />
     @if (LanSpeedTest)
     {
         <p class="form-hint">

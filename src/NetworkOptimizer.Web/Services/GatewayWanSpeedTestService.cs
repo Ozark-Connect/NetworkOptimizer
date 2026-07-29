@@ -19,7 +19,7 @@ namespace NetworkOptimizer.Web.Services;
 /// binary runs on the site's gateway, so the measurement never traverses the
 /// path back to this server.
 /// </summary>
-public class GatewayWanSpeedTestService
+public class GatewayWanSpeedTestService : IGatewayWanSpeedTestService
 {
     private const string RemoteBinaryPath = "/data/uwnspeedtest";
     private const string LocalBinaryName = "uwnspeedtest-linux-arm64";
@@ -57,6 +57,20 @@ public class GatewayWanSpeedTestService
     {
         get { lock (_lock) return _lastCompletedResult; }
     }
+
+    // Task-returning on the gated interface: the gate interceptor only intercepts Task-returning
+    // members asynchronously, so a gated property blocks its role lookup on the circuit. The
+    // properties above stay for this class's own use.
+
+    /// <inheritdoc cref="IGatewayWanSpeedTestService.IsRunningAsync" />
+    public Task<bool> IsRunningAsync() => Task.FromResult(IsRunning);
+
+    /// <inheritdoc cref="IGatewayWanSpeedTestService.GetCurrentProgressAsync" />
+    public Task<(string Phase, int Percent, string? Status)> GetCurrentProgressAsync()
+        => Task.FromResult(CurrentProgress);
+
+    /// <inheritdoc cref="IGatewayWanSpeedTestService.GetLastCompletedResultAsync" />
+    public Task<Iperf3Result?> GetLastCompletedResultAsync() => Task.FromResult(LastCompletedResult);
 
     /// <summary>Fired when background path analysis completes for a result.</summary>
     public event Action<int>? OnPathAnalysisComplete;

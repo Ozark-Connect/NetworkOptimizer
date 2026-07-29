@@ -52,9 +52,14 @@ public static class ScheduleExecutorRegistration
         if (auditService.IsRunning)
             return (false, null, "Audit is already running");
 
+        // A scheduled scan has no user behind it: run the gated scan as system so it authorizes
+        // and audits as "system:scheduler:audit" (design doc 06).
+        using var systemScope = Identity.SystemScope.Enter(scope.ServiceProvider, "scheduler:audit");
+        var auditScan = scope.ServiceProvider.GetRequiredService<IAuditScanService>();
+
         try
         {
-            var result = await auditService.RunAuditAsync(new AuditOptions { IsScheduled = true });
+            var result = await auditScan.RunAuditAsync(new AuditOptions { IsScheduled = true });
             var summary = result.CriticalCount > 0 || result.WarningCount > 0
                 ? $"Score: {result.Score} - {result.CriticalCount} critical, {result.WarningCount} recommended"
                 : $"Score: {result.Score}";
@@ -71,6 +76,9 @@ public static class ScheduleExecutorRegistration
     {
         var scope = services.CreateScope();
         scope.ServiceProvider.GetRequiredService<SiteContextService>().OverrideSite(siteKey);
+        // Scheduled work has no user caller; gated services resolved here run as system and the
+        // restore handle dies with the scope (design doc 06).
+        Identity.SystemScope.Enter(scope.ServiceProvider, "scheduler:speedtest");
         return scope;
     }
 
@@ -79,6 +87,12 @@ public static class ScheduleExecutorRegistration
     {
         if (IsLicenseRestricted(services, siteKey))
             return (false, null, LicenseRestrictedError);
+
+        // Scheduled runs resolve the gated interfaces from this pinned scope rather than reaching
+        // into the registry for the raw instance, so an unattended run is authorized as system and
+        // audited exactly like a user-initiated one. The registry hands out the same per-site
+        // instance either way, so "already running" still refuses a concurrent run.
+        using var scope = CreatePinnedScope(services, siteKey);
 
         try
         {
@@ -136,9 +150,8 @@ public static class ScheduleExecutorRegistration
                 // service dispatches it to the site's agent so it measures the site's
                 // own WAN. The per-site instance resolves through the registry, and
                 // the service itself refuses sites that are neither (RunTestAsync).
-                var serverService = services.GetRequiredService<SpeedTestServiceRegistry>()
-                    .GetFor(siteKey).Uwn;
-                if (serverService.IsRunning)
+                var serverService = scope.ServiceProvider.GetRequiredService<IUwnSpeedTestService>();
+                if (await serverService.IsRunningAsync())
                     return (false, null, "WAN speed test is already running");
                 result = await serverService.RunTestAsync(maxMode: maxMode, cancellationToken: ct);
             }
@@ -146,19 +159,14 @@ public static class ScheduleExecutorRegistration
             {
                 // The site's own gateway runs the test and the result lands in the
                 // site's database - resolved by site key through the registry.
-                var gatewayService = services.GetRequiredService<SpeedTestServiceRegistry>()
-                    .GetFor(siteKey).GatewayWan;
-                if (gatewayService.IsRunning)
+                var gatewayService = scope.ServiceProvider.GetRequiredService<IGatewayWanSpeedTestService>();
+                if (await gatewayService.IsRunningAsync())
                     return (false, null, "WAN speed test is already running");
 
                 if (multiInterfaces is { Length: > 1 })
                 {
-                    List<WanInterfaceInfo> allWans;
-                    using (var scope = CreatePinnedScope(services, siteKey))
-                    {
-                        var sqmService = scope.ServiceProvider.GetRequiredService<ISqmService>();
-                        allWans = await sqmService.GetWanInterfacesFromControllerAsync();
-                    }
+                    var sqmService = scope.ServiceProvider.GetRequiredService<ISqmService>();
+                    var allWans = await sqmService.GetWanInterfacesFromControllerAsync();
                     var selectedWans = allWans.Where(w => multiInterfaces.Contains(w.Interface)).ToList();
                     result = await gatewayService.RunTestAsync(
                         "", wanGroup, wanName,
@@ -198,9 +206,10 @@ public static class ScheduleExecutorRegistration
             return (false, null, "No target device specified");
 
         // The site's own LAN speed test instance: its devices, SSH credentials, and
-        // results, with tests reaching the site over VPN or the agent tunnel.
-        var lanService = services.GetRequiredService<SpeedTestServiceRegistry>()
-            .GetFor(siteKey).LanSpeedTest;
+        // results, with tests reaching the site over VPN or the agent tunnel. Resolved as the gated
+        // interface from a pinned scope so the unattended run is authorized as system and audited.
+        using var scope = CreatePinnedScope(services, siteKey);
+        var lanService = scope.ServiceProvider.GetRequiredService<IIperf3SpeedTestService>();
         var devices = await lanService.GetDevicesAsync();
         var device = devices.FirstOrDefault(d => d.Host == targetId);
 

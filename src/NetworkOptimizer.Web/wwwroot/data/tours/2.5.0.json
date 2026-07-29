@@ -1,0 +1,94 @@
+{
+  "id": "2.5.0",
+  "kind": "whats-new",
+  "title": "What's new in v2.5.0",
+  "summary": "Accounts, roles and per-site access, MFA and passkeys, SSO, and an audit log.",
+  "steps": [
+    {
+      "id": "identity",
+      "level": "major",
+      "url": "/settings?tab=identity",
+      "selector": "[data-tour=\"identity\"]",
+      "title": "Identity",
+      "listLabel": "Security that scales to your install",
+      "body": "**Settings - Identity** holds accounts, roles and per-site access. Most installs are one administrator and one password, and everything here is for when that stops being enough: add accounts as **Admin**, **Operator** or **Viewer**, grant each one the sites it should reach, and require MFA where it matters.",
+      "placement": "bottom",
+      "requires": [],
+      "optional": true
+    },
+    {
+      "id": "account-security",
+      "level": "major",
+      "url": "/account/security",
+      "selector": "[data-tour=\"account-security\"]",
+      "title": "Passkeys",
+      "listLabel": "Sign in with a passkey, or add a second factor",
+      "body": "Your own **Security** page, reachable from your name in the header. Register a **passkey** to sign in without typing a password, or set up an **authenticator app** and keep recovery codes. It is also where you change your own password and **sign out everywhere**.",
+      "placement": "top",
+      "requires": [],
+      "optional": false
+    },
+    {
+      "id": "audit-log",
+      "level": "major",
+      "url": "/settings?tab=auditlog",
+      "selector": "[data-tour=\"audit-log\"]",
+      "title": "Audit Log",
+      "listLabel": "Every change recorded, with who and where",
+      "body": "Every change is recorded with the actor, the site, what was touched and whether it succeeded, and kept for a year. Filter by time, category, actor, site or outcome, open a row for the detail, and export what you filtered. This happens whether or not you set up any of the above.",
+      "placement": "top",
+      "requires": [],
+      "optional": true
+    },
+    {
+      "id": "ssh-key",
+      "level": "minor",
+      "url": "/settings?tab=connection#ssh-key",
+      "selector": "[data-tour=\"ssh-key\"]",
+      "title": "Managed SSH Key",
+      "listLabel": "Key-based SSH without touching the container",
+      "body": "**Generate** a keypair for this site in one click, or **upload** one you already have. The private half is encrypted and never leaves the server. On a Cloud Gateway, **Install on gateway** places it over the connection you already have, which is the one place UniFi Network cannot put a key for you.",
+      "placement": "top",
+      "requires": ["gateway-ssh"],
+      "optional": true
+    },
+    {
+      "id": "isp-network-hops",
+      "level": "minor",
+      "url": "/monitoring?tab=isp-health",
+      "selector": "[data-tour=\"isp-network-hops\"]",
+      "title": "ISP Network",
+      "listLabel": "See which router each hop actually is",
+      "badge": "improved",
+      "body": "Hops are named by the network they belong to, so a provider with several of them reads as the same name more than once. **Hover** a hop and it now shows what traceroute would: the address it answered on and its reverse-DNS name. The list is ordered by round trip time, so a later hop that answers faster sits higher.",
+      "placement": "top",
+      "requires": ["isp-health"],
+      "optional": true
+    },
+    {
+      "id": "identity-sign-in",
+      "level": "advanced",
+      "url": "/settings?tab=identity#identity-sign-in",
+      "selector": "[data-tour=\"identity-sign-in\"]",
+      "title": "Sign-In",
+      "listLabel": "Sign in through your own identity provider",
+      "body": "Add an **OpenID Connect** or **SAML 2.0** provider and sign in through it, with the redirect and metadata URLs here to paste into the provider. **New users** decides whether an unknown account is created on first sign-in or has to exist here already. Roles are set on this side.",
+      "placement": "top",
+      "requires": [],
+      "optional": true
+    },
+    {
+      "id": "chart-series-filter",
+      "level": "minor",
+      "url": "/monitoring?tab=performance",
+      "selector": "[data-tour=\"chart-series-filter\"]",
+      "title": "Chart series filter",
+      "listLabel": "Isolate one line, and read the tooltip in the order the lines sit",
+      "badge": "improved",
+      "body": "**Click** a chip to show that series on its own, click it again for all of them, and **Ctrl-click** to drop just one. The tooltip lists every series in the order the lines sit on the plot, with a dot on each at the point you are reading, and new data streaming in no longer pulls it away.",
+      "placement": "top",
+      "requires": [],
+      "optional": true
+    }
+  ]
+}

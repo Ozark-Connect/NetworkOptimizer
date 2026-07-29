@@ -1,0 +1,15 @@
+@page "/audit-log"
+@attribute [Authorize(Policy = Policies.RequireAdmin)]
+@rendermode InteractiveServer
+
+@* The standalone page. Its body lives in AuditLogPanel so Settings - Audit Log renders exactly the
+   same thing; this route stays because it is the deep link, and what the export URLs hang off. *@
+
+<PageTitle>Audit Log - Network Optimizer</PageTitle>
+
+<div class="page-header">
+    <h1>Audit Log</h1>
+    <p class="page-description">Authentication, access, and configuration changes across all sites.</p>
+</div>
+
+<AuditLogPanel />

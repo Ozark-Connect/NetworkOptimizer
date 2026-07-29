@@ -18,7 +18,7 @@ namespace NetworkOptimizer.Web.Services;
 /// survives reboots and UniFi reprovisioning - the same model as Adaptive SQM and
 /// Performance Tweaks. All gateway access goes through <see cref="IGatewaySshService"/>.
 /// </summary>
-public class MonitoringInterfaceDeploymentService
+public class MonitoringInterfaceDeploymentService : IMonitoringInterfaceDeploymentService
 {
     private readonly ILogger<MonitoringInterfaceDeploymentService> _logger;
     private readonly IGatewaySshService _gatewaySsh;

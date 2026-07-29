@@ -28,5 +28,9 @@ public sealed record OntPollContext
     public string? Password { get; init; }
 
     /// <summary>Private key path for SSH-based providers.</summary>
+    /// <summary>
+    /// Set from the ONT's configuration and read by nothing: no ONT provider uses SSH yet. Its field
+    /// in Settings - Monitoring is commented out under "ONT SSH KEY ANCHOR" until one does.
+    /// </summary>
     public string? PrivateKeyPath { get; init; }
 }

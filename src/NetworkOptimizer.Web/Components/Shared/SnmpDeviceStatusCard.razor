@@ -101,7 +101,12 @@
                                                             <h4>Custom OID Polling</h4>
                                                             @if (!_showAddForm)
                                                             {
-                                                                <button class="btn btn-sm btn-primary" @onclick:stopPropagation="true" @onclick="ShowAddForm">Add OID</button>
+                                                                @* Adding an OID is Operator: it polls one more value and is undone by
+                                                                   removing it. Removing stays Admin, like the latency targets - a curated
+                                                                   list is expensive to rebuild and nothing recreates it. *@
+                                                                <SiteOperatorOnly>
+                                                                    <button class="btn btn-sm btn-primary" @onclick:stopPropagation="true" @onclick="ShowAddForm">Add OID</button>
+                                                                </SiteOperatorOnly>
                                                             }
                                                         </div>
 
@@ -127,9 +132,11 @@
                                                                                 <td class="hide-mobile">@oid.ValueType</td>
                                                                                 <td class="hide-mobile">@(oid.Scope == CustomOidScope.DeviceLevel ? "Device" : "Interface")</td>
                                                                                 <td style="text-align: right;">
-                                                                                    <button class="btn btn-sm btn-danger" @onclick:stopPropagation="true" @onclick="() => DeleteOid(oid.Id)">
+                                                                                    <SiteAdminOnly>
+                                                                                        <button class="btn btn-sm btn-danger" @onclick:stopPropagation="true" @onclick="() => DeleteOid(oid.Id)">
                                                                                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                                                                                     </button>
+                                                                                    </SiteAdminOnly>
                                                                                 </td>
                                                                             </tr>
                                                                         }
@@ -150,7 +157,7 @@
                                                                         <label>OID</label>
                                                                         <div class="snmp-oid-input-group">
                                                                             <input type="text" @bind="_editOid" placeholder="1.3.6.1.4.1.41112..." />
-                                                                            <button class="btn btn-sm btn-secondary" @onclick="TestOid" disabled="@_testingOid">
+                                                                            <button class="btn btn-sm btn-contrast" @onclick="TestOid" disabled="@_testingOid">
                                                                                 @(_testingOid ? "..." : "Test")
                                                                             </button>
                                                                         </div>
@@ -195,8 +202,10 @@
                                                                     </div>
                                                                 </div>
                                                                 <div class="snmp-form-actions">
-                                                                    <button class="btn btn-sm btn-primary" @onclick="SaveOid" disabled="@_saving">Save</button>
-                                                                    <button class="btn btn-sm btn-secondary" @onclick="CancelAdd">Cancel</button>
+                                                                    <SiteOperatorOnly>
+                                                                        <button class="btn btn-sm btn-primary" @onclick="SaveOid" disabled="@_saving">Save</button>
+                                                                    </SiteOperatorOnly>
+                                                                    <button class="btn btn-sm btn-contrast" @onclick="CancelAdd">Cancel</button>
                                                                     @if (!string.IsNullOrEmpty(_saveError))
                                                                     {
                                                                         <span class="snmp-save-error">@_saveError</span>

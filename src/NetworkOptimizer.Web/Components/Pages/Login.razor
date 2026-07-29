@@ -1,11 +1,16 @@
 @page "/login"
-@rendermode InteractiveServer
 @layout AuthLayout
+@using NetworkOptimizer.Storage.Models.Identity
 @using NetworkOptimizer.Web.Services
-@inject NavigationManager Navigation
+@using NetworkOptimizer.Web.Services.Identity
 @inject IAdminAuthService AdminAuth
-@inject IJwtService JwtService
-@inject SiteSwitchService SiteSwitch
+@inject IFederationProviderService Federation
+@inject IAuthPolicyOptions AuthPolicy
+@inject IdentityLoginFacts LoginFacts
+@inject PersistentComponentState PageState
+@implements IDisposable
+@* Static SSR (no interactive render mode): sign-in issues a Set-Cookie via a form POST to
+   /api/auth/login, which a live Blazor circuit cannot do (design docs 02, 06). *@
 
 <PageTitle>Login - Network Optimizer</PageTitle>
 
@@ -17,49 +22,169 @@
             <p class="login-subtitle">for UniFi</p>
         </div>
 
-        <form @onsubmit="HandleLogin" @onsubmit:preventDefault>
-            <div class="form-group">
-                <label class="form-label">Password</label>
-                <input type="password"
-                       class="form-control"
-                       @bind="password"
-                       @bind:event="oninput"
-                       placeholder="Enter admin password"
-                       autofocus
-                       disabled="@(isLoading || isRedirecting)" />
+        <form method="post" action="/api/auth/login">
+            <AntiforgeryToken />
+            <input type="hidden" name="returnUrl" value="/" />
+            @if (!string.IsNullOrEmpty(Site))
+            {
+                <input type="hidden" name="@SiteContextService.SiteQueryParam" value="@Site" />
+            }
+
+            @if (_hideLocalLogin)
+            {
+                <p class="form-help">
+                    Local sign-in is turned off for this install. Use your identity provider below.
+                </p>
+            }
+            else
+            {
+            <div class="form-group login-username-group">
+                <label class="form-label" for="login-username">Username</label>
+                <input id="login-username" name="username" type="text"
+                       class="form-control" value="@(_prefillAdmin ? "admin" : "")"
+                       placeholder="Username" autocomplete="username" autofocus />
             </div>
 
-            <button type="submit" class="btn btn-primary login-btn" disabled="@(isLoading || isRedirecting)">
-                @if (isRedirecting)
-                {
-                    <span class="spinner"></span>
-                    <span>Loading...</span>
-                }
-                else if (isLoading)
-                {
-                    <span class="spinner"></span>
-                    <span>Signing in...</span>
-                }
-                else
-                {
-                    <span>Sign In</span>
-                }
-            </button>
+            <div class="form-group">
+                <label class="form-label" for="login-password">Password</label>
+                <input id="login-password" name="password" type="password"
+                       class="form-control" placeholder="Enter your password" autocomplete="current-password" />
+            </div>
 
-            @if (!string.IsNullOrEmpty(errorMessage))
-            {
-                <div class="alert alert-danger mt-3">
-                    @errorMessage
-                </div>
+            <button type="submit" class="btn btn-primary login-btn">
+                <span>Sign In</span>
+            </button>
             }
+
+            @if (!string.IsNullOrEmpty(ErrorText))
+            {
+                <div class="alert alert-danger">@ErrorText</div>
+
+                @* The message lives in the query string, so without this it outlives the attempt that
+                   caused it: refresh or navigate back and a stale "invalid credentials" renders over a
+                   session that is perfectly fine. Strip it once shown - the banner above is already
+                   rendered, so this only affects what a later load would say. *@
+                <script suppress-error="BL9992">
+                    (function () {
+                        var u = new URL(window.location.href);
+                        if (!u.searchParams.has('error')) return;
+                        u.searchParams.delete('error');
+                        window.history.replaceState({}, '', u.toString());
+                    })();
+                </script>
+            }
+            @if (!string.IsNullOrEmpty(PromptText))
+            {
+                <div class="alert alert-info">@PromptText</div>
+            }
+
+            @* Without this the cookie is session-scoped whatever ExpireTimeSpan says, so the
+               fourteen-day lifetime never applied and the browser discarded the cookie on close.
+               Same treatment as Remember this device on the second-factor form.
+
+               It sits on the rule between the form and the provider buttons because it governs both,
+               which reading it inside the password block did not convey. It stays inside the form
+               regardless - moved out, the password post stops carrying it. *@
+            <div class="login-divider">
+                <label class="login-divider-label">
+                    <input type="checkbox" name="rememberMe" value="true" checked /> Keep me signed in
+                </label>
+                <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Applies to every sign-in method">?</span>
+            </div>
         </form>
 
-        @if (isAutoGenerated)
+
+@* autofocus fires when the browser first parses the page, and not when enhanced navigation patches
+   the DOM in - which is what happens arriving here from anywhere inside the app, so the field ends up
+   unfocused exactly when someone is about to type in it. Re-apply on both, and only when the user has
+   not already put their cursor somewhere. *@
+<script suppress-error="BL9992">
+    (function () {
+        // Set by the first thing the user does, so nothing below ever pulls focus away from where
+        // they put it themselves. Tab counts: once they are moving through the form it is theirs.
+        var userActed = false;
+        function acted() { userActed = true; }
+        document.addEventListener('pointerdown', acted, { capture: true, once: true });
+        document.addEventListener('keydown', acted, { capture: true, once: true });
+
+        function focusField() {
+            if (userActed) return;
+            var el = document.getElementById('login-username');
+            if (!el) return;
+            var active = document.activeElement;
+            // Yield to anywhere a cursor could sensibly be - but not to the heading. FocusOnNavigate
+            // moves focus there when the circuit connects, which is the thing being corrected.
+            if (active && active !== document.body
+                && active.tagName !== 'HTML' && active.tagName !== 'H1') return;
+            el.focus();
+        }
+
+        focusField();
+        document.addEventListener('DOMContentLoaded', focusField);
+        if (window.Blazor) {
+            Blazor.addEventListener('enhancedload', focusField);
+        }
+        else {
+            document.addEventListener('enhancedload', focusField);
+        }
+
+        // The correction, and the whole reason the earlier attempts could not work: every one of them
+        // runs before the circuit connects, and the router focuses the heading after. So wait for that
+        // to happen and take it back - ONCE. Re-focusing on a schedule is what made the page
+        // impossible to tab through.
+        document.addEventListener('focusin', function onHeading(e) {
+            if (!e.target || e.target.tagName !== 'H1') return;
+            document.removeEventListener('focusin', onHeading, true);
+            focusField();
+        }, true);
+    })();
+</script>
+
+        @* Revealed by the passkey helper when the browser has no secure context. Rendered here rather
+           than redirected to, because the browser knows before it asks the server - a round trip just
+           to say this costs a page load and races the error-stripping script. *@
+        <div class="alert alert-danger" id="passkey-insecure-alert" hidden>
+            Passkeys need a secure (HTTPS) connection. Sign in with your password instead.
+        </div>
+
+        @if (_providers.Count > 0 || _showPasskey)
+        {
+            <div class="login-footer login-footer-undivided">
+                @if (_showPasskey)
+                {
+                    <button type="button" class="btn @(_needsPasskey ? "btn-primary" : "btn-secondary") login-btn"
+                            onclick="netoptPasskey.login()">
+                        Sign in with a passkey
+                    </button>
+                }
+                @* rememberMe is rendered on the href to match the checkbox above, which starts checked -
+                   so the choice the user is looking at holds even if federated-login.js never runs.
+                   That script rewrites it when they untick the box. *@
+                @foreach (var p in _providers)
+                {
+                    var path = p.Type == FederationProviderType.Saml
+                        ? $"/login/saml/{p.Scheme}"
+                        : $"/login/external/{p.Scheme}";
+                    <a class="btn btn-secondary login-btn" href="@(path)?rememberMe=true" data-federation>@p.ButtonLabel</a>
+                }
+            </div>
+        }
+
+        @if (_isAutoGenerated)
         {
             <div class="login-footer">
                 <small class="text-muted">
-                    Using auto-generated password from startup logs.<br/>
+                    Using the auto-generated password from the startup logs.<br />
                     Set a permanent password in Settings after login.
+                </small>
+            </div>
+        }
+
+        @if (BreakGlass.IsRecoveryMode)
+        {
+            <div class="login-footer">
+                <small class="text-muted">
+                    Recovery mode is active (NETOPT_RECOVERY). Local Admin login is enabled for this boot.
                 </small>
             </div>
         }
@@ -67,72 +192,108 @@
 </div>
 
 @code {
-    private string password = "";
-    private string? errorMessage;
-    private bool isLoading;
-    private bool isRedirecting;
-    private bool isAutoGenerated;
+    [SupplyParameterFromQuery] private string? Error { get; set; }
+
+    [SupplyParameterFromQuery(Name = SiteContextService.SiteQueryParam)]
+    private string? Site { get; set; }
+
+    private bool _isAutoGenerated;
+    private bool _showPasskey;
+    private bool _prefillAdmin;
+    private IReadOnlyList<FederationProvider> _providers = new List<FederationProvider>();
+
+    private const string ErrorStateKey = "login.error";
+    private PersistingComponentStateSubscription _persisting;
+
+    /// <summary>
+    /// What the banner reads, carried across the prerender to interactive handoff rather than read
+    /// from the query string twice. The script beside the banner strips the query as soon as the
+    /// message has been shown, so a second read finds a clean URL and the message disappears a beat
+    /// after it appears - which is what a signed-out user was seeing instead of "Invalid username or
+    /// password".
+    /// </summary>
+    private string? _error;
+
+    // Uniform, non-enumerating messages (never reveal whether a username exists).
+    private bool _needsPasskey => _error == "use_passkey";
+
+    /// <summary>
+    /// SSO-only: showing the username and password fields anyway meant typing credentials and only
+    /// then being told local sign-in is off, which reads as the setting not having applied. It had -
+    /// the check runs on every attempt - the page just never asked.
+    ///
+    /// Never hidden without somewhere else to go: a recovery boot re-enables local Admin sign-in and
+    /// is the way back in, and an install with the toggle on but no enabled provider would otherwise
+    /// have no sign-in at all.
+    /// </summary>
+    private bool _hideLocalLogin;
+
+    /// <summary>
+    /// Not a failure: the password was right, but this account's role requires a second factor and its
+    /// passkey is the one it holds, so the passkey is what has to be used to get in.
+    /// </summary>
+    private string? PromptText => _needsPasskey
+        ? "Your role requires a second factor. Sign in with your passkey below - a password on its own "
+          + "is not enough. You can add an authenticator app from Security once you are in."
+        : null;
+
+    private string? ErrorText => _error switch
+    {
+        "invalid" or "missing" => "Invalid username or password.",
+        "lockout" => "Too many attempts. Try again in a few minutes.",
+        "sso_only" => "Local login is disabled. Sign in with your identity provider.",
+        // Passkey outcomes name the credential, never the account, so they carry no enumeration risk.
+        "passkey_rejected" => "That passkey wasn't accepted. It may have been removed from the account - "
+            + "sign in another way, then register a new one.",
+        "passkey_failed" => "Passkey sign-in couldn't be completed. Try again, or sign in with your password.",
+        // Federation outcomes. The user has already authenticated with their identity provider by the
+        // time any of these fire, so naming what went wrong tells them nothing about anyone else's
+        // account - unlike the local-login cases above, these carry no enumeration risk.
+        "no_account" => "You signed in successfully, but there is no Network Optimizer account for you yet. "
+            + "Ask an administrator to add you, or to turn on automatic account creation for your provider.",
+        "account_disabled" => "Your account is disabled. Ask an administrator to re-enable it.",
+        "provider_disabled" => "That sign-in method is turned off. Sign in another way, or ask an administrator.",
+        "external_failed" => "Your identity provider did not complete the sign-in. Try again.",
+        "saml_invalid" => "Your identity provider's response could not be verified. Try again, or ask an "
+            + "administrator to check the SAML configuration.",
+        "saml_misconfigured" => "Single sign-on is not fully configured. Ask an administrator to finish "
+            + "setting up the SAML provider.",
+        "saml_unsolicited" => "That sign-in started at your identity provider, which this provider does "
+            + "not accept. Start from this login page instead.",
+        "mfa_local_required" => "Your role requires a second factor. Your identity provider did not "
+            + "provide one, and an authenticator app cannot be used with it - sign in with your username "
+            + "and password above, where you will be asked for your code.",
+        _ => null,
+    };
 
     protected override async Task OnInitializedAsync()
     {
+        _persisting = PageState.RegisterOnPersisting(() =>
+        {
+            PageState.PersistAsJson(ErrorStateKey, Error);
+            return Task.CompletedTask;
+        });
+        _error = PageState.TryTakeFromJson<string?>(ErrorStateKey, out var carried) ? carried : Error;
+
         var source = await AdminAuth.GetPasswordSourceAsync();
-        isAutoGenerated = source == AdminPasswordSource.AutoGenerated;
+        _isAutoGenerated = source == AdminPasswordSource.AutoGenerated;
+        // Pre-fill "admin" only on a single-account install (the migration/first-run state), so the
+        // seamless single-admin login keeps its muscle memory. Once a second user exists, leave it
+        // empty (a Viewer/Operator shouldn't have to clear it, and it stops advertising "admin").
+        _prefillAdmin = await LoginFacts.IsSingleAccountInstallAsync();
+        _providers = await Federation.GetEnabledAsync();
+        _hideLocalLogin = await AuthPolicy.IsLocalLoginDisabledAsync()
+            && !BreakGlass.IsRecoveryMode
+            && _providers.Count > 0;
+        // Passkey login is offered whenever any passkey could exist; the button no-ops in an
+        // insecure context (the browser helper guards on window.isSecureContext).
+        //
+        // The exception is an install still on the password from the startup logs: that is someone's
+        // first ever look at this page, and a sign-in method nobody can have set up yet reads as a
+        // choice they are failing to understand. Withdrawn only while no passkey exists at all, so
+        // registering one on a temporary password puts the button back rather than stranding it.
+        _showPasskey = !_isAutoGenerated || await LoginFacts.AnyPasskeysAsync();
     }
 
-    private async Task HandleLogin()
-    {
-        if (string.IsNullOrEmpty(password))
-        {
-            errorMessage = "Please enter a password";
-            return;
-        }
-
-        isLoading = true;
-        errorMessage = null;
-        StateHasChanged();
-
-        try
-        {
-            var isValid = await AdminAuth.ValidatePasswordAsync(password);
-
-            if (isValid)
-            {
-                // Generate JWT token
-                var token = await JwtService.GenerateTokenAsync();
-
-                // Keep spinner showing during redirect
-                isLoading = false;
-                isRedirecting = true;
-                StateHasChanged();
-
-                // Set cookie and redirect to home, keeping the tab's ?site= pin (the
-                // auth middleware carries it onto /login) so re-auth lands on the
-                // same site the tab was on.
-                // Note: forceLoad navigation will throw TaskCanceledException as the circuit
-                // is destroyed during the page reload - this is expected behavior
-                var returnUrl = await SiteSwitch.StampSiteAsync("/");
-                try
-                {
-                    Navigation.NavigateTo($"/api/auth/set-cookie?token={Uri.EscapeDataString(token)}&returnUrl={Uri.EscapeDataString(returnUrl)}", forceLoad: true);
-                }
-                catch (TaskCanceledException)
-                {
-                    // Expected - circuit destroyed during forceLoad navigation
-                }
-            }
-            else
-            {
-                errorMessage = "Invalid password";
-                password = "";
-                isLoading = false;
-                StateHasChanged();
-            }
-        }
-        catch (Exception)
-        {
-            errorMessage = "Login failed. Please try again.";
-            isLoading = false;
-            StateHasChanged();
-        }
-    }
+    public void Dispose() => _persisting.Dispose();
 }

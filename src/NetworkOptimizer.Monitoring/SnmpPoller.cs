@@ -365,17 +365,21 @@ public class SnmpPoller : ISnmpPoller
                 outBcast32 = await BulkWalkAsync(ip, UniFiOids.IfOutBroadcastPkts);
             }
 
-            var hcInOctetsByIdx = IndexByIfIndex(hcInOctets, UniFiOids.IfHCInOctets);
-            var hcOutOctetsByIdx = IndexByIfIndex(hcOutOctets, UniFiOids.IfHCOutOctets);
+            // Rebase every ifXTable lookup onto the ifTable index space the loop below addresses
+            // by. Off a conforming device the offset is 0 and each call hands the dictionary
+            // straight back. The 32-bit counters are ifTable already and are left alone.
+            var ifXOffset = meta.IfXTableIndexOffset;
+            var hcInOctetsByIdx = RebaseByOffset(IndexByIfIndex(hcInOctets, UniFiOids.IfHCInOctets), ifXOffset);
+            var hcOutOctetsByIdx = RebaseByOffset(IndexByIfIndex(hcOutOctets, UniFiOids.IfHCOutOctets), ifXOffset);
             var inOctets32ByIdx = needFallback ? IndexByIfIndex(inOctets32!, UniFiOids.IfInOctets) : null;
             var outOctets32ByIdx = needFallback ? IndexByIfIndex(outOctets32!, UniFiOids.IfOutOctets) : null;
 
-            var hcInUcastByIdx = IndexByIfIndex(hcInUcast, UniFiOids.IfHCInUcastPkts);
-            var hcOutUcastByIdx = IndexByIfIndex(hcOutUcast, UniFiOids.IfHCOutUcastPkts);
-            var hcInMcastByIdx = IndexByIfIndex(hcInMcast, UniFiOids.IfHCInMulticastPkts);
-            var hcOutMcastByIdx = IndexByIfIndex(hcOutMcast, UniFiOids.IfHCOutMulticastPkts);
-            var hcInBcastByIdx = IndexByIfIndex(hcInBcast, UniFiOids.IfHCInBroadcastPkts);
-            var hcOutBcastByIdx = IndexByIfIndex(hcOutBcast, UniFiOids.IfHCOutBroadcastPkts);
+            var hcInUcastByIdx = RebaseByOffset(IndexByIfIndex(hcInUcast, UniFiOids.IfHCInUcastPkts), ifXOffset);
+            var hcOutUcastByIdx = RebaseByOffset(IndexByIfIndex(hcOutUcast, UniFiOids.IfHCOutUcastPkts), ifXOffset);
+            var hcInMcastByIdx = RebaseByOffset(IndexByIfIndex(hcInMcast, UniFiOids.IfHCInMulticastPkts), ifXOffset);
+            var hcOutMcastByIdx = RebaseByOffset(IndexByIfIndex(hcOutMcast, UniFiOids.IfHCOutMulticastPkts), ifXOffset);
+            var hcInBcastByIdx = RebaseByOffset(IndexByIfIndex(hcInBcast, UniFiOids.IfHCInBroadcastPkts), ifXOffset);
+            var hcOutBcastByIdx = RebaseByOffset(IndexByIfIndex(hcOutBcast, UniFiOids.IfHCOutBroadcastPkts), ifXOffset);
             var inUcast32ByIdx = needPktFallback ? IndexByIfIndex(inUcast32!, UniFiOids.IfInUcastPkts) : null;
             var outUcast32ByIdx = needPktFallback ? IndexByIfIndex(outUcast32!, UniFiOids.IfOutUcastPkts) : null;
             var inMcast32ByIdx = needPktFallback ? IndexByIfIndex(inMcast32!, UniFiOids.IfInMulticastPkts) : null;
@@ -607,18 +611,39 @@ public class SnmpPoller : ISnmpPoller
         var adminStatusWalk = await BulkWalkAsync(ip, UniFiOids.IfAdminStatus);
         var lastChangeWalk = await BulkWalkAsync(ip, UniFiOids.IfLastChange);
 
+        var descrByIdx = IndexByIfIndex(descrWalk, UniFiOids.IfDescr);
+        var nameByIdx = IndexByIfIndex(nameWalk, UniFiOids.IfName);
+        var aliasByIdx = IndexByIfIndex(aliasWalk, UniFiOids.IfAlias);
+        var highSpeedByIdx = IndexByIfIndex(highSpeedWalk, UniFiOids.IfHighSpeed);
+
+        // ifName, ifAlias, ifHighSpeed and the ifHC* counters are all ifXTable, so they share
+        // one index space and one detection settles the lot. The counters are walked per poll
+        // and rebased there from the offset cached here alongside the metadata.
+        var ifXOffset = DetectIfXTableIndexOffset(
+            descrByIdx.Keys,
+            highSpeedByIdx.Count > 0 ? highSpeedByIdx.Keys
+                : nameByIdx.Count > 0 ? nameByIdx.Keys
+                : aliasByIdx.Keys);
+        // Debug rather than Information: this is a fixed property of the device, and the slow
+        // tier re-derives it on every metadata refresh, so anything louder repeats all day.
+        if (ifXOffset != 0)
+            _logger.LogDebug(
+                "Device {Ip} publishes ifXTable at ifIndex offset {Offset}; rebasing onto the ifTable index space so HC counters resolve per port.",
+                ip, ifXOffset);
+
         return new InterfaceMetadataCache
         {
-            DescrByIdx = IndexByIfIndex(descrWalk, UniFiOids.IfDescr),
-            NameByIdx = IndexByIfIndex(nameWalk, UniFiOids.IfName),
-            AliasByIdx = IndexByIfIndex(aliasWalk, UniFiOids.IfAlias),
+            DescrByIdx = descrByIdx,
+            NameByIdx = RebaseByOffset(nameByIdx, ifXOffset),
+            AliasByIdx = RebaseByOffset(aliasByIdx, ifXOffset),
             TypeByIdx = IndexByIfIndex(typeWalk, UniFiOids.IfType),
             MtuByIdx = IndexByIfIndex(mtuWalk, UniFiOids.IfMtu),
             SpeedByIdx = IndexByIfIndex(speedWalk, UniFiOids.IfSpeed),
-            HighSpeedByIdx = IndexByIfIndex(highSpeedWalk, UniFiOids.IfHighSpeed),
+            HighSpeedByIdx = RebaseByOffset(highSpeedByIdx, ifXOffset),
             PhysAddrByIdx = IndexByIfIndex(physAddrWalk, UniFiOids.IfPhysAddress),
             AdminByIdx = IndexByIfIndex(adminStatusWalk, UniFiOids.IfAdminStatus),
             LastChangeByIdx = IndexByIfIndex(lastChangeWalk, UniFiOids.IfLastChange),
+            IfXTableIndexOffset = ifXOffset,
         };
     }
 
@@ -838,6 +863,67 @@ public class SnmpPoller : ISnmpPoller
         return dict;
     }
 
+    /// <summary>
+    /// The constant ifIndex offset at which a device publishes ifXTable, or 0 when it agrees
+    /// with ifTable as RFC 2863 requires.
+    ///
+    /// A US-8 returns ifDescr and the 32-bit counters on 1..8 while every ifXTable row -
+    /// ifName, ifAlias, ifHighSpeed and the ifHC* counters - sits at 1000001..1000008 (#1067).
+    /// It is firmware-dependent, not model-dependent: another US-8 on the same site indexes
+    /// both tables the same way, so this keys off the data shape and never off a model string.
+    /// Nothing downstream expects that split, so every HC lookup keyed by the ifDescr index
+    /// missed and each port read as a zero counter. Zero counters never move, so no interface
+    /// ever produced a rate and the switch was dropped from polling altogether.
+    ///
+    /// Detection is deliberately narrow so a conforming device can never be reindexed: the two
+    /// index sets must be the same size, share no index at all, and line up under a single
+    /// constant. Anything else - including a uniform shift whose ranges still overlap - is
+    /// refused and returns 0, leaving the lookups exactly as they were.
+    /// </summary>
+    internal static long DetectIfXTableIndexOffset(
+        IEnumerable<string> ifTableIndexes, IEnumerable<string> ifXTableIndexes)
+    {
+        var baseIdx = ParseSortedIndexes(ifTableIndexes);
+        var extIdx = ParseSortedIndexes(ifXTableIndexes);
+        if (baseIdx.Count == 0 || baseIdx.Count != extIdx.Count) return 0;
+
+        var offset = extIdx[0] - baseIdx[0];
+        if (offset == 0) return 0;
+        for (int i = 1; i < baseIdx.Count; i++)
+            if (extIdx[i] - baseIdx[i] != offset) return 0;
+
+        // A uniform offset alone is not enough: two disjoint-looking runs could still overlap
+        // (1..8 against 5..12 shifts by 4 and shares half its indexes), and rebasing those
+        // would corrupt a device whose tables were fine.
+        var baseSet = new HashSet<long>(baseIdx);
+        foreach (var idx in extIdx)
+            if (baseSet.Contains(idx)) return 0;
+
+        return offset;
+    }
+
+    private static List<long> ParseSortedIndexes(IEnumerable<string> indexes)
+    {
+        var parsed = new List<long>();
+        foreach (var idx in indexes)
+            if (long.TryParse(idx, out var value)) parsed.Add(value);
+        parsed.Sort();
+        return parsed;
+    }
+
+    /// <summary>
+    /// Rekeys an ifXTable lookup onto the ifTable index space so callers can address it by the
+    /// ifDescr index like every other table. A zero offset returns the dictionary untouched.
+    /// </summary>
+    private static Dictionary<string, string> RebaseByOffset(Dictionary<string, string> byIdx, long offset)
+    {
+        if (offset == 0 || byIdx.Count == 0) return byIdx;
+        var rebased = new Dictionary<string, string>(byIdx.Count);
+        foreach (var (idx, value) in byIdx)
+            if (long.TryParse(idx, out var parsed)) rebased[(parsed - offset).ToString()] = value;
+        return rebased;
+    }
+
     private static readonly System.Text.RegularExpressions.Regex EthNRegex = new(@"^eth\d+", System.Text.RegularExpressions.RegexOptions.Compiled);
 
     internal static string ResolveIfName(string? ifAlias, string? ifName)
@@ -983,6 +1069,13 @@ internal sealed class InterfaceMetadataCache
     public Dictionary<string, string> MtuByIdx { get; init; } = new();
     public Dictionary<string, string> SpeedByIdx { get; init; } = new();
     public Dictionary<string, string> HighSpeedByIdx { get; init; } = new();
+
+    /// <summary>
+    /// Constant ifIndex offset this device publishes ifXTable at, or 0 when it shares ifTable's
+    /// index space. The ifXTable dictionaries above are already rebased; the per-poll ifHC*
+    /// counter walks are rebased against this. See SnmpPoller.DetectIfXTableIndexOffset.
+    /// </summary>
+    public long IfXTableIndexOffset { get; init; }
     public Dictionary<string, string> PhysAddrByIdx { get; init; } = new();
     public Dictionary<string, string> AdminByIdx { get; init; } = new();
     public Dictionary<string, string> LastChangeByIdx { get; init; } = new();
