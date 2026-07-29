@@ -132,7 +132,6 @@ public interface IIdentityAdminService
     /// found it unlocked. Refuses any userId but the caller's own.
     /// </summary>
     [RequireRole(Roles.Viewer)]
-    [SelfServiceAction]
     Task<AdminActionResult> ChangeOwnPasswordAsync(string userId, string currentPassword, string newPassword);
 
     /// <summary>
@@ -154,7 +153,6 @@ public interface IIdentityAdminService
     /// Refuses any userId but the caller's own.
     /// </summary>
     [RequireRole(Roles.Viewer)]
-    [SelfServiceAction]
     Task<AdminActionResult> SignOutEverywhereAsync(string userId);
 
     [RequireRole(Roles.Admin)]
