@@ -14,7 +14,10 @@
    point there is no reason to keep saying it to whoever signs in next. *@
 @if (SiteSlug is null && !_introDismissed)
 {
-    <div class="card identity-intro-card">
+    @* settings-tab-identity is load-bearing, not decoration: every Settings tab renders at once and
+       the active tab reveals its cards with .settings-tabbed.active-identity > .settings-tab-identity.
+       A card without it is simply never shown. *@
+    <div class="card settings-tab-identity identity-intro-card">
         <div class="card-body">
             <h3 class="identity-intro-title">There is a lot here, and none of it is required</h3>
             <p class="identity-intro-body">
@@ -53,7 +56,7 @@ else
     private async Task DismissIntroAsync()
     {
         _introDismissed = true;
-        await SettingsService.SetAsync("banner.identity_intro_dismissed", "true");
+        await SettingsService.SetGlobalAsync("banner.identity_intro_dismissed", "true");
     }
 
     /// <summary>The Users card offers the providers when linking an identity, so it follows the list.</summary>
@@ -93,9 +96,10 @@ else
     {
         Navigation.LocationChanged += HandleLocationChanged;
 
-        // Only the instance-wide view shows it, so only that view pays for the read.
+        // Global, not GetAsync: the site-scoped pair reads the CURRENT site's database, so a
+        // dismissal on the main site would leave the card still showing on every other one.
         if (SiteSlug is null)
-            _introDismissed = await SettingsService.GetAsync("banner.identity_intro_dismissed") != null;
+            _introDismissed = await SettingsService.GetGlobalAsync("banner.identity_intro_dismissed") != null;
     }
 
     /// <summary>
