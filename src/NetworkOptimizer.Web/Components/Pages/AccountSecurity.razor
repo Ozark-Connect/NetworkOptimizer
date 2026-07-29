@@ -256,7 +256,16 @@
 
     private ApplicationUser? _user;
     private bool _mfaEnabled;
-    private bool _setupRequired;
+    private bool _roleRequiresMfa;
+
+    /// <summary>
+    /// Whether this account still owes the second factor its role requires. Recomputed on every
+    /// render rather than captured at load: enrolling happens on this page, so a flag set in
+    /// OnInitialized left the notice and the highlights up after the thing they were asking for was
+    /// done - and the setup query string stays in the URL, so re-reading that would never clear
+    /// either.
+    /// </summary>
+    private bool _setupRequired => _roleRequiresMfa && !_mfaEnabled && _passkeys.Count == 0;
     private bool _secureContext = true;
     private bool _passkeyIsOnlyWayIn;
     private bool _hasPassword;
@@ -284,7 +293,6 @@
 
     protected override async Task OnInitializedAsync()
     {
-        _setupRequired = Setup == "required";
         _enrollError = Enroll == "failed";
         var principal = (await AuthState.GetAuthenticationStateAsync()).User;
         _user = await CurrentUser.GetAsync(principal);
@@ -297,11 +305,9 @@
             // The requirement, not how they arrived. Keyed on the query string alone, the guidance
             // and the highlight vanished the moment someone reloaded or opened the page themselves -
             // which is most of the times they will look at it while still owing a factor.
-            if (!_setupRequired)
-            {
-                _setupRequired = await Mfa.RoleRequiresMfaAsync(_user)
-                    && !await Mfa.HasSecondFactorAsync(_user);
-            }
+            // The redirect that lands here carries setup=required, but the requirement itself is the
+            // thing worth asking about - it survives a reload and clears the moment a factor exists.
+            _roleRequiresMfa = Setup == "required" || await Mfa.RoleRequiresMfaAsync(_user);
 
             _passkeyIsOnlyWayIn = _passkeys.Count > 0
                 && !_mfaEnabled
