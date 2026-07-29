@@ -205,6 +205,14 @@ public interface IIdentityAdminService
     [RequireRole(Roles.Admin)]
     Task<AdminActionResult> SetRoleRequiresMfaAsync(string role, bool requireMfa);
 
+    /// <summary>
+    /// Site groups: complete and gated here, and deliberately not surfaced anywhere in the app. Nothing
+    /// calls these four, and the grant form offers Site and AllSites without Group, so no install has a
+    /// group in it. Groups exist so RBAC scales past per-site rows when someone needs that; guessing at
+    /// the screens before anyone is asking is how you get screens nobody wants. The group-derived branch
+    /// of effective-role resolution and its cache invalidation therefore have unit coverage only - they
+    /// have never run end to end - so treat this as untested against a real install, not as proven.
+    /// </summary>
     [RequireRole(Roles.Admin)]
     Task<IReadOnlyList<SiteGroup>> GetSiteGroupsAsync();
 

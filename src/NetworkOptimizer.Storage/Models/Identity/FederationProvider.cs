@@ -88,7 +88,13 @@ public class FederationProvider
     public string? SpEntityId { get; set; }
     public bool WantAssertionsEncrypted { get; set; }
 
-    /// <summary>IdP-initiated SSO acceptance. OFF by default (unsolicited-response risk).</summary>
+    /// <summary>
+    /// IdP-initiated SSO acceptance. OFF by default (unsolicited-response risk), and deliberately not
+    /// offered in the UI: nothing sets it, so it is false on every provider. An assertion that does not
+    /// answer a request this server issued is rejected and logged (see SamlServiceProvider). Turning it
+    /// on is a checkbox on the SAML form whenever an install genuinely needs IdP-initiated sign-in;
+    /// until then the safe posture is the only reachable one.
+    /// </summary>
     public bool AllowIdpInitiated { get; set; }
 
     /// <summary>Assertion clock-skew tolerance in seconds (default 120).</summary>
