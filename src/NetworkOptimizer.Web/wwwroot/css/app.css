@@ -7336,6 +7336,12 @@ a.path-hop.hop-clickable:hover {
     box-shadow: 0 0 0 3px rgba(5, 89, 201, 0.2);
 }
 
+/* The guidance sits at the top of the card body, where .alert's own top margin doubles the padding
+   already there. */
+.card-highlight .card-body > .alert:first-child {
+    margin-top: 0;
+}
+
 .login-divider {
     display: flex;
     align-items: center;
