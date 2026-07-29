@@ -1050,3 +1050,30 @@ that then fails. It becomes real the moment `IsSecure` is used for anything the 
 separately gate.
 
 - [ ] Resolve the scheme through `context.Request.Scheme` the way `CanonicalOrigin` does.
+
+### Monitoring Influx queries return points in Flux order, not time order
+
+`MonitoringInfluxClient` has 22 `pivot` queries and only two order their result. Flux is not globally
+ordered: `pivot` emits a separate table whenever a row's field set differs, and those tables arrive
+after the main one. So an interval where a device reported some fields but not others comes back at
+the END of the list, and a chart draws forward to now and then jumps back to it.
+
+Confirmed on SFP temperature and fixed there (`QuerySfpByModulesAsync` now orders on assembly): an
+ONT during an outage reported temperature and voltage but no optical power, so those rows landed last
+and only the temperature line doubled back. Cellular, CM and Starlink are the likely remaining
+candidates, since they also poll partial field sets.
+
+Not a blind sweep. Breaking anything is practically zero risk - sorting a list cannot throw and the
+lists are hundreds of points - but the OUTPUT changes in three places, in the direction of
+correctness:
+
+- ONT chart and `PhysicalLinkResolver` already order their own copy, so for them it is a no-op.
+- CM and Starlink charts compute cumulative-counter deltas against the previous list element. On an
+  unsorted list that is the wrong predecessor and the `c >= p` guard silently drops the negative, so
+  after ordering some deltas change and intervals that show nothing today will start showing numbers.
+- The Cellular chart takes `.Last()`/`.First()`, which will start returning the genuinely newest and
+  oldest sample.
+
+- [ ] Order on assembly in the remaining 20 queries, with a test that feeds a deliberately
+      out-of-order Flux result through one of them.
+- [ ] Compare CM and Starlink chart output before and after rather than assuming improvement.
