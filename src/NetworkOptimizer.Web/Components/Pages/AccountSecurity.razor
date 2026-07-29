@@ -78,13 +78,21 @@
 @if (_setupRequired)
 {
     <div class="alert alert-warning">
-        Your role requires a second factor. Set up an authenticator app or register a passkey to continue.
+        Your role requires a second factor. Set up either of the highlighted options below to continue -
+        one is enough.
     </div>
 }
 
-<div class="card">
+<div class="card @(_setupRequired ? "card-setup-required" : null)">
     <div class="card-header"><span class="card-title">Authenticator app (TOTP)</span></div>
     <div class="card-body">
+        @if (_setupRequired)
+        {
+            <div class="alert alert-info">
+                Set this up with any authenticator app - 1Password, Bitwarden, Authy, Google
+                Authenticator. Scan the code below, then enter the six digits it shows to finish.
+            </div>
+        }
         @if (_user is null)
         {
             <div class="loading-container"><span class="spinner"></span></div>
@@ -160,9 +168,16 @@
     </div>
 </div>
 
-<div class="card">
+<div class="card @(_setupRequired ? "card-setup-required" : null)">
     <div class="card-header"><span class="card-title">Passkeys</span></div>
     <div class="card-body">
+        @if (_setupRequired)
+        {
+            <div class="alert alert-info">
+                A passkey satisfies the requirement on its own - your fingerprint, face, or device PIN,
+                with nothing to type. Register one here and use it to sign in from then on.
+            </div>
+        }
         @if (!_secureContext)
         {
             <div class="alert alert-warning">
