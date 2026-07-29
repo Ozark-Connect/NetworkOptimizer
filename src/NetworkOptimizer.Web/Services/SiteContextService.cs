@@ -147,6 +147,9 @@ public class SiteContextService : IAlertSiteScope
         return (kept.Count > 0 ? $"{basePart}?{string.Join('&', kept)}" : basePart) + fragment;
     }
 
+    /// <summary>The ?site= selector in a URL, or null when it carries none.</summary>
+    public static string? SiteParamOf(string uri) => GetSiteParam(uri);
+
     private static string? GetSiteParam(string uri)
     {
         var queryAt = uri.IndexOf('?');

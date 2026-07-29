@@ -1,5 +1,26 @@
 # Network Optimizer - TODO / Future Enhancements
 
+## SSH key placement on console gateways (udm-boot)
+
+TABLED, and quite likely overtaken by UniFi shipping key support for console SSH themselves.
+
+On a Cloud Gateway the gateway is also the console, so UniFi Network's Device SSH Settings does not
+reach its root SSH and the public key has to be placed by hand once. We could close that loop the way
+Adaptive SQM, WAN Steering and Performance Tweaks already do: use the configured username and password
+to install a udm-boot script that re-places the key, so it survives firmware upgrades.
+
+Why it is tabled rather than built:
+
+- It does not remove the bootstrap step, only the repeat. Placing the script still needs working
+  password auth, so "SSH in once" happens either way. The win is narrower than it looks.
+- It is a new gateway deployment target, with its own deploy/undeploy lifecycle and a lockout failure
+  mode, on top of a feature that is complete without it.
+
+**Settle this first, it sizes the whole item:** whether `/root/.ssh/authorized_keys` actually survives
+a UniFi OS firmware upgrade. `/etc/systemd/system` does, which is why udm-boot works at all. If
+authorized_keys persists too, this is nearly moot and should be dropped. If it does not, it is worth
+doing whatever UniFi ship. Checkable read-only on any console gateway.
+
 ## Channel Recommendation: Engine Follow-ups (recalibration-sensitive)
 
 Everything below is TABLED - none are release-critical. These items shift the recommendation
@@ -960,3 +981,72 @@ only on `UniFiApiClient`).
   - *Perf (profile, don't assume):* the per-AP fallback recomputes `ScoreAssignment` per candidate and
     `ScanReadingForScoring` loops siblings for current-channel reads - both negligible at small n but
     worth checking on large sites before they bite.
+
+## Retention: alerts and audit events are never pruned
+
+The Application Settings card carried an "Alert Retention (days)" field wired to a `SaveAppSettings`
+stub that did nothing, so the value never persisted. The field and its dead Save button were removed
+rather than made to persist a number nothing reads - storing it would have turned a visibly broken
+control into an invisibly broken one.
+
+Nothing in the solution consumes a retention value today:
+- `IAlertRepository` has no delete/prune method at all - alert history grows without bound.
+- `AlertEngine.ClearOldAlerts(TimeSpan)` exists in Monitoring with **zero callers**.
+- `IAuditRepository.DeleteOldAuditsAsync` exists with **zero callers**, so the audit retention
+  design doc 05 specifies (365 days + a row cap, with `audit.pruned` itself audited) is unimplemented.
+
+The real fix, as one piece of work:
+- [ ] Add pruning to `IAlertRepository` and run it from a background service, mirroring how the
+  monitoring collectors are hosted. Per-site DBs mean the job has to walk every site, not just main.
+- [ ] Implement audit pruning to doc 05: time-based default 365d plus a row-count cap, emitting an
+  `audit.pruned` event with count and range.
+- [ ] Reinstate the settings UI once something consumes the values, saving through the gated
+  `ISystemSettingsAdmin` so the change is Admin-only and audited like every other settings write.
+
+
+## Identity review leftovers
+
+Three findings from the security review of this branch, accepted rather than fixed. Each was traced
+to a concrete failure and then judged not worth the change it would take.
+
+### Two admins disabling each other at the same instant
+
+`SetEnabledAsync` counts the enabled admins, then writes. The count now comes from a fresh
+no-tracking context (it used to read stale tracked entities, which was the real bug), but the check
+and the write are still two steps: two admins disabling each other within the same instant can both
+see two admins, both pass, and leave none.
+
+Not fixed because the two halves go through different contexts - the count through the DbContext
+factory, the write through `UserManager` on the scoped one. Making them atomic means either a
+transaction spanning both, or dropping to a conditional `ExecuteUpdateAsync`, which bypasses
+`UserManager` and loses the concurrency stamp, the security-stamp rotation and the revocation notify
+that the same method also performs.
+
+The outcome is also no longer terminal: break-glass re-enables the built-in `admin` on a
+`NETOPT_RECOVERY=1` boot, so the worst case is a restart with an env var rather than a rebuilt
+install. Revisit if the identity tables ever move behind a repository that owns both operations.
+
+### Encrypted SAML assertions are not implemented
+
+`FederationProvider.WantAssertionsEncrypted` and `SamlDecryptionCertProtected` exist as columns and
+nothing else - no UI, no reader, no decryption certificate wired into the SAML configuration. Nothing
+misleading is on screen, because neither is exposed; the gap is that design doc 03 lists encrypted
+assertions among the SAML features as though they ship.
+
+- [ ] Either implement them (decryption certificate upload, wire it into `Saml2Configuration`, and
+  enforce the flag by refusing an unencrypted assertion when it is set), or drop the columns and
+  correct doc 03. Do not enforce the flag alone: with no decryption certificate the library cannot
+  read an encrypted assertion, so enforcement without the rest of the feature fails every login.
+
+### SecureContext reads a forwarded header directly
+
+`SecureContext.IsSecure` reads `X-Forwarded-Proto` off the request. `CanonicalOrigin` documents why
+it deliberately does NOT do that - the header is attacker-supplied unless `UseForwardedHeaders` plus
+`TRUSTED_PROXIES` has already rewritten `Request.Scheme`.
+
+Low, because the only consumer decides whether to offer the passkey UI, and the browser independently
+refuses a WebAuthn ceremony in a non-secure context - so spoofing the header buys an attacker a button
+that then fails. It becomes real the moment `IsSecure` is used for anything the browser does not
+separately gate.
+
+- [ ] Resolve the scheme through `context.Request.Scheme` the way `CanonicalOrigin` does.

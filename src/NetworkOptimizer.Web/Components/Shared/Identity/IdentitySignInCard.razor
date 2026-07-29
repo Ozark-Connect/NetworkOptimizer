@@ -1,0 +1,515 @@
+@using Microsoft.AspNetCore.Http
+@using NetworkOptimizer.Storage.Models.Identity
+@using NetworkOptimizer.Web.Services.Identity
+@inject IIdentityAdminService IdentityAdmin
+@inject IFederationProviderService Federation
+@inject IAuthPolicyOptions AuthPolicy
+@inject IFederationAdminService FederationAdmin
+@inject IAuthPolicyAdminService AuthPolicyAdmin
+@inject ISiteManagementService SiteManagement
+@inject ICanonicalOrigin CanonicalOrigin
+@inject IHttpContextAccessor HttpContextAccessor
+@inject NavigationManager Navigation
+
+@* Settings - Identity: how people sign in. Identity providers (OIDC and SAML), the SSO-only toggle,
+   and the per-role MFA requirement. Secrets are write-only: an existing secret is never read back
+   into the form, and a provider declared in the config file is shown read-only. *@
+
+<div class="card settings-tab-identity" id="identity-sign-in">
+    <div class="card-header">
+        <h2 class="card-title">Sign-In</h2>
+        @if (_multiSiteEnabled)
+        {
+            <div class="card-header-badges">
+                <span class="status-badge global-badge" data-tooltip="Applies to all sites (instance-wide)">Global</span>
+            </div>
+        }
+    </div>
+    <div class="card-body">
+        <p class="section-description">
+            Network Optimizer signs people in with a local username and password out of the box. Add an
+            identity provider to offer single sign-on, and require an authenticator app per role.
+        </p>
+
+        @if (_message is not null)
+        {
+            <div class="alert alert-@_messageClass">@_message</div>
+        }
+
+        <h3 class="identity-section-title">Multi-factor authentication</h3>
+        <div class="identity-mfa-grid">
+            @foreach (var policy in _mfaPolicies)
+            {
+                <label class="checkbox-label">
+                    <input type="checkbox" checked="@policy.RequireMfa"
+                           @onchange="e => SetRoleMfaAsync(policy.Role, (bool?)e.Value == true)" />
+                    Require MFA / passkey for @policy.Role
+                </label>
+            }
+        </div>
+        <p class="form-help">
+            Members of a role with this set must enrol an authenticator app or register a passkey before
+            they can use the app. A passkey satisfies this on its own: it is tied to this site's address,
+            so it cannot be handed to a lookalike page the way a typed code can.
+        </p>
+
+        <h3 class="identity-section-title">Identity providers</h3>
+        @if (_providers is null)
+        {
+            <div class="identity-loading"><span class="spinner spinner-sm"></span></div>
+        }
+        else if (_providers.Count == 0)
+        {
+            <div class="empty-state empty-state-small">
+                <div class="empty-icon">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 5.25a3 3 0 0 1 3 3m3 0a6 6 0 0 1-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1 1 21.75 8.25Z" />
+                    </svg>
+                </div>
+                <h3>No identity providers</h3>
+                <p>Add one to put a single sign-on button on the login page.</p>
+            </div>
+        }
+        else
+        {
+            <div class="table-responsive">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Provider</th>
+                            <th class="hide-mobile">Type</th>
+                            <th class="hide-mobile">New users</th>
+                            <th>Status</th>
+                            <th class="identity-actions-col"></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var provider in _providers)
+                        {
+                            <tr>
+                                <td>
+                                    <div class="identity-user">
+                                        <span class="identity-user-name">@provider.DisplayName</span>
+                                        <span class="identity-user-display">@provider.ButtonLabel</span>
+                                    </div>
+                                </td>
+                                <td class="hide-mobile">@(provider.Type == FederationProviderType.Oidc ? "OpenID Connect" : "SAML 2.0")</td>
+                                <td class="hide-mobile">
+                                    @(provider.JitProvisioning == JitProvisioningMode.CreateOnFirstLogin
+                                        ? "Created on first sign-in"
+                                        : "Must already exist")
+                                </td>
+                                <td>
+                                    <div class="identity-credentials">
+                                        <span class="status-badge status-@(provider.Enabled ? "active" : "inactive")">
+                                            @(provider.Enabled ? "Enabled" : "Disabled")
+                                        </span>
+                                        @if (provider.ManagedByConfigFile)
+                                        {
+                                            <span class="status-badge status-info" data-tooltip="Declared in the identity config file; edit it there">Config file</span>
+                                        }
+                                    </div>
+                                </td>
+                                <td class="identity-actions-col">
+                                    <div class="identity-row-actions">
+                                        <button type="button" class="btn btn-secondary btn-sm" @onclick="() => Edit(provider)">
+                                            @(provider.ManagedByConfigFile ? "View" : "Edit")
+                                        </button>
+                                        @if (!provider.ManagedByConfigFile)
+                                        {
+                                            <button type="button" class="btn btn-secondary btn-sm" @onclick="() => ToggleEnabledAsync(provider)">
+                                                @(provider.Enabled ? "Disable" : "Enable")
+                                            </button>
+                                            <button type="button" class="btn btn-danger btn-sm" @onclick="() => DeleteAsync(provider)">Delete</button>
+                                        }
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+
+        @if (_editing is not null)
+        {
+            <div class="identity-inline-form identity-add-form">
+                <h3 class="identity-inline-title">
+                    @(_editing.Id == 0 ? "Add an identity provider" : _editing.DisplayName)
+                </h3>
+
+                @if (_editing.ManagedByConfigFile)
+                {
+                    <div class="alert alert-info">
+                        This provider is declared in the identity config file. Edit it there so the file stays
+                        the source of truth.
+                    </div>
+                }
+
+                <div class="identity-form-grid">
+                    <div class="form-group">
+                        <label class="form-label">Display name</label>
+                        <input class="form-control" @bind="_editing.DisplayName" disabled="@_editing.ManagedByConfigFile" />
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Login button label</label>
+                        <input class="form-control" @bind="_editing.ButtonLabel" disabled="@_editing.ManagedByConfigFile" />
+                        <p class="form-help">Shown on the login page, for example "Sign in with UniFi Identity".</p>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Scheme</label>
+                        <input class="form-control" @bind="_editing.Scheme" disabled="@(_editing.Id != 0 || _editing.ManagedByConfigFile)" />
+                        <p class="form-help">Used in the callback URLs below, so it cannot change once saved.</p>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Protocol</label>
+                        <select class="form-control" @bind="_editing.Type" disabled="@(_editing.Id != 0 || _editing.ManagedByConfigFile)">
+                            <option value="@FederationProviderType.Oidc">OpenID Connect</option>
+                            <option value="@FederationProviderType.Saml">SAML 2.0</option>
+                        </select>
+                    </div>
+                </div>
+
+                @if (_editing.Type == FederationProviderType.Oidc)
+                {
+                    <div class="identity-form-grid">
+                        <div class="form-group">
+                            <label class="form-label">Authority</label>
+                            <input class="form-control" @bind="_editing.Authority" placeholder="https://idp.example.com" disabled="@_editing.ManagedByConfigFile" />
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Client ID</label>
+                            <input class="form-control" @bind="_editing.ClientId" disabled="@_editing.ManagedByConfigFile" />
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Client secret</label>
+                            <input type="password" class="form-control" @bind="_newSecret" autocomplete="new-password"
+                                   placeholder="@(string.IsNullOrEmpty(_editing.ClientSecretProtected) ? "Enter the client secret" : "Saved - enter new to replace")"
+                                   disabled="@_editing.ManagedByConfigFile" data-1p-ignore data-lpignore="true" data-bwignore />
+                            <p class="form-help">Stored encrypted and never shown again.</p>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Scopes</label>
+                            <input class="form-control" @bind="_editing.Scopes" placeholder="openid profile email groups" disabled="@_editing.ManagedByConfigFile" />
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    <div class="identity-form-grid">
+                        <div class="form-group">
+                            <label class="form-label">IdP metadata URL</label>
+                            <input class="form-control" @bind="_editing.IdpMetadataUrl" placeholder="https://idp.example.com/metadata" disabled="@_editing.ManagedByConfigFile" />
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Service provider entity ID (optional)</label>
+                            <input class="form-control" @bind="_editing.SpEntityId" placeholder="@DefaultSpEntityId"
+                                   disabled="@_editing.ManagedByConfigFile" />
+                            <small class="form-help">
+                                This install's own identity, not the provider's. Leave blank to use the
+                                default shown, and set the same value as the audience at your identity provider.
+                            </small>
+                        </div>
+                    </div>
+                }
+
+                <h4 class="identity-subsection-title">Claim mapping</h4>
+                <div class="identity-form-grid">
+                    <div class="form-group">
+                        <label class="form-label">Subject claim</label>
+                        <input class="form-control" @bind="_editing.SubjectClaim" placeholder="sub" disabled="@_editing.ManagedByConfigFile" />
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Username claim</label>
+                        <input class="form-control" @bind="_editing.UsernameClaim" placeholder="preferred_username" disabled="@_editing.ManagedByConfigFile" />
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Display name claim</label>
+                        <input class="form-control" @bind="_editing.DisplayNameClaim" placeholder="name" disabled="@_editing.ManagedByConfigFile" />
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Email claim</label>
+                        <input class="form-control" @bind="_editing.EmailClaim" placeholder="email" disabled="@_editing.ManagedByConfigFile" />
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Groups claim</label>
+                        <input class="form-control" @bind="_editing.GroupsClaim" placeholder="groups" disabled="@_editing.ManagedByConfigFile" />
+                    </div>
+                </div>
+
+                <h4 class="identity-subsection-title">Provisioning</h4>
+                <div class="identity-form-grid">
+                    <div class="form-group">
+                        <label class="form-label">New users</label>
+                        <select class="form-control" @bind="_editing.JitProvisioning" disabled="@_editing.ManagedByConfigFile">
+                            <option value="@JitProvisioningMode.Off">Must already exist here</option>
+                            <option value="@JitProvisioningMode.CreateOnFirstLogin">Create on first sign-in</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Roles</label>
+                        <select class="form-control" @bind="_editing.RoleMappingMode" disabled="@_editing.ManagedByConfigFile">
+                            <option value="@RoleMappingMode.Manual">Set here after the first sign-in</option>
+                        </select>
+                        <p class="form-help">Provider-authoritative locks role edits here; the last Admin is never demoted.</p>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" @bind="_editing.TrustIdpMfa" disabled="@_editing.ManagedByConfigFile" />
+                        Trust MFA performed at the provider
+                    </label>
+                    <p class="form-help">When off, a role that requires MFA still asks for a local code after sign-in.</p>
+                </div>
+
+                <h4 class="identity-subsection-title">URLs for the provider</h4>
+                <p class="form-help">Paste these into the application you create at the identity provider.</p>
+                <ul class="identity-url-list">
+                    @foreach (var (label, url) in ProviderUrls(_editing))
+                    {
+                        <li class="identity-url-item">
+                            <span class="identity-url-label">@label</span>
+                            <CopyableCommand Text="@url" Tooltip="@($"Copy the {label.ToLowerInvariant()}")" />
+                        </li>
+                    }
+                </ul>
+
+                <div class="identity-form-actions">
+                    @if (!_editing.ManagedByConfigFile)
+                    {
+                        <button type="button" class="btn btn-primary btn-sm" @onclick="SaveAsync" disabled="@_saving">
+                            @(_saving ? "Saving..." : "Save provider")
+                        </button>
+                    }
+                    <button type="button" class="btn btn-contrast btn-sm" @onclick="() => _editing = null">Close</button>
+                </div>
+            </div>
+        }
+        else
+        {
+            <div class="identity-form-actions identity-card-actions">
+                <button type="button" class="btn btn-secondary btn-sm" @onclick="AddUniFiIdentity">Add UniFi Identity</button>
+                <button type="button" class="btn btn-secondary btn-sm" @onclick="AddSaml">Add SAML provider</button>
+                <button type="button" class="btn btn-primary btn-sm" @onclick="AddOidc">Add OpenID Connect provider</button>
+            </div>
+        }
+
+        <h3 class="identity-section-title">Local sign-in</h3>
+        <div class="form-group">
+            <label class="checkbox-label">
+                <input type="checkbox" @bind="_localLoginDisabled" @bind:after="SaveLocalLoginAsync" disabled="@(!_hasEnabledProvider)" />
+                Only allow single sign-on
+            </label>
+            <p class="form-help">
+                @if (_hasEnabledProvider)
+                {
+                    <text>
+                        Hides the username and password fields on the login page. The recovery boot mode always
+                        restores local Admin sign-in, so this cannot lock you out permanently.
+                    </text>
+                }
+                else
+                {
+                    <text>Enable an identity provider first, or there would be no way left to sign in.</text>
+                }
+            </p>
+        </div>
+    </div>
+</div>
+
+@code {
+    private bool _multiSiteEnabled;
+    private IReadOnlyList<FederationProvider>? _providers;
+    private IReadOnlyList<RoleMfaPolicy> _mfaPolicies = Array.Empty<RoleMfaPolicy>();
+    private FederationProvider? _editing;
+    private string _newSecret = "";
+    private bool _saving;
+    private bool _localLoginDisabled;
+
+    private string? _message;
+    private string _messageClass = "info";
+
+    private bool _hasEnabledProvider => _providers?.Any(p => p.Enabled) == true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _multiSiteEnabled = await SiteManagement.IsMultiSiteEnabledAsync();
+        _localLoginDisabled = await AuthPolicy.IsLocalLoginDisabledAsync();
+        _mfaPolicies = await IdentityAdmin.GetRoleMfaPoliciesAsync();
+        await ReloadAsync();
+    }
+
+    /// <summary>
+    /// Raised whenever the provider list changes. The Users card offers these same providers when
+    /// linking an identity to an account, so a provider added or renamed here has to reach it - both
+    /// cards are on screen together, and a stale list means picking a scheme that no longer exists.
+    /// </summary>
+    [Parameter] public EventCallback OnProvidersChanged { get; set; }
+
+    private async Task ReloadAsync()
+    {
+        _providers = await Federation.GetAllAsync();
+        await OnProvidersChanged.InvokeAsync();
+    }
+
+    private void AddOidc() => Edit(FederationPresets.GenericOidc());
+
+    private void AddUniFiIdentity() => Edit(FederationPresets.UniFiIdentity());
+
+    private void AddSaml() => Edit(new FederationProvider
+    {
+        Type = FederationProviderType.Saml,
+        Scheme = "saml",
+        DisplayName = "SAML IdP",
+        ButtonLabel = "Sign in with SSO",
+        Enabled = false,
+        SubjectClaim = "nameid",
+        UsernameClaim = "nameid",
+    });
+
+    private void Edit(FederationProvider provider)
+    {
+        _editing = provider;
+
+        // Roles taken from the provider needs group-to-role mappings, and there is no UI to create
+        // them - so the mode is not offered. Anything already carrying it falls back to the mode that
+        // is, rather than leaving the control with nothing selected and saving a value the operator
+        // never chose.
+        if (_editing.RoleMappingMode != RoleMappingMode.Manual)
+            _editing.RoleMappingMode = RoleMappingMode.Manual;
+
+        _newSecret = "";
+        _message = null;
+    }
+
+    /// <summary>
+    /// What SpEntityId falls back to when left blank - the same expression SamlServiceProvider uses, so
+    /// the placeholder shows the value that will actually be sent rather than a description of it.
+    /// </summary>
+    private string DefaultSpEntityId
+    {
+        get
+        {
+            var origin = CanonicalOrigin.Configured;
+            var scheme = string.IsNullOrWhiteSpace(_editing?.Scheme) ? "<scheme>" : _editing.Scheme;
+            return origin is null
+                ? $"https://<this install>/saml/{scheme}/metadata"
+                : $"{origin}/saml/{scheme}/metadata";
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        if (_editing is null) return;
+
+        if (string.IsNullOrWhiteSpace(_editing.Scheme) || string.IsNullOrWhiteSpace(_editing.DisplayName))
+        {
+            Show("A provider needs a display name and a scheme.", "warning");
+            return;
+        }
+
+        _saving = true;
+        try
+        {
+            // Read before _editing is cleared: the nudge only makes sense while the provider is still
+            // disabled. Saving an edit to one that is already live was being told to enable it.
+            var needsEnabling = !_editing.Enabled;
+
+            await FederationAdmin.SaveAsync(_editing, string.IsNullOrEmpty(_newSecret) ? null : _newSecret);
+            _newSecret = "";
+            await ReloadAsync();
+            _editing = null;
+            Show(needsEnabling
+                ? "Provider saved. Enable it to put its button on the login page."
+                : "Provider saved.", "success");
+        }
+        catch (Exception ex)
+        {
+            Show(ex.Message, "warning");
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private async Task ToggleEnabledAsync(FederationProvider provider)
+    {
+        await FederationAdmin.SetEnabledAsync(provider.Id, !provider.Enabled);
+        await ReloadAsync();
+
+        // Turning off the last provider would strand an SSO-only install, so restore local sign-in.
+        if (!_hasEnabledProvider && _localLoginDisabled)
+        {
+            _localLoginDisabled = false;
+            await AuthPolicyAdmin.SetLocalLoginDisabledAsync(false);
+            Show("Local sign-in was re-enabled: no identity provider is left to sign in with.", "info");
+            return;
+        }
+
+        Show($"{provider.DisplayName} is now {(provider.Enabled ? "disabled" : "enabled")}.", "success");
+    }
+
+    private async Task DeleteAsync(FederationProvider provider)
+    {
+        await FederationAdmin.DeleteAsync(provider.Id);
+        await ReloadAsync();
+
+        if (!_hasEnabledProvider && _localLoginDisabled)
+        {
+            _localLoginDisabled = false;
+            await AuthPolicyAdmin.SetLocalLoginDisabledAsync(false);
+        }
+
+        if (_editing?.Id == provider.Id)
+            _editing = null;
+
+        Show($"Removed {provider.DisplayName}.", "success");
+    }
+
+    private async Task SaveLocalLoginAsync()
+    {
+        await AuthPolicyAdmin.SetLocalLoginDisabledAsync(_localLoginDisabled);
+        Show(_localLoginDisabled
+            ? "The login page now offers single sign-on only."
+            : "Username and password sign-in is available again.", "success");
+    }
+
+    private async Task SetRoleMfaAsync(string role, bool requireMfa)
+    {
+        var result = await IdentityAdmin.SetRoleRequiresMfaAsync(role, requireMfa);
+        _mfaPolicies = await IdentityAdmin.GetRoleMfaPoliciesAsync();
+        Show(result.Succeeded
+                ? $"{role} {(requireMfa ? "now requires" : "no longer requires")} an authenticator app or a passkey."
+                : result.Error ?? "That change was refused.",
+             result.Succeeded ? "success" : "warning");
+    }
+
+    /// <summary>The provider-side URLs an admin has to paste into the IdP application.</summary>
+    private IEnumerable<(string Label, string Url)> ProviderUrls(FederationProvider provider)
+    {
+        // A live circuit has no HttpContext, so fall back to the address the browser is actually on -
+        // which is the origin an identity provider has to redirect back to.
+        var origin = HttpContextAccessor.HttpContext is { } http
+            ? CanonicalOrigin.Resolve(http)
+            : Navigation.BaseUri.TrimEnd('/');
+        var scheme = string.IsNullOrWhiteSpace(provider.Scheme) ? "<scheme>" : provider.Scheme;
+
+        if (provider.Type == FederationProviderType.Oidc)
+        {
+            yield return ("Redirect URI", $"{origin}/signin-oidc/{scheme}");
+            yield return ("Sign-out redirect URI", $"{origin}/signout-callback-oidc/{scheme}");
+        }
+        else
+        {
+            yield return ("Assertion consumer service (ACS)", $"{origin}/saml/{scheme}/acs");
+            yield return ("Service provider metadata", $"{origin}/saml/{scheme}/metadata");
+        }
+    }
+
+    private void Show(string message, string cssClass)
+    {
+        _message = message;
+        _messageClass = cssClass;
+    }
+}

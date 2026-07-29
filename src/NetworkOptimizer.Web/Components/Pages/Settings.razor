@@ -1,4 +1,5 @@
 @page "/settings"
+@attribute [Authorize(Policy = Policies.ManageSettings)]
 @rendermode InteractiveServer
 @implements IDisposable
 @using NetworkOptimizer.Web.Services
@@ -13,13 +14,17 @@
 @inject UniFiConnectionService ConnectionService
 @inject SiteContextService SiteContext
 @inject IGatewaySshService GatewaySshService
+@inject ISshKeyService SshKeyService
+@inject ISshSettingsAdminService SshSettingsAdmin
+@inject ISshKeyDeploymentService SshKeyDeployment
+@inject ILogger<Settings> Logger
 @inject IAuditRepository AuditRepository
 @inject ISpeedTestRepository SpeedTestRepository
 @inject AuditService AuditService
 @inject ISqmService SqmService
 @inject CellularModemService ModemService
 @inject UniFiSshService SshService
-@inject GatewaySpeedTestService GatewayService
+@inject IGatewaySpeedTestService GatewayService
 @inject SystemSettingsService SystemSettings
 @inject IAdminAuthService AdminAuth
 @inject IJSRuntime JS
@@ -32,19 +37,24 @@
 @inject NetworkOptimizer.Storage.Services.ICredentialProtectionService CredentialService
 @inject IHttpClientFactory HttpClientFactory
 @inject NavigationManager NavigationManager
-@inject SiteManagementService SiteManagement
+@inject ISiteManagementService SiteManagement
 @inject SiteSwitchService SiteSwitch
-@inject AgentEnrollmentService AgentEnrollment
+@inject IAgentEnrollmentService AgentEnrollment
 @inject AgentServerUrlProvider AgentServerUrl
 @inject AgentTunnelRegistry TunnelRegistry
 @inject AgentOnGatewayDetector OnGatewayDetector
 @inject NetworkOptimizer.Storage.Services.SiteDbContextFactory SiteDb
+@inject ISiteConfigurationService SiteConfig
 @inject SnmpDetectionService SnmpDetection
 @inject MonitoringInfluxClient InfluxClient
 @inject CableModemMonitorService CmMonitorService
 @inject OntMonitorService OntMonitorService
 @inject StarlinkMonitorService StarlinkMonitor
 @inject Microsoft.EntityFrameworkCore.IDbContextFactory<NetworkOptimizer.Storage.Models.NetworkOptimizerDbContext> DbFactory
+@inject NetworkOptimizer.Web.Services.Identity.IIdentityAdminService IdentityAdmin
+@inject NetworkOptimizer.Web.Services.Identity.ICurrentUserAccessor CurrentUser
+@inject NetworkOptimizer.Web.Services.Identity.IIdentityBootstrapService IdentityBootstrap
+@inject Microsoft.Extensions.Options.IOptions<Microsoft.AspNetCore.Identity.IdentityOptions> IdentityOptions
 @using NetworkOptimizer.Alerts.Models
 @using NetworkOptimizer.Web.Components.Shared
 
@@ -82,17 +92,43 @@
                 @onclick="@(() => SetActiveTab("security"))">
             Security &amp; Alerts
         </button>
-        @if (SiteContext.IsDefault)
-        {
-            <button class="wifi-view-tab @(_activeTab == "application" ? "active" : "")"
-                    @onclick="@(() => SetActiveTab("application"))">
-                Application
-            </button>
-        }
-        <button class="wifi-view-tab @(_activeTab == "multisite" ? "active" : "")"
-                @onclick="@(() => SetActiveTab("multisite"))">
-            Multi-Site
+        @* Instance-wide, and every card inside is Admin-only - so a Site Admin of the main site was
+           offered a tab that renders nothing. A managed site has no Application tab at all, and the
+           main site's admin should see what any site's admin sees. *@
+        <AuthorizeView Policy="@Policies.RequireAdmin" Context="applicationTab">
+            @if (SiteContext.IsDefault)
+            {
+                <button class="wifi-view-tab @(_activeTab == "application" ? "active" : "")"
+                        @onclick="@(() => SetActiveTab("application"))">
+                    Application
+                </button>
+            }
+        </AuthorizeView>
+        @* Identity is instance-wide on the default site and scoped to the site elsewhere, so the
+           tab is always present; the cards inside adjust to the scope. *@
+        <button class="wifi-view-tab @(_activeTab == "identity" ? "active" : "")"
+                @onclick="@(() => SetActiveTab("identity"))">
+            Identity
         </button>
+        @* Beside Identity because it answers the other half of the same question: Identity is who may
+           do what, this is what they did. Global Admin only, matching the /audit-log page, and the
+           log is instance-wide so it is not offered on a scoped site tab. *@
+        <AuthorizeView Policy="@Policies.RequireAdmin" Context="auditAdmin">
+            @if (SiteContext.IsDefault)
+            {
+                <button class="wifi-view-tab @(_activeTab == "auditlog" ? "active" : "")"
+                        @onclick="@(() => SetActiveTab("auditlog"))">
+                    Audit Log
+                </button>
+            }
+        </AuthorizeView>
+        @* Managing the set of sites is instance-wide, so it is not a site admin's tab either. *@
+        <AuthorizeView Policy="@Policies.RequireAdmin" Context="multiSiteTab">
+            <button class="wifi-view-tab @(_activeTab == "multisite" ? "active" : "")"
+                    @onclick="@(() => SetActiveTab("multisite"))">
+                Multi-Site
+            </button>
+        </AuthorizeView>
     </div>
     <button class="wifi-tabs-scroll-btn wifi-tabs-scroll-right" onclick="this.parentElement.querySelector('.wifi-view-tabs').scrollBy({left: 200, behavior: 'smooth'})">&#8250;</button>
 </div>
@@ -302,7 +338,12 @@
         </div>
     </div>
 
-    @* Admin login is instance-wide, so the password is only managed on the main site. *@
+    @* Admin login is instance-wide, so the password is only managed on the main site - and only by a
+       global Admin. IsDefault alone answers "are we on the main site", not "may you do this": a Site
+       Admin of the main site reaches Settings here, and would have been shown a control that sets the
+       instance-wide password. The service refuses them, so without this they would be invited into a
+       refusal. *@
+    <AuthorizeView Policy="@Policies.RequireAdmin" Context="globalAdmin">
     @if (SiteContext.IsDefault)
     {
     <!-- 2. Admin Password -->
@@ -348,8 +389,8 @@
             </div>
 
             <div class="form-group">
-                <label class="form-label">New Password</label>
-                <input type="password" class="form-control" @bind="adminNewPassword" @bind:event="oninput" @bind:after="OnAdminPasswordInput" placeholder="Enter new password" autocomplete="new-password" />
+                <label class="form-label">New Password <span class="tooltip-icon tooltip-icon-sm" data-tooltip="@_passwordPolicy">?</span></label>
+                <input type="password" class="form-control" @bind="adminNewPassword" @bind:event="oninput" @onclick:stopPropagation="true" @bind:after="OnAdminPasswordInput" placeholder="Enter new password" autocomplete="new-password" />
             </div>
 
             <div class="form-group">
@@ -386,6 +427,7 @@
         </div>
     </div>
     }
+    </AuthorizeView>
 
     <!-- 3. Gateway SSH -->
     <div class="card settings-tab-connection" id="gateway-ssh">
@@ -426,15 +468,19 @@
             </div>
 
             <div class="form-group">
-                <label class="form-label">Password</label>
-                <input type="password" class="form-control" @bind="gatewayPassword" placeholder="@(!string.IsNullOrWhiteSpace(gatewayPrivateKeyPath) ? "(using SSH key)" : hasGatewayPassword ? "Saved – enter new to update" : "Enter password")" autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore />
+                <label class="form-label @UnusedLabel(GatewayPasswordSet)">Password@(NotInUse(GatewayPasswordSet))</label>
+                <input type="password" class="form-control" @bind="gatewayPassword" placeholder="@(SshKeyInUse(gatewayPrivateKeyPath, hasGatewayPassword) ? "(using SSH key)" : hasGatewayPassword ? "Saved – enter new to update" : "Enter password")" autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore />
             </div>
 
-            <div class="form-group">
-                <label class="form-label">Private Key Path (alternative to password)</label>
-                <input type="text" class="form-control" @bind="gatewayPrivateKeyPath" placeholder="/app/ssh-keys/gateway_key" />
-                <small class="form-help">Leave blank to use password authentication</small>
-            </div>
+            <SshKeyRow Key="_sshKey" OnManage="ShowSshKeyPanel" />
+
+            <AdminOnly NotAuthorized="@GatewayKeyFileNote">
+                <div class="form-group">
+                    <label class="form-label @UnusedLabel(GatewayKeyPathSet)">Private Key Path@(NotInUse(GatewayKeyPathSet))</label>
+                    <input type="text" class="form-control" @bind="gatewayPrivateKeyPath" placeholder="/app/ssh-keys/gateway_key" />
+                    <small class="form-help">Point at a key already on this server, for example your own <code>~/.ssh/id_rsa</code>. Leave blank to use the stored SSH key or a password.</small>
+                </div>
+            </AdminOnly>
 
             <div class="form-group">
                 <label class="checkbox-label">
@@ -595,15 +641,19 @@
             </div>
 
             <div class="form-group">
-                <label class="form-label">Password</label>
-                <input type="password" class="form-control" @bind="sshPassword" placeholder="@(!string.IsNullOrWhiteSpace(sshPrivateKeyPath) ? "(using SSH key)" : hasSshPassword ? "Saved – enter new to update" : "Enter password")" autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore />
+                <label class="form-label @UnusedLabel(DevicePasswordSet)">Password@(NotInUse(DevicePasswordSet))</label>
+                <input type="password" class="form-control" @bind="sshPassword" placeholder="@(SshKeyInUse(sshPrivateKeyPath, hasSshPassword) ? "(using SSH key)" : hasSshPassword ? "Saved – enter new to update" : "Enter password")" autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore />
             </div>
 
-            <div class="form-group">
-                <label class="form-label">Private Key Path (alternative to password)</label>
-                <input type="text" class="form-control" @bind="sshPrivateKeyPath" placeholder="/app/ssh-keys/id_rsa" />
-                <small class="form-help">Leave blank to use password authentication</small>
-            </div>
+            <SshKeyRow Key="_sshKey" OnManage="ShowSshKeyPanel" />
+
+            <AdminOnly NotAuthorized="@DeviceKeyFileNote">
+                <div class="form-group">
+                    <label class="form-label @UnusedLabel(DeviceKeyPathSet)">Private Key Path@(NotInUse(DeviceKeyPathSet))</label>
+                    <input type="text" class="form-control" @bind="sshPrivateKeyPath" placeholder="/app/ssh-keys/id_rsa" />
+                    <small class="form-help">Point at a key already on this server, for example your own <code>~/.ssh/id_rsa</code>. Leave blank to use the stored SSH key or a password.</small>
+                </div>
+            </AdminOnly>
 
             <div class="form-group">
                 <label class="checkbox-label">
@@ -671,6 +721,171 @@
                     <p><strong>Note:</strong> This is a separate credential from Gateway SSH.</p>
                 </div>
             </details>
+        </div>
+    </div>
+
+    <div class="card settings-tab-connection" id="ssh-key">
+        <div class="card-header">
+            <h2 class="card-title">Managed SSH Key (Optional)</h2>
+            <div class="card-header-badges">
+                <span class="status-badge status-@(_sshKey is not null ? "connected" : "disconnected")">
+                    @(_sshKey is not null ? "Configured" : "Not Configured")
+                </span>
+            </div>
+        </div>
+        <div class="card-body">
+            <p class="section-description">
+                Use a key instead of a password for Gateway SSH and Device SSH. The private half never
+                leaves this server.
+            </p>
+
+            @if (_sshKeyMessage is not null)
+            {
+                <div class="alert alert-@_sshKeyMessageClass">@_sshKeyMessage</div>
+            }
+
+            @if (_sshKey is null)
+            {
+                <div class="action-buttons">
+                    <button class="btn btn-primary" @onclick="GenerateSshKey" disabled="@_sshKeyBusy">
+                        @if (_sshKeyBusy)
+                        {
+                            <span class="spinner"></span>
+                            <span>Generating...</span>
+                        }
+                        else
+                        {
+                            <span>Generate SSH key</span>
+                        }
+                    </button>
+                    <button class="btn-link" @onclick="() => _showSshKeyUpload = !_showSshKeyUpload">
+                        or upload an existing key
+                    </button>
+                </div>
+
+                @if (!_sshKeyBusy)
+                {
+                    <p class="form-help">
+                        Creates an Ed25519 key
+                    </p>
+                }
+
+                @if (_showSshKeyUpload)
+                {
+                    <div class="ssh-key-upload">
+                        <div class="form-group">
+                            <label class="form-label">Private key</label>
+                            @* No accept filter: the usual names are id_rsa and id_ed25519, with no
+                               extension at all, so filtering by one hides exactly the files people
+                               have. The key is validated by parsing it, which is the real check. *@
+                            <InputFile class="form-control" OnChange="OnSshKeyFileSelected" />
+                            <small class="form-help">Choose a key file, or paste it below.</small>
+                        </div>
+                        <div class="form-group">
+                            <textarea class="form-control" rows="6" @bind="_sshKeyUploadPem"
+                                      placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Passphrase (if the key has one)</label>
+                            <input type="password" class="form-control" @bind="_sshKeyUploadPassphrase"
+                                   autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore />
+                        </div>
+                        <div class="action-buttons">
+                            <button class="btn btn-secondary" @onclick="UploadSshKey" disabled="@_sshKeyBusy">Upload key</button>
+                        </div>
+                    </div>
+                }
+            }
+            else
+            {
+                <div class="form-group ssh-key-public">
+                    <label class="form-label">Public key</label>
+                    <CopyableCommand Text="@_sshKey.PublicKey" Tooltip="Copy the public key" />
+                </div>
+
+                @if (CanInstallKeyOnGateway)
+                {
+                    <div class="form-group">
+                        <label class="form-label">Gateway</label>
+                        @if (_keyDeployStatus?.FullyDeployed == true)
+                        {
+                            <small class="form-help">
+                                Installed, and replaced automatically after reboots and firmware upgrades.
+                            </small>
+                            <div class="action-buttons">
+                                <button class="btn btn-secondary btn-sm" @onclick="RemoveKeyFromGateway" disabled="@_sshKeyBusy">
+                                    Remove from gateway
+                                </button>
+                            </div>
+                        }
+                        else
+                        {
+                            <small class="form-help">
+                                Your gateway is also your console, so UniFi Network cannot place the key on it.
+                                Network Optimizer can install it over your existing Gateway SSH connection and
+                                keep it there through reboots and firmware upgrades.
+                            </small>
+                            <div class="action-buttons">
+                                <button class="btn btn-primary btn-sm" @onclick="InstallKeyOnGateway" disabled="@_sshKeyBusy">
+                                    @if (_sshKeyBusy)
+                                    {
+                                        <span class="spinner"></span>
+                                        <span>Installing...</span>
+                                    }
+                                    else
+                                    {
+                                        <span>Install on gateway</span>
+                                    }
+                                </button>
+                            </div>
+                        }
+                    </div>
+                }
+
+                @if (_sshSpeedTestDeviceCount > 0)
+                {
+                    <div class="form-group">
+                        <label class="form-label">Speed test devices</label>
+                        <small class="form-help">
+                            You have @_sshSpeedTestDeviceCount @(_sshSpeedTestDeviceCount == 1 ? "device" : "devices")
+                            that Network Optimizer signs in to over SSH to start iperf3. Add the public key above to
+                            <code>~/.ssh/authorized_keys</code> on each of them to use the key there too. Until you do,
+                            they keep signing in with the password or key they already have.
+                        </small>
+                    </div>
+                }
+
+                <details class="setup-guide">
+                    <summary>How to Install the Public Key</summary>
+                    <div class="setup-guide-content">
+                        @if (_gatewayIsConsole && !CanInstallKeyOnGateway)
+                        {
+                            <p>
+                                <strong>Your gateway is also your console</strong>, so UniFi Network's Device
+                                SSH Settings does not reach it. SSH in with your password once and append the
+                                key above to <code>/root/.ssh/authorized_keys</code>.
+                            </p>
+                            <p>For your switches and access points, in UniFi Network:</p>
+                        }
+                        else
+                        {
+                            <p>For your switches and access points, in UniFi Network:</p>
+                        }
+                        <ol>
+                            <li>Click <strong>UniFi Devices</strong> on the side menu</li>
+                            <li>In the left-hand filter menu, select <strong>Device Updates and Settings</strong> at the bottom</li>
+                            <li>Expand <strong>Device SSH Settings</strong> at the bottom</li>
+                            <li>Add an SSH key, give it any name, and paste the public key above</li>
+                            <li>Save</li>
+                        </ol>
+                    </div>
+                </details>
+
+                <div class="action-buttons">
+                    <button class="btn btn-secondary btn-sm" @onclick="ReplaceSshKey" disabled="@_sshKeyBusy">Replace</button>
+                    <button class="btn btn-danger btn-sm" @onclick="RemoveSshKey" disabled="@_sshKeyBusy">Remove</button>
+                </div>
+            }
         </div>
     </div>
 
@@ -1651,12 +1866,24 @@
                         </div>
                     </div>
 
-                    <div class="form-row">
+                    @* ONT SSH KEY ANCHOR - re-enable when the first SSH-based ONT provider lands.
+
+                       Hidden because no ONT provider uses SSH today: nothing reads
+                       OntPollContext.PrivateKeyPath, so this asked for a path and then dropped it.
+
+                       Whoever turns it back on: wrap it in <AdminOnly> the way Gateway SSH and Device
+                       SSH are, since a site admin must not be able to name a path on the server, and
+                       wire the provider to the site's stored SSH key - that is attached in
+                       GatewaySshService / UniFiSshService, neither of which ONT goes through.
+                       See docs/features/ssh-key-management.md.
+
                         <div class="form-group" style="flex: 2;">
                             <label class="form-label">Private Key Path (optional)</label>
                             <input type="text" class="form-control" @bind="_editingOnt.PrivateKeyPath" placeholder="/path/to/id_rsa" />
                             <small class="form-help">For future SSH-based ONT providers. Leave empty for HTTP providers.</small>
                         </div>
+                    *@
+                    <div class="form-row">
                         <div class="form-group" style="flex: 1;">
                             <label class="form-label">Polling Interval (sec)</label>
                             <input type="number" class="form-control" @bind="_editingOnt.PollingIntervalSeconds" min="60" max="3600" />
@@ -2109,7 +2336,11 @@
     @* Instance-wide settings below are only shown on the main site. *@
     @if (SiteContext.IsDefault)
     {
-    <LicensingSettingsCard />
+    @* Licence keys carry the org they were issued to, so the card and the service behind it are
+       both Admin-only. Without the wrapper a Viewer opening Settings would trip the service gate. *@
+    <AdminOnly>
+        <LicensingSettingsCard />
+    </AdminOnly>
 
     <!-- 10. Application Settings -->
     <div class="card settings-tab-application" id="application-settings">
@@ -2122,11 +2353,6 @@
         </div>
         <div class="card-body">
             <div class="form-group">
-                <label class="form-label">Alert Retention (days)</label>
-                <input type="number" class="form-control" @bind="alertRetention" min="1" max="365" />
-            </div>
-
-            <div class="form-group">
                 <label class="checkbox-label">
                     <input type="checkbox" @bind="receivePrereleaseUpdates" @bind:after="SavePrereleaseSetting" />
                     Receive pre-release update notifications
@@ -2135,12 +2361,6 @@
                     Shows a banner when a preview (beta) build is available so you can try new
                     features early. Stable update notifications are unaffected either way.
                 </p>
-            </div>
-
-            <div class="action-buttons">
-                <button class="btn btn-success" @onclick="SaveAppSettings">
-                    Save Application Settings
-                </button>
             </div>
         </div>
     </div>
@@ -2912,6 +3132,10 @@
         </div>
     </div>
 
+    @* Export bundles EVERY site's database, console credentials, SSH keys and the data-protection
+       keys - which sign the auth cookie. ManageSettings admits a Site Admin, so the card needs its
+       own Admin gate; the service gate behind it is the boundary, this stops offering it. *@
+    <AdminOnly>
     <!-- 14. Data Management -->
     <div class="card settings-tab-application" id="data-management">
         <div class="card-header">
@@ -2924,7 +3148,7 @@
         <div class="card-body">
             <div class="data-actions">
                 <div class="action-item">
-                    <h4>Export Configuration</h4>
+                    <h4>Back Up</h4>
                     <p>Download an encrypted backup of your configuration</p>
                     <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
                         <button class="btn btn-primary" @onclick="() => ExportConfig(ExportType.Full)" disabled="@isExporting">
@@ -2949,7 +3173,7 @@
                         </button>
                     </div>
                     <p class="form-hint" style="margin-top: 0.5rem;">
-                        Both include controller credentials, SSH keys, and data protection keys. Full adds floor plans, speed test history, audit results, signal logs, etc. Settings Only exports just configuration without history data.
+                        Both include controller credentials, SSH keys, and data protection keys. Full adds floor plans, speed test history, audit results, signal logs, etc. Settings Only exports just configuration without history data. InfluxDB is not included: the connection settings come back, the monitoring history does not.
                         @if (_multiSiteEnabled)
                         {
                             <text> This backup covers <strong>every managed site</strong>, not just the current one - each site's database is bundled in.</text>
@@ -2962,7 +3186,7 @@
                 </div>
 
                 <div class="action-item">
-                    <h4>Import Configuration</h4>
+                    <h4>Restore</h4>
                     <p>Restore settings from a .nopt backup file</p>
 
                     @if (importApplied)
@@ -3095,7 +3319,33 @@
             </div>
         </div>
     </div>
+    </AdminOnly>
     }
+
+    @* Settings - Identity: instance-wide for a global Admin, scoped to the site for a Site Admin.
+       Gated by policy, so a Viewer or Operator never sees the tab's contents.
+
+       The scope follows the ROLE, not which site you are standing on. Keying it on the default site
+       demanded global Admin there, so a Site Admin of the main site got an empty tab - they
+       administer a site like any other, and for most installs the main site is the only one there
+       is. They get that site's access list, exactly as they would on a managed site; the
+       instance-wide view of every account stays with Admin. *@
+    <AuthorizeView Policy="@Policies.SiteAdmin" Resource="@SiteContext.Slug" Context="identityScope">
+        <IdentitySettings SiteSlug="@(SiteContext.IsDefault && identityScope.User.IsInRole(NetworkOptimizer.Storage.Models.Identity.Roles.Admin)
+                                      ? null
+                                      : SiteContext.Slug)"
+                          SiteName="@_currentSiteName" />
+    </AuthorizeView>
+
+    @* Settings - Audit Log. Deferred: every tab renders at once and is shown by class, so without
+       this the audit table would be counted and queried on every Settings visit by everyone. It
+       loads the first time the tab is actually opened. *@
+    <AuthorizeView Policy="@Policies.RequireAdmin" Context="auditAdmin">
+        @if (SiteContext.IsDefault)
+        {
+            <AuditLogPanel @ref="_auditLogPanel" Defer="true" Class="settings-tab-auditlog" />
+        }
+    </AuthorizeView>
 
     <!-- Multi-Site -->
     <div class="card settings-tab-multisite" id="multi-site">
@@ -3119,12 +3369,14 @@
 
             @if (!_multiSiteEnabled)
             {
-                <div class="form-group">
-                    <label class="checkbox-label">
-                        <input type="checkbox" checked="@_multiSiteEnabled" @onchange="OnMultiSiteEnabledChanged" />
-                        <span>Enable multi-site management</span>
-                    </label>
-                </div>
+                <AdminOnly>
+                    <div class="form-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" checked="@_multiSiteEnabled" @onchange="OnMultiSiteEnabledChanged" />
+                            <span>Enable multi-site management</span>
+                        </label>
+                    </div>
+                </AdminOnly>
             }
 
             @if (_multiSiteEnabled)
@@ -3132,7 +3384,7 @@
                 <div class="form-group">
                     <label class="form-label">Sites</label>
                     <div class="table-responsive">
-                        <table class="data-table settings-table">
+                        <table class="data-table settings-table sites-table">
                             <thead>
                                 <tr>
                                     <th>Name</th>
@@ -3145,28 +3397,33 @@
                             <tbody>
                                 @foreach (var site in _sites)
                                 {
-                                    <tr class="@(_expandedSiteId == site.Id ? "site-row-selected" : null)">
+                                    <tr class="@(IsSiteRowOpen(site.Id) ? "site-row-selected site-row-collapsible" : null)"
+                                        @onclick="@(() => IsSiteRowOpen(site.Id) ? CollapsePanelsAsync() : Task.CompletedTask)">
                                         <td>
                                             @if (_editingSiteId == site.Id)
                                             {
                                                 <div class="site-name-edit">
                                                     <input type="text" class="form-control" @ref="_siteNameInput" @bind="_editSiteName" @bind:event="oninput"
                                                            @onkeydown="@(e => SiteNameEditKey(e, site))" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
-                                                    <button type="button" class="btn btn-primary btn-sm" @onclick="() => SaveSiteName(site)"
+                                                    <button type="button" class="btn btn-primary btn-sm" @onclick="() => SaveSiteName(site)" @onclick:stopPropagation="true"
                                                             disabled="@string.IsNullOrWhiteSpace(_editSiteName)">Save</button>
-                                                    <button type="button" class="btn btn-secondary btn-sm" @onclick="CancelSiteNameEdit">Cancel</button>
+                                                    <button type="button" class="btn btn-secondary btn-sm" @onclick="CancelSiteNameEdit" @onclick:stopPropagation="true">Cancel</button>
                                                 </div>
                                             }
                                             else
                                             {
                                                 <span class="site-name-cell">
-                                                    <span class="@(_expandedSiteId == site.Id ? "site-name-selected" : null)">@site.Name</span>
-                                                    <button type="button" class="site-name-edit-btn" data-tooltip="Rename site"
-                                                            aria-label="Rename site" @onclick="() => StartSiteNameEdit(site)">
-                                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-                                                            <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
-                                                        </svg>
-                                                    </button>
+                                                    <span class="@(IsSiteRowOpen(site.Id) ? "site-name-selected" : null)">@site.Name</span>
+                                                    @* Each row answers for its own site: reaching a site is not the same as running
+                                                       it, so a row someone only views carries nothing but Switch to Site. *@
+                                                    <AuthorizeView Policy="@Policies.SiteAdmin" Resource="@site.Slug" Context="siteAdmin">
+                                                        <button type="button" class="site-name-edit-btn" data-tooltip="Rename site"
+                                                                aria-label="Rename site" @onclick="() => StartSiteNameEdit(site)" @onclick:stopPropagation="true">
+                                                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                                                                <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
+                                                            </svg>
+                                                        </button>
+                                                    </AuthorizeView>
                                                 </span>
                                             }
                                         </td>
@@ -3191,27 +3448,59 @@
                                             }
                                         </td>
                                         <td>
+                                            <div class="site-row-actions">
                                             <div class="btn-group-wrap">
-                                                <button type="button" class="btn btn-secondary btn-sm" @onclick="() => ToggleAgents(site.Id)">
-                                                    Configuration
-                                                </button>
+                                                <AuthorizeView Policy="@Policies.SiteAdmin" Resource="@site.Slug" Context="siteAdmin">
+                                                    <button type="button" class="btn @SiteActionButtonClass(site.Id) btn-sm" @onclick="() => ToggleAgents(site.Id)" @onclick:stopPropagation="true">
+                                                        Configuration
+                                                    </button>
+                                                    <button type="button" class="btn @SiteActionButtonClass(site.Id) btn-sm" @onclick="() => ToggleSiteUsers(site.Id)" @onclick:stopPropagation="true">
+                                                        Users
+                                                    </button>
+                                                </AuthorizeView>
                                                 @if (site.Slug != SiteContext.Slug)
                                                 {
-                                                    <button type="button" class="btn btn-primary btn-sm" @onclick="() => SwitchToSiteAsync(site)">
+                                                    <button type="button" class="btn btn-primary btn-sm" @onclick="() => SwitchToSiteAsync(site)" @onclick:stopPropagation="true">
                                                         Switch to Site
                                                     </button>
                                                 }
                                             </div>
+                                                @if (IsSiteRowOpen(site.Id))
+                                                {
+                                                    @* Flips the moment a collapse starts rather than at unmount, so it points the
+                                                       way the panel is actually moving while the transition plays. *@
+                                                    <span class="site-row-caret" aria-hidden="true">@(_panelExpanded ? "▲" : "▼")</span>
+                                                }
+                                            </div>
                                         </td>
                                     </tr>
+                                    @if (_usersSiteId == site.Id)
+                                    {
+                                        <tr class="history-details-row site-config-row">
+                                            <td colspan="5">
+                                                <div class="expand-wrapper @(_panelExpanded ? "expanded" : "")">
+                                                    <div class="expand-content">
+                                                        <div class="site-config-panel">
+                                                                                                                        @* Scoped to this row's site rather than the one in context, so who can
+                                                               reach a site is answered without switching to it first. *@
+                                                            <IdentityAccessCard SiteSlug="@site.Slug" SiteName="@site.Name" ShowSiteBadge="false"
+                                                                                OnExplainRoles="OpenRolesReference" />
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    }
+
                                     @if (_expandedSiteId == site.Id)
                                     {
                                         var agents = AgentsFor(site.Id).ToList();
                                         <tr class="history-details-row site-config-row">
                                             <td colspan="5">
+                                                <div class="expand-wrapper @(_panelExpanded ? "expanded" : "")">
+                                                    <div class="expand-content">
                                                 <div class="site-config-panel">
-                                                    <button type="button" class="site-config-dismiss" @onclick="() => ToggleAgents(site.Id)" aria-label="Dismiss">&times;</button>
-                                                    <div class="site-config-section">
+                                                                                                        <div class="site-config-section">
                                                         <div class="site-config-section-title">Agent</div>
                                                         @if (agents.Count > 0)
                                                         {
@@ -3249,10 +3538,10 @@
                                                                             <text>Last seen @agent.LastSeenAt?.ToLocalTime().ToString("MMM d, h:mm tt")</text>
                                                                         }
                                                                     </span>
-                                                                    <button type="button" class="btn btn-secondary btn-sm" @onclick="() => ToggleAgentEnabled(agent)">
+                                                                    <button type="button" class="btn btn-secondary btn-sm" @onclick="() => ToggleAgentEnabled(site, agent)">
                                                                         @(agent.Enabled ? "Disable" : "Enable")
                                                                     </button>
-                                                                    <button type="button" class="btn btn-danger btn-sm" @onclick="() => RemoveAgent(agent)">
+                                                                    <button type="button" class="btn btn-danger btn-sm" @onclick="() => RemoveAgent(site, agent)">
                                                                         Remove
                                                                     </button>
                                                                 </div>
@@ -3262,15 +3551,15 @@
                                                                         @if (AgentOnGateway(site.Id))
                                                                         {
                                                                             <p class="form-help">On the UniFi gateway - enrollment is preserved, only the binary updates:</p>
-                                                                            <pre><code>@GatewayUpgradeCommand()</code></pre>
+                                                                            <CopyableCommand Text="@GatewayUpgradeCommand()" Tooltip="Copy the gateway upgrade command" />
                                                                         }
                                                                         else
                                                                         {
                                                                             <p class="form-help">Bare metal (systemd) - enrollment is preserved, only the binaries update:</p>
-                                                                            <pre><code>@NativeUpgradeCommand()</code></pre>
-                                                                            <p class="form-help">
-                                                                                Docker agents instead: <code>cd /opt/network-optimizer-agent &amp;&amp; docker compose pull &amp;&amp; docker compose up -d</code>
-                                                                            </p>
+                                                                            <CopyableCommand Text="@NativeUpgradeCommand()" Tooltip="Copy the upgrade command" />
+                                                                            <p class="form-help">Docker agents instead:</p>
+                                                                            <CopyableCommand Text="cd /opt/network-optimizer-agent &amp;&amp; docker compose pull &amp;&amp; docker compose up -d"
+                                                                                             Tooltip="Copy the Docker upgrade command" />
                                                                         }
                                                                     </div>
                                                                 }
@@ -3354,6 +3643,12 @@
                                                             </div>
                                                         </div>
 
+                                                        @* A site's lifecycle is instance work, not site work: removing one destroys its
+                                                           database and agent enrollments and hands a licence slot back, and disabling one
+                                                           hides it from the switcher - which would strand the very Site Admin who did it,
+                                                           since Settings only opens for them while contexted to a site they administer.
+                                                           You cannot use authority bounded by the site to end the site. *@
+                                                        <AdminOnly>
                                                         <div class="site-config-section">
                                                             <div class="site-config-section-title">Disable / Remove Site</div>
                                                             @if (site.Slug == SiteContext.Slug)
@@ -3379,7 +3674,10 @@
                                                                 </div>
                                                             }
                                                         </div>
+                                                        </AdminOnly>
                                                     }
+                                                </div>
+                                                    </div>
                                                 </div>
                                             </td>
                                         </tr>
@@ -3390,10 +3688,15 @@
                     </div>
                 </div>
 
+                @* The wizard shows its own first step (Add a site) only to an Admin; a Site Admin
+                   reaches the later steps through Set up agent on their own row. Switching site
+                   management off is instance-level and stays Admin-only below. *@
                 <div id="site-agent-setup">
-                    <SiteSetupWizard @ref="_setupWizard" OnSitesChanged="RefreshSites" />
+                    <SiteSetupWizard @ref="_setupWizard" OnSitesChanged="RefreshSites"
+                                     OnSiteConfigChanged="ReloadSiteConfigAsync" />
                 </div>
 
+                <AdminOnly>
                 <details class="setup-guide multisite-disable">
                     <summary>Disable multi-site management</summary>
                     <div class="setup-guide-content">
@@ -3407,6 +3710,7 @@
                         </button>
                     </div>
                 </details>
+                </AdminOnly>
             }
 
             @if (!string.IsNullOrEmpty(_multiSiteMessage))
@@ -3439,12 +3743,15 @@
     [SupplyParameterFromQuery(Name = "tab")]
     public string? TabParam { get; set; }
 
+    /// <summary>The signed-in user, used by the Admin Password control to change their own password.</summary>
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
     private string _activeTab = "connection";
     private string? _lastTabParam;
 
     private static readonly HashSet<string> ValidTabs = new(StringComparer.OrdinalIgnoreCase)
     {
-        "connection", "monitoring", "speedtests", "security", "application", "multisite"
+        "connection", "monitoring", "speedtests", "security", "application", "identity", "multisite"
     };
 
     // Maps card anchors (used by /settings#... deep links across the app) to their tab
@@ -3454,6 +3761,7 @@
         ["console-connection"] = "connection",
         ["gateway-ssh"] = "connection",
         ["device-ssh"] = "connection",
+        ["ssh-key"] = "connection",
         ["monitoring"] = "monitoring",
         ["sqm-monitor"] = "monitoring",
         ["cellular-modem"] = "monitoring",
@@ -3474,6 +3782,9 @@
         ["ui-display"] = "application",
         ["map"] = "application",
         ["data-management"] = "application",
+        ["identity-users"] = "identity",
+        ["identity-access"] = "identity",
+        ["identity-sign-in"] = "identity",
         ["multi-site"] = "multisite",
         ["site-agent-setup"] = "multisite",
     };
@@ -3481,11 +3792,18 @@
     private static string ResolveTab(string? param) =>
         param != null && ValidTabs.Contains(param) ? param.ToLowerInvariant() : "connection";
 
+    private AuditLogPanel? _auditLogPanel;
+
     private void SetActiveTab(string tab)
     {
         _activeTab = tab;
         NavigationManager.NavigateTo("/settings?tab=" + tab, forceLoad: false, replace: false);
         _lastTabParam = tab;
+        _ = EnsureKeyDeployStatusAsync();
+
+        // The panel is rendered but hidden until now, and deliberately does not query on init.
+        if (tab == "auditlog" && _auditLogPanel is not null)
+            _ = _auditLogPanel.RefreshAsync();
     }
 
     protected override void OnParametersSet()
@@ -3522,6 +3840,15 @@
             StateHasChanged();
         }
 
+        await ScrollToAndHighlightAsync(anchor);
+    }
+
+    /// <summary>
+    /// Brings a card into view and flashes an outline round it. Shared so an in-page link highlights
+    /// exactly the way arriving on a #anchor does.
+    /// </summary>
+    private async Task ScrollToAndHighlightAsync(string anchor)
+    {
         // Let the tab panel render before scrolling; same scroll-and-highlight
         // pattern as the Monitoring page.
         await Task.Delay(300);
@@ -3541,6 +3868,18 @@
                     if (inp) inp.focus({ preventScroll: true });
                 }
             })();");
+    }
+
+    /// <summary>Takes the reader to the SSH Key panel from a key row elsewhere on this page.</summary>
+    private async Task ShowSshKeyPanel()
+    {
+        if (_activeTab != "connection")
+        {
+            _activeTab = "connection";
+            StateHasChanged();
+        }
+
+        await ScrollToAndHighlightAsync("ssh-key");
     }
 
     // Multi-Site
@@ -3696,8 +4035,8 @@
             CancelSiteNameEdit();
             return;
         }
+        await SiteManagement.RenameSiteAsync(site.Slug, name);
         site.Name = name;
-        await SiteManagement.UpdateSiteAsync(site);
         _editingSiteId = null;
         _editSiteName = "";
         _sites = await SiteManagement.GetSitesAsync();
@@ -3727,6 +4066,60 @@
     // Site agents (registry data, keyed by site id)
     private Dictionary<int, List<SiteAgent>> _agentsBySite = new();
     private int? _expandedSiteId;
+
+    /// <summary>Which site's Users panel is open, if any. Separate from the Configuration panel.</summary>
+    private int? _usersSiteId;
+
+    /// <summary>
+    /// Drives the expand transition, one render behind the row appearing. A row rendered already
+    /// carrying "expanded" has nothing to transition from, so opening is staged: render collapsed,
+    /// then expand. Closing runs the reverse and only unmounts once the transition has played, which
+    /// is why the panel's content stays conditional - four sites' access lists should not load just
+    /// to sit collapsed.
+    /// </summary>
+    private bool _panelExpanded;
+
+    private const int PanelTransitionMs = 250;
+
+    /// <summary>Mounts a panel collapsed, then expands it on the next render.</summary>
+    private async Task OpenPanelAsync()
+    {
+        _panelExpanded = false;
+        StateHasChanged();
+        await Task.Delay(16);
+        _panelExpanded = true;
+        StateHasChanged();
+    }
+
+    /// <summary>Collapses whichever panel this row has open. Bound to the row itself, so the caret
+    /// and the row are one target; expanding stays on the explicit buttons.</summary>
+    private async Task CollapsePanelsAsync()
+    {
+        await ClosePanelAsync();
+        _expandedSiteId = null;
+        _usersSiteId = null;
+    }
+
+    /// <summary>Collapses a panel and waits for the transition before the caller unmounts it.</summary>
+    private async Task ClosePanelAsync()
+    {
+        _panelExpanded = false;
+        StateHasChanged();
+        await Task.Delay(PanelTransitionMs);
+    }
+
+    /// <summary>
+    /// True when this row has either panel open. Both drive the same row highlight, so the selected
+    /// row reads the same whichever panel opened it.
+    /// </summary>
+    private bool IsSiteRowOpen(int siteId) => _expandedSiteId == siteId || _usersSiteId == siteId;
+
+    /// <summary>
+    /// Secondary normally, contrast once the row is highlighted - the selected row's background is
+    /// brighter than a secondary button, so it would otherwise sink into it. Contrast rather than
+    /// tertiary: these are ordinary actions, not de-emphasised ones.
+    /// </summary>
+    private string SiteActionButtonClass(int siteId) => IsSiteRowOpen(siteId) ? "btn-contrast" : "btn-secondary";
     private bool _creatingAgent;
     private string? _newAgentToken;
     private int? _newAgentTokenSiteId;
@@ -3790,10 +4183,43 @@
         return ("offline", "Awaiting", "Enrollment token created; waiting for the agent to enroll");
     }
 
+    /// <summary>
+    /// A site's Users panel is a row inside the Multi-Site table with no room for the Roles reference,
+    /// so the tooltip icon there sends the reader to the Identity tab, which opens it on arrival.
+    /// Back returns them to this table with the row still expanded.
+    /// </summary>
+    private void OpenRolesReference() => NavigationManager.NavigateTo("/settings?tab=identity&roles=1");
+
+    private async Task ToggleSiteUsers(int siteId)
+    {
+        if (_usersSiteId == siteId)
+        {
+            await ClosePanelAsync();
+            _usersSiteId = null;
+            return;
+        }
+
+        _expandedSiteId = null;
+        _usersSiteId = siteId;
+        await OpenPanelAsync();
+    }
+
     private async Task ToggleAgents(int siteId)
     {
-        _expandedSiteId = _expandedSiteId == siteId ? null : siteId;
+        if (_expandedSiteId == siteId)
+        {
+            await ClosePanelAsync();
+            _expandedSiteId = null;
+            _newAgentToken = null;
+            return;
+        }
+
+        _usersSiteId = null;
+        _expandedSiteId = siteId;
+        _panelExpanded = false;
         _newAgentToken = null;
+        StateHasChanged();
+
         if (_expandedSiteId != null)
         {
             // Opening a site's Configuration clears the Add-a-Site wizard's completed
@@ -3810,6 +4236,9 @@
                     && await OnGatewayDetector.IsAgentOnGatewayAsync(site.Slug);
             }
         }
+
+        // Expanded last, so the panel grows once to its real height rather than twice.
+        await OpenPanelAsync();
     }
 
     // Per-site "console via agent tunnel" flag, stored in the site's own database
@@ -3817,27 +4246,24 @@
 
     private bool ConsoleViaAgent(int siteId) => _consoleViaAgent.TryGetValue(siteId, out var enabled) && enabled;
 
-    private async Task LoadConsoleViaAgentAsync(Site site)
+    /// <summary>
+    /// Re-reads the per-site settings the wizard just changed, so the configuration panel open behind
+    /// it shows the flags it set instead of what they were when the panel was opened.
+    /// </summary>
+    private async Task ReloadSiteConfigAsync(Site site)
     {
-        await using var db = SiteDb.CreateForSite(site.Slug, site.IsDefault);
-        var setting = await db.SystemSettings.FindAsync(UniFiConnectionService.ConsoleViaAgentKey);
-        _consoleViaAgent[site.Id] = bool.TryParse(setting?.Value, out var enabled) && enabled;
+        await LoadConsoleViaAgentAsync(site);
+        await LoadSshViaAgentAsync(site);
+        await LoadClientSpeedTestTargetAsync(site);
+        StateHasChanged();
     }
+
+    private async Task LoadConsoleViaAgentAsync(Site site)
+        => _consoleViaAgent[site.Id] = (await SiteConfig.GetAsync(site.Slug)).ConsoleViaAgent;
 
     private async Task ToggleConsoleViaAgent(Site site, bool value)
     {
-        await using var db = SiteDb.CreateForSite(site.Slug, site.IsDefault);
-        var setting = await db.SystemSettings.FindAsync(UniFiConnectionService.ConsoleViaAgentKey);
-        if (setting == null)
-        {
-            db.SystemSettings.Add(new SystemSetting { Key = UniFiConnectionService.ConsoleViaAgentKey, Value = value.ToString() });
-        }
-        else
-        {
-            setting.Value = value.ToString();
-            setting.UpdatedAt = DateTime.UtcNow;
-        }
-        await db.SaveChangesAsync();
+        await SiteConfig.SetConsoleViaAgentAsync(site.Slug, value);
         _consoleViaAgent[site.Id] = value;
     }
 
@@ -3847,26 +4273,11 @@
     private bool SshViaAgent(int siteId) => _sshViaAgent.TryGetValue(siteId, out var enabled) && enabled;
 
     private async Task LoadSshViaAgentAsync(Site site)
-    {
-        await using var db = SiteDb.CreateForSite(site.Slug, site.IsDefault);
-        var setting = await db.SystemSettings.FindAsync(SiteTunnelRouting.DevicesViaAgentKey);
-        _sshViaAgent[site.Id] = bool.TryParse(setting?.Value, out var enabled) && enabled;
-    }
+        => _sshViaAgent[site.Id] = (await SiteConfig.GetAsync(site.Slug)).DevicesViaAgent;
 
     private async Task ToggleSshViaAgent(Site site, bool value)
     {
-        await using var db = SiteDb.CreateForSite(site.Slug, site.IsDefault);
-        var setting = await db.SystemSettings.FindAsync(SiteTunnelRouting.DevicesViaAgentKey);
-        if (setting == null)
-        {
-            db.SystemSettings.Add(new SystemSetting { Key = SiteTunnelRouting.DevicesViaAgentKey, Value = value.ToString() });
-        }
-        else
-        {
-            setting.Value = value.ToString();
-            setting.UpdatedAt = DateTime.UtcNow;
-        }
-        await db.SaveChangesAsync();
+        await SiteConfig.SetDevicesViaAgentAsync(site.Slug, value);
         _sshViaAgent[site.Id] = value;
     }
 
@@ -3937,30 +4348,13 @@
         _agentOnGateway.TryGetValue(siteId, out var onGateway) && onGateway;
 
     private async Task LoadClientSpeedTestTargetAsync(Site site)
-    {
-        await using var db = SiteDb.CreateForSite(site.Slug, site.IsDefault);
-        var setting = await db.SystemSettings.FindAsync(SystemSettingKeys.ClientSpeedTestTargetOverride);
-        _clientSpeedTestTarget[site.Id] = setting?.Value;
-    }
+        => _clientSpeedTestTarget[site.Id] = (await SiteConfig.GetAsync(site.Slug)).ClientSpeedTestTarget;
 
     private async Task SaveClientSpeedTestTarget(Site site, string? value)
     {
+        await SiteConfig.SetClientSpeedTestTargetAsync(site.Slug, value);
         var trimmed = value?.Trim();
-        if (string.IsNullOrEmpty(trimmed)) trimmed = null;
-        await using var db = SiteDb.CreateForSite(site.Slug, site.IsDefault);
-        var setting = await db.SystemSettings.FindAsync(SystemSettingKeys.ClientSpeedTestTargetOverride);
-        if (setting == null)
-        {
-            if (trimmed != null)
-                db.SystemSettings.Add(new SystemSetting { Key = SystemSettingKeys.ClientSpeedTestTargetOverride, Value = trimmed });
-        }
-        else
-        {
-            setting.Value = trimmed;
-            setting.UpdatedAt = DateTime.UtcNow;
-        }
-        await db.SaveChangesAsync();
-        _clientSpeedTestTarget[site.Id] = trimmed;
+        _clientSpeedTestTarget[site.Id] = string.IsNullOrEmpty(trimmed) ? null : trimmed;
     }
 
     private async Task CreateAgent(Site site)
@@ -3968,7 +4362,7 @@
         _creatingAgent = true;
         try
         {
-            var (agent, token) = await AgentEnrollment.CreateAgentAsync(site.Id, NextAgentName(site.Id));
+            var (agent, token) = await AgentEnrollment.CreateAgentAsync(site.Slug, NextAgentName(site.Id));
             _newAgentToken = token;
             _newAgentTokenSiteId = site.Id;
             _newAgentLanSpeedTest = false;
@@ -3980,19 +4374,19 @@
         }
     }
 
-    private async Task ToggleAgentEnabled(SiteAgent agent)
+    private async Task ToggleAgentEnabled(Site site, SiteAgent agent)
     {
-        await AgentEnrollment.SetEnabledAsync(agent.Id, !agent.Enabled);
+        await AgentEnrollment.SetEnabledAsync(site.Slug, agent.Id, !agent.Enabled);
         await LoadAgentsAsync();
     }
 
-    private async Task RemoveAgent(SiteAgent agent)
+    private async Task RemoveAgent(Site site, SiteAgent agent)
     {
         if (!await JS.InvokeAsync<bool>("confirm",
                 $"Remove agent \"{agent.Name}\"? Its enrollment token/key stops working and it disappears from this list."))
             return;
 
-        await AgentEnrollment.DeleteAgentAsync(agent.Id);
+        await AgentEnrollment.DeleteAgentAsync(site.Slug, agent.Id);
         if (_newAgentTokenSiteId == agent.SiteId)
             _newAgentToken = null;
         await LoadAgentsAsync();
@@ -4106,12 +4500,41 @@
     private string? _starlinkTestedHost;
     private string _starlinkStatus = "Inactive";
 
+    // SSH key: one per site, shared by Gateway SSH and Device SSH.
+    private SshKeyInfo? _sshKey;
+    private bool _sshKeyBusy;
+    private bool _showSshKeyUpload;
+    private string _sshKeyUploadPem = "";
+    private string _sshKeyUploadPassphrase = "";
+    private string? _sshKeyMessage;
+    private string _sshKeyMessageClass = "info";
+
+    /// <summary>
+    /// True when this site's gateway is also its console (a Cloud Gateway), which UniFi Network's
+    /// Device SSH Settings does not reach. Advisory only - when it cannot be determined the panel
+    /// shows the device instructions, which are the common case.
+    /// </summary>
+    private bool _gatewayIsConsole;
+
+    /// <summary>What the gateway already has, for the one-click install. Null until loaded.</summary>
+    private SshKeyDeploymentStatus? _keyDeployStatus;
+
+    /// <summary>
+    /// LAN Speed Test targets we SSH into to start iperf3 - typically the user's own servers and
+    /// workstations. A stored key does nothing on those until it is installed there, and nothing else
+    /// in the app would ever mention it.
+    /// </summary>
+    private int _sshSpeedTestDeviceCount;
+
     // Gateway SSH
     private GatewaySshSettings? gatewaySettings;
     private string gatewayHost = "";
     private string gatewayUsername = "root";
     private string gatewayPassword = "";
     private string gatewayPrivateKeyPath = "";
+    // True when a key file is configured but the caller may not see WHICH - below global Admin the
+    // path above is redacted to empty, and empty would otherwise read as "no key file at all".
+    private bool gatewayKeyFileConfigured;
     private int gatewayPort = 22;
     private bool gatewayEnabled = true;
     private bool savingGatewaySettings = false;
@@ -4127,6 +4550,7 @@
     private string sshUsername = "";
     private string sshPassword = "";
     private string sshPrivateKeyPath = "";
+    private bool deviceKeyFileConfigured;
     private int sshPort = 22;
     private bool sshEnabled = true;
     private bool savingSshSettings = false;
@@ -4165,6 +4589,7 @@
 
     // Admin Password
     private AdminPasswordSource adminPasswordSource = AdminPasswordSource.None;
+    private string _passwordPolicy => NetworkOptimizer.Web.Services.Identity.PasswordPolicyText.Describe(IdentityOptions.Value.Password);
     private string adminNewPassword = "";
     private string adminConfirmPassword = "";
     private bool savingAdminPassword = false;
@@ -4172,7 +4597,6 @@
     private string adminPasswordMessageClass = "";
 
     // Application Settings
-    private int alertRetention = 30;
     private bool receivePrereleaseUpdates = true; // default ON; global (instance-wide); dismissing the preview banner opts out
 
     // Security Audit Settings
@@ -4305,6 +4729,10 @@
             _kioskMode = await JS.InvokeAsync<bool>("getKioskMode");
             StateHasChanged();
             await HandleFragmentNavigationAsync();
+
+            // Connection is the default tab, so arriving here never goes through SetActiveTab and
+            // the gateway would otherwise only be asked about after clicking away and back.
+            await EnsureKeyDeployStatusAsync();
         }
     }
 
@@ -4347,6 +4775,7 @@
         }
 
         UpdateControllerStatus();
+        await LoadSshKey();
         await LoadGatewaySettings();
         await LoadSshSettings();
         await LoadModemConfigs();
@@ -4590,7 +5019,8 @@
     {
         try
         {
-            gatewaySettings = await GatewaySshService.GetSettingsAsync();
+            gatewaySettings = await SshSettingsAdmin.GetGatewayForEditAsync();
+            gatewayKeyFileConfigured = await SshSettingsAdmin.IsGatewayKeyFilePathConfiguredAsync();
             gatewayHost = gatewaySettings.Host ?? "";
             gatewayUsername = gatewaySettings.Username;
             gatewayPort = gatewaySettings.Port;
@@ -4604,6 +5034,395 @@
         {
             gatewayMessage = $"Error loading gateway settings: {ex.Message}";
             gatewayMessageClass = "danger";
+        }
+    }
+
+    /// <summary>
+    /// An auth option is "in use" when it has a value configured. Several can be in use at once - SSH
+    /// is handed every configured method and tries them in turn, so this is not a choice between them.
+    /// </summary>
+    /// <summary>
+    /// The gateway's password is not in use once a key is authenticating for it: a key file replaces
+    /// it outright (saving one clears it), and the stored key does the same in practice once it is
+    /// confirmed on the gateway. Confirmed, not merely stored - until the key is actually placed, the
+    /// password is the thing getting us in, and calling it unused would be exactly backwards.
+    /// </summary>
+    private bool GatewayPasswordSet =>
+        (hasGatewayPassword || !string.IsNullOrEmpty(gatewayPassword))
+        && !GatewayKeyPathSet
+        && _keyDeployStatus?.KeyInstalled != true;
+
+    private bool GatewayKeyPathSet =>
+        !string.IsNullOrWhiteSpace(gatewayPrivateKeyPath) || gatewayKeyFileConfigured;
+
+    /// <summary>
+    /// Reads the same way as the gateway, deliberately, even though there is nothing to confirm it
+    /// against: keys reach switches and APs through UniFi Network's Device SSH Settings, which we do
+    /// not read. A stored key therefore means "a key is meant to be doing this", not "a key is proven
+    /// to be doing this" - the password stays configured and still authenticates anywhere the key was
+    /// never installed.
+    /// </summary>
+    private bool DevicePasswordSet =>
+        (hasSshPassword || !string.IsNullOrEmpty(sshPassword))
+        && !DeviceKeyPathSet
+        && _sshKey is null;
+
+    private bool DeviceKeyPathSet =>
+        !string.IsNullOrWhiteSpace(sshPrivateKeyPath) || deviceKeyFileConfigured;
+
+    /// <summary>Dims the header of an option that is not configured.</summary>
+    private static string UnusedLabel(bool inUse) => inUse ? "" : "form-label-unused";
+
+    /// <summary>Says so in words, since dimming alone is easy to miss.</summary>
+    private static string NotInUse(bool inUse) => inUse ? "" : " (Not in use)";
+
+    /// <summary>
+    /// Whether the password field should say a key is standing in for it.
+    ///
+    /// A key file does replace the password - saving one clears it. The site's stored key does not:
+    /// SSH.NET is handed every configured method and tries them in turn, so a saved password stays a
+    /// working fallback if the device does not have the key. Saying "using SSH key" over a live
+    /// password would misreport that.
+    /// </summary>
+    private bool SshKeyInUse(string keyFilePath, bool hasSavedPassword)
+        => !string.IsNullOrWhiteSpace(keyFilePath) || (_sshKey is not null && !hasSavedPassword);
+
+    /// <summary>
+    /// Shown where the key-file field would be for anyone below global Admin. It states that a file is
+    /// in use without naming it: a Site Admin may use the key their administrator configured, but must
+    /// not learn the path, which is what the field itself would reveal.
+    /// </summary>
+    private RenderFragment? KeyFileNote(bool configured) => !configured
+        ? null
+        : @<div class="form-group">
+              <label class="form-label">Private Key Path</label>
+              <small class="form-help">Set by an administrator. This key authenticates the connection.</small>
+          </div>;
+
+    private RenderFragment? GatewayKeyFileNote => KeyFileNote(gatewayKeyFileConfigured);
+
+    private RenderFragment? DeviceKeyFileNote => KeyFileNote(deviceKeyFileConfigured);
+
+    /// <summary>
+    /// Whether to offer one-click installation on the gateway. Only for a Cloud Gateway, since a UXG is
+    /// adopted and UniFi Network places the key on it already, and only when Gateway SSH can already
+    /// log in - the key we are installing cannot be what gets us in to install it.
+    /// </summary>
+    private bool CanInstallKeyOnGateway
+        => _gatewayIsConsole && _keyDeployStatus?.GatewayConfigured == true;
+
+    private async Task InstallKeyOnGateway()
+    {
+        _sshKeyBusy = true;
+        _sshKeyMessage = null;
+        StateHasChanged();
+
+        try
+        {
+            var (success, message) = await SshKeyDeployment.DeployAsync();
+            _sshKeyMessage = message;
+            _sshKeyMessageClass = success ? "success" : "danger";
+            _keyDeployStatus = await SshKeyDeployment.GetStatusAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to install the SSH key on the gateway");
+            _sshKeyMessage = $"Could not install the key on the gateway: {ex.Message}";
+            _sshKeyMessageClass = "danger";
+        }
+        finally
+        {
+            _sshKeyBusy = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task RemoveKeyFromGateway()
+    {
+        if (!await JS.InvokeAsync<bool>("confirm",
+            "Remove the key from the gateway? If Gateway SSH has no password configured, this will end "
+            + "its access until you set one or reinstall the key."))
+        {
+            return;
+        }
+
+        _sshKeyBusy = true;
+        StateHasChanged();
+
+        try
+        {
+            var (success, message) = await SshKeyDeployment.RemoveAsync();
+            _sshKeyMessage = message;
+            _sshKeyMessageClass = success ? "info" : "danger";
+            _keyDeployStatus = await SshKeyDeployment.GetStatusAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to remove the SSH key from the gateway");
+            _sshKeyMessage = $"Could not remove the key from the gateway: {ex.Message}";
+            _sshKeyMessageClass = "danger";
+        }
+        finally
+        {
+            _sshKeyBusy = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task LoadSshKey()
+    {
+        try
+        {
+            _sshKey = await SshKeyService.GetAsync();
+            _sshSpeedTestDeviceCount = (await SshService.GetDevicesAsync())
+                .Count(d => d.StartIperf3Server);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Could not load the site's SSH key");
+            _sshKey = null;
+        }
+
+        try
+        {
+            var devices = await ConnectionService.GetDiscoveredDevicesAsync();
+            var gateway = devices.FirstOrDefault(d => d.HardwareType == NetworkOptimizer.Core.Enums.DeviceType.Gateway);
+            var model = gateway?.Shortname ?? gateway?.Model ?? "";
+
+            // A UXG is adopted like any other device, so UniFi Network's Device SSH Settings reaches
+            // it. Everything else gateway-class (UDM, UCG, UDR, UX) is its own console, whose root SSH
+            // that page does not touch. Unknown resolves to console so the extra paragraph shows: a
+            // console owner who never sees it is stranded, while a UXG owner just reads a line that
+            // does not apply to them.
+            _gatewayIsConsole = !model.StartsWith("UXG", StringComparison.OrdinalIgnoreCase);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Could not determine gateway type for SSH key instructions");
+            _gatewayIsConsole = true;
+        }
+    }
+
+    /// <summary>
+    /// Reads the gateway's state once per circuit, on demand. This opens a real SSH session, so it is
+    /// not something to do on every Settings load - most visits never open the Connection tab, and
+    /// with no key stored there is nothing to ask the gateway about. Mutations refresh it explicitly.
+    /// </summary>
+    private async Task EnsureKeyDeployStatusAsync()
+    {
+        if (_sshKey is null || _activeTab != "connection")
+            return;
+
+        // An awaiting-agent answer is "not known yet", so it is not worth keeping - caching it would
+        // hide the install offer for the rest of the circuit even after the agent came online.
+        if (_keyDeployStatus is { AwaitingAgent: false })
+            return;
+
+        try
+        {
+            _keyDeployStatus = await SshKeyDeployment.GetStatusAsync();
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Could not read the gateway's SSH key state");
+        }
+    }
+
+    private Task GenerateSshKey() => CreateSshKey(SshKeyType.Ed25519);
+
+
+    private async Task CreateSshKey(SshKeyType type)
+    {
+        _sshKeyBusy = true;
+        _sshKeyMessage = null;
+        StateHasChanged();
+
+        try
+        {
+            if (!await ClearKeyFromGatewayIfInstalled())
+                return;
+
+            _sshKey = await SshKeyService.GenerateAsync(type);
+            _showSshKeyUpload = false;
+            _sshKeyMessage = "SSH key generated. Install the public key below on your devices.";
+            _sshKeyMessageClass = "success";
+            await RefreshSshSettingsAfterKeyChange();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to generate an SSH key");
+            _sshKeyMessage = $"Could not generate a key: {ex.Message}";
+            _sshKeyMessageClass = "danger";
+        }
+        finally
+        {
+            _sshKeyBusy = false;
+            StateHasChanged();
+        }
+    }
+
+    /// <summary>
+    /// Reads a chosen key file into the paste box, so choosing a file and pasting converge on one
+    /// path: whatever ends up in the box is what gets validated and stored.
+    /// </summary>
+    private async Task OnSshKeyFileSelected(InputFileChangeEventArgs e)
+    {
+        try
+        {
+            // A private key is a couple of KB. The cap is what stops someone picking a disk image and
+            // streaming it over the circuit.
+            using var stream = e.File.OpenReadStream(maxAllowedSize: 64 * 1024);
+            using var reader = new StreamReader(stream);
+            _sshKeyUploadPem = await reader.ReadToEndAsync();
+            _sshKeyMessage = null;
+        }
+        catch (IOException)
+        {
+            _sshKeyMessage = "That file is too large to be a private key.";
+            _sshKeyMessageClass = "danger";
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Could not read the selected SSH key file");
+            _sshKeyMessage = "Could not read that file. Paste the key instead.";
+            _sshKeyMessageClass = "danger";
+        }
+    }
+
+    private async Task UploadSshKey()
+    {
+        if (string.IsNullOrWhiteSpace(_sshKeyUploadPem))
+        {
+            _sshKeyMessage = "Paste the private key first";
+            _sshKeyMessageClass = "danger";
+            return;
+        }
+
+        _sshKeyBusy = true;
+        _sshKeyMessage = null;
+        StateHasChanged();
+
+        try
+        {
+            if (!await ClearKeyFromGatewayIfInstalled())
+                return;
+
+            _sshKey = await SshKeyService.UploadAsync(_sshKeyUploadPem, _sshKeyUploadPassphrase);
+            _sshKeyUploadPem = "";
+            _sshKeyUploadPassphrase = "";
+            _showSshKeyUpload = false;
+            _sshKeyMessage = "SSH key stored.";
+            _sshKeyMessageClass = "success";
+            await RefreshSshSettingsAfterKeyChange();
+        }
+        catch (Exception ex)
+        {
+            _sshKeyMessage = ex.Message;
+            _sshKeyMessageClass = "danger";
+        }
+        finally
+        {
+            _sshKeyBusy = false;
+            StateHasChanged();
+        }
+    }
+
+    /// <summary>
+    /// Removing without replacing would drop key authentication on the spot, so the Replace path just
+    /// reopens the empty state and leaves the current key working until a new one is stored.
+    /// </summary>
+    private void ReplaceSshKey()
+    {
+        _sshKey = null;
+        _showSshKeyUpload = false;
+        _sshKeyMessage = _keyDeployStatus?.KeyInstalled == true
+            ? "Generate or upload a new key. The current one is taken off the gateway when you do."
+            : "Generate or upload a new key. The current one keeps working until you do.";
+        _sshKeyMessageClass = "info";
+    }
+
+    /// <summary>
+    /// Takes the current key off the gateway before it stops being the current key. Skipping this
+    /// leaves a revoked key authenticating forever: the boot script re-places it every boot, and once
+    /// the stored key is gone there is no key material left to match on, so nothing can find it again.
+    /// Returns false when the gateway could not be cleaned up, so the caller can keep the stored key
+    /// rather than orphan it.
+    /// </summary>
+    private async Task<bool> ClearKeyFromGatewayIfInstalled()
+    {
+        if (_keyDeployStatus?.KeyInstalled != true && _keyDeployStatus?.ScriptInstalled != true)
+            return true;
+
+        var (success, message) = await SshKeyDeployment.RemoveAsync();
+        if (!success)
+        {
+            _sshKeyMessage = $"{message} The stored key was kept, so you can try again.";
+            _sshKeyMessageClass = "danger";
+        }
+
+        return success;
+    }
+
+    private async Task RemoveSshKey()
+    {
+        var installed = _keyDeployStatus?.KeyInstalled == true || _keyDeployStatus?.ScriptInstalled == true;
+        var prompt = installed
+            ? "Remove the stored SSH key and take it off the gateway? Connections will fall back to the "
+              + "password or key file configured for each."
+            : "Remove the stored SSH key? Connections will fall back to the password or key file configured for each.";
+
+        if (!await JS.InvokeAsync<bool>("confirm", prompt))
+        {
+            return;
+        }
+
+        _sshKeyBusy = true;
+        StateHasChanged();
+
+        try
+        {
+            if (!await ClearKeyFromGatewayIfInstalled())
+                return;
+
+            await SshKeyService.RemoveAsync();
+            _keyDeployStatus = await SshKeyDeployment.GetStatusAsync();
+            _sshKey = null;
+            _sshKeyMessage = "SSH key removed.";
+            _sshKeyMessageClass = "info";
+            await RefreshSshSettingsAfterKeyChange();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to remove the SSH key");
+            _sshKeyMessage = $"Could not remove the key: {ex.Message}";
+            _sshKeyMessageClass = "danger";
+        }
+        finally
+        {
+            _sshKeyBusy = false;
+            StateHasChanged();
+        }
+    }
+
+    /// <summary>
+    /// Both SSH services cache their settings for five minutes, and those settings carry the
+    /// stored-key flag that drives every "Configured" badge. Without this the badges lag a key change
+    /// by up to five minutes.
+    /// </summary>
+    private async Task RefreshSshSettingsAfterKeyChange()
+    {
+        try
+        {
+            gatewaySettings = await SshSettingsAdmin.GetGatewayForEditAsync();
+            gatewayKeyFileConfigured = await SshSettingsAdmin.IsGatewayKeyFilePathConfiguredAsync();
+            sshSettings = await SshSettingsAdmin.GetDeviceForEditAsync();
+            deviceKeyFileConfigured = await SshSettingsAdmin.IsDeviceKeyFilePathConfiguredAsync();
+            _keyDeployStatus = await SshKeyDeployment.GetStatusAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Could not refresh SSH settings after an SSH key change");
         }
     }
 
@@ -4628,10 +5447,10 @@
 
         // Must have either: password (new or saved) OR private key
         var hasPassword = !string.IsNullOrEmpty(gatewayPassword) || hasGatewayPassword;
-        var hasPrivateKey = !string.IsNullOrWhiteSpace(gatewayPrivateKeyPath);
+        var hasPrivateKey = GatewayKeyPathSet || _sshKey is not null;
         if (!hasPassword && !hasPrivateKey)
         {
-            gatewayMessage = "Either a password or private key path is required";
+            gatewayMessage = "A password, an SSH key, or a private key path is required";
             gatewayMessageClass = "danger";
             StateHasChanged();
             return;
@@ -4661,7 +5480,7 @@
                 settings.Password = gatewayPassword;
             }
 
-            gatewaySettings = await GatewaySshService.SaveSettingsAsync(settings);
+            gatewaySettings = await SshSettingsAdmin.SaveGatewayAsync(settings);
             gatewayPassword = ""; // Clear password field
             hasGatewayPassword = !string.IsNullOrEmpty(gatewaySettings.Password);
             gatewayMessage = "Gateway settings saved successfully";
@@ -4699,10 +5518,10 @@
 
         // Must have either: password (new or saved) OR private key
         var hasPassword = !string.IsNullOrEmpty(gatewayPassword) || hasGatewayPassword;
-        var hasPrivateKey = !string.IsNullOrWhiteSpace(gatewayPrivateKeyPath);
+        var hasPrivateKey = GatewayKeyPathSet || _sshKey is not null;
         if (!hasPassword && !hasPrivateKey)
         {
-            gatewayMessage = "Either a password or private key path is required";
+            gatewayMessage = "A password, an SSH key, or a private key path is required";
             gatewayMessageClass = "danger";
             StateHasChanged();
             return;
@@ -4729,9 +5548,12 @@
                     gatewayPassword,
                     gatewayPrivateKeyPath);
             }
-            else if (hasGatewayPassword)
+            else if (hasGatewayPassword || GatewayKeyPathSet || _sshKey is not null)
             {
-                // No new credentials entered, test with saved settings
+                // No new credentials entered, test with saved settings. The key-file and stored-key
+                // cases have to reach here too: below global Admin the path above is redacted, so
+                // passing form values would test with no credential at all and the branch that reports
+                // none configured would answer for a gateway that is perfectly well configured.
                 result = await GatewaySshService.TestConnectionAsync();
             }
             else
@@ -4749,7 +5571,7 @@
                 {
                     gatewaySettings.LastTestedAt = DateTime.UtcNow;
                     gatewaySettings.LastTestResult = "Success";
-                    await GatewaySshService.SaveSettingsAsync(gatewaySettings);
+                    await SshSettingsAdmin.SaveGatewayAsync(gatewaySettings);
                 }
             }
             else
@@ -4841,7 +5663,8 @@
     {
         try
         {
-            sshSettings = await SshService.GetSettingsAsync();
+            sshSettings = await SshSettingsAdmin.GetDeviceForEditAsync();
+            deviceKeyFileConfigured = await SshSettingsAdmin.IsDeviceKeyFilePathConfiguredAsync();
             sshUsername = sshSettings.Username;
             sshPort = sshSettings.Port;
             sshPrivateKeyPath = sshSettings.PrivateKeyPath ?? "";
@@ -4869,10 +5692,10 @@
 
         // Must have either: password (new or saved) OR private key
         var hasPassword = !string.IsNullOrEmpty(sshPassword) || hasSshPassword;
-        var hasPrivateKey = !string.IsNullOrWhiteSpace(sshPrivateKeyPath);
+        var hasPrivateKey = DeviceKeyPathSet || _sshKey is not null;
         if (!hasPassword && !hasPrivateKey)
         {
-            sshMessage = "Either a password or private key path is required";
+            sshMessage = "A password, an SSH key, or a private key path is required";
             sshMessageClass = "danger";
             StateHasChanged();
             return;
@@ -4900,7 +5723,7 @@
                 settings.Password = sshPassword;
             }
 
-            sshSettings = await SshService.SaveSettingsAsync(settings);
+            sshSettings = await SshSettingsAdmin.SaveDeviceAsync(settings);
             sshPassword = ""; // Clear password field
             hasSshPassword = !string.IsNullOrEmpty(sshSettings.Password);
             sshMessage = "SSH settings saved successfully";
@@ -4931,10 +5754,10 @@
 
         // Must have either: password (new or saved) OR private key
         var hasPassword = !string.IsNullOrEmpty(sshPassword) || hasSshPassword;
-        var hasPrivateKey = !string.IsNullOrWhiteSpace(sshPrivateKeyPath);
+        var hasPrivateKey = DeviceKeyPathSet || _sshKey is not null;
         if (!hasPassword && !hasPrivateKey)
         {
-            sshMessage = "Either a password or private key path is required";
+            sshMessage = "A password, an SSH key, or a private key path is required";
             sshMessageClass = "danger";
             StateHasChanged();
             return;
@@ -4999,6 +5822,17 @@
                 testPassword = savedSettings?.Password;
             }
 
+            // The key file needs the same, and for a sharper reason: below global Admin the form value
+            // is redacted to empty, so testing with it connects with no key at all and reports a
+            // configured device as broken. Read for the connection only - it is never rendered, which
+            // is the same treatment the saved password above already gets.
+            var testKeyPath = sshPrivateKeyPath;
+            if (string.IsNullOrWhiteSpace(testKeyPath) && deviceKeyFileConfigured)
+            {
+                var savedForKey = await SshService.GetSettingsAsync();
+                testKeyPath = savedForKey?.PrivateKeyPath;
+            }
+
             // Try devices until one succeeds (some devices may reject SSH even with correct credentials)
             var failedDevices = new List<string>();
             foreach (var testDevice in testableDevices)
@@ -5011,7 +5845,7 @@
                     Host = testDevice.IpAddress,
                     SshUsername = sshUsername,
                     SshPassword = testPassword,
-                    SshPrivateKeyPath = sshPrivateKeyPath
+                    SshPrivateKeyPath = testKeyPath
                 };
 
                 var (success, message) = await SshService.TestConnectionAsync(testConfig);
@@ -5025,7 +5859,7 @@
                     {
                         sshSettings.LastTestedAt = DateTime.UtcNow;
                         sshSettings.LastTestResult = "Success";
-                        await SshService.SaveSettingsAsync(sshSettings);
+                        await SshSettingsAdmin.SaveDeviceAsync(sshSettings);
                     }
                     return; // Success - exit early
                 }
@@ -5376,7 +6210,7 @@
         {
             var settings = gatewaySettings ?? new GatewaySshSettings();
             settings.TcMonitorPort = tcMonitorPort;
-            gatewaySettings = await GatewaySshService.SaveSettingsAsync(settings);
+            gatewaySettings = await SshSettingsAdmin.SaveGatewayAsync(settings);
             tcMonitorMessage = "Port saved";
             tcMonitorMessageClass = "success";
         }
@@ -6266,12 +7100,6 @@
         _ => provider,
     };
 
-    private async Task SaveAppSettings()
-    {
-        // TODO: Implement save
-        await Task.CompletedTask;
-    }
-
     private async Task SavePrereleaseSetting()
     {
         // Instance-wide: written to the main DB so it applies across all sites.
@@ -6292,7 +7120,7 @@
     private bool showImportConfirm;
     private bool importApplied;
 
-    [Inject] private ConfigTransferService ConfigTransfer { get; set; } = default!;
+    [Inject] private IConfigTransferService ConfigTransfer { get; set; } = default!;
 
     private async Task ExportConfig(ExportType type)
     {
@@ -6378,9 +7206,9 @@
         }
     }
 
-    private void CancelImport()
+    private async Task CancelImport()
     {
-        ConfigTransfer.CancelPendingImport();
+        await ConfigTransfer.CancelPendingImportAsync();
         importPreview = null;
         importError = null;
         showImportConfirm = false;
@@ -6425,12 +7253,6 @@
             isClearingCache = false;
             StateHasChanged();
         }
-    }
-
-    private async Task ResetSettings()
-    {
-        // TODO: Implement reset
-        await Task.CompletedTask;
     }
 
     // Admin Password methods
@@ -6486,17 +7308,46 @@
 
         try
         {
-            // Save new password (always enabled when setting a password)
-            var passwordToSave = string.IsNullOrEmpty(adminNewPassword) ? null : adminNewPassword;
-            await AdminAuth.SaveAdminSettingsAsync(passwordToSave, true);
+            var newPassword = adminNewPassword;
+
+            // The Identity hash is what actually authenticates a sign-in, so the signed-in user's own
+            // password is set here - this control stays where it has always been and now takes effect.
+            var authState = AuthState is null ? null : await AuthState;
+            var signedInUser = authState?.User is { Identity.IsAuthenticated: true } principal
+                ? await CurrentUser.GetAsync(principal)
+                : null;
+
+            string? identityError = null;
+            if (signedInUser is not null)
+            {
+                var result = await IdentityAdmin.SetAdminPasswordAsync(signedInUser.Id, newPassword);
+                identityError = result.Succeeded ? null : result.Error;
+            }
+
+            // AdminSettings still records that this install requires authentication (and carries the
+            // credential the first-boot seed transcodes from), so it is kept in step.
+            await AdminAuth.SaveAdminSettingsAsync(newPassword, true);
+
+            // Nobody was signed in, so authentication was off until now: seed the Identity admin from
+            // the credential just saved, otherwise the new password would have no account to sign in to.
+            if (signedInUser is null)
+                await IdentityBootstrap.RunAsync();
 
             // Refresh the source
             adminPasswordSource = await AdminAuth.GetPasswordSourceAsync();
 
             adminNewPassword = "";
             adminConfirmPassword = "";
-            adminPasswordMessage = "Admin password settings saved successfully";
-            adminPasswordMessageClass = "success";
+            if (identityError is null)
+            {
+                adminPasswordMessage = "Admin password settings saved successfully";
+                adminPasswordMessageClass = "success";
+            }
+            else
+            {
+                adminPasswordMessage = identityError;
+                adminPasswordMessageClass = "danger";
+            }
         }
         catch (Exception ex)
         {
@@ -6518,7 +7369,14 @@
 
         try
         {
-            await AdminAuth.ClearDatabasePasswordAsync();
+            var cleared = await IdentityAdmin.ClearAdminPasswordAsync();
+            if (!cleared.Succeeded)
+            {
+                adminPasswordMessage = cleared.Error ?? "Could not clear the database password";
+                adminPasswordMessageClass = "danger";
+                return;
+            }
+
             adminPasswordSource = await AdminAuth.GetPasswordSourceAsync();
 
             if (adminPasswordSource == AdminPasswordSource.Environment)

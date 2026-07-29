@@ -1,6 +1,7 @@
 using System.Text.Json;
 using NetworkOptimizer.Web.Services;
 using NetworkOptimizer.Web.Services.LanFlowMap;
+using NetworkOptimizer.Web.Services.Authorization;
 
 namespace NetworkOptimizer.Web.Endpoints;
 
@@ -10,7 +11,13 @@ public static class LanFlowMapEndpoints
 
     public static void Map(WebApplication app)
     {
-        app.MapGet("/api/monitoring/lan-flow-map/snapshot",
+        // Gate 2 (design doc 06): every endpoint is mapped onto a group that carries its
+        // authorization policy, which is what architecture test A1 checks. Reads are any
+        // authenticated user, running a test is Operator, and changes are Admin.
+        var read = app.MapGroup("").RequireAuthorization(Policies.RequireViewer);
+        var admin = app.MapGroup("").RequireAuthorization(Policies.RequireAdmin);
+
+        read.MapGet("/api/monitoring/lan-flow-map/snapshot",
             async (LanFlowMapService svc, ILogger<LanFlowMapService> logger, CancellationToken ct) =>
             {
                 try
@@ -24,7 +31,7 @@ public static class LanFlowMapEndpoints
                 }
             });
 
-        app.MapGet("/api/monitoring/lan-flow-map/live",
+        read.MapGet("/api/monitoring/lan-flow-map/live",
             async (LanFlowMapService svc, ILogger<LanFlowMapService> logger, CancellationToken ct) =>
             {
                 try
@@ -38,7 +45,7 @@ public static class LanFlowMapEndpoints
                 }
             });
 
-        app.MapGet("/api/monitoring/lan-flow-map/history",
+        read.MapGet("/api/monitoring/lan-flow-map/history",
             async (LanFlowMapService svc, ILogger<LanFlowMapService> logger, DateTime at, CancellationToken ct) =>
             {
                 try
@@ -52,14 +59,14 @@ public static class LanFlowMapEndpoints
                 }
             });
 
-        app.MapGet("/api/monitoring/lan-flow-map/history/range",
+        read.MapGet("/api/monitoring/lan-flow-map/history/range",
             async (LanFlowMapService svc, CancellationToken ct) =>
             {
                 var earliest = await svc.GetHistoryStartAsync(ct);
                 return Results.Ok(new { earliest });
             });
 
-        app.MapGet("/api/monitoring/lan-flow-map/speed-tests",
+        read.MapGet("/api/monitoring/lan-flow-map/speed-tests",
             async (LanFlowMapService svc, DateTime? since, DateTime? until, CancellationToken ct) =>
             {
                 var fromT = since ?? DateTime.UtcNow.AddDays(-30);
@@ -68,7 +75,7 @@ public static class LanFlowMapEndpoints
                 return Results.Ok(items);
             });
 
-        app.MapPost("/api/monitoring/lan-flow-map/device-placement",
+        admin.MapPost("/api/monitoring/lan-flow-map/device-placement",
             async (DevicePlacementRequest req, ApMapService apMap, LanFlowMapService svc) =>
             {
                 if (string.IsNullOrWhiteSpace(req.Mac))

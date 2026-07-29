@@ -7,9 +7,14 @@
      around JS mount points but could still benefit from encapsulation.
 *@
 @page "/monitoring"
+@attribute [Authorize(Policy = Policies.RequireViewer)]
 @rendermode InteractiveServer
 @implements IDisposable
 @using NetworkOptimizer.Web.Services
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using NetworkOptimizer.Web.Services.Authorization
+@inject IAuthorizationService Authz
 @using NetworkOptimizer.Web.Components.Shared.Monitoring
 @using NetworkOptimizer.Web.Services.Monitoring.IspHealth
 @using NetworkOptimizer.Storage.Models
@@ -630,6 +635,9 @@ else
                     Raise a <a href="/alerts?tab=rules">Device: Temperature High</a> alert when a device runs above these limits.
                     Leave blank to use the default of @DefaultTempPlaceholder&deg;C. Hot-running models (e.g. high-PoE switches) may need a higher value to avoid noise.
                 </p>
+                @* Save below is Site Operator, so the fields are too. Disabled as a set rather than
+                   one attribute per input, so a field added later stays covered. *@
+                <fieldset class="threshold-fieldset" disabled="@(!_canOperate)">
                 <div class="threshold-fields" style="margin-top: 0.75rem;">
                     <div class="form-group">
                         <label class="form-label">Switch high temperature (&deg;C)</label>
@@ -642,10 +650,13 @@ else
                                placeholder="@DefaultTempPlaceholder" @bind="_gatewayTempThresholdInput" @bind:after="ResetThresholdSavedFlags" />
                     </div>
                 </div>
+                </fieldset>
                 <div class="input-with-button" style="margin-top: 1rem;">
-                    <button class="btn btn-primary btn-sm" @onclick="SaveTempThresholdsAsync" disabled="@_savingTempThresholds">
+                    <SiteOperatorOnly>
+                        <button class="btn btn-primary btn-sm" @onclick="SaveTempThresholdsAsync" disabled="@_savingTempThresholds">
                         @(_savingTempThresholds ? "Saving..." : "Save thresholds")
                     </button>
+                    </SiteOperatorOnly>
                     @if (_tempThresholdsSaved)
                     {
                         <span class="form-help signal-good" style="align-self: center;">Saved</span>
@@ -776,6 +787,9 @@ else
                 </p>
 
                 <h3 class="chart-title" style="margin-top: 0.75rem;">PON</h3>
+                @* Save below is Site Operator, so the fields are too. Disabled as a set rather than
+                   one attribute per input, so a field added later stays covered. *@
+                <fieldset class="threshold-fieldset" disabled="@(!_canOperate)">
                 <div class="threshold-fields">
                     <div class="form-group">
                         <label class="form-label">Temperature high (&deg;C)</label>
@@ -823,10 +837,13 @@ else
                 </div>
                 <p class="form-help">Generic SFP+ modules have no standard optical envelope, so only a temperature ceiling is checked.</p>
 
+                </fieldset>
                 <div class="input-with-button" style="margin-top: 1rem;">
-                    <button class="btn btn-primary btn-sm" @onclick="SaveSfpThresholdsAsync" disabled="@_savingSfpThresholds">
+                    <SiteOperatorOnly>
+                        <button class="btn btn-primary btn-sm" @onclick="SaveSfpThresholdsAsync" disabled="@_savingSfpThresholds">
                         @(_savingSfpThresholds ? "Saving..." : "Save thresholds")
                     </button>
+                    </SiteOperatorOnly>
                     @if (_sfpThresholdsSaved)
                     {
                         <span class="form-help signal-good" style="align-self: center;">Saved</span>
@@ -864,12 +881,14 @@ else
             <div class="card">
                 <div class="card-header monitoring-chart-header">
                     <h2 class="card-title">Cable Modem Signal History</h2>
-                    <a href="/settings#cable-modem" class="tooltip-icon settings-link" data-tooltip="Cable Modem settings">
+                    <SiteAdminOnly>
+                        <a href="/settings#cable-modem" class="tooltip-icon settings-link" data-tooltip="Cable Modem settings">
                         <img src="/images/gear.svg" alt="" style="width:16px;height:16px;" />
                     </a>
+                    </SiteAdminOnly>
                 </div>
                 <div class="card-body" style="text-align: center; padding: 2rem;">
-                    <p class="page-description">No cable modems configured. Add one in <a href="/settings#cable-modem">Settings</a> to start monitoring.</p>
+                    <p class="page-description">@(_canConfigure ? (MarkupString)"No cable modems configured. Add one in <a href=\"/settings#cable-modem\">Settings</a> to start monitoring." : (MarkupString)"No cable modems configured. A site administrator sets these up.")</p>
                 </div>
             </div>
         }
@@ -909,9 +928,11 @@ else
                         </div>
                     </div>
                     <button class="time-btn" data-shift="forward" data-tooltip="Shift window forward">&#x25B6;</button>
-                    <a href="/settings#cable-modem" class="tooltip-icon settings-link" data-tooltip="Cable Modem settings">
+                    <SiteAdminOnly>
+                        <a href="/settings#cable-modem" class="tooltip-icon settings-link" data-tooltip="Cable Modem settings">
                         <img src="/images/gear.svg" alt="" style="width:16px;height:16px;" />
                     </a>
+                    </SiteAdminOnly>
                 </div>
             </div>
             <div class="card-body">
@@ -965,12 +986,24 @@ else
             <div class="card">
                 <div class="card-header monitoring-chart-header">
                     <h2 class="card-title">ONT Signal History</h2>
-                    <a href="/settings#ont-monitoring" class="tooltip-icon settings-link" data-tooltip="ONT monitoring settings">
+                    <SiteAdminOnly>
+                        <a href="/settings#ont-monitoring" class="tooltip-icon settings-link" data-tooltip="ONT monitoring settings">
                         <img src="/images/gear.svg" alt="" style="width:16px;height:16px;" />
                     </a>
+                    </SiteAdminOnly>
                 </div>
                 <div class="card-body" style="text-align: center; padding: 2rem;">
-                    <p class="page-description">Your ONT is monitored via SFP on the <a href="javascript:void(0)" @onclick='() => SetActiveTab("sfp")' @onclick:preventDefault>SFP Stats</a> tab. To poll a standalone ONT device directly, <a href="/settings#ont-monitoring">configure one in Settings</a>.</p>
+                    <p class="page-description">
+                        Your ONT is monitored via SFP on the <a href="javascript:void(0)" @onclick='() => SetActiveTab("sfp")' @onclick:preventDefault>SFP Stats</a> tab.
+                        @if (_canConfigure)
+                        {
+                            <text>To poll a standalone ONT device directly, <a href="/settings#ont-monitoring">configure one in Settings</a>.</text>
+                        }
+                        else
+                        {
+                            <text>A standalone ONT can be polled directly instead; a site administrator sets that up.</text>
+                        }
+                    </p>
                 </div>
             </div>
         }
@@ -979,12 +1012,14 @@ else
             <div class="card">
                 <div class="card-header monitoring-chart-header">
                     <h2 class="card-title">ONT Signal History</h2>
-                    <a href="/settings#ont-monitoring" class="tooltip-icon settings-link" data-tooltip="ONT monitoring settings">
+                    <SiteAdminOnly>
+                        <a href="/settings#ont-monitoring" class="tooltip-icon settings-link" data-tooltip="ONT monitoring settings">
                         <img src="/images/gear.svg" alt="" style="width:16px;height:16px;" />
                     </a>
+                    </SiteAdminOnly>
                 </div>
                 <div class="card-body" style="text-align: center; padding: 2rem;">
-                    <p class="page-description">No ONT monitoring configured. <a href="/settings#ont-monitoring">Configure direct device polling</a> for standalone ONTs or SFP modules that don't expose DDM to the gateway.</p>
+                    <p class="page-description">@(_canConfigure ? (MarkupString)"No ONT monitoring configured. <a href=\"/settings#ont-monitoring\">Configure direct device polling</a> for standalone ONTs or SFP modules that don't expose DDM to the gateway." : (MarkupString)"No ONT monitoring configured. A site administrator can set up direct polling for standalone ONTs or SFP modules that don't expose DDM to the gateway.")</p>
                 </div>
             </div>
         }
@@ -1024,9 +1059,11 @@ else
                         </div>
                     </div>
                     <button class="time-btn" data-shift="forward" data-tooltip="Shift window forward">&#x25B6;</button>
-                    <a href="/settings#ont-monitoring" class="tooltip-icon settings-link" data-tooltip="ONT monitoring settings">
+                    <SiteAdminOnly>
+                        <a href="/settings#ont-monitoring" class="tooltip-icon settings-link" data-tooltip="ONT monitoring settings">
                         <img src="/images/gear.svg" alt="" style="width:16px;height:16px;" />
                     </a>
+                    </SiteAdminOnly>
                 </div>
             </div>
             <div class="card-body">
@@ -1067,6 +1104,9 @@ else
                     values under SFP Alert Thresholds.
                 </p>
 
+                @* Save below is Site Operator, so the fields are too. Disabled as a set rather than
+                   one attribute per input, so a field added later stays covered. *@
+                <fieldset class="threshold-fieldset" disabled="@(!_canOperate)">
                 <div class="threshold-fields">
                     <div class="form-group">
                         <label class="form-label">Temperature high (&deg;C)</label>
@@ -1083,10 +1123,13 @@ else
                     Not all ONTs report a temperature - the alert only fires for the ones that do.
                 </p>
 
+                </fieldset>
                 <div class="input-with-button" style="margin-top: 1rem;">
-                    <button class="btn btn-primary btn-sm" @onclick="SaveOntThresholdsAsync" disabled="@_savingOntThresholds">
+                    <SiteOperatorOnly>
+                        <button class="btn btn-primary btn-sm" @onclick="SaveOntThresholdsAsync" disabled="@_savingOntThresholds">
                         @(_savingOntThresholds ? "Saving..." : "Save thresholds")
                     </button>
+                    </SiteOperatorOnly>
                     @if (_ontThresholdsSaved)
                     {
                         <span class="form-help signal-good" style="align-self: center;">Saved</span>
@@ -1124,12 +1167,14 @@ else
             <div class="card">
                 <div class="card-header monitoring-chart-header">
                     <h2 class="card-title">Cellular Signal History</h2>
-                    <a href="/settings#cellular-modem" class="tooltip-icon settings-link" data-tooltip="Cellular Modem settings">
+                    <SiteAdminOnly>
+                        <a href="/settings#cellular-modem" class="tooltip-icon settings-link" data-tooltip="Cellular Modem settings">
                         <img src="/images/gear.svg" alt="" style="width:16px;height:16px;" />
                     </a>
+                    </SiteAdminOnly>
                 </div>
                 <div class="card-body" style="text-align: center; padding: 2rem;">
-                    <p class="page-description">No cellular modems configured. Add one in <a href="/settings#cellular-modem">Settings</a> to start monitoring.</p>
+                    <p class="page-description">@(_canConfigure ? (MarkupString)"No cellular modems configured. Add one in <a href=\"/settings#cellular-modem\">Settings</a> to start monitoring." : (MarkupString)"No cellular modems configured. A site administrator sets these up.")</p>
                 </div>
             </div>
         }
@@ -1169,9 +1214,11 @@ else
                         </div>
                     </div>
                     <button class="time-btn" data-shift="forward" data-tooltip="Shift window forward">&#x25B6;</button>
-                    <a href="/settings#cellular-modem" class="tooltip-icon settings-link" data-tooltip="Cellular Modem settings">
+                    <SiteAdminOnly>
+                        <a href="/settings#cellular-modem" class="tooltip-icon settings-link" data-tooltip="Cellular Modem settings">
                         <img src="/images/gear.svg" alt="" style="width:16px;height:16px;" />
                     </a>
+                    </SiteAdminOnly>
                 </div>
             </div>
             <div class="card-body">
@@ -1225,12 +1272,14 @@ else
             <div class="card">
                 <div class="card-header monitoring-chart-header">
                     <h2 class="card-title">Starlink Terminal History</h2>
-                    <a href="/settings#starlink" class="tooltip-icon settings-link" data-tooltip="Starlink settings">
+                    <SiteAdminOnly>
+                        <a href="/settings#starlink" class="tooltip-icon settings-link" data-tooltip="Starlink settings">
                         <img src="/images/gear.svg" alt="" style="width:16px;height:16px;" />
                     </a>
+                    </SiteAdminOnly>
                 </div>
                 <div class="card-body" style="text-align: center; padding: 2rem;">
-                    <p class="page-description">No Starlink terminals configured. Add one in <a href="/settings#starlink">Settings</a> to start monitoring.</p>
+                    <p class="page-description">@(_canConfigure ? (MarkupString)"No Starlink terminals configured. Add one in <a href=\"/settings#starlink\">Settings</a> to start monitoring." : (MarkupString)"No Starlink terminals configured. A site administrator sets these up.")</p>
                 </div>
             </div>
         }
@@ -1270,9 +1319,11 @@ else
                         </div>
                     </div>
                     <button class="time-btn" data-shift="forward" data-tooltip="Shift window forward">&#x25B6;</button>
-                    <a href="/settings#starlink" class="tooltip-icon settings-link" data-tooltip="Starlink settings">
+                    <SiteAdminOnly>
+                        <a href="/settings#starlink" class="tooltip-icon settings-link" data-tooltip="Starlink settings">
                         <img src="/images/gear.svg" alt="" style="width:16px;height:16px;" />
                     </a>
+                    </SiteAdminOnly>
                 </div>
             </div>
             <div class="card-body">
@@ -1364,10 +1415,12 @@ else
                     </details>
 
                     <div class="action-buttons" style="margin-top: 1rem;">
-                        <button class="btn btn-primary" @onclick="RunDetection" disabled="@_detecting">
+                        <SiteAdminOnly>
+                            <button class="btn btn-primary" @onclick="RunDetection" disabled="@_detecting">
                             @if (_detecting) { <span class="spinner-sm"></span> <span>Checking...</span> }
                             else { <span>Re-check</span> }
                         </button>
+                        </SiteAdminOnly>
                     </div>
                 </div>
             </div>
@@ -1385,10 +1438,12 @@ else
                         @(_detectionError ?? "Check that SNMP is still enabled on your UniFi Console and that firewall rules permit UDP/161 from this server to your network devices.")
                     </div>
                     <div class="action-buttons" style="margin-top: 1rem;">
-                        <button class="btn btn-primary" @onclick="RunDetection" disabled="@_detecting">
+                        <SiteAdminOnly>
+                            <button class="btn btn-primary" @onclick="RunDetection" disabled="@_detecting">
                             @if (_detecting) { <span class="spinner-sm"></span> <span>Re-checking...</span> }
                             else { <span>Re-check SNMP</span> }
                         </button>
+                        </SiteAdminOnly>
                     </div>
                 </div>
             </div>
@@ -1406,10 +1461,12 @@ else
                         : "UniFi devices only reliably support 20 characters.")
                     Shorten it and re-check.
                     <div style="margin-top: 0.75rem;">
-                        <button class="btn btn-sm btn-secondary" @onclick="RunDetection" disabled="@_detecting">
+                        <SiteAdminOnly>
+                            <button class="btn btn-sm btn-secondary" @onclick="RunDetection" disabled="@_detecting">
                             @if (_detecting) { <span class="spinner-sm"></span> <span>Re-checking...</span> }
                             else { <span>Re-check</span> }
                         </button>
+                        </SiteAdminOnly>
                     </div>
                 </div>
             }
@@ -1425,7 +1482,11 @@ else
 
             @if (!_influxConfigured || _showInfluxWizard)
             {
-                <InfluxSetupWizard TitlePrefix="Set up " OnProvisioned="OnInfluxProvisioned" OnDismissed="() => { _showInfluxWizard = false; StateHasChanged(); }" />
+                @* Provisioning reaches the whole instance - it can create org, buckets and token for
+                   this site and, on the silent path, for every site. Not a viewer's to run. *@
+                <SiteAdminOnly>
+                    <InfluxSetupWizard TitlePrefix="Set up " OnProvisioned="OnInfluxProvisioned" OnDismissed="() => { _showInfluxWizard = false; StateHasChanged(); }" />
+                </SiteAdminOnly>
             }
 
             <div class="card" style="@(!_influxConfigured ? "margin-top: 1.5rem;" : "")">
@@ -1433,9 +1494,11 @@ else
                     <h2 class="card-title">Monitoring Status</h2>
                     <div style="display: flex; align-items: center; gap: 0.5rem;">
                         <span class="status-badge status-connected">@OverallStateBadge()</span>
-                        <a href="/settings#monitoring" class="tooltip-icon settings-link" data-tooltip="Monitoring settings">
+                        <SiteAdminOnly>
+                            <a href="/settings#monitoring" class="tooltip-icon settings-link" data-tooltip="Monitoring settings">
                             <img src="/images/gear.svg" alt="" style="width:16px;height:16px;" />
                         </a>
+                        </SiteAdminOnly>
                     </div>
                 </div>
                 <div class="card-body">
@@ -1487,9 +1550,11 @@ else
                                     <a href="/settings#monitoring" class="btn btn-sm btn-secondary" style="margin-left: 0.5rem;">
                                         Update Token
                                     </a>
-                                    <button class="btn btn-sm btn-primary" style="margin-left: 0.25rem;" @onclick="ResetInfluxSetup">
+                                    <SiteAdminOnly>
+                                        <button class="btn btn-sm btn-primary" style="margin-left: 0.25rem;" @onclick="ResetInfluxSetup">
                                         Re-run Setup
                                     </button>
+                                    </SiteAdminOnly>
                                 }
                                 @if (_lastInfluxTestAt.HasValue && !_checkingInflux)
                                 {
@@ -1531,17 +1596,21 @@ else
                     <div class="action-buttons" style="margin-top: 1rem;">
                         @if (_monitoringEnabled)
                         {
-                            <button class="btn btn-secondary" @onclick="() => SetMonitoringEnabled(false)" disabled="@_togglingEnable">
+                            <SiteAdminOnly>
+                                <button class="btn btn-secondary" @onclick="() => SetMonitoringEnabled(false)" disabled="@_togglingEnable">
                                 @if (_togglingEnable) { <span class="spinner-sm"></span> <span>Stopping...</span> }
                                 else { <span>Disable Monitoring</span> }
                             </button>
+                            </SiteAdminOnly>
                         }
                         else
                         {
-                            <button class="btn btn-primary" @onclick="() => SetMonitoringEnabled(true)" disabled="@(_togglingEnable || _influxReachable != true)">
+                            <SiteAdminOnly>
+                                <button class="btn btn-primary" @onclick="() => SetMonitoringEnabled(true)" disabled="@(_togglingEnable || _influxReachable != true)">
                                 @if (_togglingEnable) { <span class="spinner-sm"></span> <span>Starting...</span> }
                                 else { <span>Enable Monitoring</span> }
                             </button>
+                            </SiteAdminOnly>
                             @if (_influxReachable != true)
                             {
                                 <span class="page-description" style="margin-left: 0.75rem;">
@@ -1588,6 +1657,17 @@ else
 </style>
 
 @code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    /// <summary>Site Operator on this site: what the threshold forms are gated on.</summary>
+    private bool _canOperate;
+
+    /// <summary>
+    /// Whether this caller can reach the Settings pages these empty states point at. Used for copy
+    /// only - the controls themselves are wrapped in SiteAdminOnly / SiteOperatorOnly.
+    /// </summary>
+    private bool _canConfigure;
+
     [SupplyParameterFromQuery(Name = "tab")]
     public string? TabParam { get; set; }
 
@@ -1916,6 +1996,13 @@ else
 
     protected override async Task OnInitializedAsync()
     {
+        _canConfigure = AuthState is null
+            || (await Authz.AuthorizeAsync((await AuthState).User, SiteCtx.Slug, Policies.SiteAdmin)).Succeeded;
+
+        // The threshold forms are Site Operator work, not Site Admin, so they need their own answer.
+        _canOperate = AuthState is null
+            || (await Authz.AuthorizeAsync((await AuthState).User, SiteCtx.Slug, Policies.SiteOperator)).Succeeded;
+
         ConnectionService.OnConnectionChanged += OnConnectionChanged;
 
         // Restore tab visibility persisted from prerender so the interactive render
@@ -2098,6 +2185,13 @@ else
     private bool _investigateCollapsed = true;
     private bool _investigateSavedCollapsed = true;
     private bool _investigateStateLoaded;
+
+    /// <summary>
+    /// A deep link has forced the Investigate card open, so the saved collapse preference must not
+    /// close it again when localStorage finally answers. Cleared with the rest of the live state on
+    /// leaving the tab, so it never becomes a sticky expand.
+    /// </summary>
+    private bool _investigateDeepLinkOpened;
     private const string InvestigateCollapseKey = "monitoring-investigate-collapsed";
 
     // Clear the transient "Saved" confirmations so they don't linger after the
@@ -3627,7 +3721,16 @@ else
             catch { }
             // Saved preference wins; with none, default to expanded so the controls are discoverable.
             _investigateSavedCollapsed = val == "true";
-            _investigateCollapsed = _investigateSavedCollapsed;
+
+            // ...but never over a deep link. The flag above is set BEFORE this await, so a render
+            // arriving while localStorage is still answering lets the deep-link block below run and
+            // force the card open - and this line then put it straight back. That is why the first
+            // link into a loss investigation often did nothing while later ones always worked: once
+            // the key is warm the read returns before the next render and the race stops happening.
+            // Checked both ways round because either block can reach its state first.
+            if (_pendingInvestigateParam is null && !_investigateDeepLinkOpened)
+                _investigateCollapsed = _investigateSavedCollapsed;
+
             StateHasChanged();
         }
 
@@ -3640,6 +3743,7 @@ else
             // visible. Live state only - the saved preference is untouched, and leaving the tab
             // reverts to it, so a linkable investigation never counts as a user-set expand.
             _investigateCollapsed = false;
+            _investigateDeepLinkOpened = true;
             await NavigateToLossEvent(null, null, loadedOnly: kind == "loaded-loss");
         }
 
@@ -3807,6 +3911,7 @@ else
             // Revert any transient deep-link force-open to the user's saved preference, so a
             // linkable investigation never lingers as an expand the user didn't choose.
             _investigateCollapsed = _investigateSavedCollapsed;
+            _investigateDeepLinkOpened = false;
         }
 
         if (_scrollToDiscoveryPending && _activeTab == "performance")

@@ -22,13 +22,17 @@ public class ChannelMemoryRegistry : BackgroundService
     private readonly HashSet<string> _running = new(StringComparer.OrdinalIgnoreCase);
     private readonly SemaphoreSlim _lifecycleLock = new(1, 1);
 
+    private readonly NetworkOptimizer.Core.ISiteWorkGate _siteWorkGate;
+
     public ChannelMemoryRegistry(
         IServiceProvider serviceProvider,
         IDbContextFactory<NetworkOptimizerDbContext> mainDbFactory,
+        NetworkOptimizer.Core.ISiteWorkGate siteWorkGate,
         ILogger<ChannelMemoryRegistry> logger)
     {
         _serviceProvider = serviceProvider;
         _mainDbFactory = mainDbFactory;
+        _siteWorkGate = siteWorkGate;
         _logger = logger;
     }
 
@@ -75,10 +79,9 @@ public class ChannelMemoryRegistry : BackgroundService
 
     private async Task ReconcileAsync(CancellationToken ct)
     {
-        var desired = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-        {
-            SiteManagementService.DefaultSiteSlug
-        };
+        var desired = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (_siteWorkGate.IsSiteOperational(SiteManagementService.DefaultSiteSlug))
+            desired.Add(SiteManagementService.DefaultSiteSlug);
 
         await using (var db = await _mainDbFactory.CreateDbContextAsync(ct))
         {
@@ -90,7 +93,7 @@ public class ChannelMemoryRegistry : BackgroundService
                     .Where(s => s.Enabled && !s.IsDefault)
                     .Select(s => s.Slug)
                     .ToListAsync(ct);
-                foreach (var slug in slugs)
+                foreach (var slug in slugs.Where(_siteWorkGate.IsSiteOperational))
                     desired.Add(slug);
             }
         }

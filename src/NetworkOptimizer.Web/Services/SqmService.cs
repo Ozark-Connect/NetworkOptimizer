@@ -18,7 +18,6 @@ public class SqmService : ISqmService
     private readonly SiteContextService _siteContext;
 
     // Track SQM state
-    private SqmConfiguration? _currentConfig;
     private TcMonitorResponse? _lastTcStats;
     private DateTime? _lastPollTime;
 
@@ -99,7 +98,7 @@ public class SqmService : ISqmService
         {
             Status = "Active",
             CurrentRate = primaryWan?.RateMbps ?? 0,
-            BaselineRate = _currentConfig?.DownloadSpeed ?? primaryWan?.RateMbps ?? 0,
+            BaselineRate = primaryWan?.RateMbps ?? 0,
             // TODO(latency-monitoring): Get real latency from agent metrics.
             // Requires: Agent infrastructure pushing latency samples to /api/metrics endpoint.
             CurrentLatency = 0,
@@ -680,78 +679,6 @@ public class SqmService : ISqmService
         return false;
     }
 
-    /// <summary>
-    /// Generate the tc-monitor configuration content based on controller WAN settings
-    /// This can be used to deploy the correct interface mapping to gateways
-    /// </summary>
-    public async Task<string> GenerateTcMonitorConfigAsync()
-    {
-        var wans = await GetWanInterfacesFromControllerAsync();
-
-        if (wans.Count == 0)
-        {
-            return "# No WAN interfaces found in controller configuration\n# Format: interface:name\nifbeth2:WAN1 ifbeth0:WAN2";
-        }
-
-        // Generate interface configuration in the format expected by tc-monitor
-        // Format: "ifbeth4:Comcast ifbeth0:Starlink"
-        var config = string.Join(" ", wans
-            .Where(w => !string.IsNullOrEmpty(w.TcInterface))
-            .Select(w => $"{w.TcInterface}:{w.Name}"));
-
-        return config;
-    }
-
-    public async Task<bool> DeploySqmAsync(SqmConfiguration config)
-    {
-        _logger.LogInformation("Deploying SQM configuration: {@Config}", config);
-
-        if (!_connectionService.IsConnected)
-        {
-            _logger.LogWarning("Cannot deploy SQM: controller not connected");
-            return false;
-        }
-
-        // TODO(agent-infrastructure): Deploy SQM via the on-site agent once it
-        // grows SSH deployment capability.
-        // Steps: 1) Generate scripts via NetworkOptimizer.Sqm.ScriptGenerator
-        //        2) Push to gateway via agent SSH connection
-        //        3) Verify tc qdisc installation and crontab entry
-
-        await Task.Delay(2000); // Simulate deployment
-
-        _currentConfig = config;
-
-        return true;
-    }
-
-    public async Task<string> GenerateSqmScriptsAsync(SqmConfiguration config)
-    {
-        _logger.LogInformation("Generating SQM scripts for configuration: {@Config}", config);
-
-        // TODO(sqm-scripts): Integrate NetworkOptimizer.Sqm.ScriptGenerator.
-        // Requires: Finalized script templates for CAKE qdisc configuration.
-        // Should generate: sqm-start.sh, sqm-stop.sh, crontab entry, tc-monitor.sh
-
-        await Task.Delay(500); // Simulate generation
-
-        return "/downloads/sqm-scripts.tar.gz";
-    }
-
-    public async Task<bool> DisableSqmAsync()
-    {
-        _logger.LogInformation("Disabling SQM");
-
-        if (!_connectionService.IsConnected)
-        {
-            _logger.LogWarning("Cannot disable SQM: controller not connected");
-            return false;
-        }
-
-        await Task.Delay(1000); // Simulate operation
-
-        return true;
-    }
 }
 
 public class SqmStatusData
@@ -771,16 +698,6 @@ public class SqmStatusData
     // Live TC data
     public List<TcInterfaceStats>? TcInterfaces { get; set; }
     public DateTime? TcMonitorTimestamp { get; set; }
-}
-
-public class SqmConfiguration
-{
-    public string Interface { get; set; } = "";
-    public int DownloadSpeed { get; set; }
-    public int UploadSpeed { get; set; }
-    public bool EnableSpeedtest { get; set; }
-    public bool EnableLatencyMonitoring { get; set; }
-    public string BlendingRatio { get; set; } = "6040";
 }
 
 public class SpeedtestResult

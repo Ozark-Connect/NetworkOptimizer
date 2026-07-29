@@ -12,7 +12,7 @@ namespace NetworkOptimizer.Web.Services.Licensing;
 /// throws, every site reads as operational - licensing problems must never take
 /// monitoring down harder than the policy demands.
 /// </summary>
-public class LicenseStateService : BackgroundService
+public class LicenseStateService : BackgroundService, NetworkOptimizer.Core.ISiteWorkGate
 {
     /// <summary>How long sites keep working after their covering key expires or coverage is lost.</summary>
     public static readonly TimeSpan GracePeriod = TimeSpan.FromDays(10);
@@ -51,12 +51,14 @@ public class LicenseStateService : BackgroundService
     /// Cheap per-site gate for hot paths: false only when the site is known to
     /// be Restricted. Unknown slugs and the pre-compute window read as operational.
     /// </summary>
-    public bool IsSiteOperational(string slug)
+    public bool IsSiteOperational(string? slug)
     {
         var snapshot = _snapshot;
         if (snapshot == null)
             return true;
-        return !snapshot.States.TryGetValue(slug, out var status) || status.IsOperational;
+        // Alerts/Threats identify the default site by an empty site key; the snapshot keys it by slug.
+        var key = string.IsNullOrEmpty(slug) ? Services.SiteManagementService.DefaultSiteSlug : slug;
+        return !snapshot.States.TryGetValue(key, out var status) || status.IsOperational;
     }
 
     /// <summary>The computed status for a site, or null when unknown.</summary>

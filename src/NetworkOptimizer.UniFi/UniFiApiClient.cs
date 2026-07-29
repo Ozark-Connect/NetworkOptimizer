@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Sockets;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
@@ -34,6 +35,9 @@ public class UniFiApiClient : IDisposable
     private readonly string? _apiKey;
     private readonly string _site;
     private readonly bool _ignoreSSLErrors;
+
+    /// <summary>Loopback port of this site's agent tunnel proxy, or null for a direct connection.</summary>
+    private readonly int? _agentProxyPort;
     private HttpClient? _httpClient;
     private CookieContainer? _cookieContainer;
     private string? _csrfToken;
@@ -93,8 +97,10 @@ public class UniFiApiClient : IDisposable
         string password,
         string site = "default",
         bool ignoreSSLErrors = true,
-        string? apiKey = null)
+        string? apiKey = null,
+        int? agentProxyPort = null)
     {
+        _agentProxyPort = agentProxyPort;
         _logger = logger;
         _controllerUrl = controllerHost.StartsWith("https://") ? controllerHost : $"https://{controllerHost}";
         _username = username;
@@ -104,7 +110,7 @@ public class UniFiApiClient : IDisposable
         _ignoreSSLErrors = ignoreSSLErrors;
 
         // Configure retry policy for transient failures. A console reached through
-        // an agent tunnel is dialed via a loopback proxy (127.0.0.1); when that
+        // an agent tunnel is dialed via a loopback proxy; when that
         // tunnel is black-holed the proxy fast-fails the open, but this retry sits
         // ABOVE the proxy and would otherwise stack the full 2+4+8s (~14s)
         // exponential backoff onto every request - which reads as a frozen site
@@ -113,7 +119,7 @@ public class UniFiApiClient : IDisposable
         // agent-proxied consoles get a single quick retry. Directly-connected
         // consoles keep the full backoff - a real transient blip there is worth
         // riding out.
-        var viaAgentProxy = _controllerUrl.Contains("127.0.0.1");
+        var viaAgentProxy = _agentProxyPort is not null;
         _retryPolicy = Policy
             .Handle<HttpRequestException>()
             .Or<TaskCanceledException>()
@@ -155,22 +161,70 @@ public class UniFiApiClient : IDisposable
         }
     }
 
-    private void InitializeHttpClient()
+    /// <summary>
+    /// The message handler a console connection runs on. Cookie handling is declared identically on
+    /// both paths: UniFi's password sign-in is cookie-based, so a handler without a cookie container
+    /// authenticates and then forgets it has. Only the DIALLING differs - a tunnelled console keeps
+    /// its own URL (and so its Host header and TLS SNI) and is connected to at the loopback proxy.
+    /// </summary>
+    internal static HttpMessageHandler CreateHandler(
+        CookieContainer cookies, bool ignoreSslErrors, int? agentProxyPort)
     {
-        _cookieContainer = new CookieContainer();
-
-        var handler = new HttpClientHandler
+        if (agentProxyPort is { } proxyPort)
         {
-            CookieContainer = _cookieContainer,
+            var sockets = new SocketsHttpHandler
+            {
+                CookieContainer = cookies,
+                UseCookies = true,
+                ConnectCallback = async (context, cancellationToken) =>
+                {
+                    var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp)
+                    {
+                        NoDelay = true,
+                    };
+                    try
+                    {
+                        await socket.ConnectAsync(IPAddress.Loopback, proxyPort, cancellationToken);
+                        return new NetworkStream(socket, ownsSocket: true);
+                    }
+                    catch
+                    {
+                        socket.Dispose();
+                        throw;
+                    }
+                },
+            };
+
+            if (ignoreSslErrors)
+                sockets.SslOptions.RemoteCertificateValidationCallback = (sender, cert, chain, errors) => true;
+
+            return sockets;
+        }
+
+        var direct = new HttpClientHandler
+        {
+            CookieContainer = cookies,
             UseCookies = true
         };
 
         // UniFi controllers typically use self-signed certificates.
         // This setting allows bypassing SSL validation when enabled (default: true).
-        if (_ignoreSSLErrors)
-        {
-            handler.ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true;
-        }
+        if (ignoreSslErrors)
+            direct.ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true;
+
+        return direct;
+    }
+
+    private void InitializeHttpClient()
+    {
+        _cookieContainer = new CookieContainer();
+
+        // A tunnelled console keeps its own URL and is DIALLED at the loopback proxy instead. Pointing
+        // the URL itself at 127.0.0.1 would be simpler, but the Host header and the TLS SNI come from
+        // the URL - so a console sitting behind a name-routing reverse proxy (the usual shape for
+        // UniFi OS Server) would be asked for by an address that proxy has no vhost for, and answer
+        // 404 no matter how good the credentials are.
+        var handler = CreateHandler(_cookieContainer, _ignoreSSLErrors, _agentProxyPort);
 
         _httpClient = new HttpClient(handler)
         {

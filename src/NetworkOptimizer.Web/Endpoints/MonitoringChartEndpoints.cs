@@ -4,6 +4,7 @@ using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Services;
 using NetworkOptimizer.Web.Services;
 using NetworkOptimizer.Web.Services.Monitoring;
+using NetworkOptimizer.Web.Services.Authorization;
 
 namespace NetworkOptimizer.Web.Endpoints;
 
@@ -11,7 +12,12 @@ public static class MonitoringChartEndpoints
 {
     public static void Map(WebApplication app)
     {
-        app.MapGet("/api/monitoring/live-stats", async (
+        // Gate 2 (design doc 06): the whole group carries authorization metadata, which is what
+        // architecture test A1 checks. The policy short-circuits when the install has
+        // authentication disabled (GlobalRoleHandler).
+        var group = app.MapGroup("").RequireAuthorization(Policies.RequireViewer);
+
+        group.MapGet("/api/monitoring/live-stats", async (
             MonitoringLiveStats liveStats,
             UniFiConnectionService connectionService,
             CancellationToken ct) =>
@@ -57,7 +63,7 @@ public static class MonitoringChartEndpoints
             });
         });
 
-        app.MapGet("/api/monitoring/wan-live-chart-data", async (
+        group.MapGet("/api/monitoring/wan-live-chart-data", async (
             MonitoringInfluxClient influx,
             MonitoringLiveStats liveStats,
             UniFiConnectionService connectionService,
@@ -128,7 +134,7 @@ public static class MonitoringChartEndpoints
             return Results.Ok(new { points });
         });
 
-        app.MapGet("/api/monitoring/chart-data", async (
+        group.MapGet("/api/monitoring/chart-data", async (
             MonitoringInfluxClient influx,
             SiteDbContextFactory siteDbFactory,
             SiteContextService siteContext,
@@ -194,7 +200,7 @@ public static class MonitoringChartEndpoints
             return Results.Ok(new { targets = result });
         });
 
-        app.MapGet("/api/monitoring/wan-rate-chart", async (
+        group.MapGet("/api/monitoring/wan-rate-chart", async (
             MonitoringInfluxClient influx,
             UniFiConnectionService connectionService,
             int? rangeHours,

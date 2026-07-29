@@ -11,7 +11,7 @@ namespace NetworkOptimizer.Web.Services;
 /// <summary>
 /// Export and import NetworkOptimizer configuration as encrypted .nopt files.
 /// </summary>
-public class ConfigTransferService
+public class ConfigTransferService : IConfigTransferService
 {
     private readonly IDbContextFactory<NetworkOptimizerDbContext> _dbFactory;
     private readonly IHostApplicationLifetime _appLifetime;
@@ -456,7 +456,7 @@ public class ConfigTransferService
     /// <summary>
     /// Cancel a pending import and clean up temp files.
     /// </summary>
-    public void CancelPendingImport()
+    public Task CancelPendingImportAsync()
     {
         if (_pendingImportPath != null)
         {
@@ -464,6 +464,7 @@ public class ConfigTransferService
         }
         _pendingImportPath = null;
         _pendingPreview = null;
+        return Task.CompletedTask;
     }
 
     private async Task PruneHistoryTablesAsync(string dbPath)

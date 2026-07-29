@@ -1,6 +1,7 @@
 @using NetworkOptimizer.Storage.Models
 @using NetworkOptimizer.Web.Services
-@inject SiteManagementService SiteManagement
+@inject ISiteManagementService SiteManagement
+@inject NetworkOptimizer.Web.Services.Authorization.ISiteAccessFilter SiteAccess
 @inject SiteContextService SiteContext
 @inject SiteConnectionRegistry SiteConnections
 @inject SiteRegistryChangeNotifier ChangeNotifier
@@ -68,7 +69,8 @@
 
         // Disabled sites are managed (re-enabled/removed) from Settings - Multi-Site;
         // they don't belong in the switcher.
-        _sites = (await SiteManagement.GetSitesAsync()).Where(s => s.Enabled).ToList();
+        _sites = await SiteAccess.FilterAsync(
+            (await SiteManagement.GetSitesAsync()).Where(s => s.Enabled), s => s.Slug);
         _currentSite = _sites.FirstOrDefault(s => s.Slug == SiteContext.Slug)
             ?? _sites.FirstOrDefault(s => s.IsDefault);
     }
@@ -82,6 +84,24 @@
             try
             {
                 await LoadSitesAsync();
+
+                // The site this circuit is standing on has just gone out of reach. Everything scoped
+                // was resolved against it when the circuit started and cannot be re-pointed in place,
+                // so the parts that refetch start being refused while the parts that already have
+                // their data carry on showing it - access looks half taken away, and the address bar
+                // still names a site that is no longer theirs. A reload settles all of it: the root
+                // component falls back to a site they do hold and rewrites the URL to match.
+                // Deliberately not guarded on the list being non-empty: losing your LAST site is
+                // exactly when the circuit is standing on something it no longer holds, and skipping
+                // the reload there left the one user who had lost everything as the only one who was
+                // never moved. With no sites left the reload lands on the refusal page, which is the
+                // honest answer.
+                if (_enabled && _sites.All(site => site.Slug != SiteContext.Slug))
+                {
+                    NavigationManager.NavigateTo(NavigationManager.Uri, forceLoad: true);
+                    return;
+                }
+
                 _open = false;
                 StateHasChanged();
             }
@@ -121,10 +141,15 @@
     {
         // The all-sites overview isn't a per-site page, so switching sites from it
         // should land on the new site's dashboard rather than reload the overview.
+        //
+        // The refusal page is the same: it says a page was not yours on the site you were on, so
+        // carrying it to the next site just refuses you again - and the page you were actually
+        // trying to reach is not in the URL to return to. Land on the new site's dashboard.
         var pathOnly = NavigationManager.ToBaseRelativePath(NavigationManager.Uri)
             .Split('?', '#')[0]
             .TrimEnd('/');
-        if (string.Equals(pathOnly, "sites", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(pathOnly, "sites", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(pathOnly, "denied", StringComparison.OrdinalIgnoreCase))
             return NavigationManager.BaseUri;
 
         // Client Performance pins a specific client via ?ip= - that address

@@ -42,6 +42,9 @@
     --bg-card: #161618;
     --bg-hover: #232326;
     --bg-hover-subtle: #1c1c1f;
+    /* Hovering a row that is already expanded. One step above --bg-hover so the row still answers
+       the mouse, without climbing to --bg-elevated and reading as a different surface. */
+    --bg-row-expanded-hover: #27272b;
     --surface: #161618;
     --surface-secondary: #1c1c1f;
 
@@ -424,7 +427,8 @@ h1:focus {
     margin-bottom: 1.5rem;
 }
 
-.settings-tabbed > .card {
+.settings-tabbed > .card,
+.settings-tabbed > .alert {
     display: none;
 }
 
@@ -433,6 +437,8 @@ h1:focus {
 .settings-tabbed.active-speedtests > .settings-tab-speedtests,
 .settings-tabbed.active-security > .settings-tab-security,
 .settings-tabbed.active-application > .settings-tab-application,
+.settings-tabbed.active-identity > .settings-tab-identity,
+.settings-tabbed.active-auditlog > .settings-tab-auditlog,
 .settings-tabbed.active-multisite > .settings-tab-multisite {
     display: block;
 }
@@ -2332,6 +2338,73 @@ a.btn-lg {
     background: var(--bg-elevated);
 }
 
+/* An auth option with nothing configured. Dimmed rather than hidden, because which options are and
+   are not in play is the thing you come to these cards to read.
+
+   Qualified with .form-label deliberately: on its own this loses to .form-label's own colour, which
+   is declared later in the file at equal specificity. */
+.form-label.form-label-unused {
+    color: var(--text-muted);
+}
+
+.ssh-key-row .form-help,
+#ssh-key .form-help {
+    margin-top: 0.5rem;
+}
+
+/* Wraps the value only, not the label - the label stays aligned with every other field header in the
+   card. Bordered only once a key is stored: it states that key auth is in play for the section, so it
+   should read as a statement rather than as another line of help text. */
+.ssh-key-row-set {
+    margin-top: 0.5rem;
+    padding: 0.75rem;
+    border: 1px solid var(--info-color);
+    border-radius: var(--border-radius);
+}
+
+.ssh-key-row-set .form-help {
+    margin-top: 0;
+}
+
+#ssh-key .ssh-key-upload .form-group {
+    margin-bottom: 1rem;
+}
+
+/* The Private key field opens the upload form, so it needs clearing from the buttons above it. */
+#ssh-key .ssh-key-upload .form-group:first-child {
+    margin-top: 1rem;
+}
+
+#ssh-key .ssh-key-public {
+    margin-bottom: 1.25rem;
+}
+
+/* The actions follow a setup-guide, which carries no bottom margin of its own. */
+#ssh-key .action-buttons {
+    margin-top: 1.5rem;
+    gap: 1rem;
+}
+
+/* This one sits inside help text rather than beside a button, so it sizes to sit with the sentence. */
+#ssh-key .form-help .btn-link {
+    font-size: 0.8rem;
+}
+
+/* A button that reads as a link, for the lesser of two adjacent actions. */
+.btn-link {
+    background: none;
+    border: none;
+    padding: 0;
+    font-size: 0.9rem;
+    color: var(--primary-hover);
+    text-decoration: underline;
+    cursor: pointer;
+}
+
+.btn-link:hover:not(:disabled) {
+    color: var(--text-primary);
+}
+
 /* Tertiary - Elevated grey (for dismiss/subtle actions on tertiary backgrounds) */
 .btn-tertiary {
     background: var(--bg-elevated);
@@ -2341,6 +2414,18 @@ a.btn-lg {
 .btn-tertiary:hover:not(:disabled) {
     background: var(--btn-map-hover);
     color: var(--text-primary);
+}
+
+/* Same lift as tertiary, for a button sitting ON an elevated surface rather than one that is
+   lower priority. Keeps full-strength text: the elevated background is doing the separating, and
+   toning the label down as well makes it read as de-emphasised when it is not. */
+.btn-contrast {
+    background: var(--bg-elevated);
+    color: var(--text-primary);
+}
+
+.btn-contrast:hover:not(:disabled) {
+    background: var(--btn-map-hover);
 }
 
 /* Danger - Red (for destructive actions) */
@@ -2441,7 +2526,8 @@ a.btn-lg {
         justify-content: center;
     }
 
-    .site-switcher ~ .logout-btn span {
+    .site-switcher ~ .logout-btn span,
+    .site-switcher ~ .account-btn span {
         display: none;
     }
 }
@@ -2490,6 +2576,22 @@ a.btn-lg {
 
 .action-item.danger-zone h4 {
     color: var(--danger-color);
+}
+
+.card.danger-zone {
+    border-left: 4px solid var(--danger-color);
+}
+
+.card.danger-zone .card-title {
+    color: var(--danger-color);
+}
+
+.card.card-accent {
+    border-left: 4px solid var(--primary-hover);
+}
+
+.card.card-accent .card-title {
+    color: var(--primary-hover);
 }
 
 /* Forms */
@@ -2631,15 +2733,198 @@ select.form-control {
 }
 
 /* Empty States */
-.empty-state {
-    text-align: center;
-    padding: 3rem 1rem;
-}
-
 .empty-icon {
     font-size: 4rem;
     margin-bottom: 1rem;
     opacity: 0.5;
+}
+
+.empty-icon svg {
+    width: 3rem;
+    height: 3rem;
+    color: var(--text-secondary);
+}
+
+.account-credential-list {
+    list-style: none;
+    margin: 0 0 1rem;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.account-credential-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.625rem 0.75rem;
+    background: var(--bg-tertiary);
+    border-radius: var(--border-radius-lg);
+}
+
+.account-credential-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+    min-width: 0;
+}
+
+.account-credential-item .btn {
+    flex: 0 0 auto;
+}
+
+.account-credential-name {
+    font-weight: 500;
+    color: var(--text-primary);
+    overflow-wrap: anywhere;
+}
+
+.account-credential-meta {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+.account-passkey-name {
+    max-width: 260px;
+    margin-bottom: 1rem;
+}
+
+.account-recovery-intro {
+    margin: 0;
+    font-size: 0.875rem;
+    line-height: 1.5;
+}
+
+.account-recovery-codes {
+    list-style: none;
+    margin: 0.75rem 0 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
+    gap: 0.375rem;
+}
+
+.account-recovery-actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 1rem;
+}
+
+.account-recovery-codes code {
+    font-size: 0.95rem;
+    letter-spacing: 0.05em;
+}
+
+.account-empty-note {
+    margin-bottom: 0.5rem;
+}
+
+.account-note {
+    margin: 0 0 0.75rem;
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    line-height: 1.5;
+}
+
+.account-qr {
+    display: inline-block;
+    margin-bottom: 0.5rem;
+    padding: 0.75rem;
+    background: #ffffff;
+    border-radius: var(--border-radius-lg);
+    line-height: 0;
+}
+
+.account-qr img {
+    display: block;
+}
+
+.account-key-row {
+    display: flex;
+    align-items: stretch;
+    gap: 0.5rem;
+    max-width: 26rem;
+    margin-bottom: 1rem;
+}
+
+.account-key-input {
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+    letter-spacing: 0.04em;
+}
+
+.code-copy-block {
+    position: relative;
+}
+
+.code-copy-block pre {
+    background: var(--bg-primary);
+    padding: 0.75rem;
+    padding-right: 3rem;
+    border-radius: 6px;
+    overflow-x: auto;
+    max-width: 100%;
+    font-size: 0.8125rem;
+}
+
+.code-copy-btn {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    padding: 0;
+    background: var(--bg-elevated);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
+}
+
+.code-copy-btn:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.code-copy-btn svg {
+    width: 0.95rem;
+    height: 0.95rem;
+}
+
+.account-copy-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: 2.5rem;
+    padding: 0;
+    background: var(--bg-elevated);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.account-copy-btn:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.account-copy-btn svg {
+    width: 1rem;
+    height: 1rem;
+}
+
+.account-verify-code {
+    max-width: 340px;
+    margin-bottom: 1rem;
 }
 
 .empty-state h3 {
@@ -4003,6 +4288,10 @@ tr:hover .snmp-row-chevron {
     background: var(--bg-tertiary);
 }
 
+.data-table tr.snmp-row-expanded:hover {
+    background: var(--bg-row-expanded-hover);
+}
+
 .data-table .snmp-detail-row > td {
     padding: 0;
     border-top: none;
@@ -4010,7 +4299,7 @@ tr:hover .snmp-row-chevron {
 
 .snmp-detail-panel {
     padding: 1rem 1.25rem 1.25rem;
-    background: var(--bg-secondary);
+    background: var(--bg-tertiary);
     border-top: 1px solid var(--border-color);
 }
 
@@ -4598,6 +4887,17 @@ tr:hover .snmp-row-chevron {
     padding: 3rem 2rem;
     color: var(--text-secondary);
     font-size: 0.92rem;
+}
+
+/* For an empty state inside a card that is already one of several on a page, where the full-page
+   version's 3rem reads as a hole rather than breathing room. Both classes so it beats .empty-state
+   on specificity rather than on source order. */
+.empty-state.empty-state-small {
+    padding: 1.5rem;
+}
+
+.empty-state.empty-state-small .empty-icon {
+    font-size: 2rem;
 }
 
 .empty-state .empty-icon {
@@ -6122,6 +6422,10 @@ a.path-hop.hop-clickable:hover {
     background: var(--bg-hover);
 }
 
+.data-table tr.history-row-expanded:hover {
+    background: var(--bg-row-expanded-hover);
+}
+
 .history-details-row {
     background: var(--bg-hover);
 }
@@ -6137,7 +6441,9 @@ a.path-hop.hop-clickable:hover {
     background: var(--bg-tertiary);
 }
 
-.history-details-row td {
+/* Direct child only. As a descendant selector this zeroed the padding of every cell in any table
+   rendered inside a details row - and the !important meant nothing could win it back. */
+.history-details-row > td {
     padding: 0 !important;
 }
 
@@ -6297,6 +6603,7 @@ a.path-hop.hop-clickable:hover {
 }
 
 .form-section-header .form-help {
+    margin-bottom: 1rem;
     color: var(--text-muted);
 }
 
@@ -6823,6 +7130,11 @@ a.path-hop.hop-clickable:hover {
     vertical-align: text-top;
 }
 
+/* For icons sitting on an inner tertiary surface, where the default tertiary fill disappears. */
+.tooltip-icon-contrast {
+    background: var(--bg-elevated);
+}
+
 /* Hidden content element (Tippy reads innerHTML from this) */
 .tooltip-content {
     display: none;
@@ -6983,6 +7295,10 @@ a.path-hop.hop-clickable:hover {
 .login-btn {
     width: 100%;
     padding: 0.875rem 1.5rem;
+    /* Form controls do not inherit the page font, so the passkey <button> rendered in the browser's
+       system UI font while the provider <a> next to it used ours. Same size and weight either way,
+       which is why it read as a mismatch rather than an obvious one. */
+    font-family: inherit;
     font-size: 1rem;
     font-weight: 500;
     display: flex;
@@ -6991,11 +7307,84 @@ a.path-hop.hop-clickable:hover {
     gap: 0.5rem;
 }
 
+.login-alt-signin {
+    margin-top: 1.25rem;
+}
+
 .login-footer {
     text-align: center;
     margin-top: 1.5rem;
     padding-top: 1.5rem;
     border-top: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+/* The sign-in-method buttons follow .login-divider, which is already a rule. */
+.login-footer-undivided {
+    padding-top: 0;
+    border-top: none;
+}
+
+/* The row gap is the label-to-tooltip spacing; the rules add their own margin on top of it so the
+   line can breathe without the tooltip drifting away from the words it belongs to. */
+/* Marks a card as the one being pointed at - a deep link's target, or the thing a page is asking
+   the user to act on. .card carries no border, so this is a ring rather than a border-color: the
+   same 3px primary halo the focus state uses, which is why it reads as deliberate rather than as a
+   hairline stuck to the edge. */
+.card-highlight {
+    box-shadow: 0 0 0 3px rgba(5, 89, 201, 0.5);
+}
+
+/* The guidance sits at the top of the card body, where .alert's own top margin doubles the padding
+   already there. */
+.card-highlight .card-body > .alert:first-child {
+    margin-top: 0;
+}
+
+.login-divider {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    margin-top: 1.5rem;
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+}
+
+.login-divider::before,
+.login-divider::after {
+    content: "";
+    flex: 1;
+    min-width: 0;
+    height: 1px;
+    background: var(--border-color);
+}
+
+.login-divider::before {
+    margin-right: 0.375rem;
+}
+
+.login-divider::after {
+    margin-left: 0.375rem;
+}
+
+.login-divider .tooltip-icon {
+    margin-left: 0;
+}
+
+.login-divider-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+/* The provider buttons are anchors, so the global a:hover recoloured their text blue on hover while
+   the passkey <button> beside them kept the button colour. They are buttons here, not links. */
+.login-footer a.btn:hover {
+    color: var(--text-primary);
 }
 
 .login-footer .text-muted {
@@ -7010,7 +7399,110 @@ a.path-hop.hop-clickable:hover {
     gap: 1rem;
 }
 
-.logout-btn {
+.error-page-icon {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 1rem;
+    color: var(--text-secondary);
+    opacity: 0.6;
+}
+
+.error-page-icon svg {
+    width: 3rem;
+    height: 3rem;
+}
+
+.error-page-title {
+    margin: 0 0 0.75rem;
+    font-size: 1.25rem;
+    text-align: center;
+    color: var(--text-primary);
+}
+
+.error-page-body {
+    margin: 0 0 1.25rem;
+    font-size: 0.875rem;
+    line-height: 1.5;
+    text-align: center;
+    color: var(--text-secondary);
+}
+
+.login-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    margin-bottom: 0.75rem;
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+    text-decoration: none;
+}
+
+.login-back:hover {
+    color: var(--text-primary);
+}
+
+.login-back svg {
+    width: 14px;
+    height: 14px;
+}
+
+/* Both class and element qualified so it beats .login-card .form-group outright, rather than
+   depending on which rule happens to come later in the file. */
+.login-card .form-group.login-username-group {
+    margin-bottom: 1rem;
+}
+
+.remember-device {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin: 0 0 1rem;
+    font-size: 0.9rem;
+}
+
+.logout-form {
+    display: inline-flex;
+}
+
+.nav-item-logout {
+    display: none;
+}
+
+.nav-logout-btn {
+    width: 100%;
+    background: none;
+    border: none;
+    border-left: 2px solid transparent;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.nav-logout-icon {
+    width: 2.5rem;
+    margin-right: 0.5rem;
+    display: flex;
+    justify-content: flex-end;
+    flex-shrink: 0;
+}
+
+.nav-logout-icon svg {
+    width: 1.25rem;
+    height: 1.25rem;
+}
+
+@media (max-width: 768px) {
+    .nav-item-logout {
+        display: block;
+    }
+
+    .logout-form {
+        display: none;
+    }
+}
+
+.logout-btn,
+.account-btn {
     display: flex;
     align-items: center;
     gap: 0.375rem;
@@ -7030,7 +7522,14 @@ a.path-hop.hop-clickable:hover {
     color: var(--danger-color);
 }
 
-.logout-btn svg {
+.account-btn:hover {
+    background: var(--bg-hover);
+    border-color: var(--primary-hover);
+    color: var(--primary-hover);
+}
+
+.logout-btn svg,
+.account-btn svg {
     width: 14px;
     height: 14px;
 }
@@ -9279,6 +9778,10 @@ a.path-hop.hop-clickable:hover {
 .apexcharts-tooltip-title {
     background: var(--bg-primary) !important;
     border-bottom: 1px solid var(--border-color) !important;
+}
+
+.netopt-own-hover-dots .apexcharts-marker {
+    display: none;
 }
 
 @media (max-width: 768px) {
@@ -14581,8 +15084,26 @@ a.affected-client:hover {
     background: white;
 }
 
-.wan-speedtest .toggle-switch input:disabled + .toggle-slider {
+.identity-actions-note {
+    color: var(--text-muted);
+    font-size: 0.85rem;
+}
+
+.mi-form-fields,
+.ws-edit-fields,
+.threshold-fieldset {
+    border: none;
+    padding: 0;
+    margin: 0;
+    min-width: 0;
+}
+
+.toggle-switch input:disabled + .toggle-slider {
     opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.toggle-switch:has(input:disabled) {
     cursor: not-allowed;
 }
 
@@ -14846,11 +15367,36 @@ a.affected-client:hover {
 
 /* WAN Filter Badges */
 .wan-filter-badges {
+    /* Anchors the reset control at the right without moving the centred chips. */
+    position: relative;
     display: flex;
     gap: 0.5rem;
     flex-wrap: wrap;
     justify-content: center;
     padding-bottom: 0.5rem;
+}
+
+.wan-filter-badges-reserved {
+    padding-left: 2rem;
+    padding-right: 2rem;
+}
+
+.wan-filter-reset {
+    position: absolute;
+    right: 0;
+    top: 0;
+    display: inline-flex;
+    align-items: center;
+    padding: 0.2rem 0.35rem;
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    line-height: 1;
+    cursor: pointer;
+}
+
+.wan-filter-reset:hover {
+    color: var(--text-primary);
 }
 
 .wan-filter-badge {
@@ -14880,6 +15426,29 @@ a.affected-client:hover {
 #port-stats-card .wan-filter-badge {
     font-size: 0.8rem;
     padding: 0.4rem 0.875rem;
+}
+
+.isp-chart-wrap .wan-filter-reset svg {
+    width: 16px;
+    height: 16px;
+}
+
+.isp-chart-badges {
+    gap: 0.375rem;
+    margin-top: 0.5rem;
+    margin-bottom: 0;
+    padding-bottom: 0;
+}
+
+.isp-chart-wrap .wan-filter-badge {
+    font-size: 0.7rem;
+    padding: 0.3rem 0.65rem;
+    gap: 0.375rem;
+}
+
+.isp-chart-wrap .wan-badge-dot {
+    width: 7px;
+    height: 7px;
 }
 
 .wan-history-table {
@@ -16671,6 +17240,17 @@ tr.stats-row-filtered {
     background-position: right center;
 }
 
+.isp-access-tech-select:disabled {
+    background-image: none;
+    padding-right: 0;
+    cursor: default;
+    opacity: 1;
+}
+
+.isp-profile-chip-caret:has(+ .isp-profile-chip-select:disabled) {
+    display: none;
+}
+
 .isp-access-tech-select:hover {
     color: var(--text-primary);
 }
@@ -18056,9 +18636,12 @@ body.kiosk-mode .status-indicators {
 }
 
 .site-agent-status {
-    color: var(--text-secondary);
-    font-size: 0.85rem;
+    display: flex;
+    place-items: center;
+    gap: 0.75rem;
     flex: 1;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
 }
 
 .site-agent-actions {
@@ -18068,7 +18651,20 @@ body.kiosk-mode .status-indicators {
     margin-top: 0.5rem;
 }
 
-.site-config-row td {
+/* The upgrade block alternates a one-line heading and a command box, twice over, so each needs to sit
+   off the thing below it. */
+.agent-upgrade-cmd .form-help {
+    margin-bottom: 0.3rem;
+}
+
+.agent-upgrade-cmd .code-copy-block {
+    margin-bottom: 0.75rem;
+}
+
+/* Direct child, for the same reason as .history-details-row above: the panel row carries both
+   classes, so as a descendant selector this kept zeroing the cells of the table inside the panel
+   even once the other rule was scoped. */
+.site-config-row > td {
     padding: 0;
 }
 
@@ -18076,8 +18672,62 @@ body.kiosk-mode .status-indicators {
     background: transparent;
 }
 
+/* Fixed layout so opening a panel cannot resize the columns. The panel row spans every column,
+   so under the default auto layout its content participates in width calculation and the header
+   columns jump the moment it appears. Widths are declared on the header cells below. */
+.site-row-collapsible {
+    cursor: pointer;
+}
+
+/* The caret sits beside the button group, not inside it. btn-group-wrap wraps its children, so a
+   caret placed within it drops to a second line as soon as the buttons fill the row - which no
+   column width can reliably prevent. */
+.site-row-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.site-row-caret {
+    flex-shrink: 0;
+    white-space: nowrap;
+    /* Pushed to the end of the cell rather than sitting against the last button, so it reads as the
+       row's own affordance instead of another item in the button group. */
+    margin-left: auto;
+    padding-left: 0.75rem;
+    color: var(--text-secondary);
+    font-size: 0.7rem;
+}
+
+.sites-table {
+    table-layout: fixed;
+}
+
+/* The actions cell carries up to three buttons plus the caret, so it takes the space the first
+   three columns were over-claiming - a short name, a slug and a date all read fine narrower. */
+.sites-table th:nth-child(1) { width: 22%; }
+.sites-table th:nth-child(2) { width: 17%; }
+.sites-table th:nth-child(3) { width: 12%; }
+.sites-table th:nth-child(4) { width: 8%; }
+.sites-table th:nth-child(5) { width: 41%; }
+
+/* Created is hidden below 768px, so its share is redistributed rather than left as a gap. */
+@media (max-width: 768px) {
+    .sites-table th:nth-child(1) { width: 28%; }
+    .sites-table th:nth-child(2) { width: 20%; }
+    .sites-table th:nth-child(4) { width: 8%; }
+    .sites-table th:nth-child(5) { width: 44%; }
+}
+
 .data-table tr.site-row-selected {
     background: var(--bg-hover);
+}
+
+/* An expanded row keeps its own background on hover. The generic row hover paints a lighter tint,
+   so without this, hovering the row you just opened makes it look like it closed. Applied the same
+   way to .history-row-expanded and .snmp-row-expanded. */
+.data-table tr.site-row-selected:hover {
+    background: var(--bg-row-expanded-hover);
 }
 
 .site-name-selected {
@@ -18089,34 +18739,12 @@ body.kiosk-mode .status-indicators {
     display: flex;
     flex-direction: column;
     gap: 0.85rem;
-    margin: 0.25rem 0 0.75rem;
-    padding: 2.5rem 1rem 1rem;
+    margin: 0 0 0.75rem;
+    padding: 1rem;
     background: var(--bg-tertiary);
-    border-radius: var(--border-radius-lg);
-}
-
-.site-config-dismiss {
-    position: absolute;
-    top: 0.5rem;
-    right: 0.5rem;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 1.75rem;
-    height: 1.75rem;
-    padding: 0;
-    border: none;
-    border-radius: var(--border-radius);
-    background: transparent;
-    color: var(--text-muted);
-    font-size: 1.25rem;
-    line-height: 1;
-    cursor: pointer;
-}
-
-.site-config-dismiss:hover {
-    background: var(--bg-hover);
-    color: var(--text-primary);
+    /* Square along the top so the panel reads as an extension of the row that opened it, rather
+       than a separate card floating below it. */
+    border-radius: 0 0 var(--border-radius-lg) var(--border-radius-lg);
 }
 
 .site-config-section {
@@ -18779,4 +19407,273 @@ body.kiosk-mode .status-indicators {
 .tour-card-body strong {
     color: var(--text-primary);
     font-weight: 600;
+}
+
+.identity-loading {
+    display: flex;
+    justify-content: center;
+    padding: 1.5rem 0;
+}
+
+.identity-user {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+}
+
+.identity-user-name {
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.identity-user-display {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+.identity-muted {
+    color: var(--text-muted);
+}
+
+.identity-lock {
+    display: inline-flex;
+}
+
+.identity-role-select {
+    min-width: 7.5rem;
+    padding: 0.35rem 0.5rem;
+}
+
+.identity-role-cell {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.identity-credentials,
+.identity-row-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+}
+
+.identity-row-actions {
+    justify-content: flex-end;
+}
+
+.identity-actions-col {
+    text-align: right;
+    white-space: nowrap;
+}
+
+.identity-inline-row > td {
+    background: var(--bg-tertiary);
+}
+
+.identity-inline-form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    padding: 0.25rem 0;
+}
+
+.identity-inline-title {
+    margin: 0;
+    font-size: 0.95rem;
+    color: var(--text-primary);
+}
+
+.gate-refusal p {
+    margin: 0.5rem 0 0.75rem 0;
+}
+
+.identity-roles-heading {
+    margin-top: 1.25rem;
+    margin-bottom: 0.5rem;
+}
+
+.identity-roles-footnote {
+    margin-top: 0.75rem;
+}
+
+.identity-role-name {
+    font-weight: 600;
+    color: var(--text-primary);
+    white-space: nowrap;
+}
+
+.identity-role-mark {
+    text-align: center;
+    white-space: nowrap;
+}
+
+.identity-section-title {
+    margin: 1.75rem 0 0.75rem;
+    font-size: 0.95rem;
+    color: var(--text-primary);
+}
+
+.identity-subsection-title {
+    margin: 0;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+.identity-form-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+    gap: 0.75rem 1rem;
+}
+
+/* The grid already spaces its rows, so .form-group's own 1.5rem stacked on top of the gap. */
+.identity-form-grid .form-group {
+    margin-bottom: 1rem;
+}
+
+.identity-mfa-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1.5rem;
+}
+
+.identity-form-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.identity-add-form {
+    margin-top: 1rem;
+    padding: 1rem;
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius-lg);
+    background: var(--bg-tertiary);
+}
+
+.identity-card-actions {
+    justify-content: flex-end;
+    margin-top: 1rem;
+}
+
+/* Both are grids on the LIST with each row's cells promoted into it, so columns line up across rows
+   instead of every row sizing itself. They differ in how many columns they have, which is why they
+   cannot share one rule: a link row is provider / subject / action. */
+.identity-link-list,
+.identity-url-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    align-items: center;
+    gap: 0.4rem 0.75rem;
+}
+
+.identity-url-list {
+    grid-template-columns: max-content 1fr;
+}
+
+.identity-link-list {
+    grid-template-columns: max-content 1fr max-content;
+}
+
+/* The two sub-cards sit one above the other: what is linked, then how to link another. */
+.identity-link-add {
+    margin-top: 0.75rem;
+}
+
+.identity-link-item,
+.identity-url-item {
+    display: contents;
+}
+
+.identity-link-provider,
+.identity-url-label {
+    font-weight: 500;
+    color: var(--text-primary);
+    font-size: 0.85rem;
+}
+
+.identity-link-subject,
+.identity-url-value {
+    color: var(--text-secondary);
+    word-break: break-all;
+}
+
+/* The URL sits beside its label in a flex row, so the copy block takes the rest of the line rather
+   than collapsing to its content. */
+.identity-url-item .code-copy-block {
+    min-width: 0;
+}
+
+@media (max-width: 768px) {
+    .account-recovery-codes code {
+        font-size: 0.85rem;
+    }
+
+    .identity-row-actions {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .identity-row-actions > *,
+    .identity-lock > .btn {
+        width: 100%;
+    }
+
+    .identity-actions-col {
+        text-align: left;
+        white-space: normal;
+    }
+
+    .identity-card-actions {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .identity-card-actions .btn {
+        width: 100%;
+    }
+
+    /* One column on a phone: three columns of provider, subject and action leave nothing readable,
+       and the subject is a long opaque identifier. Each cell takes its own line instead. */
+    .identity-link-list,
+    .identity-url-list {
+        grid-template-columns: 1fr;
+        gap: 0.25rem;
+    }
+
+    .identity-link-item,
+    .identity-url-item {
+        padding-bottom: 0.5rem;
+    }
+}
+
+.audit-filter-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+}
+
+.audit-filter-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-left: auto;
+}
+
+.audit-pager {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 1rem;
+}
+
+@media (max-width: 768px) {
+    .audit-filter-actions {
+        margin-left: 0;
+    }
 }

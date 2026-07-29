@@ -1,4 +1,5 @@
 @page "/wifi-optimizer"
+@attribute [Authorize(Policy = Policies.RequireViewer)]
 @using NetworkOptimizer.Web.Services
 @using NetworkOptimizer.Web.Models
 @using NetworkOptimizer.WiFi
@@ -6,15 +7,16 @@
 @using NetworkOptimizer.WiFi.Models
 @using NetworkOptimizer.Storage.Models
 @inject WiFiOptimizerService WiFiService
-@inject ClientSpeedTestService SpeedTestService
+@inject IClientSpeedTestService SpeedTestService
 @inject ClientDashboardService DashboardService
 @inject UniFiConnectionService ConnectionService
 @inject NavigationManager NavigationManager
 @inject ApMapService ApMapService
-@inject MeshOptimizationService MeshService
+@inject IMeshOptimizationService MeshService
 @inject NetworkOptimizer.Web.Services.Licensing.LicenseStateService LicenseState
 @inject SiteContextService SiteContext
 @inject PullToRefreshState PtrState
+@inject IApMapAdminService ApMapAdmin
 @implements IDisposable
 @rendermode InteractiveServer
 
@@ -613,21 +615,23 @@
                                         <div class="ap-mesh-info @(!string.IsNullOrEmpty(ap.MeshUplinkInterface) ? "ap-mesh-info-with-action" : "")">
                                             @if (!string.IsNullOrEmpty(ap.MeshUplinkInterface))
                                             {
-                                                <button class="btn btn-sm btn-primary optimize-mesh-btn"
-                                                        @onclick="@(() => OptimizeMeshAsync(ap))"
-                                                        disabled="@(!ap.IsOnline || _optimizingMacs.Contains(ap.Mac) || IsLicenseRestricted)"
-                                                        data-tooltip="Re-scans the mesh uplink so this AP reconnects to its highest Uplink Priority parent when it's stuck on a weaker one. Safe to re-run.">
-                                                    @if (_optimizingMacs.Contains(ap.Mac))
-                                                    {
-                                                        <span class="spinner-sm"></span>
-                                                        <span>Re-pairing...</span>
-                                                    }
-                                                    else
-                                                    {
-                                                        <span class="optimize-mesh-icon">&#x21bb;</span>
-                                                        <span>Re-pair Uplink</span>
-                                                    }
-                                                </button>
+                                                <SiteOperatorOnly>
+                                                    <button class="btn btn-sm btn-primary optimize-mesh-btn"
+                                                            @onclick="@(() => OptimizeMeshAsync(ap))"
+                                                            disabled="@(!ap.IsOnline || _optimizingMacs.Contains(ap.Mac) || IsLicenseRestricted)"
+                                                            data-tooltip="Re-scans the mesh uplink so this AP reconnects to its highest Uplink Priority parent when it's stuck on a weaker one. Safe to re-run.">
+                                                        @if (_optimizingMacs.Contains(ap.Mac))
+                                                        {
+                                                            <span class="spinner-sm"></span>
+                                                            <span>Re-pairing...</span>
+                                                        }
+                                                        else
+                                                        {
+                                                            <span class="optimize-mesh-icon">&#x21bb;</span>
+                                                            <span>Re-pair Uplink</span>
+                                                        }
+                                                    </button>
+                                                </SiteOperatorOnly>
                                             }
                                             @if (ap.MeshUplinkSignalDbm.HasValue)
                                             {
@@ -1216,7 +1220,7 @@
     {
         try
         {
-            await ApMapService.SaveApLocationAsync(args.Mac, args.Lat, args.Lng);
+            await ApMapAdmin.SaveApLocationAsync(args.Mac, args.Lat, args.Lng);
 
             var marker = _apMapMarkers.FirstOrDefault(m => m.Mac.Equals(args.Mac, StringComparison.OrdinalIgnoreCase));
             if (marker != null)

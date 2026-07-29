@@ -3,8 +3,13 @@
 @using NetworkOptimizer.Storage.Models
 @using NetworkOptimizer.UniFi
 @using NetworkOptimizer.Web.Services
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using NetworkOptimizer.Web.Services.Authorization
+@inject IAuthorizationService Authz
+@inject SiteContextService SiteCtx
 @inject IMonitoringInterfaceRepository Repo
-@inject MonitoringInterfaceDeploymentService Deploy
+@inject IMonitoringInterfaceDeploymentService Deploy
 @inject ISqmService SqmService
 @inject Microsoft.JSInterop.IJSRuntime JS
 @inject ILogger<MonitoringInterfacesCard> Logger
@@ -38,9 +43,22 @@
 
         @if (_interfaces.Count == 0)
         {
+            @* "Add one below" is only true for whoever can see the form. *@
             <p class="empty-state">
-                No monitoring interfaces configured. Add one below if a modem/ONT management IP
-                isn't reachable for polling.
+                @if (_canConfigure)
+                {
+                    <text>
+                        No monitoring interfaces configured. Add one below if a modem/ONT management IP
+                        isn't reachable for polling.
+                    </text>
+                }
+                else
+                {
+                    <text>
+                        No monitoring interfaces configured. These are set up by a site administrator
+                        when a modem/ONT management IP isn't reachable for polling.
+                    </text>
+                }
             </p>
         }
         else
@@ -74,64 +92,72 @@
                                 <td>@StatusBadge(mi)</td>
                                 <td>
                                     <div class="btn-group-wrap mi-row-actions">
-                                        <button class="btn btn-secondary btn-sm" @onclick="() => EditInterface(mi)" disabled="@(_busyId != null)">Edit</button>
+                                        <button class="btn btn-secondary btn-sm" @onclick="() => EditInterface(mi)" disabled="@(_busyId != null)">@(_canConfigure ? "Edit" : "View")</button>
                                         @if (mi.Disabled)
                                         {
                                             @* Disabled rows expose exactly one forward action - Enable - in the primary
                                                slot (it redeploys), so Deploy/Re-apply (which would just hit the disabled
                                                guard) and the separate Disable toggle are both omitted here. *@
-                                            <button class="btn btn-primary btn-sm" @onclick="() => ToggleDisable(mi)" disabled="@(_busyId != null)">
-                                                @if (_busyId == mi.Id && _busyAction == "enable")
-                                                {
-                                                    <span class="spinner spinner-sm"></span>
-                                                    <span>Enabling...</span>
-                                                }
-                                                else
-                                                {
-                                                    <span>Enable</span>
-                                                }
-                                            </button>
+                                            <SiteAdminOnly>
+                                                <button class="btn btn-primary btn-sm" @onclick="() => ToggleDisable(mi)" disabled="@(_busyId != null)">
+                                                    @if (_busyId == mi.Id && _busyAction == "enable")
+                                                    {
+                                                        <span class="spinner spinner-sm"></span>
+                                                        <span>Enabling...</span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <span>Enable</span>
+                                                    }
+                                                </button>
+                                            </SiteAdminOnly>
                                         }
                                         else
                                         {
-                                            <button class="btn btn-primary btn-sm" @onclick="() => DeployInterface(mi)" disabled="@(_busyId != null)">
-                                                @if (_busyId == mi.Id && _busyAction == "deploy")
-                                                {
-                                                    <span class="spinner spinner-sm"></span>
-                                                    <span>Deploying...</span>
-                                                }
-                                                else
-                                                {
-                                                    <span>@(IsApplied(mi) ? "Re-apply" : "Deploy")</span>
-                                                }
-                                            </button>
+                                            <SiteAdminOnly>
+                                                <button class="btn btn-primary btn-sm" @onclick="() => DeployInterface(mi)" disabled="@(_busyId != null)">
+                                                    @if (_busyId == mi.Id && _busyAction == "deploy")
+                                                    {
+                                                        <span class="spinner spinner-sm"></span>
+                                                        <span>Deploying...</span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <span>@(IsApplied(mi) ? "Re-apply" : "Deploy")</span>
+                                                    }
+                                                </button>
+                                            </SiteAdminOnly>
                                         }
                                         <button class="btn btn-secondary btn-sm" @onclick="() => CheckStatus(mi)" disabled="@(_busyId != null)">Check status</button>
                                         @if (ShowDisableToggle(mi) && !mi.Disabled)
                                         {
-                                            <button class="btn btn-outline-primary btn-sm" @onclick="() => ToggleDisable(mi)" disabled="@(_busyId != null)">
-                                                @if (_busyId == mi.Id && _busyAction == "disable")
+                                            <SiteAdminOnly>
+                                                <button class="btn btn-outline-primary btn-sm" @onclick="() => ToggleDisable(mi)" disabled="@(_busyId != null)">
+                                                    @if (_busyId == mi.Id && _busyAction == "disable")
+                                                    {
+                                                        <span class="spinner spinner-sm"></span>
+                                                        <span>Disabling...</span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <span>Disable</span>
+                                                    }
+                                                </button>
+                                            </SiteAdminOnly>
+                                        }
+                                        <SiteAdminOnly>
+                                            <button class="btn btn-danger btn-sm" @onclick="() => RemoveInterface(mi)" disabled="@(_busyId != null)">
+                                                @if (_busyId == mi.Id && _busyAction == "remove")
                                                 {
                                                     <span class="spinner spinner-sm"></span>
-                                                    <span>Disabling...</span>
+                                                    <span>Removing...</span>
                                                 }
                                                 else
                                                 {
-                                                    <span>Disable</span>
+                                                    <span>@(_forceRemoveArmed.Contains(mi.Id) ? "Remove anyway" : "Remove")</span>
                                                 }
                                             </button>
-                                        }
-                                        <button class="btn btn-danger btn-sm" @onclick="() => RemoveInterface(mi)" disabled="@(_busyId != null)">
-                                            @if (_busyId == mi.Id && _busyAction == "remove")
-                                            {
-                                                <span class="spinner spinner-sm"></span>
-                                                <span>Removing...</span>
-                                            }
-                                            else
-                                            {
-                                                <span>@(_forceRemoveArmed.Contains(mi.Id) ? "Remove anyway" : "Remove")</span>
-                                            }
-                                        </button>
+                                        </SiteAdminOnly>
                                     </div>
                                 </td>
                             </tr>
@@ -159,8 +185,15 @@
                     </div>
                 }
 
+                @if (_canConfigure || _editing.Id > 0)
+                {
                 <div class="mi-add-section">
-                    <h3>@(_editing.Id > 0 ? "Edit monitoring interface" : "Add a monitoring interface")</h3>
+                    <h3>@(!_canConfigure ? "Monitoring interface" : _editing.Id > 0 ? "Edit monitoring interface" : "Add a monitoring interface")</h3>
+                    @* Below Site Admin this form is the only way to READ the record, so it stays open and
+                       becomes a viewer. A fieldset rather than an attribute per input: the fields must not
+                       invite edits that Save would never accept, and one wrapper cannot be forgotten the
+                       next time a field is added here. *@
+                    <fieldset class="mi-form-fields" disabled="@(!_canConfigure)">
                     <div class="form-row">
                         <div class="form-group mi-grow-2">
                             <label class="form-label">Modem/ONT IP</label>
@@ -267,25 +300,36 @@
                         </div>
                     </details>
 
+                    </fieldset>
+
                     <div class="action-buttons">
-                        <button class="btn btn-primary" @onclick="SaveAndDeploy" disabled="@(_busyId != null || _saving)">
-                            @if (_saving)
-                            {
-                                <span class="spinner spinner-sm"></span>
-                                <span>Working...</span>
-                            }
-                            else
-                            {
-                                <span>Save &amp; Deploy</span>
-                            }
-                        </button>
-                        <button class="btn btn-secondary" @onclick="SaveOnly" disabled="@(_busyId != null || _saving)">Save without deploying</button>
-                        @if (_editing.Id > 0)
+                        <SiteAdminOnly>
+                            <button class="btn btn-primary" @onclick="SaveAndDeploy" disabled="@(_busyId != null || _saving)">
+                                @if (_saving)
+                                {
+                                    <span class="spinner spinner-sm"></span>
+                                    <span>Working...</span>
+                                }
+                                else
+                                {
+                                    <span>Save &amp; Deploy</span>
+                                }
+                            </button>
+                        </SiteAdminOnly>
+                        <SiteAdminOnly>
+                            <button class="btn btn-secondary" @onclick="SaveOnly" disabled="@(_busyId != null || _saving)">Save without deploying</button>
+                        </SiteAdminOnly>
+                        @if (!_canConfigure)
+                        {
+                            <button class="btn btn-secondary" @onclick="CancelEdit" disabled="@_saving">Close</button>
+                        }
+                        else if (_editing.Id > 0)
                         {
                             <button class="btn btn-secondary" @onclick="CancelEdit" disabled="@_saving">Cancel edit</button>
                         }
                     </div>
                 </div>
+                }
             </div>
         </div>
     </div>
@@ -364,6 +408,14 @@
 </style>
 
 @code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    /// <summary>
+    /// Whether this caller may change an interface. The editor is the only place a row's full
+    /// configuration can be read, so it stays reachable and simply stops offering to save.
+    /// </summary>
+    private bool _canConfigure;
+
     /// <summary>
     /// Optional modem/ONT IP to pre-fill into a new interface, used by the deep-links from
     /// the CM/ONT/Cellular monitor forms ("can't reach it? set up an interface").
@@ -453,6 +505,9 @@
 
     protected override async Task OnInitializedAsync()
     {
+        _canConfigure = AuthState is null
+            || (await Authz.AuthorizeAsync((await AuthState).User, SiteCtx.Slug, Policies.SiteAdmin)).Succeeded;
+
         await LoadAsync();
         // NOTE: collapse state is decided once in OnAfterRenderAsync (saved preference, else
         // count-based default). Don't set _collapsed here - this runs after an await and can

@@ -5,7 +5,6 @@ using NetworkOptimizer.Alerts.Events;
 using NetworkOptimizer.Alerts.Interfaces;
 using NetworkOptimizer.Core;
 using NetworkOptimizer.Core.Enums;
-using NetworkOptimizer.Alerts.Models;
 
 namespace NetworkOptimizer.Alerts;
 

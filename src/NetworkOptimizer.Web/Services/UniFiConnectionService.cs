@@ -396,7 +396,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     /// the tunnel itself is suspect (absent, stale, or open-breaker tripped), the
     /// failure is a dead-tunnel symptom: the loopback proxy dial collapses
     /// mid-TLS and parses as an "SSL certificate error" with advice the user
-    /// can't act on (proxied connections can't cert-match 127.0.0.1). Land in
+    /// can't act on - the console never answered at all. Land in
     /// awaiting-agent instead, so the banner tells the truth from the first
     /// moment rather than flashing a bogus SSL error until the flip corrects it.
     /// A genuine console-side failure over a HEALTHY tunnel keeps its real error.
@@ -418,22 +418,23 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     }
 
     /// <summary>
-    /// When the site's console is reached through its agent tunnel, rewrites
-    /// the controller URL to the loopback proxy endpoint that forwards over
-    /// the tunnel. Callers must also force ignore-SSL for proxied connections:
-    /// the console's certificate can never match 127.0.0.1.
+    /// The console's URL, and the loopback port to dial it on when the site is reached through its
+    /// agent tunnel. The URL is deliberately left alone: it decides the Host header and the TLS SNI,
+    /// and a console behind a name-routing reverse proxy answers 404 to anything that does not ask
+    /// for it by name. Only the connection is redirected - see UniFiApiClient's ConnectCallback.
+    /// Callers still force ignore-SSL for proxied connections.
     /// </summary>
-    private string ResolveControllerUrl(string controllerUrl, bool viaAgent)
+    private (string Url, int? ProxyPort) ResolveControllerEndpoint(string controllerUrl, bool viaAgent)
     {
-        if (!viaAgent) return controllerUrl;
+        if (!viaAgent) return (controllerUrl, null);
         var proxy = _serviceProvider.GetService<AgentTunnelProxyService>();
         if (proxy == null || !Uri.TryCreate(controllerUrl, UriKind.Absolute, out var uri))
-            return controllerUrl;
+            return (controllerUrl, null);
         var port = uri.IsDefaultPort ? (uri.Scheme == Uri.UriSchemeHttps ? 443 : 80) : uri.Port;
         var localPort = proxy.GetOrCreateEndpoint(SiteSlug, uri.Host, port);
         _logger.LogInformation("Console for site {Slug} routed via agent tunnel (127.0.0.1:{LocalPort} -> {Host}:{Port})",
             SiteSlug, localPort, uri.Host, port);
-        return $"{uri.Scheme}://127.0.0.1:{localPort}";
+        return (controllerUrl, localPort);
     }
 
     /// <summary>
@@ -696,15 +697,17 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
                 _lastError = AwaitingAgentMessage;
                 return false;
             }
+            var consoleEndpoint = ResolveControllerEndpoint(config.ControllerUrl, viaAgent);
             var clientLogger = _loggerFactory.CreateLogger<UniFiApiClient>();
             _client = new UniFiApiClient(
                 clientLogger,
-                ResolveControllerUrl(config.ControllerUrl, viaAgent),
+                consoleEndpoint.Url,
                 config.Username,
                 config.Password,
                 config.Site,
                 config.IgnoreControllerSSLErrors || viaAgent,
-                config.ApiKey
+                config.ApiKey,
+                consoleEndpoint.ProxyPort
             );
             _client.AuthProbeCompleted += HandleAuthProbe;
 
@@ -835,15 +838,17 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
                 _lastError = AwaitingAgentMessage;
                 return false;
             }
+            var consoleEndpoint = ResolveControllerEndpoint(config.ControllerUrl, viaAgent);
             var clientLogger = _loggerFactory.CreateLogger<UniFiApiClient>();
             _client = new UniFiApiClient(
                 clientLogger,
-                ResolveControllerUrl(config.ControllerUrl, viaAgent),
+                consoleEndpoint.Url,
                 config.Username,
                 config.Password,
                 config.Site,
                 config.IgnoreControllerSSLErrors || viaAgent,
-                config.ApiKey
+                config.ApiKey,
+                consoleEndpoint.ProxyPort
             );
             _client.AuthProbeCompleted += HandleAuthProbe;
 
@@ -1066,15 +1071,17 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
                     "This site's console is reached through its on-site agent tunnel, which isn't connected yet. Start the site's agent (or wait for it to come online), then test again.",
                     null);
             }
+            var consoleEndpoint = ResolveControllerEndpoint(config.ControllerUrl, viaAgent);
             var clientLogger = _loggerFactory.CreateLogger<UniFiApiClient>();
             testClient = new UniFiApiClient(
                 clientLogger,
-                ResolveControllerUrl(config.ControllerUrl, viaAgent),
+                consoleEndpoint.Url,
                 config.Username,
                 config.Password,
                 config.Site,
                 config.IgnoreControllerSSLErrors || viaAgent,
-                config.ApiKey
+                config.ApiKey,
+                consoleEndpoint.ProxyPort
             );
 
             var success = await testClient.LoginAsync();
@@ -1134,15 +1141,17 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
         try
         {
             var viaAgent = await IsConsoleViaAgentAsync();
+            var consoleEndpoint = ResolveControllerEndpoint(config.ControllerUrl, viaAgent);
             var clientLogger = _loggerFactory.CreateLogger<UniFiApiClient>();
             testClient = new UniFiApiClient(
                 clientLogger,
-                ResolveControllerUrl(config.ControllerUrl, viaAgent),
+                consoleEndpoint.Url,
                 config.Username,
                 config.Password,
                 config.Site,
                 config.IgnoreControllerSSLErrors || viaAgent,
-                config.ApiKey
+                config.ApiKey,
+                consoleEndpoint.ProxyPort
             );
 
             var success = await testClient.LoginAsync();

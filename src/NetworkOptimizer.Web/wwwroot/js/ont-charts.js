@@ -3,6 +3,8 @@
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=4';
+import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=7';
+import { renderFilterReset, isFiltered } from './chart-filter.js?v=4';
 
 const PALETTE = window.Apex?.colors || ['#4269d0', '#efb118', '#ff725c', '#6cc5b0', '#3ca951', '#ff8ab7'];
 const _esc = document.createElement('span');
@@ -45,6 +47,8 @@ function baseOpts(height, yTitle, yFormatter, extra) {
             type: 'gradient',
             gradient: { shadeIntensity: 0.3, opacityFrom: 0.4, opacityTo: 0.05 },
         },
+        // Stays 0: the library's hover markers are the flaky ones, and any non-zero size puts
+        // a permanent dot on every sample. valueSortedTooltip draws the hover dots instead.
         markers: { size: 0 },
         dataLabels: { enabled: false },
         xaxis: {
@@ -61,7 +65,7 @@ function baseOpts(height, yTitle, yFormatter, extra) {
         },
         grid: { borderColor: '#374151', strokeDashArray: 3 },
         legend: { show: false },
-        tooltip: { theme: 'dark', shared: true, x: { format: 'MMM dd, HH:mm:ss' } },
+        tooltip: { theme: 'dark', shared: true, x: { format: 'MMM dd, HH:mm:ss' }, custom: valueSortedTooltip },
         noData: { text: 'No data in this time range', style: { color: '#64748b' } },
     };
     if (extra?.yaxis) {
@@ -136,6 +140,9 @@ function renderBadges(container) {
             renderStatsTable(container, false);
         });
     }
+
+    // Last: the chip rebuild above wipes the row, so the reset is re-added after it.
+    renderFilterReset(el, isFiltered(visibility), () => { visibility = {}; updateVisibility(); renderBadges(container); });
 }
 
 function updateVisibility() {
@@ -179,17 +186,17 @@ async function loadAndUpdate() {
         powerSeries.push({
             name: d.label + ' RX',
             color: c.rx,
-            data: pts.filter(p => p.rx != null).map(p => ({ x: new Date(p.time).getTime(), y: p.rx })),
+            data: alignedPoints(pts, p => p.rx),
         });
         powerSeries.push({
             name: d.label + ' TX',
             color: c.tx,
-            data: pts.filter(p => p.tx != null).map(p => ({ x: new Date(p.time).getTime(), y: p.tx })),
+            data: alignedPoints(pts, p => p.tx),
         });
         tempSeries.push({
             name: d.label,
             color: c.temp,
-            data: pts.filter(p => p.temp != null).map(p => ({ x: new Date(p.time).getTime(), y: p.temp })),
+            data: alignedPoints(pts, p => p.temp),
         });
     });
 
@@ -247,8 +254,8 @@ async function updateErrorsChart(data) {
     withErrors.forEach(d => {
         const pts = d.data || [];
         const s = [
-            { name: `${d.label} FEC`, data: pts.filter(p => p.fec != null).map(p => ({ x: new Date(p.time).getTime(), y: p.fec })) },
-            { name: `${d.label} BIP`, data: pts.filter(p => p.bip != null).map(p => ({ x: new Date(p.time).getTime(), y: p.bip })) },
+            { name: `${d.label} FEC`, data: alignedPoints(pts, p => p.fec) },
+            { name: `${d.label} BIP`, data: alignedPoints(pts, p => p.bip) },
         ];
         errorsSeriesByDevice[d.id] = s.map(x => x.name);
         series.push(...s);
@@ -290,7 +297,7 @@ function startPoll() {
     stopPoll();
     if (windowOffset !== 0 || isCustomRange) return;
     if (!isVisible()) return;
-    pollTimer = setInterval(loadAndUpdate, POLL_INTERVALS[currentRangeHours] || 60000);
+    pollTimer = setInterval(() => { if (!tooltipHeld(document.getElementById(containerId))) loadAndUpdate(); }, POLL_INTERVALS[currentRangeHours] || 60000);
 }
 function stopPoll() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
 

@@ -1,29 +1,41 @@
 @page "/sites"
+@attribute [Authorize(Policy = Policies.RequireViewer)]
 @rendermode InteractiveServer
 @implements IDisposable
 @using Microsoft.EntityFrameworkCore
 @using NetworkOptimizer.Storage.Models
 @using NetworkOptimizer.Web.Services
 @using NetworkOptimizer.Web.Services.Licensing
-@inject SiteManagementService SiteManagement
+@inject ISiteManagementService SiteManagement
+@inject NetworkOptimizer.Web.Services.Authorization.ISiteAccessFilter SiteAccess
 @inject SiteContextService SiteContext
 @inject SiteConnectionRegistry SiteConnections
-@inject AgentEnrollmentService AgentEnrollment
+@inject IAgentEnrollmentService AgentEnrollment
 @inject AgentTunnelRegistry TunnelRegistry
 @inject NetworkOptimizer.Storage.Services.SiteDbContextFactory SiteDb
 @inject NetworkOptimizer.Web.Services.Licensing.LicenseStateService LicenseState
 @inject NavigationManager NavigationManager
+@using NetworkOptimizer.Storage.Models.Identity
+@inject NetworkOptimizer.Web.Services.Authorization.IEffectiveSiteRoleResolver SiteRoles
+@inject SiteRegistryChangeNotifier ChangeNotifier
 
 <PageTitle>Sites - Network Optimizer</PageTitle>
 
 <div class="page-header">
     <h1>Sites</h1>
     <div class="page-header-actions">
-        <a href="/settings?tab=multisite" class="page-header-icon-link" data-tooltip="Multi-Site settings" aria-label="Multi-Site settings">
+        @* The page itself is a read-only overview and opens to a Viewer, so the ways into Multi-Site
+           settings are gated separately. A Site Admin has settings to reach for their own site, so
+           they get this one - what they find there is decided per site, row by row. Adding a site is
+           instance administration and stays with a global Admin below. *@
+        @if (_settingsSlug is not null)
+        {
+        <a href="@($"/settings?tab=multisite&{SiteContextService.SiteQueryParam}={_settingsSlug}")" class="page-header-icon-link" data-tooltip="Multi-Site settings" aria-label="Multi-Site settings">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
                 <path fill-rule="evenodd" d="M7.84 1.804A1 1 0 018.82 1h2.36a1 1 0 01.98.804l.331 1.652a6.993 6.993 0 011.929 1.115l1.598-.54a1 1 0 011.186.447l1.18 2.044a1 1 0 01-.205 1.251l-1.267 1.113a7.047 7.047 0 010 2.228l1.267 1.113a1 1 0 01.206 1.25l-1.18 2.045a1 1 0 01-1.187.447l-1.598-.54a6.993 6.993 0 01-1.929 1.115l-.33 1.652a1 1 0 01-.98.804H8.82a1 1 0 01-.98-.804l-.331-1.652a6.993 6.993 0 01-1.929-1.115l-1.598.54a1 1 0 01-1.186-.447l-1.18-2.044a1 1 0 01.205-1.251l1.267-1.114a7.05 7.05 0 010-2.227L1.821 7.773a1 1 0 01-.206-1.25l1.18-2.045a1 1 0 011.187-.447l1.598.54A6.993 6.993 0 017.51 3.456l.33-1.652zM10 13a3 3 0 100-6 3 3 0 000 6z" clip-rule="evenodd" />
             </svg>
         </a>
+        }
     </div>
     <p class="page-description">Switch between managed sites</p>
 </div>
@@ -94,14 +106,18 @@ else
             </a>
         }
 
-        <div class="card site-card site-card-add" @onclick="@(() => NavigationManager.NavigateTo("/settings?tab=multisite#site-agent-setup"))">
-            <span class="site-card-add-plus">+</span>
-            <span>Add Site</span>
-        </div>
+        <AdminOnly>
+            <div class="card site-card site-card-add" @onclick="@(() => NavigationManager.NavigateTo("/settings?tab=multisite#site-agent-setup"))">
+                <span class="site-card-add-plus">+</span>
+                <span>Add Site</span>
+            </div>
+        </AdminOnly>
     </div>
 }
 
 @code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
     private bool _loaded;
     private bool _enabled;
     private List<Site> _sites = new();
@@ -110,12 +126,26 @@ else
 
     private System.Threading.Timer? _pollTimer;
 
+    /// <summary>
+    /// The site the settings link opens on: the one in context when they administer it, otherwise one
+    /// they do. Without this the link carries whichever site the tab happens to be pinned to, and a
+    /// scoped admin standing on a site they only view is sent to a page that refuses them.
+    /// </summary>
+    private string? _settingsSlug;
+
     protected override async Task OnInitializedAsync()
     {
+        // The registry can change under an open page - a site removed elsewhere, or access to one
+        // granted or revoked. Both move the answer below, and deleting the site someone administers
+        // used to leave this page offering a settings link to a slug that no longer exists.
+        ChangeNotifier.SitesChanged += OnSitesChanged;
+        await ResolveSettingsSlugAsync();
+
         _enabled = await SiteManagement.IsMultiSiteEnabledAsync();
         if (_enabled)
         {
-            _sites = (await SiteManagement.GetSitesAsync()).Where(s => s.Enabled).ToList();
+            _sites = await SiteAccess.FilterAsync(
+                (await SiteManagement.GetSitesAsync()).Where(s => s.Enabled), s => s.Slug);
             _agents = await AgentEnrollment.GetAllAgentsAsync();
             await LoadConsoleHostsAsync();
 
@@ -139,8 +169,42 @@ else
         _loaded = true;
     }
 
+    /// <summary>
+    /// Which site the settings link opens on: the one in context when they administer it, otherwise
+    /// any site they do. Null hides the link, which is the answer once their last one is gone.
+    /// </summary>
+    private async Task ResolveSettingsSlugAsync()
+    {
+        if (AuthState is null)
+            return;
+
+        var user = (await AuthState).User;
+        _settingsSlug = await SiteRoles.GetEffectiveRoleAsync(user, SiteContext.Slug) == SiteRole.SiteAdmin
+            ? SiteContext.Slug
+            : await SiteRoles.FirstAdministeredSlugAsync(user);
+    }
+
+    private void OnSitesChanged()
+    {
+        _ = InvokeAsync(async () =>
+        {
+            try
+            {
+                await ResolveSettingsSlugAsync();
+                _sites = await SiteAccess.FilterAsync(
+                    (await SiteManagement.GetSitesAsync()).Where(s => s.Enabled), s => s.Slug);
+                StateHasChanged();
+            }
+            catch (ObjectDisposedException)
+            {
+                // Circuit torn down between the event and the dispatch - nothing to update.
+            }
+        });
+    }
+
     public void Dispose()
     {
+        ChangeNotifier.SitesChanged -= OnSitesChanged;
         _pollTimer?.Dispose();
     }
 

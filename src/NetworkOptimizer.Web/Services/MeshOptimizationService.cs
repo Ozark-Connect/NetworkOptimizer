@@ -10,7 +10,7 @@ namespace NetworkOptimizer.Web.Services;
 /// Scoped per site: the injected <see cref="UniFiSshService"/> forwards to the current site's
 /// device SSH credentials, so the scan runs against the right site's AP.
 /// </summary>
-public class MeshOptimizationService
+public class MeshOptimizationService : IMeshOptimizationService
 {
     private readonly UniFiSshService _ssh;
     private readonly SiteContextService _siteContext;

@@ -250,10 +250,35 @@ public class AlertRepository : IAlertRepository
         }
     }
 
+    /// <summary>Releases a tracked copy of one alert row, so a fresh instance can be attached.</summary>
+    private void DetachTracked(int alertId)
+    {
+        var tracked = _context.ChangeTracker.Entries<AlertHistoryEntry>()
+            .FirstOrDefault(e => e.Entity.Id == alertId);
+        if (tracked is not null)
+            tracked.State = EntityState.Detached;
+    }
+
+    /// <inheritdoc cref="DetachTracked" />
+    private void DetachTrackedIncident(int incidentId)
+    {
+        var tracked = _context.ChangeTracker.Entries<AlertIncident>()
+            .FirstOrDefault(e => e.Entity.Id == incidentId);
+        if (tracked is not null)
+            tracked.State = EntityState.Detached;
+    }
+
     public async Task UpdateAlertAsync(AlertHistoryEntry alert, CancellationToken cancellationToken = default)
     {
         try
         {
+            // Detach any instance of this row the context is already tracking. Update() attaches the
+            // graph, and a second instance with the same key throws - which is what made bulk actions
+            // resolve exactly one alert per click: the first succeeded, the second threw, and the
+            // caller's catch logged it and moved on. The reads here are AsNoTracking, so every entity
+            // arriving at this method is a detached copy the context has never seen; the tracked twin
+            // is whatever an earlier call in the same scope left behind.
+            DetachTracked(alert.Id);
             _context.AlertHistory.Update(alert);
             await _context.SaveChangesAsync(cancellationToken);
         }
@@ -397,6 +422,7 @@ public class AlertRepository : IAlertRepository
     {
         try
         {
+            DetachTrackedIncident(incident.Id);
             _context.AlertIncidents.Update(incident);
             await _context.SaveChangesAsync(cancellationToken);
         }

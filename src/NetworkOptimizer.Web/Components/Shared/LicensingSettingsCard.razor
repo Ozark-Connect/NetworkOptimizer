@@ -3,9 +3,9 @@
 @using NetworkOptimizer.Web.Services.Licensing
 @implements IDisposable
 @inject LicenseStateService LicenseState
-@inject LicenseActivationService Activation
+@inject ILicenseActivationService Activation
 @inject LicensePhoneHomeService PhoneHome
-@inject SiteManagementService SiteManagement
+@inject ISiteManagementService SiteManagement
 @inject IJSRuntime JS
 
 <div class="card settings-tab-application" id="licensing">

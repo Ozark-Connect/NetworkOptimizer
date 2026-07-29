@@ -1,0 +1,24 @@
+@inject NavigationManager Navigation
+
+@* Renders nothing. It stands in for the refusal page when the refusal is "you have not enrolled a
+   second factor yet", and sends the session to the one place it can do something about that.
+
+   Signing in already lands there: all three sign-in paths answer RequiresMfaEnrollment with
+   /account/security?setup=required. Being GRANTED an MFA-required role mid-session reaches the same
+   state by a different road - the principal refreshes, the claims factory stamps MfaSetupPending, and
+   every gate starts refusing - but nothing was routing it anywhere, so a promotion read as the app
+   breaking rather than as a step to take. Same state, same destination.
+
+   The refusal itself is not what moves: the gates go on refusing regardless (see MfaEnrollmentGuard).
+   This only decides what the person sees while they are refused. *@
+
+@code {
+    protected override void OnAfterRender(bool firstRender)
+    {
+        // After the first interactive render rather than in OnInitialized: this component is reached
+        // through the router's NotAuthorized fragment, which prerenders, and a redirect issued from
+        // there races the circuit it is about to replace.
+        if (firstRender)
+            Navigation.NavigateTo("/account/security?setup=required", forceLoad: false, replace: true);
+    }
+}

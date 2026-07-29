@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Services;
 using NetworkOptimizer.Web.Services;
+using NetworkOptimizer.Web.Services.Authorization;
 
 namespace NetworkOptimizer.Web.Endpoints;
 
@@ -9,7 +10,12 @@ public static class MonitoringInvestigateEndpoints
 {
     public static void Map(WebApplication app)
     {
-        app.MapGet("/api/monitoring/investigate/packet-loss", async (
+        // Gate 2 (design doc 06): the whole group carries authorization metadata, which is what
+        // architecture test A1 checks. The policy short-circuits when the install has
+        // authentication disabled (GlobalRoleHandler).
+        var group = app.MapGroup("").RequireAuthorization(Policies.RequireViewer);
+
+        group.MapGet("/api/monitoring/investigate/packet-loss", async (
             MonitoringInfluxClient influx,
             SiteDbContextFactory siteDbFactory,
             SiteContextService siteContext,
@@ -54,7 +60,7 @@ public static class MonitoringInvestigateEndpoints
             });
         });
 
-        app.MapGet("/api/monitoring/investigate/sfp-anomaly", async (
+        group.MapGet("/api/monitoring/investigate/sfp-anomaly", async (
             MonitoringInfluxClient influx,
             CancellationToken ct) =>
         {

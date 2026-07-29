@@ -180,10 +180,12 @@ curl -s http://localhost:8042/api/health
 
 Open your browser to: **http://localhost:8042**
 
-On first run, check the logs for the auto-generated admin password:
+On first run, check the logs for the built-in **admin** account's auto-generated password:
 ```bash
 grep -A5 "AUTO-GENERATED" ~/network-optimizer/logs/stdout.log
 ```
+
+Sign in as **admin** with that password.
 
 ### Service Management
 

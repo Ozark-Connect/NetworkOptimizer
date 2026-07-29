@@ -2,6 +2,11 @@
 @using NetworkOptimizer.UniFi
 @using NetworkOptimizer.UniFi.Models
 @using NetworkOptimizer.Web.Services
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using NetworkOptimizer.Web.Services.Authorization
+@inject IAuthorizationService Authz
+@inject SiteContextService SiteCtx
 @using NetworkOptimizer.Web.Components.Shared
 @using NetworkOptimizer.WiFi.Helpers
 @implements IDisposable
@@ -39,10 +44,10 @@
                 </div>
             </div>
         }
-        @if (Result != null && (OnTestAgain.HasDelegate || OnDelete.HasDelegate || (AvailableWans.Count >= 2 && OnWanReassigned.HasDelegate) || !string.IsNullOrEmpty(Result.DeviceHost)))
+        @if (Result != null && ((_canOperate && OnTestAgain.HasDelegate) || (_canConfigure && OnDelete.HasDelegate) || (_canOperate && AvailableWans.Count >= 2 && OnWanReassigned.HasDelegate) || !string.IsNullOrEmpty(Result.DeviceHost)))
         {
             <div class="detail-actions" @onclick:stopPropagation="true">
-                @if (OnTestAgain.HasDelegate && Result.Direction is not (SpeedTestDirection.ClientToServer or SpeedTestDirection.BrowserToServer or SpeedTestDirection.OpenSpeedTestWan))
+                @if (_canOperate && OnTestAgain.HasDelegate && Result.Direction is not (SpeedTestDirection.ClientToServer or SpeedTestDirection.BrowserToServer or SpeedTestDirection.OpenSpeedTestWan))
                 {
                     <button class="btn-action-label" @onclick="HandleTestAgain" data-tooltip="Run this test again" data-tooltip-hover-only>
                         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -60,7 +65,7 @@
                         </svg>
                     </a>
                 }
-                @if (AvailableWans.Count >= 2 && OnWanReassigned.HasDelegate)
+                @if (_canOperate && AvailableWans.Count >= 2 && OnWanReassigned.HasDelegate)
                 {
                     @if (_wanEditing)
                     {
@@ -90,7 +95,7 @@
                         </button>
                     }
                 }
-                @if (OnDelete.HasDelegate)
+                @if (_canConfigure && OnDelete.HasDelegate)
                 {
                     <button class="btn-action-icon btn-action-danger" @onclick="HandleDelete" disabled="@_deleting" data-tooltip="Delete this result" data-tooltip-hover-only>
                         @if (_deleting)
@@ -209,7 +214,8 @@
                 {
                     <div class="result-notes" @onclick:stopPropagation="true">
                         <textarea class="notes-input"
-                                  placeholder="Add notes..."
+                                  readonly="@(!_canOperate)"
+                                  placeholder="@(_canOperate ? "Add notes..." : "")"
                                   @bind="_notesInput"
                                   @bind:event="oninput"
                                   @bind:after="DebounceSaveNotes"
@@ -416,6 +422,26 @@
 }
 
 @code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    /// <summary>Re-running a test is operating the site; deleting a result or moving it is not.</summary>
+    private bool _canOperate;
+
+    private bool _canConfigure;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (AuthState is null)
+        {
+            _canOperate = _canConfigure = true;
+            return;
+        }
+
+        var user = (await AuthState).User;
+        _canOperate = (await Authz.AuthorizeAsync(user, SiteCtx.Slug, Policies.SiteOperator)).Succeeded;
+        _canConfigure = (await Authz.AuthorizeAsync(user, SiteCtx.Slug, Policies.SiteAdmin)).Succeeded;
+    }
+
     [Parameter] public double DownloadMbps { get; set; }
     [Parameter] public double UploadMbps { get; set; }
     [Parameter] public long DownloadBytes { get; set; }

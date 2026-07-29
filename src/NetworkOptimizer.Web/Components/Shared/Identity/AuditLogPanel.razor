@@ -1,0 +1,218 @@
+@* The Audit Log itself, shared by the standalone /audit-log page and the Settings - Audit Log tab.
+   One implementation because the two are the same view reached two ways: the page is the deep link
+   and what an export URL belongs to, the tab is where someone looking at Identity finds it.
+
+   Deferred by default. Every Settings tab renders at once and is shown by CSS class, so a panel that
+   loaded on init would run a count and a page query against the audit table on EVERY Settings visit,
+   for everyone, whether or not they ever open the tab. The tab passes Defer and calls LoadAsync when
+   it is first shown; the page loads straight away because arriving there IS asking for it. *@
+
+@using NetworkOptimizer.Storage.Models.Identity
+@using NetworkOptimizer.Web.Services.Auditing
+@inject IAuditQueryService AuditQuery
+
+@* Settings shows a tab by putting settings-tab-<name> on the card and hiding every sibling, so the
+   host has to be able to put that class on this root. Empty on the standalone page. *@
+<div class="card @Class">
+    <div class="card-body">
+        <div class="audit-filter-bar">
+            <select class="form-control" @bind="_category" style="max-width: 180px;">
+                <option value="">All categories</option>
+                @foreach (var c in Categories)
+                {
+                    <option value="@c">@c</option>
+                }
+            </select>
+            <select class="form-control" @bind="_outcome" style="max-width: 160px;">
+                <option value="">All outcomes</option>
+                <option value="@AuditOutcomes.Success">Success</option>
+                <option value="@AuditOutcomes.Denied">Denied</option>
+                <option value="@AuditOutcomes.Failure">Failure</option>
+            </select>
+            @* Bound on input rather than change so Enter carries what is typed: the default binding
+               fires on blur, and Enter does not blur. *@
+            <input class="form-control" placeholder="Actor" @bind="_actor" @bind:event="oninput"
+                   @onkeydown="FilterKeyDownAsync" style="max-width: 160px;" />
+            <input class="form-control" placeholder="Site slug" @bind="_site" @bind:event="oninput"
+                   @onkeydown="FilterKeyDownAsync" style="max-width: 160px;" />
+            <button class="btn btn-primary btn-sm" @onclick="ApplyAsync">Filter</button>
+            <div class="audit-filter-actions">
+                <a class="btn btn-secondary btn-sm" href="@ExportUrl("csv")" target="_blank" rel="noopener">Export CSV</a>
+                <a class="btn btn-secondary btn-sm" href="@ExportUrl("json")" target="_blank" rel="noopener">Export JSON</a>
+            </div>
+        </div>
+
+        @if (_loading)
+        {
+            <div class="loading-container"><span class="spinner"></span></div>
+        }
+        else if (_events.Count == 0)
+        {
+            <div class="empty-state"><p>No audit events match the current filter.</p></div>
+        }
+        else
+        {
+            <div class="table-responsive">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Time (UTC)</th><th>Category</th><th>Action</th>
+                            <th>Actor</th><th class="hide-mobile">Site</th><th>Outcome</th><th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var e in _events)
+                        {
+                            <tr>
+                                <td>@e.TimestampUtc.ToString("yyyy-MM-dd HH:mm:ss")</td>
+                                <td>@e.Category</td>
+                                <td>@e.Action</td>
+                                <td>@e.ActorName</td>
+                                <td class="hide-mobile">@e.SiteSlug</td>
+                                <td>
+                                    <span class="status-badge @OutcomeClass(e.Outcome)">@e.Outcome</span>
+                                </td>
+                                <td>
+                                    @if (!string.IsNullOrEmpty(e.DetailsJson))
+                                    {
+                                        <button class="btn btn-sm btn-outline-primary" @onclick="() => Toggle(e.Id)">Details</button>
+                                    }
+                                </td>
+                            </tr>
+                            @if (_expanded == e.Id)
+                            {
+                                <tr>
+                                    <td colspan="7"><pre class="detail-value">@e.DetailsJson</pre></td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="audit-pager">
+                <button class="btn btn-sm btn-secondary" disabled="@(_skip == 0)" @onclick="PrevAsync">Previous</button>
+                <span class="text-muted">@(_skip + 1)-@(_skip + _events.Count) of @_total</span>
+                <button class="btn btn-sm btn-secondary" disabled="@(_skip + PageSize >= _total)" @onclick="NextAsync">Next</button>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private const int PageSize = 100;
+    private static readonly string[] Categories =
+    {
+        AuditCategories.Auth, AuditCategories.User, AuditCategories.Rbac, AuditCategories.Federation,
+        AuditCategories.Settings, AuditCategories.Site, AuditCategories.Action, AuditCategories.License,
+        AuditCategories.Agent, AuditCategories.Audit,
+    };
+
+    /// <summary>
+    /// Skips the initial query, for a host that renders the panel before anyone has asked to see it.
+    /// The host calls <see cref="EnsureLoadedAsync"/> when the panel actually becomes visible.
+    /// </summary>
+    [Parameter] public bool Defer { get; set; }
+
+    /// <summary>Extra classes for the root card, so a host can slot it into its own show/hide scheme.</summary>
+    [Parameter] public string? Class { get; set; }
+
+    private List<AuditEvent> _events = new();
+    private int _total;
+    private int _skip;
+    private bool _loading = true;
+    private long? _expanded;
+
+    private string _category = "";
+    private string _outcome = "";
+    private string _actor = "";
+    private string _site = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (Defer)
+        {
+            // Nothing has been asked for yet, so show the empty state rather than a spinner that
+            // never resolves.
+            _loading = false;
+            return;
+        }
+
+        await LoadAsync();
+    }
+
+    /// <summary>
+    /// Reloads every time the tab is revealed. It used to load once and no-op afterwards, which meant
+    /// a tab reopened later still showed the page it was first given - and an audit log is the one
+    /// table where new rows are the entire point of looking. Opening the tab is a deliberate act, so
+    /// the query is not the thing Defer exists to avoid; that is the Settings visit by someone who
+    /// never opens this tab at all.
+    ///
+    /// Filters and paging are kept: this refreshes the view you were looking at rather than resetting
+    /// it, so a filtered investigation survives switching tabs and coming back.
+    /// </summary>
+    public async Task RefreshAsync()
+    {
+        await LoadAsync();
+        StateHasChanged();
+    }
+
+    private AuditFilter CurrentFilter() => new()
+    {
+        Category = Empty(_category),
+        Outcome = Empty(_outcome),
+        Actor = Empty(_actor),
+        SiteSlug = Empty(_site),
+        Skip = _skip,
+        Take = PageSize,
+    };
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        StateHasChanged();
+        var filter = CurrentFilter();
+        _total = await AuditQuery.CountAsync(filter);
+        _events = (await AuditQuery.QueryAsync(filter)).ToList();
+        _loading = false;
+    }
+
+    private async Task ApplyAsync() { _skip = 0; await LoadAsync(); }
+
+    /// <summary>Enter in a filter field runs the filter, the same as pressing the button.</summary>
+    private async Task FilterKeyDownAsync(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+            await ApplyAsync();
+    }
+    private async Task NextAsync() { _skip += PageSize; await LoadAsync(); }
+    private async Task PrevAsync() { _skip = Math.Max(0, _skip - PageSize); await LoadAsync(); }
+    private void Toggle(long id) => _expanded = _expanded == id ? null : id;
+
+    private string ExportUrl(string format)
+    {
+        var query = new List<string>();
+        if (!string.IsNullOrEmpty(_category)) query.Add($"category={Uri.EscapeDataString(_category)}");
+        if (!string.IsNullOrEmpty(_outcome)) query.Add($"outcome={Uri.EscapeDataString(_outcome)}");
+        if (!string.IsNullOrEmpty(_actor)) query.Add($"actor={Uri.EscapeDataString(_actor)}");
+        if (!string.IsNullOrEmpty(_site)) query.Add($"site={Uri.EscapeDataString(_site)}");
+        var suffix = query.Count > 0 ? "?" + string.Join("&", query) : "";
+        return $"/api/audit/export.{format}{suffix}";
+    }
+
+    /// <summary>
+    /// Outcome to badge colour. Both refusals used to map to status-active, which is the GREEN
+    /// success badge, while a success got no class at all and rendered plain - so in a log whose
+    /// entire job is making denials visible, the denials were the green rows. Amber for a refusal
+    /// (the request was understood and turned down) and red for a failure (it broke), which is the
+    /// same distinction the rest of the app draws between provisioning and error.
+    /// </summary>
+    private static string OutcomeClass(string outcome) => outcome switch
+    {
+        AuditOutcomes.Denied => "status-provisioning",
+        AuditOutcomes.Failure => "status-error",
+        _ => "status-active",
+    };
+
+    private static string? Empty(string v) => string.IsNullOrEmpty(v) ? null : v;
+}

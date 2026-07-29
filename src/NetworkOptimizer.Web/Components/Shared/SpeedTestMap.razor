@@ -4,13 +4,18 @@
 @using NetworkOptimizer.UniFi.Models
 @using NetworkOptimizer.Web.Models
 @using NetworkOptimizer.Web.Services
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using NetworkOptimizer.Web.Services.Authorization
+@inject IAuthorizationService Authz
+@inject SiteContextService SiteContext
 @using NetworkOptimizer.Web.Components.Shared
 @using NetworkOptimizer.Core.Helpers
 @using Microsoft.JSInterop
 @implements IDisposable
 @inject IJSRuntime JS
 @inject UniFiConnectionService ConnectionService
-@inject Iperf3SpeedTestService SpeedTestService
+@inject IIperf3SpeedTestService SpeedTestService
 @inject SystemSettingsService SystemSettings
 
 @if (HasAnyMapData)
@@ -43,7 +48,7 @@
                             data-tooltip="Show/hide access point markers">
                         APs (@PlacedApCount)
                     </button>
-                    @if (AllowApEditing)
+                    @if (AllowApEditing && _canEdit)
                     {
                         <button class="btn btn-sm @(apEditMode ? "btn-warning" : "btn-secondary")"
                                 @onclick="ToggleApEditMode"
@@ -168,6 +173,17 @@
 
     [Parameter]
     public bool AllowApEditing { get; set; } = true;
+
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    /// <summary>
+    /// Moving an AP marker moves it for everyone on the site, so the caller's own AllowApEditing is
+    /// necessary but not sufficient - the role has to reach operating the site as well. Defaulting
+    /// the parameter to true is why this check lives here rather than at each call site.
+    /// </summary>
+    private bool _canEdit;
+
+
 
     [Parameter]
     public int? TimeFilterHours { get; set; }
@@ -529,6 +545,9 @@
 
     protected override async Task OnParametersSetAsync()
     {
+        _canEdit = AuthState is null
+            || (await Authz.AuthorizeAsync((await AuthState).User, SiteContext.Slug, Policies.SiteOperator)).Succeeded;
+
         // Sync slider with external time filter when provided and changed
         if (TimeFilterHours.HasValue && TimeFilterHours != _lastExternalTimeFilter)
         {

@@ -4,6 +4,7 @@ using NetworkOptimizer.Alerts.Interfaces;
 using NetworkOptimizer.Alerts.Models;
 using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Web.Services;
+using NetworkOptimizer.Web.Services.Authorization;
 
 namespace NetworkOptimizer.Web.Endpoints;
 
@@ -11,77 +12,58 @@ public static class AlertEndpoints
 {
     public static void MapAlertEndpoints(this WebApplication app)
     {
+        // Gate 2 (design doc 06): every endpoint is mapped onto a group that carries its
+        // authorization policy, which is what architecture test A1 checks. Reads are any
+        // authenticated user; changes go through IAlertConfigService, which is gated and audited at
+        // the service layer as well, so a live Blazor circuit cannot reach them either.
+        var read = app.MapGroup("").RequireAuthorization(Policies.RequireViewer);
+        var admin = app.MapGroup("").RequireAuthorization(Policies.RequireAdmin);
+
         // --- Alert Rules ---
-        app.MapGet("/api/alerts/rules", async (IAlertRepository repo) =>
+        read.MapGet("/api/alerts/rules", async (IAlertRepository repo) =>
             Results.Ok(await repo.GetRulesAsync()));
 
-        app.MapPost("/api/alerts/rules", async (AlertRule rule, IAlertRepository repo) =>
+        admin.MapPost("/api/alerts/rules", async (AlertRule rule, IAlertConfigService config) =>
         {
-            var id = await repo.SaveRuleAsync(rule);
+            var id = await config.CreateRuleAsync(rule);
             return Results.Created($"/api/alerts/rules/{id}", rule);
         });
 
-        app.MapPut("/api/alerts/rules/{id:int}", async (int id, AlertRule rule, IAlertRepository repo) =>
+        admin.MapPut("/api/alerts/rules/{id:int}", async (int id, AlertRule rule, IAlertConfigService config) =>
         {
-            var existing = await repo.GetRuleAsync(id);
-            if (existing == null) return Results.NotFound();
-
-            existing.Name = rule.Name;
-            existing.IsEnabled = rule.IsEnabled;
-            existing.EventTypePattern = rule.EventTypePattern;
-            existing.Source = rule.Source;
-            existing.MinSeverity = rule.MinSeverity;
-            existing.CooldownSeconds = rule.CooldownSeconds;
-            existing.EscalationMinutes = rule.EscalationMinutes;
-            existing.EscalationSeverity = rule.EscalationSeverity;
-            existing.DigestOnly = rule.DigestOnly;
-            existing.TargetDevices = rule.TargetDevices;
-            existing.ThresholdPercent = rule.ThresholdPercent;
-
-            await repo.UpdateRuleAsync(existing);
-            return Results.Ok(existing);
+            var saved = await config.UpdateRuleAsync(id, rule);
+            return saved == null ? Results.NotFound() : Results.Ok(saved);
         });
 
-        app.MapDelete("/api/alerts/rules/{id:int}", async (int id, IAlertRepository repo) =>
+        admin.MapDelete("/api/alerts/rules/{id:int}", async (int id, IAlertConfigService config) =>
         {
-            await repo.DeleteRuleAsync(id);
+            await config.DeleteRuleAsync(id);
             return Results.NoContent();
         });
 
         // --- Delivery Channels ---
-        app.MapGet("/api/alerts/channels", async (IAlertRepository repo) =>
+        read.MapGet("/api/alerts/channels", async (IAlertRepository repo) =>
             Results.Ok(await repo.GetChannelsAsync()));
 
-        app.MapPost("/api/alerts/channels", async (DeliveryChannel channel, IAlertRepository repo) =>
+        admin.MapPost("/api/alerts/channels", async (DeliveryChannel channel, IAlertConfigService config) =>
         {
-            var id = await repo.SaveChannelAsync(channel);
+            var id = await config.CreateChannelAsync(channel);
             return Results.Created($"/api/alerts/channels/{id}", channel);
         });
 
-        app.MapPut("/api/alerts/channels/{id:int}", async (int id, DeliveryChannel channel, IAlertRepository repo) =>
+        admin.MapPut("/api/alerts/channels/{id:int}", async (int id, DeliveryChannel channel, IAlertConfigService config) =>
         {
-            var existing = await repo.GetChannelAsync(id);
-            if (existing == null) return Results.NotFound();
-
-            existing.Name = channel.Name;
-            existing.IsEnabled = channel.IsEnabled;
-            existing.ChannelType = channel.ChannelType;
-            existing.ConfigJson = channel.ConfigJson;
-            existing.MinSeverity = channel.MinSeverity;
-            existing.DigestEnabled = channel.DigestEnabled;
-            existing.DigestSchedule = channel.DigestSchedule;
-
-            await repo.UpdateChannelAsync(existing);
-            return Results.Ok(existing);
+            var saved = await config.UpdateChannelAsync(id, channel);
+            return saved == null ? Results.NotFound() : Results.Ok(saved);
         });
 
-        app.MapDelete("/api/alerts/channels/{id:int}", async (int id, IAlertRepository repo) =>
+        admin.MapDelete("/api/alerts/channels/{id:int}", async (int id, IAlertConfigService config) =>
         {
-            await repo.DeleteChannelAsync(id);
+            await config.DeleteChannelAsync(id);
             return Results.NoContent();
         });
 
-        app.MapPost("/api/alerts/channels/{id:int}/test", async (int id, IAlertRepository repo, IEnumerable<IAlertDeliveryChannel> deliveryChannels) =>
+        admin.MapPost("/api/alerts/channels/{id:int}/test", async (int id, IAlertRepository repo, IEnumerable<IAlertDeliveryChannel> deliveryChannels) =>
         {
             var channel = await repo.GetChannelAsync(id);
             if (channel == null) return Results.NotFound();
@@ -94,87 +76,42 @@ public static class AlertEndpoints
         });
 
         // --- Alert History ---
-        app.MapGet("/api/alerts", async (IAlertRepository repo, int limit = 100, string? source = null, AlertSeverity? minSeverity = null) =>
+        read.MapGet("/api/alerts", async (IAlertRepository repo, int limit = 100, string? source = null, AlertSeverity? minSeverity = null) =>
             Results.Ok(await repo.GetAlertHistoryAsync(limit, source, minSeverity)));
 
-        app.MapGet("/api/alerts/active", async (IAlertRepository repo) =>
+        read.MapGet("/api/alerts/active", async (IAlertRepository repo) =>
             Results.Ok(await repo.GetActiveAlertsAsync()));
 
-        app.MapPut("/api/alerts/{id:int}/acknowledge", async (int id, IAlertRepository repo) =>
+        admin.MapPut("/api/alerts/{id:int}/acknowledge", async (int id, IAlertConfigService config) =>
         {
-            var alert = await repo.GetAlertAsync(id);
-            if (alert == null) return Results.NotFound();
-
-            alert.Status = AlertStatus.Acknowledged;
-            alert.AcknowledgedAt = DateTime.UtcNow;
-            await repo.UpdateAlertAsync(alert);
-
-            await RecalculateIncidentStatusAsync(alert, repo);
-
-            return Results.Ok(alert);
+            var alert = await config.AcknowledgeAlertAsync(id);
+            return alert == null ? Results.NotFound() : Results.Ok(alert);
         });
 
-        app.MapPut("/api/alerts/{id:int}/resolve", async (int id, IAlertRepository repo) =>
+        admin.MapPut("/api/alerts/{id:int}/resolve", async (int id, IAlertConfigService config) =>
         {
-            var alert = await repo.GetAlertAsync(id);
-            if (alert == null) return Results.NotFound();
-
-            alert.Status = AlertStatus.Resolved;
-            alert.ResolvedAt = DateTime.UtcNow;
-            await repo.UpdateAlertAsync(alert);
-
-            await RecalculateIncidentStatusAsync(alert, repo);
-
-            return Results.Ok(alert);
+            var alert = await config.ResolveAlertAsync(id);
+            return alert == null ? Results.NotFound() : Results.Ok(alert);
         });
 
         // --- Incidents ---
-        app.MapGet("/api/alerts/incidents", async (IAlertRepository repo, int limit = 50) =>
+        read.MapGet("/api/alerts/incidents", async (IAlertRepository repo, int limit = 50) =>
             Results.Ok(await repo.GetIncidentsAsync(limit)));
 
         // --- Schedules ---
-        app.MapGet("/api/alerts/schedules", async (IScheduleRepository repo) =>
+        read.MapGet("/api/alerts/schedules", async (IScheduleRepository repo) =>
             Results.Ok(await repo.GetAllAsync()));
 
-        app.MapPut("/api/alerts/schedules/{id:int}", async (int id, ScheduledTask updated, IScheduleRepository repo) =>
+        admin.MapPut("/api/alerts/schedules/{id:int}", async (int id, ScheduledTask updated, IAlertConfigService config) =>
         {
-            var existing = await repo.GetByIdAsync(id);
-            if (existing == null) return Results.NotFound();
-
-            existing.Enabled = updated.Enabled;
-            existing.FrequencyMinutes = updated.FrequencyMinutes;
-            existing.Name = updated.Name;
-
-            // Recalculate next run using CalculateNextRun to avoid drift from execution duration
-            existing.NextRunAt = ScheduleService.CalculateNextRun(
-                existing.FrequencyMinutes, existing.CustomMorningHour, existing.CustomMorningMinute,
-                existing.NextRunAt);
-
-            await repo.UpdateAsync(existing);
-            return Results.Ok(existing);
+            var saved = await config.UpdateScheduleAsync(id, updated);
+            return saved == null ? Results.NotFound() : Results.Ok(saved);
         });
 
-        app.MapPost("/api/alerts/schedules/{id:int}/run", async (int id, ScheduleService scheduleService, SiteContextService siteContext) =>
+        admin.MapPost("/api/alerts/schedules/{id:int}/run", async (int id, ScheduleService scheduleService, SiteContextService siteContext) =>
         {
             var started = await scheduleService.RunNowAsync(id, siteContext.Slug);
             return started ? Results.Ok(new { started = true }) : Results.Conflict(new { error = "Task is already running or not found" });
         });
-    }
-
-    private static async Task RecalculateIncidentStatusAsync(AlertHistoryEntry alert, IAlertRepository repo)
-    {
-        if (!alert.IncidentId.HasValue) return;
-
-        var incident = await repo.GetIncidentAsync(alert.IncidentId.Value);
-        if (incident == null) return;
-
-        var incidentAlerts = await repo.GetAlertsByIncidentIdAsync(incident.Id);
-        var (newStatus, resolvedAt) = AlertCorrelationService.DeriveIncidentStatus(incidentAlerts);
-
-        if (newStatus == incident.Status) return;
-
-        incident.Status = newStatus;
-        incident.ResolvedAt = resolvedAt;
-        await repo.UpdateIncidentAsync(incident);
     }
 }

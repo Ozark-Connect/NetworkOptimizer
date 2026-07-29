@@ -1,7 +1,10 @@
 @page "/threats"
 @rendermode InteractiveServer
-@attribute [Authorize]
+@attribute [Authorize(Policy = Policies.RequireViewer)]
 @using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using NetworkOptimizer.Web.Services.Authorization
+@inject IAuthorizationService Authz
 @using NetworkOptimizer.Web.Services
 @using NetworkOptimizer.Threats.Models
 @using NetworkOptimizer.Threats.Interfaces
@@ -17,6 +20,7 @@
 @inject ILogger<ThreatDashboard> Logger
 @inject IJSRuntime JS
 @inject PullToRefreshState PtrState
+@inject IThreatFilterAdminService ThreatFilterAdmin
 
 <PageTitle>Threat Intelligence - Network Optimizer</PageTitle>
 
@@ -98,7 +102,7 @@
         {
             <div style="display:flex; align-items:center; gap:0.25rem;">
                 <button class="btn btn-sm @(_filtersActive ? "btn-primary" : "btn-secondary")"
-                        @onclick="ToggleFiltersActive"
+                        @onclick="ToggleFiltersActive" disabled="@(!_canConfigure)"
                         data-tooltip="@(_filtersActive ? "Noise filters active - click to disable" : "Noise filters disabled - click to enable")"
                         data-tooltip-hover-only>
                     <span>Filters</span>
@@ -180,6 +184,8 @@
                 </div>
 
                 @* Add new filter form *@
+                @if (_canConfigure)
+                {
                 <div class="noise-filter-form">
                     <div>
                         <label class="noise-filter-label">Source IP</label>
@@ -208,6 +214,8 @@
                     }
                 </div>
 
+                }
+
                 @* Existing filters *@
                 @if (_noiseFilters.Count > 0)
                 {
@@ -232,12 +240,14 @@
                                         <td>@filter.Description</td>
                                         <td>
                                             <div style="display:flex; gap:0.25rem;">
-                                                <button class="btn btn-sm btn-secondary" @onclick="() => ToggleFilterAsync(filter)"
-                                                        data-tooltip="@(filter.Enabled ? "Disable" : "Enable")" data-tooltip-hover-only>
-                                                    @(filter.Enabled ? "On" : "Off")
-                                                </button>
-                                                <button class="btn btn-sm btn-danger" @onclick="() => DeleteFilterAsync(filter)"
-                                                        data-tooltip="Delete filter" data-tooltip-hover-only>X</button>
+                                                <SiteAdminOnly>
+                                                    <button class="btn btn-sm btn-secondary" @onclick="() => ToggleFilterAsync(filter)"
+                                                            data-tooltip="@(filter.Enabled ? "Disable" : "Enable")" data-tooltip-hover-only>
+                                                        @(filter.Enabled ? "On" : "Off")
+                                                    </button>
+                                                    <button class="btn btn-sm btn-danger" @onclick="() => DeleteFilterAsync(filter)"
+                                                            data-tooltip="Delete filter" data-tooltip-hover-only>X</button>
+                                                </SiteAdminOnly>
                                             </div>
                                         </td>
                                     </tr>
@@ -2126,6 +2136,18 @@ else
 </style>
 
 @code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    /// <summary>
+    /// Noise filters decide which findings this site stops reporting, so adding, removing or
+    /// switching them off is a security decision rather than a view preference - and it lands for
+    /// everyone, not just the person who set it.
+    /// </summary>
+    private bool _canConfigure;
+
+    private async Task ResolveThreatPermissionsAsync()
+        => _canConfigure = AuthState is null
+            || (await Authz.AuthorizeAsync((await AuthState).User, SiteContext.Slug, Policies.SiteAdmin)).Succeeded;
     // Progress state (backfill cursor, first-collection flag) is tracked per-site by the
     // singleton collection service. Pass null for the default site, the slug otherwise.
     private string? BackfillSiteKey => SiteContext.IsDefault ? null : SiteContext.Slug;
@@ -2359,6 +2381,8 @@ else
 
     protected override async Task OnInitializedAsync()
     {
+        await ResolveThreatPermissionsAsync();
+
         // Parse initial state from URL
         var initialTab = ResolveTab(TabParam);
         if (initialTab == "drilldown")
@@ -3768,7 +3792,7 @@ else
         // Must have at least one field
         if (filter.SourceIp == null && filter.DestIp == null && filter.DestPort == null) return;
 
-        await DashboardService.SaveNoiseFilterAsync(filter);
+        await ThreatFilterAdmin.SaveNoiseFilterAsync(filter);
         _newFilterSourceIp = "";
         _newFilterDestIp = "";
         _newFilterDestPort = "";
@@ -3803,7 +3827,7 @@ else
 
     private async Task DeleteFilterAsync(ThreatNoiseFilter filter)
     {
-        await DashboardService.DeleteNoiseFilterAsync(filter.Id);
+        await ThreatFilterAdmin.DeleteNoiseFilterAsync(filter.Id);
         await LoadNoiseFiltersAsync();
         await LoadDataAsync();
     }

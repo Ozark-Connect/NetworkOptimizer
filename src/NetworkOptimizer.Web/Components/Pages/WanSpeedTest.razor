@@ -1,4 +1,5 @@
 @page "/wan-speedtest"
+@attribute [Authorize(Policy = Policies.RequireViewer)]
 @rendermode InteractiveServer
 @implements IDisposable
 @using NetworkOptimizer.Web.Services
@@ -10,8 +11,8 @@
 @using NetworkOptimizer.UniFi
 @using NetworkOptimizer.Core.Helpers
 @using NetworkOptimizer.Web.Services.Monitoring.IspHealth
-@inject UwnSpeedTestService WanSpeedTestService
-@inject GatewayWanSpeedTestService GatewayWanTestService
+@inject IUwnSpeedTestService WanSpeedTestService
+@inject IGatewayWanSpeedTestService GatewayWanTestService
 @inject ISqmService SqmService
 @inject IGatewaySshService GatewaySshService
 @inject SpeedTestServiceRegistry SpeedTestRegistry
@@ -72,6 +73,9 @@
     }
 
     @* Run Test Card *@
+    @* Every control in this card is Operator-only, so a Viewer was shown a WAN selector, a Max Load
+       toggle and no way to start anything. Hide the card rather than present a dead one. *@
+    <SiteOperatorOnly>
     <div class="card" id="wan-run-test">
         <div class="card-header">
             <h2 class="card-title">Run a Speed Test</h2>
@@ -114,7 +118,8 @@
                             <span class="toggle-slider"></span>
                             <span class="toggle-label">Max Load</span>
                         </label>
-                        <button class="btn btn-primary test-button wan-test-button"
+                        <SiteOperatorOnly>
+                            <button class="btn btn-primary test-button wan-test-button"
                                 @onclick="RunGatewayTest"
                                 disabled="@(_isRunning || !_gatewayAvailable || IsLicenseRestricted)">
                             @if (_isRunning && _activeTestType == "gateway")
@@ -129,6 +134,7 @@
                                 <span>Run Test from Gateway</span>
                             }
                         </button>
+                        </SiteOperatorOnly>
                         @if (!string.IsNullOrEmpty(_gatewayStatus))
                         {
                             <code class="wan-result-summary">@_gatewayStatus</code>
@@ -175,7 +181,8 @@
                             <span class="toggle-slider"></span>
                             <span class="toggle-label">Max Load</span>
                         </label>
-                        <button class="btn btn-primary test-button wan-test-button"
+                        <SiteOperatorOnly>
+                            <button class="btn btn-primary test-button wan-test-button"
                                 @onclick="RunServerTest"
                                 disabled="@(_isRunning || !_serverAvailable || IsLicenseRestricted)">
                             @if (_isRunning && _activeTestType == "server")
@@ -190,6 +197,7 @@
                                 <span>Run Test from Server</span>
                             }
                         </button>
+                        </SiteOperatorOnly>
                         @if (!string.IsNullOrEmpty(_serverStatus))
                         {
                             <code class="wan-result-summary">@_serverStatus</code>
@@ -239,6 +247,7 @@
             }
         </div>
     </div>
+    </SiteOperatorOnly>
 
     @* Latest Result *@
     @if (_latestResult != null && _latestResult.Success)
@@ -841,18 +850,18 @@
         }
 
         // If a test is already running (user navigated away and back), start polling
-        if (WanSpeedTestService.IsRunning)
+        if (await WanSpeedTestService.IsRunningAsync())
         {
             _isRunning = true;
             _activeTestType = "server";
-            SyncProgressFromService();
+            await SyncProgressFromService();
             StartPolling();
         }
-        else if (GatewayWanTestService.IsRunning)
+        else if (await GatewayWanTestService.IsRunningAsync())
         {
             _isRunning = true;
             _activeTestType = "gateway";
-            SyncGatewayProgressFromService();
+            await SyncGatewayProgressFromService();
             StartPolling();
         }
 
@@ -1942,7 +1951,10 @@
                 _progressPercent = progress.Percent;
                 if (progress.Status != null)
                     _serverStatus = progress.Status;
-                _metadata = WanSpeedTestService.LastMetadata;
+                // Metadata is picked up by the 500 ms poll (SyncProgressFromService) rather than
+                // here: reading it is now an awaitable call and this callback is a synchronous
+                // Action, so fetching it would mean async-void. It is set once early in the test, so
+                // arriving up to one poll late is not visible.
                 InvokeAsync(StateHasChanged);
             },
             maxMode: _maxMode);
@@ -1981,8 +1993,8 @@
         {
             try
             {
-                var serverRunning = WanSpeedTestService.IsRunning;
-                var gatewayRunning = GatewayWanTestService.IsRunning;
+                var serverRunning = await WanSpeedTestService.IsRunningAsync();
+                var gatewayRunning = await GatewayWanTestService.IsRunningAsync();
 
                 if (!serverRunning && !gatewayRunning)
                 {
@@ -1991,12 +2003,10 @@
                     _isRunning = false;
                     _activeTestType = "";
 
-                    var lastResult = testType == "gateway"
-                        ? GatewayWanTestService.LastCompletedResult
-                        : WanSpeedTestService.LastCompletedResult;
-                    _latestResult = lastResult
-                        ?? WanSpeedTestService.LastCompletedResult
-                        ?? GatewayWanTestService.LastCompletedResult;
+                    var serverResult = await WanSpeedTestService.GetLastCompletedResultAsync();
+                    var gatewayResult = await GatewayWanTestService.GetLastCompletedResultAsync();
+                    var lastResult = testType == "gateway" ? gatewayResult : serverResult;
+                    _latestResult = lastResult ?? serverResult ?? gatewayResult;
 
                     await InvokeAsync(async () =>
                     {
@@ -2007,9 +2017,9 @@
                 }
 
                 if (_activeTestType == "gateway")
-                    SyncGatewayProgressFromService();
+                    await SyncGatewayProgressFromService();
                 else
-                    SyncProgressFromService();
+                    await SyncProgressFromService();
 
                 await InvokeAsync(StateHasChanged);
             }
@@ -2023,13 +2033,13 @@
         _pollTimer = null;
     }
 
-    private void SyncProgressFromService()
+    private async Task SyncProgressFromService()
     {
-        var (phase, percent, status) = WanSpeedTestService.CurrentProgress;
+        var (phase, percent, status) = await WanSpeedTestService.GetCurrentProgressAsync();
         _progressPhase = phase;
         if (status != null)
             _serverStatus = status;
-        _metadata = WanSpeedTestService.LastMetadata;
+        _metadata = await WanSpeedTestService.GetLastMetadataAsync();
 
         // Detect phase transitions - set up interpolation for long phases
         if (phase != _interpPhase)
@@ -2058,9 +2068,9 @@
         }
     }
 
-    private void SyncGatewayProgressFromService()
+    private async Task SyncGatewayProgressFromService()
     {
-        var (phase, percent, status) = GatewayWanTestService.CurrentProgress;
+        var (phase, percent, status) = await GatewayWanTestService.GetCurrentProgressAsync();
         _progressPhase = phase;
         _progressPercent = percent;
     }

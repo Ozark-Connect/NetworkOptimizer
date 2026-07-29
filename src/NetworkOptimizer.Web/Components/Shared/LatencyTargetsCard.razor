@@ -69,7 +69,8 @@
                             @if (WanContexts.Count > 0)
                             {
                                 <td>
-                                    <select class="cadence-select"
+                                    <SiteOperatorOnly>
+                                        <select class="cadence-select"
                                             @onchange="(e) => UpdateWanContextAsync(t.Id, e)">
                                         <option value="" selected="@(t.WanContextId == null)">Primary</option>
                                         @foreach (var wc in WanContexts)
@@ -77,11 +78,13 @@
                                             <option value="@wc.Id" selected="@(t.WanContextId == wc.Id)">@wc.Name</option>
                                         }
                                     </select>
+                                    </SiteOperatorOnly>
                                 </td>
                             }
                             <td>
                                 @{ var currentInterval = t.PollIntervalSeconds; }
-                                <select class="cadence-select"
+                                <SiteOperatorOnly>
+                                    <select class="cadence-select"
                                         @onchange="(e) => UpdateIntervalAsync(t.Id, e)">
                                     <option value="2" selected="@(currentInterval == 2)">2 s</option>
                                     <option value="5" selected="@(currentInterval == 5)">5 s</option>
@@ -92,6 +95,7 @@
                                     <option value="120" selected="@(currentInterval == 120)">2 m</option>
                                     <option value="300" selected="@(currentInterval == 300)">5 m</option>
                                 </select>
+                                </SiteOperatorOnly>
                             </td>
                             <td>
                                 @if (!t.Enabled)
@@ -127,17 +131,21 @@
                                 { <span class="text-muted">never</span> }
                             </td>
                             <td style="white-space: nowrap;">
-                                <button class="btn btn-sm btn-secondary"
+                                <SiteOperatorOnly>
+                                    <button class="btn btn-sm btn-secondary"
                                         @onclick="() => ToggleTargetAsync(t.Id)"
                                         title="@(t.Enabled ? "Pause probing" : "Resume probing")">
                                     @(t.Enabled ? "Pause" : "Resume")
                                 </button>
-                                <button class="btn btn-sm btn-danger"
+                                </SiteOperatorOnly>
+                                <SiteAdminOnly>
+                                    <button class="btn btn-sm btn-danger"
                                         @onclick="() => DeleteTargetAsync(t.Id)"
                                         title="Remove this target"
                                         style="margin-left: 0.25rem;">
                                     Remove
                                 </button>
+                                </SiteAdminOnly>
                             </td>
                         </tr>
                     }
@@ -204,9 +212,11 @@
                         </select>
                     </div>
                     <div style="display: flex; gap: 0.5rem;">
-                        <button class="btn btn-sm btn-primary" @onclick="AddTargetAsync" disabled="@_addingTarget">
+                        <SiteOperatorOnly>
+                            <button class="btn btn-sm btn-primary" @onclick="AddTargetAsync" disabled="@_addingTarget">
                             @if (_addingTarget) { <span class="spinner-sm"></span> } else { <span>Add</span> }
                         </button>
+                        </SiteOperatorOnly>
                         <button class="btn btn-sm btn-secondary" @onclick="() => _showAddTarget = false">Cancel</button>
                     </div>
                 </div>
@@ -218,9 +228,15 @@
         }
         else
         {
-            <button class="btn btn-sm btn-secondary" style="margin-top: 0.75rem;" @onclick="() => _showAddTarget = true">
-                + Add target
-            </button>
+            @* Adding a target is Operator; REMOVING one stays Admin. The target list is curated and
+               expensive to rebuild - it accumulates over time and nothing recreates it - so the
+               asymmetry is deliberate: measuring one more thing is cheap and reversible, losing one
+               that someone established months ago is not. *@
+            <SiteOperatorOnly>
+                <button class="btn btn-sm btn-secondary" style="margin-top: 0.75rem;" @onclick="() => _showAddTarget = true">
+                    + Add target
+                </button>
+            </SiteOperatorOnly>
         }
     </div>
         </div>

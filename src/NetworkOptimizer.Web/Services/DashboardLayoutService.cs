@@ -1,5 +1,7 @@
 using System.Text.Json;
 using NetworkOptimizer.Storage.Models;
+using NetworkOptimizer.Storage.Models.Identity;
+using NetworkOptimizer.Web.Services.Gates;
 
 namespace NetworkOptimizer.Web.Services;
 
@@ -120,9 +122,33 @@ public class DashboardCardConfig
 /// <summary>
 /// Manages dashboard layout preferences (card order, visibility, stat items).
 /// </summary>
-public class DashboardLayoutService
+/// <summary>
+/// Saving the dashboard layout (design doc 06, gate 9).
+///
+/// GetLayoutAsync stays ungated - everyone renders the dashboard from it. The save is Site Admin
+/// because the layout is ONE setting shared by everybody on the site, so arranging it rearranges
+/// what every other person sees. Per-user layouts are a follow-up; until then this is the honest
+/// role for it, and it matches the gate already on the Edit Layout button.
+/// </summary>
+[MutatingService(SiteScoped = true)]
+public interface IDashboardLayoutAdminService
+{
+    [RequireRole(Roles.Admin)]
+    [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "dashboard_layout")]
+    Task SaveLayoutAsync(DashboardLayout layout);
+}
+
+public class DashboardLayoutService : IDashboardLayoutAdminService
 {
     private readonly ISystemSettingsService _settings;
+
+    /// <summary>
+    /// Saving goes through the gated admin path, not the plain settings service. The layout is ONE
+    /// setting shared by the whole site, so rearranging it rearranges the dashboard for everybody -
+    /// a Viewer could quietly reorganise what their colleagues see. Reads stay on the plain service,
+    /// which is what every render and background tick needs.
+    /// </summary>
+    private readonly ISystemSettingsAdmin _settingsAdmin;
     private readonly ILogger<DashboardLayoutService> _logger;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -131,9 +157,13 @@ public class DashboardLayoutService
         WriteIndented = false
     };
 
-    public DashboardLayoutService(ISystemSettingsService settings, ILogger<DashboardLayoutService> logger)
+    public DashboardLayoutService(
+        ISystemSettingsService settings,
+        ISystemSettingsAdmin settingsAdmin,
+        ILogger<DashboardLayoutService> logger)
     {
         _settings = settings;
+        _settingsAdmin = settingsAdmin;
         _logger = logger;
     }
 
@@ -170,7 +200,7 @@ public class DashboardLayoutService
     public async Task SaveLayoutAsync(DashboardLayout layout)
     {
         var json = JsonSerializer.Serialize(layout, JsonOptions);
-        await _settings.SetAsync(SystemSettingKeys.DashboardLayout, json);
+        await _settingsAdmin.SetAsync(SystemSettingKeys.DashboardLayout, json);
         _logger.LogDebug("Saved dashboard layout");
     }
 

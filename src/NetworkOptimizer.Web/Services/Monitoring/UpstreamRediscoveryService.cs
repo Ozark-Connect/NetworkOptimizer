@@ -43,15 +43,19 @@ public class UpstreamRediscoveryService : BackgroundService
     private readonly UpstreamTracerRegistry _tracerRegistry;
     private readonly ILogger<UpstreamRediscoveryService> _logger;
 
+    private readonly NetworkOptimizer.Core.ISiteWorkGate _siteWorkGate;
+
     public UpstreamRediscoveryService(
         IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
         NetworkOptimizer.Storage.Services.SiteDbContextFactory siteDbFactory,
         UpstreamTracerRegistry tracerRegistry,
+        NetworkOptimizer.Core.ISiteWorkGate siteWorkGate,
         ILogger<UpstreamRediscoveryService> logger)
     {
         _dbFactory = dbFactory;
         _siteDbFactory = siteDbFactory;
         _tracerRegistry = tracerRegistry;
+        _siteWorkGate = siteWorkGate;
         _logger = logger;
     }
 
@@ -93,6 +97,13 @@ public class UpstreamRediscoveryService : BackgroundService
         foreach (var (slug, isDefault) in sites)
         {
             if (ct.IsCancellationRequested) return;
+            // Re-discovery drives gateway SSH, traceroutes, and monitoring-target writes, so a site
+            // licensing has closed must not tick at all.
+            if (!_siteWorkGate.IsSiteOperational(slug))
+            {
+                _logger.LogDebug("Skipping upstream re-discovery for non-operational site {Slug}", slug);
+                continue;
+            }
             try { await TickSiteAsync(slug, isDefault, ct); }
             catch (Exception ex) { _logger.LogWarning(ex, "Upstream re-discovery tick failed for site {Slug}", slug); }
         }

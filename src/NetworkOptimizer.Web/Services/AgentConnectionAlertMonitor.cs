@@ -33,15 +33,19 @@ public class AgentConnectionAlertMonitor : BackgroundService
 
     private readonly Dictionary<int, AgentState> _states = new();
 
+    private readonly NetworkOptimizer.Core.ISiteWorkGate _siteWorkGate;
+
     public AgentConnectionAlertMonitor(
         IDbContextFactory<NetworkOptimizerDbContext> mainDbFactory,
         AgentTunnelRegistry tunnelRegistry,
         IAlertEventBus alertBus,
+        NetworkOptimizer.Core.ISiteWorkGate siteWorkGate,
         ILogger<AgentConnectionAlertMonitor> logger)
     {
         _mainDbFactory = mainDbFactory;
         _tunnelRegistry = tunnelRegistry;
         _alertBus = alertBus;
+        _siteWorkGate = siteWorkGate;
         _logger = logger;
     }
 
@@ -86,6 +90,12 @@ public class AgentConnectionAlertMonitor : BackgroundService
         {
             var agent = entry.Agent;
             seen.Add(agent.Id);
+
+            // Licensing force-drops a non-operational site's tunnel, so alerting on that would be
+            // wrong twice: it is noise, and it reports an outage the instance itself caused. Held in
+            // `seen` so the agent keeps its state row and does not re-alert as new on restore.
+            if (!_siteWorkGate.IsSiteOperational(entry.Slug))
+                continue;
 
             if (_tunnelRegistry.IsAgentLive(agent))
             {

@@ -1,22 +1,28 @@
 using NetworkOptimizer.Storage.Models;
 
+using NetworkOptimizer.Storage.Models.Identity;
+using NetworkOptimizer.Web.Services.Gates;
+
 namespace NetworkOptimizer.Web.Services;
 
 /// <summary>
 /// Interface for running iperf3 speed tests to UniFi and other network devices.
 /// </summary>
+[MutatingService(SiteScoped = true)]
 public interface IIperf3SpeedTestService
 {
     /// <summary>
     /// Gets the current iperf3 test settings.
     /// </summary>
     /// <returns>The current Iperf3Settings configuration.</returns>
+    [RequireRole(Roles.Viewer)]
     Task<Iperf3Settings> GetSettingsAsync();
 
     /// <summary>
     /// Gets all configured devices for speed testing.
     /// </summary>
     /// <returns>A list of all configured DeviceSshConfiguration entries.</returns>
+    [RequireRole(Roles.Viewer)]
     Task<List<DeviceSshConfiguration>> GetDevicesAsync();
 
     /// <summary>
@@ -24,12 +30,16 @@ public interface IIperf3SpeedTestService
     /// </summary>
     /// <param name="device">The device configuration to save.</param>
     /// <returns>The saved device configuration with updated ID if new.</returns>
+    [RequireRole(Roles.Admin)]
+    [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "speedtest_device")]
     Task<DeviceSshConfiguration> SaveDeviceAsync(DeviceSshConfiguration device);
 
     /// <summary>
     /// Deletes a device configuration.
     /// </summary>
     /// <param name="id">The ID of the device to delete.</param>
+    [RequireRole(Roles.Admin)]
+    [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "speedtest_device")]
     Task DeleteDeviceAsync(int id);
 
     /// <summary>
@@ -37,6 +47,7 @@ public interface IIperf3SpeedTestService
     /// </summary>
     /// <param name="host">The hostname or IP address to test.</param>
     /// <returns>A tuple containing success status and a message.</returns>
+    [RequireRole(Roles.Viewer)]
     Task<(bool success, string message)> TestConnectionAsync(string host);
 
     /// <summary>
@@ -44,6 +55,7 @@ public interface IIperf3SpeedTestService
     /// </summary>
     /// <param name="device">The device configuration to test.</param>
     /// <returns>A tuple containing success status and a message.</returns>
+    [RequireRole(Roles.Viewer)]
     Task<(bool success, string message)> TestConnectionAsync(DeviceSshConfiguration device);
 
     /// <summary>
@@ -51,6 +63,7 @@ public interface IIperf3SpeedTestService
     /// </summary>
     /// <param name="host">The hostname or IP address to check.</param>
     /// <returns>A tuple containing availability status and version string.</returns>
+    [RequireRole(Roles.Viewer)]
     Task<(bool available, string version)> CheckIperf3AvailableAsync(string host);
 
     /// <summary>
@@ -58,6 +71,7 @@ public interface IIperf3SpeedTestService
     /// </summary>
     /// <param name="device">The device configuration to check.</param>
     /// <returns>A tuple containing availability status and version string.</returns>
+    [RequireRole(Roles.Viewer)]
     Task<(bool available, string version)> CheckIperf3AvailableAsync(DeviceSshConfiguration device);
 
     /// <summary>
@@ -65,6 +79,8 @@ public interface IIperf3SpeedTestService
     /// </summary>
     /// <param name="device">The device configuration to test.</param>
     /// <returns>The test result containing throughput measurements and analysis.</returns>
+    [RequireRole(Roles.Operator)]
+    [AuditAction(AuditActions.SpeedTestRun, TargetType = "lan_speedtest")]
     Task<Iperf3Result> RunSpeedTestAsync(DeviceSshConfiguration device);
 
     /// <summary>
@@ -74,6 +90,8 @@ public interface IIperf3SpeedTestService
     /// <param name="durationSeconds">The test duration in seconds.</param>
     /// <param name="parallelStreams">The number of parallel TCP streams to use.</param>
     /// <returns>The test result containing throughput measurements and analysis.</returns>
+    [RequireRole(Roles.Operator)]
+    [AuditAction(AuditActions.SpeedTestRun, TargetType = "lan_speedtest")]
     Task<Iperf3Result> RunSpeedTestAsync(DeviceSshConfiguration device, int durationSeconds, int parallelStreams);
 
     /// <summary>
@@ -82,7 +100,8 @@ public interface IIperf3SpeedTestService
     /// <param name="count">The maximum number of results to return (0 = no limit, default 50).</param>
     /// <param name="days">Filter to results within the last N days (0 = all time).</param>
     /// <returns>A list of recent Iperf3Result entries.</returns>
-    Task<List<Iperf3Result>> GetRecentResultsAsync(int count = 50, int days = 0);
+    [RequireRole(Roles.Viewer)]
+    Task<List<Iperf3Result>> GetRecentResultsAsync(int count = 50, int hours = 0);
 
     /// <summary>
     /// Searches speed test results by device name, host, MAC, or network path involvement.
@@ -96,6 +115,7 @@ public interface IIperf3SpeedTestService
     /// <param name="count">The maximum number of results to return (0 = no limit, default 50).</param>
     /// <param name="hours">Filter to results within the last N hours (0 = all time).</param>
     /// <returns>Matching results ordered by time descending.</returns>
+    [RequireRole(Roles.Viewer)]
     Task<List<Iperf3Result>> SearchResultsAsync(string filter, int count = 50, int hours = 0);
 
     /// <summary>
@@ -104,6 +124,7 @@ public interface IIperf3SpeedTestService
     /// <param name="deviceHost">The hostname or IP of the device.</param>
     /// <param name="count">The maximum number of results to return (default 20).</param>
     /// <returns>A list of Iperf3Result entries for the specified device.</returns>
+    [RequireRole(Roles.Viewer)]
     Task<List<Iperf3Result>> GetResultsForDeviceAsync(string deviceHost, int count = 20);
 
     /// <summary>
@@ -113,6 +134,7 @@ public interface IIperf3SpeedTestService
     /// <param name="apIpToMac">Mapping of AP IP addresses to MAC addresses.</param>
     /// <param name="countPerAp">Maximum results per AP (default 5).</param>
     /// <returns>Dictionary keyed by AP MAC with recent test results.</returns>
+    [RequireRole(Roles.Viewer)]
     Task<Dictionary<string, List<Iperf3Result>>> GetApDeviceTestsAsync(
         Dictionary<string, string> apIpToMac, int countPerAp = 5);
 
@@ -121,6 +143,8 @@ public interface IIperf3SpeedTestService
     /// </summary>
     /// <param name="id">The ID of the result to delete.</param>
     /// <returns>True if the result was deleted, false if not found.</returns>
+    [RequireRole(Roles.Admin)]
+    [AuditAction(AuditActions.SpeedTestDeleted, TargetType = "lan_speedtest")]
     Task<bool> DeleteResultAsync(int id);
 
     /// <summary>
@@ -129,11 +153,14 @@ public interface IIperf3SpeedTestService
     /// <param name="id">The ID of the result.</param>
     /// <param name="notes">The notes text (null or empty to clear).</param>
     /// <returns>True if the result was found and updated.</returns>
+    [RequireRole(Roles.Operator)]
     Task<bool> UpdateNotesAsync(int id, string? notes);
 
     /// <summary>
     /// Clears all speed test history from the database.
     /// </summary>
     /// <returns>The number of records deleted.</returns>
+    [RequireRole(Roles.Admin)]
+    [AuditAction(AuditActions.SpeedTestDeleted, TargetType = "lan_speedtest")]
     Task<int> ClearHistoryAsync();
 }

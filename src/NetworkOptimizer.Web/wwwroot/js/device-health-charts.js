@@ -3,6 +3,15 @@
 // device-health-charts, and future chart sets share one implementation.
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=4';
+import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=7';
+import { renderFilterReset, isFiltered } from './chart-filter.js?v=4';
+
+// A device answers SNMP but can still miss a single field on a poll - a temperature or
+// memory OID that times out is written as no value rather than a zero, so the row arrives
+// with that one field absent. Measured over 24h these holes are 30-210s (98% of intervals
+// are the normal 30s cadence, nothing beyond 310s), so 5 minutes spans every one of them
+// with headroom while leaving a genuine outage broken.
+const GAP_BRIDGE_MS = 5 * 60 * 1000;
 
 const PALETTE = window.Apex?.colors || ['#7EB26D', '#EAB839', '#6ED0E0', '#EF843C', '#E24D42', '#1F78C1'];
 const _colorCache = {};
@@ -56,6 +65,8 @@ function baseOpts(height, yTitle, yFormatter, extra) {
             animations: { enabled: false },
         },
         stroke: { curve: 'smooth', width: 2 },
+        // Stays 0: the library's hover markers are the flaky ones, and any non-zero size puts
+        // a permanent dot on every sample. valueSortedTooltip draws the hover dots instead.
         markers: { size: 0 },
         dataLabels: { enabled: false },
         xaxis: {
@@ -79,31 +90,6 @@ function baseOpts(height, yTitle, yFormatter, extra) {
     };
 }
 
-// Shared tooltip renderer: rows ordered by value desc so the tooltip matches the
-// vertical order of the lines at the hovered instant. Values format through the
-// chart's own y-axis formatter, so units stay correct per chart.
-function valueSortedTooltip({ series, dataPointIndex, w }) {
-    const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-    const fmt = w.config.yaxis?.[0]?.labels?.formatter ?? (v => v);
-    const rows = [];
-    let ts = null;
-    for (let i = 0; i < series.length; i++) {
-        const v = series[i]?.[dataPointIndex];
-        if (v == null) continue;
-        ts ??= w.globals.seriesX[i]?.[dataPointIndex];
-        rows.push({ name: w.globals.seriesNames[i], color: w.globals.colors[i % w.globals.colors.length], v });
-    }
-    rows.sort((a, b) => b.v - a.v);
-    const when = ts ? new Date(ts).toLocaleString(undefined, { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) : '';
-    return (when ? '<div class="apexcharts-tooltip-title" style="font-family:Helvetica, Arial, sans-serif;font-size:12px">' + esc(when) + '</div>' : '')
-        + rows.map(r =>
-            '<div class="apexcharts-tooltip-series-group apexcharts-active" style="display:flex">'
-            + '<span class="apexcharts-tooltip-marker" style="background-color:' + r.color + ';border-radius:50%;width:12px;height:12px"></span>'
-            + '<div class="apexcharts-tooltip-text" style="font-family:Helvetica, Arial, sans-serif;font-size:12px"><div class="apexcharts-tooltip-y-group">'
-            + '<span class="apexcharts-tooltip-text-y-label">' + esc(r.name) + ': </span>'
-            + '<span class="apexcharts-tooltip-text-y-value">' + esc(fmt(r.v)) + '</span>'
-            + '</div></div></div>').join('');
-}
 
 function buildQueryParams() {
     let params = '';
@@ -168,6 +154,9 @@ function renderBadges(container) {
             renderStatsTable(container, false);
         });
     }
+
+    // Last: the chip rebuild above wipes the row, so the reset is re-added after it.
+    renderFilterReset(el, isFiltered(visibility), () => { visibility = {}; updateVisibility(); renderBadges(container); });
 }
 
 function updateVisibility() {
@@ -193,9 +182,7 @@ async function loadAndUpdate() {
     const makeSeries = (field) => data.devices.map(d => ({
         name: d.name,
         color: hashColor(d.name),
-        data: (d.data || []).filter(p => p[field] != null).map(p => ({
-            x: new Date(p.time).getTime(), y: p[field]
-        })),
+        data: alignedPoints(d.data || [], p => p[field], 'time', GAP_BRIDGE_MS),
     }));
     if (tempChart) tempChart.updateSeries(makeSeries('temp'), false);
     if (cpuChart) cpuChart.updateSeries(makeSeries('cpu'), false);
@@ -314,7 +301,7 @@ function startPoll() {
     stopPoll();
     if (windowOffset !== 0 || isCustomRange) return;
     if (!isVisible()) return;
-    pollTimer = setInterval(loadAndUpdate, POLL_INTERVALS[currentRangeHours] || 30000);
+    pollTimer = setInterval(() => { if (!tooltipHeld(document.getElementById(containerId))) loadAndUpdate(); }, POLL_INTERVALS[currentRangeHours] || 30000);
 }
 function stopPoll() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
 

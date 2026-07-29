@@ -2,14 +2,22 @@
 @using NetworkOptimizer.Core.Interfaces
 @using NetworkOptimizer.Storage.Models
 @using NetworkOptimizer.Web.Services
-@inject SiteManagementService SiteManagement
+@using NetworkOptimizer.Storage.Models.Identity
+@using Microsoft.AspNetCore.Components.Authorization
+@inject ISiteManagementService SiteManagement
 @inject SiteConnectionRegistry SiteConnections
-@inject AgentEnrollmentService AgentEnrollment
+@inject IAgentEnrollmentService AgentEnrollment
 @inject NetworkOptimizer.Storage.Services.SiteDbContextFactory SiteDb
 @inject NetworkOptimizer.Web.Services.Licensing.LicenseStateService LicenseState
 @inject SiteSwitchService SiteSwitch
+@inject ISiteConfigurationService SiteConfig
 @implements IDisposable
 
+@* Step 1 creates a site, which is instance administration. Everything after it sets up an existing
+   site - its console and its agent - which that site's admin owns. Gating the whole wizard on Admin
+   took the agent setup away from the Site Admin who is meant to do it, so the gate is on the step. *@
+@if (_step > 1 || _canCreateSites)
+{
 <div class="site-wizard">
     <div class="site-wizard-steps">
         @{
@@ -257,15 +265,27 @@
         <div class="alert alert-@_messageClass">@_message</div>
     }
 </div>
+}
 
 @code {
     [Parameter]
     public EventCallback OnSitesChanged { get; set; }
 
+    /// <summary>Raised when the wizard changes a site's own settings, so an open panel can re-read them.</summary>
+    [Parameter]
+    public EventCallback<Site> OnSiteConfigChanged { get; set; }
+
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    /// <summary>Whether this caller may add a site at all - the wizard's first step.</summary>
+    private bool _canCreateSites;
+
     private int _remainingSlots = int.MaxValue;
 
     protected override async Task OnInitializedAsync()
     {
+        _canCreateSites = AuthState is null || (await AuthState).User.IsInRole(Roles.Admin);
+
         LicenseState.OnStateChanged += HandleLicenseStateChanged;
         await RefreshLimitAsync();
     }
@@ -483,22 +503,24 @@
             var existing = await AgentEnrollment.GetAgentsForSiteAsync(_site.Id);
             var pending = existing.FirstOrDefault(a => a.EnrolledAt == null);
             _agentToken = pending != null
-                ? await AgentEnrollment.ReissueTokenAsync(pending.Id)
+                ? await AgentEnrollment.ReissueTokenAsync(_site.Slug, pending.Id)
                 : null;
-            _agentToken ??= (await AgentEnrollment.CreateAgentAsync(_site.Id, "Agent")).Token;
+            _agentToken ??= (await AgentEnrollment.CreateAgentAsync(_site.Slug, "Agent")).Token;
 
             if (_featureProxy)
             {
-                // Same per-site flags the Multi-Site panel toggles expose: console
-                // and device reach through the agent tunnel, stored in the site's
-                // own database.
-                await using var db = SiteDb.CreateForSite(_site.Slug, _site.IsDefault);
-                UpsertSetting(db, UniFiConnectionService.ConsoleViaAgentKey, "True");
-                UpsertSetting(db, SiteTunnelRouting.DevicesViaAgentKey, "True");
-                await db.SaveChangesAsync();
+                // The same per-site flags the Multi-Site panel's toggles set, written through the
+                // same gated service - so the panel behind this wizard is looking at one source of
+                // truth rather than at settings this component reached past it to change.
+                await SiteConfig.SetConsoleViaAgentAsync(_site.Slug, true);
+                await SiteConfig.SetDevicesViaAgentAsync(_site.Slug, true);
             }
 
             await OnSitesChanged.InvokeAsync();
+
+            // The configuration panel for this site is usually still open behind the wizard, showing
+            // the checkboxes these options just moved. Tell it to re-read them.
+            await OnSiteConfigChanged.InvokeAsync(_site);
         }
         catch (Exception ex)
         {

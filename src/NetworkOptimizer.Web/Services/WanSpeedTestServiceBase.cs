@@ -75,6 +75,24 @@ public abstract class WanSpeedTestServiceBase
         get { lock (_lock) return _lastMetadata; }
     }
 
+    // The gated interface exposes these four as Task-returning methods, because the gate interceptor
+    // only intercepts Task-returning members asynchronously and a gated property would block its role
+    // lookup on the circuit. The properties above stay for this class's own use and for anything
+    // holding the concrete type.
+
+    /// <inheritdoc cref="IUwnSpeedTestService.IsRunningAsync" />
+    public Task<bool> IsRunningAsync() => Task.FromResult(IsRunning);
+
+    /// <inheritdoc cref="IUwnSpeedTestService.GetCurrentProgressAsync" />
+    public Task<(string Phase, int Percent, string? Status)> GetCurrentProgressAsync()
+        => Task.FromResult(CurrentProgress);
+
+    /// <inheritdoc cref="IUwnSpeedTestService.GetLastCompletedResultAsync" />
+    public Task<Iperf3Result?> GetLastCompletedResultAsync() => Task.FromResult(LastCompletedResult);
+
+    /// <inheritdoc cref="IUwnSpeedTestService.GetLastMetadataAsync" />
+    public Task<WanTestMetadata?> GetLastMetadataAsync() => Task.FromResult(LastMetadata);
+
     /// <summary>
     /// Fired when background path analysis completes for a result.
     /// UI components subscribe to refresh their display.

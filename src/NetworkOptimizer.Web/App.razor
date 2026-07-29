@@ -99,6 +99,8 @@
     </div>
 
     <script>window.__noSiteDefault = "@(NetworkOptimizer.Web.Services.SiteManagementService.DefaultSiteSlug)";</script>
+    <script src="@FileVersionProvider.AddFileVersionToPath("/", "js/passkey.js")"></script>
+    <script src="@FileVersionProvider.AddFileVersionToPath("/", "js/federated-login.js")"></script>
     <script src="@FileVersionProvider.AddFileVersionToPath("/", "js/site-context.js")"></script>
     <script src="@FileVersionProvider.AddFileVersionToPath("/", "js/chart-defaults.js")"></script>
     <script src="_framework/blazor.web.js"></script>
@@ -143,6 +145,67 @@
             downloadLink.href = linkSource;
             downloadLink.download = fileName;
             downloadLink.click();
+        }
+
+        // Copy a shared secret from the sibling input, stripping the grouping spaces. The key is
+        // displayed in groups of four because that is what a human can read back, but an
+        // authenticator app wants the bare base32 string.
+        function copySecretFromInput(button) {
+            const input = button.previousElementSibling;
+            const text = input.value.replace(/\s+/g, '');
+
+            if (navigator.clipboard && window.isSecureContext) {
+                navigator.clipboard.writeText(text);
+            } else {
+                input.select();
+                input.setSelectionRange(0, 99999);
+                document.execCommand('copy');
+            }
+            input.blur();
+
+            const icon = button.querySelector('.copy-icon');
+            const check = button.querySelector('.copy-check');
+            if (icon && check) {
+                icon.style.display = 'none';
+                check.style.display = 'inline-flex';
+                setTimeout(function () {
+                    icon.style.display = 'inline-flex';
+                    check.style.display = 'none';
+                }, 1500);
+            }
+        }
+
+        // Copy a command block's text. Same tick-swap feedback as the input copiers; the text comes
+        // from the sibling <pre>, whose textContent is exactly what was rendered.
+        function copyFromCodeBlock(button) {
+            const block = button.parentElement.querySelector('pre');
+            if (!block) return;
+            const text = block.textContent;
+
+            if (navigator.clipboard && window.isSecureContext) {
+                navigator.clipboard.writeText(text);
+            } else {
+                const scratch = document.createElement('textarea');
+                scratch.value = text;
+                scratch.setAttribute('readonly', '');
+                scratch.style.position = 'absolute';
+                scratch.style.left = '-9999px';
+                document.body.appendChild(scratch);
+                scratch.select();
+                document.execCommand('copy');
+                document.body.removeChild(scratch);
+            }
+
+            const icon = button.querySelector('.copy-icon');
+            const check = button.querySelector('.copy-check');
+            if (icon && check) {
+                icon.style.display = 'none';
+                check.style.display = 'inline-flex';
+                setTimeout(function () {
+                    icon.style.display = 'inline-flex';
+                    check.style.display = 'none';
+                }, 1500);
+            }
         }
 
         // Copy text from sibling input element with visual feedback
@@ -195,7 +258,7 @@
                     return;
                 }
 
-                tippy(icon, {
+                var iconOpts = {
                     content: content,
                     allowHTML: true,
                     interactive: true,
@@ -226,7 +289,17 @@
                     onClickOutside(instance, event) {
                         instance.hide();
                     }
-                });
+                };
+                // An icon that DOES something on click must not also open on click: the click
+                // re-renders or navigates, the reference element goes away mid-show, and the popper
+                // is left parented to the body with nothing to position against - it strands itself
+                // in the top-left corner and no longer has a reference to hide it. Hover still shows
+                // it; touch gets nothing, which is what it already got, since the tap acts instead.
+                if (icon.hasAttribute('data-tooltip-hover-only')) {
+                    iconOpts.trigger = 'mouseenter';
+                    iconOpts.touch = false;
+                }
+                tippy(icon, iconOpts);
             });
 
             // Simple tooltips for elements with data-tooltip (not .tooltip-icon)

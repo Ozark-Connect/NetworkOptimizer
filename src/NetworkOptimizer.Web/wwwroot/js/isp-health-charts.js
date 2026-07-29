@@ -3,6 +3,8 @@
 // render as shaded x-axis ranges, path shifts as annotation lines.
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
+import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=7';
+import { renderFilterReset, isFiltered } from './chart-filter.js?v=4';
 
 const PALETTE = ['#2ba89a', '#3b82f6', '#a78bfa', '#ef5858', '#f59e0b', '#10b981'];
 const POLL_MS = 60000;
@@ -11,12 +13,31 @@ let chart = null;
 let pollTimer = null;
 let fetchController = null;
 let resetBtn = null;
+// Floor for the gap budget; past ~17 h the server's buckets are wider than this and alignedPoints
+// scales off their own cadence instead. Below it, a single missed minute is noise rather than an
+// outage and should not chop the line.
+const GAP_BRIDGE_MS = 5 * 60 * 1000;
 let isZoomed = false;
+// The drag-zoom window, kept so a series toggle can put it back. Toggling visibility redraws from
+// the chart's default axis, which is not a zoom event and so leaves nothing behind to restore from.
+let zoomWindow = null;
+// Set while WE re-apply that window, so the resulting event is not mistaken for a user gesture and
+// echoed back to the Blazor panel as a fresh zoom.
+let restoringZoom = false;
 let dotNetRef = null;
 // null = default 48 h cached view; { from, to } ISO strings = a filter-selected window.
 let win = null;
 // Event annotation types hidden by the panel's category filter pills; display-only.
 let hiddenTypes = new Set();
+
+// One entry per ASN series, in chart order, for the filter chips below the plot.
+let asnMeta = [];
+// name -> false when hidden. Absent means visible, so a new ASN appears without asking.
+let seriesVisibility = {};
+let badgesEl = null;
+
+const _escSpan = document.createElement('span');
+function escapeHtml(v) { _escSpan.textContent = v ?? ''; return _escSpan.innerHTML; }
 let lastEvents = [];
 
 function buildOpts() {
@@ -32,6 +53,8 @@ function buildOpts() {
             events: {
                 zoomed: (ctx, opts) => {
                     const min = opts?.xaxis?.min, max = opts?.xaxis?.max;
+                    zoomWindow = min != null ? { min, max } : null;
+                    if (restoringZoom) return;
                     setZoomed(min != null);
                     notifyZoom(min, max);
                 },
@@ -74,35 +97,17 @@ function buildOpts() {
                 grid: { padding: { left: -5, right: -5, top: -8, bottom: 0 } },
             },
         }],
-        legend: { show: true, labels: { colors: '#9ca3af' } },
+        // Our own chips below the plot instead: same look and click behaviour as every other
+        // chart tab, where the built-in legend gave a different affordance for the same job.
+        legend: { show: false },
         tooltip: {
             theme: 'dark',
             shared: true,
             x: { format: 'MMM dd, HH:mm' },
-            // Rows ordered by RTT desc so the tooltip's vertical order matches the
-            // chart lines at the hovered instant (highest line = first row).
-            custom({ series, dataPointIndex, w }) {
-                const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-                const fmt = v => v.toFixed(1) + ' ms';
-                const rows = [];
-                let ts = null;
-                for (let i = 0; i < series.length; i++) {
-                    const v = series[i]?.[dataPointIndex];
-                    if (v == null) continue;
-                    ts ??= w.globals.seriesX[i]?.[dataPointIndex];
-                    rows.push({ name: w.globals.seriesNames[i], color: w.globals.colors[i % w.globals.colors.length], v });
-                }
-                rows.sort((a, b) => b.v - a.v);
-                const when = ts ? new Date(ts).toLocaleString(undefined, { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }) : '';
-                return (when ? '<div class="apexcharts-tooltip-title" style="font-family:Helvetica, Arial, sans-serif;font-size:12px">' + esc(when) + '</div>' : '')
-                    + rows.map(r =>
-                        '<div class="apexcharts-tooltip-series-group apexcharts-active" style="display:flex">'
-                        + '<span class="apexcharts-tooltip-marker" style="background-color:' + r.color + ';border-radius:50%;width:12px;height:12px"></span>'
-                        + '<div class="apexcharts-tooltip-text" style="font-family:Helvetica, Arial, sans-serif;font-size:12px"><div class="apexcharts-tooltip-y-group">'
-                        + '<span class="apexcharts-tooltip-text-y-label">' + esc(r.name) + ': </span>'
-                        + '<span class="apexcharts-tooltip-text-y-value">' + esc(fmt(r.v)) + '</span>'
-                        + '</div></div></div>').join('');
-            },
+            // The shared renderer: rows ordered by value so they match the vertical order of the
+            // lines, plus a hover dot on each. Its own format because this axis prints a bare
+            // number under an "ms" title while the tooltip has always carried the unit.
+            custom: (ctx) => valueSortedTooltip(ctx, { format: v => v.toFixed(1) + ' ms', omitSeconds: true }),
         },
         noData: { text: 'No path data in the last 24 hours', style: { color: '#64748b' } },
     };
@@ -166,6 +171,7 @@ function notifyZoom(min, max, scrollToChart = false) {
 function resetZoom() {
     if (!chart) return;
     chart.updateOptions({ xaxis: { min: undefined, max: undefined } }, false, false);
+    zoomWindow = null;
     setZoomed(false);
     notifyZoom(null, null, true);
     loadAndUpdate();
@@ -185,15 +191,96 @@ async function loadAndUpdate() {
         const series = (json.asns || []).map((a, i) => ({
             name: a.name,
             color: PALETTE[i % PALETTE.length],
-            data: (a.points || []).map(p => ({ x: new Date(p.time).getTime(), y: p.value })),
+            // A total outage leaves NO row for that stretch - the endpoint's merged axis is built
+            // from the buckets that exist - so the readings either side were adjacent and the line
+            // carried straight over it. A null is inserted where the cadence breaks, which draws
+            // the gap the other tabs draw. Interpolation stays off: where the endpoint already
+            // nulled a series because that ASN alone went quiet, that break is the truth and is
+            // drawn as-is.
+            data: alignedPoints(a.points || [], p => p.value, 'time', GAP_BRIDGE_MS, false),
         }));
+
+        asnMeta = series.map(x => ({ name: x.name, color: x.color }));
+        // Drop hidden entries for ASNs that are no longer on the path, or a vanished name would
+        // keep a series hidden forever with no chip left to turn it back on.
+        const live = new Set(asnMeta.map(m => m.name));
+        Object.keys(seriesVisibility).forEach(k => { if (!live.has(k)) delete seriesVisibility[k]; });
+        renderBadges();
 
         lastEvents = json.events || [];
         chart.updateOptions({ annotations: buildAnnotations(lastEvents) }, false, false);
         // Preserve the user's drag-zoom; a series refresh while zoomed would snap back
-        if (!isZoomed) chart.updateSeries(series, false);
+        // updateSeries resets per-series visibility, so re-apply after every refresh.
+        if (!isZoomed) { chart.updateSeries(series, false); applySeriesVisibility(); }
     } catch (e) {
         if (e.name !== 'AbortError') console.warn('isp-health chart load failed', e);
+    }
+}
+
+function applySeriesVisibility() {
+    if (!chart) return;
+    asnMeta.forEach(m => {
+        if (seriesVisibility[m.name] === false) chart.hideSeries(m.name);
+        else chart.showSeries(m.name);
+    });
+
+    // hideSeries/showSeries redraw against the default axis range, so a chip click threw away a
+    // drag-zoom - you would zoom into an event, isolate the provider you wanted to look at, and
+    // land back on the whole window. Filtering and zooming are answers to the same question here,
+    // so they have to survive each other. Re-applied rather than prevented, because the library
+    // gives no way to toggle a series without that redraw.
+    if (zoomWindow) {
+        restoringZoom = true;
+        chart.zoomX(zoomWindow.min, zoomWindow.max);
+        // Cleared on a later tick: zoomX redraws asynchronously, so the event it raises has not
+        // arrived yet and clearing inline would let it through as a user gesture.
+        setTimeout(() => { restoringZoom = false; }, 0);
+    }
+}
+
+/// Chips below the plot, matching the other chart tabs: a plain click isolates one series (and
+/// clicking the isolated one restores all), ctrl or cmd toggles a single series. Same paradigm on
+/// purpose - this chart used the built-in ApexCharts legend, which is a different gesture for the
+/// same job and does not survive the updateSeries that a poll performs.
+function renderBadges() {
+    if (!badgesEl) return;
+    if (asnMeta.length <= 1) { badgesEl.innerHTML = ''; return; }
+
+    badgesEl.innerHTML = asnMeta.map(m => {
+        const vis = seriesVisibility[m.name] !== false;
+        return `<button type="button" class="wan-filter-badge ${vis ? 'active' : 'inactive'}" data-asn="${escapeHtml(m.name)}">
+            <span class="wan-badge-dot" style="background-color: ${m.color}"></span>
+            <span>${escapeHtml(m.name)}</span>
+        </button>`;
+    }).join('');
+
+    // Last: the chip rebuild above wipes the row, so the reset is re-added after it.
+    renderFilterReset(badgesEl, isFiltered(seriesVisibility), () => {
+        seriesVisibility = {};
+        applySeriesVisibility();
+        renderBadges();
+    });
+
+    if (!badgesEl._delegated) {
+        badgesEl._delegated = true;
+        badgesEl.addEventListener('click', (e) => {
+            const btn = e.target.closest('button[data-asn]');
+            if (!btn) return;
+            const name = btn.dataset.asn;
+
+            if (e.ctrlKey || e.metaKey) {
+                seriesVisibility[name] = seriesVisibility[name] === false ? undefined : false;
+            } else {
+                const allVis = asnMeta.every(m => seriesVisibility[m.name] !== false);
+                const onlyThis = seriesVisibility[name] !== false
+                    && asnMeta.filter(m => m.name !== name).every(m => seriesVisibility[m.name] === false);
+                if (onlyThis) seriesVisibility = {};
+                else if (allVis) asnMeta.forEach(m => seriesVisibility[m.name] = m.name === name);
+                else seriesVisibility[name] = seriesVisibility[name] === false;
+            }
+            applySeriesVisibility();
+            renderBadges();
+        });
     }
 }
 
@@ -212,10 +299,18 @@ export async function mount(elId, fromISO = null, toISO = null, hidden = null) {
     el.parentElement.classList.add('isp-chart-wrap');
     el.parentElement.appendChild(resetBtn);
 
+    // Immediately after the plot, where the legend it replaces used to sit. NOT appended to the
+    // parent: that wrapper holds more than the chart (the Dig deeper block among it), so appending
+    // put the chips at the bottom of the card instead of under the lines they filter.
+    badgesEl = document.createElement('div');
+    badgesEl.className = 'wan-filter-badges isp-chart-badges';
+    el.parentElement.insertBefore(badgesEl, el.nextSibling);
+
     chart = new ApexCharts(el, buildOpts());
     await chart.render();
     await loadAndUpdate();
-    pollTimer = setInterval(loadAndUpdate, POLL_MS);
+    // Guarded at the tick, not inside loadAndUpdate, so an explicit reload is never suppressed.
+    pollTimer = setInterval(() => { if (!tooltipHeld(el)) loadAndUpdate(); }, POLL_MS);
 }
 
 export async function reload() {
@@ -252,6 +347,8 @@ export function unmount() {
     fetchController?.abort();
     if (resetBtn) { resetBtn.remove(); resetBtn = null; }
     isZoomed = false;
+    zoomWindow = null;
+    restoringZoom = false;
     dotNetRef = null;
     win = null;
     hiddenTypes = new Set();

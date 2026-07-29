@@ -56,6 +56,13 @@ public class UniFiSshService : IUniFiSshService
     /// </summary>
     private async Task<SshConnectionInfo> MaybeRouteViaAgentAsync(SshConnectionInfo connection)
     {
+        // Every connection this service builds passes through here, so it is also where the site's
+        // stored key gets attached - additive to whatever password or key file is already set.
+        using (var scope = CreateSiteScope())
+        {
+            await StoredSshKeyReader.AttachAsync(scope.ServiceProvider, connection);
+        }
+
         var routing = _serviceProvider.GetService<SiteTunnelRouting>();
         if (routing == null) return connection;
         (connection.Host, connection.Port) = await routing.RouteAsync(_siteSlug, connection.Host, connection.Port);
@@ -92,6 +99,10 @@ public class UniFiSshService : IUniFiSshService
             await repository.SaveUniFiSshSettingsAsync(settings);
         }
 
+        // Set here so HasCredentials is correct for every caller, rather than each of the two dozen
+        // places that check it having to learn about stored keys.
+        settings.HasStoredKey = await StoredSshKeyReader.ExistsAsync(scope.ServiceProvider);
+
         _cachedSettings = settings;
         _cacheTime = DateTime.UtcNow;
 
@@ -115,6 +126,10 @@ public class UniFiSshService : IUniFiSshService
         }
 
         await repository.SaveUniFiSshSettingsAsync(settings);
+
+        // The caller uses the object we hand back, so it needs the same stored-key flag a load sets -
+        // otherwise HasCredentials reads false right after saving on a stored-key-only site.
+        settings.HasStoredKey = await StoredSshKeyReader.ExistsAsync(scope.ServiceProvider);
 
         // Invalidate cache
         _cachedSettings = null;
@@ -184,9 +199,12 @@ public class UniFiSshService : IUniFiSshService
         var effectivePassword = !string.IsNullOrEmpty(passwordOverride) ? passwordOverride : settings.Password;
         var effectivePrivateKeyPath = !string.IsNullOrEmpty(privateKeyPathOverride) ? privateKeyPathOverride : settings.PrivateKeyPath;
 
-        // Check if we have any credentials at all
+        // Check if we have any credentials at all. The site's stored key counts: without it here, a
+        // site authenticating purely by stored key would be turned away before it ever connected.
         var hasCredentials = !string.IsNullOrEmpty(effectiveUsername) &&
-            (!string.IsNullOrEmpty(effectivePassword) || !string.IsNullOrEmpty(effectivePrivateKeyPath));
+            (!string.IsNullOrEmpty(effectivePassword)
+                || !string.IsNullOrEmpty(effectivePrivateKeyPath)
+                || settings.HasStoredKey);
 
         if (!hasCredentials)
         {

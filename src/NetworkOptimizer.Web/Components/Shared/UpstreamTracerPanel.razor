@@ -8,6 +8,9 @@
 @inject NetworkOptimizer.Web.Services.Monitoring.ProbeExecutorFactory ExecutorFactory
 @inject IJSRuntime JS
 @inject NetworkOptimizer.Web.Services.LanFlowMap.LanFlowMapCache FlowMapCache
+@inject Microsoft.AspNetCore.Authorization.IAuthorizationService Authz
+@using NetworkOptimizer.Web.Services.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
 
 <div class="card">
     <div class="card-header card-header-collapsible" @onclick="ToggleCollapse">
@@ -48,7 +51,9 @@
                 hop to an ASN, and proposes monitoring targets for review.
             </p>
             <div class="action-buttons">
-                <button class="btn btn-primary" @onclick="StartAsync">Discover upstream path</button>
+                <SiteOperatorOnly>
+                    <button class="btn btn-primary" @onclick="StartAsync">Discover upstream path</button>
+                </SiteOperatorOnly>
             </div>
         }
         else if (_state.Step == TracerStep.Failed)
@@ -58,7 +63,9 @@
                 @_state.FailureMessage
             </div>
             <div class="action-buttons">
-                <button class="btn btn-primary" @onclick="StartAsync">Try again</button>
+                <SiteOperatorOnly>
+                    <button class="btn btn-primary" @onclick="StartAsync">Try again</button>
+                </SiteOperatorOnly>
             </div>
         }
         else
@@ -144,7 +151,7 @@
                 <div class="form-group">
                     <label class="form-label">Access network technology</label>
                     <select class="form-control upstream-tech-select @AccessTechAttentionClass"
-                            value="@((int)_state.AccessTechnology)"
+                            value="@((int)_state.AccessTechnology)" disabled="@(!_canOperate)"
                             @onchange="OnAccessTechChanged">
                         @foreach (var tech in AccessTechDisplayOrder)
                         {
@@ -411,14 +418,18 @@
                 }
 
                 <div class="action-buttons">
-                    <button class="btn btn-secondary" @onclick="StartAsync">Re-run discovery</button>
+                    <SiteOperatorOnly>
+                        <button class="btn btn-secondary" @onclick="StartAsync">Re-run discovery</button>
+                    </SiteOperatorOnly>
                     @if (_state.AccessHops.Any(h => h.Enabled) || _state.TransitAsns.Any(a => a.Enabled) || _state.RemovedTransitAsns.Count > 0)
                     {
-                        <button class="btn btn-primary" @onclick="CommitAsync"
+                        <SiteOperatorOnly>
+                            <button class="btn btn-primary" @onclick="CommitAsync"
                                 disabled="@(_state.IspChange is { Confirmed: null })"
                                 data-tooltip="@(_state.IspChange is { Confirmed: null } ? "Answer the provider question above first" : null)">
                             Save monitoring targets
                         </button>
+                        </SiteOperatorOnly>
                     }
                 </div>
             }
@@ -431,7 +442,9 @@
                     </div>
                 }
                 <div class="action-buttons">
-                    <button class="btn btn-secondary" @onclick="StartAsync">Run discovery again</button>
+                    <SiteOperatorOnly>
+                        <button class="btn btn-secondary" @onclick="StartAsync">Run discovery again</button>
+                    </SiteOperatorOnly>
                 </div>
             }
             else
@@ -479,8 +492,22 @@
             _collapsed = false;
     }
 
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    /// <summary>
+    /// Running a discovery, committing its targets and setting the access technology are all Operator
+    /// on this site: they are part of running the network, and a mistake is fixed by running it again.
+    /// The wrapper components handle the buttons; this covers the technology select, which stays
+    /// visible so a Viewer can read what the site is scored as, and backs every handler below - the
+    /// wrappers decide what renders, not what may be invoked.
+    /// </summary>
+    private bool _canOperate;
+
     protected override async Task OnInitializedAsync()
     {
+        _canOperate = AuthState is null
+            || (await Authz.AuthorizeAsync((await AuthState).User, SiteCtx.Slug, Policies.SiteOperator)).Succeeded;
+
         await Tracer.RehydrateFromDbAsync();
         _state = Tracer.State;
         _collapsed = !ForceExpand && _state.Step == TracerStep.Done;
@@ -519,6 +546,7 @@
 
     private async Task StartAsync()
     {
+        if (!_canOperate) return;
         _justSaved = false;
         await Tracer.StartDiscoveryAsync();
         _state = Tracer.State;
@@ -527,6 +555,7 @@
 
     private async Task CommitAsync()
     {
+        if (!_canOperate) return;
         await Tracer.CommitResultsAsync();
         _state = Tracer.State;
         _justSaved = true;
@@ -583,6 +612,7 @@
 
     private void OnAccessTechChanged(ChangeEventArgs e)
     {
+        if (!_canOperate) return;
         _state.AccessTechnology = (AccessTechnology)int.Parse((string)e.Value!);
         // Touching the field is the confirmation the highlight was asking for, whether they
         // changed the value or re-picked the same one.

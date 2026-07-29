@@ -1,0 +1,73 @@
+@using NetworkOptimizer.Web.Services.Ssh
+
+@*
+    The site's Managed SSH Key, as it appears wherever SSH credentials are configured. It says
+    "Managed" because it sits directly above Private Key Path, which is a key file an administrator
+    placed on the server: two different credentials that both read as "SSH key" until one of them
+    says whose it is. Stacked together and unqualified, "None stored, we can generate one" and "set
+    by an administrator" looked like the form contradicting itself.
+
+    Read-only by design: everything you can do to the key happens in the one panel in
+    Settings - Connection, so there is no way to replace the gateway's key from, say, the cellular
+    modem form.
+
+    With no key stored this states the offer rather than the absence - someone typing a password into
+    an SSH form is exactly the person who would rather not have one, and is unlikely to know the app
+    can make a key for them. It stays a plain line of text: the feature is optional and must not nag.
+*@
+
+<div class="form-group ssh-key-row">
+    <label class="form-label @(Key is null ? "form-label-unused" : "")">Managed SSH Key@(Key is null ? " (Not in use)" : "")</label>
+    @if (Key is not null)
+    {
+        <div class="ssh-key-row-set">
+            <small class="form-help">
+                @Key.KeyType, in use for gateway and device SSH.
+                @if (OnManage.HasDelegate)
+                {
+                    <button type="button" class="btn-link" @onclick="OnManage">Manage in Settings - Connection</button>
+                }
+                else
+                {
+                    <a href="@ManageUrl">Manage in Settings - Connection</a>
+                }
+            </small>
+        </div>
+    }
+    else
+    {
+        <small class="form-help">
+            None stored. Network Optimizer can generate one for you, so you do not need to place a key
+            file on the server.
+            @if (OnManage.HasDelegate)
+            {
+                <button type="button" class="btn-link" @onclick="OnManage">Set up an SSH key</button>
+            }
+            else
+            {
+                <a href="@ManageUrl">Set up an SSH key</a>
+            }
+        </small>
+    }
+</div>
+
+@code {
+    /// <summary>The site's stored key, or null when it has none.</summary>
+    [Parameter]
+    public SshKeyInfo? Key { get; set; }
+
+    /// <summary>
+    /// Where the manage link points. Defaults to the panel's anchor, which the Settings anchor map
+    /// routes to the Connection tab; pages outside Settings get there with the same link.
+    /// </summary>
+    [Parameter]
+    public string ManageUrl { get; set; } = "/settings#ssh-key";
+
+    /// <summary>
+    /// Supplied when the row is already on the Settings page. A link there is same-page navigation, so
+    /// the fragment handler never runs and the panel is never scrolled to or highlighted; the host
+    /// handles it directly instead. Left unset elsewhere, where the link is a real navigation.
+    /// </summary>
+    [Parameter]
+    public EventCallback OnManage { get; set; }
+}

@@ -5,9 +5,13 @@
   </ItemGroup>
   <ItemGroup>
     <!-- Mirrors the root Directory.Build.props (which this file shadows, not merges):
-         suppress GHSA-2m69-gcr7-jv3q on the transitive native SQLite pulled by test
-         projects. We are not in the affected code path; fix ships in EF 10.0.11.
-         See https://github.com/dotnet/efcore/issues/38257 - remove when we move to 10.0.11. -->
-    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-2m69-gcr7-jv3q" />
+         System.Security.Cryptography.Xml 10.0.7, pulled in by ITfoxtec.Identity.Saml2 4.20.1 and
+         pruned on net10.0 as a framework-provided assembly, so the flagged package never ships.
+         REMOVE when ITfoxtec.Identity.Saml2 bumps its dependency past 10.0.7. -->
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-23rf-6693-g89p" />
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-8q5v-6pqq-x66h" />
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-cvvh-rhrc-wg4q" />
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-g8r8-53c2-pm3f" />
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-mmjf-rqrv-855v" />
   </ItemGroup>
 </Project>

@@ -3,6 +3,8 @@
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=4';
+import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=7';
+import { renderFilterReset, isFiltered } from './chart-filter.js?v=4';
 
 const PALETTE = window.Apex?.colors || ['#4269d0', '#efb118', '#ff725c', '#6cc5b0', '#3ca951', '#ff8ab7'];
 const _esc = document.createElement('span');
@@ -44,6 +46,8 @@ function baseOpts(height, yTitle, yFormatter, extra) {
             type: 'gradient',
             gradient: { shadeIntensity: 0.3, opacityFrom: 0.4, opacityTo: 0.05 },
         },
+        // Stays 0: the library's hover markers are the flaky ones, and any non-zero size puts
+        // a permanent dot on every sample. valueSortedTooltip draws the hover dots instead.
         markers: { size: 0 },
         dataLabels: { enabled: false },
         xaxis: {
@@ -60,7 +64,7 @@ function baseOpts(height, yTitle, yFormatter, extra) {
         },
         grid: { borderColor: '#374151', strokeDashArray: 3 },
         legend: { show: false },
-        tooltip: { theme: 'dark', shared: true, x: { format: 'MMM dd, HH:mm:ss' },
+        tooltip: { theme: 'dark', shared: true, x: { format: 'MMM dd, HH:mm:ss' }, custom: valueSortedTooltip,
             y: { formatter: yFormatter } },
         noData: { text: 'No data in this time range', style: { color: '#64748b' } },
     };
@@ -137,6 +141,9 @@ function renderBadges(container) {
             renderStatsTable(container, false);
         });
     }
+
+    // Last: the chip rebuild above wipes the row, so the reset is re-added after it.
+    renderFilterReset(el, isFiltered(visibility), () => { visibility = {}; updateVisibility(); renderBadges(container); });
 }
 
 function updateVisibility() {
@@ -183,27 +190,27 @@ async function loadAndUpdate() {
         dsPowerSeries.push({
             name: d.label,
             color: c.ds,
-            data: pts.filter(p => p.dsPower != null).map(p => ({ x: new Date(p.time).getTime(), y: p.dsPower })),
+            data: alignedPoints(pts, p => p.dsPower),
         });
         dsSnrSeries.push({
             name: d.label,
             color: c.ds,
-            data: pts.filter(p => p.dsSnr != null).map(p => ({ x: new Date(p.time).getTime(), y: p.dsSnr })),
+            data: alignedPoints(pts, p => p.dsSnr),
         });
         usPowerSeries.push({
             name: d.label,
             color: c.us,
-            data: pts.filter(p => p.usPower != null).map(p => ({ x: new Date(p.time).getTime(), y: p.usPower })),
+            data: alignedPoints(pts, p => p.usPower),
         });
         errorsSeries.push({
             name: d.label + ' Uncorrectable',
             color: c.uncorr,
-            data: pts.filter(p => p.uncorrDelta != null).map(p => ({ x: new Date(p.time).getTime(), y: p.uncorrDelta })),
+            data: alignedPoints(pts, p => p.uncorrDelta),
         });
         errorsSeries.push({
             name: d.label + ' Correctable',
             color: c.corr,
-            data: pts.filter(p => p.corrDelta != null).map(p => ({ x: new Date(p.time).getTime(), y: p.corrDelta })),
+            data: alignedPoints(pts, p => p.corrDelta),
         });
     });
 
@@ -264,7 +271,7 @@ function startPoll() {
     stopPoll();
     if (windowOffset !== 0 || isCustomRange) return;
     if (!isVisible()) return;
-    pollTimer = setInterval(loadAndUpdate, POLL_INTERVALS[currentRangeHours] || 60000);
+    pollTimer = setInterval(() => { if (!tooltipHeld(document.getElementById(containerId))) loadAndUpdate(); }, POLL_INTERVALS[currentRangeHours] || 60000);
 }
 function stopPoll() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
 

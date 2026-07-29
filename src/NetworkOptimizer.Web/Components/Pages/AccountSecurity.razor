@@ -1,0 +1,428 @@
+@page "/account/security"
+@attribute [Authorize(Policy = Policies.AccountSelfService)]
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Components.Authorization
+@using NetworkOptimizer.Storage.Models.Identity
+@using NetworkOptimizer.Web.Services.Identity
+@using NetworkOptimizer.Web.Services.Authorization
+@inject IMfaService Mfa
+@inject IPasskeyService Passkeys
+@inject ICurrentUserAccessor CurrentUser
+@inject AuthenticationStateProvider AuthState
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
+@inject MfaEnrollmentCodes EnrollmentCodes
+@inject Microsoft.Extensions.Options.IOptions<Microsoft.AspNetCore.Identity.IdentityOptions> IdentityOptions
+@inject ILogger<AccountSecurity> Logger
+
+<PageTitle>Security - Network Optimizer</PageTitle>
+
+<div class="page-header">
+    <h1>Security</h1>
+    <p class="page-description">Password, two-factor authentication, and passkeys for your account.</p>
+</div>
+
+@* Only when the passkey really is the sole way in: the role demands a second factor, a passkey
+   supplies it, and there is no authenticator app and no recovery code to fall back on. Either of
+   those makes this quiet. *@
+@if (_passkeyIsOnlyWayIn)
+{
+    <div class="alert alert-warning">
+        <strong>This passkey is your only way in.</strong> Your role requires a second factor and a
+        passkey is the only one registered, so a password on its own will not sign you in. If you lose
+        it you will need recovery mode to get back. Set up an authenticator app below, or register a
+        second passkey on another device.
+    </div>
+}
+
+@* Only for an account that actually signs in with one. A passkey-only or federated account has
+   nothing to prove and nothing to replace, so offering the form would be a dead end. *@
+@if (_hasPassword)
+{
+    <div class="card">
+        <div class="card-header"><span class="card-title">Password</span></div>
+        <div class="card-body">
+            @if (_passwordChanged)
+            {
+                <div class="alert alert-success">Your password has been changed.</div>
+            }
+            @if (_passwordUnchanged)
+            {
+                <div class="alert alert-danger">Your new password has to be different from your current one.</div>
+            }
+            @if (_passwordFailed)
+            {
+                <div class="alert alert-danger">
+                    That did not work. Check your current password and that the new one meets the
+                    requirements.
+                </div>
+            }
+            @* Posted, not handled in the circuit: a password change rotates the security stamp, and
+               only an HTTP response can re-issue the cookie that carries it. *@
+            <form method="post" action="/api/account/password">
+                <AntiforgeryToken />
+                <div class="form-group">
+                    <label class="form-label" for="current-password">Current password</label>
+                    <input id="current-password" name="currentPassword" type="password"
+                           class="form-control" autocomplete="current-password" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="new-password">New password <span class="tooltip-icon tooltip-icon-sm" data-tooltip="@_passwordPolicy">?</span></label>
+                    <input id="new-password" name="newPassword" type="password"
+                           class="form-control" autocomplete="new-password" />
+                </div>
+                <button type="submit" class="btn btn-primary btn-sm">Change password</button>
+            </form>
+        </div>
+    </div>
+}
+
+@if (_setupRequired)
+{
+    <div class="alert alert-warning">
+        Multi-factor authentication is required for your role. Set up either option below.
+    </div>
+}
+
+<div class="card @(_setupRequired ? "card-highlight" : null)">
+    <div class="card-header"><span class="card-title">Authenticator app (TOTP)</span></div>
+    <div class="card-body">
+        @if (_setupRequired)
+        {
+            <div class="alert alert-info">
+                Codes from an authenticator app. Works from any browser, on any device.
+            </div>
+        }
+        @if (_user is null)
+        {
+            <div class="loading-container"><span class="spinner"></span></div>
+        }
+        else if (_mfaEnabled)
+        {
+            <p class="account-note">Two-factor authentication is <strong>enabled</strong>.</p>
+            <button class="btn btn-secondary btn-sm" @onclick="RegenerateCodesAsync">Regenerate recovery codes</button>
+            <button class="btn btn-danger btn-sm" @onclick="DisableMfaAsync">Disable</button>
+            @if (!string.IsNullOrEmpty(_mfaMessage)) { <div class="alert alert-warning">@_mfaMessage</div> }
+        }
+        else if (_setup is not null)
+        {
+            <p class="account-note">Scan this code in your authenticator app, then enter the 6-digit code to finish.</p>
+            <div class="account-qr">
+                <img src="@AuthenticatorQrCode.ToPngDataUri(_setup.OtpAuthUri)" alt="" width="200" height="200" />
+            </div>
+            <p class="account-note">Can't scan it? Copy this key into the app instead.</p>
+            @* Grouped for reading; the copy button strips the spaces, so what reaches the clipboard is
+               the bare base32 secret. Upper-case because base32 is an upper-case alphabet. *@
+            <div class="account-key-row">
+                <input type="text" class="form-control account-key-input" value="@_setup.FormattedKey" readonly />
+                <button type="button" class="account-copy-btn" data-tooltip="Copy the key" onclick="copySecretFromInput(this)">
+                    <span class="copy-icon">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M15.666 3.888A2.25 2.25 0 0 0 13.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 0 1-.75.75H9a.75.75 0 0 1-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 0 1-2.25 2.25H6.75A2.25 2.25 0 0 1 4.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 0 1 1.927-.184" />
+                        </svg>
+                    </span>
+                    <span class="copy-check" style="display:none;">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" />
+                        </svg>
+                    </span>
+                </button>
+            </div>
+            @* Posted rather than handled in the circuit: enabling two-factor rotates the security
+               stamp, and only an HTTP response can re-issue the cookie that carries it. *@
+            <form method="post" action="/api/auth/mfa/enable">
+                <AntiforgeryToken />
+                <div class="form-group account-verify-code">
+                    <input name="code" class="form-control" inputmode="numeric" autocomplete="one-time-code"
+                           placeholder="The 6-digit code from your authenticator app" />
+                </div>
+                <button type="submit" class="btn btn-primary btn-sm">Verify &amp; enable</button>
+            </form>
+            @if (_enrollError) { <div class="alert alert-danger">That code wasn't valid.</div> }
+        }
+        else
+        {
+            <button class="btn btn-primary btn-sm" @onclick="BeginEnrollmentAsync">Set up authenticator</button>
+        }
+
+        @if (_recoveryCodes is not null)
+        {
+            <div class="alert alert-info account-recovery-panel">
+                <p class="account-recovery-intro">
+                    <strong>Recovery codes</strong> - store these somewhere safe. Each can be used once,
+                    and they are shown only now.
+                </p>
+                <ul class="account-recovery-codes">
+                    @foreach (var c in _recoveryCodes)
+                    {
+                        <li><code>@c</code></li>
+                    }
+                </ul>
+                <div class="account-recovery-actions">
+                    <button type="button" class="btn btn-tertiary btn-sm" @onclick="DismissRecoveryCodes">
+                        I've saved these
+                    </button>
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+<div class="card @(_setupRequired ? "card-highlight" : null)">
+    <div class="card-header"><span class="card-title">Passkeys</span></div>
+    <div class="card-body">
+        @if (_setupRequired)
+        {
+            <div class="alert alert-info">
+                Sign in with a fingerprint, face, PIN, or security key. No codes to type.
+            </div>
+        }
+        @if (!_secureContext)
+        {
+            <div class="alert alert-warning">
+                Passkeys require a secure (HTTPS) connection. This install is on plain HTTP - put Network
+                Optimizer behind a reverse proxy with TLS to use passkeys. TOTP still works over HTTP.
+            </div>
+        }
+        else
+        {
+            @if (_passkeys.Count == 0)
+            {
+                <p class="form-help account-empty-note">No passkeys registered.</p>
+            }
+            else
+            {
+                <ul class="account-credential-list">
+                    @foreach (var pk in _passkeys)
+                    {
+                        <li class="account-credential-item">
+                            <div class="account-credential-info">
+                                <span class="account-credential-name">@(string.IsNullOrEmpty(pk.Name) ? "Passkey" : pk.Name)</span>
+                                <span class="account-credential-meta">Added @pk.CreatedAt.ToLocalTime().ToString("d MMM yyyy")</span>
+                            </div>
+                            <button class="btn btn-tertiary btn-sm" @onclick="() => RemovePasskeyAsync(pk.CredentialId)">Remove</button>
+                        </li>
+                    }
+                </ul>
+            }
+            <div class="form-group account-passkey-name">
+                <input class="form-control" @bind="_passkeyName" placeholder="Passkey name (e.g. My phone)" />
+            </div>
+            <button class="btn btn-primary btn-sm" @onclick="RegisterPasskeyAsync">Register a passkey</button>
+            @if (!string.IsNullOrEmpty(_passkeyMessage)) { <div class="alert alert-info">@_passkeyMessage</div> }
+        }
+    </div>
+</div>
+
+<div class="card danger-zone">
+    <div class="card-header"><span class="card-title">Sign out everywhere</span></div>
+    <div class="card-body">
+        @if (_sessionsRevoked)
+        {
+            <div class="alert alert-info">Every other session has been signed out.</div>
+        }
+        @if (_sessionsFailed)
+        {
+            <div class="alert alert-danger">That did not work. Try again.</div>
+        }
+        <p class="account-note">
+            Signs your account out on every other browser, phone, and computer, and makes devices that
+            were remembered for two-factor ask again. This browser stays signed in. Worth doing after
+            you change your password, remove a passkey, or sign in somewhere you no longer control.
+        </p>
+        <form method="post" action="/api/account/sessions/revocation">
+            <AntiforgeryToken />
+            <button type="submit" class="btn btn-danger btn-sm">Sign out everywhere</button>
+        </form>
+    </div>
+</div>
+
+@* This page is about your own credentials; an admin also needs somewhere to get to everyone
+   else's, so the shortcut lives here rather than adding a nav entry. *@
+<AdminOnly>
+    <div class="card card-accent">
+        <div class="card-header"><span class="card-title">Identity</span></div>
+        <div class="card-body">
+            <p class="account-note">
+                Accounts, per-site access, and single sign-on for everyone on this instance are managed
+                in <strong>Settings - Identity</strong>.
+            </p>
+            <a class="btn btn-secondary btn-sm" href="/settings?tab=identity">Open Identity settings</a>
+        </div>
+    </div>
+</AdminOnly>
+
+@code {
+    [SupplyParameterFromQuery(Name = "setup")] private string? Setup { get; set; }
+    [SupplyParameterFromQuery(Name = "enroll")] private string? Enroll { get; set; }
+
+    private ApplicationUser? _user;
+    private bool _mfaEnabled;
+    private bool _roleRequiresMfa;
+
+    /// <summary>
+    /// Whether this account still owes the second factor its role requires. Recomputed on every
+    /// render rather than captured at load: enrolling happens on this page, so a flag set in
+    /// OnInitialized left the notice and the highlights up after the thing they were asking for was
+    /// done - and the setup query string stays in the URL, so re-reading that would never clear
+    /// either.
+    /// </summary>
+    private bool _setupRequired => _roleRequiresMfa && !_mfaEnabled && _passkeys.Count == 0;
+    private bool _secureContext = true;
+    private bool _passkeyIsOnlyWayIn;
+    private bool _hasPassword;
+
+    /// <summary>The configured policy, so the hint cannot drift from what the validator enforces.</summary>
+    private string _passwordPolicy => PasswordPolicyText.Describe(IdentityOptions.Value.Password);
+
+    [SupplyParameterFromQuery(Name = "pw")] private string? PasswordResult { get; set; }
+    [SupplyParameterFromQuery(Name = "sessions")] private string? SessionsResult { get; set; }
+
+    private bool _sessionsRevoked => SessionsResult == "done";
+    private bool _sessionsFailed => SessionsResult == "failed";
+
+    private bool _passwordChanged => PasswordResult == "done";
+    private bool _passwordFailed => PasswordResult == "failed";
+    private bool _passwordUnchanged => PasswordResult == "same";
+    private AuthenticatorSetup? _setup;
+    private bool _enrollError;
+    private IReadOnlyList<string>? _recoveryCodes;
+
+    private IReadOnlyList<PasskeySummary> _passkeys = new List<PasskeySummary>();
+    private string _passkeyName = "";
+    private string? _passkeyMessage;
+    private string? _mfaMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _enrollError = Enroll == "failed";
+        var principal = (await AuthState.GetAuthenticationStateAsync()).User;
+        _user = await CurrentUser.GetAsync(principal);
+        if (_user is not null)
+        {
+            _mfaEnabled = await Mfa.IsEnabledAsync(_user);
+            _hasPassword = await Mfa.HasPasswordAsync(_user);
+            _passkeys = await Passkeys.ListAsync(principal);
+
+            // The requirement, not how they arrived. Keyed on the query string alone, the guidance
+            // and the highlight vanished the moment someone reloaded or opened the page themselves -
+            // which is most of the times they will look at it while still owing a factor.
+            // The redirect that lands here carries setup=required, but the requirement itself is the
+            // thing worth asking about - it survives a reload and clears the moment a factor exists.
+            _roleRequiresMfa = Setup == "required" || await Mfa.RoleRequiresMfaAsync(_user);
+
+            _passkeyIsOnlyWayIn = _passkeys.Count > 0
+                && !_mfaEnabled
+                && await Mfa.CountRecoveryCodesAsync(_user) == 0
+                && await Mfa.RoleRequiresMfaAsync(_user);
+            // Codes minted by the enrollment endpoint, handed over once and only once.
+            if (Enroll == "done")
+                _recoveryCodes = EnrollmentCodes.Take(_user.Id);
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                _secureContext = await JS.InvokeAsync<bool>("eval", "window.isSecureContext === true");
+            }
+            catch (Exception ex)
+            {
+                // Assume not secure: the page uses this to decide whether to offer passkeys at all,
+                // and offering a ceremony the browser will refuse reads as the feature being broken.
+                Logger.LogWarning(ex, "Could not determine whether the browser context is secure; assuming it is not.");
+                _secureContext = false;
+            }
+
+            StateHasChanged();
+        }
+    }
+
+    private async Task BeginEnrollmentAsync()
+    {
+        if (_user is null) return;
+        _setup = await Mfa.BeginEnrollmentAsync(_user);
+    }
+
+    /// <summary>
+    /// Clears the panel and drops the codes from the hand-off store, so they cannot reappear on a
+    /// refresh inside the grace window.
+    /// </summary>
+    private void DismissRecoveryCodes()
+    {
+        _recoveryCodes = null;
+        if (_user is not null)
+            EnrollmentCodes.Discard(_user.Id);
+    }
+
+    private async Task RegenerateCodesAsync()
+    {
+        if (_user is null) return;
+        _recoveryCodes = await Mfa.GenerateRecoveryCodesAsync(_user);
+    }
+
+    private async Task DisableMfaAsync()
+    {
+        if (_user is null) return;
+        _mfaMessage = null;
+        if (!await Mfa.DisableAsync(_user))
+        {
+            _mfaMessage = "That could not be saved - reload the page and try again.";
+            return;
+        }
+        _mfaEnabled = false;
+        _recoveryCodes = null;
+    }
+
+    private async Task RegisterPasskeyAsync()
+    {
+        _passkeyMessage = null;
+        try
+        {
+            var ok = await JS.InvokeAsync<bool>("netoptPasskey.register", _passkeyName);
+            if (ok)
+            {
+                var principal = (await AuthState.GetAuthenticationStateAsync()).User;
+                _passkeys = await Passkeys.ListAsync(principal);
+                _passkeyName = "";
+                _passkeyMessage = "Passkey registered.";
+
+                // The passkey IS the second factor the role was waiting for, but the cookie still says
+                // it is outstanding: the claim is computed when the principal is built, and registering
+                // through the browser never rebuilds one. The card stops asking while every gate goes on
+                // refusing - enrol, then get bounced back here by the very redirect that sent you.
+                // Enabling an authenticator does not hit this because it posts, and only an HTTP
+                // response can re-issue the cookie. This is that response.
+                if (principal.IsConfinedToMfaEnrollment())
+                {
+                    Navigation.NavigateTo(
+                        "/api/account/session?returnUrl=/account/security", forceLoad: true);
+                    return;
+                }
+            }
+            else
+            {
+                _passkeyMessage = "Passkey registration was cancelled or failed.";
+            }
+        }
+        catch (Exception ex)
+        {
+            // The user-facing message stays deliberately vague, but the reason must reach the log:
+            // WebAuthn failures are all but undiagnosable without it, and "failed in the browser"
+            // covers an insecure origin, a mismatched relying-party id and a refused authenticator
+            // alike.
+            Logger.LogWarning(ex, "Passkey registration failed in the browser for {User}.", _user?.UserName);
+            _passkeyMessage = "Passkey registration failed in the browser.";
+        }
+    }
+
+    private async Task RemovePasskeyAsync(string credentialId)
+    {
+        var principal = (await AuthState.GetAuthenticationStateAsync()).User;
+        await Passkeys.RemoveAsync(principal, credentialId);
+        _passkeys = await Passkeys.ListAsync(principal);
+    }
+}

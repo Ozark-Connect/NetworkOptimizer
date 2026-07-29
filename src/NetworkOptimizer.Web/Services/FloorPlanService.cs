@@ -1,12 +1,74 @@
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Storage.Models;
+using NetworkOptimizer.Storage.Models.Identity;
+using NetworkOptimizer.Web.Services.Gates;
 
 namespace NetworkOptimizer.Web.Services;
 
 /// <summary>
 /// Service for managing buildings, floor plans, and floor plan images.
 /// </summary>
-public class FloorPlanService
+/// <summary>
+/// Changing buildings, floors and floor-plan images (design doc 06, gate 9).
+///
+/// The reads stay off this interface on purpose: the floor plan and the RF propagation view are
+/// things a Viewer is meant to see in full, and the editor already renders read-only for them. This
+/// is the boundary behind that, since a read-only mode is a rendering decision, not a refusal.
+///
+/// Site Operator, matching the editor's own gate. A floor plan describes the building we are
+/// modelling; it changes what our coverage maths draws and nothing on the network.
+/// </summary>
+[MutatingService(SiteScoped = true)]
+public interface IFloorPlanAdminService
+{
+    [RequireRole(Roles.Operator)]
+    [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "floor_plan")]
+    Task<Building> CreateBuildingAsync(string name, double centerLat, double centerLng);
+
+    [RequireRole(Roles.Operator)]
+    [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "floor_plan")]
+    Task<Building?> UpdateBuildingAsync(int id, string name, double centerLat, double centerLng);
+
+    [RequireRole(Roles.Operator)]
+    [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "floor_plan")]
+    Task<bool> DeleteBuildingAsync(int id);
+
+    [RequireRole(Roles.Operator)]
+    [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "floor_plan")]
+    Task<FloorPlan> CreateFloorAsync(int buildingId, int floorNumber, string label,
+        double swLat, double swLng, double neLat, double neLng, string floorMaterial = "floor_wood");
+
+    [RequireRole(Roles.Operator)]
+    [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "floor_plan")]
+    Task<FloorPlan?> UpdateFloorAsync(int floorId, double? swLat = null, double? swLng = null,
+        double? neLat = null, double? neLng = null, double? opacity = null, string? wallsJson = null,
+        string? label = null, string? floorMaterial = null);
+
+    [RequireRole(Roles.Operator)]
+    [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "floor_plan")]
+    Task<bool> DeleteFloorAsync(int floorId);
+
+    [RequireRole(Roles.Operator)]
+    [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "floor_plan")]
+    Task SaveFloorImageAsync(int floorId, Stream imageStream);
+
+    [RequireRole(Roles.Operator)]
+    [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "floor_plan")]
+    Task<FloorPlanImage> CreateFloorImageAsync(int floorPlanId, Stream imageStream,
+        double swLat, double swLng, double neLat, double neLng, string label = "");
+
+    [RequireRole(Roles.Operator)]
+    [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "floor_plan")]
+    Task<FloorPlanImage?> UpdateFloorImageAsync(int imageId, double? swLat = null, double? swLng = null,
+        double? neLat = null, double? neLng = null, double? opacity = null, double? rotationDeg = null,
+        string? cropJson = null, string? label = null);
+
+    [RequireRole(Roles.Operator)]
+    [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "floor_plan")]
+    Task<bool> DeleteFloorImageAsync(int imageId);
+}
+
+public class FloorPlanService : IFloorPlanAdminService
 {
     private readonly NetworkOptimizer.Storage.Services.SiteDbContextFactory _siteDbFactory;
     private readonly SiteContextService _siteContext;

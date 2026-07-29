@@ -80,6 +80,13 @@ public class GatewaySshService : IGatewaySshService
     /// </remarks>
     private async Task<SshConnectionInfo> MaybeRouteViaAgentAsync(SshConnectionInfo connection)
     {
+        // Every connection this service builds passes through here, so it is also where the site's
+        // stored key gets attached - additive to whatever password or key file is already set.
+        using (var scope = CreateSiteScope())
+        {
+            await StoredSshKeyReader.AttachAsync(scope.ServiceProvider, connection);
+        }
+
         var routing = _serviceProvider.GetService<SiteTunnelRouting>();
         if (routing == null) return connection;
         (connection.Host, connection.Port) = await routing.RouteAsync(_siteSlug, connection.Host, connection.Port);
@@ -135,6 +142,10 @@ public class GatewaySshService : IGatewaySshService
             await repository.SaveGatewaySshSettingsAsync(settings);
         }
 
+        // Set here so HasCredentials is correct for every caller, rather than each of the two dozen
+        // places that check it having to learn about stored keys.
+        settings.HasStoredKey = await StoredSshKeyReader.ExistsAsync(scope.ServiceProvider);
+
         _cachedSettings = settings;
         _cacheTime = DateTime.UtcNow;
 
@@ -156,6 +167,10 @@ public class GatewaySshService : IGatewaySshService
         }
 
         await repository.SaveGatewaySshSettingsAsync(settings);
+
+        // The caller uses the object we hand back, so it needs the same stored-key flag a load sets -
+        // otherwise HasCredentials reads false right after saving on a stored-key-only site.
+        settings.HasStoredKey = await StoredSshKeyReader.ExistsAsync(scope.ServiceProvider);
 
         // Invalidate cache
         _cachedSettings = null;

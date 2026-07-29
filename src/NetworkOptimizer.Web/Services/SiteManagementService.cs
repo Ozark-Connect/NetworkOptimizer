@@ -11,13 +11,16 @@ namespace NetworkOptimizer.Web.Services;
 /// provisions its own SQLite database file by running the full EF migration
 /// set against a fresh file under sites/{slug}/.
 /// </summary>
-public class SiteManagementService
+public class SiteManagementService : ISiteManagementService
 {
     /// <summary>Slug reserved for the default site (the pre-multi-site instance).</summary>
     public const string DefaultSiteSlug = "main";
 
     private readonly ISiteRepository _siteRepository;
+    private readonly Authorization.IEffectiveSiteRoleResolver _siteRoles;
+    private readonly AgentTunnelRegistry _tunnelRegistry;
     private readonly IDbContextFactory<NetworkOptimizerDbContext> _mainDbFactory;
+    private readonly IDbContextFactory<NetworkOptimizer.Storage.Models.Identity.AuthDbContext> _authDbFactory;
     private readonly SiteDatabasePaths _dbPaths;
     private readonly Licensing.LicenseStateService _licenseState;
     private readonly Licensing.LicenseActivationService _activation;
@@ -25,20 +28,29 @@ public class SiteManagementService
     private readonly MonitoringCollectionRegistry _collectionRegistry;
     private readonly SiteRegistryChangeNotifier _changeNotifier;
     private readonly ILogger<SiteManagementService> _logger;
+    private readonly Authorization.ISiteAccessFilter _siteAccess;
 
     public SiteManagementService(
         ISiteRepository siteRepository,
+        Authorization.IEffectiveSiteRoleResolver siteRoles,
+        AgentTunnelRegistry tunnelRegistry,
         IDbContextFactory<NetworkOptimizerDbContext> mainDbFactory,
+        IDbContextFactory<NetworkOptimizer.Storage.Models.Identity.AuthDbContext> authDbFactory,
         SiteDatabasePaths dbPaths,
         Licensing.LicenseStateService licenseState,
         Licensing.LicenseActivationService activation,
         SiteConnectionRegistry siteConnections,
         MonitoringCollectionRegistry collectionRegistry,
         SiteRegistryChangeNotifier changeNotifier,
+        Authorization.ISiteAccessFilter siteAccess,
         ILogger<SiteManagementService> logger)
     {
+        _siteAccess = siteAccess;
         _siteRepository = siteRepository;
+        _siteRoles = siteRoles;
+        _tunnelRegistry = tunnelRegistry;
         _mainDbFactory = mainDbFactory;
+        _authDbFactory = authDbFactory;
         _dbPaths = dbPaths;
         _licenseState = licenseState;
         _activation = activation;
@@ -93,6 +105,7 @@ public class SiteManagementService
         // when the license snapshot is unchanged (e.g. the main site was already covered),
         // so force subscribers to reload rather than relying on a snapshot diff.
         await _licenseState.RecomputeAsync(alwaysNotify: true);
+        _siteRoles.InvalidateAll();
         _changeNotifier.NotifySitesChanged();
         _logger.LogInformation("Multi-site management {State}", enabled ? "enabled" : "disabled");
     }
@@ -118,12 +131,31 @@ public class SiteManagementService
     public async Task<int> RemainingSiteSlotsAsync()
     {
         var limit = await GetSiteLimitAsync();
-        var count = (await GetSitesAsync()).Count;
+        // Instance-wide licensing arithmetic: counts every site, not the caller's slice.
+        var count = (await GetAllSitesUnfilteredAsync()).Count;
         return Math.Max(0, limit - count);
     }
 
-    /// <summary>Gets all registered sites, with the default (main) site always first.</summary>
+    /// <summary>
+    /// Gets the registered sites the CALLER may see, with the default (main) site always first.
+    ///
+    /// Narrowing happens here rather than at the call sites deliberately. Component-level filtering
+    /// is not a boundary - a live circuit can call the service directly - and doing it per caller
+    /// means every future caller re-decides it. The filter returns everything for system scopes,
+    /// auth-disabled installs, and any scope with no caller, so background fan-out and single-admin
+    /// installs are unaffected.
+    /// </summary>
     public async Task<List<Site>> GetSitesAsync()
+    {
+        var sites = await GetAllSitesUnfilteredAsync();
+        return await _siteAccess.FilterAsync(sites, s => s.Slug);
+    }
+
+    /// <summary>
+    /// Every registered site regardless of caller. For instance-level questions - licensing counts,
+    /// registry maintenance - where narrowing to one caller's view would give the wrong answer.
+    /// </summary>
+    private async Task<List<Site>> GetAllSitesUnfilteredAsync()
     {
         var sites = await _siteRepository.GetAllAsync();
         return sites.OrderByDescending(s => s.IsDefault).ToList();
@@ -133,6 +165,43 @@ public class SiteManagementService
     public async Task UpdateSiteAsync(Site site)
     {
         await _siteRepository.UpdateAsync(site);
+        _siteRoles.InvalidateAll();
+        _changeNotifier.NotifySitesChanged();
+    }
+
+    /// <summary>
+    /// Closes any agent tunnel still open for a site that is going away or going quiet. An agent
+    /// streams results until something stops it, and removing a site deletes the database those
+    /// results are written to - so without this the next batch lands on a file that no longer
+    /// exists, and the failure escapes the tunnel handler as an unhandled error rather than a close.
+    /// </summary>
+    private void DropTunnels(string slug, string reason)
+    {
+        foreach (var connection in _tunnelRegistry.GetForSite(slug))
+        {
+            _logger.LogInformation("Dropping tunnel for agent {Agent} on site {Slug}: {Reason}",
+                connection.AgentName, slug, reason);
+            connection.Drop();
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task RenameSiteAsync(string siteSlug, string name)
+    {
+        var trimmed = name.Trim();
+        if (trimmed.Length == 0)
+            return;
+
+        var sites = await _siteRepository.GetAllAsync();
+        var site = sites.FirstOrDefault(s => string.Equals(s.Slug, siteSlug, StringComparison.OrdinalIgnoreCase));
+        if (site is null)
+            return;
+
+        // The slug is what the caller was authorized against, so the row is looked up by slug here
+        // rather than taken from the caller - a Site object off the page could name a different one.
+        site.Name = trimmed;
+        await _siteRepository.UpdateAsync(site);
+        _siteRoles.InvalidateAll();
         _changeNotifier.NotifySitesChanged();
     }
 
@@ -153,11 +222,13 @@ public class SiteManagementService
         {
             await _collectionRegistry.StopForSiteAsync(site.Slug);
             _siteConnections.RemoveFor(site.Slug);
+            DropTunnels(site.Slug, "site disabled");
         }
         // Re-enable needs no explicit start: the collection registry's reconcile
         // pass picks the site up within its cadence, and the next page view or
         // agent connect re-establishes the console connection.
 
+        _siteRoles.InvalidateAll();
         _changeNotifier.NotifySitesChanged();
         _logger.LogInformation("Site {Slug} {State}", site.Slug, enabled ? "enabled" : "disabled");
     }
@@ -167,6 +238,42 @@ public class SiteManagementService
     /// drops its console connection, deletes its agents and registry row, and
     /// deletes its database directory. Irreversible.
     /// </summary>
+    /// <summary>
+    /// Drops everything that grants access to a slug, because the slug is all any of it stores. A slug
+    /// is derived from the site name and only made unique against sites that EXIST, so deleting a site
+    /// and later creating one by the same name reuses the slug - and every stale grant would come back
+    /// to life on a site the operator believes is new. Removal is a revocation; it has to stick.
+    ///
+    /// Covers direct memberships, the site's place in any group, and the federation mappings that would
+    /// re-grant it at the next SSO login.
+    /// </summary>
+    private async Task RemoveAccessGrantsAsync(string slug)
+    {
+        await using var auth = await _authDbFactory.CreateDbContextAsync();
+
+        var memberships = await auth.SiteMemberships
+            .Where(m => m.TargetType == NetworkOptimizer.Storage.Models.Identity.MembershipTargetType.Site
+                && m.TargetId == slug)
+            .ExecuteDeleteAsync();
+
+        var groupRows = await auth.SiteGroupMembers
+            .Where(g => g.SiteSlug == slug)
+            .ExecuteDeleteAsync();
+
+        var mappings = await auth.FederationSiteMappings
+            .Where(m => m.TargetType == NetworkOptimizer.Storage.Models.Identity.MembershipTargetType.Site
+                && m.TargetValue == slug)
+            .ExecuteDeleteAsync();
+
+        if (memberships + groupRows + mappings > 0)
+        {
+            _logger.LogInformation(
+                "Removed access to site {Slug}: {Memberships} membership(s), {GroupRows} group entry(ies), "
+                + "{Mappings} federation mapping(s)",
+                slug, memberships, groupRows, mappings);
+        }
+    }
+
     public async Task DeleteSiteAsync(Site site)
     {
         if (site.IsDefault)
@@ -178,11 +285,13 @@ public class SiteManagementService
         await _siteRepository.UpdateAsync(site);
         await _collectionRegistry.StopForSiteAsync(site.Slug);
         _siteConnections.RemoveFor(site.Slug);
+        DropTunnels(site.Slug, "site removed");
 
         await using (var db = await _mainDbFactory.CreateDbContextAsync())
         {
             await db.SiteAgents.Where(a => a.SiteId == site.Id).ExecuteDeleteAsync();
         }
+        await RemoveAccessGrantsAsync(site.Slug);
         await _siteRepository.DeleteAsync(site.Id);
 
         // SQLite connection pooling keeps file handles open after the contexts are
@@ -203,6 +312,7 @@ public class SiteManagementService
 
         // Free the site's license seat.
         await _licenseState.RecomputeAsync();
+        _siteRoles.InvalidateAll();
         _changeNotifier.NotifySitesChanged();
         _logger.LogInformation("Removed site {Slug} (id {Id}) and its data", site.Slug, site.Id);
     }
@@ -240,6 +350,7 @@ public class SiteManagementService
         // Licensing card reflects the new site immediately (no manual license refresh needed).
         await _activation.AutoAssignAsync();
         await _licenseState.RecomputeAsync();
+        _siteRoles.InvalidateAll();
         _changeNotifier.NotifySitesChanged();
         return site;
     }
