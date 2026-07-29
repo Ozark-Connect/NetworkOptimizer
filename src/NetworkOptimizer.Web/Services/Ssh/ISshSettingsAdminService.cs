@@ -37,6 +37,24 @@ public interface ISshSettingsAdminService
     [RequireRole(Roles.Admin)]
     [AuditAction(AuditActions.SettingsChanged, TargetType = "device_ssh")]
     Task<UniFiSshSettings> SaveDeviceAsync(UniFiSshSettings settings);
+
+    /// <summary>
+    /// Whether a key-file path is configured, for a caller who may not see the path itself.
+    ///
+    /// Redacting the path to null told the form "no key file", which is a different statement from
+    /// "a key file you may not read". The form believed the first: it refused to save or test for want
+    /// of a credential that was in fact configured, and the note telling the caller so never rendered,
+    /// because it was written to appear only when the path it was hiding was non-empty.
+    ///
+    /// A boolean is the whole of what a caller below global Admin needs - it cannot name another
+    /// tenant's key, which is the reason the path is withheld in the first place.
+    /// </summary>
+    [RequireRole(Roles.Admin)]
+    Task<bool> IsGatewayKeyFilePathConfiguredAsync();
+
+    /// <inheritdoc cref="IsGatewayKeyFilePathConfiguredAsync"/>
+    [RequireRole(Roles.Admin)]
+    Task<bool> IsDeviceKeyFilePathConfiguredAsync();
 }
 
 /// <inheritdoc />
@@ -102,6 +120,14 @@ public sealed class SshSettingsAdminService : ISshSettingsAdminService
 
         return await Device.SaveSettingsAsync(settings);
     }
+
+    /// <inheritdoc />
+    public async Task<bool> IsGatewayKeyFilePathConfiguredAsync()
+        => !string.IsNullOrWhiteSpace((await Gateway.GetSettingsAsync(forceRefresh: true)).PrivateKeyPath);
+
+    /// <inheritdoc />
+    public async Task<bool> IsDeviceKeyFilePathConfiguredAsync()
+        => !string.IsNullOrWhiteSpace((await Device.GetSettingsAsync()).PrivateKeyPath);
 
     /// <summary>
     /// Whether the caller may see and set a path to a key file on the server. Global Admin only: the

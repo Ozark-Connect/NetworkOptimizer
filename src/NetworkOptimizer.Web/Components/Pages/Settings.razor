@@ -4532,6 +4532,9 @@
     private string gatewayUsername = "root";
     private string gatewayPassword = "";
     private string gatewayPrivateKeyPath = "";
+    // True when a key file is configured but the caller may not see WHICH - below global Admin the
+    // path above is redacted to empty, and empty would otherwise read as "no key file at all".
+    private bool gatewayKeyFileConfigured;
     private int gatewayPort = 22;
     private bool gatewayEnabled = true;
     private bool savingGatewaySettings = false;
@@ -4547,6 +4550,7 @@
     private string sshUsername = "";
     private string sshPassword = "";
     private string sshPrivateKeyPath = "";
+    private bool deviceKeyFileConfigured;
     private int sshPort = 22;
     private bool sshEnabled = true;
     private bool savingSshSettings = false;
@@ -5016,6 +5020,7 @@
         try
         {
             gatewaySettings = await SshSettingsAdmin.GetGatewayForEditAsync();
+            gatewayKeyFileConfigured = await SshSettingsAdmin.IsGatewayKeyFilePathConfiguredAsync();
             gatewayHost = gatewaySettings.Host ?? "";
             gatewayUsername = gatewaySettings.Username;
             gatewayPort = gatewaySettings.Port;
@@ -5047,7 +5052,8 @@
         && !GatewayKeyPathSet
         && _keyDeployStatus?.KeyInstalled != true;
 
-    private bool GatewayKeyPathSet => !string.IsNullOrWhiteSpace(gatewayPrivateKeyPath);
+    private bool GatewayKeyPathSet =>
+        !string.IsNullOrWhiteSpace(gatewayPrivateKeyPath) || gatewayKeyFileConfigured;
 
     /// <summary>
     /// Reads the same way as the gateway, deliberately, even though there is nothing to confirm it
@@ -5061,7 +5067,8 @@
         && !DeviceKeyPathSet
         && _sshKey is null;
 
-    private bool DeviceKeyPathSet => !string.IsNullOrWhiteSpace(sshPrivateKeyPath);
+    private bool DeviceKeyPathSet =>
+        !string.IsNullOrWhiteSpace(sshPrivateKeyPath) || deviceKeyFileConfigured;
 
     /// <summary>Dims the header of an option that is not configured.</summary>
     private static string UnusedLabel(bool inUse) => inUse ? "" : "form-label-unused";
@@ -5085,16 +5092,16 @@
     /// in use without naming it: a Site Admin may use the key their administrator configured, but must
     /// not learn the path, which is what the field itself would reveal.
     /// </summary>
-    private RenderFragment? KeyFileNote(string keyFilePath) => string.IsNullOrWhiteSpace(keyFilePath)
+    private RenderFragment? KeyFileNote(bool configured) => !configured
         ? null
         : @<div class="form-group">
               <label class="form-label">Private Key Path</label>
               <small class="form-help">A key file is configured by your administrator.</small>
           </div>;
 
-    private RenderFragment? GatewayKeyFileNote => KeyFileNote(gatewayPrivateKeyPath);
+    private RenderFragment? GatewayKeyFileNote => KeyFileNote(gatewayKeyFileConfigured);
 
-    private RenderFragment? DeviceKeyFileNote => KeyFileNote(sshPrivateKeyPath);
+    private RenderFragment? DeviceKeyFileNote => KeyFileNote(deviceKeyFileConfigured);
 
     /// <summary>
     /// Whether to offer one-click installation on the gateway. Only for a Cloud Gateway, since a UXG is
@@ -5408,7 +5415,9 @@
         try
         {
             gatewaySettings = await SshSettingsAdmin.GetGatewayForEditAsync();
+            gatewayKeyFileConfigured = await SshSettingsAdmin.IsGatewayKeyFilePathConfiguredAsync();
             sshSettings = await SshSettingsAdmin.GetDeviceForEditAsync();
+            deviceKeyFileConfigured = await SshSettingsAdmin.IsDeviceKeyFilePathConfiguredAsync();
             _keyDeployStatus = await SshKeyDeployment.GetStatusAsync();
         }
         catch (Exception ex)
@@ -5438,7 +5447,7 @@
 
         // Must have either: password (new or saved) OR private key
         var hasPassword = !string.IsNullOrEmpty(gatewayPassword) || hasGatewayPassword;
-        var hasPrivateKey = !string.IsNullOrWhiteSpace(gatewayPrivateKeyPath) || _sshKey is not null;
+        var hasPrivateKey = GatewayKeyPathSet || _sshKey is not null;
         if (!hasPassword && !hasPrivateKey)
         {
             gatewayMessage = "A password, an SSH key, or a private key path is required";
@@ -5509,7 +5518,7 @@
 
         // Must have either: password (new or saved) OR private key
         var hasPassword = !string.IsNullOrEmpty(gatewayPassword) || hasGatewayPassword;
-        var hasPrivateKey = !string.IsNullOrWhiteSpace(gatewayPrivateKeyPath) || _sshKey is not null;
+        var hasPrivateKey = GatewayKeyPathSet || _sshKey is not null;
         if (!hasPassword && !hasPrivateKey)
         {
             gatewayMessage = "A password, an SSH key, or a private key path is required";
@@ -5539,9 +5548,12 @@
                     gatewayPassword,
                     gatewayPrivateKeyPath);
             }
-            else if (hasGatewayPassword)
+            else if (hasGatewayPassword || GatewayKeyPathSet || _sshKey is not null)
             {
-                // No new credentials entered, test with saved settings
+                // No new credentials entered, test with saved settings. The key-file and stored-key
+                // cases have to reach here too: below global Admin the path above is redacted, so
+                // passing form values would test with no credential at all and the branch that reports
+                // none configured would answer for a gateway that is perfectly well configured.
                 result = await GatewaySshService.TestConnectionAsync();
             }
             else
@@ -5652,6 +5664,7 @@
         try
         {
             sshSettings = await SshSettingsAdmin.GetDeviceForEditAsync();
+            deviceKeyFileConfigured = await SshSettingsAdmin.IsDeviceKeyFilePathConfiguredAsync();
             sshUsername = sshSettings.Username;
             sshPort = sshSettings.Port;
             sshPrivateKeyPath = sshSettings.PrivateKeyPath ?? "";
@@ -5679,7 +5692,7 @@
 
         // Must have either: password (new or saved) OR private key
         var hasPassword = !string.IsNullOrEmpty(sshPassword) || hasSshPassword;
-        var hasPrivateKey = !string.IsNullOrWhiteSpace(sshPrivateKeyPath) || _sshKey is not null;
+        var hasPrivateKey = DeviceKeyPathSet || _sshKey is not null;
         if (!hasPassword && !hasPrivateKey)
         {
             sshMessage = "A password, an SSH key, or a private key path is required";
@@ -5741,7 +5754,7 @@
 
         // Must have either: password (new or saved) OR private key
         var hasPassword = !string.IsNullOrEmpty(sshPassword) || hasSshPassword;
-        var hasPrivateKey = !string.IsNullOrWhiteSpace(sshPrivateKeyPath) || _sshKey is not null;
+        var hasPrivateKey = DeviceKeyPathSet || _sshKey is not null;
         if (!hasPassword && !hasPrivateKey)
         {
             sshMessage = "A password, an SSH key, or a private key path is required";
@@ -5809,6 +5822,17 @@
                 testPassword = savedSettings?.Password;
             }
 
+            // The key file needs the same, and for a sharper reason: below global Admin the form value
+            // is redacted to empty, so testing with it connects with no key at all and reports a
+            // configured device as broken. Read for the connection only - it is never rendered, which
+            // is the same treatment the saved password above already gets.
+            var testKeyPath = sshPrivateKeyPath;
+            if (string.IsNullOrWhiteSpace(testKeyPath) && deviceKeyFileConfigured)
+            {
+                var savedForKey = await SshService.GetSettingsAsync();
+                testKeyPath = savedForKey?.PrivateKeyPath;
+            }
+
             // Try devices until one succeeds (some devices may reject SSH even with correct credentials)
             var failedDevices = new List<string>();
             foreach (var testDevice in testableDevices)
@@ -5821,7 +5845,7 @@
                     Host = testDevice.IpAddress,
                     SshUsername = sshUsername,
                     SshPassword = testPassword,
-                    SshPrivateKeyPath = sshPrivateKeyPath
+                    SshPrivateKeyPath = testKeyPath
                 };
 
                 var (success, message) = await SshService.TestConnectionAsync(testConfig);
