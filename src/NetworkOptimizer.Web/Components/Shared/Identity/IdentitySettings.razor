@@ -5,7 +5,28 @@
 
 @using Microsoft.AspNetCore.Components.Routing
 @inject NavigationManager Navigation
+@inject NetworkOptimizer.Web.Services.SystemSettingsService SettingsService
 @implements IDisposable
+
+@* Instance-wide view only. The scoped view belongs to a site admin who came here to do a specific
+   job, and telling them this is optional would be wrong as well as unhelpful. Dismissal is a system
+   setting rather than per user: the reassurance is about the install, so once someone has taken the
+   point there is no reason to keep saying it to whoever signs in next. *@
+@if (SiteSlug is null && !_introDismissed)
+{
+    <div class="card identity-intro-card">
+        <div class="card-body">
+            <h3 class="identity-intro-title">There is a lot here, and none of it is required</h3>
+            <p class="identity-intro-body">
+                Most installs run happily on one administrator and one password, and that stays true.
+                When you want to add another person, limit someone to a single site, turn on
+                multi-factor sign-in, or sign in through your own identity provider, this is where you
+                will find it.
+            </p>
+        </div>
+        <button class="btn btn-sm btn-tertiary identity-intro-dismiss" @onclick="DismissIntroAsync">Got it</button>
+    </div>
+}
 
 @if (SiteSlug is null)
 {
@@ -24,9 +45,16 @@ else
 }
 
 @code {
+    private bool _introDismissed = true; // hidden until the stored flag is read, so it cannot flash in
     private IdentityAccessCard? _accessCard;
     private IdentityRolesCard? _rolesCard;
     private IdentityUsersCard? _usersCard;
+
+    private async Task DismissIntroAsync()
+    {
+        _introDismissed = true;
+        await SettingsService.SetAsync("banner.identity_intro_dismissed", "true");
+    }
 
     /// <summary>The Users card offers the providers when linking an identity, so it follows the list.</summary>
     private async Task RefreshProvidersAsync()
@@ -61,7 +89,14 @@ else
         await _rolesCard.OpenAndHighlightAsync();
     }
 
-    protected override void OnInitialized() => Navigation.LocationChanged += HandleLocationChanged;
+    protected override async Task OnInitializedAsync()
+    {
+        Navigation.LocationChanged += HandleLocationChanged;
+
+        // Only the instance-wide view shows it, so only that view pays for the read.
+        if (SiteSlug is null)
+            _introDismissed = await SettingsService.GetAsync("banner.identity_intro_dismissed") != null;
+    }
 
     /// <summary>
     /// Every Settings tab is rendered at once and shown by class, so arriving from another tab does

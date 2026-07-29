@@ -15083,6 +15083,30 @@ a.affected-client:hover {
     background: white;
 }
 
+.identity-intro-card {
+    display: flex;
+    align-items: flex-start;
+    gap: 1rem;
+    justify-content: space-between;
+}
+
+.identity-intro-title {
+    margin: 0 0 0.5rem;
+    font-size: 1rem;
+    color: var(--text-primary);
+}
+
+.identity-intro-body {
+    margin: 0;
+    color: var(--text-secondary);
+    max-width: 68ch;
+}
+
+.identity-intro-dismiss {
+    flex-shrink: 0;
+    margin: 1rem 1rem 0 0;
+}
+
 .mi-form-fields,
 .ws-edit-fields {
     border: none;

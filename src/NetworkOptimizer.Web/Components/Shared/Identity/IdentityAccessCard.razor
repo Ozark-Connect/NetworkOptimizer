@@ -15,17 +15,14 @@
 <div class="card settings-tab-identity" id="identity-access">
     <div class="card-header">
         <h2 class="card-title">Access</h2>
-        @if (_multiSiteEnabled && ShowSiteBadge)
+        @* Badged only when the card is scoped to one site. A "Global" badge on the instance-wide view
+           read as though these grants were themselves global, when what the view actually holds is
+           every grant, most of them belonging to a single site. The site badge answers "which site am
+           I looking at"; with no badge, the answer is "all of them", which is the page you are on. *@
+        @if (_multiSiteEnabled && ShowSiteBadge && SiteSlug is not null)
         {
             <div class="card-header-badges">
-                @if (SiteSlug is null)
-                {
-                    <span class="status-badge global-badge" data-tooltip="Applies to all sites (instance-wide)">Global</span>
-                }
-                else
-                {
-                    <span class="status-badge site-context-badge" data-tooltip="These grants apply to this site only">@(SiteName ?? SiteSlug)</span>
-                }
+                <span class="status-badge site-context-badge" data-tooltip="These grants apply to this site only">@(SiteName ?? SiteSlug)</span>
             </div>
         }
     </div>
