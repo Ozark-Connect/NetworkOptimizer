@@ -22,6 +22,13 @@ public sealed class DeviceRebootObserver : BackgroundService
     /// <summary>Uptime moves slowly; the probe behind it is SSH, so there is no value in hurrying.</summary>
     private static readonly TimeSpan Interval = TimeSpan.FromMinutes(5);
 
+    /// <summary>
+    /// How long a site stays "monitored" after its last monitoring-sourced sample. Comfortably
+    /// longer than the tiers' own cadence, so a site that is being polled never flickers between
+    /// the two sources.
+    /// </summary>
+    private static readonly TimeSpan MonitoringSilence = TimeSpan.FromMinutes(20);
+
     /// <summary>Let the consoles connect before the first pass rather than racing startup.</summary>
     private static readonly TimeSpan StartupDelay = TimeSpan.FromSeconds(45);
 
@@ -113,6 +120,7 @@ public sealed class DeviceRebootObserver : BackgroundService
 
     private async Task ObserveSiteAsync(string slug, CancellationToken ct)
     {
+        var tracker = _trackers.GetFor(slug);
         var connection = _connections.GetFor(slug);
         if (!connection.IsConnected || connection.Client is null)
             return;
@@ -121,9 +129,9 @@ public sealed class DeviceRebootObserver : BackgroundService
         if (devices is null || devices.Count == 0)
             return;
 
-        var tracker = _trackers.GetFor(slug);
         var now = DateTime.UtcNow;
         var sampled = 0;
+        var covered = 0;
 
         foreach (var device in devices)
         {
@@ -131,6 +139,16 @@ public sealed class DeviceRebootObserver : BackgroundService
 
             if (string.IsNullOrEmpty(device.Mac) || device.Uptime.TotalSeconds <= 0)
                 continue;
+
+            // Fallback only, and per device. A monitoring tier reads system-stats.uptime; this reads
+            // the device's own uptime field, and the two do not always agree - so whichever is
+            // already reporting a device keeps it, and this fills in the rest. The tiers skip
+            // devices that answer no health data, and those are precisely the ones left here.
+            if (tracker.MonitoringIsFeeding(device.Mac, MonitoringSilence))
+            {
+                covered++;
+                continue;
+            }
 
             sampled++;
 
@@ -143,14 +161,16 @@ public sealed class DeviceRebootObserver : BackgroundService
                 device.DisplayIpAddress,
                 (long)device.Uptime.TotalSeconds,
                 device.Firmware,
-                now);
+                now,
+                DeviceRebootTracker.UptimeSource.Console);
         }
 
         // Says the pass happened even when it changes nothing, which is the normal case: without it
         // there is no way to tell "observed, nothing new" from "never ran". What each sample leads
         // to - a first sighting, a detected reboot, a probe result - the tracker logs itself.
         _logger.LogDebug(
-            "Reboot observation: site {Site}, {Sampled} of {Total} devices reported uptime",
-            slug, sampled, devices.Count);
+            "Reboot observation: site {Site}, {Sampled} of {Total} devices sampled "
+            + "({Covered} already fed by monitoring)",
+            slug, sampled, devices.Count, covered);
     }
 }
