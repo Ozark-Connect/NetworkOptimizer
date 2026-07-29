@@ -201,6 +201,7 @@ async function fetchData() {
 
 function renderBadges(container) {
     const el = container.querySelector('.latency-filter-badges');
+    if (el) el.dataset.tour = 'chart-series-filter';
     if (!el) return;
     if (targetMeta.length <= 1) { el.innerHTML = ''; return; }
 

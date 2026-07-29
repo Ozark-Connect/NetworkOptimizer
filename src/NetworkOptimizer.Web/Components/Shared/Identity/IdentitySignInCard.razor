@@ -15,7 +15,7 @@
    and the per-role MFA requirement. Secrets are write-only: an existing secret is never read back
    into the form, and a provider declared in the config file is shown read-only. *@
 
-<div class="card settings-tab-identity" id="identity-sign-in">
+<div class="card settings-tab-identity" id="identity-sign-in" data-tour="identity-sign-in">
     <div class="card-header">
         <h2 class="card-title">Sign-In</h2>
         @if (_multiSiteEnabled)
@@ -250,8 +250,9 @@
                         <label class="form-label">Roles</label>
                         <select class="form-control" @bind="_editing.RoleMappingMode" disabled="@_editing.ManagedByConfigFile">
                             <option value="@RoleMappingMode.Manual">Set here after the first sign-in</option>
+                            <option value="@RoleMappingMode.IdpAuthoritative" disabled>Taken from the provider at every sign-in (Coming soon)</option>
                         </select>
-                        <p class="form-help">Provider-authoritative locks role edits here; the last Admin is never demoted.</p>
+                        <p class="form-help">Roles are set on this side for now. IdP-supplied roles are coming soon.</p>
                     </div>
                 </div>
                 <div class="form-group">

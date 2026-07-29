@@ -367,7 +367,7 @@ else
                     </h2>
                     <span class="isp-dimension-score @ScoreTextClass(dimension.Score)">@(dimension.Score?.ToString() ?? "--")</span>
                 </div>
-                <div class="card-body isp-card-body-tight-top">
+                <div class="card-body isp-card-body-tight-top" data-tour="@(dimension == r.IspAsnDimension ? "isp-network-hops" : null)">
                     @if (dimension == r.IspAsnDimension)
                     {
                         var ispTargets = r.IspTargets.OrderBy(t => t.RttMs ?? double.MaxValue).ToList();
