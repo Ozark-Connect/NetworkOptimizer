@@ -15376,6 +15376,11 @@ a.affected-client:hover {
     padding-bottom: 0.5rem;
 }
 
+.wan-filter-badges-reserved {
+    padding-left: 2rem;
+    padding-right: 2rem;
+}
+
 .wan-filter-reset {
     position: absolute;
     right: 0;

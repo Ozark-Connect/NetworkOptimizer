@@ -1,6 +1,6 @@
 using NetworkOptimizer.Web.Services;
-using NetworkOptimizer.Web.Services.Monitoring.IspHealth;
 using NetworkOptimizer.Web.Services.Authorization;
+using NetworkOptimizer.Web.Services.Monitoring.IspHealth;
 
 namespace NetworkOptimizer.Web.Endpoints;
 
@@ -64,10 +64,11 @@ public static class IspHealthEndpoints
             var (series, report) = await ispHealth.GetAsnChartDataAsync(from, to, ct);
 
             // Cap the chart payload only for long windows: bucket toward a target point count,
-            // but never finer than per-minute. Anything <= ~50 h stays at the prior per-minute
-            // density (48 h ~ 2880 points/line); a 30-day view coarsens to ~3000 instead of ~21k.
+            // but never finer than per-minute. The floor is the polling cadence, so anything up to
+            // ~17 h keeps every sample; past that the buckets widen to hold the line near the
+            // target (48 h ~ 2.9 min buckets, 30 days ~ 43 min) rather than shipping ~21k points.
             // Detectors still run on the full-resolution samples; this is display only.
-            const int ChartTargetPoints = 3000;
+            const int ChartTargetPoints = 1000;
             var spanTicks = from.HasValue && to.HasValue ? (to.Value - from.Value).Ticks
                 : report != null ? (report.WindowEnd - report.WindowStart).Ticks
                 : TimeSpan.TicksPerDay * 2;
