@@ -1050,3 +1050,28 @@ that then fails. It becomes real the moment `IsSecure` is used for anything the 
 separately gate.
 
 - [ ] Resolve the scheme through `context.Request.Scheme` the way `CanonicalOrigin` does.
+
+### Guided tours are not aware of who is taking them
+
+Now that roles and per-site access exist, two assumptions in the tour engine no longer hold. Neither
+is a regression - the engine predates RBAC - but both are wrong for any install with more than the
+one built-in account.
+
+**Steps are not gated by role or scope.** `TourService` consults `SiteContextService` for the
+`gateway-ssh` / `multi-site` / `has-agent` predicates and for rewriting `?site=`, and that is all the
+context it has. There is no role check and no default-site check, so a step anchored on Settings -
+Identity or Settings - Audit Log is offered to a Viewer, and to a Site Admin standing on a non-default
+site, who cannot reach either. They land on a page that refuses them, mid-tour.
+
+**Tour state is install-wide, not per user.** `TourStateService` reads and writes the single
+`AdminSettings` row (`TourOffers`, plus `LastSeenAppVersion` / `FirstSeenVersion` stamped by
+`TourStartupService`). So the first account to be offered a tour consumes it for everyone, one user's
+Later defers it for the whole install, and a new user added later never sees anything.
+
+- [ ] Add role/scope predicates so a step can declare what it needs (`global-admin`, `site-admin`,
+  `default-site` are the ones the current candidate steps want) and resolve them from `ICallerContext`
+  the way the existing predicates resolve from site state. Until then, mark any Admin-only or
+  default-site-only step `"optional": true` so a missing target skips rather than breaks.
+- [ ] Move the offer/defer state per user, keeping the install-level version stamps where they are -
+  `FirstSeenVersion` is a fact about the install, but "has this person been offered 2.5.0" is a fact
+  about the person.
