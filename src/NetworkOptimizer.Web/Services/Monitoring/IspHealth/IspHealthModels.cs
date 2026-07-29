@@ -168,10 +168,11 @@ public class IspTargetHealth
     public required string Name { get; init; }
 
     /// <summary>
-    /// The hop's monitored address, for the UI to show on hover. Hops are labelled by ASN name
-    /// (e.g. "PenTeleData 1"), which is readable but tells you nothing about WHICH router answered -
-    /// so an operator comparing our reading against their own traceroute had no way to line the two
-    /// up (#1070). Null when the target has since been removed.
+    /// The hop's address and PTR name, ready to display: "192.0.2.1 - core1.example.net", or just the
+    /// address when it has no PTR. Hops are labelled by ASN name (e.g. "PenTeleData 1"), which is
+    /// readable but tells you nothing about WHICH router answered - so an operator comparing our
+    /// reading against their own traceroute had no way to line the two up (#1070). Null when the
+    /// target has since been removed.
     /// </summary>
     public string? Address { get; init; }
 

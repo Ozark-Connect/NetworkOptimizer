@@ -382,7 +382,9 @@ else
                                         <div class="isp-hop-name">
                                             @if (!string.IsNullOrWhiteSpace(target.Address))
                                             {
-                                                <span class="isp-hop-name-text" data-tooltip="@target.Address" data-tooltip-hover-only>@target.Name</span>
+                                                @* No hover-only: the address is worth reading at leisure, and clicking to pin it is the only
+                                                   way on touch. The name is not a link, so a click has nothing else to do. *@
+                                                <span class="isp-hop-name-text" data-tooltip="@target.Address">@target.Name</span>
                                             }
                                             else
                                             {
