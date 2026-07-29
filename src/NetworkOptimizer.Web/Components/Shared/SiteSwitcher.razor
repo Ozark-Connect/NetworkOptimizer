@@ -141,10 +141,15 @@
     {
         // The all-sites overview isn't a per-site page, so switching sites from it
         // should land on the new site's dashboard rather than reload the overview.
+        //
+        // The refusal page is the same: it says a page was not yours on the site you were on, so
+        // carrying it to the next site just refuses you again - and the page you were actually
+        // trying to reach is not in the URL to return to. Land on the new site's dashboard.
         var pathOnly = NavigationManager.ToBaseRelativePath(NavigationManager.Uri)
             .Split('?', '#')[0]
             .TrimEnd('/');
-        if (string.Equals(pathOnly, "sites", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(pathOnly, "sites", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(pathOnly, "denied", StringComparison.OrdinalIgnoreCase))
             return NavigationManager.BaseUri;
 
         // Client Performance pins a specific client via ?ip= - that address
