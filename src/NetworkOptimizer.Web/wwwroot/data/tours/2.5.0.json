@@ -85,7 +85,7 @@
       "title": "Chart series filter",
       "listLabel": "Isolate one line, and read the tooltip in the order the lines sit",
       "badge": "improved",
-      "body": "**Click** a chip to show that series on its own, click it again for all of them, and **Ctrl-click** to drop just one. The tooltip now lists every series in the order the lines actually sit on the plot, with a dot on each at the point you are reading, and a refresh no longer pulls it out from under you.",
+      "body": "**Click** a chip to show that series on its own, click it again for all of them, and **Ctrl-click** to drop just one. The tooltip lists every series in the order the lines sit on the plot, with a dot on each at the point you are reading, and new data streaming in no longer pulls it away.",
       "placement": "top",
       "requires": [],
       "optional": true

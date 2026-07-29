@@ -3751,13 +3751,15 @@
 
     private static readonly HashSet<string> ValidTabs = new(StringComparer.OrdinalIgnoreCase)
     {
-        "connection", "monitoring", "speedtests", "security", "application", "identity", "multisite"
+        "connection", "monitoring", "speedtests", "security", "application", "identity", "multisite",
+        "auditlog"
     };
 
     // Maps card anchors (used by /settings#... deep links across the app) to their tab
     // so those links keep working: activate the tab, then scroll to and highlight the card.
     private static readonly Dictionary<string, string> AnchorTabMap = new(StringComparer.OrdinalIgnoreCase)
     {
+        ["audit-log"] = "auditlog",
         ["console-connection"] = "connection",
         ["gateway-ssh"] = "connection",
         ["device-ssh"] = "connection",
@@ -3794,6 +3796,10 @@
 
     private AuditLogPanel? _auditLogPanel;
 
+    /// <summary>Set when the Audit Log tab was reached by query parameter, so the deferred panel is
+    /// loaded on the next render - SetActiveTab does it for a click, nothing did it for a deep link.</summary>
+    private bool _pendingAuditLoad;
+
     private void SetActiveTab(string tab)
     {
         _activeTab = tab;
@@ -3815,6 +3821,8 @@
             if (newTab != _activeTab)
             {
                 _activeTab = newTab;
+                if (newTab == "auditlog")
+                    _pendingAuditLoad = true;
                 StateHasChanged();
             }
         }
@@ -4734,6 +4742,16 @@
             // the gateway would otherwise only be asked about after clicking away and back.
             await EnsureKeyDeployStatusAsync();
         }
+
+        // Landing on ?tab=auditlog does not go through SetActiveTab, which is what asks the deferred
+        // panel to load - a deep link (the guided tour is one) would have shown the empty state on a
+        // tab whose whole point is the rows. Done here rather than in OnInitialized because the @ref
+        // does not exist until the panel has rendered once.
+        if (_pendingAuditLoad && _auditLogPanel is not null)
+        {
+            _pendingAuditLoad = false;
+            await _auditLogPanel.RefreshAsync();
+        }
     }
 
     private async Task OnKioskModeChanged(ChangeEventArgs e)
@@ -4746,6 +4764,7 @@
     {
         _activeTab = ResolveTab(TabParam);
         _lastTabParam = TabParam;
+        _pendingAuditLoad = _activeTab == "auditlog";
 
         // Pre-release update notifications default ON (global/instance-wide); only an explicit "false" opts out.
         var prereleaseSetting = await SystemSettings.GetGlobalAsync("updates.include_prereleases");
