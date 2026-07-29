@@ -35,6 +35,7 @@
         }
 
         Revocations.SessionsRevoked += OnRevoked;
+        Revocations.PermissionsChanged += OnPermissionsChanged;
     }
 
     private void OnRevoked(string userId, string? exceptSessionId)
@@ -66,8 +67,34 @@
         });
     }
 
+    /// <summary>
+    /// Roles or site access moved. The session is still good, so this refreshes the principal rather
+    /// than ending anything - the same endpoint the revalidation tick would eventually send it to,
+    /// without the wait.
+    /// </summary>
+    private void OnPermissionsChanged(string userId)
+    {
+        if (_userId is null || !string.Equals(_userId, userId, StringComparison.Ordinal))
+            return;
+
+        _ = InvokeAsync(() =>
+        {
+            try
+            {
+                var back = "/" + Navigation.ToBaseRelativePath(Navigation.Uri);
+                Navigation.NavigateTo(
+                    $"/api/account/session?returnUrl={Uri.EscapeDataString(back)}", forceLoad: true);
+            }
+            catch (ObjectDisposedException)
+            {
+                // Circuit torn down between the event and the dispatch - it is already gone.
+            }
+        });
+    }
+
     public void Dispose()
     {
         Revocations.SessionsRevoked -= OnRevoked;
+        Revocations.PermissionsChanged -= OnPermissionsChanged;
     }
 }

@@ -967,6 +967,12 @@ public sealed class IdentityAdminService : IIdentityAdminService
         // circuit rebuilds its own filtered list, so the broadcast tells the right person without
         // needing to know who they are.
         _siteRegistryChanges.NotifySitesChanged();
+
+        // The list of sites is not the same question as what this user may do on them. Roles are read
+        // from the principal, so a demotion that only broadcast the site change sat there looking
+        // applied while the user kept every button their old role had - until revalidation came round
+        // five minutes later. Tell their circuits to pick up a current principal now.
+        _revocations.NotifyPermissionsChanged(user.Id);
         return IdentityResult.Success;
     }
 

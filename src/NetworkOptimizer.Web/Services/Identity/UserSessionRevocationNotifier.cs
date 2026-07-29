@@ -28,4 +28,18 @@ public sealed class UserSessionRevocationNotifier
     /// </param>
     public void NotifyRevoked(string userId, string? exceptSessionId = null)
         => SessionsRevoked?.Invoke(userId, exceptSessionId);
+
+    /// <summary>
+    /// Raised with the id of an account whose roles or site access have changed. Not a revocation:
+    /// the session stays, it just needs a current principal.
+    /// </summary>
+    public event Action<string>? PermissionsChanged;
+
+    /// <summary>
+    /// Announces that an account's permissions have moved. The site-registry broadcast already makes
+    /// every circuit rebuild its site LIST, but what a user may DO is read from the principal, and
+    /// that only catches up when revalidation notices the membership version has moved - a five
+    /// minute wait in which a demotion has visibly happened and changed nothing.
+    /// </summary>
+    public void NotifyPermissionsChanged(string userId) => PermissionsChanged?.Invoke(userId);
 }
