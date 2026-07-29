@@ -1,5 +1,5 @@
-using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Storage.Models.Identity;
 using NetworkOptimizer.Web.Services.Auditing;
 using NetworkOptimizer.Web.Services.Gates;
@@ -210,6 +210,7 @@ public sealed class IdentityAdminService : IIdentityAdminService
     private readonly SiteRegistryChangeNotifier _siteRegistryChanges;
     private readonly UserSessionRevocationNotifier _revocations;
     private readonly IJwtService? _legacyJwt;
+    private readonly IAdminAuthService _adminAuth;
     private readonly ILogger<IdentityAdminService> _logger;
 
     public IdentityAdminService(
@@ -223,6 +224,7 @@ public sealed class IdentityAdminService : IIdentityAdminService
         SiteRegistryChangeNotifier siteRegistryChanges,
         UserSessionRevocationNotifier revocations,
         ILogger<IdentityAdminService> logger,
+        IAdminAuthService adminAuth,
         IJwtService? legacyJwt = null)
     {
         _userManager = userManager;
@@ -234,6 +236,7 @@ public sealed class IdentityAdminService : IIdentityAdminService
         _siteRoles = siteRoles;
         _siteRegistryChanges = siteRegistryChanges;
         _revocations = revocations;
+        _adminAuth = adminAuth;
         _legacyJwt = legacyJwt;
         _logger = logger;
     }
@@ -464,6 +467,7 @@ public sealed class IdentityAdminService : IIdentityAdminService
             return AdminActionResult.Fail(Describe(result));
 
         await ClearTemporaryPasswordFlagAsync(user);
+        await SyncAdminSettingsIfBuiltInAdminAsync(user, newPassword);
         await RetireLegacyTokensIfBuiltInAdminAsync(user);
         Emit(AuditCategories.User, AuditActions.PasswordReset, user, new { self = true });
         return AdminActionResult.Ok();
@@ -500,6 +504,7 @@ public sealed class IdentityAdminService : IIdentityAdminService
         if (!result.Succeeded) return AdminActionResult.Fail(Describe(result));
 
         await ClearTemporaryPasswordFlagAsync(user);
+        await SyncAdminSettingsIfBuiltInAdminAsync(user, newPassword);
         await RetireLegacyTokensIfBuiltInAdminAsync(user);
         Emit(AuditCategories.Auth, AuditActions.PasswordChanged, user);
         return AdminActionResult.Ok();
@@ -719,7 +724,10 @@ public sealed class IdentityAdminService : IIdentityAdminService
             {
                 db.SiteMemberships.Add(new SiteMembership
                 {
-                    UserId = userId, TargetType = targetType, TargetId = targetId, SiteRole = role,
+                    UserId = userId,
+                    TargetType = targetType,
+                    TargetId = targetId,
+                    SiteRole = role,
                 });
             }
             await db.SaveChangesAsync();
@@ -907,6 +915,32 @@ public sealed class IdentityAdminService : IIdentityAdminService
     /// failing the call would report the opposite of what happened. The cost of losing it is that the
     /// banner keeps asking for a password the user has already set.
     /// </summary>
+    /// <summary>
+    /// The install's own record of where the admin password comes from lives in AdminSettings, and it
+    /// is what Settings - Application reports and what the "set a real password" nag reads. A password
+    /// set through Settings goes through SaveAdminSettingsAsync and flips that row to Database; a
+    /// password set here did not touch it at all, so the install went on describing itself as running
+    /// the startup-log password long after the operator had replaced it.
+    ///
+    /// Only for the built-in admin: it is the account that row is about.
+    /// </summary>
+    private async Task SyncAdminSettingsIfBuiltInAdminAsync(ApplicationUser user, string newPassword)
+    {
+        if (!string.Equals(user.UserName, IdentityBootstrapService.AdminUserName, StringComparison.OrdinalIgnoreCase))
+            return;
+
+        try
+        {
+            await _adminAuth.SaveAdminSettingsAsync(newPassword, enabled: true);
+        }
+        catch (Exception ex)
+        {
+            // The Identity password IS changed by this point, so this must not fail the operation -
+            // the worst outcome is the source display staying stale, which is what it did before.
+            _logger.LogWarning(ex, "Admin password changed but the stored admin settings could not be updated.");
+        }
+    }
+
     private async Task ClearTemporaryPasswordFlagAsync(ApplicationUser user)
     {
         if (!user.PasswordIsTemporary)
