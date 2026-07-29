@@ -1,7 +1,7 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Identity;
-using Microsoft.Extensions.Options;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using NetworkOptimizer.Storage.Models.Identity;
 using NetworkOptimizer.Web.Services.Auditing;
 
@@ -350,8 +350,28 @@ public sealed class ExternalLoginService : IExternalLoginService
                 return ExternalLoginOutcome.RequiresTwoFactor;
             }
 
-            // Two-factor state could not be established, so there is nothing to complete. Refuse rather
-            // than fall through to a session that never proved a second factor.
+            // No challenge was raised. There are two reasons for that and they deserve opposite answers.
+            //
+            // The device is remembered: this account satisfied the second factor here before and chose
+            // to be remembered, which is the whole point of that option. Identity honoured it, and so
+            // do we - refusing would send them to a local sign-in that asks for a code and then honours
+            // the same cookie anyway.
+            if (result.Succeeded && await _signInManager.IsTwoFactorClientRememberedAsync(user))
+            {
+                await SignInAsync(user, provider, rememberMe);
+                _logger.LogInformation(
+                    "Federated sign-in for {User}: second factor satisfied by a remembered device.",
+                    user.UserName);
+                return null;
+            }
+
+            // Anything else: the sign-in went through WITHOUT the factor this role requires. Note that
+            // ExternalLoginSignInAsync has already issued the application cookie when it succeeds, so
+            // returning a refusal on its own left the browser holding a perfectly good session for an
+            // account that never proved a second factor - the refusal was a redirect and nothing more.
+            if (result.Succeeded)
+                await _signInManager.SignOutAsync();
+
             EmitRejected(provider,
                 reason: $"role requires a second factor; external two-factor sign-in did not challenge ({result})",
                 user: user, subject: subject);
