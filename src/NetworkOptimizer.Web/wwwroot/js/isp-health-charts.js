@@ -18,6 +18,15 @@ let dotNetRef = null;
 let win = null;
 // Event annotation types hidden by the panel's category filter pills; display-only.
 let hiddenTypes = new Set();
+
+// One entry per ASN series, in chart order, for the filter chips below the plot.
+let asnMeta = [];
+// name -> false when hidden. Absent means visible, so a new ASN appears without asking.
+let seriesVisibility = {};
+let badgesEl = null;
+
+const _escSpan = document.createElement('span');
+function escapeHtml(v) { _escSpan.textContent = v ?? ''; return _escSpan.innerHTML; }
 let lastEvents = [];
 
 function buildOpts() {
@@ -75,7 +84,9 @@ function buildOpts() {
                 grid: { padding: { left: -5, right: -5, top: -8, bottom: 0 } },
             },
         }],
-        legend: { show: true, labels: { colors: '#9ca3af' } },
+        // Our own chips below the plot instead: same look and click behaviour as every other
+        // chart tab, where the built-in legend gave a different affordance for the same job.
+        legend: { show: false },
         tooltip: {
             theme: 'dark',
             shared: true,
@@ -169,12 +180,67 @@ async function loadAndUpdate() {
             data: (a.points || []).map(p => ({ x: new Date(p.time).getTime(), y: p.value })),
         }));
 
+        asnMeta = series.map(x => ({ name: x.name, color: x.color }));
+        // Drop hidden entries for ASNs that are no longer on the path, or a vanished name would
+        // keep a series hidden forever with no chip left to turn it back on.
+        const live = new Set(asnMeta.map(m => m.name));
+        Object.keys(seriesVisibility).forEach(k => { if (!live.has(k)) delete seriesVisibility[k]; });
+        renderBadges();
+
         lastEvents = json.events || [];
         chart.updateOptions({ annotations: buildAnnotations(lastEvents) }, false, false);
         // Preserve the user's drag-zoom; a series refresh while zoomed would snap back
-        if (!isZoomed) chart.updateSeries(series, false);
+        // updateSeries resets per-series visibility, so re-apply after every refresh.
+        if (!isZoomed) { chart.updateSeries(series, false); applySeriesVisibility(); }
     } catch (e) {
         if (e.name !== 'AbortError') console.warn('isp-health chart load failed', e);
+    }
+}
+
+function applySeriesVisibility() {
+    if (!chart) return;
+    asnMeta.forEach(m => {
+        if (seriesVisibility[m.name] === false) chart.hideSeries(m.name);
+        else chart.showSeries(m.name);
+    });
+}
+
+/// Chips below the plot, matching the other chart tabs: a plain click isolates one series (and
+/// clicking the isolated one restores all), ctrl or cmd toggles a single series. Same paradigm on
+/// purpose - this chart used the built-in ApexCharts legend, which is a different gesture for the
+/// same job and does not survive the updateSeries that a poll performs.
+function renderBadges() {
+    if (!badgesEl) return;
+    if (asnMeta.length <= 1) { badgesEl.innerHTML = ''; return; }
+
+    badgesEl.innerHTML = asnMeta.map(m => {
+        const vis = seriesVisibility[m.name] !== false;
+        return `<button type="button" class="wan-filter-badge ${vis ? 'active' : 'inactive'}" data-asn="${escapeHtml(m.name)}">
+            <span class="wan-badge-dot" style="background-color: ${m.color}"></span>
+            <span>${escapeHtml(m.name)}</span>
+        </button>`;
+    }).join('');
+
+    if (!badgesEl._delegated) {
+        badgesEl._delegated = true;
+        badgesEl.addEventListener('click', (e) => {
+            const btn = e.target.closest('button[data-asn]');
+            if (!btn) return;
+            const name = btn.dataset.asn;
+
+            if (e.ctrlKey || e.metaKey) {
+                seriesVisibility[name] = seriesVisibility[name] === false ? undefined : false;
+            } else {
+                const allVis = asnMeta.every(m => seriesVisibility[m.name] !== false);
+                const onlyThis = seriesVisibility[name] !== false
+                    && asnMeta.filter(m => m.name !== name).every(m => seriesVisibility[m.name] === false);
+                if (onlyThis) seriesVisibility = {};
+                else if (allVis) asnMeta.forEach(m => seriesVisibility[m.name] = m.name === name);
+                else seriesVisibility[name] = seriesVisibility[name] === false;
+            }
+            applySeriesVisibility();
+            renderBadges();
+        });
     }
 }
 
@@ -192,6 +258,11 @@ export async function mount(elId, fromISO = null, toISO = null, hidden = null) {
     resetBtn.addEventListener('click', resetZoom);
     el.parentElement.classList.add('isp-chart-wrap');
     el.parentElement.appendChild(resetBtn);
+
+    // Below the plot, where the legend it replaces used to sit.
+    badgesEl = document.createElement('div');
+    badgesEl.className = 'wan-filter-badges isp-chart-badges';
+    el.parentElement.appendChild(badgesEl);
 
     chart = new ApexCharts(el, buildOpts());
     await chart.render();
