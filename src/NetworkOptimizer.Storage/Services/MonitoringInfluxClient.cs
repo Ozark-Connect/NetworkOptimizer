@@ -1981,6 +1981,17 @@ from(bucket: ""{_longtermBucket}"")
                 VoltageV = AsDoubleOrNull(record.GetValueByKey("voltage_v"))
             });
         }
+
+        // Order by time, because the Flux result is NOT globally ordered. pivot emits a separate
+        // table whenever the row's field set differs, and those tables arrive after the main one - so
+        // an interval where the module reported temperature and voltage but no optical power (an ONT
+        // during an outage does exactly this) comes back at the END. The chart then drew forward to
+        // now and jumped back to the outage, and only on temperature, since the trailing rows carry
+        // no rx/tx to plot. QuerySfpPonByModulesAsync is already safe because BuildPonSeries orders
+        // its own output.
+        foreach (var list in results.Values)
+            list.Sort((a, b) => a.Time.CompareTo(b.Time));
+
         return results;
     }
 
