@@ -155,6 +155,20 @@ public interface IIdentityAdminService
     [RequireRole(Roles.Viewer)]
     Task<AdminActionResult> SignOutEverywhereAsync(string userId);
 
+    /// <summary>
+    /// Moves a user to exactly one global role: grants it and revokes the others as ONE change, so a
+    /// single permissions signal reaches their live sessions at the end of it.
+    ///
+    /// Doing it as a grant call followed by a revoke call fired one signal each, and the first one
+    /// reloads the target's tab to pick up a fresh principal - so the second landed on a circuit that
+    /// was mid-teardown and was simply lost, leaving the cookie holding the state BETWEEN the two
+    /// calls. A demotion therefore kept Admin until revalidation came round five minutes later, while
+    /// a promotion looked instant because there the first signal is the one that matters. Whether it
+    /// worked depended on the reload losing the race, which is why it worked sometimes.
+    /// </summary>
+    [RequireRole(Roles.Admin)]
+    Task<AdminActionResult> SetGlobalRoleAsync(string userId, string role);
+
     [RequireRole(Roles.Admin)]
     Task<AdminActionResult> GrantGlobalRoleAsync(string userId, string role);
 
@@ -641,6 +655,69 @@ public sealed class IdentityAdminService : IIdentityAdminService
         await ClearTemporaryPasswordFlagAsync(user);
         await RetireLegacyTokensIfBuiltInAdminAsync(user);
         Emit(AuditCategories.Auth, AuditActions.PasswordReset, user);
+        return AdminActionResult.Ok();
+    }
+
+    /// <inheritdoc />
+    public async Task<AdminActionResult> SetGlobalRoleAsync(string userId, string role)
+    {
+        if (!Roles.All.Contains(role))
+            return AdminActionResult.Fail($"Unknown role '{role}'.");
+
+        var user = await LoadForUpdateAsync(userId);
+        if (user is null) return AdminActionResult.Fail("User not found.");
+
+        // The invariants belong to losing Admin, so they are asked once here rather than discovered
+        // half way through - a refusal after the grant would leave the account holding both roles.
+        var losingAdmin = role != Roles.Admin && await _userManager.IsInRoleAsync(user, Roles.Admin);
+        if (losingAdmin && IsSelf(userId))
+            return Refuse(user, AuditCategories.Rbac, AuditActions.RoleRevoked, "self",
+                "You cannot remove your own Admin role. Ask another administrator to change it.");
+        if (losingAdmin && await IsLastEnabledAdminAsync(user))
+            return RefuseLastAdmin(user, "demote");
+
+        // Grant before revoking, so the account is never momentarily left with no role at all.
+        var granted = false;
+        if (!await _userManager.IsInRoleAsync(user, role))
+        {
+            var grant = await _userManager.AddToRoleAsync(user, role);
+            if (!grant.Succeeded)
+                return AdminActionResult.Fail(Describe(grant));
+            granted = true;
+        }
+
+        var revoked = new List<string>();
+        foreach (var previous in Roles.All.Where(r => r != role))
+        {
+            if (!await _userManager.IsInRoleAsync(user, previous))
+                continue;
+
+            var revoke = await _userManager.RemoveFromRoleAsync(user, previous);
+            if (!revoke.Succeeded)
+            {
+                // Put it back rather than leave the account holding both.
+                if (granted)
+                    await _userManager.RemoveFromRoleAsync(user, role);
+                foreach (var undo in revoked)
+                    await _userManager.AddToRoleAsync(user, undo);
+                return AdminActionResult.Fail(Describe(revoke));
+            }
+
+            revoked.Add(previous);
+        }
+
+        if (!granted && revoked.Count == 0)
+            return AdminActionResult.Ok();
+
+        var changed = await PermissionsChangedAsync(user);
+        if (!changed.Succeeded)
+            return AdminActionResult.Fail(Describe(changed));
+
+        if (granted)
+            Emit(AuditCategories.Rbac, AuditActions.RoleGranted, user, new { role });
+        foreach (var previous in revoked)
+            Emit(AuditCategories.Rbac, AuditActions.RoleRevoked, user, new { role = previous });
+
         return AdminActionResult.Ok();
     }
 

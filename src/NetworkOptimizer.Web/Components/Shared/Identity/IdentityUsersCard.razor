@@ -488,25 +488,14 @@
         _busyUserId = summary.User.Id;
         try
         {
-            // Grant first: the last-admin invariant refuses the revoke, and granting the new role
-            // before revoking Admin means the account is never left with nothing.
-            var grant = await IdentityAdmin.GrantGlobalRoleAsync(summary.User.Id, role);
-            if (!grant.Succeeded)
+            // One call, so the target's live sessions get ONE permissions signal once the whole change
+            // has landed. Grant-then-revoke from here fired one per step, and the first reloads their
+            // tab - which lost the second and left them on the role they were being moved off.
+            var change = await IdentityAdmin.SetGlobalRoleAsync(summary.User.Id, role);
+            if (!change.Succeeded)
             {
-                Report(grant, "");
+                Report(change, "");
                 return;
-            }
-
-            foreach (var previous in Roles.All.Where(r => r != role))
-            {
-                var revoke = await IdentityAdmin.RevokeGlobalRoleAsync(summary.User.Id, previous);
-                if (!revoke.Succeeded)
-                {
-                    // Roll back to the role they had, so the account is not left holding both.
-                    await IdentityAdmin.RevokeGlobalRoleAsync(summary.User.Id, role);
-                    Report(revoke, "");
-                    return;
-                }
             }
 
             Show($"{summary.User.UserName} is now {role}.", "success");
