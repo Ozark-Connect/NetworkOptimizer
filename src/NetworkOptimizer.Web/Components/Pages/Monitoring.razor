@@ -2185,6 +2185,13 @@ else
     private bool _investigateCollapsed = true;
     private bool _investigateSavedCollapsed = true;
     private bool _investigateStateLoaded;
+
+    /// <summary>
+    /// A deep link has forced the Investigate card open, so the saved collapse preference must not
+    /// close it again when localStorage finally answers. Cleared with the rest of the live state on
+    /// leaving the tab, so it never becomes a sticky expand.
+    /// </summary>
+    private bool _investigateDeepLinkOpened;
     private const string InvestigateCollapseKey = "monitoring-investigate-collapsed";
 
     // Clear the transient "Saved" confirmations so they don't linger after the
@@ -3714,7 +3721,16 @@ else
             catch { }
             // Saved preference wins; with none, default to expanded so the controls are discoverable.
             _investigateSavedCollapsed = val == "true";
-            _investigateCollapsed = _investigateSavedCollapsed;
+
+            // ...but never over a deep link. The flag above is set BEFORE this await, so a render
+            // arriving while localStorage is still answering lets the deep-link block below run and
+            // force the card open - and this line then put it straight back. That is why the first
+            // link into a loss investigation often did nothing while later ones always worked: once
+            // the key is warm the read returns before the next render and the race stops happening.
+            // Checked both ways round because either block can reach its state first.
+            if (_pendingInvestigateParam is null && !_investigateDeepLinkOpened)
+                _investigateCollapsed = _investigateSavedCollapsed;
+
             StateHasChanged();
         }
 
@@ -3727,6 +3743,7 @@ else
             // visible. Live state only - the saved preference is untouched, and leaving the tab
             // reverts to it, so a linkable investigation never counts as a user-set expand.
             _investigateCollapsed = false;
+            _investigateDeepLinkOpened = true;
             await NavigateToLossEvent(null, null, loadedOnly: kind == "loaded-loss");
         }
 
@@ -3894,6 +3911,7 @@ else
             // Revert any transient deep-link force-open to the user's saved preference, so a
             // linkable investigation never lingers as an expand the user didn't choose.
             _investigateCollapsed = _investigateSavedCollapsed;
+            _investigateDeepLinkOpened = false;
         }
 
         if (_scrollToDiscoveryPending && _activeTab == "performance")
