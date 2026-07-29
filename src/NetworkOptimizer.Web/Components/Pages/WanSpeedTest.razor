@@ -73,6 +73,9 @@
     }
 
     @* Run Test Card *@
+    @* Every control in this card is Operator-only, so a Viewer was shown a WAN selector, a Max Load
+       toggle and no way to start anything. Hide the card rather than present a dead one. *@
+    <SiteOperatorOnly>
     <div class="card" id="wan-run-test">
         <div class="card-header">
             <h2 class="card-title">Run a Speed Test</h2>
@@ -244,6 +247,7 @@
             }
         </div>
     </div>
+    </SiteOperatorOnly>
 
     @* Latest Result *@
     @if (_latestResult != null && _latestResult.Success)
