@@ -1,4 +1,4 @@
-﻿@page "/speedtest"
+@page "/speedtest"
 @attribute [Authorize(Policy = Policies.RequireViewer)]
 @rendermode InteractiveServer
 @implements IDisposable
@@ -439,6 +439,7 @@
                                 </td>
                                 <td>
                                     <div class="action-buttons">
+                                        <SiteOperatorOnly>
                                         <button class="btn btn-primary btn-sm test-button"
                                                 @onclick="() => RunSpeedTestOnDiscovered(device)"
                                                 disabled="@(isRunningTest || !isOnline || !sshConfigured || string.IsNullOrEmpty(device.IpAddress))">
@@ -454,6 +455,7 @@
                                                 <span>Run Test</span>
                                             }
                                         </button>
+                                        </SiteOperatorOnly>
                                     </div>
                                 </td>
                             </tr>
@@ -572,8 +574,10 @@
                                                 }
                                             </button>
                                         </SiteOperatorOnly>
-                                                                                    <button class="btn btn-secondary btn-sm @(device.StartIperf3Server ? "" : "hidden-placeholder")" style="min-width: 5rem;"
+                                        <SiteOperatorOnly>
+                                            <button class="btn btn-secondary btn-sm @(device.StartIperf3Server ? "" : "hidden-placeholder")" style="min-width: 5rem;"
                                                     @onclick="() => TestConnection(device)" disabled="@(!sshConfigured && !device.HasOwnCredentials)">Test SSH</button>
+                                        </SiteOperatorOnly>
                                         <SiteAdminOnly>
                                             <button class="btn btn-secondary btn-sm" @onclick="() => EditDevice(device)">Edit</button>
                                         </SiteAdminOnly>
