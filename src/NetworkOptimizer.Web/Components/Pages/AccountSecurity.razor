@@ -78,8 +78,7 @@
 @if (_setupRequired)
 {
     <div class="alert alert-warning">
-        Your role uses two-step sign-in. Set up whichever of the two below suits you - an authenticator
-        app or a passkey - and you are all set. Either one on its own does the job.
+        Multi-factor authentication is required for your role. Set up either option below.
     </div>
 }
 
@@ -89,8 +88,7 @@
         @if (_setupRequired)
         {
             <div class="alert alert-info">
-                Set this up with any authenticator app - 1Password, Bitwarden, Authy, Google
-                Authenticator. Scan the code below, then enter the six digits it shows to finish.
+                Codes from an authenticator app. Works from any browser, on any device.
             </div>
         }
         @if (_user is null)
@@ -174,8 +172,7 @@
         @if (_setupRequired)
         {
             <div class="alert alert-info">
-                A passkey satisfies the requirement on its own - your fingerprint, face, or device PIN,
-                with nothing to type. Register one here and use it to sign in from then on.
+                Sign in with a fingerprint, face, PIN, or security key. No codes to type.
             </div>
         }
         @if (!_secureContext)

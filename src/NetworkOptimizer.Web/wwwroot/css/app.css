@@ -7333,7 +7333,7 @@ a.path-hop.hop-clickable:hover {
    same 3px primary halo the focus state uses, which is why it reads as deliberate rather than as a
    hairline stuck to the edge. */
 .card-highlight {
-    box-shadow: 0 0 0 3px rgba(5, 89, 201, 0.2);
+    box-shadow: 0 0 0 3px rgba(5, 89, 201, 0.5);
 }
 
 /* The guidance sits at the top of the card body, where .alert's own top margin doubles the padding
