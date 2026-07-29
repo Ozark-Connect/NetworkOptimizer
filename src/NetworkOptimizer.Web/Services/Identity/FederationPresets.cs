@@ -37,7 +37,7 @@ public static class FederationPresets
     {
         Type = FederationProviderType.Oidc,
         Scheme = "oidc",
-        DisplayName = "OpenID Connect",
+        DisplayName = "OIDC IdP",
         ButtonLabel = "Sign in with SSO",
         Enabled = false,
         UsePkce = true,
