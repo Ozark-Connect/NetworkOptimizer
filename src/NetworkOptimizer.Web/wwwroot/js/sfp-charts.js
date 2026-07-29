@@ -3,6 +3,7 @@
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=4';
+import { valueSortedTooltip, tooltipHeld } from './chart-tooltip.js?v=1';
 
 const PALETTE = window.Apex?.colors || ['#7EB26D', '#EAB839', '#6ED0E0', '#EF843C', '#E24D42', '#1F78C1'];
 const _esc = document.createElement('span');
@@ -66,7 +67,7 @@ function baseOpts(height, yTitle, yFormatter, extra) {
         },
         grid: { borderColor: '#374151', strokeDashArray: 3 },
         legend: { show: false },
-        tooltip: { theme: 'dark', shared: true, x: { format: 'MMM dd, HH:mm:ss' } },
+        tooltip: { theme: 'dark', shared: true, x: { format: 'MMM dd, HH:mm:ss' }, custom: valueSortedTooltip },
         noData: { text: 'No data in this time range', style: { color: '#64748b' } },
     };
     if (extra?.yaxis) {
@@ -198,9 +199,9 @@ async function refreshPonSection() {
                 { name: `${prefix}Buffer overflows`, data: ponPoints(pts, 'lanOvfl') },
             );
         });
-        ponErrChart.updateSeries(errSeries, false);
-        ponGemChart.updateSeries(gemSeries, false);
-        ponHostChart.updateSeries(hostSeries, false);
+        ponErrChart.updateSeries(errSeries.filter(s => s.data.length), false);
+        ponGemChart.updateSeries(gemSeries.filter(s => s.data.length), false);
+        ponHostChart.updateSeries(hostSeries.filter(s => s.data.length), false);
         renderPonDetails(container, visiblePon);
     } catch (e) { /* leave the previous render if a chart update fails */ }
 }
@@ -264,8 +265,20 @@ const PLOAM_LABELS = {
     emergency_stop: 'Disabled (O7)',
 };
 
+// Every series keeps the same x values, with gaps as null rather than dropped.
+//
+// Filtering each series down to its own non-null points gave the series different x
+// arrays, and a shared ApexCharts tooltip resolves the other series by data-point INDEX
+// rather than by timestamp - so once the arrays diverged, only the first series lined up
+// and PON Errors showed "BIP: 0" while every non-zero counter beside it went unlisted.
+// A null y still breaks the line where there is no reading, which is what the filter was
+// really for; valueSortedTooltip skips nulls, so the gaps cost no tooltip rows either.
+//
+// A counter the module never reports at all returns nothing, so it is dropped as a
+// series rather than drawn as an empty one.
 function ponPoints(pts, key) {
-    return pts.filter(p => p[key] != null).map(p => ({ x: new Date(p.time).getTime(), y: p[key] }));
+    if (!pts.some(p => p[key] != null)) return [];
+    return pts.map(p => ({ x: new Date(p.time).getTime(), y: p[key] ?? null }));
 }
 
 // Create the three PON charts on first use. Kept out of mount() so setups without
@@ -346,7 +359,7 @@ function startPoll() {
     stopPoll();
     if (windowOffset !== 0 || isCustomRange) return;
     if (!isVisible()) return;
-    pollTimer = setInterval(loadAndUpdate, POLL_INTERVALS[currentRangeHours] || 60000);
+    pollTimer = setInterval(() => { if (!tooltipHeld(document.getElementById(containerId))) loadAndUpdate(); }, POLL_INTERVALS[currentRangeHours] || 60000);
 }
 function stopPoll() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
 
