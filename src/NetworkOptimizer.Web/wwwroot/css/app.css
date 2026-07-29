@@ -15423,6 +15423,11 @@ a.affected-client:hover {
     padding: 0.4rem 0.875rem;
 }
 
+.isp-chart-wrap .wan-filter-reset svg {
+    width: 14px;
+    height: 14px;
+}
+
 .isp-chart-badges {
     gap: 0.375rem;
     margin-top: 0.5rem;

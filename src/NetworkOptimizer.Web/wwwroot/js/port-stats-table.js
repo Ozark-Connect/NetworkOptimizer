@@ -3,7 +3,7 @@
 // renderStatsTable(), and exposes selectDevice() so a map double-click can
 // isolate a single switch/gateway.
 import { renderStatsTable as renderTable } from './chart-stats.js?v=4';
-import { renderFilterReset, isFiltered } from './chart-filter.js?v=2';
+import { renderFilterReset, isFiltered } from './chart-filter.js?v=3';
 
 const _esc = document.createElement('span');
 function escapeHtml(s) { _esc.textContent = s == null ? '' : String(s); return _esc.innerHTML; }
@@ -303,7 +303,7 @@ function renderBadges() {
     }
 
     // Last: the chip rebuild above wipes the row, so the reset is re-added after it.
-    renderFilterReset(el, isFiltered(visibility), () => { visibility = {}; renderBadges(); renderTable(); });
+    renderFilterReset(el, isFiltered(visibility), () => { visibility = {}; renderBadges(); renderTable(); }, 'Clear filter');
 }
 
 function renderTableNow(showAll) {

@@ -10,8 +10,11 @@
  *
  * Positioned absolutely rather than as a flex child, so the chips stay centred as they were and
  * the control does not shift them when it appears.
+ *
+ * `label` is the tooltip and the accessible name. It defaults to the chart wording because eight of
+ * the nine rows filter chart series; the port stats row filters cards, so it passes its own.
  */
-export function renderFilterReset(container, isFiltered, onReset) {
+export function renderFilterReset(container, isFiltered, onReset, label = 'Clear series filter') {
     if (!container) return;
 
     const existing = container.querySelector('.wan-filter-reset');
@@ -27,13 +30,13 @@ export function renderFilterReset(container, isFiltered, onReset) {
     // The standard clear-filter glyph: funnel with an X. Stroked, currentColor, 24 viewBox -
     // the same idiom as the X icons already in the app, so it inherits hover colour for free.
     btn.innerHTML =
-        '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
-        + 'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+        '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+        + 'stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
         + '<path d="M3 5h14l-5.25 6.2V17l-3.5 1.75v-7.55z"/>'
         + '<path d="m16.5 16.5 4.5 4.5m0-4.5-4.5 4.5"/>'
         + '</svg>';
-    btn.setAttribute('aria-label', 'Clear filter');
-    btn.setAttribute('data-tooltip', 'Clear filter');
+    btn.setAttribute('aria-label', label);
+    btn.setAttribute('data-tooltip', label);
     btn.addEventListener('click', (e) => {
         // The row itself carries a delegated chip handler. This is not a chip, so that handler
         // ignores it anyway - stopping here keeps it from having to know that.
