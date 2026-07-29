@@ -15380,11 +15380,12 @@ a.affected-client:hover {
     position: absolute;
     right: 0;
     top: 0;
+    display: inline-flex;
+    align-items: center;
     padding: 0.2rem 0.35rem;
     border: none;
     background: transparent;
     color: var(--text-muted);
-    font-size: 1rem;
     line-height: 1;
     cursor: pointer;
 }
