@@ -1,4 +1,4 @@
-﻿using ApexCharts;
+using ApexCharts;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Mvc.ViewFeatures;
 using Microsoft.AspNetCore.StaticFiles;
@@ -1348,6 +1348,23 @@ app.Use(async (context, next) =>
 // instead of a bare 401 from a policy failure. With authentication disabled the policies short-
 // circuit to success (GlobalRoleHandler), so nothing changes for those installs.
 app.UseAuthorization();
+
+// TEMPORARY: a Site Admin of the main site is redirected to /denied on Settings while the policy
+// handler is never reached, so something forbids before it. Names the path, the user and the
+// endpoint that produced the 403. Remove once understood.
+app.Use(async (ctx, next) =>
+{
+    await next();
+    if (ctx.Response.StatusCode is 401 or 403)
+    {
+        ctx.RequestServices.GetRequiredService<ILoggerFactory>()
+            .CreateLogger("NetOpt.DenialTrace")
+            .LogDebug("DENIAL {Status} {Method} {Path}{Query} user={User} endpoint={Endpoint}",
+                ctx.Response.StatusCode, ctx.Request.Method, ctx.Request.Path, ctx.Request.QueryString,
+                ctx.User.Identity?.Name ?? "(anon)",
+                ctx.GetEndpoint()?.DisplayName ?? "(none)");
+    }
+});
 
 // Site selection via ?site=<slug> is per browser tab: it wins over the site cookie on
 // every request (SiteContextService.Resolve), the circuit pins itself from the tab URL
