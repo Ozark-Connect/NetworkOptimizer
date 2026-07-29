@@ -4,6 +4,7 @@
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 import { valueSortedTooltip, tooltipHeld } from './chart-tooltip.js?v=5';
+import { renderFilterReset, isFiltered } from './chart-filter.js?v=1';
 
 const PALETTE = ['#2ba89a', '#3b82f6', '#a78bfa', '#ef5858', '#f59e0b', '#10b981'];
 const POLL_MS = 60000;
@@ -220,6 +221,13 @@ function renderBadges() {
             <span>${escapeHtml(m.name)}</span>
         </button>`;
     }).join('');
+
+    // Last: the chip rebuild above wipes the row, so the reset is re-added after it.
+    renderFilterReset(badgesEl, isFiltered(seriesVisibility), () => {
+        seriesVisibility = {};
+        applySeriesVisibility();
+        renderBadges();
+    });
 
     if (!badgesEl._delegated) {
         badgesEl._delegated = true;

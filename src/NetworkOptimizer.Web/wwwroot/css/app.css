@@ -15367,11 +15367,30 @@ a.affected-client:hover {
 
 /* WAN Filter Badges */
 .wan-filter-badges {
+    /* Anchors the reset control at the right without moving the centred chips. */
+    position: relative;
     display: flex;
     gap: 0.5rem;
     flex-wrap: wrap;
     justify-content: center;
     padding-bottom: 0.5rem;
+}
+
+.wan-filter-reset {
+    position: absolute;
+    right: 0;
+    top: 0;
+    padding: 0.2rem 0.35rem;
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 1rem;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.wan-filter-reset:hover {
+    color: var(--text-primary);
 }
 
 .wan-filter-badge {

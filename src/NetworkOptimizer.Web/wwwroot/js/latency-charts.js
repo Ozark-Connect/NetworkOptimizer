@@ -7,6 +7,7 @@
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=4';
 import { valueSortedTooltip, tooltipHeld } from './chart-tooltip.js?v=5';
+import { renderFilterReset, isFiltered } from './chart-filter.js?v=1';
 
 const PALETTE = window.Apex?.colors || ['#7EB26D', '#EAB839', '#6ED0E0', '#EF843C', '#E24D42', '#1F78C1'];
 const _colorCache = {};
@@ -239,6 +240,9 @@ function renderBadges(container) {
             if (lastFetchData) renderStatsTable(container, false);
         });
     }
+
+    // Last: the chip rebuild above wipes the row, so the reset is re-added after it.
+    renderFilterReset(el, isFiltered(visibility), () => { visibility = {}; updateVisibility(); renderBadges(container); });
 }
 
 function updateChartVisibility() {
