@@ -9779,6 +9779,10 @@ a.path-hop.hop-clickable:hover {
     border-bottom: 1px solid var(--border-color) !important;
 }
 
+.netopt-own-hover-dots .apexcharts-marker {
+    display: none;
+}
+
 @media (max-width: 768px) {
     .metrics-header {
         flex-direction: column;

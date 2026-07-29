@@ -39,6 +39,12 @@ function paintHoverDots(w, dataPointIndex) {
 
     let layer = inner.querySelector('.' + DOT_LAYER);
     if (!layer) {
+        // Stand ApexCharts' own hover markers down. It creates virtual ones whenever the
+        // chart contains a null - which alignedPoints makes routine - and then moves them
+        // under the pointer, so its dots appeared on top of ours. Hidden in CSS rather than
+        // per paint because the library re-shows them on its own schedule, not ours.
+        w.globals.dom.baseEl.classList.add('netopt-own-hover-dots');
+
         layer = document.createElementNS(SVG_NS, 'g');
         layer.setAttribute('class', DOT_LAYER);
         // Never swallow a pointer event: these sit over the plot, and the chart needs the
