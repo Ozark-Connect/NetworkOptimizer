@@ -250,7 +250,6 @@
                         <label class="form-label">Roles</label>
                         <select class="form-control" @bind="_editing.RoleMappingMode" disabled="@_editing.ManagedByConfigFile">
                             <option value="@RoleMappingMode.Manual">Set here after the first sign-in</option>
-                            <option value="@RoleMappingMode.IdpAuthoritative">Taken from the provider at every sign-in</option>
                         </select>
                         <p class="form-help">Provider-authoritative locks role edits here; the last Admin is never demoted.</p>
                     </div>
@@ -371,6 +370,14 @@
     private void Edit(FederationProvider provider)
     {
         _editing = provider;
+
+        // Roles taken from the provider needs group-to-role mappings, and there is no UI to create
+        // them - so the mode is not offered. Anything already carrying it falls back to the mode that
+        // is, rather than leaving the control with nothing selected and saving a value the operator
+        // never chose.
+        if (_editing.RoleMappingMode != RoleMappingMode.Manual)
+            _editing.RoleMappingMode = RoleMappingMode.Manual;
+
         _newSecret = "";
         _message = null;
     }

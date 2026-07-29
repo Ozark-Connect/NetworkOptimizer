@@ -114,7 +114,12 @@ public sealed class ExternalLoginService : IExternalLoginService
             // demanding MFA must demand it on this very login, not the next one - while a refusal has
             // to leave the store as it found it. Resyncing first did the opposite on both counts: the
             // check read the pre-resync roles, and a refused login kept the role it had just written.
+            // A provider with no role mappings has nothing to be authoritative about, and resyncing
+            // against an empty set does not leave roles alone - it computes "no roles" as the desired
+            // state and strips what the user has, with only the last-admin rule standing in the way.
+            // There is no UI for creating mappings, so this is the state every provider is in.
             var resyncRoles = provider.RoleMappingMode == RoleMappingMode.IdpAuthoritative
+                && provider.RoleMappings.Count > 0
                 ? ComputeResyncRoles(provider, external)
                 : null;
 
