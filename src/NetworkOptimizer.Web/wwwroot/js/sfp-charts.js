@@ -3,7 +3,7 @@
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=4';
-import { valueSortedTooltip, tooltipHeld } from './chart-tooltip.js?v=1';
+import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=2';
 
 const PALETTE = window.Apex?.colors || ['#7EB26D', '#EAB839', '#6ED0E0', '#EF843C', '#E24D42', '#1F78C1'];
 const _esc = document.createElement('span');
@@ -51,7 +51,10 @@ function baseOpts(height, yTitle, yFormatter, extra) {
             type: 'gradient',
             gradient: { shadeIntensity: 0.3, opacityFrom: 0.4, opacityTo: 0.05 },
         },
-        markers: { size: 0 },
+        // No markers at rest; on hover ApexCharts draws one per series. Sized explicitly
+        // because the fallback is size + markers.hover.sizeOffset, and with size 0 that
+        // offset alone produced a dot far larger than the line it belongs to.
+        markers: { size: 0, hover: { size: 4 } },
         dataLabels: { enabled: false },
         xaxis: {
             type: 'datetime',
@@ -221,17 +224,17 @@ async function loadAndUpdate() {
         powerSeries.push({
             name: `${m.label} RX`,
             color: color,
-            data: pts.filter(p => p.rx != null).map(p => ({ x: new Date(p.time).getTime(), y: p.rx })),
+            data: alignedPoints(pts, p => p.rx),
         });
         powerSeries.push({
             name: `${m.label} TX`,
             color: color,
-            data: pts.filter(p => p.tx != null).map(p => ({ x: new Date(p.time).getTime(), y: p.tx })),
+            data: alignedPoints(pts, p => p.tx),
         });
         tSeries.push({
             name: m.label,
             color: color,
-            data: pts.filter(p => p.temp != null).map(p => ({ x: new Date(p.time).getTime(), y: p.temp })),
+            data: alignedPoints(pts, p => p.temp),
         });
     });
 
@@ -277,8 +280,7 @@ const PLOAM_LABELS = {
 // A counter the module never reports at all returns nothing, so it is dropped as a
 // series rather than drawn as an empty one.
 function ponPoints(pts, key) {
-    if (!pts.some(p => p[key] != null)) return [];
-    return pts.map(p => ({ x: new Date(p.time).getTime(), y: p[key] ?? null }));
+    return alignedPoints(pts, p => p[key]);
 }
 
 // Create the three PON charts on first use. Kept out of mount() so setups without

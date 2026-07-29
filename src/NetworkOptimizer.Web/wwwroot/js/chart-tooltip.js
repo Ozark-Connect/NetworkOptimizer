@@ -36,6 +36,31 @@ export function valueSortedTooltip({ series, dataPointIndex, w }) {
 }
 
 /**
+ * Points for one series, keeping every timestamp in `pts` and marking gaps as null.
+ *
+ * Filtering a series down to its own non-null readings looks harmless and breaks two things
+ * at once, because ApexCharts addresses the other series by data-point INDEX rather than by
+ * timestamp. A shared tooltip then lines up only the first series; worse, the hover-dot pass
+ * (moveDynamicPointsOnHover) reads pointsArray[series][hoveredIndex][1] for every series, so
+ * a series shorter than the hovered index throws and the loop abandons every dot after it.
+ * That is the "sometimes several dots, usually just one" behaviour.
+ *
+ * A null y breaks the line exactly where the filter used to remove the point, so the plot is
+ * unchanged, and valueSortedTooltip skips nulls so the gaps cost no tooltip rows.
+ *
+ * A series with no readings at all comes back empty and should be dropped by the caller: the
+ * dot pass skips empty series safely, and an all-null line draws nothing anyway.
+ *
+ * NOTE: this aligns series that share one source array. Series built from DIFFERENT sources
+ * (several devices or targets on one chart) can still hold genuinely different timestamps,
+ * which no per-series transform can reconcile.
+ */
+export function alignedPoints(pts, sel, timeKey = 'time') {
+    if (!pts?.some(p => sel(p) != null)) return [];
+    return pts.map(p => ({ x: new Date(p[timeKey]).getTime(), y: sel(p) ?? null }));
+}
+
+/**
  * True while a tooltip is open anywhere under <paramref name="root"/>. A poll tick that
  * redraws under the pointer tears the tooltip away mid-read, so the tick is skipped and
  * the next one picks it up - the same hold-off the WAN Live chart already uses.

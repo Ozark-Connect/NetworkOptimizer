@@ -4,7 +4,7 @@
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=4';
-import { valueSortedTooltip, tooltipHeld } from './chart-tooltip.js?v=1';
+import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=2';
 
 const PALETTE = window.Apex?.colors || ['#2ba89a', '#3b82f6', '#a78bfa', '#ef5858', '#f59e0b', '#10b981'];
 const _esc = document.createElement('span');
@@ -61,7 +61,10 @@ function baseOpts(height, yTitle, yFormatter, extra) {
             type: 'gradient',
             gradient: { shadeIntensity: 0.3, opacityFrom: 0.4, opacityTo: 0.05 },
         },
-        markers: { size: 0 },
+        // No markers at rest; on hover ApexCharts draws one per series. Sized explicitly
+        // because the fallback is size + markers.hover.sizeOffset, and with size 0 that
+        // offset alone produced a dot far larger than the line it belongs to.
+        markers: { size: 0, hover: { size: 4 } },
         dataLabels: { enabled: false },
         xaxis: {
             type: 'datetime',
@@ -178,7 +181,7 @@ async function loadAndUpdate() {
     data.devices.forEach((d, i) => {
         const color = PALETTE[i % PALETTE.length];
         const pts = d.data || [];
-        const map = (sel) => pts.filter(p => sel(p) != null).map(p => ({ x: new Date(p.time).getTime(), y: sel(p) }));
+        const map = (sel) => alignedPoints(pts, sel);
         powerSeries.push(
             { name: `${d.label} (avg)`, color, data: map(p => p.powerAvg) },
             { name: `${d.label} (max)`, color, data: map(p => p.powerMax) });

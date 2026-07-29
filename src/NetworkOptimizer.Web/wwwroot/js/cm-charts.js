@@ -3,7 +3,7 @@
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=4';
-import { valueSortedTooltip, tooltipHeld } from './chart-tooltip.js?v=1';
+import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=2';
 
 const PALETTE = window.Apex?.colors || ['#4269d0', '#efb118', '#ff725c', '#6cc5b0', '#3ca951', '#ff8ab7'];
 const _esc = document.createElement('span');
@@ -45,7 +45,10 @@ function baseOpts(height, yTitle, yFormatter, extra) {
             type: 'gradient',
             gradient: { shadeIntensity: 0.3, opacityFrom: 0.4, opacityTo: 0.05 },
         },
-        markers: { size: 0 },
+        // No markers at rest; on hover ApexCharts draws one per series. Sized explicitly
+        // because the fallback is size + markers.hover.sizeOffset, and with size 0 that
+        // offset alone produced a dot far larger than the line it belongs to.
+        markers: { size: 0, hover: { size: 4 } },
         dataLabels: { enabled: false },
         xaxis: {
             type: 'datetime',
@@ -184,27 +187,27 @@ async function loadAndUpdate() {
         dsPowerSeries.push({
             name: d.label,
             color: c.ds,
-            data: pts.filter(p => p.dsPower != null).map(p => ({ x: new Date(p.time).getTime(), y: p.dsPower })),
+            data: alignedPoints(pts, p => p.dsPower),
         });
         dsSnrSeries.push({
             name: d.label,
             color: c.ds,
-            data: pts.filter(p => p.dsSnr != null).map(p => ({ x: new Date(p.time).getTime(), y: p.dsSnr })),
+            data: alignedPoints(pts, p => p.dsSnr),
         });
         usPowerSeries.push({
             name: d.label,
             color: c.us,
-            data: pts.filter(p => p.usPower != null).map(p => ({ x: new Date(p.time).getTime(), y: p.usPower })),
+            data: alignedPoints(pts, p => p.usPower),
         });
         errorsSeries.push({
             name: d.label + ' Uncorrectable',
             color: c.uncorr,
-            data: pts.filter(p => p.uncorrDelta != null).map(p => ({ x: new Date(p.time).getTime(), y: p.uncorrDelta })),
+            data: alignedPoints(pts, p => p.uncorrDelta),
         });
         errorsSeries.push({
             name: d.label + ' Correctable',
             color: c.corr,
-            data: pts.filter(p => p.corrDelta != null).map(p => ({ x: new Date(p.time).getTime(), y: p.corrDelta })),
+            data: alignedPoints(pts, p => p.corrDelta),
         });
     });
 
