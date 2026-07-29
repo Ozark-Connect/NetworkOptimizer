@@ -396,6 +396,12 @@
         _providers = await Federation.GetAllAsync();
         if (_providers.All(p => p.Scheme != _linkProvider))
             _linkProvider = _providers.FirstOrDefault()?.Scheme ?? "";
+
+        // The rows too, not just the picker. Each user's sign-in badges name the providers they are
+        // linked to, resolved live from the provider list when the summaries are built - so a rename
+        // reached the dropdown immediately and left every badge showing the old name until something
+        // else happened to reload the table.
+        await ReloadAsync();
         StateHasChanged();
     }
 
