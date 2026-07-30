@@ -229,6 +229,22 @@ public class AgentProbeResultSink
         {
             var isDefault = connection.SiteSlug == SiteManagementService.DefaultSiteSlug;
             await using var db = _siteDbFactory.CreateForSite(connection.SiteSlug, isDefault);
+
+            // Disabled monitoring stops probing everywhere: every server-side
+            // collection tier (latency included) gates on MonitoringSettings.Enabled
+            // via ShouldRunNowAsync, so mirror that for agent sites. Push an empty
+            // replacement set - the agent stops probing instead of burning cycles
+            // on results the sink would only discard. Absent settings mean
+            // monitoring was never set up: same treatment, matching the server.
+            var monitoringSettings = await db.MonitoringSettings.AsNoTracking().FirstOrDefaultAsync(ct);
+            if (monitoringSettings is not { Enabled: true })
+            {
+                connection.TrySend(new ServerMessage { ProbeConfig = new ProbeConfig() });
+                _logger.LogDebug("Monitoring disabled for site {Slug}; pushed empty probe config to agent {Id}",
+                    connection.SiteSlug, connection.AgentId);
+                return;
+            }
+
             var targets = await db.MonitoringTargets
                 .AsNoTracking()
                 .Where(t => t.Enabled)
