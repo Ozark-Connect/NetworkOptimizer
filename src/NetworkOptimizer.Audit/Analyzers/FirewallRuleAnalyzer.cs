@@ -1158,13 +1158,6 @@ public class FirewallRuleAnalyzer
                 if (!rule.Enabled || rule.Predefined || !rule.ActionType.IsAllowAction())
                     continue;
 
-                if (!rule.AllowsNewConnections())
-                {
-                    _logger.LogDebug("Internet bypass: rule '{Rule}' only allows return traffic (connectionStateType={StateType}), cannot bypass internet block",
-                        rule.Name, rule.ConnectionStateType);
-                    continue;
-                }
-
                 if (!rule.AppliesToSourceNetwork(network))
                 {
                     _logger.LogDebug("Internet bypass: rule '{Rule}' does not apply to network '{Network}' (srcTarget={SrcTarget}, srcZone={SrcZone}, netZone={NetZone})",
