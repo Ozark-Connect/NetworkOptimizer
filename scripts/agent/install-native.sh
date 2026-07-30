@@ -520,8 +520,13 @@ ExecStop=${NGINX_BIN} -s quit -c ${INSTALL_DIR}/nginx-speedtest.conf
 Restart=always
 RestartSec=5
 
+# Enabling under the AGENT's .wants (not multi-user's): BindsTo above stops
+# nginx with the agent but never starts it again, so hook the start side to the
+# agent too - every agent start (boot, deploys, manual restarts, the async-I/O
+# watchdog's self-restart) relights nginx. Lives here in the nginx unit so the
+# dependency only exists on installs that actually include the speed test.
 [Install]
-WantedBy=multi-user.target
+WantedBy=netopt-agent.service
 UNIT
 
         # If the first test fails only because an enforcing AppArmor profile denies
@@ -537,7 +542,10 @@ UNIT
             # Enable now, but START it below, after the agent unit is installed and
             # running - nginx BindsTo the agent, so starting it before the agent exists
             # would immediately stop it again.
-            systemctl enable --quiet netopt-speedtest-nginx.service
+            # reenable (not enable): converges upgrade re-runs onto the current
+            # WantedBy - enable alone would leave a stale multi-user.target.wants
+            # symlink from installs made before nginx was wanted by the agent.
+            systemctl reenable --quiet netopt-speedtest-nginx.service
             START_SPEEDTEST_NGINX=1
             ok "LAN speed test ready on port 3000 (starts with the agent)"
         else
@@ -555,12 +563,6 @@ cat > "/etc/systemd/system/${SERVICE_NAME}.service" <<UNIT
 Description=Network Optimizer Agent (${SERVICE_NAME})
 After=network-online.target
 Wants=network-online.target
-# The speed test nginx BindsTo this unit, so it stops whenever the agent stops -
-# but BindsTo alone never starts it again. Wanting it from here relights it on
-# every agent start (deploys, manual restarts, and the async-I/O watchdog's
-# self-restart). Harmless when the speed test isn't installed: a missing Wants
-# target is simply ignored.
-Wants=netopt-speedtest-nginx.service
 
 [Service]
 Type=simple
