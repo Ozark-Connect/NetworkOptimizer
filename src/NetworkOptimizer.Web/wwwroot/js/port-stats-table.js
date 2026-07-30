@@ -206,8 +206,10 @@ function renderTabs() {
     if (!tabsEl) return;
     const hasAps = lastDevices.some(isApDevice);
     const hasInfra = lastDevices.some(d => !isApDevice(d));
-    // Only worth splitting when both classes are present.
-    if (!(hasAps && hasInfra)) { tabsEl.innerHTML = ''; return; }
+    // Only worth splitting when both classes are present. Hidden, not just emptied:
+    // a blank .time-range-selector still paints its pill background as a dark dot.
+    if (!(hasAps && hasInfra)) { tabsEl.innerHTML = ''; tabsEl.style.display = 'none'; return; }
+    tabsEl.style.display = '';
     const tabs = [['infra', 'Gateways & Switches'], ['aps', 'APs']];
     tabsEl.innerHTML = tabs.map(([k, label]) =>
         `<button class="time-btn ${activeTab === k ? 'active' : ''}" data-tab="${k}">${label}</button>`).join('');
