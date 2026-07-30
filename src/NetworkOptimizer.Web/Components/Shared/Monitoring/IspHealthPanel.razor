@@ -676,7 +676,7 @@ else
                                 <div class="isp-outage-shape">
                                     @if (collapsible)
                                     {
-                                        <div class="isp-outage-shape-toggle">
+                                        <div class="isp-outage-shape-toggle @(shapeExpanded ? "expanded" : "")">
                                             <button type="button" aria-expanded="@shapeExpanded" @onclick="() => ToggleOutageShape(outage.Start)">
                                                 @(shapeExpanded ? "Collapse" : $"Show all {tiers.Count} targets")
                                                 <span class="isp-outage-fault-chevron">@(shapeExpanded ? "▲" : "▼")</span>
@@ -1139,7 +1139,9 @@ else
 
     // A waterfall with more targets than this collapses to its first and last
     // OutageShapeEdgeRows rows with the hidden middle drawn as a fault line.
-    private const int OutageShapeCollapseThreshold = 6;
+    // Seven shows all seven: collapsing to six would hide a single row, and a
+    // one-row fault line is sillier than the row itself.
+    private const int OutageShapeCollapseThreshold = 7;
     private const int OutageShapeEdgeRows = 3;
 
     // Keyed by outage onset (stable across recomputes, same key the ack flow uses),
