@@ -636,33 +636,81 @@ else
                                     </SiteOperatorOnly>
                                 }
                             </div>
-                            @if (outage.Tiers.Any(t => t.WentDark))
+                            @{
+                                var shapeDark = outage.Tiers.Any(t => t.WentDark);
+                            }
+                            @if (shapeDark || (outage.IsPartial && outage.Tiers.Count > 0))
                             {
-                                <div class="isp-outage-shape">
-                                    @foreach (var tier in outage.Tiers)
-                                    {
-                                        <div class="isp-outage-hop">
+                                RenderFragment<OutageTierState> hopRow;
+                                if (shapeDark)
+                                {
+                                    hopRow = tier =>
+                                        @<div class="isp-outage-hop">
                                             <span class="isp-outage-hop-name" data-tooltip="@OutageHopTooltip(tier)">@tier.Name</span>
                                             <div class="isp-outage-hop-track">
                                                 <div class="isp-outage-hop-dark" style="width: @(OutageHopDarkPercent(outage, tier).ToString("0.#", System.Globalization.CultureInfo.InvariantCulture))%"></div>
                                             </div>
                                             <span class="isp-outage-hop-status @(tier.WentDark ? "" : "isp-outage-hop-up")">@OutageHopStatus(tier)</span>
-                                        </div>
-                                    }
-                                </div>
-                            }
-                            else if (outage.IsPartial && outage.Tiers.Count > 0)
-                            {
-                                <div class="isp-outage-shape">
-                                    @foreach (var tier in outage.Tiers)
-                                    {
-                                        <div class="isp-outage-hop">
+                                        </div>;
+                                }
+                                else
+                                {
+                                    hopRow = tier =>
+                                        @<div class="isp-outage-hop">
                                             <span class="isp-outage-hop-name">@tier.Name</span>
                                             <div class="isp-outage-hop-track">
                                                 <div class="isp-outage-hop-loss" style="width: @(tier.PeakLossPct.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture))%"></div>
                                             </div>
                                             <span class="isp-outage-hop-status">peak @tier.PeakLossPct.ToString("0")% loss</span>
+                                        </div>;
+                                }
+                                @* Long waterfalls collapse to the first and last three rows - the ends carry the
+                                   story (where the break sat, what stayed reachable) - with the hidden middle
+                                   drawn as a clickable fault line. Both the middle rows and the fault line sit in
+                                   expand-wrappers with opposite states so one grows as the other collapses; the
+                                   negative top margin cancels the parent flex gap around whichever is at 0fr. *@
+                                var tiers = outage.Tiers;
+                                var collapsible = tiers.Count > OutageShapeCollapseThreshold;
+                                var shapeExpanded = _expandedOutageShapes.Contains(outage.Start);
+                                var hiddenCount = tiers.Count - OutageShapeEdgeRows * 2;
+                                <div class="isp-outage-shape">
+                                    @* The fault line is the only way in; the toggle exists only as the way
+                                       back down, sitting right above the rows. *@
+                                    @if (collapsible && shapeExpanded)
+                                    {
+                                        <div class="isp-outage-shape-toggle">
+                                            <button type="button" aria-expanded="true" @onclick="() => ToggleOutageShape(outage.Start)">
+                                                Collapse <span class="isp-outage-fault-chevron">▲</span>
+                                            </button>
                                         </div>
+                                    }
+                                    @foreach (var tier in collapsible ? tiers.Take(OutageShapeEdgeRows) : tiers)
+                                    {
+                                        @hopRow(tier)
+                                    }
+                                    @if (collapsible)
+                                    {
+                                        <div class="expand-wrapper isp-outage-seam @(shapeExpanded ? "" : "expanded")">
+                                            <div class="expand-content">
+                                                <button type="button" class="isp-outage-fault" aria-expanded="false" @onclick="() => ToggleOutageShape(outage.Start)">
+                                                    <span class="isp-outage-fault-pill">@hiddenCount more targets <span class="isp-outage-fault-chevron">▼</span></span>
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <div class="expand-wrapper isp-outage-seam @(shapeExpanded ? "expanded" : "")">
+                                            <div class="expand-content">
+                                                <div class="isp-outage-shape-middle">
+                                                    @foreach (var tier in tiers.Skip(OutageShapeEdgeRows).Take(hiddenCount))
+                                                    {
+                                                        @hopRow(tier)
+                                                    }
+                                                </div>
+                                            </div>
+                                        </div>
+                                        @foreach (var tier in tiers.Skip(tiers.Count - OutageShapeEdgeRows))
+                                        {
+                                            @hopRow(tier)
+                                        }
                                     }
                                 </div>
                             }
@@ -1089,6 +1137,22 @@ else
     // reads as if it didn't register.
     private readonly HashSet<DateTime> _ackPending = new();
     private string AckLockClass => _ackPending.Count > 0 ? "isp-outage-ack-locked" : "";
+
+    // A waterfall with more targets than this collapses to its first and last
+    // OutageShapeEdgeRows rows with the hidden middle drawn as a fault line.
+    // Seven shows all seven: collapsing to six would hide a single row, and a
+    // one-row fault line is sillier than the row itself.
+    private const int OutageShapeCollapseThreshold = 7;
+    private const int OutageShapeEdgeRows = 3;
+
+    // Keyed by outage onset (stable across recomputes, same key the ack flow uses),
+    // so an expanded waterfall stays open through report refreshes.
+    private readonly HashSet<DateTime> _expandedOutageShapes = new();
+
+    private void ToggleOutageShape(DateTime outageStartUtc)
+    {
+        if (!_expandedOutageShapes.Remove(outageStartUtc)) _expandedOutageShapes.Add(outageStartUtc);
+    }
 
     /// <summary>Marks an outage "that was me" (user-caused, excluded from scoring) and reloads
     /// the report for the current window so the score and findings drop it.</summary>

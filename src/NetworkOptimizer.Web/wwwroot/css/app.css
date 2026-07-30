@@ -17899,6 +17899,101 @@ a.isp-outage-ack:hover {
     color: var(--success-color);
 }
 
+.isp-outage-shape-toggle {
+    display: flex;
+    justify-content: center;
+}
+
+.isp-outage-shape-toggle button {
+    cursor: pointer;
+}
+
+/* Cancels the shape's flex gap around a seam wrapper so the 0fr state adds no
+   phantom spacing; the visible child restores the gap itself (margin/padding-top). */
+.isp-outage-seam {
+    margin-top: -0.45rem;
+}
+
+.isp-outage-shape-middle {
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+    padding-top: 0.45rem;
+}
+
+.isp-outage-fault {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    margin-top: 0.45rem;
+    padding: 0.2rem 0;
+    border: none;
+    background: none;
+    cursor: pointer;
+}
+
+/* The hidden middle reads as a fault: two dashed strands sheared 4px out of line,
+   fading toward the card edges, meeting the count pill at the break. */
+.isp-outage-fault::before,
+.isp-outage-fault::after {
+    content: "";
+    position: absolute;
+    height: 2px;
+    opacity: 0.35;
+    transition: opacity 0.15s ease;
+}
+
+.isp-outage-fault::before {
+    left: 0;
+    right: calc(50% + 4.75rem);
+    top: calc(50% - 3px);
+    background: repeating-linear-gradient(90deg, var(--text-muted) 0 7px, transparent 7px 13px);
+    -webkit-mask-image: linear-gradient(90deg, transparent, #000 45%);
+    mask-image: linear-gradient(90deg, transparent, #000 45%);
+}
+
+.isp-outage-fault::after {
+    left: calc(50% + 4.75rem);
+    right: 0;
+    top: calc(50% + 1px);
+    background: repeating-linear-gradient(270deg, var(--text-muted) 0 7px, transparent 7px 13px);
+    -webkit-mask-image: linear-gradient(270deg, transparent, #000 45%);
+    mask-image: linear-gradient(270deg, transparent, #000 45%);
+}
+
+.isp-outage-fault:hover::before,
+.isp-outage-fault:hover::after {
+    opacity: 0.6;
+}
+
+.isp-outage-fault-pill,
+.isp-outage-shape-toggle button {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.16rem 0.7rem;
+    border: 1px solid var(--border-color);
+    border-radius: 999px;
+    background: var(--bg-card);
+    color: var(--text-secondary);
+    font-size: 0.72rem;
+    white-space: nowrap;
+    transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.isp-outage-fault:hover .isp-outage-fault-pill,
+.isp-outage-shape-toggle button:hover {
+    color: var(--text-primary);
+    border-color: var(--text-muted);
+}
+
+.isp-outage-fault-chevron {
+    font-size: 0.55rem;
+    line-height: 1;
+}
+
 @media (max-width: 768px) {
     .isp-outage-hop {
         grid-template-columns: 1fr auto;
