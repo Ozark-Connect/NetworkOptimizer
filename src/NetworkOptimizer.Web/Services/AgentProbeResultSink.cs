@@ -60,6 +60,14 @@ public class AgentProbeResultSink
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _consoleFetchGate = new();
     private static readonly TimeSpan ConsoleCacheTtl = TimeSpan.FromSeconds(60);
 
+    // Agents (site slug + agent id) whose last SNMP push enumeration found zero
+    // SNMP-enabled devices. One empty sighting is not proof (a just-reconnected
+    // console reports an empty/partial device list for its first moments); only
+    // a second consecutive one is adopted as a real disable. Keyed per agent so
+    // one agent's transient empty can't fast-track a disable to a sibling agent
+    // on the same site. See PushSnmpConfigAsync.
+    private readonly ConcurrentDictionary<string, bool> _snmpEmptyEnumerations = new();
+
     // Samples older than this skip the alert state machines. Agents replay
     // their store-and-forward backlog after a tunnel outage; feeding an
     // hours-old down→up sequence through the evaluators would fire and resolve
@@ -427,15 +435,40 @@ public class AgentProbeResultSink
                     }
                 }
 
-                // Console is up but the site genuinely has no SNMP-enabled devices.
                 if (config.Devices.Count == 0)
+                {
+                    // Console is up but enumerated no SNMP-enabled devices. One
+                    // sighting is not proof the site really has none: a console
+                    // that just reconnected (server restart, tunnel bounce)
+                    // reports an empty/partial device list for its first
+                    // moments, and disabling on that stopped the agent's SNMP
+                    // polling until the next refresh cycle - a ~60 s data gap
+                    // per server restart, seen live on an agent site 2026-07-30.
+                    // Skip the push (the agent keeps its last-known-good config)
+                    // and adopt the disable only when a second consecutive
+                    // enumeration agrees.
+                    if (_snmpEmptyEnumerations.TryAdd($"{connection.SiteSlug}:{connection.AgentId}", true))
+                    {
+                        _logger.LogDebug(
+                            "SNMP push for site {Slug}: console enumerated no SNMP-enabled devices; keeping agent {Id}'s last config until a second enumeration confirms",
+                            connection.SiteSlug, connection.AgentId);
+                        return;
+                    }
                     config.Enabled = false;
+                }
+                else
+                {
+                    _snmpEmptyEnumerations.TryRemove($"{connection.SiteSlug}:{connection.AgentId}", out _);
+                }
             }
 
             connection.TrySend(new ServerMessage { SnmpConfig = config });
             if (config.Enabled)
                 _logger.LogInformation("Pushed SNMP config with {Count} device(s) to agent {Id} (site {Slug})",
                     config.Devices.Count, connection.AgentId, connection.SiteSlug);
+            else
+                _logger.LogDebug("Pushed disabled SNMP config to agent {Id} (site {Slug})",
+                    connection.AgentId, connection.SiteSlug);
         }
         catch (Exception ex)
         {
