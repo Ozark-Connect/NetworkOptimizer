@@ -6456,6 +6456,134 @@ public class FirewallRuleAnalyzerTests
     }
 
     [Fact]
+    public void CheckInternetDisabledBroadAllow_ReturnOnlyHttpsRule_NoIssue()
+    {
+        // Parse the live zone-policy shape end to end. User-created return rules
+        // cannot create new connections, so they cannot bypass an internet restriction.
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, id: "mgmt-net",
+                internetAccessEnabled: false, firewallZoneId: "management-zone")
+        };
+        var ruleJson = JsonDocument.Parse(@"{
+            ""_id"": ""allow-management-return"",
+            ""name"": ""Allow Management to Internal Return"",
+            ""action"": ""ALLOW"",
+            ""enabled"": true,
+            ""protocol"": ""all"",
+            ""connection_state_type"": ""RESPOND_ONLY"",
+            ""connection_states"": [],
+            ""source"": {
+                ""matching_target"": ""ANY"",
+                ""zone_id"": ""management-zone""
+            },
+            ""destination"": {
+                ""matching_target"": ""ANY"",
+                ""zone_id"": ""internal-zone""
+            }
+        }").RootElement;
+        var rule = _analyzer.ParseFirewallPolicy(ruleJson)!;
+
+        var issues = _analyzer.CheckInternetDisabledBroadAllow(new List<FirewallRule> { rule }, networks, "external-zone");
+
+        rule.AllowsNewConnections().Should().BeFalse();
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void CheckInternetDisabledBroadAllow_LegacyReturnOnlyHttpsRule_NoIssue()
+    {
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, id: "mgmt-net",
+                internetAccessEnabled: false)
+        };
+        var ruleJson = JsonDocument.Parse(@"{
+            ""_id"": ""allow-management-return"",
+            ""name"": ""Allow Management HTTPS Return"",
+            ""action"": ""accept"",
+            ""enabled"": true,
+            ""protocol"": ""tcp"",
+            ""ruleset"": ""LAN_IN"",
+            ""src_network_id"": ""mgmt-net"",
+            ""dst_port"": ""443"",
+            ""state_new"": false,
+            ""state_established"": true,
+            ""state_related"": true,
+            ""state_invalid"": false
+        }").RootElement;
+        var rule = new FirewallRuleParser(_parserLoggerMock.Object).ParseFirewallRule(ruleJson)!;
+
+        var issues = _analyzer.CheckInternetDisabledBroadAllow(new List<FirewallRule> { rule }, networks, null);
+
+        rule.AllowsNewConnections().Should().BeFalse();
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void CheckInternetDisabledBroadAllow_InternalZoneHttpsAllow_NoIssue()
+    {
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, id: "mgmt-net",
+                internetAccessEnabled: false, firewallZoneId: "management-zone")
+        };
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "allow-management-internal-https",
+                Name = "Allow Management to Internal HTTPS",
+                Action = "ALLOW",
+                Enabled = true,
+                Protocol = "tcp",
+                DestinationPort = "443",
+                ConnectionStateType = "ALL",
+                SourceMatchingTarget = "ANY",
+                SourceZoneId = "management-zone",
+                DestinationMatchingTarget = "ANY",
+                DestinationZoneId = "internal-zone"
+            }
+        };
+
+        var issues = _analyzer.CheckInternetDisabledBroadAllow(rules, networks, "external-zone");
+
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void CheckInternetDisabledBroadAllow_ExternalZoneCustomWithNew_ReturnsIssue()
+    {
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, id: "mgmt-net",
+                internetAccessEnabled: false, firewallZoneId: "management-zone")
+        };
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "allow-management-external-https",
+                Name = "Allow Management to External HTTPS",
+                Action = "ALLOW",
+                Enabled = true,
+                Protocol = "tcp",
+                DestinationPort = "443",
+                ConnectionStateType = "CUSTOM",
+                ConnectionStates = new List<string> { "NEW", "ESTABLISHED" },
+                SourceMatchingTarget = "ANY",
+                SourceZoneId = "management-zone",
+                DestinationMatchingTarget = "ANY",
+                DestinationZoneId = "external-zone"
+            }
+        };
+
+        var issues = _analyzer.CheckInternetDisabledBroadAllow(rules, networks, "external-zone");
+
+        issues.Should().ContainSingle(issue => issue.Type == IssueTypes.InternetBlockBypassed);
+    }
+
+    [Fact]
     public void CheckInternetDisabledBroadAllow_SpecificDomains_NoIssue()
     {
         // Rules with specific WebDomains (like UniFi cloud access) should NOT trigger
