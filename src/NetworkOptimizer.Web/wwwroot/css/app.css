@@ -17762,7 +17762,6 @@ a.isp-health-hero-speed:hover {
 }
 
 .isp-outage {
-    position: relative;
     display: flex;
     flex-direction: column;
     gap: 0.75rem;
@@ -17900,33 +17899,13 @@ a.isp-outage-ack:hover {
     color: var(--success-color);
 }
 
-/* Legend-style toggle straddling the outage block's top border. */
 .isp-outage-shape-toggle {
-    position: absolute;
-    top: 0;
-    left: 50%;
-    transform: translate(-50%, -55%);
-    z-index: 1;
+    display: flex;
+    justify-content: center;
 }
 
 .isp-outage-shape-toggle button {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
-    padding: 0.14rem 0.65rem;
-    border: 1px solid var(--border-color);
-    border-radius: 999px;
-    background: var(--bg-tertiary);
-    color: var(--text-muted);
-    font-size: 0.72rem;
-    white-space: nowrap;
     cursor: pointer;
-    transition: color 0.15s ease, border-color 0.15s ease;
-}
-
-.isp-outage-shape-toggle button:hover {
-    color: var(--text-secondary);
-    border-color: var(--text-muted);
 }
 
 /* Cancels the shape's flex gap around a seam wrapper so the 0fr state adds no
@@ -17989,7 +17968,8 @@ a.isp-outage-ack:hover {
     opacity: 0.6;
 }
 
-.isp-outage-fault-pill {
+.isp-outage-fault-pill,
+.isp-outage-shape-toggle button {
     display: inline-flex;
     align-items: center;
     gap: 0.4rem;
@@ -18003,7 +17983,8 @@ a.isp-outage-ack:hover {
     transition: color 0.15s ease, border-color 0.15s ease;
 }
 
-.isp-outage-fault:hover .isp-outage-fault-pill {
+.isp-outage-fault:hover .isp-outage-fault-pill,
+.isp-outage-shape-toggle button:hover {
     color: var(--text-primary);
     border-color: var(--text-muted);
 }
@@ -18035,19 +18016,6 @@ a.isp-outage-ack:hover {
 
     .isp-outage-head .isp-outage-ack {
         margin-left: auto;
-    }
-
-    /* On mobile the fault line is the expand affordance; the toggle appears only
-       once expanded, in flow above the rows, as the way back down. */
-    .isp-outage-shape-toggle:not(.expanded) {
-        display: none;
-    }
-
-    .isp-outage-shape-toggle.expanded {
-        position: static;
-        transform: none;
-        display: flex;
-        justify-content: center;
     }
 }
 

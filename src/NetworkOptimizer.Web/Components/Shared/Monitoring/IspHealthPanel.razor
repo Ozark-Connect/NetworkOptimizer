@@ -674,12 +674,13 @@ else
                                 var shapeExpanded = _expandedOutageShapes.Contains(outage.Start);
                                 var hiddenCount = tiers.Count - OutageShapeEdgeRows * 2;
                                 <div class="isp-outage-shape">
-                                    @if (collapsible)
+                                    @* The fault line is the only way in; the toggle exists only as the way
+                                       back down, sitting right above the rows. *@
+                                    @if (collapsible && shapeExpanded)
                                     {
-                                        <div class="isp-outage-shape-toggle @(shapeExpanded ? "expanded" : "")">
-                                            <button type="button" aria-expanded="@shapeExpanded" @onclick="() => ToggleOutageShape(outage.Start)">
-                                                @(shapeExpanded ? "Collapse" : $"Show all {tiers.Count} targets")
-                                                <span class="isp-outage-fault-chevron">@(shapeExpanded ? "▲" : "▼")</span>
+                                        <div class="isp-outage-shape-toggle">
+                                            <button type="button" aria-expanded="true" @onclick="() => ToggleOutageShape(outage.Start)">
+                                                Collapse <span class="isp-outage-fault-chevron">▲</span>
                                             </button>
                                         </div>
                                     }
