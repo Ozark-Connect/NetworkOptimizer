@@ -512,6 +512,10 @@ public class IspHealthService
         // Onsets of outages the user marked "that was me", stamped onto the detected events
         // below (tolerance-matched; a recompute can shift a boundary by a bucket).
         List<DateTime> ackedOutageStarts;
+        // The WAN this report grades, in MonitoringTarget.WanInterface's namespace (the UniFi WAN
+        // name, "wan"/"wan2" - NOT the data-path ifname GetPrimaryWanInterfaceAsync returns). Used
+        // to keep another WAN's internet destinations out of the partial-loss breadth pool.
+        string? primaryWanKey;
         await using (var db = await CreateSiteDbAsync(ct))
         {
             var settings = await db.MonitoringSettings.AsNoTracking().FirstOrDefaultAsync(ct);
@@ -526,6 +530,13 @@ public class IspHealthService
                 .OrderBy(c => string.Equals(c.WanInterface, "wan", StringComparison.OrdinalIgnoreCase) ? 0 : 1)
                 .FirstOrDefault(c => c.AccessTechnology != AccessTechnology.Unknown);
             technology = primaryContext?.AccessTechnology ?? settings.AccessTechnology;
+            // Same wan-first ordering, but the interface NAME and without the access-technology
+            // filter: a WAN whose technology was never set still owns its targets. Falls back to
+            // "wan" so a site with no discovery context yet still scopes to the conventional primary.
+            primaryWanKey = wanContexts
+                .OrderBy(c => string.Equals(c.WanInterface, "wan", StringComparison.OrdinalIgnoreCase) ? 0 : 1)
+                .Select(c => c.WanInterface)
+                .FirstOrDefault(w => !string.IsNullOrEmpty(w)) ?? "wan";
 
             targets = await db.MonitoringTargets.AsNoTracking()
                 .Where(t => t.Enabled && (t.TargetType == MonitoringTargetType.AccessIsp
@@ -902,6 +913,27 @@ public class IspHealthService
                 .OrderBy(MedianRtt))
             .Take(2)
             .ToList();
+        // Every internet destination on the WAN being graded - the partial pass's breadth evidence.
+        // Null WanInterface is INCLUDED: the tracer stamps only what it discovers, so a hand-added
+        // destination has none, and dropping those would quietly shrink the pool on exactly the
+        // installs that curated it. Only a target explicitly bound to a DIFFERENT WAN is excluded,
+        // so a failover link's destinations can't manufacture breadth for the primary. (The rest of
+        // ISP Health is still primary-WAN-only by assumption rather than by filter - see TODO.md
+        // "Multi-WAN Support (ISP Health & NMS)".)
+        var breadthInternet = targets
+            .Where(t => t.TargetType == MonitoringTargetType.InternetService
+                && internetSeriesExt.ContainsKey(t.TargetId)
+                && (string.IsNullOrEmpty(t.WanInterface)
+                    || string.Equals(t.WanInterface, primaryWanKey, StringComparison.OrdinalIgnoreCase)))
+            .Select(t => new AsnSeries
+            {
+                AsnNumber = t.AsnNumber ?? 0,
+                AsnName = t.Name,
+                TargetIds = { t.TargetId },
+                Samples = internetSeriesExt[t.TargetId],
+                HopIps = { t.Address }
+            })
+            .ToList();
         // Each waterfall row is labeled by its ASN. Access ISP and Transit can both be the same
         // ASN (e.g. AT&T is both the access network and a transit hop), so a transit row whose ASN
         // also appears in the access layer is suffixed " Transit" to disambiguate it.
@@ -926,7 +958,7 @@ public class IspHealthService
         //    access hop's own outage timing shows; the detector re-collapses shared signatures.
         //  - Transit kept as the per-ASN RTT clusters (the Per-Network RTT grouping), untouched.
         //  - Internet trimmed to two rows (displayInternet).
-        var outageSources = ispTargets
+        var accessAndTransitSources = ispTargets
             .Where(t => ispSeriesExt.ContainsKey(t.TargetId))
             .Select(t => (Series: new AsnSeries
             {
@@ -937,20 +969,13 @@ public class IspHealthService
                 HopIps = { t.Address }
             }, Groupable: true, AsnLabel: AsnNameCleanup.Clean(t.AsnName) ?? accessAsnName, IsInternet: false))
             .Concat(transitChart.Select(s => (Series: s, Groupable: false, AsnLabel: (string?)TransitLabel(s), IsInternet: false)))
-            .Concat(displayInternet.Select(s => (Series: s, Groupable: false, AsnLabel: (string?)null, IsInternet: true)));
-        var orderedWanHops = outageSources
-            .Select(x => new
-            {
-                x.Groupable,
-                x.AsnLabel,
-                x.IsInternet,
-                Name = x.Series.AsnName ?? x.Series.TargetIds.FirstOrDefault() ?? "hop",
-                Series = (IReadOnlyList<LatencySample>)x.Series.Samples,
-                HopNumber = ClusterHopNumber(x.Series),
-                Rtt = MedianRtt(x.Series)
-            })
-            .OrderBy(x => x.HopNumber).ThenBy(x => x.Rtt)
             .ToList();
+        (AsnSeries Series, bool Groupable, string? AsnLabel, bool IsInternet) AsInternetRow(AsnSeries s) =>
+            (Series: s, Groupable: false, AsnLabel: (string?)null, IsInternet: true);
+        var outageSources = accessAndTransitSources.Concat(displayInternet.Select(AsInternetRow));
+        // Same rows, but with EVERY internet destination instead of the two display ones - the
+        // partial pass's breadth evidence (see below).
+        var partialSources = accessAndTransitSources.Concat(breadthInternet.Select(AsInternetRow));
         // The LAN gateway is the nearest hop (Depth 0) when monitored; WAN hops shift one deeper.
         // Its loss lets the detector tell a LAN/gateway outage from a WAN outage. Absent => unchanged.
         var gatewayHop = gatewaySamples.Count > 0
@@ -958,22 +983,46 @@ public class IspHealthService
                 0, gatewaySamples, Groupable: false, AsnLabel: null, IsGateway: true)
             : null;
         var baseDepth = gatewayHop != null ? 1 : 0;
-        // Rows without a persisted hop number sorted to the end above - that Depth is a sort
-        // position, not a path position, so they carry KnownPosition: false and never anchor
-        // the detector's "break upstream of X" attribution (e.g. a hostname-based ISP target
-        // the discovery traces never mapped). Internet endpoint rows are likewise flagged so
-        // a destination can never be named as the hop the break sat beyond.
-        var outageHops = (gatewayHop != null ? new[] { gatewayHop } : Array.Empty<OutageDetector.Hop>())
-            .Concat(orderedWanHops.Select((x, i) =>
-                new OutageDetector.Hop(x.Name, baseDepth + i, x.Series, x.Groupable, x.AsnLabel,
-                    KnownPosition: x.HopNumber != int.MaxValue, IsInternet: x.IsInternet)))
-            .ToList();
+        List<OutageDetector.Hop> BuildHops(IEnumerable<(AsnSeries Series, bool Groupable, string? AsnLabel, bool IsInternet)> sources)
+        {
+            var ordered = sources
+                .Select(x => new
+                {
+                    x.Groupable,
+                    x.AsnLabel,
+                    x.IsInternet,
+                    x.Series.AsnNumber,
+                    Name = x.Series.AsnName ?? x.Series.TargetIds.FirstOrDefault() ?? "hop",
+                    Series = (IReadOnlyList<LatencySample>)x.Series.Samples,
+                    HopNumber = ClusterHopNumber(x.Series),
+                    Rtt = MedianRtt(x.Series)
+                })
+                .OrderBy(x => x.HopNumber).ThenBy(x => x.Rtt)
+                .ToList();
+            // Rows without a persisted hop number sorted to the end above - that Depth is a sort
+            // position, not a path position, so they carry KnownPosition: false and never anchor
+            // the detector's "break upstream of X" attribution (e.g. a hostname-based ISP target
+            // the discovery traces never mapped). Internet endpoint rows are likewise flagged so
+            // a destination can never be named as the hop the break sat beyond.
+            return (gatewayHop != null ? new[] { gatewayHop } : Array.Empty<OutageDetector.Hop>())
+                .Concat(ordered.Select((x, i) =>
+                    new OutageDetector.Hop(x.Name, baseDepth + i, x.Series, x.Groupable, x.AsnLabel,
+                        KnownPosition: x.HopNumber != int.MaxValue, IsInternet: x.IsInternet,
+                        AsnNumber: x.AsnNumber)))
+                .ToList();
+        }
+        var outageHops = BuildHops(outageSources);
         ct.ThrowIfCancellationRequested();
         var outages = OutageDetector.Detect(internetTriggerTargets, outageHops, _options);
         // Second pass: coincident partial-loss disruptions (the path getting lossy but not dark)
         // across the full set of monitored hops, excluding windows already flagged as blackouts.
+        // Unlike the blackout pass - whose trigger is every internet target and whose HOPS are only
+        // the shape - the partial pass reads breadth off the hop list itself, so it must see every
+        // internet destination or the gate is judged on two rows. Trimming to the display pair let
+        // an identical event trip at one site and not another purely because the first happened to
+        // monitor one more transit hop (so its ASN split into one more RTT cluster).
         var partialDisruptions = OutageDetector.DetectPartial(
-            outageHops, outages.Select(o => (o.Start, o.End)).ToList(), _options);
+            BuildHops(partialSources), outages.Select(o => (o.Start, o.End)).ToList(), _options);
         outages = outages.Concat(partialDisruptions).OrderBy(o => o.Start).ToList();
         // Drop events that ended at or before the window start: the lead-in reach-back only exists to
         // capture an outage that STRADDLES the window start (its recovery is in-window), so an event

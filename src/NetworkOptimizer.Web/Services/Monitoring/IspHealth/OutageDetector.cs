@@ -28,8 +28,13 @@ public static class OutageDetector
     /// endpoint rows (destinations reached over diverse paths, not points on THE path) - they trigger
     /// and shape outages but likewise never anchor attribution: "break upstream of a destination"
     /// says nothing.
+    /// <paramref name="AsnNumber"/> is the row's real ASN, used ONLY by the partial pass's
+    /// independence gate. It is deliberately separate from <paramref name="AsnLabel"/>: internet rows
+    /// keep a null AsnLabel so each destination still shows its own name ("AWS us-west-1"), but
+    /// several regional endpoints of one provider must not read as several independent networks.
+    /// Zero means unattributed, and such a row falls back to counting as its own network.
     /// </summary>
-    public sealed record Hop(string Name, int Depth, IReadOnlyList<LatencySample> Series, bool Groupable = false, string? AsnLabel = null, bool IsGateway = false, bool KnownPosition = true, bool IsInternet = false);
+    public sealed record Hop(string Name, int Depth, IReadOnlyList<LatencySample> Series, bool Groupable = false, string? AsnLabel = null, bool IsGateway = false, bool KnownPosition = true, bool IsInternet = false, int AsnNumber = 0);
 
     /// <param name="triggerTargets">The internet/destination loss series whose near-total loss defines an outage.</param>
     /// <param name="hops">Every monitored hop, ordered by distance (Depth ascending = nearest first), for the shape.</param>
@@ -140,7 +145,7 @@ public static class OutageDetector
         bool BucketQualifies(DateTime t)
         {
             var degraded = pool.Where(h => hopBuckets[h].TryGetValue(t, out var l) && l.Count > 0 && l[0] >= partialPct).ToList();
-            var asns = degraded.Select(h => h.AsnLabel ?? h.Name).Distinct().Count();
+            var asns = degraded.Select(NetworkKey).Distinct().Count();
             return degraded.Count >= options.OutagePartialMinTargets && asns >= options.OutagePartialMinAsns;
         }
 
@@ -179,6 +184,17 @@ public static class OutageDetector
         }
         return events;
     }
+
+    /// <summary>
+    /// The network a hop counts as for the partial pass's independence gate. Prefers the real ASN
+    /// so several endpoints of one provider (a cloud's regional destinations, all reached over that
+    /// provider's own network) count once - the gate asks how many INDEPENDENT networks degraded,
+    /// and the display label can't answer that: internet rows deliberately carry a null AsnLabel so
+    /// each destination still shows its own name. Unattributed rows (ASN 0) fall back to the label,
+    /// counting as their own network, which is the safe reading when we can't prove otherwise.
+    /// </summary>
+    private static string NetworkKey(Hop h) =>
+        h.AsnNumber > 0 ? $"AS{h.AsnNumber}" : h.AsnLabel ?? h.Name;
 
     private static OutageEvent BuildPartialEvent(
         DateTime start, DateTime end,
