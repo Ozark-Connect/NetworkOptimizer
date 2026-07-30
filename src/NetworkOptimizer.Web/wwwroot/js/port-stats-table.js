@@ -3,7 +3,7 @@
 // renderStatsTable(), and exposes selectDevice() so a map double-click can
 // isolate a single switch/gateway.
 import { renderStatsTable as renderTable } from './chart-stats.js?v=4';
-import { renderFilterReset, isFiltered } from './chart-filter.js?v=4';
+import { renderFilterReset } from './chart-filter.js?v=4';
 
 const _esc = document.createElement('span');
 function escapeHtml(s) { _esc.textContent = s == null ? '' : String(s); return _esc.innerHTML; }
@@ -270,6 +270,14 @@ function rebuildMeta(devices) {
     });
 }
 
+// Release only the tab in view (Gateways & Switches vs APs) from the filter:
+// deviceMeta is per-tab, and entries for the other tab's devices are that tab's
+// own filter state, kept intact.
+function clearTabFilter() {
+    for (const d of deviceMeta) delete visibility[d.mac];
+    savePrefs();
+}
+
 function renderBadges() {
     if (!badgesEl) return;
     if (deviceMeta.length <= 1) { badgesEl.innerHTML = ''; return; }
@@ -292,7 +300,7 @@ function renderBadges() {
                 const allVis = deviceMeta.every(d => visibility[d.mac] !== false);
                 const onlyThis = visibility[mac] !== false
                     && deviceMeta.filter(d => d.mac !== mac).every(d => visibility[d.mac] === false);
-                if (onlyThis) visibility = {};
+                if (onlyThis) for (const d of deviceMeta) delete visibility[d.mac];
                 else if (allVis) deviceMeta.forEach(d => visibility[d.mac] = d.mac === mac);
                 else visibility[mac] = visibility[mac] === false;
             }
@@ -303,8 +311,10 @@ function renderBadges() {
     }
 
     // Last: the chip rebuild above wipes the row, so the reset is re-added after it.
-    renderFilterReset(badgesEl, isFiltered(visibility),
-        () => { visibility = {}; savePrefs(); renderBadges(); renderTableNow(); }, 'Clear filter');
+    // Tab-scoped on both sides (deviceMeta holds only the tab in view): a filter
+    // parked on the other tab neither summons the control here nor is cleared by it.
+    renderFilterReset(badgesEl, deviceMeta.some(d => visibility[d.mac] === false),
+        () => { clearTabFilter(); renderBadges(); renderTableNow(); }, 'Clear filter');
 }
 
 function renderTableNow(showAll) {
@@ -324,7 +334,7 @@ function renderTableNow(showAll) {
             meta: () => deviceMeta,
             key: 'mac',
             visibility: () => visibility,
-            resetVisibility: () => { visibility = {}; },
+            resetVisibility: clearTabFilter,
             // Hide filtered devices entirely (showAllRows=false), not grey them out,
             // matching the pill behaviour; re-enable via the pills.
             onChanged: () => { savePrefs(); renderBadges(); renderTableNow(false); },
