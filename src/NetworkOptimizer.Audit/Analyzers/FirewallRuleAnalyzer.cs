@@ -1158,6 +1158,17 @@ public class FirewallRuleAnalyzer
                 if (!rule.Enabled || rule.Predefined || !rule.ActionType.IsAllowAction())
                     continue;
 
+                // Return-only rules cannot initiate internet connections, even when
+                // their protocol or port would otherwise look like broad web access.
+                if (!rule.AllowsNewConnections())
+                {
+                    _logger.LogDebug(
+                        "Internet bypass: rule '{Rule}' cannot initiate new connections (connectionStateType={ConnectionStateType}, connectionStates={ConnectionStates})",
+                        rule.Name, rule.ConnectionStateType,
+                        rule.ConnectionStates != null ? string.Join(",", rule.ConnectionStates) : "none");
+                    continue;
+                }
+
                 if (!rule.AppliesToSourceNetwork(network))
                 {
                     _logger.LogDebug("Internet bypass: rule '{Rule}' does not apply to network '{Network}' (srcTarget={SrcTarget}, srcZone={SrcZone}, netZone={NetZone})",
@@ -1231,6 +1242,15 @@ public class FirewallRuleAnalyzer
 
         var destTarget = rule.DestinationMatchingTarget?.ToUpperInvariant();
         var protocol = rule.Protocol?.ToLowerInvariant() ?? "all";
+
+        // When zone information is available, a rule explicitly targeting a
+        // non-external zone cannot provide internet access.
+        if (!string.IsNullOrEmpty(externalZoneId) &&
+            !string.IsNullOrEmpty(rule.DestinationZoneId) &&
+            !string.Equals(rule.DestinationZoneId, externalZoneId, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
 
         if (destTarget == "WEB" && rule.HasUnresolvedDestinationDomainGroup)
             return false;
