@@ -303,7 +303,8 @@ function renderBadges() {
     }
 
     // Last: the chip rebuild above wipes the row, so the reset is re-added after it.
-    renderFilterReset(el, isFiltered(visibility), () => { visibility = {}; renderBadges(); renderTable(); }, 'Clear filter');
+    renderFilterReset(badgesEl, isFiltered(visibility),
+        () => { visibility = {}; savePrefs(); renderBadges(); renderTableNow(); }, 'Clear filter');
 }
 
 function renderTableNow(showAll) {
