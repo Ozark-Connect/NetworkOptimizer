@@ -6064,6 +6064,68 @@ public class FirewallRuleAnalyzerTests
     }
 
     [Fact]
+    public void CheckInternetDisabledBroadAllow_RespondOnlyReturnRule_NoIssue()
+    {
+        // A RESPOND_ONLY rule only permits replies to established sessions - it cannot
+        // initiate NEW connections, so it cannot bypass the internet block (issue #1074)
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, id: "mgmt-net", internetAccessEnabled: false)
+        };
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "allow-return",
+                Name = "Allow Management to Internal Return",
+                Action = "ALLOW",
+                Enabled = true,
+                Protocol = "tcp",
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "mgmt-net" },
+                DestinationMatchingTarget = "ANY",
+                DestinationPort = "443",
+                ConnectionStateType = "RESPOND_ONLY"
+            }
+        };
+
+        var issues = _analyzer.CheckInternetDisabledBroadAllow(rules, networks, null);
+
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void CheckInternetDisabledBroadAllow_LegacyEstablishedRelatedRule_NoIssue()
+    {
+        // Legacy CUSTOM state list of ESTABLISHED/RELATED is return-only traffic too
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, id: "mgmt-net", internetAccessEnabled: false)
+        };
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "allow-return-legacy",
+                Name = "Allow Return Traffic Legacy",
+                Action = "ALLOW",
+                Enabled = true,
+                Protocol = "tcp",
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "mgmt-net" },
+                DestinationMatchingTarget = "ANY",
+                DestinationPort = "443",
+                ConnectionStateType = "CUSTOM",
+                ConnectionStates = new List<string> { "ESTABLISHED", "RELATED" }
+            }
+        };
+
+        var issues = _analyzer.CheckInternetDisabledBroadAllow(rules, networks, null);
+
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
     public void CheckInternetDisabledBroadAllow_Port80_Udp_NoIssue()
     {
         // Port 80 with UDP only is NOT HTTP - HTTP requires TCP
