@@ -3,7 +3,7 @@
 // renderStatsTable(), and exposes selectDevice() so a map double-click can
 // isolate a single switch/gateway.
 import { renderStatsTable as renderTable } from './chart-stats.js?v=4';
-import { renderFilterReset, isFiltered } from './chart-filter.js?v=4';
+import { renderFilterReset } from './chart-filter.js?v=4';
 
 const _esc = document.createElement('span');
 function escapeHtml(s) { _esc.textContent = s == null ? '' : String(s); return _esc.innerHTML; }
@@ -54,6 +54,7 @@ let lastDevices = [];       // raw devices from the most recent fetch
 let pendingSelect = null;   // mac to isolate once data arrives
 
 let currentAt = null;       // ISO timestamp for historic playback, null = live
+let sanitized = false;      // degenerate persisted filter dropped once per mount
 let pollTimer = null;
 let fetchController = null;
 let seekDebounce = null;
@@ -206,8 +207,10 @@ function renderTabs() {
     if (!tabsEl) return;
     const hasAps = lastDevices.some(isApDevice);
     const hasInfra = lastDevices.some(d => !isApDevice(d));
-    // Only worth splitting when both classes are present.
-    if (!(hasAps && hasInfra)) { tabsEl.innerHTML = ''; return; }
+    // Only worth splitting when both classes are present. Hidden, not just emptied:
+    // a blank .time-range-selector still paints its pill background as a dark dot.
+    if (!(hasAps && hasInfra)) { tabsEl.innerHTML = ''; tabsEl.style.display = 'none'; return; }
+    tabsEl.style.display = '';
     const tabs = [['infra', 'Gateways & Switches'], ['aps', 'APs']];
     tabsEl.innerHTML = tabs.map(([k, label]) =>
         `<button class="time-btn ${activeTab === k ? 'active' : ''}" data-tab="${k}">${label}</button>`).join('');
@@ -270,6 +273,14 @@ function rebuildMeta(devices) {
     });
 }
 
+// Release only the tab in view (Gateways & Switches vs APs) from the filter:
+// deviceMeta is per-tab, and entries for the other tab's devices are that tab's
+// own filter state, kept intact.
+function clearTabFilter() {
+    for (const d of deviceMeta) delete visibility[d.mac];
+    savePrefs();
+}
+
 function renderBadges() {
     if (!badgesEl) return;
     if (deviceMeta.length <= 1) { badgesEl.innerHTML = ''; return; }
@@ -292,7 +303,7 @@ function renderBadges() {
                 const allVis = deviceMeta.every(d => visibility[d.mac] !== false);
                 const onlyThis = visibility[mac] !== false
                     && deviceMeta.filter(d => d.mac !== mac).every(d => visibility[d.mac] === false);
-                if (onlyThis) visibility = {};
+                if (onlyThis) for (const d of deviceMeta) delete visibility[d.mac];
                 else if (allVis) deviceMeta.forEach(d => visibility[d.mac] = d.mac === mac);
                 else visibility[mac] = visibility[mac] === false;
             }
@@ -303,7 +314,10 @@ function renderBadges() {
     }
 
     // Last: the chip rebuild above wipes the row, so the reset is re-added after it.
-    renderFilterReset(el, isFiltered(visibility), () => { visibility = {}; renderBadges(); renderTable(); }, 'Clear filter');
+    // Tab-scoped on both sides (deviceMeta holds only the tab in view): a filter
+    // parked on the other tab neither summons the control here nor is cleared by it.
+    renderFilterReset(badgesEl, deviceMeta.some(d => visibility[d.mac] === false),
+        () => { clearTabFilter(); renderBadges(); renderTableNow(); }, 'Clear filter');
 }
 
 function renderTableNow(showAll) {
@@ -323,7 +337,7 @@ function renderTableNow(showAll) {
             meta: () => deviceMeta,
             key: 'mac',
             visibility: () => visibility,
-            resetVisibility: () => { visibility = {}; },
+            resetVisibility: clearTabFilter,
             // Hide filtered devices entirely (showAllRows=false), not grey them out,
             // matching the pill behaviour; re-enable via the pills.
             onChanged: () => { savePrefs(); renderBadges(); renderTableNow(false); },
@@ -383,10 +397,27 @@ async function fetchData() {
     }
 }
 
+// A persisted filter that hides EVERY device of a tab is degenerate - typically it
+// isolated a device that no longer exists - and below two devices the chip row never
+// renders, so there is no way out of it in the UI. Disregard it once, at first data
+// arrival: mid-session an all-hidden tab can be a deliberate ctrl-click state, and the
+// live poll must not yank it away. Only this site's devices are touched - the storage
+// key is origin-wide, and another site's saved filter is not ours to prune.
+function dropDegenerateFilter() {
+    for (const isAps of [false, true]) {
+        const devs = lastDevices.filter(d => isApDevice(d) === isAps);
+        if (devs.length && devs.every(d => visibility[d.mac] === false)) {
+            for (const d of devs) delete visibility[d.mac];
+            savePrefs();
+        }
+    }
+}
+
 async function loadAndRender() {
     const data = await fetchData();
     if (!data) return;
     lastDevices = data.devices || [];
+    if (!sanitized) { sanitized = true; dropDegenerateFilter(); }
     rebuildMeta(tabDevices());
     if (pendingSelect) {
         const match = deviceMeta.find(d => d.mac.toLowerCase() === pendingSelect.toLowerCase());
@@ -498,6 +529,7 @@ export function mount(el, mountOpts = {}) {
     // state left by a previous session would silently block startPoll() below.
     currentAt = null;
     paused = false;
+    sanitized = false;
     window.__portStatsTable = api;
     loadAndRender();
     startPoll();
