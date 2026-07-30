@@ -7,8 +7,8 @@ namespace NetworkOptimizer.Web.Tests;
 public class AgentConnectionAlertMonitorTests
 {
     [Theory]
-    [InlineData("Falkor", "Agent \"Falkor\"")]
-    [InlineData("Honeybee Home", "Agent \"Honeybee Home\"")]
+    [InlineData("Beacon", "Agent \"Beacon\"")]
+    [InlineData("North Office", "Agent \"North Office\"")]
     public void AgentLabel_DistinctiveName_KeepsQuotedName(string name, string expected)
         => AgentConnectionAlertMonitor.AgentLabel(name).Should().Be(expected);
 

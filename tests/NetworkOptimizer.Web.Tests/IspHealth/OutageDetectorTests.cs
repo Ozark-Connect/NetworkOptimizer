@@ -330,6 +330,82 @@ public class OutageDetectorTests
     }
 
     [Fact]
+    public void Regional_endpoints_of_one_provider_are_not_independent_networks()
+    {
+        // Four destinations, one provider: a cloud's regional endpoints are reached over that
+        // provider's own network, so they degrade together for one reason. Internet rows carry a
+        // null AsnLabel (each shows its own name), so counting labels would read this as four
+        // independent networks and clear the breadth gate on a single provider's bad day.
+        var ds = OutStart;
+        var de = OutStart.AddMinutes(10);
+        var hops = new[]
+        {
+            new OutageDetector.Hop("AWS us-east-1", 0, LossSeries(ds, de, 60), IsInternet: true, AsnNumber: 16509),
+            new OutageDetector.Hop("AWS us-east-2", 1, LossSeries(ds, de, 60), IsInternet: true, AsnNumber: 16509),
+            new OutageDetector.Hop("AWS us-west-1", 2, LossSeries(ds, de, 60), IsInternet: true, AsnNumber: 16509),
+            new OutageDetector.Hop("AWS us-west-2", 3, LossSeries(ds, de, 60), IsInternet: true, AsnNumber: 16509),
+        };
+
+        var events = OutageDetector.DetectPartial(hops, NoDarkWindows, Options);
+
+        events.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Access_hops_of_one_isp_count_once_even_when_their_own_asn_attribution_differs()
+    {
+        // A hand-added access hop resolves to no ASN of its own while its auto-discovered siblings
+        // carry the ISP's - they are one network regardless, and the shared label already says so.
+        // Keying independence on the per-target ASN would read this ISP as two networks and let one
+        // access tier's bad minute clear a gate that exists to require several.
+        var ds = OutStart;
+        var de = OutStart.AddMinutes(10);
+        var hops = new[]
+        {
+            new OutageDetector.Hop("hop-a", 0, LossSeries(ds, de, 60), Groupable: true, AsnLabel: "Access ISP", AsnNumber: 64500),
+            new OutageDetector.Hop("hop-b", 1, LossSeries(ds, de, 60), Groupable: true, AsnLabel: "Access ISP", AsnNumber: 64500),
+            new OutageDetector.Hop("hop-c", 2, LossSeries(ds, de, 60), Groupable: true, AsnLabel: "Access ISP", AsnNumber: 64500),
+            // Same ISP, no ASN of its own - must not read as a second independent network.
+            new OutageDetector.Hop("hop-d", 3, LossSeries(ds, de, 60), Groupable: true, AsnLabel: "Access ISP", AsnNumber: 0),
+        };
+
+        var events = OutageDetector.DetectPartial(hops, NoDarkWindows, Options);
+
+        events.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Internet_destinations_supply_the_breadth_a_thin_transit_layer_cannot()
+    {
+        // A thin path: one access ISP, a transit layer that collapses to two rows of one ASN, and a
+        // path event hitting destinations everywhere. Transit + the one canonical resolver is three
+        // rows - under the gate - so the event only surfaces because the other monitored
+        // destinations are in the pool. Four distinct networks degrade here.
+        var ds = OutStart;
+        var de = OutStart.AddMinutes(10);
+        var hops = new[]
+        {
+            new OutageDetector.Hop("Access ISP", 0, LossSeries(ds, de, 0), Groupable: true, AsnLabel: "Access ISP", AsnNumber: 64500),
+            new OutageDetector.Hop("Level 3 (lag-101)", 1, LossSeries(ds, de, 60), AsnLabel: "Level 3", AsnNumber: 3356),
+            new OutageDetector.Hop("Level 3 (ae25)", 2, LossSeries(ds, de, 60), AsnLabel: "Level 3", AsnNumber: 3356),
+            new OutageDetector.Hop("Google", 3, LossSeries(ds, de, 60), IsInternet: true, AsnNumber: 15169),
+            new OutageDetector.Hop("Cloudflare", 4, LossSeries(ds, de, 0), IsInternet: true, AsnNumber: 13335),
+            new OutageDetector.Hop("Akamai", 5, LossSeries(ds, de, 60), IsInternet: true, AsnNumber: 20940),
+            new OutageDetector.Hop("Quad9", 6, LossSeries(ds, de, 60), IsInternet: true, AsnNumber: 19281),
+        };
+
+        var events = OutageDetector.DetectPartial(hops, NoDarkWindows, Options);
+
+        events.Should().ContainSingle();
+        events[0].IsPartial.Should().BeTrue();
+        // The access tier stayed clean and every degraded row sits beyond it, so the break is
+        // upstream - and no destination may be named as the hop it sat beyond.
+        events[0].Scope.Should().Be(OutageScope.Upstream);
+        events[0].LastReachableHop.Should().Be("Access ISP");
+        events[0].Tiers.Select(t => t.Name).Should().NotContain("Cloudflare");
+    }
+
+    [Fact]
     public void Olt_blip_at_onset_then_recovery_still_reads_upstream_and_leads_the_waterfall()
     {
         var internet1 = Series(0, (OutStart, OutEnd, 100));
