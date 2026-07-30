@@ -191,11 +191,17 @@ public class LocalProbeExecutor : IProbeExecutor
             }
             var stdout = await SafeReadAsync(stdoutTask);
             Observe(stderrTask);
+            if (stdout is null)
+                throw new ProbeOutputTimeoutException(
+                    $"ping output read for {target.Address} did not complete within {OutputReadGrace.TotalSeconds:0}s");
 
             var parsed = PingOutputParser.Parse(stdout, target, Vantage, safeCount);
             return parsed;
         }
-        catch (Exception ex)
+        // Output-timeout means async completion delivery is broken, and the managed
+        // Ping path depends on the same machinery - falling back would hang or
+        // fabricate. Let it propagate; callers drop the sample.
+        catch (Exception ex) when (ex is not ProbeOutputTimeoutException)
         {
             _logger.LogDebug(ex, "Native ping invocation failed; falling back to managed Ping");
             return await ManagedPingAsync(target, count, timeout, ct);
@@ -415,8 +421,11 @@ public class LocalProbeExecutor : IProbeExecutor
                 // a hard error.
                 try { proc.Kill(entireProcessTree: true); } catch { }
             }
-            var stdout = stdoutTask.IsCompletedSuccessfully ? stdoutTask.Result : await SafeReadAsync(stdoutTask);
-            var stderr = stderrTask.IsCompletedSuccessfully ? stderrTask.Result : await SafeReadAsync(stderrTask);
+            // A never-completing read degrades to empty here on purpose: a partial or
+            // absent traceroute parses to Reached=false - an honest failure, unlike
+            // ping where empty output would fabricate a loss percentage.
+            var stdout = stdoutTask.IsCompletedSuccessfully ? stdoutTask.Result : (await SafeReadAsync(stdoutTask) ?? string.Empty);
+            var stderr = stderrTask.IsCompletedSuccessfully ? stderrTask.Result : (await SafeReadAsync(stderrTask) ?? string.Empty);
 
             var output = string.IsNullOrWhiteSpace(stdout) ? stderr : stdout;
             return TracerouteOutputParser.Parse(output, target, Vantage, target.Mode);
@@ -449,13 +458,15 @@ public class LocalProbeExecutor : IProbeExecutor
     /// </summary>
     private static readonly TimeSpan OutputReadGrace = TimeSpan.FromSeconds(5);
 
-    private static async Task<string> SafeReadAsync(Task<string> readTask)
+    private static async Task<string?> SafeReadAsync(Task<string> readTask)
     {
         var winner = await Task.WhenAny(readTask, Task.Delay(OutputReadGrace));
         if (winner != readTask)
         {
+            // Never completed: the output is UNKNOWN, not empty - callers must
+            // treat null as "drop this sample", never parse it as a result.
             Observe(readTask);
-            return string.Empty;
+            return null;
         }
         try { return await readTask; }
         catch { return string.Empty; }

@@ -366,6 +366,34 @@ public class ResultBufferTests
     }
 
     [Fact]
+    public void SpoolLoadSurvivesHostileTicks()
+    {
+        var path = TempSpoolPath();
+        try
+        {
+            using (var file = File.Create(path))
+            {
+                // Valid header, then ticks beyond DateTime's range - a corrupt
+                // varint must not take LoadFrom down.
+                var output = new Google.Protobuf.CodedOutputStream(file);
+                output.WriteFixed32(0x4E4F5350);
+                output.WriteInt32(1);
+                output.WriteInt64(long.MaxValue);
+                output.WriteMessage(ProbeMessage("hostile"));
+                output.Flush();
+            }
+
+            var buffer = new ResultBuffer();
+            buffer.LoadFrom(path).Should().Be(0);
+            buffer.Count.Should().Be(0);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void SpoolLoadIgnoresUnrecognizedFile()
     {
         var path = TempSpoolPath();

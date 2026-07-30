@@ -149,6 +149,12 @@ public class AgentProbeResultSink
     /// </summary>
     public void OnAgentDisconnected(AgentTunnelConnection connection)
     {
+        // A strike only means "empty enumeration" if the NEXT one is its true
+        // consecutive sibling. Across a disconnect the next enumeration comes
+        // from a fresh reconnect - exactly the transient-empty condition the
+        // two-strike guard exists for - so a held-over strike would fast-track
+        // the disable on the first sighting. Start clean.
+        _snmpEmptyEnumerations.TryRemove($"{connection.SiteSlug}:{connection.AgentId}", out _);
         _ = Task.Run(async () =>
         {
             try

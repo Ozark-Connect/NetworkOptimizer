@@ -209,8 +209,11 @@ public sealed class ResultBuffer
                     restored++;
                 }
             }
-            catch (InvalidProtocolBufferException)
+            catch (Exception ex) when (ex is InvalidProtocolBufferException or ArgumentOutOfRangeException)
             {
+                // Truncated tail or corrupt bytes (crash mid-write, bit rot):
+                // keep the clean prefix. ArgumentOutOfRange covers a corrupt
+                // varint decoding to ticks outside DateTime's range.
             }
             EvictLocked();
         }

@@ -234,10 +234,14 @@ if (!string.IsNullOrEmpty(config.TunnelUrl))
     snmpRunner = new SnmpRunner(resultBuffer.Enqueue);
     probeTask = probeRunner.RunAsync(cts.Token);
     snmpTask = snmpRunner.RunAsync(cts.Token);
-    // Restart-based self-heal for a wedged async socket engine (the unit ships
-    // Restart=always); spools the backlog first so the restart is lossless.
-    watchdogTask = AsyncIoWatchdog.RunAsync(SaveSpool, cts.Token);
 }
+
+// Restart-based self-heal for a wedged async socket engine (every install
+// mode restarts the agent on exit); spools the backlog first so the restart
+// is lossless. Deliberately outside the tunnel block: heartbeat-only agents
+// die of the same wedge (async HTTP) and need the same cure - without a
+// buffer the spool callback is a no-op.
+watchdogTask = AsyncIoWatchdog.RunAsync(SaveSpool, cts.Token);
 
 // Prefer the persistent gRPC tunnel; REST heartbeats keep the agent visible as
 // Online whenever the tunnel is unavailable (tunnel disabled server-side, an

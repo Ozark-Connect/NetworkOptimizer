@@ -24,6 +24,10 @@ public sealed class ProbeRunner
     private readonly LocalProbeExecutor _executor = new(NullLogger<LocalProbeExecutor>.Instance);
     private readonly ConcurrentDictionary<string, DateTime> _lastProbed = new();
     private readonly ConcurrentDictionary<string, Task> _inFlight = new();
+    // Deliberately never disposed: in-flight probes release their slot after
+    // RunAsync exits on shutdown, and Release on a disposed semaphore throws
+    // into tasks nobody awaits. Process teardown reclaims it.
+    private readonly SemaphoreSlim _concurrency = new(4);
     private volatile IReadOnlyList<ProbeTargetSpec> _targets = [];
 
     /// <summary>
@@ -65,7 +69,6 @@ public sealed class ProbeRunner
         try { await Task.Delay(TimeSpan.FromSeconds(20), ct); }
         catch (OperationCanceledException) { return; }
 
-        using var concurrency = new SemaphoreSlim(4);
         while (!ct.IsCancellationRequested)
         {
             var now = DateTime.UtcNow;
@@ -78,7 +81,7 @@ public sealed class ProbeRunner
             {
                 if (!IsDue(target, now) || _inFlight.ContainsKey(target.TargetId))
                     continue;
-                var probe = ProbeAsync(target, concurrency, ct);
+                var probe = ProbeAsync(target, ct);
                 _inFlight[target.TargetId] = probe;
                 _ = probe.ContinueWith(_ => _inFlight.TryRemove(target.TargetId, out Task? _),
                     TaskScheduler.Default);
@@ -93,9 +96,9 @@ public sealed class ProbeRunner
         return !_lastProbed.TryGetValue(spec.TargetId, out var last) || now - last >= interval;
     }
 
-    private async Task ProbeAsync(ProbeTargetSpec spec, SemaphoreSlim concurrency, CancellationToken ct)
+    private async Task ProbeAsync(ProbeTargetSpec spec, CancellationToken ct)
     {
-        await concurrency.WaitAsync(ct);
+        await _concurrency.WaitAsync(ct);
         try
         {
             _lastProbed[spec.TargetId] = DateTime.UtcNow;
@@ -151,7 +154,7 @@ public sealed class ProbeRunner
         }
         finally
         {
-            concurrency.Release();
+            _concurrency.Release();
         }
     }
 }
