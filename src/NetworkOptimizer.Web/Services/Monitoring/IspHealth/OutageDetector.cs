@@ -186,15 +186,18 @@ public static class OutageDetector
     }
 
     /// <summary>
-    /// The network a hop counts as for the partial pass's independence gate. Prefers the real ASN
-    /// so several endpoints of one provider (a cloud's regional destinations, all reached over that
-    /// provider's own network) count once - the gate asks how many INDEPENDENT networks degraded,
-    /// and the display label can't answer that: internet rows deliberately carry a null AsnLabel so
-    /// each destination still shows its own name. Unattributed rows (ASN 0) fall back to the label,
-    /// counting as their own network, which is the safe reading when we can't prove otherwise.
+    /// The network a hop counts as for the partial pass's independence gate, which asks how many
+    /// INDEPENDENT networks degraded together. A row that HAS an <see cref="Hop.AsnLabel"/> is
+    /// already grouped at ASN level by that label, and the label is the corrected one (hand-added
+    /// access hops are mapped onto the access ISP's canonical ASN even when their own address
+    /// resolves elsewhere or not at all) - so the label wins there, and one ISP's hops count once
+    /// however their per-target ASN attribution turned out. Only internet rows lack a label, by
+    /// design, so each destination shows its own name; those key on the real ASN so several
+    /// regional endpoints of one provider, all reached over that provider's network, count once.
+    /// An unattributed destination falls back to its name - its own network, the safe reading.
     /// </summary>
     private static string NetworkKey(Hop h) =>
-        h.AsnNumber > 0 ? $"AS{h.AsnNumber}" : h.AsnLabel ?? h.Name;
+        h.AsnLabel ?? (h.AsnNumber > 0 ? $"AS{h.AsnNumber}" : h.Name);
 
     private static OutageEvent BuildPartialEvent(
         DateTime start, DateTime end,

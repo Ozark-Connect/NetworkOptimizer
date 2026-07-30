@@ -352,6 +352,29 @@ public class OutageDetectorTests
     }
 
     [Fact]
+    public void Access_hops_of_one_isp_count_once_even_when_their_own_asn_attribution_differs()
+    {
+        // A hand-added access hop resolves to no ASN of its own while its auto-discovered siblings
+        // carry the ISP's - they are one network regardless, and the shared label already says so.
+        // Keying independence on the per-target ASN would read this ISP as two networks and let one
+        // access tier's bad minute clear a gate that exists to require several.
+        var ds = OutStart;
+        var de = OutStart.AddMinutes(10);
+        var hops = new[]
+        {
+            new OutageDetector.Hop("hop-a", 0, LossSeries(ds, de, 60), Groupable: true, AsnLabel: "Access ISP", AsnNumber: 64500),
+            new OutageDetector.Hop("hop-b", 1, LossSeries(ds, de, 60), Groupable: true, AsnLabel: "Access ISP", AsnNumber: 64500),
+            new OutageDetector.Hop("hop-c", 2, LossSeries(ds, de, 60), Groupable: true, AsnLabel: "Access ISP", AsnNumber: 64500),
+            // Same ISP, no ASN of its own - must not read as a second independent network.
+            new OutageDetector.Hop("hop-d", 3, LossSeries(ds, de, 60), Groupable: true, AsnLabel: "Access ISP", AsnNumber: 0),
+        };
+
+        var events = OutageDetector.DetectPartial(hops, NoDarkWindows, Options);
+
+        events.Should().BeEmpty();
+    }
+
+    [Fact]
     public void Internet_destinations_supply_the_breadth_a_thin_transit_layer_cannot()
     {
         // A thin path: one access ISP, a transit layer that collapses to two rows of one ASN, and a

@@ -983,6 +983,16 @@ public class IspHealthService
                 0, gatewaySamples, Groupable: false, AsnLabel: null, IsGateway: true)
             : null;
         var baseDepth = gatewayHop != null ? 1 : 0;
+        // Both hop lists share every access and transit row, and the sort keys are pure functions of
+        // the series - MedianRtt copies and sorts each one's RTTs, which is not free on a long
+        // window and the compute already runs against a time budget. Derive each series' keys once.
+        var sortKeys = new Dictionary<AsnSeries, (int HopNumber, double Rtt)>();
+        (int HopNumber, double Rtt) SortKey(AsnSeries s)
+        {
+            if (!sortKeys.TryGetValue(s, out var k))
+                sortKeys[s] = k = (ClusterHopNumber(s), MedianRtt(s));
+            return k;
+        }
         List<OutageDetector.Hop> BuildHops(IEnumerable<(AsnSeries Series, bool Groupable, string? AsnLabel, bool IsInternet)> sources)
         {
             var ordered = sources
@@ -994,8 +1004,8 @@ public class IspHealthService
                     x.Series.AsnNumber,
                     Name = x.Series.AsnName ?? x.Series.TargetIds.FirstOrDefault() ?? "hop",
                     Series = (IReadOnlyList<LatencySample>)x.Series.Samples,
-                    HopNumber = ClusterHopNumber(x.Series),
-                    Rtt = MedianRtt(x.Series)
+                    HopNumber = SortKey(x.Series).HopNumber,
+                    Rtt = SortKey(x.Series).Rtt
                 })
                 .OrderBy(x => x.HopNumber).ThenBy(x => x.Rtt)
                 .ToList();
