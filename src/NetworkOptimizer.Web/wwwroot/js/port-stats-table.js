@@ -54,6 +54,7 @@ let lastDevices = [];       // raw devices from the most recent fetch
 let pendingSelect = null;   // mac to isolate once data arrives
 
 let currentAt = null;       // ISO timestamp for historic playback, null = live
+let sanitized = false;      // degenerate persisted filter dropped once per mount
 let pollTimer = null;
 let fetchController = null;
 let seekDebounce = null;
@@ -396,10 +397,27 @@ async function fetchData() {
     }
 }
 
+// A persisted filter that hides EVERY device of a tab is degenerate - typically it
+// isolated a device that no longer exists - and below two devices the chip row never
+// renders, so there is no way out of it in the UI. Disregard it once, at first data
+// arrival: mid-session an all-hidden tab can be a deliberate ctrl-click state, and the
+// live poll must not yank it away. Only this site's devices are touched - the storage
+// key is origin-wide, and another site's saved filter is not ours to prune.
+function dropDegenerateFilter() {
+    for (const isAps of [false, true]) {
+        const devs = lastDevices.filter(d => isApDevice(d) === isAps);
+        if (devs.length && devs.every(d => visibility[d.mac] === false)) {
+            for (const d of devs) delete visibility[d.mac];
+            savePrefs();
+        }
+    }
+}
+
 async function loadAndRender() {
     const data = await fetchData();
     if (!data) return;
     lastDevices = data.devices || [];
+    if (!sanitized) { sanitized = true; dropDegenerateFilter(); }
     rebuildMeta(tabDevices());
     if (pendingSelect) {
         const match = deviceMeta.find(d => d.mac.toLowerCase() === pendingSelect.toLowerCase());
@@ -511,6 +529,7 @@ export function mount(el, mountOpts = {}) {
     // state left by a previous session would silently block startPoll() below.
     currentAt = null;
     paused = false;
+    sanitized = false;
     window.__portStatsTable = api;
     loadAndRender();
     startPoll();
