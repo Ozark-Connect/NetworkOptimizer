@@ -23,7 +23,17 @@ public sealed class ProbeRunner
     private readonly string? _defaultSourceIp;
     private readonly LocalProbeExecutor _executor = new(NullLogger<LocalProbeExecutor>.Instance);
     private readonly ConcurrentDictionary<string, DateTime> _lastProbed = new();
+    private readonly ConcurrentDictionary<string, Task> _inFlight = new();
     private volatile IReadOnlyList<ProbeTargetSpec> _targets = [];
+
+    /// <summary>
+    /// Hard wall-clock cap on one probe. The executor's own overall cap is
+    /// ~11 s worst case (20 pings at 0.2 s + 2 s timeout + margin), so anything
+    /// past this is a hung await, not a slow network - the probe's concurrency
+    /// slot is reclaimed and no result is recorded (a gap is honest; fabricated
+    /// loss is not).
+    /// </summary>
+    private static readonly TimeSpan ProbeDeadline = TimeSpan.FromSeconds(30);
 
     /// <param name="defaultSourceIp">
     /// Source address every probe binds to unless the target spec carries its
@@ -59,9 +69,20 @@ public sealed class ProbeRunner
         while (!ct.IsCancellationRequested)
         {
             var now = DateTime.UtcNow;
-            var due = _targets.Where(t => IsDue(t, now)).ToList();
-            if (due.Count > 0)
-                await Task.WhenAll(due.Select(t => ProbeAsync(t, concurrency, ct)));
+            // Fire-and-track, never await-all: the tick must keep scheduling
+            // even if one probe hangs (a wedged async engine once froze the
+            // whole scheduler through a WhenAll here, taking every target dark
+            // instead of just the stuck one). _inFlight keeps a slow or hung
+            // target from stacking duplicate probes.
+            foreach (var target in _targets)
+            {
+                if (!IsDue(target, now) || _inFlight.ContainsKey(target.TargetId))
+                    continue;
+                var probe = ProbeAsync(target, concurrency, ct);
+                _inFlight[target.TargetId] = probe;
+                _ = probe.ContinueWith(_ => _inFlight.TryRemove(target.TargetId, out Task? _),
+                    TaskScheduler.Default);
+            }
             await Task.Delay(TimeSpan.FromSeconds(2), ct);
         }
     }
@@ -88,11 +109,21 @@ public sealed class ProbeRunner
                 spec.Port > 0 ? spec.Port : null,
                 string.IsNullOrEmpty(spec.SourceIp) ? _defaultSourceIp : spec.SourceIp);
 
-            var ping = await _executor.PingAsync(
+            var pingTask = _executor.PingAsync(
                 target,
                 count: Math.Max(3, Math.Min(spec.PingCount, 20)),
                 perPingTimeout: TimeSpan.FromSeconds(2),
                 ct: ct);
+            var winner = await Task.WhenAny(pingTask, Task.Delay(ProbeDeadline, ct));
+            if (winner != pingTask)
+            {
+                _ = pingTask.ContinueWith(t => _ = t.Exception, TaskScheduler.Default);
+                if (!ct.IsCancellationRequested)
+                    Console.Error.WriteLine(
+                        $"Probe {spec.TargetId} did not complete within {ProbeDeadline.TotalSeconds:0}s; dropping this sample");
+                return;
+            }
+            var ping = await pingTask;
             if (ct.IsCancellationRequested) return;
 
             var result = new ProbeResult

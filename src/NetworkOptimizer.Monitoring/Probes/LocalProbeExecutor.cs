@@ -190,6 +190,7 @@ public class LocalProbeExecutor : IProbeExecutor
                 try { proc.Kill(entireProcessTree: true); } catch { }
             }
             var stdout = await SafeReadAsync(stdoutTask);
+            Observe(stderrTask);
 
             var parsed = PingOutputParser.Parse(stdout, target, Vantage, safeCount);
             return parsed;
@@ -440,11 +441,29 @@ public class LocalProbeExecutor : IProbeExecutor
         }
     }
 
+    /// <summary>
+    /// Grace period for collecting a finished/killed child's redirected output.
+    /// The pipe normally closes with the child, completing the read instantly;
+    /// the bound exists because a pipe read whose completion is never delivered
+    /// (wedged async engine) would otherwise hang its caller forever.
+    /// </summary>
+    private static readonly TimeSpan OutputReadGrace = TimeSpan.FromSeconds(5);
+
     private static async Task<string> SafeReadAsync(Task<string> readTask)
     {
+        var winner = await Task.WhenAny(readTask, Task.Delay(OutputReadGrace));
+        if (winner != readTask)
+        {
+            Observe(readTask);
+            return string.Empty;
+        }
         try { return await readTask; }
         catch { return string.Empty; }
     }
+
+    /// <summary>Observes a possibly never-completing task's fault so it can't surface as unobserved.</summary>
+    private static void Observe(Task task) =>
+        _ = task.ContinueWith(t => _ = t.Exception, TaskScheduler.Default);
 
     private async Task<PingProbeResult> TcpPingAsync(ProbeTarget target, int count, TimeSpan timeout, CancellationToken ct)
     {

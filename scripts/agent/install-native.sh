@@ -555,6 +555,12 @@ cat > "/etc/systemd/system/${SERVICE_NAME}.service" <<UNIT
 Description=Network Optimizer Agent (${SERVICE_NAME})
 After=network-online.target
 Wants=network-online.target
+# The speed test nginx BindsTo this unit, so it stops whenever the agent stops -
+# but BindsTo alone never starts it again. Wanting it from here relights it on
+# every agent start (deploys, manual restarts, and the async-I/O watchdog's
+# self-restart). Harmless when the speed test isn't installed: a missing Wants
+# target is simply ignored.
+Wants=netopt-speedtest-nginx.service
 
 [Service]
 Type=simple
