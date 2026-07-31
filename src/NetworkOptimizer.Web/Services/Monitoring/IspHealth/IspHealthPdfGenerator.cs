@@ -286,8 +286,15 @@ public class IspHealthPdfGenerator
 
                 if (dimension.Factors.Count == 0)
                 {
-                    column.Item().PaddingTop(2).Text("No data for this dimension in the window.")
-                        .FontSize(9).FontColor(Colors.Grey.Medium);
+                    // ISP Network never carries factors - BuildIspDimension scores it by averaging
+                    // the per-hop grades, which get their own detail in the ISP Network Hops and
+                    // Networks on Your Path sections. So an empty factor list is normal there, and
+                    // only a missing score means there was genuinely nothing to grade.
+                    if (dimension.Score == null)
+                    {
+                        column.Item().PaddingTop(2).Text("No data for this dimension in the window.")
+                            .FontSize(9).FontColor(Colors.Grey.Medium);
+                    }
                     continue;
                 }
 
