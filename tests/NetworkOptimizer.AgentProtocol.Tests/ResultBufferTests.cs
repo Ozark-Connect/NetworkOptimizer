@@ -265,4 +265,149 @@ public class ResultBufferTests
             indices.Should().BeInAscendingOrder();
         }
     }
+
+    private static string TempSpoolPath() =>
+        Path.Combine(Path.GetTempPath(), $"no-spool-test-{Guid.NewGuid():N}.bin");
+
+    [Fact]
+    public async Task SpoolRoundTripPreservesMessagesAndOrder()
+    {
+        var path = TempSpoolPath();
+        try
+        {
+            var source = new ResultBuffer();
+            source.Enqueue(ProbeMessage("a"));
+            source.Enqueue(SnmpMessage("aa:bb:cc:dd:ee:ff"));
+            source.Enqueue(ProbeMessage("b"));
+            source.SaveTo(path);
+
+            var restored = new ResultBuffer();
+            restored.LoadFrom(path).Should().Be(3);
+            restored.Count.Should().Be(3);
+            restored.ApproxBytes.Should().Be(source.ApproxBytes);
+
+            (await NextAsync(restored)).ProbeResults.Results[0].TargetId.Should().Be("a");
+            (await NextAsync(restored)).PayloadCase.Should().Be(AgentMessage.PayloadOneofCase.SnmpResults);
+            (await NextAsync(restored)).ProbeResults.Results[0].TargetId.Should().Be("b");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void SpoolLoadAppendsAfterExistingEntries()
+    {
+        var path = TempSpoolPath();
+        try
+        {
+            var source = new ResultBuffer();
+            source.Enqueue(ProbeMessage("spooled"));
+            source.SaveTo(path);
+
+            var buffer = new ResultBuffer();
+            buffer.Enqueue(ProbeMessage("live"));
+            buffer.LoadFrom(path).Should().Be(1);
+            buffer.Count.Should().Be(2);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void SpoolLoadAppliesAgeCapFromOriginalEnqueueTimes()
+    {
+        var path = TempSpoolPath();
+        try
+        {
+            var source = new ResultBuffer();
+            source.Enqueue(ProbeMessage("stale"));
+            source.SaveTo(path);
+
+            // Everything in the spool is older than the age cap, so a load
+            // into a short-max-age buffer restores then immediately evicts.
+            var buffer = new ResultBuffer(maxAge: TimeSpan.Zero);
+            buffer.LoadFrom(path).Should().Be(1);
+            buffer.Count.Should().Be(0);
+            buffer.DroppedTotal.Should().Be(1);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void SpoolLoadKeepsCleanPrefixOfTruncatedFile()
+    {
+        var path = TempSpoolPath();
+        try
+        {
+            var source = new ResultBuffer();
+            source.Enqueue(ProbeMessage("first"));
+            source.Enqueue(ProbeMessage("second"));
+            source.SaveTo(path);
+
+            // Chop mid-way through the last message, as a crash mid-write would.
+            var bytes = File.ReadAllBytes(path);
+            File.WriteAllBytes(path, bytes[..(bytes.Length - 5)]);
+
+            var buffer = new ResultBuffer();
+            buffer.LoadFrom(path).Should().Be(1);
+            buffer.Count.Should().Be(1);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void SpoolLoadSurvivesHostileTicks()
+    {
+        var path = TempSpoolPath();
+        try
+        {
+            using (var file = File.Create(path))
+            {
+                // Valid header, then ticks beyond DateTime's range - a corrupt
+                // varint must not take LoadFrom down.
+                var output = new Google.Protobuf.CodedOutputStream(file);
+                output.WriteFixed32(0x4E4F5350);
+                output.WriteInt32(1);
+                output.WriteInt64(long.MaxValue);
+                output.WriteMessage(ProbeMessage("hostile"));
+                output.Flush();
+            }
+
+            var buffer = new ResultBuffer();
+            buffer.LoadFrom(path).Should().Be(0);
+            buffer.Count.Should().Be(0);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void SpoolLoadIgnoresUnrecognizedFile()
+    {
+        var path = TempSpoolPath();
+        try
+        {
+            File.WriteAllBytes(path, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+
+            var buffer = new ResultBuffer();
+            buffer.LoadFrom(path).Should().Be(0);
+            buffer.Count.Should().Be(0);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
 }
