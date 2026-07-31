@@ -592,6 +592,32 @@ public class IspHealthService
         if (ispTargets.Count == 0 && transitTargets.Count == 0)
             return new ComputeOutcome(IspHealthStatus.NeedsDiscovery, null, new List<AsnSeries>());
 
+        // Everything below that comes from the console is only trustworthy once the console has
+        // actually SERVED something, and no connection flag tells us that. IsConnected - and so
+        // CanCompute, and WaitForConnectionAsync, which just polls it - means a login succeeded.
+        // It is true before the first stat/device call ever runs, and UniFiApiClient.GetDevicesAsync
+        // returns an EMPTY LIST rather than throwing when that call fails, without caching the
+        // failure. So on the first compute after a restart every console-derived input can come
+        // back empty while every gate reads healthy: no PPPoE overlay, and no expected WAN speeds,
+        // which drops HasExpectedSpeeds and skips loaded analysis altogether. The report is then
+        // cached for CacheTtl, so one unlucky first call sets the score for 15 minutes.
+        //
+        // Getting a device list back is the proof, and it is the same fetch the PPPoE lookup and
+        // the expected-speed lookup ride on: if it answered, they can too. Deferring is safe - a
+        // null report leaves _cached untouched (only forceRefresh clears it) and the TTL
+        // short-circuit needs a cached report to fire, so the very next read recomputes.
+        //
+        // Gated on the list being EMPTY, not on finding a gateway. A site whose devices are all
+        // switches and APs behind a third-party router legitimately has no gateway, and must still
+        // be able to score.
+        var discoveredDevices = await _connectionService.GetDiscoveredDevicesAsync(ct);
+        if (discoveredDevices.Count == 0)
+        {
+            _logger.LogWarning("ISP Health: the console returned no devices, so its data is not yet trustworthy; " +
+                "deferring rather than caching a report computed without the console-derived inputs");
+            return new ComputeOutcome(IspHealthStatus.AwaitingConnection, null, new List<AsnSeries>());
+        }
+
         var profile = IspHealthProfiles.GetProfile(technology);
         if (profile == null)
             return new ComputeOutcome(IspHealthStatus.NeedsTechnology, null, new List<AsnSeries>());
@@ -607,12 +633,12 @@ public class IspHealthService
         if (pppoeSession == true)
             profile = IspHealthProfiles.ApplyPppoeSession(profile, technology);
 
-        // First gateway from the cached UniFi device list (shadow-mode multi-gateway isn't handled
+        // First gateway from the device list above (shadow-mode multi-gateway isn't handled
         // yet - first gateway is fine), matched to its fabric monitoring target by MAC so we can pull
         // its loss for outage scoping. Null when no gateway is monitored - outage scoping then stays
         // unchanged (no Local scope possible).
         static string MacKey(string? m) => new string((m ?? "").Where(Uri.IsHexDigit).ToArray()).ToLowerInvariant();
-        var gatewayDevice = (await _connectionService.GetDiscoveredDevicesAsync(ct)).FirstOrDefault(d => d.Type.IsGateway());
+        var gatewayDevice = discoveredDevices.FirstOrDefault(d => d.Type.IsGateway());
         var gatewayTarget = gatewayDevice == null ? null
             : fabricTargets.FirstOrDefault(t => MacKey(t.DeviceMac) == MacKey(gatewayDevice.Mac));
 
