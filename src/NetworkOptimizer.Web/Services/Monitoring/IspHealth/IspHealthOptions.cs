@@ -784,16 +784,13 @@ public static class IspHealthProfiles
             JitterIdealMs: 1.0, JitterTypicalMs: 2.0, JitterPoorMs: 5.0,
             StabilityMadIdealMs: 0.35, StabilityMadTypicalMs: 0.9, StabilityMadPoorMs: 3.5),
 
-        // PPPoE currently shares Other's neutral band, but that is a placeholder, not a verdict:
-        // PPPoE is expected to earn scoring behavior of its own (session/BNG overhead, MTU, the
-        // aggregation tier's own latency and buffering) once there is enough field data to
-        // calibrate it. Whatever that turns out to be, it will not come from a dropdown - PPPoE
-        // is an encapsulation, so it can ride GPON, DSL or Active Ethernet, and the medium and
-        // the encapsulation have to be scored as two facts rather than one choice. ISP Health can
-        // read the encapsulation for itself: a PPPoE WAN's uplink interface is named ppp*
-        // (uplink_ifname "ppp0") and its network config carries wan_type "pppoe". So the selector
-        // asks only for the medium, and Upstream Discovery redirects a stored PppoE to a
-        // vendor-derived one when it can. The value stays mapped for WANs still carrying it.
+        // PPPoE is no longer scored HERE - a session is detected from the gateway and overlaid on
+        // the medium's profile instead (see ApplyPppoeSession), because PPPoE is an encapsulation
+        // riding GPON, DSL or Active Ethernet and the two are independent facts. This entry is the
+        // legacy path only: WANs stored as PppoE from before it left the selector, which name no
+        // medium at all and so can only fall back to the neutral band. Upstream Discovery
+        // redirects them to a vendor-derived medium when it can, and ApplyPppoeSession exempts
+        // this profile so a stored PppoE on a real ppp* interface is not forgiven twice.
         AccessTechnology.PppoE => NeutralProfile("PPPoE"),
         AccessTechnology.Other => NeutralProfile("Other"),
         _ => null
@@ -875,6 +872,14 @@ public static class IspHealthProfiles
     /// </summary>
     public static AccessProfile ApplyPppoeSession(AccessProfile profile, AccessTechnology tech)
     {
+        // A WAN still stored as PppoE already scores on the neutral stand-in FOR a PPPoE line, so
+        // overlaying on top of it would forgive the same session twice. Legacy value, real ppp*
+        // interface, and the honest answer is that the medium is unknown - not that it is unknown
+        // AND further away. Other is deliberately not exempt: it means "some medium we don't
+        // list", which a PPPoE session genuinely does sit on top of.
+        if (tech == AccessTechnology.PppoE)
+            return profile;
+
         var rtt = PppoeIdleRttOffsetMs(tech);
         static double? InQuadrature(double? band, double added)
             => band is { } b ? Math.Round(Math.Sqrt(b * b + added * added), 2) : null;

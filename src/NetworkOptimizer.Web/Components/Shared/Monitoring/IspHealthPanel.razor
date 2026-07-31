@@ -1235,6 +1235,18 @@ else
     /// one only loses the thresholds the line should be graded against. Upstream Discovery's
     /// selector offers this same set (plus Unknown) - keep the two in step.
     /// </summary>
+    private static readonly AccessTechnology[] ProfileTechOptions =
+    [
+        AccessTechnology.Gpon,
+        AccessTechnology.XgsPon,
+        AccessTechnology.Docsis,
+        AccessTechnology.Dsl,
+        AccessTechnology.DirectEthernet,
+        AccessTechnology.FixedWireless,
+        AccessTechnology.Cellular,
+        AccessTechnology.Satellite
+    ];
+
     /// <summary>
     /// " (PPPoE)" when the WAN runs a PPPoE session, otherwise nothing. The session is detected
     /// from the gateway rather than picked, and it shifts the scored thresholds materially, so
@@ -1250,18 +1262,6 @@ else
     /// </summary>
     private static string TechLabel(AccessTechnology tech, IspHealthReport r) =>
         tech == r.AccessTechnology ? FormatTechName(tech) + PppoeSuffix(r) : FormatTechName(tech);
-
-    private static readonly AccessTechnology[] ProfileTechOptions =
-    [
-        AccessTechnology.Gpon,
-        AccessTechnology.XgsPon,
-        AccessTechnology.Docsis,
-        AccessTechnology.Dsl,
-        AccessTechnology.DirectEthernet,
-        AccessTechnology.FixedWireless,
-        AccessTechnology.Cellular,
-        AccessTechnology.Satellite
-    ];
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
