@@ -784,6 +784,14 @@ public static class IspHealthProfiles
             JitterIdealMs: 1.0, JitterTypicalMs: 2.0, JitterPoorMs: 5.0,
             StabilityMadIdealMs: 0.35, StabilityMadTypicalMs: 0.9, StabilityMadPoorMs: 3.5),
 
+        // PPPoE and Other are the same profile in everything but the display name: PPPoE is an
+        // encapsulation, not a medium, so it splits nothing here. That is why it is no longer
+        // offered in the Upstream Discovery selector and Upstream Discovery redirects a stored
+        // PppoE to a vendor-derived medium when it can - the user picks what the session rides
+        // (GPON, DSL, Active Ethernet) and gets that medium's thresholds instead of this wide
+        // band. The value stays mapped for WANs still carrying it. If a real PPPoE-specific
+        // split is ever wanted, it needs no user input: a PPPoE WAN's uplink interface is named
+        // ppp* (uplink_ifname "ppp0") and its network config carries wan_type "pppoe".
         AccessTechnology.PppoE => NeutralProfile("PPPoE"),
         AccessTechnology.Other => NeutralProfile("Other"),
         _ => null

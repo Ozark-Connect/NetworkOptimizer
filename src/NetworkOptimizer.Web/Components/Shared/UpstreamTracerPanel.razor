@@ -153,7 +153,7 @@
                     <select class="form-control upstream-tech-select @AccessTechAttentionClass"
                             value="@((int)_state.AccessTechnology)" disabled="@(!_canOperate)"
                             @onchange="OnAccessTechChanged">
-                        @foreach (var tech in AccessTechDisplayOrder)
+                        @foreach (var tech in AccessTechOptions)
                         {
                             <option value="@((int)tech)">@FormatTechName(tech)</option>
                         }
@@ -623,8 +623,21 @@
     private void ToggleCollapse() => _collapsed = !_collapsed;
 
     /// <summary>
-    /// Dropdown display order. The enum's numeric values are persisted and append-only,
-    /// so new technologies are slotted here instead of renumbering the enum.
+    /// Dropdown display order, deliberately the same set and order as the ISP Health
+    /// technology selector (IspHealthPanel.ProfileTechOptions) plus Unknown for the
+    /// not-yet-picked state, so one field offers one set of choices wherever it appears.
+    /// The enum's numeric values are persisted and append-only, so new technologies are
+    /// slotted here instead of renumbering the enum.
+    ///
+    /// PppoE and Other are absent on purpose. Neither names an access medium, so neither
+    /// tells the scorer anything - IspHealthProfiles.GetProfile maps both to the same wide
+    /// NeutralProfile - and picking either costs the user the medium-specific thresholds
+    /// their line would otherwise be graded against. PPPoE especially: it is an
+    /// encapsulation riding GPON, DSL or Active Ethernet, and that is what should be
+    /// picked. If ISP Health ever wants to act on PPPoE itself it never has to ask - a
+    /// PPPoE WAN's uplink interface is named ppp* (uplink_ifname "ppp0", already read into
+    /// UpstreamTracerService._wanUplinkIfName) and the network config carries
+    /// wan_type "pppoe".
     /// </summary>
     private static readonly AccessTechnology[] AccessTechDisplayOrder =
     [
@@ -633,13 +646,23 @@
         AccessTechnology.XgsPon,
         AccessTechnology.Docsis,
         AccessTechnology.Dsl,
-        AccessTechnology.PppoE,
         AccessTechnology.DirectEthernet,
         AccessTechnology.FixedWireless,
-        AccessTechnology.Satellite,
         AccessTechnology.Cellular,
-        AccessTechnology.Other
+        AccessTechnology.Satellite
     ];
+
+    /// <summary>
+    /// What the select actually renders: the display order, plus the stored value when it is
+    /// no longer offered - a WAN saved as PPPoE or Other before those were dropped. Without
+    /// the carry-over the select would find no matching option, render the first one, and
+    /// report a stored PPPoE as "Not detected". The stale entry disappears once the user
+    /// picks something current.
+    /// </summary>
+    private IEnumerable<AccessTechnology> AccessTechOptions =>
+        AccessTechDisplayOrder.Contains(_state.AccessTechnology)
+            ? AccessTechDisplayOrder
+            : AccessTechDisplayOrder.Append(_state.AccessTechnology);
 
     private static string FormatTechName(AccessTechnology tech) => tech switch
     {
