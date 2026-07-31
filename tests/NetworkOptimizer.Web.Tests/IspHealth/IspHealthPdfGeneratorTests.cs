@@ -205,6 +205,56 @@ public class IspHealthPdfGeneratorTests
         pdf.Length.Should().BeGreaterThan(1000);
     }
 
+    [Theory]
+    [InlineData(AccessTechnology.Gpon, false, "GPON")]
+    [InlineData(AccessTechnology.Gpon, true, "GPON (PPPoE)")]
+    [InlineData(AccessTechnology.XgsPon, true, "XGS-PON (PPPoE)")]
+    [InlineData(AccessTechnology.DirectEthernet, true, "Active Ethernet (PPPoE)")]
+    // A medium that already carries a qualifier folds the session into it rather than
+    // stacking a second bracket.
+    [InlineData(AccessTechnology.Dsl, false, "DSL (ADSL/VDSL)")]
+    [InlineData(AccessTechnology.Dsl, true, "DSL (ADSL/VDSL, PPPoE)")]
+    [InlineData(AccessTechnology.Docsis, false, "DOCSIS (Cable)")]
+    [InlineData(AccessTechnology.Satellite, false, "Satellite (LEO)")]
+    public void ScoredAsLabel_NamesTheMediumAndAnyDetectedSession(
+        AccessTechnology tech, bool pppoe, string expected)
+    {
+        var report = MinimalReport();
+        report.AccessTechnology = tech;
+        report.PppoeSession = pppoe;
+
+        IspHealthPresentation.ScoredAsLabel(report).Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData(AccessTechnology.PppoE, "PPPoE")]
+    [InlineData(AccessTechnology.Other, "Other")]
+    [InlineData(AccessTechnology.Unknown, "Not detected")]
+    public void ScoredAsLabel_NeverPrintsRawEnumCasing(AccessTechnology tech, string expected)
+    {
+        // The old catch-all fell through to tech.ToString(), so a legacy PppoE site's exported
+        // PDF read "PppoE" - C# casing in a document that gets sent to an ISP.
+        var report = MinimalReport();
+        report.AccessTechnology = tech;
+
+        IspHealthPresentation.ScoredAsLabel(report).Should().Be(expected);
+    }
+
+    [Fact]
+    public void ScoredAsLabel_NamesTheTechnologyOnlyOnce()
+    {
+        // Regression: the line used to be "{Profile.DisplayName} ({FormatTechName})", which
+        // rendered "DOCSIS (DOCSIS (Cable))".
+        foreach (var tech in Enum.GetValues<AccessTechnology>())
+        {
+            var report = MinimalReport();
+            report.AccessTechnology = tech;
+
+            var label = IspHealthPresentation.ScoredAsLabel(report);
+            label.Count(c => c == '(').Should().BeLessThanOrEqualTo(1, $"{tech} should not nest qualifiers");
+        }
+    }
+
     [Fact]
     public void ScoredWanLabel_NamesTheWanWithItsGroupAndInterface()
     {

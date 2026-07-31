@@ -164,8 +164,7 @@ public class IspHealthPdfGenerator
 
                 row.RelativeItem(2).Column(detail =>
                 {
-                    LabelledLine(detail, "Scored as",
-                        $"{report.Profile.DisplayName} ({IspHealthPresentation.FormatTechName(report.AccessTechnology)})");
+                    LabelledLine(detail, "Scored as", IspHealthPresentation.ScoredAsLabel(report));
                     LabelledLine(detail, "Window",
                         $"{IspHealthPresentation.WindowLabel(report)} - {IspHealthPresentation.WindowRangeLabel(report)}");
                     LabelledLine(detail, "Computed", report.ComputedAt.ToLocalTime().ToString("MMM d, yyyy HH:mm"));

@@ -205,6 +205,11 @@ public static class IspHealthPresentation
 
     public static string FormatLossPct(double? pct) => pct switch { null => "--", 0 => "0%", _ => $"{pct.Value:0.##}%" };
 
+    /// <summary>
+    /// The access medium's name for exports, with its qualifier where one helps ("DOCSIS (Cable)").
+    /// Every enum member is named explicitly: the old catch-all fell through to tech.ToString(),
+    /// which printed the C# casing - a legacy PppoE site's PDF read "PppoE".
+    /// </summary>
     public static string FormatTechName(AccessTechnology tech) => tech switch
     {
         AccessTechnology.Gpon => "GPON",
@@ -212,11 +217,32 @@ public static class IspHealthPresentation
         AccessTechnology.Docsis => "DOCSIS (Cable)",
         AccessTechnology.DirectEthernet => "Active Ethernet",
         AccessTechnology.FixedWireless => "Fixed Wireless",
-        AccessTechnology.Satellite => "Satellite",
+        AccessTechnology.Satellite => "Satellite (LEO)",
         AccessTechnology.Cellular => "Cellular",
         AccessTechnology.Dsl => "DSL (ADSL/VDSL)",
-        _ => tech.ToString()
+        AccessTechnology.PppoE => "PPPoE",
+        AccessTechnology.Other => "Other",
+        AccessTechnology.Unknown => "Not detected",
+        _ => "Not detected"
     };
+
+    /// <summary>
+    /// How the scored profile is named in an export: the medium, plus the encapsulation when a
+    /// session is detected - "GPON (PPPoE)", "DSL (ADSL/VDSL, PPPoE)". PPPoE folds into the
+    /// medium's existing qualifier rather than stacking a second bracket after it.
+    ///
+    /// Replaces "{Profile.DisplayName} ({FormatTechName})", which printed the technology twice
+    /// ("DOCSIS (DOCSIS (Cable))") and had nowhere to put the session. The medium is the single
+    /// source here; the profile's own DisplayName says the same thing less precisely.
+    /// </summary>
+    public static string ScoredAsLabel(IspHealthReport report)
+    {
+        var medium = FormatTechName(report.AccessTechnology);
+        if (!report.PppoeSession) return medium;
+        return medium.EndsWith(')')
+            ? $"{medium[..^1]}, PPPoE)"
+            : $"{medium} (PPPoE)";
+    }
 
     /// <summary>How an ASN is labelled on the Networks on Your Path card.</summary>
     public static string AsnDisplayName(IspAsnHealth asn) =>
