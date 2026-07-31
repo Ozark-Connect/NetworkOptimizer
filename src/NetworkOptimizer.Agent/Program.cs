@@ -197,14 +197,51 @@ ProbeRunner? probeRunner = null;
 SnmpRunner? snmpRunner = null;
 Task? probeTask = null;
 Task? snmpTask = null;
+Task? watchdogTask = null;
+var spoolPath = Path.Combine(
+    Path.GetDirectoryName(Path.GetFullPath(configPath)) ?? ".", "result-spool.bin");
+
+// Best-effort spool of the unacked backlog for the next process to replay.
+// Called on graceful shutdown and by the async-I/O watchdog right before its
+// restart exit, so restarts don't cost the outage data the buffer exists for.
+void SaveSpool()
+{
+    if (resultBuffer is not { Count: > 0 })
+        return;
+    var count = resultBuffer.Count;
+    resultBuffer.SaveTo(spoolPath);
+    Console.WriteLine($"Spooled {count} unsent result message(s) for the next start");
+}
+
 if (!string.IsNullOrEmpty(config.TunnelUrl))
 {
     resultBuffer = new ResultBuffer();
+    if (File.Exists(spoolPath))
+    {
+        try
+        {
+            var restored = resultBuffer.LoadFrom(spoolPath);
+            if (restored > 0)
+                Console.WriteLine($"Restored {restored} spooled result message(s) from the previous run");
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Result spool restore failed: {ex.Message}");
+        }
+        try { File.Delete(spoolPath); } catch { }
+    }
     probeRunner = new ProbeRunner(resultBuffer.Enqueue, config.ProbeSourceIp);
     snmpRunner = new SnmpRunner(resultBuffer.Enqueue);
     probeTask = probeRunner.RunAsync(cts.Token);
     snmpTask = snmpRunner.RunAsync(cts.Token);
 }
+
+// Restart-based self-heal for a wedged async socket engine (every install
+// mode restarts the agent on exit); spools the backlog first so the restart
+// is lossless. Deliberately outside the tunnel block: heartbeat-only agents
+// die of the same wedge (async HTTP) and need the same cure - without a
+// buffer the spool callback is a no-op.
+watchdogTask = AsyncIoWatchdog.RunAsync(SaveSpool, cts.Token);
 
 // Prefer the persistent gRPC tunnel; REST heartbeats keep the agent visible as
 // Online whenever the tunnel is unavailable (tunnel disabled server-side, an
@@ -304,6 +341,19 @@ if (probeTask != null)
 if (snmpTask != null)
 {
     try { await snmpTask; } catch (OperationCanceledException) { }
+}
+if (watchdogTask != null)
+{
+    try { await watchdogTask; } catch (OperationCanceledException) { }
+}
+
+try
+{
+    SaveSpool();
+}
+catch (Exception ex)
+{
+    Console.Error.WriteLine($"Result spool save failed: {ex.Message}");
 }
 
 Console.WriteLine("Agent stopped");

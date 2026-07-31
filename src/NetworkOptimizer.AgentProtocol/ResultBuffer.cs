@@ -1,3 +1,5 @@
+using Google.Protobuf;
+
 namespace NetworkOptimizer.AgentProtocol;
 
 /// <summary>
@@ -148,6 +150,76 @@ public sealed class ResultBuffer
                 _entries.RemoveFirst();
             }
         }
+    }
+
+    /// <summary>Spool file header: identifies the format and its version.</summary>
+    private const uint SpoolMagic = 0x4E4F5350; // "NOSP"
+    private const int SpoolVersion = 1;
+
+    /// <summary>
+    /// Writes every buffered (unacked) message with its enqueue time to
+    /// <paramref name="path"/>, replacing any existing file, so a restart
+    /// (deliberate stop, update, or watchdog-forced) keeps the outage backlog
+    /// instead of losing it with the process. Deliberately synchronous file
+    /// I/O: the async-engine watchdog calls this while async I/O is wedged.
+    /// </summary>
+    public void SaveTo(string path)
+    {
+        lock (_lock)
+        {
+            using var file = new FileStream(path, FileMode.Create, FileAccess.Write);
+            var output = new CodedOutputStream(file);
+            output.WriteFixed32(SpoolMagic);
+            output.WriteInt32(SpoolVersion);
+            foreach (var entry in _entries)
+            {
+                output.WriteInt64(entry.EnqueuedUtc.Ticks);
+                output.WriteMessage(entry.Message);
+            }
+            output.Flush();
+        }
+    }
+
+    /// <summary>
+    /// Appends the messages spooled by <see cref="SaveTo"/>, preserving their
+    /// original enqueue times so the age cap still applies, then re-applies the
+    /// caps. A truncated or corrupt spool (crash mid-write) keeps whatever
+    /// decoded cleanly. Returns the number of messages restored.
+    /// </summary>
+    public int LoadFrom(string path)
+    {
+        using var file = File.OpenRead(path);
+        var input = new CodedInputStream(file);
+        var restored = 0;
+        lock (_lock)
+        {
+            try
+            {
+                if (input.ReadFixed32() != SpoolMagic || input.ReadInt32() != SpoolVersion)
+                    return 0;
+                while (!input.IsAtEnd)
+                {
+                    var enqueuedTicks = input.ReadInt64();
+                    var message = new AgentMessage();
+                    input.ReadMessage(message);
+                    var entry = new Entry(++_nextSeq, message,
+                        new DateTime(enqueuedTicks, DateTimeKind.Utc), message.CalculateSize());
+                    _entries.AddLast(entry);
+                    _bytes += entry.SizeBytes;
+                    restored++;
+                }
+            }
+            catch (Exception ex) when (ex is InvalidProtocolBufferException or ArgumentOutOfRangeException)
+            {
+                // Truncated tail or corrupt bytes (crash mid-write, bit rot):
+                // keep the clean prefix. ArgumentOutOfRange covers a corrupt
+                // varint decoding to ticks outside DateTime's range.
+            }
+            EvictLocked();
+        }
+        if (restored > 0)
+            _available.Release();
+        return restored;
     }
 
     private SendFrame? BuildUnsentFrameLocked(long afterSeq, int maxSamples)
