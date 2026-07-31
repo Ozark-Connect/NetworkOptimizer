@@ -629,15 +629,16 @@
     /// The enum's numeric values are persisted and append-only, so new technologies are
     /// slotted here instead of renumbering the enum.
     ///
-    /// PppoE and Other are absent on purpose. Neither names an access medium, so neither
-    /// tells the scorer anything - IspHealthProfiles.GetProfile maps both to the same wide
-    /// NeutralProfile - and picking either costs the user the medium-specific thresholds
-    /// their line would otherwise be graded against. PPPoE especially: it is an
-    /// encapsulation riding GPON, DSL or Active Ethernet, and that is what should be
-    /// picked. If ISP Health ever wants to act on PPPoE itself it never has to ask - a
-    /// PPPoE WAN's uplink interface is named ppp* (uplink_ifname "ppp0", already read into
-    /// UpstreamTracerService._wanUplinkIfName) and the network config carries
-    /// wan_type "pppoe".
+    /// PppoE and Other are absent on purpose. Neither names an access medium, so picking
+    /// either costs the user the medium-specific thresholds their line would otherwise be
+    /// graded against - IspHealthProfiles.GetProfile maps both to the same wide NeutralProfile
+    /// today. PPPoE is expected to earn scoring behavior of its own once there is enough field
+    /// data to calibrate it, and that is exactly why it does not belong here: it is an
+    /// encapsulation riding GPON, DSL or Active Ethernet, so the medium and the encapsulation
+    /// are two facts, not one choice. ISP Health can read the encapsulation without asking -
+    /// a PPPoE WAN's uplink interface is named ppp* (uplink_ifname "ppp0", already read into
+    /// UpstreamTracerService._wanUplinkIfName) and the network config carries wan_type "pppoe" -
+    /// so this selector asks only for the medium.
     /// </summary>
     private static readonly AccessTechnology[] AccessTechDisplayOrder =
     [
