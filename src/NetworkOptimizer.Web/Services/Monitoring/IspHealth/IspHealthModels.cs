@@ -515,6 +515,15 @@ public class IspHealthReport
     /// quick re-score by changing it (the pill selector) without round-tripping Upstream Discovery.</summary>
     public AccessTechnology AccessTechnology { get; set; }
 
+    /// <summary>
+    /// True when the WAN carries its traffic over a PPPoE session, detected from the gateway's
+    /// data-path interface rather than chosen by the user, and <see cref="Profile"/> therefore
+    /// carries the PPPoE overlay (IspHealthProfiles.ApplyPppoeSession). Surfaced so the UI can
+    /// say what the line is being graded as - the overlay shifts the thresholds materially, and
+    /// a user who sees only "GPON" has no way to tell it was accounted for.
+    /// </summary>
+    public bool PppoeSession { get; set; }
+
     public required IspScoreDimension AccessDimension { get; init; }
     public required IspScoreDimension TransitDimension { get; init; }
     public required IspScoreDimension IspAsnDimension { get; init; }

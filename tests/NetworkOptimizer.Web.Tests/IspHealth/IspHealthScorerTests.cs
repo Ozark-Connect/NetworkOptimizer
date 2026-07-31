@@ -1682,4 +1682,111 @@ public class IspHealthProfilesTests
         IspHealthProfiles.GetProfile(AccessTechnology.PppoE)!.JitterTypicalMs.Should().BeNull();
         IspHealthProfiles.GetProfile(AccessTechnology.Other)!.JitterTypicalMs.Should().BeNull();
     }
+
+    // ── PPPoE session overlay ─────────────────────────────────────────────────────
+
+    [Theory]
+    [InlineData(AccessTechnology.Gpon, 2.0)]
+    [InlineData(AccessTechnology.XgsPon, 2.0)]
+    [InlineData(AccessTechnology.DirectEthernet, 1.0)]
+    [InlineData(AccessTechnology.FixedWireless, 1.0)]
+    [InlineData(AccessTechnology.Dsl, 1.0)]
+    [InlineData(AccessTechnology.Docsis, 0.0)]
+    [InlineData(AccessTechnology.Satellite, 0.0)]
+    [InlineData(AccessTechnology.Cellular, 0.0)]
+    public void Pppoe_overlay_shifts_every_rtt_anchor_by_the_same_offset(AccessTechnology tech, double offset)
+    {
+        var baseline = IspHealthProfiles.GetProfile(tech)!;
+        var pppoe = IspHealthProfiles.ApplyPppoeSession(baseline, tech);
+
+        // Additive and uniform: a fixed topology cost moves "poor" as far as "ideal".
+        pppoe.IdleRttIdealMs.Should().BeApproximately(baseline.IdleRttIdealMs + offset, 0.001);
+        pppoe.IdleRttNormalLowMs.Should().BeApproximately(baseline.IdleRttNormalLowMs + offset, 0.001);
+        pppoe.IdleRttNormalHighMs.Should().BeApproximately(baseline.IdleRttNormalHighMs + offset, 0.001);
+        pppoe.IdleRttPoorMs.Should().BeApproximately(baseline.IdleRttPoorMs + offset, 0.001);
+    }
+
+    [Fact]
+    public void Pppoe_overlay_composes_jitter_in_quadrature_not_linearly()
+    {
+        var baseline = IspHealthProfiles.GetProfile(AccessTechnology.Gpon)!;
+        var pppoe = IspHealthProfiles.ApplyPppoeSession(baseline, AccessTechnology.Gpon);
+
+        // sqrt(0.4^2 + 0.25^2) = 0.4717, NOT 0.65. The distinction is the point: linear addition
+        // would move the ideal anchor 63% and let a genuinely jittery line score a flat 100.
+        pppoe.JitterIdealMs.Should().BeApproximately(0.47, 0.005);
+        pppoe.JitterTypicalMs.Should().BeApproximately(0.74, 0.005);
+
+        // The same 0.25 ms is absorbed almost entirely once the medium is already noisy.
+        pppoe.JitterPoorMs.Should().BeApproximately(3.01, 0.005);
+    }
+
+    [Fact]
+    public void Pppoe_overlay_leaves_a_null_jitter_band_null()
+    {
+        // Neutral profiles score jitter off the measured path floor; the overlay must not
+        // conjure a band for them, or they would silently switch scoring modes.
+        var neutral = IspHealthProfiles.GetProfile(AccessTechnology.Other)!;
+        var pppoe = IspHealthProfiles.ApplyPppoeSession(neutral, AccessTechnology.Other);
+
+        pppoe.JitterIdealMs.Should().BeNull();
+        pppoe.JitterTypicalMs.Should().BeNull();
+        pppoe.JitterPoorMs.Should().BeNull();
+    }
+
+    [Fact]
+    public void Pppoe_overlay_widens_loaded_loss_additively()
+    {
+        var baseline = IspHealthProfiles.GetProfile(AccessTechnology.Gpon)!;
+        var pppoe = IspHealthProfiles.ApplyPppoeSession(baseline, AccessTechnology.Gpon);
+
+        pppoe.LoadedLossDownLowPct.Should().BeApproximately(1.5, 0.001);
+        pppoe.LoadedLossDownHighPct.Should().BeApproximately(3.0, 0.001);
+        pppoe.LoadedLossUpLowPct.Should().BeApproximately(1.0, 0.001);
+        pppoe.LoadedLossUpHighPct.Should().BeApproximately(2.0, 0.001);
+    }
+
+    [Fact]
+    public void Pppoe_overlay_never_tightens_a_band()
+    {
+        // The overlay exists to forgive a cost the user's medium is not responsible for. Any
+        // axis it makes STRICTER would penalize PPPoE users for having PPPoE detected.
+        foreach (var tech in Enum.GetValues<AccessTechnology>().Where(t => t != AccessTechnology.Unknown))
+        {
+            var b = IspHealthProfiles.GetProfile(tech)!;
+            var p = IspHealthProfiles.ApplyPppoeSession(b, tech);
+
+            p.IdleRttIdealMs.Should().BeGreaterThanOrEqualTo(b.IdleRttIdealMs, $"{tech} ideal RTT");
+            p.IdleRttPoorMs.Should().BeGreaterThanOrEqualTo(b.IdleRttPoorMs, $"{tech} poor RTT");
+            p.LoadedLossDownHighPct.Should().BeGreaterThanOrEqualTo(b.LoadedLossDownHighPct, $"{tech} loaded loss down");
+            p.LoadedLossUpHighPct.Should().BeGreaterThanOrEqualTo(b.LoadedLossUpHighPct, $"{tech} loaded loss up");
+            if (b.JitterIdealMs is { } ideal)
+                p.JitterIdealMs.Should().BeGreaterThanOrEqualTo(ideal, $"{tech} jitter ideal");
+        }
+    }
+
+    [Fact]
+    public void Pppoe_overlay_preserves_the_medium_identity()
+    {
+        // The overlay adjusts thresholds; it does not reclassify the line. SharedMedium in
+        // particular drives the packet-loss recommendation text, and a PPPoE session does not
+        // turn a dedicated pair into a contended one.
+        var dsl = IspHealthProfiles.GetProfile(AccessTechnology.Dsl)!;
+        var pppoe = IspHealthProfiles.ApplyPppoeSession(dsl, AccessTechnology.Dsl);
+
+        pppoe.SharedMedium.Should().BeFalse();
+        pppoe.IsNeutral.Should().Be(dsl.IsNeutral);
+        pppoe.DisplayName.Should().Be(dsl.DisplayName);
+    }
+
+    [Fact]
+    public void Pppoe_overlay_keeps_upstream_loss_band_within_downstream()
+    {
+        // Same invariant the base profiles are held to above - the overlay must not invert it.
+        foreach (var tech in Enum.GetValues<AccessTechnology>().Where(t => t != AccessTechnology.Unknown))
+        {
+            var p = IspHealthProfiles.ApplyPppoeSession(IspHealthProfiles.GetProfile(tech)!, tech);
+            p.LoadedLossUpHighPct.Should().BeLessThanOrEqualTo(p.LoadedLossDownHighPct, $"{tech} upstream band should not exceed downstream");
+        }
+    }
 }

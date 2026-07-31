@@ -596,6 +596,15 @@ public class IspHealthService
         if (profile == null)
             return new ComputeOutcome(IspHealthStatus.NeedsTechnology, null, new List<AsnSeries>());
 
+        // A PPPoE session costs latency and loaded loss on top of whatever the medium does, so it
+        // is overlaid on the medium's profile rather than replacing it. Read from the gateway, not
+        // from the user: the encapsulation and the medium are independent facts, and only the
+        // medium needs asking for. Scoped to the primary WAN, matching what ISP Health grades
+        // (see the multi-WAN TODO above).
+        var pppoeSession = await IsPppoeWanAsync(ct);
+        if (pppoeSession)
+            profile = IspHealthProfiles.ApplyPppoeSession(profile, technology);
+
         // First gateway from the cached UniFi device list (shadow-mode multi-gateway isn't handled
         // yet - first gateway is fine), matched to its fabric monitoring target by MAC so we can pull
         // its loss for outage scoping. Null when no gateway is monitored - outage scoping then stays
@@ -1146,9 +1155,36 @@ public class IspHealthService
         report.WanName = scoredWan?.Name;
         report.WanNetworkGroup = scoredWan?.NetworkGroup;
         report.WanInterface = scoredWan?.Interface;
+        report.PppoeSession = pppoeSession;
         _logger.LogDebug("ISP Health computed: {Score} ({Tech}), {Events} congestion events, {Shifts} path shifts",
             report.OverallScore, profile.DisplayName, congestionEvents.Count, pathShifts.Count);
         return new ComputeOutcome(IspHealthStatus.Ready, report, chartClusters);
+    }
+
+    /// <summary>
+    /// Whether the primary WAN carries its traffic over a PPPoE session, read from the gateway's
+    /// data-path interface name (uplink_ifname) - "ppp0" is a PPPoE session and nothing else.
+    /// Cheap: the underlying device call is already cached.
+    ///
+    /// Answers false on any failure. A missing or unreadable answer must leave the medium's own
+    /// profile in place rather than widen it - the overlay is forgiveness, so guessing "yes"
+    /// would grade a non-PPPoE line too leniently on the strength of a failed lookup.
+    /// </summary>
+    private async Task<bool> IsPppoeWanAsync(CancellationToken ct)
+    {
+        try
+        {
+            var dataPath = await _connectionService.GetPrimaryWanDataPathInterfaceAsync(ct);
+            var isPppoe = NetworkUtilities.IsPppoeInterface(dataPath);
+            if (isPppoe)
+                _logger.LogDebug("ISP Health: PPPoE session detected on primary WAN ({Interface}); applying the PPPoE overlay", dataPath);
+            return isPppoe;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "ISP Health: could not resolve the primary WAN data-path interface; scoring without the PPPoE overlay");
+            return false;
+        }
     }
 
     /// <summary>
