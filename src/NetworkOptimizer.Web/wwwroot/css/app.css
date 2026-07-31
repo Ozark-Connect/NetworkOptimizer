@@ -458,6 +458,8 @@ h1:focus {
 }
 .wan-chart-seekable {
     position: relative;
+}
+.wan-chart-seekable.wan-chart-seek-hot {
     cursor: crosshair;
 }
 .wan-chart-mode-cluster {
