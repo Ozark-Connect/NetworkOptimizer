@@ -1227,10 +1227,13 @@ else
     }
 
     /// <summary>
-    /// Access technologies offered by the pill selector - only those with a scoring profile
-    /// (<see cref="IspHealthProfiles.GetProfile"/>), since the pill is only shown when scoring is
-    /// active. Unknown / PppoE / Other are excluded: picking them would null the profile and
-    /// collapse the pill into the "needs technology" empty state.
+    /// Access technologies offered by the pill selector - only those with a medium-specific
+    /// scoring profile (<see cref="IspHealthProfiles.GetProfile"/>), since the pill is only
+    /// shown when scoring is active. Unknown is excluded because it nulls the profile and
+    /// collapses the pill into the "needs technology" empty state. PppoE and Other are excluded
+    /// because neither names a medium: both resolve to the same wide neutral profile, so picking
+    /// one only loses the thresholds the line should be graded against. Upstream Discovery's
+    /// selector offers this same set (plus Unknown) - keep the two in step.
     /// </summary>
     private static readonly AccessTechnology[] ProfileTechOptions =
     [

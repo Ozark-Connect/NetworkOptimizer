@@ -863,7 +863,13 @@ public class UpstreamTracerService
         // nothing: the reachability gate and every role label key off the technology, and
         // Unknown makes all of them fall back to generic. Only proposes into an empty slot -
         // a user's (or an earlier run's) choice is never overwritten.
-        if (State.AccessTechnology == AccessTechnology.Unknown)
+        //
+        // A stored PppoE counts as empty here. PPPoE names an encapsulation, not a medium, so
+        // it scores on the same wide neutral profile as Other (IspHealthProfiles.GetProfile)
+        // and a vendor-derived medium is strictly better evidence. Nothing ever infers PPPoE -
+        // TechnologyFromVendor cannot return it, and it is no longer in the Upstream Discovery
+        // dropdown - so this only redirects values picked before it was removed.
+        if (State.AccessTechnology is AccessTechnology.Unknown or AccessTechnology.PppoE)
         {
             var inferred = TechnologyFromVendor(State.WanNeighborOuiVendor);
             if (inferred != null)
@@ -2061,6 +2067,14 @@ public class UpstreamTracerService
     /// hop position. Hop 1 behind a transparent L2 device (GPON OLT, etc.) is a BNG;
     /// hop 1 on DOCSIS is typically the CMTS; without any context it's a generic
     /// AccessHop. Spec 5.5 documents this priority.
+    ///
+    /// The PppoE branch here (and in <see cref="InferL2NeighborRole"/> and
+    /// <see cref="LabelL2Role"/>) is the only place PPPoE splits behavior deterministically -
+    /// it does not split scoring, where it shares Other's neutral profile. It stays for WANs
+    /// still stored as PppoE, but it never needed the stored value: a PPPoE WAN announces
+    /// itself in the gateway interface name (uplink_ifname "ppp0", already read into
+    /// <see cref="_wanUplinkIfName"/>) and in the network config's wan_type "pppoe". So the BNG
+    /// label can be driven off the interface while the user picks the medium PPPoE rides.
     /// </summary>
     private static UpstreamRole InferAccessRole(AttributedHop hop, AccessTechnology tech, string? ouiVendor)
     {
