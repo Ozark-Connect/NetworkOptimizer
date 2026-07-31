@@ -1320,9 +1320,16 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
         var discovery = new UniFiDiscovery(_client, discoveryLogger);
         var devices = await discovery.DiscoverDevicesAsync(cancellationToken);
 
-        // Cache the result
-        _cachedDevices = devices;
-        _deviceCacheTime = DateTime.UtcNow;
+        // Cache a real answer only. DiscoverDevicesAsync returns an empty list rather than throwing
+        // when the fetch fails, and UniFiApiClient deliberately doesn't cache that failure - caching
+        // it here would undo that and blank the device list for every consumer until it expires.
+        // The one genuinely device-less site is a standalone UniFi OS Server, which can afford the
+        // re-query.
+        if (devices.Count > 0)
+        {
+            _cachedDevices = devices;
+            _deviceCacheTime = DateTime.UtcNow;
+        }
 
         return devices;
     }
@@ -1338,7 +1345,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
 
     /// <summary>
     /// Gets the list of configured networks from the UniFi controller.
-    /// Results are cached for 5 minutes.
+    /// Successful results are cached for <see cref="NetworkCacheDuration"/>.
     /// </summary>
     public async Task<List<NetworkInfo>> GetNetworksAsync(CancellationToken cancellationToken = default)
     {
@@ -1356,7 +1363,17 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
 
         var networks = await _client.GetNetworkConfigsAsync(cancellationToken);
 
-        _cachedNetworks = networks?.Select(n => new NetworkInfo
+        // Same rule as the device list: a failed fetch is not an answer. GetNetworkConfigsAsync
+        // returns null rather than throwing, and the old "?? new List<NetworkInfo>()" cached that
+        // as "this console has no networks" - which is what the primary-WAN lookup and expected WAN
+        // speeds read, so one transient failure hid both until the cache expired.
+        if (networks == null || networks.Count == 0)
+        {
+            _logger.LogWarning("No networks returned from the console; not caching, so the next request retries");
+            return new List<NetworkInfo>();
+        }
+
+        _cachedNetworks = networks.Select(n => new NetworkInfo
         {
             Id = n.Id,
             Name = n.Name,
@@ -1378,7 +1395,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
             WanLoadBalanceWeight = n.WanLoadBalanceWeight,
             WanFailoverPriority = n.WanFailoverPriority,
             WanIfname = n.WanIfname
-        }).ToList() ?? new List<NetworkInfo>();
+        }).ToList();
         _networkCacheTime = DateTime.UtcNow;
 
         return _cachedNetworks;
