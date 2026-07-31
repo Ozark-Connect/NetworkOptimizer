@@ -690,5 +690,24 @@ public class NetworkUtilitiesTests
         NetworkUtilities.IsPrivateIpAddress(ip).Should().Be(expected);
     }
 
+    [Theory]
+    [InlineData("ppp0", true)]
+    [InlineData("ppp3", true)]
+    [InlineData("PPP0", true)]              // case-insensitive
+    [InlineData("pppoe0", true)]            // the form some stacks use
+    [InlineData("eth6", false)]
+    [InlineData("eth6.100", false)]         // VLAN-tagged WAN, not a PPPoE session
+    [InlineData("gre1", false)]             // LAN-tunneled cellular WAN
+    [InlineData("ppp", false)]              // no unit number - not an interface
+    [InlineData("pppoe", false)]
+    [InlineData("ppp0.1", false)]           // anchored: no trailing junk
+    [InlineData("xppp0", false)]            // anchored: no leading junk
+    [InlineData("", false)]
+    [InlineData(null, false)]
+    public void IsPppoeInterface_MatchesOnlyPppSessionInterfaces(string? ifName, bool expected)
+    {
+        NetworkUtilities.IsPppoeInterface(ifName).Should().Be(expected);
+    }
+
     #endregion
 }

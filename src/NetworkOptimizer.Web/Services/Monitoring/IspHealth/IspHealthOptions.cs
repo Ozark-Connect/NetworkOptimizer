@@ -800,6 +800,102 @@ public static class IspHealthProfiles
     };
 
     /// <summary>
+    /// Idle-RTT offset (ms) added to every anchor when the WAN runs a PPPoE session, by medium.
+    /// PPPoE terminates on a BNG, and the BNG is usually not at the OLT/DSLAM - it aggregates
+    /// deeper, so the first routed hop is topologically further out. The encapsulation itself
+    /// costs nothing measurable (8 bytes, 64 ns of serialization at 1 Gbps); this offset is
+    /// purely the extra distance to the session's endpoint. Additive rather than proportional
+    /// because it is a fixed topology cost, not a property of the medium, so `poor` shifts by
+    /// the same amount as `ideal`.
+    ///
+    /// 2.0 ms for PON is measured, from the Deutsche Telekom population - wholesale-access
+    /// markets (DE, UK, AU, NZ, IE) hand off at a regional POP and are where PPPoE is near
+    /// universal. Active Ethernet and Fixed Wireless get 1.0: AE + PPPoE is mostly regional
+    /// and municipal builds terminating at the local exchange, and WISP PPPoE terminates on the
+    /// operator's own BNG at the tower or NOC. Both are short hops next to a national handover.
+    ///
+    /// DSL's 1.0 is the one reasoned rather than observed number here. Its base band is already
+    /// wide and its calibration comment cites "old BNG" buffering as dragging the typical case,
+    /// so the full 2.0 would partly double-count - but the 6.0 ms ideal anchor describes a clean
+    /// copper loop, which is medium-only, so zero would under-adjust. Revisit with DT VDSL data.
+    ///
+    /// Everything else is 0: DOCSIS provisions over DHCP and Starlink/cellular terminate their
+    /// own way, so PPPoE is not expected there at all. If ppp* ever does show up on one, the
+    /// medium's own band is a better answer than an offset nobody has measured.
+    /// </summary>
+    private static double PppoeIdleRttOffsetMs(AccessTechnology tech) => tech switch
+    {
+        AccessTechnology.Gpon or AccessTechnology.XgsPon => 2.0,
+        AccessTechnology.DirectEthernet or AccessTechnology.FixedWireless => 1.0,
+        AccessTechnology.Dsl => 1.0,
+        _ => 0.0
+    };
+
+    /// <summary>Jitter (ms) the BNG contributes, composed in quadrature - see <see cref="ApplyPppoeSession"/>.</summary>
+    private const double PppoeJitterMs = 0.25;
+
+    /// <summary>Loaded-loss (percentage points) the BNG contributes at the low / high anchors.</summary>
+    private const double PppoeLoadedLossLowPct = 0.5;
+    private const double PppoeLoadedLossHighPct = 1.0;
+
+    /// <summary>
+    /// Overlays the cost of a PPPoE session on the medium's profile. Called only when the WAN's
+    /// data-path interface is ppp* (<see cref="NetworkUtilities.IsPppoeInterface"/>), so it is
+    /// driven by what the gateway reports rather than by anything the user picked - PPPoE is an
+    /// encapsulation and the medium underneath it is a separate fact, which is why the access
+    /// technology selector asks only for the medium.
+    ///
+    /// Each axis composes the way its underlying quantity does:
+    ///
+    /// - Idle RTT adds. Two serial path segments' delays sum, so the BNG offset lands on every
+    ///   anchor equally (see <see cref="PppoeIdleRttOffsetMs"/>).
+    /// - Jitter adds in quadrature - sqrt(a^2 + b^2) - because independent variance sources
+    ///   compose that way, not linearly. This gives the right shape for free: 0.25 ms of BNG
+    ///   jitter moves GPON's 0.4 ms ideal anchor to 0.47 (+18%) but its 3.0 ms poor anchor to
+    ///   3.01 (+0.3%). A fixed independent contributor matters when the medium is quiet and
+    ///   vanishes when it is already noisy. Adding linearly would push the ideal anchor to
+    ///   0.65 (+63%) and let a genuinely jittery line score a flat 100.
+    /// - Loaded loss adds, in percentage points. Independent loss stages compose as
+    ///   1-(1-a)(1-b), which for small values is a+b. The BNG enforces the plan rate per
+    ///   subscriber and the enforcement point is a drop point (a policer drops on exceed; a
+    ///   shaper queues then tail-drops), so it is a constant contribution from a different
+    ///   device rather than a multiple of the medium's. Multiplying instead would take DSL's
+    ///   already-wide 3/5 to 6/10, which is permissive past the point of being useful.
+    ///
+    /// StabilityMad and the loaded deltas are deliberately NOT adjusted yet - both should move
+    /// on the same reasoning, neither has a number behind it, and an unfounded constant here
+    /// becomes the thing future measurements get compared against.
+    ///
+    /// Caveat worth keeping in view when this gets recalibrated: UniFi gateways terminate the
+    /// PPPoE session in software and drop out of the hardware fast path doing it, so part of the
+    /// loaded loss we attribute to the BNG is our own CPE saturating. It is separable (CPE drops
+    /// track gateway CPU and show on both WANs of a dual-WAN box; a BNG effect shows on one),
+    /// but only if gateway CPU is recorded alongside. Until then the loss adders stay small on
+    /// purpose - an over-wide loss band would mask an undersized gateway as "normal for PPPoE".
+    /// </summary>
+    public static AccessProfile ApplyPppoeSession(AccessProfile profile, AccessTechnology tech)
+    {
+        var rtt = PppoeIdleRttOffsetMs(tech);
+        static double? InQuadrature(double? band, double added)
+            => band is { } b ? Math.Round(Math.Sqrt(b * b + added * added), 2) : null;
+
+        return profile with
+        {
+            IdleRttIdealMs = profile.IdleRttIdealMs + rtt,
+            IdleRttNormalLowMs = profile.IdleRttNormalLowMs + rtt,
+            IdleRttNormalHighMs = profile.IdleRttNormalHighMs + rtt,
+            IdleRttPoorMs = profile.IdleRttPoorMs + rtt,
+            LoadedLossDownLowPct = profile.LoadedLossDownLowPct + PppoeLoadedLossLowPct,
+            LoadedLossDownHighPct = profile.LoadedLossDownHighPct + PppoeLoadedLossHighPct,
+            LoadedLossUpLowPct = profile.LoadedLossUpLowPct + PppoeLoadedLossLowPct,
+            LoadedLossUpHighPct = profile.LoadedLossUpHighPct + PppoeLoadedLossHighPct,
+            JitterIdealMs = InQuadrature(profile.JitterIdealMs, PppoeJitterMs),
+            JitterTypicalMs = InQuadrature(profile.JitterTypicalMs, PppoeJitterMs),
+            JitterPoorMs = InQuadrature(profile.JitterPoorMs, PppoeJitterMs)
+        };
+    }
+
+    /// <summary>
     /// Wide-band profile for technologies where the underlying medium is ambiguous.
     /// Deliberately less discriminating so neither fiber nor DSL users are penalized.
     /// </summary>

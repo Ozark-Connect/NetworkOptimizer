@@ -220,13 +220,13 @@ else
                 <IspHealthScoreGauge Score="r.OverallScore" Label="ISP Health" />
                 <div class="isp-health-profile-chip isp-health-profile-chip-selectable"
                      data-tooltip="@(_canOperate ? "Thresholds are tuned per access technology; change it to re-score." : "Thresholds are tuned per access technology. A Site Operator or Admin can change it.")" data-tooltip-hover-only>
-                    Scored as @r.Profile.DisplayName &middot; @ScoredWindowLabel(r)
+                    Scored as @r.Profile.DisplayName@PppoeSuffix(r) &middot; @ScoredWindowLabel(r)
                     <span class="isp-profile-chip-caret"></span>
                     <select class="isp-profile-chip-select" aria-label="Access technology" disabled="@(!_canOperate)"
                             value="@((int)r.AccessTechnology)" @onchange="OnAccessTechnologyChanged">
                         @foreach (var tech in ProfileTechOptions)
                         {
-                            <option value="@((int)tech)" selected="@(tech == r.AccessTechnology)">@FormatTechName(tech)</option>
+                            <option value="@((int)tech)" selected="@(tech == r.AccessTechnology)">@TechLabel(tech, r)</option>
                         }
                     </select>
                 </div>
@@ -360,7 +360,7 @@ else
                                     value="@((int)r.AccessTechnology)" @onchange="OnAccessTechnologyChanged">
                                 @foreach (var tech in ProfileTechOptions)
                                 {
-                                    <option value="@((int)tech)" selected="@(tech == r.AccessTechnology)">@FormatTechName(tech)</option>
+                                    <option value="@((int)tech)" selected="@(tech == r.AccessTechnology)">@TechLabel(tech, r)</option>
                                 }
                             </select>
                         }
@@ -1235,6 +1235,22 @@ else
     /// one only loses the thresholds the line should be graded against. Upstream Discovery's
     /// selector offers this same set (plus Unknown) - keep the two in step.
     /// </summary>
+    /// <summary>
+    /// " (PPPoE)" when the WAN runs a PPPoE session, otherwise nothing. The session is detected
+    /// from the gateway rather than picked, and it shifts the scored thresholds materially, so
+    /// the two places that state what the line is graded as have to say it.
+    /// </summary>
+    private static string PppoeSuffix(IspHealthReport r) => r.PppoeSession ? " (PPPoE)" : "";
+
+    /// <summary>
+    /// Technology label for the selectors. Only the CURRENT value carries the PPPoE suffix: a
+    /// native select shows the selected option's own text, so this is what puts "GPON (PPPoE)"
+    /// on the collapsed control, while the alternatives stay plain - they name media to switch
+    /// to, and the session rides whichever one is picked.
+    /// </summary>
+    private static string TechLabel(AccessTechnology tech, IspHealthReport r) =>
+        tech == r.AccessTechnology ? FormatTechName(tech) + PppoeSuffix(r) : FormatTechName(tech);
+
     private static readonly AccessTechnology[] ProfileTechOptions =
     [
         AccessTechnology.Gpon,

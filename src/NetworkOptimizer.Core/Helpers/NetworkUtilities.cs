@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
+using System.Text.RegularExpressions;
 
 namespace NetworkOptimizer.Core.Helpers;
 
@@ -794,5 +795,21 @@ public static class NetworkUtilities
             uplinkIfName.StartsWith(physicalIfName + ".", StringComparison.OrdinalIgnoreCase))
             return physicalIfName;
         return uplinkIfName;
+    }
+
+    /// <summary>
+    /// True when a WAN's data-path interface name is a PPPoE session interface - "ppp0",
+    /// "ppp3", or the "pppoe0" form some stacks use. The kernel names a PPPoE session this
+    /// way and nothing else, so the interface name alone identifies the encapsulation
+    /// without asking the user or inspecting the session.
+    ///
+    /// Deliberately anchored: a plain "ppp" with no unit number, or any name that merely
+    /// starts with those letters, is not a match. Pass the LOGICAL uplink (uplink_ifname),
+    /// not the physical port - the physical port stays "eth6" while the session rides ppp0.
+    /// </summary>
+    public static bool IsPppoeInterface(string? uplinkIfName)
+    {
+        if (string.IsNullOrWhiteSpace(uplinkIfName)) return false;
+        return Regex.IsMatch(uplinkIfName.Trim(), @"^ppp(oe)?\d+$", RegexOptions.IgnoreCase);
     }
 }
