@@ -130,9 +130,12 @@ public class PhysicalLinkResolver
                 // it is safe to assume it is the user's WAN; otherwise stay out of it.
                 // Kept for WANs still stored as PppoE - it is no longer selectable in Upstream
                 // Discovery, since picking the medium it rides resolves the physical link
-                // outright instead of guessing at it. Note the branch does not need the stored
-                // value to know the session is PPPoE: the WAN's uplink interface is named ppp*
-                // (uplink_ifname "ppp0") and its network config carries wan_type "pppoe".
+                // outright instead of guessing at it. The guess stays available regardless of
+                // the stored value: ISP Health can tell a PPPoE session on its own, because the
+                // WAN's uplink interface is named ppp* (uplink_ifname "ppp0") and its network
+                // config carries wan_type "pppoe". Worth wiring up here when PPPoE gets scoring
+                // behavior of its own - the encapsulation is then a fact we detect, layered on
+                // the medium the user picked, rather than a choice competing with it.
                 var pon = await PonCandidatesAsync(db, ct);
                 return pon.Count == 1 ? pon : new List<Cand>();
 

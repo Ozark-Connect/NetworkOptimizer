@@ -864,9 +864,10 @@ public class UpstreamTracerService
         // Unknown makes all of them fall back to generic. Only proposes into an empty slot -
         // a user's (or an earlier run's) choice is never overwritten.
         //
-        // A stored PppoE counts as empty here. PPPoE names an encapsulation, not a medium, so
-        // it scores on the same wide neutral profile as Other (IspHealthProfiles.GetProfile)
-        // and a vendor-derived medium is strictly better evidence. Nothing ever infers PPPoE -
+        // A stored PppoE counts as empty here. PPPoE names an encapsulation, not a medium, so a
+        // vendor-derived medium is strictly better evidence for this field, and the redirect
+        // costs nothing even once PPPoE earns scoring behavior of its own: the encapsulation is
+        // re-derivable any time from uplink_ifname "ppp0" / wan_type "pppoe". Nothing infers PPPoE -
         // TechnologyFromVendor cannot return it, and it is no longer in the Upstream Discovery
         // dropdown - so this only redirects values picked before it was removed.
         if (State.AccessTechnology is AccessTechnology.Unknown or AccessTechnology.PppoE)
@@ -2069,12 +2070,13 @@ public class UpstreamTracerService
     /// AccessHop. Spec 5.5 documents this priority.
     ///
     /// The PppoE branch here (and in <see cref="InferL2NeighborRole"/> and
-    /// <see cref="LabelL2Role"/>) is the only place PPPoE splits behavior deterministically -
-    /// it does not split scoring, where it shares Other's neutral profile. It stays for WANs
-    /// still stored as PppoE, but it never needed the stored value: a PPPoE WAN announces
-    /// itself in the gateway interface name (uplink_ifname "ppp0", already read into
-    /// <see cref="_wanUplinkIfName"/>) and in the network config's wan_type "pppoe". So the BNG
-    /// label can be driven off the interface while the user picks the medium PPPoE rides.
+    /// <see cref="LabelL2Role"/>) is where PPPoE splits behavior today; ISP Health scoring is
+    /// expected to split on it too once there is field data to calibrate against. Neither split
+    /// needs the stored value, which is why PPPoE left the Upstream Discovery selector: a PPPoE
+    /// WAN announces itself in the gateway interface name (uplink_ifname "ppp0", already read
+    /// into <see cref="_wanUplinkIfName"/>) and in the network config's wan_type "pppoe". Drive
+    /// the BNG label off that, and the user is left picking only the medium PPPoE rides - the
+    /// two are independent facts and both are then available to score on.
     /// </summary>
     private static UpstreamRole InferAccessRole(AttributedHop hop, AccessTechnology tech, string? ouiVendor)
     {
