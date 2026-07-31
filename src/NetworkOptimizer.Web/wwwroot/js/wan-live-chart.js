@@ -101,10 +101,20 @@ function clickToTime(event, ctx) {
 function tooltipShowing() {
     const el = document.getElementById(elId);
     if (!el?.classList.contains('apexcharts-tooltip-active')) return false;
-    if (IS_TOUCH || !lastMouse) return true;
-    const inner = el.querySelector('.apexcharts-inner');
-    if (!inner) return true;
-    const r = inner.getBoundingClientRect();
+    if (IS_TOUCH) return true;
+    // No pointer over the container at all: the class is stale (ApexCharts
+    // missed its mouseout, e.g. a fast exit). A mouse tooltip can't be
+    // showing with the cursor gone - trusting the class here froze the chart
+    // until the cursor happened to come back.
+    if (!lastMouse) return false;
+    // .apexcharts-grid, not .apexcharts-inner: the inner group's bounding box
+    // is the union of its children, and the scrolling annotation tick labels
+    // overflow the plot edge into the axis gutters - so the gutter hold came
+    // and went with wherever a label sat. The grid group is exactly the plot
+    // area, and it's the same rect ApexCharts' own tooltip bounds-check reads.
+    const grid = el.querySelector('.apexcharts-grid');
+    if (!grid) return false;
+    const r = grid.getBoundingClientRect();
     return lastMouse.x >= r.left && lastMouse.x <= r.right
         && lastMouse.y >= r.top && lastMouse.y <= r.bottom;
 }
