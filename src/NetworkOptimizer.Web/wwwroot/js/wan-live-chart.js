@@ -59,9 +59,16 @@ let histBadge = null;
 let playBtn = null;
 let unsubFlow = null;
 // Renders forced through the tooltip hold-off until this wall time: a click
-// on the chart (to seek or play) must draw its playhead even though the
-// pointer - and therefore the tooltip - is still over the plot.
+// on the chart (to seek or play) or a play/pause / historic/live flip must
+// draw even though the pointer - and therefore the tooltip - may still be
+// over the plot.
 let clickRenderUntil = 0;
+const CLICK_RENDER_MS = 2000;
+// Last known mouse position over the chart, for the tooltip hold-off's
+// inside-the-plot check (see tooltipShowing).
+let lastMouse = null;
+let mouseMoveHandler = null;
+let mouseLeaveHandler = null;
 
 function formatBps(v) {
     if (v == null || v < 1) return '0';
@@ -82,6 +89,33 @@ function clickToTime(event, ctx) {
     const frac = (event.clientX - rect.left) / rect.width;
     if (frac < 0 || frac > 1) return null;
     return g.minX + frac * (g.maxX - g.minX);
+}
+
+// True only while the value tooltip is actually on screen. ApexCharts marks
+// the whole mount 'apexcharts-tooltip-active' on any mousemove over the svg,
+// and its bounds check is vertical-only - so a cursor parked in a y-axis
+// gutter held redraws indefinitely with no tooltip showing. With a mouse the
+// class is therefore cross-checked against the pointer being inside the plot
+// grid (the region where the shared tooltip really appears); on touch the
+// class stands alone, since tap-to-inspect has no live pointer to check.
+function tooltipShowing() {
+    const el = document.getElementById(elId);
+    if (!el?.classList.contains('apexcharts-tooltip-active')) return false;
+    if (IS_TOUCH || !lastMouse) return true;
+    const inner = el.querySelector('.apexcharts-inner');
+    if (!inner) return true;
+    const r = inner.getBoundingClientRect();
+    return lastMouse.x >= r.left && lastMouse.x <= r.right
+        && lastMouse.y >= r.top && lastMouse.y <= r.bottom;
+}
+
+function removeMouseTracking() {
+    const el = elId ? document.getElementById(elId) : null;
+    if (el && mouseMoveHandler) el.removeEventListener('mousemove', mouseMoveHandler);
+    if (el && mouseLeaveHandler) el.removeEventListener('mouseleave', mouseLeaveHandler);
+    mouseMoveHandler = null;
+    mouseLeaveHandler = null;
+    lastMouse = null;
 }
 
 function buildOpts() {
@@ -113,7 +147,7 @@ function buildOpts() {
                     pause();
                     histAt = t;
                     histWall = Date.now();
-                    clickRenderUntil = Date.now() + 1500;
+                    clickRenderUntil = Date.now() + CLICK_RENDER_MS;
                     renderHistoric(t);
                     inst.seekTo(t);
                 },
@@ -289,8 +323,7 @@ function buildSeriesData() {
 
 function updateChart() {
     if (!chart || buffer.length === 0) return;
-    const el = document.getElementById(elId);
-    if (el?.classList.contains('apexcharts-tooltip-active')) return;
+    if (Date.now() > clickRenderUntil && tooltipShowing()) return;
     const now = Date.now();
     const pts = buildSeriesData();
     chart.updateOptions({
@@ -413,7 +446,7 @@ function ensureModeUi(el) {
         playBtn.className = 'lan-flow-map-scrubber-playpause';
         playBtn.addEventListener('click', (e) => {
             e.stopPropagation();
-            clickRenderUntil = Date.now() + 1500;
+            clickRenderUntil = Date.now() + CLICK_RENDER_MS;
             window.__lanFlowMap?.getInstance?.()?._togglePlayPause?.();
         });
         modeCluster.appendChild(playBtn);
@@ -425,6 +458,7 @@ function ensureModeUi(el) {
         histBadge.setAttribute('data-tooltip-hover-only', '');
         histBadge.addEventListener('click', (e) => {
             e.stopPropagation();
+            clickRenderUntil = Date.now() + CLICK_RENDER_MS;
             window.__lanFlowMap?.getInstance?.()?._returnToLive?.();
         });
         modeCluster.appendChild(histBadge);
@@ -435,7 +469,16 @@ function ensureModeUi(el) {
     // cluster anchors to the same visual spot.
     (el.closest('.card-body') ?? el).appendChild(modeCluster);
     if (!unsubFlow) {
-        unsubFlow = flowData.subscribe((ev) => { if (ev === 'playstate') syncModeUi(); });
+        unsubFlow = flowData.subscribe((ev) => {
+            if (ev !== 'playstate') return;
+            // A play/pause or historic/live flip must draw immediately, even
+            // with the cursor parked over the plot: let renders through the
+            // tooltip hold briefly. Fires only on state flips (and the mount
+            // reset), never on playback ticks, so steady playback keeps the
+            // hold for tooltip inspection.
+            clickRenderUntil = Date.now() + CLICK_RENDER_MS;
+            syncModeUi();
+        });
     }
     syncModeUi();
 }
@@ -454,12 +497,19 @@ export async function mount(containerId, opts) {
     if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
     if (scrollTimer) { clearInterval(scrollTimer); scrollTimer = null; }
     if (chart) { chart.destroy(); chart = null; }
+    removeMouseTracking();
     buffer = [];
     lastSampleTime = 0;
     const gen = ++mountGen;
     elId = containerId;
     const el = document.getElementById(containerId);
     if (!el) return;
+    // On the container div (Blazor-owned, survives ApexCharts' re-renders of
+    // its content), so the listeners outlive option updates.
+    mouseMoveHandler = (e) => { lastMouse = { x: e.clientX, y: e.clientY }; };
+    mouseLeaveHandler = () => { lastMouse = null; };
+    el.addEventListener('mousemove', mouseMoveHandler);
+    el.addEventListener('mouseleave', mouseLeaveHandler);
     seekOnClick = !!opts?.seekOnClick;
     // Crosshair only where tap-to-seek is actually live (desktop).
     el.classList.toggle('wan-chart-seekable', seekOnClick && !IS_TOUCH);
@@ -533,10 +583,7 @@ export function resume() {
 // advances - the exact behavior the hover-hold exists to preserve.
 function renderHistoric(at, force = false) {
     if (!chart || buffer.length === 0) return;
-    if (!force && Date.now() > clickRenderUntil) {
-        const el = document.getElementById(elId);
-        if (el?.classList.contains('apexcharts-tooltip-active')) return;
-    }
+    if (!force && Date.now() > clickRenderUntil && tooltipShowing()) return;
     const halfWindow = HISTORY_MINUTES * 60000 / 2;
     const maxTime = Math.min(at + halfWindow, Date.now());
     const playhead = {
@@ -674,6 +721,7 @@ export function unmount() {
     if (backfillTimer) { clearInterval(backfillTimer); backfillTimer = null; }
     if (visHandler) { document.removeEventListener('visibilitychange', visHandler); visHandler = null; }
     if (chart) { chart.destroy(); chart = null; }
+    removeMouseTracking();
     buffer = [];
     elId = null;
 }
