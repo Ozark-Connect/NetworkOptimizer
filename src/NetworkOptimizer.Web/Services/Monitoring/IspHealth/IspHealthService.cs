@@ -592,24 +592,11 @@ public class IspHealthService
         if (ispTargets.Count == 0 && transitTargets.Count == 0)
             return new ComputeOutcome(IspHealthStatus.NeedsDiscovery, null, new List<AsnSeries>());
 
-        // Everything below that comes from the console is only trustworthy once the console has
-        // actually SERVED something, and no connection flag tells us that. IsConnected - and so
-        // CanCompute, and WaitForConnectionAsync, which just polls it - means a login succeeded.
-        // It is true before the first stat/device call ever runs, and UniFiApiClient.GetDevicesAsync
-        // returns an EMPTY LIST rather than throwing when that call fails, without caching the
-        // failure. So on the first compute after a restart every console-derived input can come
-        // back empty while every gate reads healthy: no PPPoE overlay, and no expected WAN speeds,
-        // which drops HasExpectedSpeeds and skips loaded analysis altogether. The report is then
-        // cached for CacheTtl, so one unlucky first call sets the score for 15 minutes.
-        //
-        // Getting a device list back is the proof, and it is the same fetch the PPPoE lookup and
-        // the expected-speed lookup ride on: if it answered, they can too. Deferring is safe - a
-        // null report leaves _cached untouched (only forceRefresh clears it) and the TTL
-        // short-circuit needs a cached report to fire, so the very next read recomputes.
-        //
-        // Gated on the list being EMPTY, not on finding a gateway. A site whose devices are all
-        // switches and APs behind a third-party router legitimately has no gateway, and must still
-        // be able to score.
+        // Proof the console actually served data. IsConnected only means the login succeeded, and
+        // GetDevicesAsync returns an empty list rather than throwing, so without this a restart can
+        // cache a report that silently lost the PPPoE overlay and expected WAN speeds. A null
+        // report leaves _cached untouched, so the next read recomputes. Empty list rather than a
+        // missing gateway: a site behind a third-party router has no gateway and must still score.
         var discoveredDevices = await _connectionService.GetDiscoveredDevicesAsync(ct);
         if (discoveredDevices.Count == 0)
         {
@@ -1194,23 +1181,11 @@ public class IspHealthService
     /// data-path interface name (uplink_ifname) - "ppp0" is a PPPoE session and nothing else.
     /// Cheap: the underlying device call is already cached.
     ///
-    /// Three-valued on purpose. False means we read an interface and it is not PPPoE; NULL means
-    /// we could not tell, and the two must not be conflated. There is no safe default to collapse
-    /// them onto: assuming PPPoE would grade an ordinary line too leniently, and assuming no PPPoE
-    /// grades a real PPPoE line against thresholds that expect a nearby first hop - the exact
-    /// mis-scoring the overlay exists to fix.
-    ///
-    /// Unknown is more reachable than it looks, and none of it throws.
-    /// <see cref="UniFiConnectionService.GetPrimaryWanInterfacesAsync"/> returns null when the
-    /// primary WAN cannot be resolved, when no gateway is in the device list, or when no wan
-    /// object matches the primary networkgroup; GetNetworksAsync returns an EMPTY LIST rather
-    /// than throwing when the console is not connected. So a try/catch catches none of it and the
-    /// caller has to handle null explicitly.
-    ///
-    /// Logged at Warning, not Debug, for the same reason as the speed-test pool below: the result
-    /// is baked into a report that is then cached for CacheTtl, so a silent unknown reads as a
-    /// settled "not PPPoE" for 15 minutes. It self-heals on the next recompute, and immediately on
-    /// a forced refresh (which clears the console caches first).
+    /// Three-valued on purpose: false means we read an interface and it is not PPPoE, null means we
+    /// could not tell. Neither default is safe - assuming PPPoE grades an ordinary line too
+    /// leniently, assuming no PPPoE grades a real one too harshly. The resolver signals its
+    /// failures by returning null rather than throwing, so the caller has to handle it explicitly.
+    /// Warning-level because the answer is cached in the report for CacheTtl.
     /// </summary>
     private async Task<bool?> IsPppoeWanAsync(CancellationToken ct)
     {
