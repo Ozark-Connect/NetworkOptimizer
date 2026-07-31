@@ -221,7 +221,7 @@
                             <small class="form-help">The WAN your modem/ONT sits behind. The interface rides this port.</small>
                         </div>
                         <div class="form-group mi-grow-2">
-                            <label class="form-label">VLAN</label>
+                            <label class="form-label">Management VLAN</label>
                             <div class="mi-vlan">
                                 <label class="checkbox-label mi-vlan-toggle">
                                     <input type="checkbox" @bind="_vlanEnabled" @bind:after="OnVlanToggled" />
@@ -229,7 +229,7 @@
                                 </label>
                                 <input type="number" class="form-control mi-vlan-id" @bind="_editing.WanVlanId" @bind:event="oninput" min="1" max="4094" placeholder="100" disabled="@(!_vlanEnabled)" />
                             </div>
-                            <small class="form-help">Tag the interface when your WAN runs on a VLAN (some fiber ISPs). Leave off for a plain port.</small>
+                            <small class="form-help">Rarely needed. Only when your modem or ONT's management interface sits on a tagged VLAN - enter that VLAN ID so the interface can reach it.</small>
                         </div>
                     </div>
 
