@@ -109,6 +109,34 @@ function tooltipShowing() {
         && lastMouse.y >= r.top && lastMouse.y <= r.bottom;
 }
 
+// Re-arm the value tooltip after a discrete seek. The seek redraw rebuilds
+// the plot under a stationary pointer, and ApexCharts only computes a tooltip
+// on a real mousemove - so after a click-to-seek the values under the cursor
+// vanished (or went stale) until the mouse jiggled. Replaying the last pointer
+// position as a synthetic mousemove on the chart svg (the element ApexCharts
+// binds its tooltip handler to) makes the tooltip reappear with the freshly
+// fetched values at the parked instant. Desktop only, and only when the
+// pointer is actually inside the plot - a map-scrubber seek leaves the pointer
+// elsewhere, and a tooltip with no cursor under it would just linger.
+function replayHover(gen) {
+    if (IS_TOUCH || !lastMouse) return;
+    // Let the updateSeries render pass settle so the tooltip reads the new
+    // buffer, not the pre-seek points.
+    setTimeout(() => {
+        if (gen !== seekGen || !lastMouse) return;
+        const el = document.getElementById(elId);
+        const inner = el?.querySelector('.apexcharts-inner');
+        const svg = el?.querySelector('.apexcharts-svg');
+        if (!inner || !svg) return;
+        const r = inner.getBoundingClientRect();
+        if (lastMouse.x < r.left || lastMouse.x > r.right
+            || lastMouse.y < r.top || lastMouse.y > r.bottom) return;
+        svg.dispatchEvent(new MouseEvent('mousemove', {
+            clientX: lastMouse.x, clientY: lastMouse.y, bubbles: true, view: window,
+        }));
+    }, 150);
+}
+
 function removeMouseTracking() {
     const el = elId ? document.getElementById(elId) : null;
     if (el && mouseMoveHandler) el.removeEventListener('mousemove', mouseMoveHandler);
@@ -687,7 +715,11 @@ export async function seekTime(isoTimestamp) {
     // scrub): it must land even under the cursor or it's never retried while paused.
     // During active playback leave it unforced so a hover still holds the redraw for
     // inspection while the background timeline (2D/3D maps) keeps advancing.
-    renderHistoric(at, mapPlaybackRate() <= 0);
+    const discrete = mapPlaybackRate() <= 0;
+    renderHistoric(at, discrete);
+    // A discrete seek that landed under the cursor re-shows the tooltip at the
+    // parked instant; playback ticks don't (the hover-hold owns that case).
+    if (discrete) replayHover(gen);
     if (!histTimer) {
         histTimer = setInterval(() => {
             const rate = mapPlaybackRate();
