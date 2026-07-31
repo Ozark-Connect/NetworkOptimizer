@@ -1780,6 +1780,28 @@ public class IspHealthProfilesTests
     }
 
     [Fact]
+    public void Pppoe_overlay_is_a_no_op_on_a_wan_already_stored_as_pppoe()
+    {
+        // The PppoE profile IS the stand-in for a PPPoE line. A legacy WAN still carrying that
+        // value, on a real ppp* interface, would otherwise be forgiven twice.
+        var stored = IspHealthProfiles.GetProfile(AccessTechnology.PppoE)!;
+        var overlaid = IspHealthProfiles.ApplyPppoeSession(stored, AccessTechnology.PppoE);
+
+        overlaid.Should().BeEquivalentTo(stored);
+    }
+
+    [Fact]
+    public void Pppoe_overlay_still_applies_to_other()
+    {
+        // "Other" means a medium we don't list, which a PPPoE session genuinely rides on top of -
+        // unlike PppoE itself, it is not already standing in for the session.
+        var other = IspHealthProfiles.GetProfile(AccessTechnology.Other)!;
+        var overlaid = IspHealthProfiles.ApplyPppoeSession(other, AccessTechnology.Other);
+
+        overlaid.LoadedLossDownHighPct.Should().BeGreaterThan(other.LoadedLossDownHighPct);
+    }
+
+    [Fact]
     public void Pppoe_overlay_keeps_upstream_loss_band_within_downstream()
     {
         // Same invariant the base profiles are held to above - the overlay must not invert it.
