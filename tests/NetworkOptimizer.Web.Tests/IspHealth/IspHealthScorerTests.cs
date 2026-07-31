@@ -1760,8 +1760,11 @@ public class IspHealthProfilesTests
             p.IdleRttPoorMs.Should().BeGreaterThanOrEqualTo(b.IdleRttPoorMs, $"{tech} poor RTT");
             p.LoadedLossDownHighPct.Should().BeGreaterThanOrEqualTo(b.LoadedLossDownHighPct, $"{tech} loaded loss down");
             p.LoadedLossUpHighPct.Should().BeGreaterThanOrEqualTo(b.LoadedLossUpHighPct, $"{tech} loaded loss up");
+            p.LoadedDeltaAcceptableMs.Should().BeGreaterThanOrEqualTo(b.LoadedDeltaAcceptableMs, $"{tech} loaded delta");
             if (b.JitterIdealMs is { } ideal)
                 p.JitterIdealMs.Should().BeGreaterThanOrEqualTo(ideal, $"{tech} jitter ideal");
+            if (b.StabilityMadIdealMs is { } mad)
+                p.StabilityMadIdealMs.Should().BeGreaterThanOrEqualTo(mad, $"{tech} stability MAD ideal");
         }
     }
 
@@ -1790,15 +1793,63 @@ public class IspHealthProfilesTests
         overlaid.Should().BeEquivalentTo(stored);
     }
 
-    [Fact]
-    public void Pppoe_overlay_still_applies_to_other()
+    [Theory]
+    [InlineData(AccessTechnology.Docsis)]      // provisions over DHCP
+    [InlineData(AccessTechnology.Satellite)]   // terminates its own way
+    [InlineData(AccessTechnology.Cellular)]
+    [InlineData(AccessTechnology.Other)]       // names no medium - nothing to calibrate an overlay against
+    public void Pppoe_overlay_skips_media_that_never_carry_it(AccessTechnology tech)
     {
-        // "Other" means a medium we don't list, which a PPPoE session genuinely rides on top of -
-        // unlike PppoE itself, it is not already standing in for the session.
-        var other = IspHealthProfiles.GetProfile(AccessTechnology.Other)!;
-        var overlaid = IspHealthProfiles.ApplyPppoeSession(other, AccessTechnology.Other);
+        var baseline = IspHealthProfiles.GetProfile(tech)!;
+        var overlaid = IspHealthProfiles.ApplyPppoeSession(baseline, tech);
 
-        overlaid.LoadedLossDownHighPct.Should().BeGreaterThan(other.LoadedLossDownHighPct);
+        overlaid.Should().BeEquivalentTo(baseline);
+    }
+
+    [Fact]
+    public void Pppoe_overlay_composes_stability_mad_in_quadrature()
+    {
+        var baseline = IspHealthProfiles.GetProfile(AccessTechnology.Gpon)!;
+        var pppoe = IspHealthProfiles.ApplyPppoeSession(baseline, AccessTechnology.Gpon);
+
+        // sqrt(0.15^2 + 0.10^2) = 0.1803. Same shape as jitter: the ideal anchor moves ~20% and
+        // the poor anchor barely at all.
+        pppoe.StabilityMadIdealMs.Should().BeApproximately(0.18, 0.005);
+        pppoe.StabilityMadTypicalMs.Should().BeApproximately(0.41, 0.005);
+        pppoe.StabilityMadPoorMs.Should().BeApproximately(1.50, 0.005);
+    }
+
+    [Fact]
+    public void Pppoe_overlay_widens_loaded_delta_uniformly_across_media()
+    {
+        // Uniform, unlike the RTT offset: that scales with how far the BNG is, this with how deep
+        // its queue is, and the two are unrelated.
+        foreach (var tech in new[]
+        {
+            AccessTechnology.Gpon, AccessTechnology.XgsPon, AccessTechnology.DirectEthernet,
+            AccessTechnology.FixedWireless, AccessTechnology.Dsl
+        })
+        {
+            var b = IspHealthProfiles.GetProfile(tech)!;
+            var p = IspHealthProfiles.ApplyPppoeSession(b, tech);
+
+            p.LoadedDeltaExcellentMs.Should().BeApproximately(b.LoadedDeltaExcellentMs + 1.0, 0.001, $"{tech} excellent");
+            p.LoadedDeltaAcceptableMs.Should().BeApproximately(b.LoadedDeltaAcceptableMs + 3.0, 0.001, $"{tech} acceptable");
+        }
+    }
+
+    [Fact]
+    public void Pppoe_overlay_keeps_loaded_delta_from_masking_bufferbloat()
+    {
+        // The BNG shaper is a bufferbloat source and bufferbloat is what Adaptive SQM fixes. This
+        // band has to stay tight enough that a PPPoE line with no SQM still grades down for it -
+        // if GPON's excellent anchor ever drifted past DOCSIS's, the overlay would be excusing a
+        // problem we are supposed to be reporting.
+        var gpon = IspHealthProfiles.ApplyPppoeSession(
+            IspHealthProfiles.GetProfile(AccessTechnology.Gpon)!, AccessTechnology.Gpon);
+
+        gpon.LoadedDeltaExcellentMs.Should().BeLessThan(
+            IspHealthProfiles.GetProfile(AccessTechnology.Docsis)!.LoadedDeltaExcellentMs);
     }
 
     [Fact]

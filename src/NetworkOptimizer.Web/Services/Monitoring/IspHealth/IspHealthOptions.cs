@@ -816,9 +816,8 @@ public static class IspHealthProfiles
     /// so the full 2.0 would partly double-count - but the 6.0 ms ideal anchor describes a clean
     /// copper loop, which is medium-only, so zero would under-adjust. Revisit with DT VDSL data.
     ///
-    /// Everything else is 0: DOCSIS provisions over DHCP and Starlink/cellular terminate their
-    /// own way, so PPPoE is not expected there at all. If ppp* ever does show up on one, the
-    /// medium's own band is a better answer than an offset nobody has measured.
+    /// Only the media in <see cref="CarriesPppoe"/> reach this, so there is no "everything else"
+    /// case to tune - the overlay does not run at all where PPPoE is not delivered.
     /// </summary>
     private static double PppoeIdleRttOffsetMs(AccessTechnology tech) => tech switch
     {
@@ -828,12 +827,54 @@ public static class IspHealthProfiles
         _ => 0.0
     };
 
+    /// <summary>
+    /// Media a PPPoE session is actually delivered over, and the only ones the overlay touches.
+    /// DOCSIS provisions over DHCP, and Starlink and cellular terminate their own way, so PPPoE
+    /// is not expected on any of them.
+    ///
+    /// Unknown, PppoE and Other are excluded for a different reason: the overlay's numbers are
+    /// calibrated per medium and none of those three names one. PppoE is already the stand-in FOR
+    /// a session, so overlaying it would forgive the same thing twice; Other falls back to the
+    /// deliberately wide neutral band, which has no medium-specific calibration for an overlay to
+    /// sit on top of. Both are legacy stored values - neither is selectable any more.
+    /// </summary>
+    private static bool CarriesPppoe(AccessTechnology tech) => tech is
+        AccessTechnology.Gpon or AccessTechnology.XgsPon or AccessTechnology.DirectEthernet
+        or AccessTechnology.FixedWireless or AccessTechnology.Dsl;
+
     /// <summary>Jitter (ms) the BNG contributes, composed in quadrature - see <see cref="ApplyPppoeSession"/>.</summary>
     private const double PppoeJitterMs = 0.25;
+
+    /// <summary>
+    /// RTT-stability MAD (ms) the BNG contributes, composed in quadrature. Derived from
+    /// <see cref="PppoeJitterMs"/> rather than guessed: across the media whose bands are not
+    /// driven by a documented medium-specific effect, JitterIdealMs / StabilityMadIdealMs sits in
+    /// a tight cluster around 2.8 (GPON 2.67, XGS-PON 2.92, Active Ethernet 2.67, Cellular 2.67,
+    /// DSL 2.86, Fixed Wireless 3.13). DOCSIS at 5.83 and Satellite at 1.0 are excluded from the
+    /// fit - their ratios come from request-grant jitter and LEO handovers, not from the general
+    /// relationship. 0.25 / 2.8 = 0.089, rounded to 0.10.
+    /// </summary>
+    private const double PppoeStabilityMadMs = 0.10;
 
     /// <summary>Loaded-loss (percentage points) the BNG contributes at the low / high anchors.</summary>
     private const double PppoeLoadedLossLowPct = 0.5;
     private const double PppoeLoadedLossHighPct = 1.0;
+
+    /// <summary>
+    /// Loaded-latency delta (ms) the BNG contributes at the excellent / acceptable anchors.
+    /// Applied uniformly, not tiered like the RTT offset: that offset scales with how far away the
+    /// BNG is, this one with how deep its queue is, and distance and queue depth are unrelated.
+    ///
+    /// Deliberately small. The BNG's per-session shaper is a bufferbloat source, and bufferbloat
+    /// is what Adaptive SQM exists to fix - once SQM shapes below the plan rate the CPE becomes
+    /// the bottleneck and the BNG queue stops filling. Widen this too far and a PPPoE user with no
+    /// SQM is told their loaded latency is normal for their line, when the honest answer is to
+    /// turn Adaptive SQM on. These values cover the part that is genuinely not the user's to fix -
+    /// downstream egress queuing at the BNG belongs to the ISP, and a CPE can only answer it with
+    /// cruder ingress policing - and no more.
+    /// </summary>
+    private const double PppoeLoadedDeltaExcellentMs = 1.0;
+    private const double PppoeLoadedDeltaAcceptableMs = 3.0;
 
     /// <summary>
     /// Overlays the cost of a PPPoE session on the medium's profile. Called only when the WAN's
@@ -858,10 +899,13 @@ public static class IspHealthProfiles
     ///   shaper queues then tail-drops), so it is a constant contribution from a different
     ///   device rather than a multiple of the medium's. Multiplying instead would take DSL's
     ///   already-wide 3/5 to 6/10, which is permissive past the point of being useful.
-    ///
-    /// StabilityMad and the loaded deltas are deliberately NOT adjusted yet - both should move
-    /// on the same reasoning, neither has a number behind it, and an unfounded constant here
-    /// becomes the thing future measurements get compared against.
+    /// - RTT stability (MAD) adds in quadrature, for the same reason jitter does - it is the same
+    ///   wander measured as robust dispersion instead of packet-to-packet variation. Its size is
+    ///   derived from the jitter figure via the ratio the profiles already encode; see
+    ///   <see cref="PppoeStabilityMadMs"/>.
+    /// - The loaded deltas add, uniformly across media, and stay small on purpose. See
+    ///   <see cref="PppoeLoadedDeltaExcellentMs"/> - over-widening this axis would forgive exactly
+    ///   the bufferbloat Adaptive SQM exists to fix.
     ///
     /// Caveat worth keeping in view when this gets recalibrated: UniFi gateways terminate the
     /// PPPoE session in software and drop out of the hardware fast path doing it, so part of the
@@ -872,12 +916,7 @@ public static class IspHealthProfiles
     /// </summary>
     public static AccessProfile ApplyPppoeSession(AccessProfile profile, AccessTechnology tech)
     {
-        // A WAN still stored as PppoE already scores on the neutral stand-in FOR a PPPoE line, so
-        // overlaying on top of it would forgive the same session twice. Legacy value, real ppp*
-        // interface, and the honest answer is that the medium is unknown - not that it is unknown
-        // AND further away. Other is deliberately not exempt: it means "some medium we don't
-        // list", which a PPPoE session genuinely does sit on top of.
-        if (tech == AccessTechnology.PppoE)
+        if (!CarriesPppoe(tech))
             return profile;
 
         var rtt = PppoeIdleRttOffsetMs(tech);
@@ -896,7 +935,12 @@ public static class IspHealthProfiles
             LoadedLossUpHighPct = profile.LoadedLossUpHighPct + PppoeLoadedLossHighPct,
             JitterIdealMs = InQuadrature(profile.JitterIdealMs, PppoeJitterMs),
             JitterTypicalMs = InQuadrature(profile.JitterTypicalMs, PppoeJitterMs),
-            JitterPoorMs = InQuadrature(profile.JitterPoorMs, PppoeJitterMs)
+            JitterPoorMs = InQuadrature(profile.JitterPoorMs, PppoeJitterMs),
+            StabilityMadIdealMs = InQuadrature(profile.StabilityMadIdealMs, PppoeStabilityMadMs),
+            StabilityMadTypicalMs = InQuadrature(profile.StabilityMadTypicalMs, PppoeStabilityMadMs),
+            StabilityMadPoorMs = InQuadrature(profile.StabilityMadPoorMs, PppoeStabilityMadMs),
+            LoadedDeltaExcellentMs = profile.LoadedDeltaExcellentMs + PppoeLoadedDeltaExcellentMs,
+            LoadedDeltaAcceptableMs = profile.LoadedDeltaAcceptableMs + PppoeLoadedDeltaAcceptableMs
         };
     }
 
