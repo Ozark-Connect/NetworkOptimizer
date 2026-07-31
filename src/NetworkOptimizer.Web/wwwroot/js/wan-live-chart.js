@@ -78,14 +78,31 @@ function formatBps(v) {
     return v.toFixed(0) + ' bps';
 }
 
-// Map a click inside the chart to the instant under the cursor. The inner
-// (grid) group's rect avoids translate math; its width is the plotted span.
+// The plot (grid) rect: exactly the X-Y area, excluding the axis gutters and
+// the label strip. .apexcharts-grid rather than .apexcharts-inner - the inner
+// group's bounding box is the union of its children, and the scrolling
+// annotation tick labels overflow the plot edge into the gutters. The grid
+// group is the same rect ApexCharts' own tooltip bounds-check reads.
+function gridRect() {
+    const el = elId ? document.getElementById(elId) : null;
+    return el?.querySelector('.apexcharts-grid')?.getBoundingClientRect() ?? null;
+}
+
+function insideGrid(p) {
+    if (!p) return false;
+    const r = gridRect();
+    return !!r && p.x >= r.left && p.x <= r.right && p.y >= r.top && p.y <= r.bottom;
+}
+
+// Map a click inside the plot to the instant under the cursor. Bounded to the
+// grid rect on both axes, so gutter and label-strip clicks don't seek - the
+// same region the seek crosshair shows over.
 function clickToTime(event, ctx) {
     const g = ctx?.w?.globals;
-    const inner = ctx?.el?.querySelector('.apexcharts-inner');
-    if (!g || !inner || !Number.isFinite(g.minX) || !Number.isFinite(g.maxX)) return null;
-    const rect = inner.getBoundingClientRect();
-    if (!rect.width) return null;
+    if (!g || !Number.isFinite(g.minX) || !Number.isFinite(g.maxX)) return null;
+    const rect = gridRect();
+    if (!rect?.width) return null;
+    if (event.clientY < rect.top || event.clientY > rect.bottom) return null;
     const frac = (event.clientX - rect.left) / rect.width;
     if (frac < 0 || frac > 1) return null;
     return g.minX + frac * (g.maxX - g.minX);
@@ -106,17 +123,7 @@ function tooltipShowing() {
     // missed its mouseout, e.g. a fast exit). A mouse tooltip can't be
     // showing with the cursor gone - trusting the class here froze the chart
     // until the cursor happened to come back.
-    if (!lastMouse) return false;
-    // .apexcharts-grid, not .apexcharts-inner: the inner group's bounding box
-    // is the union of its children, and the scrolling annotation tick labels
-    // overflow the plot edge into the axis gutters - so the gutter hold came
-    // and went with wherever a label sat. The grid group is exactly the plot
-    // area, and it's the same rect ApexCharts' own tooltip bounds-check reads.
-    const grid = el.querySelector('.apexcharts-grid');
-    if (!grid) return false;
-    const r = grid.getBoundingClientRect();
-    return lastMouse.x >= r.left && lastMouse.x <= r.right
-        && lastMouse.y >= r.top && lastMouse.y <= r.bottom;
+    return insideGrid(lastMouse);
 }
 
 function removeMouseTracking() {
@@ -516,8 +523,13 @@ export async function mount(containerId, opts) {
     if (!el) return;
     // On the container div (Blazor-owned, survives ApexCharts' re-renders of
     // its content), so the listeners outlive option updates.
-    mouseMoveHandler = (e) => { lastMouse = { x: e.clientX, y: e.clientY }; };
-    mouseLeaveHandler = () => { lastMouse = null; };
+    // The seek crosshair only over the plot itself, not the axis gutters -
+    // matching where a click actually seeks (clickToTime's grid bound).
+    mouseMoveHandler = (e) => {
+        lastMouse = { x: e.clientX, y: e.clientY };
+        if (seekOnClick && !IS_TOUCH) el.classList.toggle('wan-chart-seek-hot', insideGrid(lastMouse));
+    };
+    mouseLeaveHandler = () => { lastMouse = null; el.classList.remove('wan-chart-seek-hot'); };
     el.addEventListener('mousemove', mouseMoveHandler);
     el.addEventListener('mouseleave', mouseLeaveHandler);
     seekOnClick = !!opts?.seekOnClick;
