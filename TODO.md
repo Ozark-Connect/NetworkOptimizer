@@ -56,10 +56,15 @@ before/after on the NAS + Mac sites (and ideally a fleet sample), not a blind ed
   weight-to-measured-airtime ratio per site/band from channels that have BOTH pooled weight and
   spectrum data; keep the fixed `w/(1+w/6)` curve as the prior for blind spots. SOAK-GATED: only
   build if the fixed curve shows under/over-reaction on live sites.
-- [ ] **Recompute churn + sighting-pool variance.** The Channels page recomputed recommendations 3x
-  within 2 minutes, and the remembered-neighbor pool jumped 486 -> 626 sightings between two runs a
-  minute apart (pre-saturation, that flipped a plan run-to-run). Coalesce/cache the recompute and
-  find out why the pool varies between adjacent runs (ingestion timing?).
+- [ ] **Recompute churn.** Partly addressed. A minute-bucketed cache now keys the *scan snapshot* by
+  time bucket instead of exact second, so the overview card and the channel-plan tab no longer land on
+  different snapshots and produce different plans. Two things remain:
+  - The cache sits on the scan fetch, not on the recommendation: `GetAllChannelRecommendationsAsync`
+    still recomputes in full on every call, and the Channels page calls it from four places. Results are
+    consistent now but computed several times over - coalesce or cache the recompute itself.
+  - The 486 -> 626 sighting jump between adjacent runs was never root-caused. Rolling strongest-signal
+    pooling plus age-decayed neighbor memory plausibly account for it, but that was not confirmed;
+    if plans still differ run-to-run, start here.
 - [ ] **Degradation cap shape.** `MaxApScoreDegradation` is ratio-based (1.5x), so a pristine victim
   (score 1.0) absorbs only +0.5 of new interference while an already-suffering one (6.0) absorbs +3 -
   inverted from intent, and it silently diverted two synthetic test topologies. Now that scores sit on
@@ -101,21 +106,48 @@ before/after on the NAS + Mac sites (and ideally a fleet sample), not a blind ed
   width-ratio discount. Shifts external magnitudes - re-validate on the saturated scale (pooled
   weights now enter the score through `w/(1+w/6)`, so the impact is smaller than it was raw).
 
+## Applying a channel plan to UniFi (considered, deliberately out of scope for now)
+
+The recommendation ends at a plan the user applies by hand. That is a decision, not an oversight, and
+the reasoning generalises to any mutative config operation against UniFi Network - so it is recorded
+here rather than re-argued each time the question comes up.
+
+- **UniFi Network has no PATCH.** Every change is a full-config PUT/POST, so writing one field means
+  writing back the entire object - including the ~90% we have no intention of touching. Get any of
+  that wrong, or have the console change it concurrently, and the site's configuration is damaged.
+- **Their REST API has a history of bugs and loose form.** Parsing is not necessarily strict, and a
+  release can reinterpret or break a payload shape. On read-only calls that is harmless; on a
+  mutative call the same surprise can wipe an AP's configuration.
+- **The blast radius is the customer's network**, which is exactly the thing this tool exists to keep
+  healthy. Analysis that is wrong costs a bad recommendation; a write that is wrong costs an outage.
+
+So today the only mutative controller operation reachable from the app is the RF quick scan
+(`POST .../cmd/devmgr`) - transient and self-contained rather than a config write, though note there
+is no cancel for a scan already running. No reachable feature rewrites a UniFi device or site
+configuration object.
+
+Two full-object PUT helpers do exist on the client and are currently called by nothing:
+`UpdateNetworkConfigAsync` (`rest/networkconf`) and `UpdateTrafficRouteAsync` (`v2 trafficroutes`).
+Wiring either one up is exactly the step this section argues against, so it should be a deliberate
+decision rather than something that happens because a helper was already sitting there.
+
+Everything else we change goes through our own SSH-deployed components, where we control the format
+and the rollback.
+
+Not a permanent no. Revisit when there is a safe path - e.g. read-modify-write with a verified
+round-trip, a diff against the fetched object before sending, and a way to detect concurrent
+modification. Until then, treat "we compute it, the user applies it" as the intended shape of any
+feature that would otherwise write to the controller.
+
 ## LAN Speed Test
 
 ### Path Analysis Enhancements
-- ✅ ~~Direction-aware bottleneck calculation~~ (done - `GetDirectionalEfficiency()` in PathAnalysisResult, separate TX/RX bottleneck in NetworkPathAnalyzer)
-- More gateway models in routing limits table as we gather data
+- More gateway models in routing limits table as we gather data. `GatewayRoutingLimits` covers USG /
+  USG-Pro-4, UDM / UDM-Pro / UDM-SE, and UCG-Ultra / Max / Fiber today - no UXG, UDR/UDR7 or EFG entries.
 - Threshold tuning based on real-world data collection
 - **Consistent wireless bottleneck attribution across test types:** LAN client speed tests show the bottleneck relative to the AP (e.g., "[AP] Back Yard (wireless)") while WAN client speed tests show it relative to the client (e.g., "[Phone] TJ iPhone (wireless)"). This is because WAN client paths reverse hops and swap ingress/egress, which flips the perspective. The wireless link is the same physical connection - both descriptions are technically correct but inconsistent. Investigate unifying to always name the AP side, since that's what users can control. Relevant code: `CalculateWanClientPathAsync` hop reversal/swap and `CalculateBottleneck` wireless link attribution.
 
-### ✅ ~~Scheduled LAN Speed Test~~ (done - Alerts & Scheduling feature)
-
-### ✅ ~~Scheduled WAN Speed Test~~ (done - Alerts & Scheduling feature)
-
 ## Alerts & Scheduling
-
-### ✅ ~~LAN Speed Test Schedule: UniFi Device Targets~~ (done)
 
 ### DST-Aware Schedule Time Display
 - Schedule start times are stored as UTC hour/minute and converted to local for display using `DateTime.UtcNow.Date.ToLocalTime()`
@@ -145,24 +177,10 @@ Current state (as of v1.5.x): Dedup is working - event-level dedup via InnerAler
 - Currently: Re-alerts on more stages OR (6h elapsed AND 2x events). The `attack_chain_attempt` rule has 1h cooldown.
 - If noisy: Increase cooldown to 6h, or only re-alert on stage progression (not event count growth)
 - If too quiet: Reduce the 2x event multiplier to 1.5x
+- Note the 2x multiplier is the *early-stage* path only; full-chain re-alerting uses 50%+ event growth
 - These are Info severity - users who find them noisy can disable rule 13 in alert settings
 
 ## Security Audit / PDF Report
-
-### Manual Network Purpose Override
-- Allow users to manually set the purpose/classification of their Networks in Security Audit Settings
-- Currently: Network purpose (IoT, Security, Guest, Management, etc.) is auto-detected from network name patterns
-- Problem: Users with non-standard naming conventions get incorrect VLAN placement recommendations
-- Implementation:
-  - Add "Network Classifications" section to Security Audit Settings page
-  - List all detected networks with current auto-detected purpose
-  - Allow override via dropdown: Corporate, Home, IoT, Security, Guest, Management, Printer, Unknown
-  - Store overrides in database (new table or extend existing settings)
-  - VlanAnalyzer should check for user overrides before applying name-based detection
-- Benefits:
-  - Users with custom naming schemes can get accurate audits
-  - Explicit classification removes ambiguity
-  - Auto-detection still works as default for users who don't configure
 
 ### Home → IoT Return Traffic Rule Suggestion
 - When Home network has isolation blocking IoT, suggest adding a return traffic rule or explicit allow
@@ -177,16 +195,20 @@ Current state (as of v1.5.x): Dedup is working - event-level dedup via InnerAler
   2. Add a RESPOND_ONLY allow rule from IoT → Home to permit return traffic
 - **Severity:** Informational (user may have intentionally blocked bidirectional)
 - **Context:** This is a usability issue, not a security issue - blocking return traffic is actually more secure
+- **Building blocks exist:** `FirewallRule.AllowsOnlyReturnTraffic()` and `BlocksNewConnections` already
+  recognize RESPOND_ONLY rules (used today only to suppress shadowing warnings), so the detection side is
+  mostly a matter of inverting an existing check.
 
 ### Third-Party DNS Firewall Rule Check
 - When third-party DNS (Pi-hole, AdGuard, etc.) is detected on a network, check for a firewall rule blocking UDP 53 to the gateway
 - Without this rule, clients could bypass third-party DNS by using the gateway directly
 - Implementation: Look for firewall rules that DROP/REJECT UDP 53 from the affected VLANs to the gateway IP
 - Severity: Recommended (not Critical, since some users intentionally allow fallback)
+- **Distinct from what already ships:** `DnsSecurityAnalyzer`'s port-53 block detection targets the
+  External zone, and DNS-LEAK-001 covers leaks to the internet. Neither checks the *gateway-directed*
+  bypass this item is about; the third-party finding only emits generic "consider enabling DNS firewall
+  rules" copy with no rule verification behind it.
 - **Status:** Awaiting user feedback on current third-party DNS feature before implementing
-
-### ✅ ~~Printer/Scanner Audit Logic Consolidation~~ (done)
-- Consolidated in `VlanPlacementChecker.CheckPrinterPlacement()`, called from `ConfigAuditEngine`
 
 ## Performance Audit
 
@@ -202,41 +224,37 @@ New audit section focused on network performance issues (distinct from security 
   - Bottleneck chains where downstream capacity exceeds upstream link
 - Display as performance findings with recommendations
 
-### Jumbo Frames Suggestion
-- Suggest enabling Jumbo Frames as a global switching setting when high-speed devices are present
-- Trigger: 2+ devices connected at 5 GbE or 10 GbE on access ports (not infrastructure uplinks)
-- Rationale: Jumbo frames (9000 MTU) reduce CPU overhead and improve throughput for high-speed transfers
-- Implementation:
-  - Scan port_table for ports with speed >= 5000 Mbps
-  - Exclude infrastructure ports (uplinks, trunks between switches)
-  - If count >= 2, check if Jumbo Frames is already enabled globally
-  - If not enabled, suggest enabling with explanation of benefits
-- Caveats to mention in recommendation:
-  - All devices in the path must support jumbo frames
-  - Some IoT devices may not support non-standard MTU
-  - WAN traffic still uses standard 1500 MTU
-- Severity: Informational (performance optimization, not a problem)
-
-### MTU Mismatch Detection
-- Detect MTU mismatches along network paths that cause fragmentation or packet drops
-- Implementation:
+### Path-Based MTU Mismatch Detection
+- The *config-level* half already ships: `PerformanceAnalyzer.CheckJumboFrames` suggests jumbo frames
+  (trigger: 2+ access ports at 2.5 GbE or faster, infrastructure trunks excluded) and flags the
+  global-on/device-off and partially-enabled cases as an MTU mismatch that can cause fragmentation.
+- Still open is per-path measurement, which needs SSH rather than config inspection:
   - During path tracing, SSH into each hop (gateway, switches) to query interface MTU
   - Gateway: `ip link show <interface>` or parse `/sys/class/net/<iface>/mtu`
   - Switches: Check port MTU via SSH (UniFi switches support shell access)
   - Compare MTU values across the path - all devices should match
-- Issues to detect:
-  - Standard MTU (1500) mixed with Jumbo Frames (9000) in same path
+- Issues this would add over the config check:
   - Intermediate device with lower MTU than endpoints (causes fragmentation)
   - Jumbo Frames enabled on LAN but not on inter-switch uplinks
   - VPN/tunnel overhead not accounted for (e.g., WireGuard needs ~1420 MTU)
-- Display: Show MTU at each hop in path analysis, flag mismatches
+- Display: Show MTU at each hop in path analysis, flag mismatches (no `Mtu` member exists on
+  `NetworkPathAnalyzer` / `PathAnalysisResult` today)
 - Severity: Warning (mismatches cause performance degradation or silent drops)
 - Prerequisite: Reuse SSH infrastructure from SQM/gateway speed tests
 
 ### WiFi Optimizer Enhancements
-- **Channel recommendation: broaden search candidate generation (long-term, the real fix).** The exhaustive/greedy search prunes each AP to a small candidate channel set (e.g. ~2 channels/AP → only 8 assignments evaluated for a 4-AP 5 GHz site), so it can miss the globally optimal assignment - notably an "altruistic" move where relocating a still-healthy AP declutters a worse neighbor (e.g. move a fine AP off a shared 160 MHz block so a congested one stops sharing it). Today that gap is patched by an altruistic relocation pass in the per-AP fallback (`ChannelRecommendationService`, gated on site-wide score improvement), but the correct long-term fix is for the search itself to consider a richer candidate set per AP (e.g. all valid non-DFS blocks plus historically-good channels, with branch-and-bound pruning to keep the space tractable) so the global optimizer finds these moves directly and the fallback becomes a safety net rather than the source of the recommendation. When this lands, revisit whether the altruistic fallback pass is still needed.
-- **Power & Coverage: per-band signal classification** - `GetSignalClass` and `GetSignalBucketClass` in PowerCoverageAnalysis.razor hardcode `RadioBand.Band5GHz` because they operate on aggregate values (avg signal, dBm bucket ranges) without per-client band context. Could classify each client by their actual band first, then aggregate the results. The signal distribution bar chart would need to either split by band or color each client's contribution by their band. Current behavior matches pre-band-aware thresholds so no regression, just a missed opportunity.
-- **MLO per-AP detection:** Check MLO status per-AP based on which SSIDs each AP broadcasts (via vap_table), not just global WLAN config. An AP only has MLO impact if it broadcasts an MLO-enabled SSID.
+- **Channel recommendation: broaden search candidate generation (long-term, the real fix).** The exhaustive/greedy search evaluates a small candidate set per AP (e.g. ~2 channels/AP → only 8 assignments evaluated for a 4-AP 5 GHz site), so it can miss the globally optimal assignment. Worth being precise about the cause: the set is not arbitrarily pruned - `GetValidChannelsWithWidth` returns *every* regulatory-valid channel, but only at the AP's current width and deduped by bonding group (width reduction is marked "future feature" in that code). So "richer candidate set" mostly means exploring across widths - notably an "altruistic" move where relocating a still-healthy AP declutters a worse neighbor (e.g. move a fine AP off a shared 160 MHz block so a congested one stops sharing it). Today that gap is patched by an altruistic relocation pass in the per-AP fallback (`ChannelRecommendationService`, gated on site-wide score improvement), but the correct long-term fix is for the search itself to consider a richer candidate set per AP (e.g. all valid non-DFS blocks plus historically-good channels, with branch-and-bound pruning to keep the space tractable) so the global optimizer finds these moves directly and the fallback becomes a safety net rather than the source of the recommendation. When this lands, revisit whether the altruistic fallback pass is still needed.
+- **Power & Coverage: per-band signal classification (aggregates only)** - the per-client half shipped: a
+  shared `SignalClassification` helper exists and PowerCoverageAnalysis classifies each client by its
+  actual band for the percentage/count aggregations. What still hardcodes `RadioBand.Band5GHz` is the
+  aggregate layer - the avg/min/max stat cards and the signal-distribution bucket chart - because those
+  operate on aggregate values without per-client band context. The bar chart would need to either split
+  by band or color each client's contribution by their band. No regression today, just a missed opportunity.
+- **MLO per-AP detection in the optimizer** - the mechanism already exists for path analysis:
+  `NetworkPathAnalyzer` sets `hop.MloEnabled` by matching each AP's `vap_table` SSIDs against the
+  MLO-enabled WLANs. The WiFi Optimizer health issue has not adopted it - `WiFiOptimizerService` still
+  flags MLO from `hasWifi7Aps && hasMloEnabledWlan` (any AP + any WLAN), so an AP that broadcasts no
+  MLO SSID is still counted. Reuse the path-analysis pattern.
 - **MLO STR mesh backhaul (multi-band):** Channel recommendations pin a mesh child to its leader's channel only on the single band `AccessPointSnapshot.MeshUplinkBand` reports. AP-to-AP MLO STR backhaul can run over multiple bands at once (e.g. 5 + 6 GHz). When UniFi exposes per-link bands, make `MeshUplinkBand` a set and have `BuildMeshConstraints` emit one constraint per participating band. The reconciliation logic in `ChannelRecommendationService` keys off `MeshGroupLeader` and needs no change - only the constraint-building. See `TODO(MLO)` in `BuildMeshConstraints`. Dormant: no AP-to-AP MLO STR backhaul hardware exists yet (today's MLO STR is client/bridge only - UDB-Switch and AirWire, the MLO STR bridge - which are endpoints, not mesh-AP children, so they never hit this path).
 
 ### AP Catalog: Enforce 5 GHz EIRP Cap (US Regulatory)
@@ -255,6 +273,9 @@ New audit section focused on network performance issues (distinct from security 
   2. Add regulatory-domain-aware EIRP capping in the display/calculation layer (more complex, handles UNII-1 vs UNII-3 differently)
   3. Show "regulatory max EIRP" alongside "hardware max EIRP" in the UI
 - Option 1 is simplest and matches the existing 6 GHz pattern. Option 2 is more accurate but needs channel-to-sub-band mapping.
+- **Mechanism is already there:** `ModeOverrides` carries per-mode `MaxTxPowerDbm` / `DefaultTxPowerDbm`
+  (that is how E7-Audience's 6 GHz caps work), which is what Option 1 needs - several of the 5 GHz
+  offenders only exceed 36 dBm in their directional/narrow antenna mode, not omnidirectional.
 - **Note:** DFS channels (UNII-2/2C) have lower limits but are dynamic - firmware handles those
 
 ### Floor Plan Heatmap - Per-Channel Frequency
@@ -310,17 +331,12 @@ New audit section focused on network performance issues (distinct from security 
 - Consider showing a summary callout: "Most of your clients support 80 MHz - here's what they
   actually experience" to educate users about the per-client negotiation reality
 
-#### Implemented Features (v1.x)
-The following were implemented in the WiFi Optimizer feature:
-- ✅ Channel utilization analysis per AP (Airtime Fairness tab)
-- ✅ Client distribution balance across APs (AP Load Balance tab)
-- ✅ Signal strength / SNR reporting per client (multiple components)
-- ✅ Interference detection - co-channel, adjacent channel (Spectrum Analysis tab)
-- ✅ Band steering effectiveness analysis (Band Steering tab)
-- ✅ Roaming topology visualization (Connectivity Flow tab)
-- ✅ Airtime fairness issues - legacy client impact (Airtime Fairness tab)
-- ✅ Site health score with dimensional breakdown
-- ✅ Power/coverage analysis with TX power recommendations
+#### Leftover from the v1.x feature set
+Everything the old "Implemented Features" checklist tracked is live and verified (utilization per AP,
+AP load balance, interference detection, band steering, connectivity flow, legacy-client airtime impact,
+site health score, power/coverage). One gap hides inside the "signal strength / SNR per client" claim:
+per-client *signal* classification is everywhere, but `WirelessClientSnapshot.Snr` has no UI consumer at
+all - it is collected and never shown. Either surface it or drop the field.
 
 ## SQM (Smart Queue Management)
 
@@ -332,13 +348,17 @@ The following were implemented in the WiFi Optimizer feature:
 
 ### Multi-WAN Support
 - Support for 3rd, 4th, and N number of WAN connections
-- Currently limited to two WAN connections
-- Should dynamically detect and configure all available WAN interfaces
+- **Detection is already there** - `SqmService` walks wan1..wan6. What is hardcoded to two WANs is
+  everything downstream: `SqmDeploymentService.DeploySqmMonitorAsync(wan1Interface, wan1Name,
+  wan2Interface, wan2Name)`, `TcMonitorClient`'s `Wan1`/`Wan2` fields, and the `Sqm.razor` UI
+  (`wan1Config`/`wan2Config` throughout). Open work = monitor deployment, status plumbing, and UI.
 
 ### GRE Tunnel Support (Cellular WAN)
 - Support GRE tunnel connections from cellular modems (U5G-Max, U-LTE)
 - These create GRE tunnels that should be treated as valid WAN interfaces for SQM
-- ✅ ~~PPPoE support~~ (done - uses physical interface for lookup, tunnel interface for SQM)
+- **Partly prepared:** WAN extraction already recognizes GRE virtual WANs and models their null
+  `PhysicalIfName` / `LinkSpeedMbps`. Nothing GRE-specific exists in deployment or shaping, and no GRE
+  tunnel has been shaped end to end - that is the open part.
 
 ## Monitoring
 
@@ -356,22 +376,20 @@ then add the modular span. Blocker: we'd have to know the counter width (2^31 vs
 wrong guess produces a garbage spike - so the safe null-gap stays the default until the widths are
 confirmed. Not worth it for a rare one-point gap; revisit if the frame charts read as too sparse.
 
-### Upstream path discovery: DynamoDB regional endpoints for transit trace exposure (Setup tab)
+### Upstream path discovery: capture every responding hop's ASN (transit attribution)
 Transit Health involvement weighting and destination->transit jitter absolution both key off which
-monitored internet targets a transit ASN provably carries (trace ancestry). The current CDN/DNS
-targets peer at the local IX, so they cross no transit and give the attribution nothing to work with.
-AWS DynamoDB regional endpoints ARE ICMP-pingable and DO ride paid transit, so they're good extra
-trace targets (and can double as monitored targets):
+monitored internet targets a transit ASN provably carries (trace ancestry).
 
-    dynamodb.<region>.amazonaws.com   (nearest region(s) first, e.g. us-west-2, us-west-1, us-east-2, us-east-1)
+The target side of this shipped: AWS DynamoDB regional endpoints are resolved, geo-ordered and
+latency-ranked to the nearest region(s) (they are not anycast), capped by `MaxAwsPathEndTargets` and
+persisted as path-end targets. They ride paid transit, unlike the CDN/DNS targets that peer at the
+local IX and therefore gave the attribution nothing to work with.
 
-- **Not anycast** - resolve + latency-rank to the nearest region(s), else you trace a transcontinental
-  path that misrepresents the transit.
-- **Attribution still needs work (observed in testing):** the endpoint pings and the path is NOT
-  peered, but the intermediate transit hops don't answer traceroute (all stars) - so the current
-  ancestry can't tell WHICH transit ASN it crossed. DynamoDB gives a clean AWS target that genuinely
-  transits; surfacing which transit still needs the responding-hop-ASN capture (record every
-  responding hop's ASN, not just monitored-target IPs), and pure-star segments recover nothing.
+What remains is the attribution itself: `PersistHopOrderAsync` skips responding hops that are not
+monitored targets, so the ancestry still cannot tell WHICH transit ASN a path crossed. Record every
+responding hop's ASN, not just monitored-target IPs. Note the ceiling: in testing the intermediate
+transit hops frequently do not answer traceroute at all, and pure-star segments recover nothing no
+matter how the ancestry is stored.
 
 ### Investigation Functions (Network Performance tab)
 The Investigate card currently jumps the latency charts to the most recent **packet-loss** and **loaded-loss** events and steps event-to-event (coalesced, peak-loss minute). Ideas to extend it:
@@ -380,7 +398,7 @@ The Investigate card currently jumps the latency charts to the most recent **pac
 - **Congestion events** - `CongestionLocalizer` already produces events with disposition (confirmed / self-inflicted / control-plane-noise) and scope (hop / ASN / shared). Add an Investigate button that jumps the latency charts to each event, with the highlight band colored shared-vs-local like the ISP Health chart. Strongest detector, currently invisible on these charts.
 - **Path-shift events** - `StepChangeDetector` already finds RTT step changes; jump to the step with a "+N ms" label.
 - **Outages** - `OutageDetector` already classifies full / partial / brief; jump to the outage window and show the recovery shape.
-- **Unify the two views** - make the ISP Health "Path & Congestion Events" timeline items deep-link into the latency charts (the way the loss findings now do via `?investigate=`).
+- **Unify the two views** - the loss factor headers already deep-link via `?investigate=`; the ISP Health "Path & Congestion Events" timeline items are still plain non-clickable divs. Make them deep-link the same way. (Half-done - the mechanism exists, only these items are unwired.)
 
 **New detections (more work):**
 - **Bufferbloat events** - loaded *latency* spikes (the `latencyTriggered` signal), distinct from loaded loss; bufferbloat often has zero loss, so the loss buttons miss it.
@@ -421,7 +439,20 @@ Suggested order: congestion / path-shift / outage navigation first (cheap, consi
 
 ### Monitoring Interfaces: Alias IP follow-ups
 
-The duplicate-reachable-IP case shipped: `AliasIp` on `MonitoringInterface` with fwmark/DNAT policy routing, live-verified on real UCGF hardware against two devices sharing `192.168.100.1` on different WANs. A Starlink-WAN advisory has also shipped (`StarlinkWanDetector`, matching UniFi's per-WAN geo-IP ISP with a friendly-name fallback): selecting a Starlink WAN in the Monitoring Interface form now steers the user to the native Starlink Stats monitoring instead of creating an interface for the dish. The earlier "warn when a natively-monitored WAN is picked as the plain side" idea was dropped after investigation: UniFi's Starlink widget only exists in Cloud Gateway console builds (the console's Network app embeds a gRPC dish poller that binds its sockets to the Starlink WAN's interface address, so it doesn't depend on the main table; the UniFi OS Server build of the same app version contains no Starlink code at all), and the claimed main-table breakage was never actually reproduced. The real dual-WAN hazard - a plain interface on the OTHER WAN claiming the dish's shared IP - is already handled by alias mode and its stale-route teardown. One follow-up idea remains open (not built):
+Both shipped pieces are live: `AliasIp` on `MonitoringInterface` with fwmark/DNAT policy routing
+(verified on real UCGF hardware against two devices sharing `192.168.100.1` on different WANs), and the
+`StarlinkWanDetector` advisory that steers users to native Starlink Stats instead of creating an
+interface for the dish.
+
+Recorded so it is not re-litigated: the earlier "warn when a natively-monitored WAN is picked as the
+plain side" idea was investigated and dropped. UniFi's Starlink widget exists only in Cloud Gateway
+console builds, and its dish poller binds its sockets to the Starlink WAN's interface address rather
+than depending on the main routing table (the UniFi OS Server build of the same app version contains no
+Starlink code at all). The claimed main-table breakage was never reproduced, and the real dual-WAN
+hazard - a plain interface on the OTHER WAN claiming the dish's shared IP - is already handled by alias
+mode and its stale-route teardown.
+
+One follow-up idea remains open (not built):
 
 - **LAN-client passthrough to the real IP.** An aliased device's own web UI can hard-redirect a browser to its real IP once loaded (anti-DNS-rebinding check), so a human browsing the alias hits a dead end unless something *also* routes their specific LAN IP to the real target. Works today via a manual, non-persistent `ip rule` reusing the alias's private table (`ip rule add from <client-ip> to <real-ip>/32 lookup <table>`). A built-in version is plausible (one extra source-scoped per-row `ip rule` in the boot script, allowlisted to admin-specified LAN IPs) but deliberately **not built** - a "grant direct real-IP access" knob next to a mechanism whose entire point is to never expose the real IP invites the exact dual-WAN misconfiguration this feature prevents. Gauge demand first.
 
@@ -450,7 +481,12 @@ The duplicate-reachable-IP case shipped: `AliasIp` on `MonitoringInterface` with
 UniFi gateway `snmpd` recurrently wedges: process alive and idle in `select()`, sockets
 still bound, but answers nothing - not even `sysUpTime` from localhost (seen on multiple
 gateways; diagnosed live on the UDR7 test gateway 2026-07-24). Today this reads as silent
-stat gaps. Design in `research/multi-site/gateway-agent/snmp-watchdog.md`; summary:
+stat gaps.
+
+Not to be confused with what already exists: `SnmpFailureTracker` + `SnmpRunner` count consecutive
+failures and exclude a failing device from polling for a while (surfaced as `SnmpPollState.Excluded` on
+the Monitoring Setup dashboard). That is failure-driven backoff - it stops polling entirely and never
+compares against ICMP. None of the four items below are covered by it. Summary of the design:
 
 - [ ] **Detect (all agents, default on):** in `SnmpRunner`, count consecutive per-device
   poll failures; when a device misses ~60 s of SNMP (12 misses at the 5 s tier) while its
@@ -469,21 +505,19 @@ stat gaps. Design in `research/multi-site/gateway-agent/snmp-watchdog.md`; summa
   server alert rule, site-settings toggle for auto-restart.
 
 ### Multi-Tenant Architecture
-- Add multi-tenant support for single deployment serving multiple sites
-- Current architecture: Local console access with local UniFi API
-- Target architecture: Support tunneled access to multiple UniFi sites from one deployment
-- Deployment models:
-  - **Local (default):** Deploy instance at each site for direct LAN API access
-  - **Centralized (optional):** Single deployment with VPN/tunnel access to multiple client networks
-    - Requires unique IP structure per client (no overlapping subnets)
-    - Relies on same local API access, just over tunnel instead of local LAN
-- Use cases: MSPs managing multiple customer sites, enterprises with distributed locations
-- Considerations:
-  - Site/tenant isolation for data and configuration
-  - Per-site authentication and API credentials
-  - Tenant-aware database schema or separate databases per tenant
-  - Site selector/switcher in UI
-  - Aggregate dashboard views across sites (optional)
+
+Largely shipped, and via a different mechanism than this item originally proposed. Live today:
+`Sites` / `SiteAgents` tables behind a `MultiSiteEnabled` flag, per-site databases under
+`data/sites/<slug>`, per-site console connections (`SiteContextService`, `UniFiConnectionService`), a
+site switcher, and an aggregate `/sites` page.
+
+The original plan - a VPN/tunnel to each customer network requiring a unique non-overlapping IP
+structure per client - was superseded by the dial-out agent + gRPC tunnel + proxy architecture, which
+does not care about overlapping subnets. Do not resurrect the VPN framing.
+
+Remaining, and tracked elsewhere in this file: real tenant *isolation* (authentication, per-site
+permissions) is the identity work, not this item; site-specific alert channels and site lifecycle
+have their own sections.
 
 ### Agent Tunnel Security Hardening
 
@@ -499,8 +533,11 @@ controls can't fix it; protecting the server is what matters. (See the agent REA
 Worth doing - defends the one risk that does NOT already require owning the server
 (a leaked `agentKey` used standalone):
 - [ ] One live tunnel per `agentKey`: reject a second concurrent connection and alert
-  rather than silently accepting it. First step: confirm whether `AgentTunnelRegistry`
-  already enforces this.
+  rather than silently accepting it. Checked - `AgentTunnelRegistry.Register` does NOT
+  enforce this: it `AddOrUpdate`s, so a second connection silently displaces the first
+  (documented there as "a reconnect replaces the previous connection's channel"). A stolen
+  key therefore evicts the legitimate agent with no signal. `AgentConnectionAlertMonitor`
+  only alerts on agent-offline, so the eviction surfaces at best as a blip.
 - [ ] Alert on a new public source IP for an existing agent (the tunnel already sees it
   on connect). This is the anomaly signal for a stolen key.
 - [ ] Surface each agent's public source IP in the UI, so IP-allowlist maintenance is a
@@ -600,34 +637,32 @@ Optional, only if there's real demand (don't gold-plate a self-hosted tool):
   credentials, same co-location. Fold in only if the KMS path ever happens.
 
 ### Federated Authentication & Identity
-- External IdP integration for enterprise/MSP deployments
-- Protocol support:
-  - **SAML 2.0:** Enterprise SSO (Okta, Azure AD, ADFS, etc.)
-  - **OIDC/OAuth 2.0:** Modern identity providers (Auth0, Keycloak, Google Workspace)
-- Architectural preparation for RBAC (Role-Based Access Control):
-  - Abstract authentication layer to support pluggable identity sources
-  - Claims/roles mapping from IdP to local permissions
-  - Future: Granular permissions per site/tenant (view-only, operator, admin)
-- **Token model upgrade** (prerequisite for multi-user):
-  - Move from current single JWT to proper access_token + refresh_token OIDC model
-  - Short-lived access tokens (1 hour) with long-lived refresh tokens
-  - Applies to local auth as well, not just external IdP
-  - Token rotation and revocation support
-  - Secure refresh token storage (DB-backed with family tracking)
-- Considerations:
-  - SP-initiated vs IdP-initiated login flows
-  - Just-in-time (JIT) user provisioning from IdP claims
-  - Session management and token refresh across federated sessions
-  - Fallback local auth for break-glass scenarios
 
-### Site Lifecycle Management (post-MVP, not essential for initial MVP)
-- **Deactivate a site:** stop its collection / agent coverage and hide it from the UI, but keep its
-  data, per-site DB, and InfluxDB buckets intact for later re-activation.
-- **Permanently remove a site:** delete its `Sites` + `SiteAgents` rows, its per-site DB
-  (`data/sites/<slug>/`), and its InfluxDB buckets (`<slug>-*`), behind a clear confirmation.
-  Today this requires manual DB row deletes + filesystem + bucket surgery (no in-app path).
-- Both should tear down / re-establish agent enrollment cleanly so a removed slug can be re-added
-  from scratch with no stale rows.
+**Status: implemented on `feature/identity-full` (PR #1038 - open, mergeable, not yet reviewed).**
+None of it is on `dev` yet, so this section stays until that lands. Covered by the branch: SAML 2.0 SP
+(incl. SP- vs IdP-initiated flows), OIDC/OAuth 2.0 RP with dynamic scheme registration and IdP presets,
+JIT provisioning with claims/role mapping, break-glass local auth, MFA (TOTP + recovery codes),
+passkeys, audit logging - plus RBAC that is shipped rather than merely "prepared" (Viewer / Operator /
+Site Admin with per-site memberships and groups, enforced by declarative service-layer gates).
+
+The one bullet this section carried that was NOT built, and should not be revived as written:
+
+- **Token model upgrade.** The old plan was access_token + refresh_token with rotation and DB-backed
+  refresh-token families. The branch went the other way for interactive auth: an ASP.NET Identity
+  **cookie** session with revocation driven by the security stamp, checked per request rather than by
+  token expiry. That removes the need for refresh-token machinery on the interactive path entirely.
+  JWTs remain only on the non-interactive API endpoints - if anything is left to do here, it is scoping
+  lifetime/rotation for *those* API tokens, not rebuilding an OIDC token model for the UI.
+
+### Site Lifecycle Management
+
+Shipped: `SetSiteEnabledAsync` deactivates a site (stops collection, drops the console, hides it from
+the switcher, keeps all data), and `DeleteSiteAsync` removes the `Sites` + `SiteAgents` rows and the
+per-site DB directory behind a confirmation dialog, freeing the license seat.
+
+- [ ] **InfluxDB buckets are not deleted** on site removal - `<slug>-*` buckets survive and must be
+  removed by hand in InfluxDB. The confirmation dialog says so explicitly, so this is a deliberate
+  gap rather than a bug; close it only if operators actually trip over the leftovers.
 
 ### Agent LAN IP detection on Docker hosts (test / harden)
 The agent detects its LAN IP once at startup via `NetworkUtilities.DetectLocalIpFromInterfaces()`
@@ -636,31 +671,15 @@ it on enrollment, every heartbeat, and the tunnel hello; the server stores it on
 That IP is what site clients are pointed at for LAN speed tests and what path analysis uses as the
 agent's trace source (LAN and agent-run WAN tests).
 
+The override shipped: `NO_AGENT_LAN_IP` wins over detection, documented in the agent README for
+Docker bridge mode and multi-NIC hosts. What is left is verification, not code:
+
 - **Host network mode:** container sees the real host NICs - should work as-is, but untested.
-- **Bridge mode (the gap):** inside the container, `eth0` is a plain-looking Ethernet NIC with the
+- **Bridge mode:** inside the container, `eth0` is a plain-looking Ethernet NIC with the
   container-internal address (e.g. 172.17.x) - the docker/veth skip-list only matches host-side
-  names, so detection happily reports an IP that is unreachable from the site LAN and absent from
-  the site's UniFi topology. Speed-test targets and traces would silently break.
-- Likely fix: an explicit override in `agent.json` (e.g. `lanIp`) and/or an `AGENT_LAN_IP` env var
-  that wins over detection, plus a docs note that bridge-mode agents require it (or host mode).
-- Test matrix: native (works today), Docker host mode, Docker bridge with override.
-
-### Site-specific alert channels (post-MVP)
-Today delivery channels are global: `DeliveryChannel` has no `SiteId`, `AlertProcessingService` is a
-singleton that dispatches against the main DB, and alert events/rules aren't site-tagged. Alerts are
-evaluated per-site but every one fans out to the single global channel set.
-
-Goal: keep global channels applying everywhere, but let a site add its OWN additional channels.
-- **Model:** nullable `DeliveryChannel.SiteId` (null = global, set = site-specific). Additive
-  migration, fully backward-compatible - existing channels stay global.
-- **Dispatch (the real work):** thread the originating site through the alert event -> incident ->
-  dispatch so the processor can select channels `WHERE SiteId IS NULL OR SiteId = <firing site>`.
-  The alert pipeline is currently main-DB/global-scoped and carries no site identity; adding that
-  end-to-end is the bulk of the effort (and is the same plumbing per-site alert RULES would need).
-- **UI:** per-site channel view - inherited global channels (read-only) plus this site's own
-  additions, mirroring the external-site InfluxDB pattern (Settings > Monitoring).
-- Low-risk and incremental: nullable `SiteId` defaults to global, so nothing changes until a site
-  adds its first channel. Best landed alongside making alert rules site-aware.
+  names, so detection reports an IP that is unreachable from the site LAN and absent from the site's
+  UniFi topology. Speed-test targets and traces break silently unless the override is set.
+- [ ] Run the test matrix: native (works today), Docker host mode, Docker bridge with override.
 
 ## Distribution
 
@@ -683,6 +702,9 @@ Goal: keep global channels applying everywhere, but let a site add its OWN addit
 ### 3D Map - Speed Test Path Overlay Rework
 - Toggle hidden from overlay controls until the feature is useful
 - Code exists in `lan-flow-map.js` (`_loadInitialSpeedTests`, `_renderSpeedTestOverlay`)
+- The `// TODO` next to the commented-out `overlayDefs` entry points at
+  `research/monitoring/3d-map-overlays-TODO.md`, which does not exist in the repo - repoint that
+  comment here (or restore the file) when this is picked up
 - Needs: visual design pass (hard to distinguish from traffic flow), results on hover/click, active test animation, filter by test type, time-based filtering
 - Consider making it a temporary overlay during/after a test rather than a persistent toggle
 
@@ -705,16 +727,19 @@ Goal: keep global channels applying everywhere, but let a site add its OWN addit
 - Extract into a shared JS module so all chart sets reuse one implementation
 - Both files have a TODO marking this
 
-### Refactor Program.cs - Extract Business Logic and Break Up API Sets
-- **Issue:** `Program.cs` has grown into a monolith with schedule executor implementations, API endpoint registrations, and business logic all inline
-- **Goal:** Clean separation of concerns:
-  - Extract schedule executor registrations into a dedicated class (e.g., `ScheduleExecutorSetup.cs`)
-  - Break API endpoints into logical groups using minimal API route groups or extension methods (e.g., `SpeedTestEndpoints.cs`, `AuditEndpoints.cs`, `ThreatEndpoints.cs`)
-  - Move inline business logic out of endpoint handlers into services
+### Refactor Program.cs - Finish Breaking Up the Inline Endpoints
+- **Done so far:** schedule executor registrations live in `ScheduleExecutorRegistration.cs`, and 17
+  endpoint files exist under `Endpoints/` (alerts, speed test, the chart sets, ISP health, LAN flow map,
+  site agent, SNMP, port stats, flaky target, monitoring investigate).
+- **Still open:** `Program.cs` is ~2300 lines with roughly 47 inline `app.Map*` registrations that carry
+  business logic in the handler - mainly auth, UPnP notes, AP locations, and the floor-plan CRUD block.
+  Move those into endpoint groups the same way, and push handler logic into services.
 - **Priority:** Medium - not blocking but makes maintenance harder as the app grows
 
 ### Refactor DnsSecurityAnalyzer.AnalyzeAsync() Parameter Hell
-- **Issue:** `DnsSecurityAnalyzer.AnalyzeAsync()` now takes 12 parameters (was 7, grew during DNAT/firewall groups/URL work):
+- **Issue:** `DnsSecurityAnalyzer.AnalyzeAsync()` now takes **14** parameters (was 7, then 12; it has
+  since gained `networkConfigs` and `trustedDnsRedirectTargets`, and both belong in the record sketch
+  below). Plus 4 convenience overloads. The signature as of the last count:
   ```csharp
   public async Task<DnsSecurityResult> AnalyzeAsync(
       JsonElement? settingsData, List<FirewallRule>? firewallRules,
@@ -725,12 +750,11 @@ Goal: keep global channels applying everywhere, but let a site add its OWN addit
       Dictionary<string, UniFiFirewallGroup>? firewallGroups,
       string? customDnsManagementUrl)
   ```
-  Plus 5 convenience overloads that chain to it.
 - **Problems:**
   - Easy to pass arguments in wrong order (all are nullable)
   - Tests are verbose with many `null` placeholders
   - Adding new parameters requires updating all call sites and overloads
-  - The overload chain (lines 47-77) is getting unwieldy
+  - The overload chain is getting unwieldy, and the parameter count is still growing
 - **Proposed fix:** Create `DnsAnalysisRequest` record/class:
   ```csharp
   public record DnsAnalysisRequest
@@ -816,7 +840,9 @@ Goal: keep global channels applying everywhere, but let a site add its OWN addit
 - **Observed:** 4-5 polls within 4 seconds when navigating dashboard → settings
 - **Fix:** Add debounce or lock around UI-triggered polls in `CellularModemService`
 - **Severity:** Low (causes extra SSH traffic but no errors)
-- **Partial:** Basic `_isPolling` lock prevents concurrent polls, but no time-based debounce yet
+- **Nothing guards this path today:** the `_isPolling` flag only covers the timer-driven
+  `PollAllModemsAsync`. The UI path - `PollModemAsync`, called directly from `CellularStatsPanel` -
+  has neither a lock nor a debounce, so the observed 4-5 polls in 4 seconds are unguarded.
 
 ### Shared IP-to-Client-Name Resolver
 - Threat Dashboard resolves local IPs to UniFi client names inline (fetches clients, builds IP→name dict)
@@ -844,10 +870,14 @@ The UniFi v2 device API (`/proxy/network/v2/api/site/{site}/device`) returns mul
 |-------|-------------|---------------------|--------|
 | `network_devices` | APs, Switches, Gateways | Management VLAN | Existing |
 | `protect_devices` | Cameras, Doorbells, NVRs, Sensors | Security VLAN | Done |
-| `access_devices` | Door locks, readers | Security VLAN | TODO |
-| `connect_devices` | EV chargers, other Connect devices | IoT VLAN | TODO |
-| `talk_devices` | Intercoms, phones | IoT/VoIP VLAN | TODO |
-| `led_devices` | LED controllers, lighting | IoT VLAN | TODO |
+| `drive_devices` | UNAS | n/a | Done (used to exclude Drive devices from camera detection) |
+| `access_devices` | Door locks, readers | Security VLAN | Deserialized, unused |
+| `connect_devices` | EV chargers, other Connect devices | IoT VLAN | Deserialized, unused |
+| `led_devices` | LED controllers, lighting | IoT VLAN | Deserialized, unused |
+| `talk_devices` | Intercoms, phones | IoT/VoIP VLAN | Not even a DTO property |
+
+`UniFiProtectDeviceResponse` already deserializes access/connect/led into generic lists that nothing
+reads, so Phases 2/3/5 start at classification, not parsing. `talk_devices` is one step further back.
 
 ### Protect Infrastructure Devices (SuperLink, Sensors, Chimes)
 - Currently excluded from VLAN placement checks: SuperLink Hub, Sensors, Chimes, Bridges
@@ -891,18 +921,25 @@ The UniFi v2 device API (`/proxy/network/v2/api/site/{site}/device`) returns mul
 
 ## Standalone Controller Support
 
-### API Path Differences
-Currently only tested with UniFi OS controllers (UDM, Cloud Gateway). Standalone controllers use different API paths:
+### Legacy Network Server API paths: test coverage
+
+The non-proxied `/api/s/{site}/...` root belongs to the **legacy UniFi Network Server** only. UniFi OS
+Server and the gateway consoles (UDM, UCG) all go through `/proxy/network/...`, so this branch is
+narrower than "standalone controller" suggests.
 
 | Controller Type | API Path Pattern |
 |-----------------|------------------|
-| UniFi OS (UDM/UCG) | `https://<ip>/proxy/network/api/s/{site}/stat/sta` |
-| Standalone Controller | `https://<ip>/api/s/{site}/stat/sta` |
+| UniFi OS (UDM / UCG / UniFi OS Server) | `https://<ip>/proxy/network/api/s/{site}/stat/sta` |
+| Legacy Network Server | `https://<ip>/api/s/{site}/stat/sta` |
 
-The app auto-detects controller type via login response, but needs testing with standalone controllers to verify:
-- Path detection logic in `UniFiApiClient`
-- All API endpoints work correctly
-- Authentication flow differences (if any)
+Detection is implemented and has worked in practice: `DetectLoginType` probes `GET /login`,
+`DetectControllerType` probes the proxied sysinfo endpoint, `BuildApiPath` / `BuildV2ApiPath` emit both
+shapes, and legacy login goes to `/api/login`. It has been exercised in lab testing and some users run
+it, but not regularly, and Ubiquiti keeps steering people off the legacy server - so this is low
+priority and unlikely to grow.
+
+- [ ] Add test coverage for the path and login detection, so the legacy branch cannot rot silently
+  between releases that nobody exercises it in.
 
 ## Channel Recommendation: Learn From Tried Configs (Outcome History)
 
@@ -921,11 +958,32 @@ knows the swap is actually worse for util/interference. The "improvement" came a
 - **Thin external margins, no direct scan data** - the only location-specific neighbor signal was
   triangulated (logs showed "no scan channel data"), with tiny per-channel deltas.
 
-- [ ] Persist each observed (AP, channel, width) -> rolling util/interference/tx-retry outcome, long-term
-- [ ] Attribute metrics to the combo that was actually live (key off channel-change events)
-- [ ] When a candidate assignment matches a previously-tried combo, prefer measured outcome over inferred score
-- [ ] Down-weight (or flag) recommendations whose predicted gain rests mostly on propagated stress
-- [ ] Distinguish self-induced load from environmental interference - don't credit a move for escaping the AP's own traffic
+**The storage and attribution layer shipped.** `ChannelOutcomeBucket` persists daily
+util/interference/tx-retry per (AP, channel, width) with 365-day retention; the collection service
+attributes each hourly sample to the combo that was actually live via channel-change events (with
+width-provenance rules so an unprovable width is recorded as unknown rather than guessed); and
+`MergeLongTermOutcomes` folds those measurements into `HistoricalStress` age-decayed on a 60-day
+half-life, where measured data wins over inferred wherever both exist. One deliberate ordering rule
+inside that: a resident sibling's LIVE read outranks stale own-outcome memory.
+
+Known ceiling, following from applying being out of scope (see "Applying a channel plan to UniFi"):
+the collector sees the resulting live channel and width, but nothing ties an observed state back to a
+specific recommendation - so the loop cannot tell a followed recommendation from a change the user
+made for their own reasons. Outcomes are still attributed correctly; only the "did our advice help"
+question stays out of reach.
+
+Remaining:
+
+- [ ] Down-weight (or flag) recommendations whose predicted gain rests mostly on propagated stress.
+  Propagated stress is already 50%-dampened, proximity-scaled, kept in its own field and excluded from
+  every ground-truth consumer - but nothing detects or surfaces *this particular recommendation is
+  mostly propagated inference*.
+- [ ] Distinguish self-induced load from environmental interference. Much of this landed (cross-vantage
+  scoring so an AP's own contaminated read is not used for its current channel, own-scan excluded from
+  measured congestion, contention/utilization split with an own-load floor). The gap left: historical
+  utilization of the current channel still includes the AP's own clients, so a move can still take
+  partial credit for "escaping" traffic that would follow it, offset only by `UnknownChannelPenalty`.
+  The 1<->11 example above is the acceptance test.
 
 ## Channel Recommendation: Spectrum-Scan UX (background / on-demand quick-scans)
 
@@ -944,19 +1002,17 @@ Shared piece to build once: a "trigger -> poll `quick_scan_state.in_progress` un
 results -> re-run rec" helper. Expose the trigger through `IWiFiDataProvider` (it currently lives
 only on `UniFiApiClient`).
 
-- [x] **Win 1 (gap-aware prompt)** - DONE & shipped. Gap banner offers a one-click quick scan of the
-  gapped (AP, band)s (mesh APs excluded, per-AP-serial/cross-AP-parallel, scans at live BW), polls,
-  re-runs. Warning tailored by `HasDedicatedScanRadio` + mesh role; disclaimer auto-hides when no gaps.
-- [ ] **Win 2 (staleness + manual "Refresh measurements" button)** - can wait for a PATCH after this
-  minor release: there's a natural window between when people pick up the feature and when their scan
-  data goes stale, so no rush. Two parts:
-  1. *Staleness:* scan data currently never expires - the provider stamps `ScanTime = fetch-time`
-     (not the real scan time), so a days-old scan reads as fresh and never becomes a gap. Propagate the
-     real `spectrum_table_time` into `ChannelScanResult.ScanTime`, then treat an (AP, band) as a gap if
-     missing OR older than a threshold (~7 days). The gap banner then reappears on its own for stale
-     radios. Low effort, no recalibration risk.
-  2. *Manual refresh button* in the same banner area: stagger a quick-scan across all APs (reuse
-     `RunQuickScansAsync`), re-run when done. Harmless, cheap.
+The gap-aware prompt (Win 1) and the shared trigger -> poll -> re-run helper both shipped, as did most
+of the staleness work - in a better form than originally specified. The real `spectrum_table_time` is
+propagated into a dedicated `ChannelScanResult.SpectrumTableTime` (rather than overwriting `ScanTime`
+with it), and staleness drives its own "stale scan data" banner with a Re-scan button, gated on the
+stale reading actually being material and uncorroborated. **Do not re-implement the original
+"older than ~7 days = treat as a gap" design** - the materiality-gated banner deliberately replaced it.
+
+- [ ] **Win 2 remainder.** Age never promotes an (AP, band) to a plain gap - `GetSpectrumScanGapsAsync`
+  still filters on `Channels.Count == 0` only. And there is no manual "Refresh measurements" button for
+  *all* APs; only the gap-targeted and stale-targeted buttons exist. Both are cheap: reuse
+  `RunQuickScansAsync`.
 - [ ] **Win 3 (scheduled off-peak sweep)** - background job that sweeps quick-scans across APs/bands
   during low-utilization hours, determined from the 1d/7d historic stress we already compute. Stagger
   ONE band at a time PER AP (parallel across APs - a radio scans one band at a time); never take the
