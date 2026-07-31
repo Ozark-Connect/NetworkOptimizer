@@ -69,6 +69,11 @@ const CLICK_RENDER_MS = 2000;
 let lastMouse = null;
 let mouseMoveHandler = null;
 let mouseLeaveHandler = null;
+// One-shot arm: a chart click requests the value tooltip at the clicked
+// instant once its seek round-trip lands (see seekTime). Wall-clock bounded so
+// a click whose round-trip never arrives can't pop a tooltip on a later
+// map-driven seek.
+let seekTooltipArmedAt = 0;
 
 function formatBps(v) {
     if (v == null || v < 1) return '0';
@@ -107,6 +112,37 @@ function tooltipShowing() {
     const r = inner.getBoundingClientRect();
     return lastMouse.x >= r.left && lastMouse.x <= r.right
         && lastMouse.y >= r.top && lastMouse.y <= r.bottom;
+}
+
+// The value tooltip at the TARGETED instant, not under the cursor: the seek
+// recenters the axis window, so the clicked point slides out from under the
+// pointer (usually to mid-chart) - the playhead is where the requested values
+// sit. Synthesized as a mousemove on the chart svg (the element ApexCharts
+// binds its tooltip handler to) at the playhead's post-seek screen position;
+// the next real mouse move hands the tooltip back to the actual pointer.
+// Desktop only - on touch the native tap paradigm owns the tooltip.
+function showSeekTooltip(gen, at, maxTime) {
+    if (IS_TOUCH) return;
+    // Let the updateSeries render pass settle so the tooltip reads the new
+    // buffer, not the pre-seek points.
+    setTimeout(() => {
+        if (gen !== seekGen) return;
+        const el = document.getElementById(elId);
+        const inner = el?.querySelector('.apexcharts-inner');
+        const svg = el?.querySelector('.apexcharts-svg');
+        if (!inner || !svg) return;
+        const r = inner.getBoundingClientRect();
+        if (!r.width) return;
+        const span = HISTORY_MINUTES * 60000;
+        const frac = (at - (maxTime - span)) / span;
+        if (frac < 0 || frac > 1) return;
+        svg.dispatchEvent(new MouseEvent('mousemove', {
+            clientX: r.left + frac * r.width,
+            clientY: r.top + r.height / 2,
+            bubbles: true,
+            view: window,
+        }));
+    }, 150);
 }
 
 function removeMouseTracking() {
@@ -148,6 +184,7 @@ function buildOpts() {
                     histAt = t;
                     histWall = Date.now();
                     clickRenderUntil = Date.now() + CLICK_RENDER_MS;
+                    seekTooltipArmedAt = Date.now();
                     renderHistoric(t);
                     inst.seekTo(t);
                 },
@@ -506,7 +543,9 @@ export async function mount(containerId, opts) {
     if (!el) return;
     // On the container div (Blazor-owned, survives ApexCharts' re-renders of
     // its content), so the listeners outlive option updates.
-    mouseMoveHandler = (e) => { lastMouse = { x: e.clientX, y: e.clientY }; };
+    // isTrusted: the synthetic showSeekTooltip mousemove must not overwrite
+    // the REAL pointer position the tooltip hold-off checks against.
+    mouseMoveHandler = (e) => { if (e.isTrusted) lastMouse = { x: e.clientX, y: e.clientY }; };
     mouseLeaveHandler = () => { lastMouse = null; };
     el.addEventListener('mousemove', mouseMoveHandler);
     el.addEventListener('mouseleave', mouseLeaveHandler);
@@ -687,7 +726,14 @@ export async function seekTime(isoTimestamp) {
     // scrub): it must land even under the cursor or it's never retried while paused.
     // During active playback leave it unforced so a hover still holds the redraw for
     // inspection while the background timeline (2D/3D maps) keeps advancing.
-    renderHistoric(at, mapPlaybackRate() <= 0);
+    const discrete = mapPlaybackRate() <= 0;
+    renderHistoric(at, discrete);
+    // Only a chart click pops the tooltip at the target - map-scrubber seeks
+    // leave the pointer off the chart, where a tooltip would just linger.
+    if (discrete && Date.now() - seekTooltipArmedAt < 2000) {
+        seekTooltipArmedAt = 0;
+        showSeekTooltip(gen, at, maxTime);
+    }
     if (!histTimer) {
         histTimer = setInterval(() => {
             const rate = mapPlaybackRate();
