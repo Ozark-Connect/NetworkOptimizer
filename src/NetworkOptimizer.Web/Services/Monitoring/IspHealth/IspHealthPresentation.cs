@@ -181,6 +181,35 @@ public static class IspHealthPresentation
         return $"{span.TotalDays:0.#} {(Math.Abs(span.TotalDays - 1) < 0.05 ? "day" : "days")}";
     }
 
+    /// <summary>Window span written out for prose ("30 days", "48 hours"), where
+    /// <see cref="WindowLabel"/>'s abbreviated units would read badly mid-sentence.</summary>
+    public static string ProseWindowLabel(IspHealthReport r)
+    {
+        var span = r.WindowEnd - r.WindowStart;
+        if (span.TotalMinutes < 60)
+            return $"{span.TotalMinutes:0} minutes";
+        if (span.TotalHours < 72)
+            return $"{span.TotalHours:0.#} hours";
+        return $"{span.TotalDays:0.#} {(Math.Abs(span.TotalDays - 1) < 0.05 ? "day" : "days")}";
+    }
+
+    /// <summary>
+    /// The window's uptime percentage. A window that had ANY downtime never renders as a flat 100%:
+    /// the outage is right there on the timeline, so a near-miss is held at 99.99% rather than
+    /// rounding into a claim the timeline contradicts.
+    /// </summary>
+    public static string FormatUptime(IspHealthReport r) =>
+        r.Downtime > TimeSpan.Zero && r.UptimePercent >= 99.995
+            ? "99.99%"
+            : $"{r.UptimePercent:0.##}%";
+
+    /// <summary>Total downtime for the score card's uptime sub-line; "no downtime" when nothing went dark.</summary>
+    public static string FormatDowntime(TimeSpan d) =>
+        d <= TimeSpan.Zero ? "no downtime"
+        : d.TotalSeconds < 90 ? $"{d.TotalSeconds:0} sec down"
+        : d.TotalMinutes < 90 ? $"{d.TotalMinutes:0} min down"
+        : $"{d.TotalHours:0.#} h down";
+
     /// <summary>The window's absolute bounds in local time, for a report that outlives the page.</summary>
     public static string WindowRangeLabel(IspHealthReport r) =>
         $"{r.WindowStart.ToLocalTime():MMM d, yyyy HH:mm} to {r.WindowEnd.ToLocalTime():MMM d, yyyy HH:mm}";

@@ -480,39 +480,62 @@ public class IspHealthOptions
     public int OutageAccessGroupToleranceSeconds { get; set; } = 10;
 
     /// <summary>
-    /// Outage severity curve: points deducted from the OVERALL score per (totalDowntimeMinutes,
-    /// penaltyPoints) anchor, interpolated. This is the DURATION component of the outage penalty,
-    /// applied at the top level rather than buried in the Packet Loss factor (where the dimension
-    /// weights would dilute a multi-hour outage to a couple of points). The front is deliberately
-    /// steep - a 30 s drop is felt out of all proportion to its seconds (a dropped call, a stalled
-    /// stream), so a sub-minute outage carries a couple of points on duration alone rather than
-    /// rounding to zero; ~10 min is a clear ding; multi-hour drives the score toward zero. Recurrence
-    /// is scored separately by <see cref="OutageEventCost"/>, so this curve need not also encode "many
-    /// short drops are bad".
+    /// Unavailability curve: points deducted from the OVERALL score per (percent of the window spent
+    /// down, penaltyPoints) anchor, interpolated. This is the RATIO half of the outage DURATION
+    /// penalty, applied at the top level rather than buried in the Packet Loss factor (where the
+    /// dimension weights would dilute a multi-hour outage to a couple of points). Downtime only means
+    /// something against the time observed - 15 min is two-nines over 48 h but four-nines over 30
+    /// days, and scoring both the same (as the old absolute minutes curve did) made a good line on a
+    /// long window read as a bad one. Anchors sit on the SLA nines people already argue with their ISP
+    /// about: 0.1% is the 99.9% line, 43 min/month. Floored by <see cref="OutageFeltEventCurve"/>.
     /// </summary>
-    public (double Minutes, double Penalty)[] OutageSeverityCurve { get; set; } =
+    public (double DownPercent, double Penalty)[] OutageUnavailabilityCurve { get; set; } =
     {
-        (0, 0), (0.5, 1.5), (1, 2.5), (2, 4), (5, 7), (10, 14), (30, 28), (60, 45), (180, 70), (480, 90)
+        (0, 0), (0.01, 1), (0.1, 4), (0.5, 12), (1, 20), (3, 40), (10, 70), (25, 90)
     };
 
     /// <summary>
-    /// Per-event occurrence cost: the OCCURRENCE component of the outage penalty, summed across every
-    /// WAN outage on top of the duration curve. Each event contributes OutageEventCost x severity,
-    /// where severity = breadth (fraction of monitored targets that dropped) x depth (peak loss
-    /// fraction), 0..1. This is what makes recurrence bite: ten separate micro-drops cost ~ten times
-    /// a single one, where the duration curve alone would treat them as one slightly-longer drop. It
-    /// also lifts a single felt short outage off the floor. Kept modest because these events still
-    /// feed the Packet Loss factor (not masked), so we don't want to triple-count.
+    /// Felt-event curve: points the SINGLE worst outage earns on its own absolute effective minutes,
+    /// regardless of window length. The duration penalty is the GREATER of this and
+    /// <see cref="OutageUnavailabilityCurve"/>, because a four-hour outage is a memorable,
+    /// complaint-worthy event whether you are looking at two days or a month, and a pure availability
+    /// ratio would price it at almost nothing on a long window. Deliberately far gentler than the
+    /// ratio curve - it is a floor for what was FELT, not a second full penalty - and it is what keeps
+    /// a single short drop off zero now that the ratio term is tiny on long windows. The front stays
+    /// steep (the old severity curve's shape): a 30 s drop is felt out of all proportion to its
+    /// seconds - a dropped call, a stalled stream - so it carries a couple of points rather than the
+    /// near-nothing its share of a day would suggest. The tail is flat by comparison, because past a
+    /// few minutes the ratio term is the one that should be doing the talking.
     /// </summary>
-    public double OutageEventCost { get; set; } = 3.0;
+    public (double Minutes, double Penalty)[] OutageFeltEventCurve { get; set; } =
+    {
+        (0, 0), (0.5, 1.5), (1, 2.5), (2, 3.5), (5, 5), (15, 6.5), (60, 12), (240, 20), (720, 30)
+    };
 
     /// <summary>
-    /// Cap on the summed occurrence component so a pathologically flaky window doesn't run the penalty
-    /// away on its own (the duration curve still adds on top, uncapped). Set high - a line dropping
-    /// dozens of times in the window SHOULD score badly - but bounded so occurrence can't alone zero a
-    /// score that the duration barely touched.
+    /// Occurrence curve: points deducted per (severity-weighted WAN outages per DAY, penaltyPoints)
+    /// anchor. This is the RECURRENCE component, on top of the duration penalty, and it is scored as a
+    /// true rate so a given drop rate costs the same in any window. Eight drops in 48 h is a crisis
+    /// and the same eight over a month is a quirk; the previous per-event cost scaled by the window
+    /// ratio scored those two identically, and worse, made a sustained rate cost LESS the longer it
+    /// was observed. Each event contributes its severity (breadth x depth x usage weight, 0..1) to the
+    /// daily rate, so shallow or narrow events push the rate up less than clean blackouts. The rate is
+    /// built from every event PAST the worst one, since recurrence starts at the second: a lone outage
+    /// is an incident rather than a pattern, and rating one drop in 48 h as "0.5 a day" would read a
+    /// single sample as a trend and charge it here as well as on duration. The top anchor caps the
+    /// component, so occurrence alone cannot zero a score the duration barely touched.
     /// </summary>
-    public double OutageOccurrenceCap { get; set; } = 35.0;
+    public (double EventsPerDay, double Penalty)[] OutageOccurrenceRateCurve { get; set; } =
+    {
+        (0, 0), (0.1, 3), (0.5, 8), (1, 14), (3, 25), (8, 35)
+    };
+
+    /// <summary>
+    /// Minimum window length before findings quote an uptime percentage. Below this the figure is
+    /// read as a monthly SLA number when it actually covers a few hours. The score card states the
+    /// period right next to the number, so it is not gated - only the prose is.
+    /// </summary>
+    public int UptimeProseMinWindowHours { get; set; } = 24;
 
     /// <summary>
     /// Weight outage severity by a time-of-day usage fingerprint: an outage during the hours the user

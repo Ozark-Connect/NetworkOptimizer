@@ -181,13 +181,19 @@ public class IspHealthScorer
         var overall = CombineDimensions(accessDimension, transitDimension, ispAsnDimension);
         // Outages are scored once, here at the top level (not inside a factor, where the dimension
         // weights would dilute a multi-hour outage to a couple of points), as TWO components:
-        //   - DURATION: one severity-curve lookup on the summed effective downtime. A partial-loss
-        //     disruption's minutes are weighted by its peak loss fraction (and a tunable weight), so a
+        //   - DURATION: the GREATER of (a) the summed effective downtime as a PERCENT OF THE WINDOW,
+        //     on the unavailability curve, and (b) what the single worst event earns on the felt-event
+        //     curve from its absolute minutes. (a) makes the penalty mean an availability figure, so
+        //     15 min costs what four-nines is worth on a 30-day window and what two-nines is worth on
+        //     48 h; (b) stops a long outage dissolving into a long window, because four hours down is
+        //     memorable no matter how much clean time surrounds it. A partial-loss disruption's
+        //     minutes are weighted by its peak loss fraction (and a tunable weight) into both, so a
         //     shallow degradation dings less than a blackout of the same length.
-        //   - OCCURRENCE: each event's severity (breadth x depth) x a per-event cost, summed and
-        //     capped. This is what makes recurrence bite - ten separate micro-drops cost ~ten times a
-        //     single one, where the duration curve alone treats them as one slightly-longer drop - and
-        //     lifts a single felt short outage off the floor.
+        //   - OCCURRENCE: severity-weighted events per DAY on the occurrence rate curve. This is what
+        //     makes recurrence bite - ten separate micro-drops cost far more than a single one, where
+        //     the duration terms treat them as one slightly-longer drop. Scoring it as a rate (rather
+        //     than the old per-event cost scaled by window ratio) means a given drop rate costs the
+        //     same however long you look, instead of a steady rate looking BETTER on a longer window.
         // Local (LAN/gateway) outages are surfaced but never penalize the ISP - the gateway being
         // unreachable is the user's own LAN, not the ISP's fault (they still mask their dark window
         // from the other factors via InOutage, so that loss isn't double-counted against the ISP).
@@ -197,46 +203,71 @@ public class IspHealthScorer
         // Acknowledged ("that was me") outages are the user's own maintenance, not the ISP:
         // excluded from the penalty like Local ones, while their dark windows still mask loss.
         var wanOutages = inputs.Outages.Where(o => o.Scope != OutageScope.Local && !o.Acknowledged).ToList();
-        double EffectiveMinutes(OutageEvent o) => o.Duration.TotalMinutes *
-            (o.IsPartial ? Math.Clamp(o.PeakLossPct / 100.0, 0, 1) * _options.OutagePartialPenaltyWeight : 1.0)
-            * o.UsageWeight;
-        // Severity 0..1 = breadth (fraction of monitored targets that dropped) x depth (peak loss
-        // fraction) x usage weight. A widespread near-total event at a busy hour reads hottest.
-        double Severity(OutageEvent o)
+        // Severity factor 0..1 = breadth (fraction of monitored targets that dropped) x depth (peak
+        // loss fraction), with a partial-loss disruption additionally scaled by its tunable weight.
+        // BOTH fall back to 1.0 rather than 0 when the event carries no census or no recorded peak
+        // loss. The detector only declares an outage past OutageMinReportingTargets and (for a
+        // blackout) past OutageDarkLossPct, so an absent field is missing metadata, not a lossless
+        // outage that touched nothing - and since this factor now scales effective MINUTES, reading
+        // it as zero would let a real outage score completely free.
+        double SeverityFactor(OutageEvent o)
         {
-            var depth = Math.Clamp(o.PeakLossPct / 100.0, 0, 1);
+            var depth = o.PeakLossPct > 0 ? Math.Clamp(o.PeakLossPct / 100.0, 0, 1) : 1.0;
             var breadth = o.PathTargetCount > 0
                 ? Math.Clamp((double)o.DegradedTargetCount / o.PathTargetCount, 0, 1)
-                : 0.0;
-            return depth * breadth * o.UsageWeight;
+                : 1.0;
+            return depth * breadth * (o.IsPartial ? _options.OutagePartialPenaltyWeight : 1.0);
+        }
+        // Effective minutes: wall-clock duration discounted by how much of the path actually went
+        // dark, how deep it went, and how much the line is typically used at that hour. An event that
+        // took two of nine targets half-lossy did not cost you its full wall-clock minutes.
+        double EffectiveMinutes(OutageEvent o) => o.Duration.TotalMinutes * SeverityFactor(o) * o.UsageWeight;
+        // Severity 0..1 for the occurrence rate. A widespread near-total event at a busy hour reads hottest.
+        double Severity(OutageEvent o) => SeverityFactor(o) * o.UsageWeight;
+        var windowMinutes = (inputs.WindowEnd - inputs.WindowStart).TotalMinutes;
+        // Percent of the window one event's effective (loss- and usage-weighted) minutes represent.
+        double DownPercent(double effectiveMinutes) => windowMinutes > 0 ? 100.0 * effectiveMinutes / windowMinutes : 0.0;
+        // What one event claims on its own: the greater of its ratio cost and its felt cost. Used both
+        // as the worst-event floor below and, normalized, to attribute the duration penalty per event.
+        double Claim(OutageEvent o)
+        {
+            var em = EffectiveMinutes(o);
+            return Math.Max(
+                ScoreCurve.Interpolate(DownPercent(em), _options.OutageUnavailabilityCurve),
+                ScoreCurve.Interpolate(em, _options.OutageFeltEventCurve));
         }
         if (wanOutages.Count > 0)
         {
             var outageMinutes = wanOutages.Sum(EffectiveMinutes);
-            var durationPenalty = outageMinutes > 0 ? OutageScorePenalty(outageMinutes) : 0.0;
-            // Occurrence is a FREQUENCY signal, so judge it as a RATE against the canonical window:
-            // the same few micro-drops spread over a week is a steadier line than the same number in
-            // 48 h. Dilute occurrence for windows LONGER than the reference; never amplify a shorter
-            // (e.g. zoomed-in) window. Duration is left absolute, so a long outage weighs the same in
-            // any window - only the count-based part rescales.
-            var windowHours = (inputs.WindowEnd - inputs.WindowStart).TotalHours;
-            var occurrenceWindowScale = _options.ScoreWindowHours > 0 && windowHours > _options.ScoreWindowHours
-                ? _options.ScoreWindowHours / windowHours
-                : 1.0;
-            double EventOccurrence(OutageEvent o) => _options.OutageEventCost * Severity(o) * occurrenceWindowScale;
-            var rawOccurrence = wanOutages.Sum(EventOccurrence);
-            var occurrencePenalty = Math.Min(_options.OutageOccurrenceCap, rawOccurrence);
-            var occCapScale = rawOccurrence > 0 ? occurrencePenalty / rawOccurrence : 0.0;
+            var downPercent = DownPercent(outageMinutes);
+            var unavailabilityPenalty = ScoreCurve.Interpolate(downPercent, _options.OutageUnavailabilityCurve);
+            // The floor is the WORST single event, never the sum of every event's felt cost - summing
+            // would double-count against the ratio term, which already has all of their minutes.
+            var feltFloor = wanOutages.Max(Claim);
+            var durationPenalty = Math.Max(unavailabilityPenalty, feltFloor);
+            var windowDays = windowMinutes / 1440.0;
+            var severityTotal = wanOutages.Sum(Severity);
+            // Recurrence starts at the SECOND event, so the rate is built from everything past the
+            // worst one. A lone outage is an incident, not a pattern - rating one event in 48 h as
+            // "0.5 a day" would read a single sample as a trend and charge it twice, once here and
+            // once on duration. Its cost belongs entirely to the duration terms.
+            var recurringSeverity = Math.Max(0, severityTotal - wanOutages.Max(Severity));
+            var eventsPerDay = windowDays > 0 ? recurringSeverity / windowDays : 0.0;
+            var occurrencePenalty = ScoreCurve.Interpolate(eventsPerDay, _options.OutageOccurrenceRateCurve);
             // Floor a flagged WAN event at one point: if we surfaced it on the timeline it should
             // visibly register, not round to a silent zero.
             var penalty = Math.Max(1.0, durationPenalty + occurrencePenalty);
-            // Attribute the total across events so each row shows its own "-N points": its duration
-            // share (by effective-minute) plus its (capped) occurrence cost. Rounded shares may differ
-            // from the total by <=1 pt - cosmetic; the actual deduction uses the total below.
+            // Attribute the total across events so each row shows its own "-N points". Duration goes by
+            // each event's share of the summed claim, which tracks whichever term won: when one long
+            // outage set the floor its claim dominates and it takes most of the points, and when many
+            // events summed into the ratio cost they split it by how much each contributed. Occurrence
+            // goes by severity share. Rounded shares may differ from the total by <=1 pt - cosmetic;
+            // the actual deduction uses the total below.
+            var claimTotal = wanOutages.Sum(Claim);
             foreach (var o in wanOutages)
             {
-                var durShare = outageMinutes > 0 ? durationPenalty * (EffectiveMinutes(o) / outageMinutes) : 0.0;
-                var occShare = EventOccurrence(o) * occCapScale;
+                var durShare = claimTotal > 0 ? durationPenalty * (Claim(o) / claimTotal) : 0.0;
+                var occShare = severityTotal > 0 ? occurrencePenalty * (Severity(o) / severityTotal) : 0.0;
                 o.ScorePenaltyPoints = (int)Math.Round(durShare + occShare);
                 // Per-event "show your work": time, kind, duration, depth (peak loss), breadth, and the
                 // time-of-day usage weight that scaled it, then the duration/occurrence point split.
@@ -251,13 +282,27 @@ public class IspHealthScorer
                     durShare.ToString("0.0", CultureInfo.InvariantCulture),
                     occShare.ToString("0.0", CultureInfo.InvariantCulture));
             }
-            _logger?.LogDebug("ISP Health: outage penalty {Penalty} pts = {Dur} duration + {Occ} occurrence over {N} event(s), {Min} eff min ({Before} -> {After})",
+            _logger?.LogDebug(
+                "ISP Health: outage penalty {Penalty} pts = {Dur} duration ({Unavail} unavailability vs {Felt} worst-event floor, {Pct}% of window) + {Occ} occurrence ({Rate}/day over {N} event(s), {Min} eff min) ({Before} -> {After})",
                 penalty.ToString("0.#", CultureInfo.InvariantCulture), durationPenalty.ToString("0.#", CultureInfo.InvariantCulture),
-                occurrencePenalty.ToString("0.#", CultureInfo.InvariantCulture), wanOutages.Count,
-                outageMinutes.ToString("0.#", CultureInfo.InvariantCulture),
+                unavailabilityPenalty.ToString("0.#", CultureInfo.InvariantCulture), feltFloor.ToString("0.#", CultureInfo.InvariantCulture),
+                downPercent.ToString("0.###", CultureInfo.InvariantCulture),
+                occurrencePenalty.ToString("0.#", CultureInfo.InvariantCulture), eventsPerDay.ToString("0.##", CultureInfo.InvariantCulture),
+                wanOutages.Count, outageMinutes.ToString("0.#", CultureInfo.InvariantCulture),
                 overall, (int)Math.Max(0, Math.Round(overall - penalty)));
             overall = (int)Math.Max(0, Math.Round(overall - penalty));
         }
+
+        // Displayed uptime counts BLACKOUT time only (full and brief outages), at raw duration: the
+        // card must agree with the minutes on the timeline, so no usage or loss weighting here, and a
+        // partial-loss disruption is degraded service rather than downtime. Local and acknowledged
+        // events are excluded on the same grounds as the penalty. The scored figure above additionally
+        // folds in weighted partial minutes, so the two can differ slightly by design.
+        var blackouts = wanOutages.Where(o => !o.IsPartial).ToList();
+        var downtime = TimeSpan.FromMinutes(blackouts.Sum(o => o.Duration.TotalMinutes));
+        var uptimePercent = windowMinutes > 0
+            ? Math.Clamp(100.0 - 100.0 * downtime.TotalMinutes / windowMinutes, 0, 100)
+            : 100.0;
 
         var report = new IspHealthReport
         {
@@ -265,6 +310,8 @@ public class IspHealthScorer
             ComputedAt = DateTime.UtcNow,
             WindowStart = inputs.WindowStart,
             WindowEnd = inputs.WindowEnd,
+            UptimePercent = uptimePercent,
+            Downtime = downtime,
             Profile = profile,
             AccessDimension = accessDimension,
             TransitDimension = transitDimension,
@@ -1682,9 +1729,9 @@ public class IspHealthScorer
         // Local (LAN/gateway) outages are surfaced in the waterfall but are not internet outages and
         // don't affect the score, so they never appear in this ISP-impact issue.
         // Full outages and brief disruptions are surfaced as separate findings: a 30 s transit flap
-        // shouldn't read as the same event as a multi-minute outage. Both ride the same severity
-        // curve (a brief disruption costs at most a point), so the per-event score share is taken
-        // from the already-attributed ScorePenaltyPoints rather than recomputing the curve per group.
+        // shouldn't read as the same event as a multi-minute outage. Both ride the same duration and
+        // occurrence terms (a brief disruption costs about a point on its own), so the per-event score
+        // share is taken from the already-attributed ScorePenaltyPoints rather than re-deriving it here.
         // Acknowledged ("that was me") outages were the user's own doing and are left out of the
         // findings entirely, same as the penalty.
         var wanOutages = inputs.Outages.Where(o => o.Scope != OutageScope.Local && !o.Acknowledged).ToList();
@@ -1709,6 +1756,14 @@ public class IspHealthScorer
             var impact = penalty > 0
                 ? $" {(multiple ? "Together they" : "It")} lowered your ISP Health score by {penalty} {(penalty == 1 ? "point" : "points")}."
                 : string.Empty;
+            // The score is graded on downtime as a FRACTION of the window, so state the availability
+            // that produced it - "15 min" alone reads the same on a 48 h window and a 30 day one, and
+            // those are wildly different lines. Suppressed on short windows, where a percentage
+            // invites being read as a monthly SLA figure when it covers a few hours.
+            var rate = multiple ? DropRatePhrase(fullOutages.Count, (inputs.WindowEnd - inputs.WindowStart).TotalHours) : string.Empty;
+            var uptime = (inputs.WindowEnd - inputs.WindowStart).TotalHours >= _options.UptimeProseMinWindowHours
+                ? $" That is {IspHealthPresentation.FormatUptime(report)} uptime across the last {IspHealthPresentation.ProseWindowLabel(report)}{(rate.Length > 0 ? $", {rate}" : "")}."
+                : string.Empty;
             var realPhrase = multiple
                 ? "so these are real outages, not monitoring gaps"
                 : "so this is a real outage, not a monitoring gap";
@@ -1716,7 +1771,7 @@ public class IspHealthScorer
             {
                 Severity = IspIssueSeverity.Warning,
                 Title = multiple ? "Internet outages in the window" : "Internet outage in the window",
-                Description = $"{count} occurred while the Monitoring Agent kept probing ({realPhrase}).{where}{impact}{UsageNote(fullOutages)}",
+                Description = $"{count} occurred while the Monitoring Agent kept probing ({realPhrase}).{where}{uptime}{impact}{UsageNote(fullOutages)}",
                 Recommendation = allUpstream
                     ? "No action needed on your side for an upstream outage; it is logged here so you can correlate it with ISP incidents."
                     : "Logged here so you can correlate it with ISP incidents; if the first ISP hop keeps dropping, check your modem/ONT and the line to your ISP.",
@@ -1937,12 +1992,20 @@ public class IspHealthScorer
         CongestionDetector.FloorTime(time, TimeSpan.FromSeconds(_options.LoadWindowSeconds));
 
     /// <summary>
-    /// The overall-score deduction for outages of the given total downtime, interpolated on the
-    /// configured severity curve. Applied at the top level (not inside a factor) so a long
-    /// outage isn't diluted by the dimension weights; scored by duration alone, shape-independent.
+    /// How often outages recurred, phrased for the findings: "about one drop a week". Picks the unit
+    /// that keeps the count at or above one so a sparse month doesn't read as "about 0 drops a day".
+    /// Empty when there is nothing to rate.
     /// </summary>
-    private double OutageScorePenalty(double totalDowntimeMinutes) =>
-        ScoreCurve.Interpolate(totalDowntimeMinutes, _options.OutageSeverityCurve);
+    private static string DropRatePhrase(int count, double windowHours)
+    {
+        if (count <= 0 || windowHours <= 0) return string.Empty;
+        var perDay = count / (windowHours / 24.0);
+        var (rate, unit) = perDay >= 1 ? (perDay, "day")
+            : perDay * 7 >= 1 ? (perDay * 7, "week")
+            : (perDay * 30, "month");
+        var n = Math.Max(1, (int)Math.Round(rate));
+        return n == 1 ? $"about one drop a {unit}" : $"about {n} drops a {unit}";
+    }
 
     /// <summary>A cosmetic note for an outage finding whose events fell during typically-idle hours.
     /// The score impact already reflects the lower usage weight; this just explains why it's modest.

@@ -17361,6 +17361,41 @@ a.isp-health-hero-speed:hover {
     margin-top: 0.1rem;
 }
 
+.isp-health-hero-side {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1.25rem;
+}
+
+.isp-health-uptime {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.15rem;
+    text-align: center;
+}
+
+.isp-uptime-label {
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--text-muted);
+}
+
+.isp-uptime-value {
+    font-size: 2rem;
+    font-weight: 700;
+    letter-spacing: -1px;
+    line-height: 1.15;
+}
+
+.isp-uptime-sub {
+    font-size: 0.78rem;
+    color: var(--text-muted);
+}
+
 .isp-health-hero-dimensions {
     display: flex;
     gap: 0.75rem;
@@ -18045,10 +18080,16 @@ a.isp-outage-ack:hover {
         /* Stacked layout is much taller than desktop's row, so the desktop min-height lets
            the hero collapse (and jump) when the loading spinner replaces the score. Hold the
            stacked height so the spinner box matches the score box. */
-        min-height: 440px;
+        min-height: 525px;
     }
     .isp-speed-measured {
         font-size: 2rem;
+    }
+    .isp-health-hero-side {
+        gap: 1rem;
+    }
+    .isp-uptime-value {
+        font-size: 1.75rem;
     }
     .isp-health-hero-dimensions {
         gap: 0.4rem;

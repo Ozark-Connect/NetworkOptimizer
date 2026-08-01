@@ -265,10 +265,18 @@ else
                     <div class="isp-speed-sub">Set your ISP speeds in UniFi Network to grade throughput</div>
                 }
             </a>
-            <div class="isp-health-hero-dimensions">
-                <IspHealthScoreGauge Score="r.AccessDimension.Score" Label="Access Layer" Small="true" />
-                <IspHealthScoreGauge Score="r.IspAsnDimension.Score" Label="ISP Network" Small="true" />
-                <IspHealthScoreGauge Score="r.TransitDimension.Score" Label="Transit" Small="true" />
+            <div class="isp-health-hero-side">
+                <div class="isp-health-uptime" data-tooltip="Share of the window the internet was reachable. Counts full and brief outages; LAN/gateway and acknowledged events are excluded."
+                     data-tooltip-click>
+                    <div class="isp-uptime-label">Uptime</div>
+                    <div class="isp-uptime-value">@FormatUptime(r)</div>
+                    <div class="isp-uptime-sub">@FormatDowntime(r.Downtime) &middot; @WindowLabel(r)</div>
+                </div>
+                <div class="isp-health-hero-dimensions">
+                    <IspHealthScoreGauge Score="r.AccessDimension.Score" Label="Access Layer" Small="true" />
+                    <IspHealthScoreGauge Score="r.IspAsnDimension.Score" Label="ISP Network" Small="true" />
+                    <IspHealthScoreGauge Score="r.TransitDimension.Score" Label="Transit" Small="true" />
+                </div>
             </div>
         </div>
     </div>

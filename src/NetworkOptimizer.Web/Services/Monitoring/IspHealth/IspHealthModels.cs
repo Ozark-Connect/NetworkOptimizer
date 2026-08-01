@@ -509,6 +509,20 @@ public class IspHealthReport
     public DateTime ComputedAt { get; init; }
     public DateTime WindowStart { get; init; }
     public DateTime WindowEnd { get; init; }
+
+    /// <summary>
+    /// Percent of the window the internet was reachable, 0..100. Counts BLACKOUT time only (full and
+    /// brief outages) at raw duration, so it agrees with the minutes shown on the timeline: no usage
+    /// or peak-loss weighting, and partial-loss disruptions are degraded service rather than downtime.
+    /// Local (LAN/gateway) and acknowledged outages are excluded, same as from the score penalty.
+    /// 100 when nothing went dark. The scored unavailability additionally folds in weighted partial
+    /// minutes, so the penalty and this figure can differ slightly by design.
+    /// </summary>
+    public double UptimePercent { get; init; } = 100;
+
+    /// <summary>Total blackout time behind <see cref="UptimePercent"/>; zero when nothing went dark.</summary>
+    public TimeSpan Downtime { get; init; }
+
     public required AccessProfile Profile { get; init; }
 
     /// <summary>The access technology that selected <see cref="Profile"/>, so the UI can offer a
