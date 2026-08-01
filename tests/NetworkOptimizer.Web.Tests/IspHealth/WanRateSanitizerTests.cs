@@ -6,7 +6,7 @@ namespace NetworkOptimizer.Web.Tests.IspHealth;
 
 /// <summary>
 /// A counter reset at a link flap reports a rate the line cannot carry, and one such sample marks its
-/// window loaded - pulling the flap's own loss into Loaded Loss. Modelled on a real capture: 1.09 Gbps
+/// window loaded - pulling the flap's own loss into Loaded Loss. Modeled on a real capture: 1.09 Gbps
 /// on a 350/350 plan, in the same second as an outage.
 /// </summary>
 public class WanRateSanitizerTests

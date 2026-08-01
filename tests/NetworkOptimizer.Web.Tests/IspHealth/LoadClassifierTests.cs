@@ -104,8 +104,12 @@ public class LoadClassifierTests
     }
 
     [Fact]
-    public void Short_burst_registers_as_loaded_in_its_own_window()
+    public void Lone_loaded_window_between_idle_ones_does_not_count_as_load()
     {
+        // This used to register as loaded. It no longer does, because it is indistinguishable from a
+        // counter artifact - a rate delta spanning a counter reset at a link flap - and magnitude
+        // cannot separate the two: bursty access media legitimately read well above plan. One such
+        // sample, beside an outage, defined an entire month's Loaded Loss on a real site.
         var ws = Options.LoadWindowSeconds;
         var rates = new List<ThroughputSample>
         {
@@ -118,9 +122,45 @@ public class LoadClassifierTests
 
         windows.Should().HaveCount(3);
         var keys = windows.Keys.OrderBy(k => k).ToList();
-        windows[keys[1]].IsLoadedDown.Should().BeTrue();
+        windows[keys[1]].IsLoadedDown.Should().BeFalse();
         windows[keys[0]].IsIdle.Should().BeTrue();
         windows[keys[2]].IsIdle.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Sustained_load_across_consecutive_samples_still_counts()
+    {
+        // The other side of the same rule: real saturation holds across samples, so it survives.
+        // A gig line under full load sawtooths roughly 0.8x to 1.4x of plan, and even its troughs
+        // clear the loaded threshold - so the run requirement never costs a genuine transfer.
+        var ws = Options.LoadWindowSeconds;
+        var rates = new List<ThroughputSample>
+        {
+            new(TestSeries.Start, 10_000_000, 1_000_000),
+            new(TestSeries.Start.AddSeconds(ws), 1_400_000_000, 2_000_000),
+            new(TestSeries.Start.AddSeconds(ws * 2), 800_000_000, 2_000_000),
+            new(TestSeries.Start.AddSeconds(ws * 3), 1_300_000_000, 2_000_000),
+            new(TestSeries.Start.AddSeconds(ws * 4), 10_000_000, 1_000_000)
+        };
+
+        var windows = LoadClassifier.Classify(rates, expectedDownloadMbps: 1000, expectedUploadMbps: 100, Options);
+
+        var keys = windows.Keys.OrderBy(k => k).ToList();
+        windows[keys[1]].IsLoadedDown.Should().BeTrue();
+        windows[keys[2]].IsLoadedDown.Should().BeTrue();
+        windows[keys[3]].IsLoadedDown.Should().BeTrue();
+    }
+
+    [Fact]
+    public void A_single_sample_series_is_not_demoted()
+    {
+        // Nothing to compare against. Absence of a neighbor is not evidence of a spike, and demoting
+        // here would discard the only load a short window ever saw.
+        var rates = new List<ThroughputSample> { new(TestSeries.Start, 900_000_000, 2_000_000) };
+
+        var windows = LoadClassifier.Classify(rates, expectedDownloadMbps: 1000, expectedUploadMbps: 100, Options);
+
+        windows.Values.Single().IsLoadedDown.Should().BeTrue();
     }
 
     [Fact]

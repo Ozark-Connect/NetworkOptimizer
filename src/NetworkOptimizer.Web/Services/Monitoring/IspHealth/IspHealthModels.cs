@@ -516,7 +516,7 @@ public class IspHealthReport
     /// the detector only declares one past a broad multi-ASN half-loss (an interruption, not a blip)
     /// but half the packets is not half the clock. Local (LAN/gateway) and acknowledged outages are
     /// excluded, same as from the score penalty. Deliberately NOT usage-weighted, unlike the penalty:
-    /// how much an outage mattered is a scoring judgement, while uptime is a fact about the line -
+    /// how much an outage mattered is a scoring judgment, while uptime is a fact about the line -
     /// so this figure and the scored unavailability can differ, by design. 100 when nothing dropped.
     /// </summary>
     public double UptimePercent { get; init; } = 100;

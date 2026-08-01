@@ -51,6 +51,14 @@ public static class LoadClassifier
 
             result[group.Key] = new LoadWindow(idle, loadedDown, loadedUp);
         }
+
+        // Demote loaded windows that stand alone. A saturating transfer holds across consecutive
+        // samples; a counter artifact - a delta spanning a reset - is a single sample with idle
+        // neighbors. Magnitude cannot separate them, because bursty access media legitimately read
+        // well above plan, so persistence is the discriminator. Runs are counted over samples in time
+        // order rather than adjacent window keys: the rate series is coarser than the window size, so
+        // consecutive samples are never in adjacent keys.
+        DemoteIsolated(result, options);
         if (excluded > 0)
             logger?.LogDebug(
                 "ISP Health: excluded {Count} window(s) overlapping SQM probe schedule, {Loaded} of which would have classified as loaded",
@@ -72,6 +80,66 @@ public static class LoadClassifier
             loadedKeys.Count, result.Count,
             string.Join(" | ", loadedKeys.Take(8).Select(k => k.ToString("MM-dd HH:mm:ss"))));
         return result;
+    }
+
+    /// <summary>
+    /// Clears the loaded flags on any run shorter than
+    /// <see cref="IspHealthOptions.MinLoadedRunSamples"/>. Each direction is judged on its own - a
+    /// download transfer and an upload one rarely coincide - and a gap longer than a couple of sample
+    /// intervals breaks a run, so load either side of a monitoring outage is not stitched into one.
+    /// </summary>
+    private static void DemoteIsolated(Dictionary<DateTime, LoadWindow> windows, IspHealthOptions options)
+    {
+        if (options.MinLoadedRunSamples <= 1 || windows.Count == 0) return;
+
+        var ordered = windows.Keys.OrderBy(k => k).ToList();
+        // Samples arrive on the rate aggregation interval, which is coarser than the window size, so
+        // "adjacent" is measured against the observed spacing rather than assumed to be one window.
+        var spacing = ordered.Count > 1
+            ? TimeSpan.FromSeconds(Math.Max(options.LoadWindowSeconds,
+                (ordered[^1] - ordered[0]).TotalSeconds / (ordered.Count - 1)))
+            : TimeSpan.FromSeconds(options.LoadWindowSeconds);
+        var maxGap = TimeSpan.FromSeconds(spacing.TotalSeconds * 2.5);
+
+        void Sweep(Func<LoadWindow, bool> isLoaded, Func<LoadWindow, LoadWindow> demote)
+        {
+            var i = 0;
+            while (i < ordered.Count)
+            {
+                if (!isLoaded(windows[ordered[i]])) { i++; continue; }
+
+                // Extend while the next window is loaded AND close enough to belong to the same run,
+                // so load either side of a monitoring gap is not stitched into one.
+                var start = i;
+                var end = i + 1;
+                while (end < ordered.Count
+                    && isLoaded(windows[ordered[end]])
+                    && ordered[end] - ordered[end - 1] <= maxGap)
+                    end++;
+
+                // Demote only on POSITIVE evidence of isolation: a neighbor that exists, sits within
+                // the sampling gap, and is not loaded. A run at the edge of the series, or one whose
+                // neighbors are missing, goes unjudged - absence of evidence is not evidence of a
+                // spike, and treating it as one would discard the only sample a short window has.
+                if (end - start < options.MinLoadedRunSamples)
+                {
+                    var quietBefore = start > 0
+                        && ordered[start] - ordered[start - 1] <= maxGap
+                        && !isLoaded(windows[ordered[start - 1]]);
+                    var quietAfter = end < ordered.Count
+                        && ordered[end] - ordered[end - 1] <= maxGap
+                        && !isLoaded(windows[ordered[end]]);
+                    if (quietBefore || quietAfter)
+                        for (var j = start; j < end; j++)
+                            windows[ordered[j]] = demote(windows[ordered[j]]);
+                }
+
+                i = end;
+            }
+        }
+
+        Sweep(w => w.IsLoadedDown, w => w with { IsLoadedDown = false });
+        Sweep(w => w.IsLoadedUp, w => w with { IsLoadedUp = false });
     }
 
     private static bool IsExcluded(DateTime windowStart, TimeSpan windowSize, IReadOnlyList<(DateTime Start, DateTime End)> exclusions)

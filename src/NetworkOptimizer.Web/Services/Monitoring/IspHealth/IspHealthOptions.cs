@@ -553,6 +553,26 @@ public class IspHealthOptions
     };
 
     /// <summary>
+    /// Ceiling on the WAN rate aggregation interval, independent of the report window. Everything else
+    /// is thinned as the window grows, but load classification is the one signal that cannot survive
+    /// it: at a month-long window the rate series arrived aggregated to ~60 s, which collapses a
+    /// minute-long transfer and a single counter artifact into the same thing - one sample, no
+    /// neighbors - so sustained load became indistinguishable from a spike. The rate series is ONE
+    /// series against roughly twenty-five per-target latency series, so holding it fine costs little.
+    /// </summary>
+    public int WanRateMaxAggregateSeconds { get; set; } = 15;
+
+    /// <summary>
+    /// Consecutive loaded rate samples required before a span counts as loaded. Real saturation
+    /// sustains across samples; a counter artifact is one sample with idle neighbors, and magnitude
+    /// cannot tell them apart because bursty access media legitimately read well above plan (a gig
+    /// GPON line under full load sawtooths roughly 0.8x to 1.4x, so even its troughs clear the loaded
+    /// threshold and a run requirement passes easily). Two samples is deliberately low: it is enough
+    /// to reject the singleton, without demanding a transfer longer than a scheduled speed test.
+    /// </summary>
+    public int MinLoadedRunSamples { get; set; } = 2;
+
+    /// <summary>
     /// Multiple of the configured plan speed above which a WAN throughput sample is treated as a
     /// counter artifact and discarded (see <see cref="WanRateSanitizer"/>) rather than as load. Well
     /// above 1 because ISPs over-provision and a burst can genuinely beat the plan; this exists only

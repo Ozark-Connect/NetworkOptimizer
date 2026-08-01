@@ -660,7 +660,14 @@ public class IspHealthService
         var transitSeriesTask = _influx.QueryLatencyDetailByTargetTypeAsync(MonitoringTargetType.Transit, windowStart, windowEnd, aggregate, ct);
         var internetSeriesTask = _influx.QueryLatencyDetailByTargetTypeAsync(MonitoringTargetType.InternetService, outageQueryStart, windowEnd, aggregate, ct);
         var customSeriesTask = _influx.QueryLatencyDetailByTargetTypeAsync(MonitoringTargetType.Custom, windowStart, windowEnd, aggregate, ct);
-        var ratesTask = QueryWanRatesAsync(windowStart, windowEnd, aggregate, ct);
+        // Rates keep a fine interval whatever the window length. Thinning them with everything else
+        // destroys the only property that separates sustained load from a spike - whether neighboring
+        // samples are loaded too - because a minute-long transfer and a one-sample counter artifact
+        // both collapse to a single point. One series against ~25 per-target latency series, so the
+        // extra rows are cheap relative to what the compute already carries.
+        var rateAggregate = TimeSpan.FromSeconds(
+            Math.Min(aggregate.TotalSeconds, Math.Max(_options.LoadWindowSeconds, _options.WanRateMaxAggregateSeconds)));
+        var ratesTask = QueryWanRatesAsync(windowStart, windowEnd, rateAggregate, ct);
         var speedsTask = ResolveExpectedSpeedsAsync(ct);
         var speedTestsTask = LoadWanSpeedTestsAsync(windowStart, windowEnd, ct);
         var gatewaySeriesTask = gatewayTarget == null
@@ -1408,7 +1415,7 @@ public class IspHealthService
             .ToListAsync(ct);
         // Flat-lined targets the last computed report dropped come out here too. Subtracting from the
         // report rather than re-deriving it keeps this the single definition: the exclusion is a
-        // measurement judgement and this method only reads the database, so it cannot make it itself.
+        // measurement judgment and this method only reads the database, so it cannot make it itself.
         var excluded = _cached?.Report.LossPoolExcludedTargetIds ?? Array.Empty<string>();
         return targets
             .Where(t => t.TargetType == MonitoringTargetType.AccessIsp

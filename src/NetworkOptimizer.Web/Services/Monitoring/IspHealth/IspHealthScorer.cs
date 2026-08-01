@@ -310,7 +310,7 @@ public class IspHealthScorer
         // disruption for the share of it that was actually lost - the detector only declares one past
         // a broad, multi-ASN half-loss, which is an interruption rather than a blip, but 50% loss is
         // not 50% down either. Deliberately NOT usage-weighted, unlike the penalty: how much an outage
-        // mattered is a scoring judgement, while uptime is a fact about the line. Local and
+        // mattered is a scoring judgment, while uptime is a fact about the line. Local and
         // acknowledged events are excluded on the same grounds as the penalty.
         double DowntimeMinutes(OutageEvent o) => InWindowMinutes(o) *
             (o.IsPartial ? Math.Clamp(o.PeakLossPct / 100.0, 0, 1) : 1.0);

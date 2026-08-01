@@ -256,7 +256,7 @@ public class IspHealthScorerTests
         report.Downtime.Should().Be(TimeSpan.FromMinutes(15));
 
         // Usage weighting softens the SCORE but must not move uptime - how much an outage mattered is
-        // a judgement, while uptime is a fact about the line.
+        // a judgment, while uptime is a fact about the line.
         var quiet = new IspHealthScorer(Options).Score(
             BuildInputs(
                 outages: new List<OutageEvent> { new()
