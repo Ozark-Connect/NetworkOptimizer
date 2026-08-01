@@ -674,6 +674,10 @@ public class IspHealthService
             ? Task.FromResult(new List<MonitoringInfluxClient.LatencySeriesPoint>())
             : _influx.QueryLatencyDetailByTargetIdAsync(gatewayTarget.TargetId, outageQueryStart, windowEnd, aggregate, ct);
         await Task.WhenAll(ispSeriesTask, transitSeriesTask, internetSeriesTask, customSeriesTask, ratesTask, speedsTask, speedTestsTask, gatewaySeriesTask);
+        // Split the compute at the point every query has returned. Three rounds of optimizing the rate
+        // path moved the total by nothing, which means the cost is not where it was assumed to be -
+        // and query time versus post-query work are the two halves that need different answers.
+        var fetchMs = computeSw.ElapsedMilliseconds;
 
         // Extended (lead-in) series: used only to build the outage detector's trigger and hops below.
         var ispSeriesExt = ToSamples(await ispSeriesTask);
@@ -814,7 +818,9 @@ public class IspHealthService
             .Select(e => e.Samples.ToList())
             .ToList();
 
+        var trimAndMaskMs = computeSw.ElapsedMilliseconds - fetchMs;
         var (ispGrading, transitGrading, allClusters, ispChart, transitChart) = BuildAsnSeriesSets(ispTargets, transitTargets, ispSeries, transitSeries, ancestorIpsByTargetId);
+        var asnBuildMs = computeSw.ElapsedMilliseconds - fetchMs - trimAndMaskMs;
         var chartClusters = ispChart.Concat(transitChart).ToList();
         var internetTargetSeries = targets
             .Where(t => t.TargetType == MonitoringTargetType.InternetService && internetSeries.ContainsKey(t.TargetId))
@@ -936,6 +942,7 @@ public class IspHealthService
         // Internet/CDN targets join step detection because routing shifts in a transit
         // network show up on every path that crosses it (per the real shift examples)
         var stepInput = allClusters.Concat(internetTargetSeries).ToList();
+        var detectorsStartMs = computeSw.ElapsedMilliseconds;
         var pathShifts = StepChangeDetector.Detect(stepInput, _options);
 
         // Outage detection: the internet targets going dark defines an outage; every hop is
@@ -1203,7 +1210,10 @@ public class IspHealthService
         };
 
         ct.ThrowIfCancellationRequested();
+        var detectorsMs = computeSw.ElapsedMilliseconds - detectorsStartMs;
+        var scoreStartMs = computeSw.ElapsedMilliseconds;
         var report = new IspHealthScorer(_options, _logger).Score(inputs, profile);
+        var scoreMs = computeSw.ElapsedMilliseconds - scoreStartMs;
         report.AccessTechnology = technology;
         report.PhysicalLinkCandidates = physical.Candidates;
         report.PhysicalLinkSelectedKey = physical.SelectedKey;
@@ -1215,9 +1225,15 @@ public class IspHealthService
         report.PppoeSession = pppoeSession == true;
         _logger.LogDebug("ISP Health computed: {Score} ({Tech}), {Events} congestion events, {Shifts} path shifts",
             report.OverallScore, profile.DisplayName, congestionEvents.Count, pathShifts.Count);
-        _logger.LogDebug("ISP Health compute timing: {Hours}h window in {Ms}ms ({Rates} rate sample(s), {LossSeries} loss series)",
+        _logger.LogDebug(
+            "ISP Health compute timing: {Hours}h in {Ms}ms = fetch {Fetch} + trim/mask {Trim} + asn {Asn} + detect {Detect} + score {Score} + other {Other}; {Rates} rates, {LatencyPoints} latency points, {LossSeries} loss series",
             (windowEnd - windowStart).TotalHours.ToString("0.#"), computeSw.ElapsedMilliseconds,
-            wanRates.Count, lossPool.Count);
+            fetchMs, trimAndMaskMs, asnBuildMs, detectorsMs, scoreMs,
+            computeSw.ElapsedMilliseconds - fetchMs - trimAndMaskMs - asnBuildMs - detectorsMs - scoreMs,
+            wanRates.Count,
+            ispSeries.Sum(kv => kv.Value.Count) + transitSeries.Sum(kv => kv.Value.Count)
+                + internetSeries.Sum(kv => kv.Value.Count),
+            lossPool.Count);
         return new ComputeOutcome(IspHealthStatus.Ready, report, chartClusters);
     }
 
