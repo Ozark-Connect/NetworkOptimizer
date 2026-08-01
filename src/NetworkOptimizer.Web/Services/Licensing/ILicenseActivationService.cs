@@ -35,10 +35,15 @@ public interface ILicenseActivationService
     [AuditAction(AuditActions.LicenseChanged, Category = AuditCategories.License, TargetType = "license_key", InstanceScoped = true)]
     Task RemoveAsync(int licenseKeyRecordId);
 
-    /// <summary>Assigns (or clears) the licence key covering a site.</summary>
+    /// <summary>
+    /// Assigns (or clears) the licence key covering a site. Takes the slug rather than the row id so
+    /// the audit envelope records which site was assigned: this is reached from a default-site-only
+    /// page, so falling back to the caller's own site would file every assignment under the default
+    /// site no matter which one was actually changed.
+    /// </summary>
     [RequireRole(Roles.Admin)]
     [AuditAction(AuditActions.LicenseChanged, Category = AuditCategories.License, TargetType = "site")]
-    Task<string?> AssignAsync(int siteId, int? licenseKeyRecordId);
+    Task<string?> AssignAsync([SiteSlug] string siteSlug, int? licenseKeyRecordId);
 
     /// <summary>This install's stable installation id (shown in the licensing card). Admin-only.</summary>
     [RequireRole(Roles.Admin)]

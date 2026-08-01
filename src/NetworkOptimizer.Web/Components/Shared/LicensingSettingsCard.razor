@@ -133,7 +133,7 @@
                         <span class="status-badge @GetSiteBadgeClass(status)">@GetSiteBadgeLabel(status)</span>
                     }
                     <select class="form-control license-site-select" value="@(AssignedKeyId(site.Id)?.ToString() ?? "")"
-                            @onchange="e => OnAssignmentChangedAsync(site.Id, e)">
+                            @onchange="e => OnAssignmentChangedAsync(site.Slug, e)">
                         <option value="">Not covered</option>
                         @foreach (var key in _keys)
                         {
@@ -319,11 +319,11 @@
         }
     }
 
-    private async Task OnAssignmentChangedAsync(int siteId, ChangeEventArgs e)
+    private async Task OnAssignmentChangedAsync(string siteSlug, ChangeEventArgs e)
     {
         _assignError = null;
         int? keyId = int.TryParse(e.Value?.ToString(), out var parsed) ? parsed : null;
-        var error = await Activation.AssignAsync(siteId, keyId);
+        var error = await Activation.AssignAsync(siteSlug, keyId);
         if (error != null)
             _assignError = error;
         await LoadDataAsync();
