@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using NetworkOptimizer.Storage.Models;
 
@@ -10,9 +11,11 @@ using NetworkOptimizer.Storage.Models;
 namespace NetworkOptimizer.Storage.Migrations
 {
     [DbContext(typeof(NetworkOptimizerDbContext))]
-    partial class NetworkOptimizerDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260726091714_AddSqmRateProportionalDownloadBurst")]
+    partial class AddSqmRateProportionalDownloadBurst
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.7");
@@ -2453,51 +2456,6 @@ namespace NetworkOptimizer.Storage.Migrations
                         .IsUnique();
 
                     b.ToTable("SqmWanConfigurations", (string)null);
-                });
-
-            modelBuilder.Entity("NetworkOptimizer.Storage.Models.SshKey", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("CreatedBy")
-                        .HasMaxLength(256)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Fingerprint")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("KeyType")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("PassphraseProtected")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("PrivateKeyProtected")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("PublicKey")
-                        .IsRequired()
-                        .HasMaxLength(4000)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Source")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("TEXT");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("SshKeys", (string)null);
                 });
 
             modelBuilder.Entity("NetworkOptimizer.Storage.Models.StarlinkConfiguration", b =>

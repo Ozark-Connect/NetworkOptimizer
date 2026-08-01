@@ -244,6 +244,7 @@ public class ScriptGenerator
         sb.AppendLine($"MIN_DOWNLOAD_SPEED=\"{_config.MinDownloadSpeed}\"");
         sb.AppendLine($"UPLOAD_SPEED=\"{_config.NominalUploadSpeed}\"");
         sb.AppendLine($"SHAPE_UPLOAD={(_config.ShapeUpload ? "1" : "0")}");
+        sb.AppendLine($"DOWNLOAD_BURST_MODE={(_config.RateProportionalDownloadBurst ? "1" : "0")}");
         sb.AppendLine($"DOWNLOAD_SPEED_MULTIPLIER=\"{Inv(_config.OverheadMultiplier)}\"");
         sb.AppendLine($"SAFETY_CAP=\"{Inv(_config.SafetyCapPercent)}\"");
         // Physical link speed final clamp (0 = unknown, skip clamp). LINK_SPEED_HEADROOM reserves
@@ -288,7 +289,10 @@ public class ScriptGenerator
 
         // Set probe rate slightly above max shaping rate before speedtest so TC never engages
         sb.AppendLine("# Set SQM to probe rate (3% above max shaping rate) before speedtest for unshaped measurement");
-        sb.AppendLine("update_all_tc_classes $IFB_DEVICE $SPEEDTEST_PROBE_RATE");
+        // The probe runs with the configured burst mode too: with the conservative bucket a
+        // throughput-limited path under-measures itself here, and that low number is what the
+        // adaptive rate is derived from.
+        sb.AppendLine("update_all_tc_classes $IFB_DEVICE $SPEEDTEST_PROBE_RATE $DOWNLOAD_BURST_MODE");
         sb.AppendLine("# Upstream: shape rate if enabled, otherwise just tune performance params");
         sb.AppendLine("if [ \"$SHAPE_UPLOAD\" = \"1\" ]; then");
         sb.AppendLine("    update_all_tc_classes $INTERFACE $UPLOAD_SPEED");
@@ -346,7 +350,7 @@ public class ScriptGenerator
         sb.AppendLine("echo \"Measured download speed: $download_speed_mbps Mbps\" > \"$RESULT_FILE\"");
         sb.AppendLine();
         sb.AppendLine("# Apply TC classes (downstream and upstream)");
-        sb.AppendLine("update_all_tc_classes $IFB_DEVICE $download_speed_mbps");
+        sb.AppendLine("update_all_tc_classes $IFB_DEVICE $download_speed_mbps $DOWNLOAD_BURST_MODE");
         sb.AppendLine("# Upstream: shape rate if enabled, otherwise just tune performance params");
         sb.AppendLine("if [ \"$SHAPE_UPLOAD\" = \"1\" ]; then");
         sb.AppendLine("    update_all_tc_classes $INTERFACE $UPLOAD_SPEED");
@@ -389,6 +393,7 @@ public class ScriptGenerator
         sb.AppendLine($"MAX_DOWNLOAD_SPEED_CONFIG=\"{_config.MaxDownloadSpeed}\"");
         sb.AppendLine($"UPLOAD_SPEED=\"{_config.NominalUploadSpeed}\"");
         sb.AppendLine($"SHAPE_UPLOAD={(_config.ShapeUpload ? "1" : "0")}");
+        sb.AppendLine($"DOWNLOAD_BURST_MODE={(_config.RateProportionalDownloadBurst ? "1" : "0")}");
         sb.AppendLine($"SAFETY_CAP=\"{Inv(_config.SafetyCapPercent)}\"");
         sb.AppendLine($"NOMINAL_SPEED=\"{_config.NominalDownloadSpeed}\"");
         // Physical link speed final clamp (0 = unknown, skip clamp). LINK_SPEED_HEADROOM reserves
@@ -558,7 +563,7 @@ public class ScriptGenerator
         sb.AppendLine("fi");
         sb.AppendLine();
 
-        sb.AppendLine("update_all_tc_classes $IFB_DEVICE $new_rate_int");
+        sb.AppendLine("update_all_tc_classes $IFB_DEVICE $new_rate_int $DOWNLOAD_BURST_MODE");
         sb.AppendLine("# Upstream: shape rate if enabled, otherwise just tune performance params");
         sb.AppendLine("if [ \"$SHAPE_UPLOAD\" = \"1\" ]; then");
         sb.AppendLine("    update_all_tc_classes $INTERFACE $UPLOAD_SPEED");
@@ -580,13 +585,29 @@ public class ScriptGenerator
     /// </summary>
     private string GetTcUpdateFunction()
     {
-        return @"# 5KB burst eliminates downstream drop_overmemory for bulk flows at gig speeds.
-# 8KB+ creates bursty HTB send patterns that increase queue depth variance in fq_codel.
+        return @"# Burst sizing. Mode 0 (default) is the conservative sizing: 5KB burst eliminates
+# downstream drop_overmemory for bulk flows at gig speeds, and 8KB+ creates bursty HTB
+# send patterns that increase queue depth variance in fq_codel.
+#
+# Mode 1 is the opt-in rate-proportional sizing (~1 ms of line time), for paths where the
+# conservative bucket is only 1-3 packets: at 900 Mbit, 5KB is ~44 us of line time, so HTB
+# releases only a few packets per timer wakeup and throughput degenerates into a function
+# of scheduling latency. It is off by default because it showed no gain on other platforms,
+# raised the loaded latency tail on the path where it did help, and can compound with an
+# upstream token-bucket policer. Download (IFB) path only; egress always uses mode 0.
 calc_burst() {
     local rate_mbps=$1
-    local burst=$((rate_mbps * 5))
-    [ ""$burst"" -lt 1500 ] && burst=1500
-    [ ""$burst"" -gt 5000 ] && burst=5000
+    local mode=${2:-0}
+    local burst
+    if [ ""$mode"" = ""1"" ]; then
+        burst=$((rate_mbps * 125))
+        [ ""$burst"" -lt 1500 ] && burst=1500
+        [ ""$burst"" -gt 131072 ] && burst=131072
+    else
+        burst=$((rate_mbps * 5))
+        [ ""$burst"" -lt 1500 ] && burst=1500
+        [ ""$burst"" -gt 5000 ] && burst=5000
+    fi
     echo ""$burst""
 }
 
@@ -631,7 +652,10 @@ calc_fq_limit() {
 update_all_tc_classes() {
     local device=$1
     local new_rate=$2
-    local burst=$(calc_burst $new_rate)
+    # Burst mode is opt-in and download-only: callers on the IFB pass $DOWNLOAD_BURST_MODE,
+    # egress callers omit it and stay on the conservative sizing.
+    local burst_mode=${3:-0}
+    local burst=$(calc_burst $new_rate $burst_mode)
     local fq_mem=$(calc_fq_mem $new_rate)
     local fq_limit=$(calc_fq_limit $new_rate)
 
