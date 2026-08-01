@@ -168,7 +168,7 @@ public sealed class MethodSecurityInterceptor : AsyncInterceptorBase
             auditAttr?.Category ?? AuditCategories.Action,
             auditAttr?.Action ?? "authz.denied",
             outcome: AuditOutcomes.Denied,
-            siteSlug: AuditSiteSlug(siteSlug),
+            siteSlug: AuditSiteSlug(siteSlug, auditAttr),
             details: new { reason }));
         throw new AuthorizationDeniedException($"Access denied: {reason}.");
     }
@@ -184,7 +184,7 @@ public sealed class MethodSecurityInterceptor : AsyncInterceptorBase
             targetType: auditAttr.TargetType,
             targetId: targetId,
             targetName: targetName,
-            siteSlug: AuditSiteSlug(siteSlug),
+            siteSlug: AuditSiteSlug(siteSlug, auditAttr),
             details: details));
     }
 
@@ -196,8 +196,12 @@ public sealed class MethodSecurityInterceptor : AsyncInterceptorBase
     /// other sites worked. Authorization deliberately keeps reading the raw argument (a null there is a
     /// missing [SiteSlug] parameter and must still fail loudly); this fallback is for attribution only,
     /// and matches what AuthorizeAsync already does when it ranks a site-scoped call.
+    ///
+    /// An [AuditAction(InstanceScoped = true)] method opts out: it belongs to the instance, so filing
+    /// it under whichever site was open would be wrong rather than merely noisy.
     /// </summary>
-    private string? AuditSiteSlug(string? siteSlug) => siteSlug ?? _siteContext.Slug;
+    private string? AuditSiteSlug(string? siteSlug, AuditActionAttribute? auditAttr)
+        => siteSlug ?? (auditAttr?.InstanceScoped == true ? null : _siteContext.Slug);
 
     /// <summary>
     /// Reads a gate attribute from the invoked member. Property accessors carry the gate on the

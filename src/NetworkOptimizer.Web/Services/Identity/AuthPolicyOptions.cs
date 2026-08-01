@@ -45,12 +45,12 @@ public interface IAuthPolicyAdminService
 {
     /// <summary>Sets the SSO-only local-login toggle.</summary>
     [RequireRole(Roles.Admin)]
-    [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "auth_policy")]
+    [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "auth_policy", InstanceScoped = true)]
     Task SetLocalLoginDisabledAsync(bool disabled);
 
     /// <summary>Sets the per-site restriction toggle.</summary>
     [RequireRole(Roles.Admin)]
-    [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "auth_policy")]
+    [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "auth_policy", InstanceScoped = true)]
     Task SetRestrictSitesToMembersAsync(bool restrict);
 }
 

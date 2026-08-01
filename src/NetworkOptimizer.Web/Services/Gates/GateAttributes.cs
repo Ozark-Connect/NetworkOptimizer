@@ -56,4 +56,14 @@ public sealed class AuditActionAttribute : Attribute
 
     /// <summary>Optional target type recorded on the event (e.g. "wan", "device").</summary>
     public string? TargetType { get; set; }
+
+    /// <summary>
+    /// True for an action that belongs to the instance rather than to a site (licensing, the auth
+    /// policy). The audit envelope otherwise records the site the caller was working in, which is
+    /// right for the site-scoped majority but would file an instance-wide change under whichever
+    /// site happened to be open. Set it per method rather than per category: a category can hold
+    /// both kinds, and licensing does - activating a key is instance-wide, assigning one to a site
+    /// is not.
+    /// </summary>
+    public bool InstanceScoped { get; set; }
 }
