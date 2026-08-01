@@ -11,24 +11,17 @@ namespace NetworkOptimizer.Storage.Tests;
 /// </summary>
 public class MonitoringInfluxCsvParserTests
 {
-    // Annotated CSV exactly as Flux returns the UN-PIVOTED latency-detail query: one row per
-    // (target_id, _field, _time), fields spread across separate tables and arriving out of time order.
-    // The parser must reassemble them onto one point per (target, timestamp), map by column name (the
-    // _time/_value/_field/target_id columns can sit anywhere), and sort by time.
+    // Annotated CSV exactly as Flux returns the latency-detail pivot query. The field columns are in
+    // a deliberately non-positional order (jitter, loss, rtt_avg, rtt_max) to prove the parser maps
+    // by column name, not index.
     private const string Csv =
-        "#group,false,false,true,true,false,false,true,true,true,true,false\r\n" +
-        "#datatype,string,long,dateTime:RFC3339,dateTime:RFC3339,dateTime:RFC3339,double,string,string,string,string,string\r\n" +
+        "#group,false,false,true,true,false,true,true,false,false,false,false\r\n" +
+        "#datatype,string,long,dateTime:RFC3339,dateTime:RFC3339,dateTime:RFC3339,string,string,double,double,double,double\r\n" +
         "#default,_result,,,,,,,,,,\r\n" +
-        ",result,table,_start,_stop,_time,_value,_field,_measurement,target_id,target_type,vantage_point\r\n" +
-        ",,0,2026-06-19T00:00:00Z,2026-06-19T02:00:00Z,2026-06-19T01:00:00Z,0.7,jitter_ms,latency,transit-x,transit,server\r\n" +
-        ",,0,2026-06-19T00:00:00Z,2026-06-19T02:00:00Z,2026-06-19T00:45:00Z,0.3,jitter_ms,latency,transit-x,transit,server\r\n" +
-        ",,1,2026-06-19T00:00:00Z,2026-06-19T02:00:00Z,2026-06-19T01:00:00Z,0,loss_percent,latency,transit-x,transit,server\r\n" +
-        ",,1,2026-06-19T00:00:00Z,2026-06-19T02:00:00Z,2026-06-19T00:45:00Z,0,loss_percent,latency,transit-x,transit,server\r\n" +
-        ",,2,2026-06-19T00:00:00Z,2026-06-19T02:00:00Z,2026-06-19T01:00:00Z,3,rtt_avg_ms,latency,transit-x,transit,server\r\n" +
-        ",,2,2026-06-19T00:00:00Z,2026-06-19T02:00:00Z,2026-06-19T00:45:00Z,2.8,rtt_avg_ms,latency,transit-x,transit,server\r\n" +
-        ",,3,2026-06-19T00:00:00Z,2026-06-19T02:00:00Z,2026-06-19T01:00:00Z,3.4,rtt_max_ms,latency,transit-x,transit,server\r\n" +
-        ",,3,2026-06-19T00:00:00Z,2026-06-19T02:00:00Z,2026-06-19T00:45:00Z,3.1,rtt_max_ms,latency,transit-x,transit,server\r\n" +
-        ",,4,2026-06-19T00:00:00Z,2026-06-19T02:00:00Z,2026-06-19T00:45:00Z,12.3,rtt_avg_ms,latency,cdn-y,internetservice,server\r\n";
+        ",result,table,_start,_stop,_time,target_id,target_type,jitter_ms,loss_percent,rtt_avg_ms,rtt_max_ms\r\n" +
+        ",,0,2026-06-19T00:00:00Z,2026-06-19T02:00:00Z,2026-06-19T01:00:00Z,transit-x,transit,0.7,0,3,3.4\r\n" +
+        ",,0,2026-06-19T00:00:00Z,2026-06-19T02:00:00Z,2026-06-19T00:45:00Z,transit-x,transit,0.3,0,2.8,3.1\r\n" +
+        ",,1,2026-06-19T00:00:00Z,2026-06-19T02:00:00Z,2026-06-19T00:45:00Z,cdn-y,internetservice,,,12.3,\r\n";
 
     [Fact]
     public void Parses_points_per_target_mapping_columns_by_name()
