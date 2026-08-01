@@ -141,6 +141,8 @@ upsert() {
     fi
 }
 upsert REVERSE_PROXIED_HOST_NAME '$OPTIMIZER_HOST'
+# Traefik serves on 443, so any manually-set non-standard front-end port no longer applies
+sed -i '/^REVERSE_PROXIED_PORT=/d' '$APP_DIR/.env'
 upsert BIND_LOCALHOST_ONLY true
 "
 if [[ -n "$SPEEDTEST_HOST" ]]; then

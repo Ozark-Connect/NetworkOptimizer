@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using NetworkOptimizer.Core.Helpers;
 
 namespace NetworkOptimizer.Web.Services;
 
@@ -123,6 +124,7 @@ public class NginxHostedService : IHostedService, IDisposable
                     LoadRegistryValue(config, key, "HOST_IP");
                     LoadRegistryValue(config, key, "HOST_NAME");
                     LoadRegistryValue(config, key, "REVERSE_PROXIED_HOST_NAME");
+                    LoadRegistryValue(config, key, "REVERSE_PROXIED_PORT");
                     LoadRegistryValue(config, key, "OPENSPEEDTEST_PORT");
                 }
             }
@@ -136,6 +138,7 @@ public class NginxHostedService : IHostedService, IDisposable
         OverrideFromConfiguration(config, "HOST_IP");
         OverrideFromConfiguration(config, "HOST_NAME");
         OverrideFromConfiguration(config, "REVERSE_PROXIED_HOST_NAME");
+        OverrideFromConfiguration(config, "REVERSE_PROXIED_PORT");
         OverrideFromConfiguration(config, "OPENSPEEDTEST_PORT");
 
         return Task.FromResult(config);
@@ -167,13 +170,14 @@ public class NginxHostedService : IHostedService, IDisposable
         // Priority: REVERSE_PROXIED_HOST_NAME (https) > HOST_NAME (http) > HOST_IP (http) > __DYNAMIC__
         // IMPORTANT: Keep this logic in sync with docker/openspeedtest/entrypoint.sh (Docker deployment)
         config.TryGetValue("REVERSE_PROXIED_HOST_NAME", out var reverseProxy);
+        config.TryGetValue("REVERSE_PROXIED_PORT", out var reverseProxyPort);
         config.TryGetValue("HOST_NAME", out var hostName);
         config.TryGetValue("HOST_IP", out var hostIp);
 
         if (!string.IsNullOrEmpty(reverseProxy))
         {
-            // Reverse proxy mode - HTTPS, no port needed
-            return $"https://{reverseProxy}{apiPath}";
+            // Reverse proxy mode - HTTPS, and the proxy's own front-end port when it is not 443
+            return $"https://{NetworkUtilities.ComposeAuthority(reverseProxy, reverseProxyPort, defaultPort: 443)}{apiPath}";
         }
         else if (!string.IsNullOrEmpty(hostName))
         {

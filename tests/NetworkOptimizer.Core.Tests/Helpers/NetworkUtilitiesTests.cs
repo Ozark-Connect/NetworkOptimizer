@@ -710,4 +710,85 @@ public class NetworkUtilitiesTests
     }
 
     #endregion
+
+    #region ComposeAuthority Tests
+
+    [Theory]
+    [InlineData("host.example.com", null, "host.example.com")]
+    [InlineData("host.example.com", "", "host.example.com")]
+    [InlineData("host.example.com", "  ", "host.example.com")]
+    public void ComposeAuthority_NoPort_ReturnsBareHost(string host, string? port, string expected)
+    {
+        NetworkUtilities.ComposeAuthority(host, port, defaultPort: 443).Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("host.example.com", "443", 443, "host.example.com")]
+    [InlineData("host.example.com", "80", 80, "host.example.com")]
+    public void ComposeAuthority_DefaultPort_StaysImplicit(string host, string port, int defaultPort, string expected)
+    {
+        NetworkUtilities.ComposeAuthority(host, port, defaultPort).Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("host.example.com", "13444", "host.example.com:13444")]
+    [InlineData("host.example.com", "8443", "host.example.com:8443")]
+    [InlineData(" host.example.com ", " 13444 ", "host.example.com:13444")]
+    public void ComposeAuthority_NonStandardPort_Appended(string host, string port, string expected)
+    {
+        NetworkUtilities.ComposeAuthority(host, port, defaultPort: 443).Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("host.example.com:8443", "8443", "host.example.com:8443")]
+    [InlineData("host.example.com:8443", "9999", "host.example.com:8443")]
+    [InlineData("host.example.com:8443", null, "host.example.com:8443")]
+    public void ComposeAuthority_EmbeddedPortWins(string host, string? port, string expected)
+    {
+        NetworkUtilities.ComposeAuthority(host, port, defaultPort: 443).Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("[2001:db8::1]", "13444", "[2001:db8::1]:13444")]
+    [InlineData("[2001:db8::1]:8443", "13444", "[2001:db8::1]:8443")]
+    [InlineData("[2001:db8::1]", "443", "[2001:db8::1]")]
+    public void ComposeAuthority_BracketedIPv6_InnerColonsNotPortSeparators(string host, string port, string expected)
+    {
+        NetworkUtilities.ComposeAuthority(host, port, defaultPort: 443).Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void ComposeAuthority_NullOrEmptyHost_ReturnsNull(string? host)
+    {
+        NetworkUtilities.ComposeAuthority(host, "13444", defaultPort: 443).Should().BeNull();
+    }
+
+    #endregion
+
+    #region AuthorityHost Tests
+
+    [Theory]
+    [InlineData("host.example.com", "host.example.com")]
+    [InlineData("host.example.com:13444", "host.example.com")]
+    [InlineData(" host.example.com:13444 ", "host.example.com")]
+    [InlineData("[2001:db8::1]", "[2001:db8::1]")]
+    [InlineData("[2001:db8::1]:13444", "[2001:db8::1]")]
+    public void AuthorityHost_DropsPort(string authority, string expected)
+    {
+        NetworkUtilities.AuthorityHost(authority).Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void AuthorityHost_NullOrEmpty_ReturnsNull(string? authority)
+    {
+        NetworkUtilities.AuthorityHost(authority).Should().BeNull();
+    }
+
+    #endregion
 }

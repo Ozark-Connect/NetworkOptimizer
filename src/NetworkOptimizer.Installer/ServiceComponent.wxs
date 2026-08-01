@@ -84,6 +84,8 @@
           <RegistryValue Name="HOST_NAME" Type="string" Value="[HOST_NAME]" />
           <!-- REVERSE_PROXIED_HOST_NAME - HTTPS reverse proxy hostname -->
           <RegistryValue Name="REVERSE_PROXIED_HOST_NAME" Type="string" Value="[REVERSE_PROXIED_HOST_NAME]" />
+          <!-- REVERSE_PROXIED_PORT - Reverse proxy front-end port when not 443 (registry-only, no dialog field) -->
+          <RegistryValue Name="REVERSE_PROXIED_PORT" Type="string" Value="[REVERSE_PROXIED_PORT]" />
           <!-- IPERF3_SERVER_ENABLED - Enable iperf3 server on port 5201 -->
           <RegistryValue Name="IPERF3_SERVER_ENABLED" Type="string" Value="[IPERF3_SERVER_ENABLED]" />
           <!-- OPENSPEEDTEST_PORT - nginx port for OpenSpeedTest (default 3005) -->

@@ -398,6 +398,8 @@ OPENSPEEDTEST_HTTPS=true
 
 `REVERSE_PROXIED_HOST_NAME` is the important one. When set, the app knows to use `https://` URLs and your proxy's hostname instead of `http://server-ip:8042`. This affects canonical URL enforcement, CORS headers, and where the speed test posts its results.
 
+If your proxy fronts the app on a port other than 443 (for example, one hostname with the app and the speed test separated by port), also set `REVERSE_PROXIED_PORT` to that port. This is supported, but host-based routing on 443 is the recommended setup: one hostname per service and no ports to remember. With local DNS on your gateway and a proxy that does DNS-01 certificates (Caddy, Traefik), there is no reason to need a non-standard port, even without exposing anything publicly.
+
 See [`.env.example`](.env.example) for the full list of variables and detailed explanations of what each one does.
 
 **If the reverse proxy is on the same host**, also add:

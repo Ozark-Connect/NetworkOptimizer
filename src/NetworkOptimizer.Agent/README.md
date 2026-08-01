@@ -9,7 +9,8 @@ gateway and devices, and the UniFi Console), and LAN speed test serving
 
 The agent connects to a **single URL** - the central server's reverse-proxied
 HTTPS address (the same host you open the app at, derived from the server's
-`REVERSE_PROXIED_HOST_NAME`). Both the enrollment/heartbeat REST calls and the
+`REVERSE_PROXIED_HOST_NAME`, plus `REVERSE_PROXIED_PORT` when the proxy's
+front-end port is not 443). Both the enrollment/heartbeat REST calls and the
 gRPC tunnel travel through that one host; the reverse proxy fans them out to the
 right port (see [Reverse proxy](#reverse-proxy)). The agent only ever speaks
 HTTPS, and never accepts inbound connections - it dials out.

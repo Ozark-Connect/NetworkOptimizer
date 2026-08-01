@@ -2363,6 +2363,10 @@
 
         if (string.IsNullOrEmpty(openSpeedTestHost))
             openSpeedTestHost = hostName;
+        // Proxied speed test (OPENSPEEDTEST_HTTPS=true) on an install that declared only the
+        // reverse-proxied hostname: link through the proxy rather than falling back to a direct IP.
+        if (string.IsNullOrEmpty(openSpeedTestHost) && openSpeedTestHttpsEnabled)
+            openSpeedTestHost = NetworkUtilities.AuthorityHost(Configuration["REVERSE_PROXIED_HOST_NAME"]);
 
         if (!string.IsNullOrEmpty(openSpeedTestHost))
         {

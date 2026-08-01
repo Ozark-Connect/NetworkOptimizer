@@ -1,3 +1,5 @@
+using NetworkOptimizer.Core.Helpers;
+
 namespace NetworkOptimizer.Web.Services;
 
 /// <summary>
@@ -6,7 +8,7 @@ namespace NetworkOptimizer.Web.Services;
 /// legitimately stop at different rungs, and re-deriving the ladder in each of them is how they drifted
 /// apart in the first place.
 ///
-///   REVERSE_PROXIED_HOST_NAME  ->  https://host        (no port; 443 implied)
+///   REVERSE_PROXIED_HOST_NAME  ->  https://host[:REVERSE_PROXIED_PORT]   (443 implied when unset)
 ///   HOST_NAME                  ->  http://host:8042
 ///   HOST_IP                    ->  http://ip:8042
 /// </summary>
@@ -35,7 +37,14 @@ public sealed class CanonicalBaseUrlProvider
 
     public CanonicalBaseUrlProvider(IConfiguration configuration)
     {
-        HttpsUrl = Normalize(configuration["REVERSE_PROXIED_HOST_NAME"], "https", port: null);
+        // The proxy's own front-end port folds into the host here, before anything downstream sees
+        // it, so every consumer of this ladder keeps treating the result as one opaque authority.
+        var proxiedAuthority = NetworkUtilities.ComposeAuthority(
+            configuration["REVERSE_PROXIED_HOST_NAME"],
+            configuration["REVERSE_PROXIED_PORT"],
+            defaultPort: 443);
+
+        HttpsUrl = Normalize(proxiedAuthority, "https", port: null);
         Url = HttpsUrl ?? Normalize(configuration["HOST_NAME"], "http", port: "8042");
         UrlForCallbacks = Url ?? Normalize(configuration["HOST_IP"], "http", port: "8042");
     }

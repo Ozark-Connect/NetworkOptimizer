@@ -766,9 +766,20 @@ if (!string.IsNullOrEmpty(corsOriginsConfig))
 var openSpeedTestPortConfig = builder.Configuration["OPENSPEEDTEST_PORT"];
 var openSpeedTestPort = !string.IsNullOrEmpty(openSpeedTestPortConfig) ? openSpeedTestPortConfig : "3005";
 var openSpeedTestHostConfig = builder.Configuration["OPENSPEEDTEST_HOST"];
-var openSpeedTestHost = !string.IsNullOrEmpty(openSpeedTestHostConfig) ? openSpeedTestHostConfig : hostName;
 var openSpeedTestHttpsConfig = builder.Configuration["OPENSPEEDTEST_HTTPS"] ?? "";
 var openSpeedTestHttpsEnabled = openSpeedTestHttpsConfig.Equals("true", StringComparison.OrdinalIgnoreCase);
+// Falls back to the reverse-proxied host last: an install that publishes both the app and the speed
+// test on one hostname, separated by port, sets neither OPENSPEEDTEST_HOST nor HOST_NAME - and
+// without this the speed test's own origin is never allowed, so results are blocked by CORS even
+// once they are posted to the right URL. Gated on OPENSPEEDTEST_HTTPS=true: only then has the
+// operator declared the speed test is served through the proxy on that hostname. Any port declared
+// on that hostname belongs to the app, not the speed test, so take the bare host and let
+// OPENSPEEDTEST_HTTPS_PORT supply the port below.
+var openSpeedTestHost = !string.IsNullOrEmpty(openSpeedTestHostConfig)
+    ? openSpeedTestHostConfig
+    : !string.IsNullOrEmpty(hostName) ? hostName
+    : openSpeedTestHttpsEnabled ? NetworkUtilities.AuthorityHost(reverseProxiedHostName)
+    : null;
 var openSpeedTestHttpsPortConfig = builder.Configuration["OPENSPEEDTEST_HTTPS_PORT"];
 var openSpeedTestHttpsPort = !string.IsNullOrEmpty(openSpeedTestHttpsPortConfig) ? openSpeedTestHttpsPortConfig : "443";
 
@@ -787,10 +798,7 @@ if (!string.IsNullOrEmpty(openSpeedTestHost))
 // HTTPS proxy origin (when OPENSPEEDTEST_HTTPS=true)
 if (openSpeedTestHttpsEnabled && !string.IsNullOrEmpty(openSpeedTestHost))
 {
-    var httpsOrigin = openSpeedTestHttpsPort == "443"
-        ? $"https://{openSpeedTestHost}"
-        : $"https://{openSpeedTestHost}:{openSpeedTestHttpsPort}";
-    corsOriginsList.Add(httpsOrigin);
+    corsOriginsList.Add($"https://{NetworkUtilities.ComposeAuthority(openSpeedTestHost, openSpeedTestHttpsPort, defaultPort: 443)}");
 }
 
 builder.Services.AddCors(options =>
@@ -1435,6 +1443,7 @@ static Dictionary<string, string?> LoadWindowsRegistrySettings()
             ["HOST_IP"] = "HOST_IP",
             ["HOST_NAME"] = "HOST_NAME",
             ["REVERSE_PROXIED_HOST_NAME"] = "REVERSE_PROXIED_HOST_NAME",
+            ["REVERSE_PROXIED_PORT"] = "REVERSE_PROXIED_PORT",
             ["IPERF3_SERVER_ENABLED"] = "Iperf3Server:Enabled",  // Maps to Iperf3Server:Enabled
             ["OPENSPEEDTEST_PORT"] = "OPENSPEEDTEST_PORT",
             ["OPENSPEEDTEST_HOST"] = "OPENSPEEDTEST_HOST",
