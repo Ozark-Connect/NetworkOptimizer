@@ -531,6 +531,33 @@ public class IspHealthOptions
     };
 
     /// <summary>
+    /// Loss (percent) at or above which one sample counts as dark for flat-line detection. Just under
+    /// total: a blocked or retired target answers nothing at all, so this is deliberately stricter
+    /// than any congestion threshold and cannot catch a merely lossy hop.
+    /// </summary>
+    public double LossPoolFlatlineLossPct { get; set; } = 99.0;
+
+    /// <summary>
+    /// Fraction of a target's samples that must be dark before it is treated as flat-lined rather
+    /// than badly degraded. Near-total, so a target that recovered for even a small slice of the
+    /// window stays in the pool - that recovery is real measurement.
+    /// </summary>
+    public double LossPoolFlatlineFraction { get; set; } = 0.98;
+
+    /// <summary>
+    /// Minimum loss samples before a target can be judged flat-lined or counted as a healthy peer.
+    /// A target that barely reported cannot support either conclusion.
+    /// </summary>
+    public int LossPoolFlatlineMinSamples { get; set; } = 20;
+
+    /// <summary>
+    /// Mean loss (percent) at or below which a peer counts as still measuring healthily. At least one
+    /// such peer must exist before anything is excluded, which is what keeps a genuine path-wide
+    /// outage - where every target reads 100% at once - from having its own evidence filtered away.
+    /// </summary>
+    public double LossPoolHealthyPeerMaxLossPct { get; set; } = 5.0;
+
+    /// <summary>
     /// Minimum window length before findings quote an uptime percentage. Below this the figure is
     /// read as a monthly SLA number when it actually covers a few hours. The score card states the
     /// period right next to the number, so it is not gated - only the prose is.

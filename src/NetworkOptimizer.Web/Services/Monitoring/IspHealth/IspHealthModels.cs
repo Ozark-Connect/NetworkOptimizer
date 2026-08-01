@@ -524,6 +524,13 @@ public class IspHealthReport
     /// <summary>Total downtime behind <see cref="UptimePercent"/>; zero when nothing dropped.</summary>
     public TimeSpan Downtime { get; init; }
 
+    /// <summary>
+    /// Targets left out of the Packet Loss and Loaded Loss pool because they were dark for the whole
+    /// window while their peers kept measuring (see <see cref="LossPoolFilter"/>). Investigate reads
+    /// this so its pooled figure grades the same set the score did.
+    /// </summary>
+    public IReadOnlyCollection<string> LossPoolExcludedTargetIds { get; init; } = Array.Empty<string>();
+
     public required AccessProfile Profile { get; init; }
 
     /// <summary>The access technology that selected <see cref="Profile"/>, so the UI can offer a
@@ -706,6 +713,13 @@ public class IspHealthInputs
 
     /// <summary>Per-target series pooled for packet loss (ISP + transit + anycast DNS targets).</summary>
     public List<List<LatencySample>> LossPoolSeries { get; init; } = new();
+
+    /// <summary>
+    /// Targets dropped from <see cref="LossPoolSeries"/> as flat-lined (see
+    /// <see cref="LossPoolFilter"/>). Carried through so the report can name them: the pool itself is
+    /// anonymous, and Investigate has to grade the same set the score did.
+    /// </summary>
+    public IReadOnlyCollection<string> LossPoolExcludedTargetIds { get; init; } = Array.Empty<string>();
 
     /// <summary>Per-ASN series for transit targets.</summary>
     public List<AsnSeries> TransitAsnSeries { get; init; } = new();

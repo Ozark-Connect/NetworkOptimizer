@@ -327,6 +327,7 @@ public class IspHealthScorer
             WindowEnd = inputs.WindowEnd,
             UptimePercent = uptimePercent,
             Downtime = downtime,
+            LossPoolExcludedTargetIds = inputs.LossPoolExcludedTargetIds,
             Profile = profile,
             AccessDimension = accessDimension,
             TransitDimension = transitDimension,

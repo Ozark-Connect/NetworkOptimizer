@@ -761,17 +761,33 @@ public class IspHealthService
         // nearest hop because far-hop RTT carries transit variance that isn't the access
         // link's loaded behavior - see PickFirstCleanHop / spec "Measurement sources".)
         // Transit series enter minus their unreachable windows (see transitDarkWindows above).
-        var lossPool = new List<List<LatencySample>>();
-        lossPool.AddRange(ispTargets.Where(t => ispSeries.ContainsKey(t.TargetId)).Select(t => ispSeries[t.TargetId]));
-        lossPool.AddRange(transitTargets.Where(t => transitSeries.ContainsKey(t.TargetId)).Select(t =>
-            darkByTargetId.TryGetValue(t.TargetId, out var dark)
-                ? transitSeries[t.TargetId].Where(s => !dark.Any(w => s.Time >= w.Start && s.Time <= w.End)).ToList()
-                : transitSeries[t.TargetId]));
-        lossPool.AddRange(targets
+        // Built WITH target ids so flat-lined members can be identified before the ids are dropped:
+        // the scorer's pool is anonymous (LatencySample carries no target), so this is the last point
+        // where a target can be named.
+        var identifiedPool = new List<LossPoolFilter.PoolEntry>();
+        identifiedPool.AddRange(ispTargets.Where(t => ispSeries.ContainsKey(t.TargetId))
+            .Select(t => new LossPoolFilter.PoolEntry(t.TargetId, ispSeries[t.TargetId])));
+        identifiedPool.AddRange(transitTargets.Where(t => transitSeries.ContainsKey(t.TargetId)).Select(t =>
+            new LossPoolFilter.PoolEntry(t.TargetId,
+                darkByTargetId.TryGetValue(t.TargetId, out var dark)
+                    ? transitSeries[t.TargetId].Where(s => !dark.Any(w => s.Time >= w.Start && s.Time <= w.End)).ToList()
+                    : transitSeries[t.TargetId])));
+        identifiedPool.AddRange(targets
             .Where(t => t.TargetType == MonitoringTargetType.InternetService
                 && AnycastDnsIps.Contains(t.Address)
                 && internetSeries.ContainsKey(t.TargetId))
-            .Select(t => internetSeries[t.TargetId]));
+            .Select(t => new LossPoolFilter.PoolEntry(t.TargetId, internetSeries[t.TargetId])));
+
+        // A target dark for the whole window while its peers keep measuring is blocked or retired, not
+        // losing; its constant 100% would swamp the pooled mean both loss factors are graded on.
+        var flatlined = LossPoolFilter.FindFlatlined(identifiedPool, _options);
+        if (flatlined.Count > 0)
+            _logger.LogInformation("ISP Health: excluding {Count} flat-lined target(s) from the loss pool: {Targets}",
+                flatlined.Count, string.Join(", ", flatlined));
+        var lossPool = identifiedPool
+            .Where(e => !flatlined.Contains(e.TargetId))
+            .Select(e => e.Samples.ToList())
+            .ToList();
 
         var (ispGrading, transitGrading, allClusters, ispChart, transitChart) = BuildAsnSeriesSets(ispTargets, transitTargets, ispSeries, transitSeries, ancestorIpsByTargetId);
         var chartClusters = ispChart.Concat(transitChart).ToList();
@@ -1135,6 +1151,7 @@ public class IspHealthService
             IspTargetSeries = ispTargetSeries,
             TargetAddresses = await ResolveHopAddressesAsync(ispTargets, ct),
             LossPoolSeries = lossPool,
+            LossPoolExcludedTargetIds = flatlined,
             TransitAsnSeries = transitGrading,
             IspAsnSeries = ispGrading,
             DestinationSeries = internetTargetSeries,
@@ -1368,12 +1385,17 @@ public class IspHealthService
                 || t.TargetType == MonitoringTargetType.Transit
                 || t.TargetType == MonitoringTargetType.InternetService))
             .ToListAsync(ct);
+        // Flat-lined targets the last computed report dropped come out here too. Subtracting from the
+        // report rather than re-deriving it keeps this the single definition: the exclusion is a
+        // measurement judgement and this method only reads the database, so it cannot make it itself.
+        var excluded = _cached?.Report.LossPoolExcludedTargetIds ?? Array.Empty<string>();
         return targets
             .Where(t => t.TargetType == MonitoringTargetType.AccessIsp
                 || (t.TargetType == MonitoringTargetType.Transit
                     && !(t.AsnNumber is int a && WellKnownAsns.NonTransitInfrastructure.Contains(a)))
                 || (t.TargetType == MonitoringTargetType.InternetService && AnycastDnsIps.Contains(t.Address)))
             .Select(t => t.TargetId)
+            .Where(id => !excluded.Contains(id))
             .ToList();
     }
 
