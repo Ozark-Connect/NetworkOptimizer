@@ -1796,7 +1796,6 @@ from(bucket: ""{_bucket}"")
   |> filter(fn: (r) => {typeFilter})
   |> filter(fn: (r) => r._field == ""rtt_avg_ms"" or r._field == ""rtt_max_ms"" or r._field == ""jitter_ms"" or r._field == ""loss_percent"")
   |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false)
-  |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
 ";
         return ParseLatencyDetailCsv(await QueryRawAsync(flux, ct));
     }
@@ -1822,7 +1821,6 @@ from(bucket: ""{_bucket}"")
   |> filter(fn: (r) => r.target_id == ""{targetId}"")
   |> filter(fn: (r) => r._field == ""rtt_avg_ms"" or r._field == ""rtt_max_ms"" or r._field == ""jitter_ms"" or r._field == ""loss_percent"")
   |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false)
-  |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
 ";
         var byTarget = ParseLatencyDetailCsv(await QueryRawAsync(flux, ct));
         // Single target filter, but flatten defensively in case the pivot emits more than one key.
@@ -2669,6 +2667,12 @@ from(bucket: ""{_longtermBucket}"")
         }
     }
 
+    private struct LatencyPointBuilder
+    {
+        public DateTime Time;
+        public double? Rtt, RttMax, Jitter, Loss;
+    }
+
     /// <summary>
     /// Parses the annotated-CSV result of the WAN rate pivot query (columns _time, rate_in_bps,
     /// rate_out_bps) into points, on the same span-based basis as <see cref="ParseLatencyDetailCsv"/>
@@ -2750,23 +2754,27 @@ from(bucket: ""{_longtermBucket}"")
     }
 
     /// <summary>
-    /// Parses the annotated-CSV result of a latency-detail pivot query (columns target_id, _time,
-    /// rtt_avg_ms, rtt_max_ms, jitter_ms, loss_percent) directly into per-target point lists. Span-
-    /// based: the only allocations are the per-target list, the distinct target_id keys, and the
-    /// points themselves - no FluxRecord, no boxing, no intermediate copy. Annotation rows (#...) are
-    /// skipped and the column header is re-read whenever Flux emits one (default annotated dialect),
-    /// so column order is never assumed. Tag/field values in this measurement never contain commas,
-    /// so a plain comma split is safe.
+    /// Parses the annotated-CSV result of an UN-PIVOTED latency-detail query (long format: one row per
+    /// (target_id, _field, _time), columns _time, _value, _field, target_id) into per-target point
+    /// lists. Accumulates each field onto a per-(target, time) builder and emits sorted points - i.e.
+    /// it does client-side what a Flux <c>pivot()</c> would do on the server, which was ~half the read
+    /// cost (measured), while producing identical points. Span-based: annotation rows (#...) are skipped
+    /// and the column header is re-read whenever Flux emits one, so column order is never assumed.
+    /// Tag/field values in this measurement never contain commas, so a plain comma split is safe.
     /// </summary>
     internal static Dictionary<string, List<LatencySeriesPoint>> ParseLatencyDetailCsv(string csv)
     {
         var result = new Dictionary<string, List<LatencySeriesPoint>>();
         if (string.IsNullOrEmpty(csv)) return result;
 
-        int iTime = -1, iTarget = -1, iRtt = -1, iRttMax = -1, iJitter = -1, iLoss = -1;
+        // Per target: (time ticks) -> accumulating builder, so the four fields (which arrive on
+        // separate rows / tables in the long format) merge back onto one point per timestamp.
+        var byTarget = new Dictionary<string, Dictionary<long, LatencyPointBuilder>>();
+
+        int iTime = -1, iValue = -1, iField = -1, iTarget = -1;
         var expectHeader = true; // first non-# line is a header (annotated dialect re-arms this after each #-block)
         string? lastKey = null;
-        List<LatencySeriesPoint>? lastList = null;
+        Dictionary<long, LatencyPointBuilder>? lastMap = null;
 
         var span = csv.AsSpan();
         int pos = 0;
@@ -2781,18 +2789,16 @@ from(bucket: ""{_longtermBucket}"")
 
             if (expectHeader)
             {
-                iTime = iTarget = iRtt = iRttMax = iJitter = iLoss = -1;
+                iTime = iValue = iField = iTarget = -1;
                 int col = 0, p = 0;
                 while (true)
                 {
                     var comma = line.Slice(p).IndexOf(',');
                     var cell = comma < 0 ? line.Slice(p) : line.Slice(p, comma);
                     if (cell.SequenceEqual("_time")) iTime = col;
+                    else if (cell.SequenceEqual("_value")) iValue = col;
+                    else if (cell.SequenceEqual("_field")) iField = col;
                     else if (cell.SequenceEqual("target_id")) iTarget = col;
-                    else if (cell.SequenceEqual("rtt_avg_ms")) iRtt = col;
-                    else if (cell.SequenceEqual("rtt_max_ms")) iRttMax = col;
-                    else if (cell.SequenceEqual("jitter_ms")) iJitter = col;
-                    else if (cell.SequenceEqual("loss_percent")) iLoss = col;
                     col++;
                     if (comma < 0) break;
                     p += comma + 1;
@@ -2801,56 +2807,68 @@ from(bucket: ""{_longtermBucket}"")
                 continue;
             }
 
-            if (iTime < 0 || iTarget < 0) continue;
+            if (iTime < 0 || iValue < 0 || iField < 0 || iTarget < 0) continue;
 
-            ReadOnlySpan<char> tTime = default, tTarget = default, tRtt = default, tRttMax = default, tJitter = default, tLoss = default;
+            ReadOnlySpan<char> tTime = default, tValue = default, tField = default, tTarget = default;
             int c = 0, q = 0;
             while (true)
             {
                 var comma = line.Slice(q).IndexOf(',');
                 var cell = comma < 0 ? line.Slice(q) : line.Slice(q, comma);
                 if (c == iTime) tTime = cell;
+                else if (c == iValue) tValue = cell;
+                else if (c == iField) tField = cell;
                 else if (c == iTarget) tTarget = cell;
-                else if (c == iRtt) tRtt = cell;
-                else if (c == iRttMax) tRttMax = cell;
-                else if (c == iJitter) tJitter = cell;
-                else if (c == iLoss) tLoss = cell;
                 c++;
                 if (comma < 0) break;
                 q += comma + 1;
             }
 
-            if (tTarget.IsEmpty || tTime.IsEmpty) continue;
+            if (tTarget.IsEmpty || tTime.IsEmpty || tField.IsEmpty) continue;
             if (!DateTime.TryParse(tTime, System.Globalization.CultureInfo.InvariantCulture,
                     System.Globalization.DateTimeStyles.RoundtripKind, out var time))
                 continue;
 
-            // Rows are grouped by target, so reuse the key/list across a run rather than re-allocating.
-            List<LatencySeriesPoint>? list;
+            // Rows are grouped by (target, field), so reuse the target's map across a run.
+            Dictionary<long, LatencyPointBuilder>? map;
             if (lastKey != null && tTarget.SequenceEqual(lastKey))
             {
-                list = lastList;
+                map = lastMap;
             }
             else
             {
                 var key = tTarget.ToString();
-                if (!result.TryGetValue(key, out list)) { list = new List<LatencySeriesPoint>(); result[key] = list; }
+                if (!byTarget.TryGetValue(key, out map)) { map = new Dictionary<long, LatencyPointBuilder>(); byTarget[key] = map; }
                 lastKey = key;
-                lastList = list;
+                lastMap = map;
             }
 
-            list!.Add(new LatencySeriesPoint
-            {
-                Time = ToUtc(time),
-                RttAvgMs = ParseDoubleOrNull(tRtt),
-                RttMaxMs = ParseDoubleOrNull(tRttMax),
-                JitterMs = ParseDoubleOrNull(tJitter),
-                LossPercent = ParseDoubleOrNull(tLoss)
-            });
+            var utc = ToUtc(time);
+            map!.TryGetValue(utc.Ticks, out var b);
+            b.Time = utc;
+            var v = ParseDoubleOrNull(tValue);
+            if (tField.SequenceEqual("rtt_avg_ms")) b.Rtt = v;
+            else if (tField.SequenceEqual("rtt_max_ms")) b.RttMax = v;
+            else if (tField.SequenceEqual("jitter_ms")) b.Jitter = v;
+            else if (tField.SequenceEqual("loss_percent")) b.Loss = v;
+            map[utc.Ticks] = b;
         }
 
-        foreach (var list in result.Values)
+        foreach (var (target, map) in byTarget)
+        {
+            var list = new List<LatencySeriesPoint>(map.Count);
+            foreach (var b in map.Values)
+                list.Add(new LatencySeriesPoint
+                {
+                    Time = b.Time,
+                    RttAvgMs = b.Rtt,
+                    RttMaxMs = b.RttMax,
+                    JitterMs = b.Jitter,
+                    LossPercent = b.Loss
+                });
             list.Sort((a, b) => a.Time.CompareTo(b.Time));
+            result[target] = list;
+        }
         return result;
     }
 
