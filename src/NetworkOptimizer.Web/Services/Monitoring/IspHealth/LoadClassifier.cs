@@ -55,6 +55,22 @@ public static class LoadClassifier
             logger?.LogDebug(
                 "ISP Health: excluded {Count} window(s) overlapping SQM probe schedule, {Loaded} of which would have classified as loaded",
                 excluded, excludedLoaded);
+
+        // What the classifier actually saw. On a long window the rate series arrives aggregated far
+        // coarser than LoadWindowSeconds, so each sample keys one narrow window while standing for a
+        // much wider span - print the rates and the windows they produced rather than inferring them
+        // from the raw series, which is aggregated differently.
+        var loadedKeys = result.Where(kv => kv.Value.IsLoadedDown || kv.Value.IsLoadedUp).Select(kv => kv.Key).OrderBy(k => k).ToList();
+        logger?.LogDebug(
+            "ISP Health: load classify - {Rates} rate sample(s) spanning {First:MM-dd HH:mm:ss} to {Last:MM-dd HH:mm:ss}, max {MaxDown}/{MaxUp} Mbps vs {PlanDown}/{PlanUp} plan, {Loaded} of {Total} window(s) loaded: {Keys}",
+            rates.Count,
+            rates.Count > 0 ? rates.Min(r => r.Time) : default,
+            rates.Count > 0 ? rates.Max(r => r.Time) : default,
+            (rates.Count > 0 ? rates.Max(r => r.DownloadBps ?? 0) / 1e6 : 0).ToString("0.#"),
+            (rates.Count > 0 ? rates.Max(r => r.UploadBps ?? 0) / 1e6 : 0).ToString("0.#"),
+            expectedDownloadMbps, expectedUploadMbps,
+            loadedKeys.Count, result.Count,
+            string.Join(" | ", loadedKeys.Take(8).Select(k => k.ToString("MM-dd HH:mm:ss"))));
         return result;
     }
 
