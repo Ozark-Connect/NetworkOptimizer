@@ -1,0 +1,21 @@
+{
+  "id": "2.5.3",
+  "kind": "whats-new",
+  "title": "What's new in v2.5.3",
+  "summary": "Uptime on the ISP Health score card, and outages scored against the window you are looking at.",
+  "steps": [
+    {
+      "id": "isp-uptime",
+      "level": "minor",
+      "url": "/monitoring?tab=isp-health",
+      "selector": "[data-tour=\"isp-uptime\"]",
+      "title": "Uptime",
+      "listLabel": "Outages scored against the window, not in flat minutes",
+      "badge": "improved",
+      "body": "**Uptime** now sits above the three gauges, and outages are scored against the window you are looking at rather than in flat minutes. Fifteen minutes down is a very different line over a month than over a day, and those no longer cost the same. A long outage still lands hard wherever you look from, and a line that drops over and over is now judged on how often it does it.",
+      "placement": "bottom",
+      "requires": ["isp-health"],
+      "optional": true
+    }
+  ]
+}
