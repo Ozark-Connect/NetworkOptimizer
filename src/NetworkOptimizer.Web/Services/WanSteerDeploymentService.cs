@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Storage;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Web.Services.Ssh;
+using NetworkOptimizer.Core.Helpers;
 
 namespace NetworkOptimizer.Web.Services;
 
@@ -202,7 +203,7 @@ public class WanSteerDeploymentService : IWanSteerDeploymentService
             // Generate and upload config
             progress?.Report("Uploading configuration...");
             var configJson = await GenerateConfigJsonAsync(wans);
-            var base64Config = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(configJson));
+            var base64Config = GatewayFile.ToBase64(configJson);
             var uploadResult = await _gatewaySsh.RunCommandAsync(
                 $"mkdir -p {RemoteDir} && echo {base64Config} | base64 -d > {RemoteConfigPath}",
                 TimeSpan.FromSeconds(15), ct);
@@ -213,7 +214,7 @@ public class WanSteerDeploymentService : IWanSteerDeploymentService
             // Deploy boot script
             progress?.Report("Installing boot script...");
             var bootScript = GenerateBootScript();
-            var base64Boot = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(bootScript));
+            var base64Boot = GatewayFile.ToBase64(bootScript);
             var bootResult = await _gatewaySsh.RunCommandAsync(
                 $"echo {base64Boot} | base64 -d > {BootScriptPath} && chmod +x {BootScriptPath}",
                 TimeSpan.FromSeconds(15), ct);
@@ -274,7 +275,7 @@ public class WanSteerDeploymentService : IWanSteerDeploymentService
                 return (false, "No WAN interfaces discovered");
 
             var configJson = await GenerateConfigJsonAsync(wans);
-            var base64Config = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(configJson));
+            var base64Config = GatewayFile.ToBase64(configJson);
             var uploadResult = await _gatewaySsh.RunCommandAsync(
                 $"echo {base64Config} | base64 -d > {RemoteConfigPath}",
                 TimeSpan.FromSeconds(15));
