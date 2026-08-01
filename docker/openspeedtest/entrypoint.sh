@@ -104,14 +104,15 @@ fi
 OST_PORT="${OPENSPEEDTEST_PORT:-3005}"
 OST_HTTPS_PORT="${OPENSPEEDTEST_HTTPS_PORT:-443}"
 
-# Match UI: OPENSPEEDTEST_HOST defaults to HOST_NAME, then - only when OPENSPEEDTEST_HTTPS=true -
-# to the reverse-proxied host. That last rung is what an install serving the app and the speed test
-# on one hostname (different ports) has set; without it there is no canonical URL, so the
-# HTTP->HTTPS redirect below is never installed. It is gated on HTTPS because only then has the
-# operator declared the speed test is served through the proxy on that hostname - ungated, it would
-# newly install a host redirect on installs whose speed test is reached directly by LAN address.
+# Match UI: OPENSPEEDTEST_HOST defaults to HOST_NAME, then - only for the new-style config that
+# sets REVERSE_PROXIED_PORT with OPENSPEEDTEST_HTTPS=true - to the reverse-proxied host. That last
+# rung is what an install serving the app and the speed test on one hostname (different ports) has
+# set; without it there is no canonical URL, so the HTTP->HTTPS redirect below is never installed.
+# Gating on REVERSE_PROXIED_PORT keeps every pre-existing config byte-identical (the variable is
+# new with this rung, so no earlier install has it) - ungated, this would newly install a redirect
+# on installs whose speed test is reached directly by LAN address.
 # The bare host, not the authority: the port here is the speed test's, not the app's.
-if [ "$OPENSPEEDTEST_HTTPS" = "true" ]; then
+if [ "$OPENSPEEDTEST_HTTPS" = "true" ] && [ -n "$REVERSE_PROXIED_PORT" ]; then
     OST_HOST="${OPENSPEEDTEST_HOST:-${HOST_NAME:-$PROXIED_HOST}}"
 else
     OST_HOST="${OPENSPEEDTEST_HOST:-$HOST_NAME}"

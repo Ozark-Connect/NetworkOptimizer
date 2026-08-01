@@ -908,13 +908,16 @@
         var openSpeedTestHttpsPortConfig = Configuration["OPENSPEEDTEST_HTTPS_PORT"];
         var openSpeedTestHttpsPort = !string.IsNullOrEmpty(openSpeedTestHttpsPortConfig) ? openSpeedTestHttpsPortConfig : "443";
 
-        // OPENSPEEDTEST_HOST defaults to HOST_NAME, then - only when the speed test is declared
-        // proxied (OPENSPEEDTEST_HTTPS=true) - to the reverse-proxied host, so an install serving
-        // the app and the speed test on one hostname gets a link through the proxy rather than a
-        // direct-IP fallback. Bare host: any port on that setting is the app's, not the speed test's.
+        // OPENSPEEDTEST_HOST defaults to HOST_NAME, then - only for the new-style config that sets
+        // REVERSE_PROXIED_PORT with OPENSPEEDTEST_HTTPS=true - to the reverse-proxied host, so an
+        // install serving the app and the speed test on one hostname gets a link through the proxy
+        // rather than a direct-IP fallback. The REVERSE_PROXIED_PORT gate keeps every pre-existing
+        // config's link unchanged. Bare host: any port on that setting is the app's, not the speed
+        // test's.
         if (string.IsNullOrEmpty(openSpeedTestHost))
             openSpeedTestHost = hostName;
-        if (string.IsNullOrEmpty(openSpeedTestHost) && openSpeedTestHttpsEnabled)
+        if (string.IsNullOrEmpty(openSpeedTestHost) && openSpeedTestHttpsEnabled
+            && !string.IsNullOrEmpty(Configuration["REVERSE_PROXIED_PORT"]))
             openSpeedTestHost = NetworkUtilities.AuthorityHost(Configuration["REVERSE_PROXIED_HOST_NAME"]);
 
         // Build health check URL - use HOST_IP when set (handles bridge networking where port is bound

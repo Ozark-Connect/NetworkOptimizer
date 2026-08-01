@@ -771,15 +771,18 @@ var openSpeedTestHttpsEnabled = openSpeedTestHttpsConfig.Equals("true", StringCo
 // Falls back to the reverse-proxied host last: an install that publishes both the app and the speed
 // test on one hostname, separated by port, sets neither OPENSPEEDTEST_HOST nor HOST_NAME - and
 // without this the speed test's own origin is never allowed, so results are blocked by CORS even
-// once they are posted to the right URL. Gated on OPENSPEEDTEST_HTTPS=true: only then has the
-// operator declared the speed test is served through the proxy on that hostname. Any port declared
-// on that hostname belongs to the app, not the speed test, so take the bare host and let
-// OPENSPEEDTEST_HTTPS_PORT supply the port below.
+// once they are posted to the right URL. The rung is gated on REVERSE_PROXIED_PORT being set: no
+// pre-existing install can have it (the variable is new with this rung), so configs that predate it
+// keep byte-identical behavior, and OPENSPEEDTEST_HTTPS=true confirms the speed test really is
+// served through the proxy on that hostname. Any port declared on that hostname belongs to the app,
+// not the speed test, so take the bare host and let OPENSPEEDTEST_HTTPS_PORT supply the port below.
+var reverseProxiedPort = builder.Configuration["REVERSE_PROXIED_PORT"];
 var openSpeedTestHost = !string.IsNullOrEmpty(openSpeedTestHostConfig)
     ? openSpeedTestHostConfig
     : !string.IsNullOrEmpty(hostName) ? hostName
-    : openSpeedTestHttpsEnabled ? NetworkUtilities.AuthorityHost(reverseProxiedHostName)
-    : null;
+    : openSpeedTestHttpsEnabled && !string.IsNullOrEmpty(reverseProxiedPort)
+        ? NetworkUtilities.AuthorityHost(reverseProxiedHostName)
+        : null;
 var openSpeedTestHttpsPortConfig = builder.Configuration["OPENSPEEDTEST_HTTPS_PORT"];
 var openSpeedTestHttpsPort = !string.IsNullOrEmpty(openSpeedTestHttpsPortConfig) ? openSpeedTestHttpsPortConfig : "443";
 

@@ -2363,9 +2363,11 @@
 
         if (string.IsNullOrEmpty(openSpeedTestHost))
             openSpeedTestHost = hostName;
-        // Proxied speed test (OPENSPEEDTEST_HTTPS=true) on an install that declared only the
-        // reverse-proxied hostname: link through the proxy rather than falling back to a direct IP.
-        if (string.IsNullOrEmpty(openSpeedTestHost) && openSpeedTestHttpsEnabled)
+        // Proxied speed test (OPENSPEEDTEST_HTTPS=true) on a new-style install that declared the
+        // reverse-proxied hostname and REVERSE_PROXIED_PORT: link through the proxy rather than
+        // falling back to a direct IP. The port gate keeps pre-existing configs' links unchanged.
+        if (string.IsNullOrEmpty(openSpeedTestHost) && openSpeedTestHttpsEnabled
+            && !string.IsNullOrEmpty(Configuration["REVERSE_PROXIED_PORT"]))
             openSpeedTestHost = NetworkUtilities.AuthorityHost(Configuration["REVERSE_PROXIED_HOST_NAME"]);
 
         if (!string.IsNullOrEmpty(openSpeedTestHost))
