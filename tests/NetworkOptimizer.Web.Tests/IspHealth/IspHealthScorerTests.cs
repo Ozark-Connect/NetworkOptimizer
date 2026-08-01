@@ -212,6 +212,30 @@ public class IspHealthScorerTests
     }
 
     [Fact]
+    public void Straddling_outage_is_counted_only_for_its_in_window_minutes()
+    {
+        // Outage detection reaches back OutageDetectionLeadInHours before the window so an outage
+        // that STRADDLES the start is stitched whole, and such an event keeps its true onset
+        // (IspHealthService only drops events that ended before the start). A 2 h outage whose last
+        // 5 min land in the window is 5 min of this window's downtime, not 120.
+        var straddling = new OutageEvent
+        {
+            Start = TestSeries.Start.AddHours(-2),
+            End = TestSeries.Start.AddMinutes(5),
+            PeakLossPct = 100,
+            DegradedTargetCount = 9,
+            PathTargetCount = 9
+        };
+        var report = new IspHealthScorer(Options).Score(
+            BuildInputs(outages: new List<OutageEvent> { straddling }, scoreWindow: TimeSpan.FromHours(48)), Gpon);
+
+        report.Downtime.Should().Be(TimeSpan.FromMinutes(5));
+
+        // 5 min of 48 h is 0.17% unavailability, which the felt-event floor prices at about 5 points.
+        (100 - report.OverallScore).Should().BeInRange(3, 9);
+    }
+
+    [Fact]
     public void Uptime_counts_a_partial_disruption_by_the_share_it_dropped()
     {
         // A 20 min disruption at 75% loss is 15 min of lost service, not 20 and not zero: the

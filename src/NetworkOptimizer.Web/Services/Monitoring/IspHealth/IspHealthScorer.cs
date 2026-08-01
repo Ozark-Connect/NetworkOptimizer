@@ -218,10 +218,23 @@ public class IspHealthScorer
                 : 1.0;
             return depth * breadth * (o.IsPartial ? _options.OutagePartialPenaltyWeight : 1.0);
         }
-        // Effective minutes: wall-clock duration discounted by how much of the path actually went
+        // Minutes of this event that actually fall INSIDE the window. Outage detection reaches back
+        // OutageDetectionLeadInHours so an outage straddling the window start is stitched whole, and
+        // such an event keeps its true onset (IspHealthService only drops ones that ended before the
+        // start). Since downtime is now graded as a fraction of the window, the pre-window part must
+        // not count against it - otherwise a window catching the last five minutes of a two-hour
+        // outage reads as two hours down. o.Duration stays the true shape for the timeline and the
+        // findings, which is what it is for.
+        double InWindowMinutes(OutageEvent o)
+        {
+            var start = o.Start > inputs.WindowStart ? o.Start : inputs.WindowStart;
+            var end = o.End < inputs.WindowEnd ? o.End : inputs.WindowEnd;
+            return end > start ? (end - start).TotalMinutes : 0.0;
+        }
+        // Effective minutes: in-window duration discounted by how much of the path actually went
         // dark, how deep it went, and how much the line is typically used at that hour. An event that
         // took two of nine targets half-lossy did not cost you its full wall-clock minutes.
-        double EffectiveMinutes(OutageEvent o) => o.Duration.TotalMinutes * SeverityFactor(o) * o.UsageWeight;
+        double EffectiveMinutes(OutageEvent o) => InWindowMinutes(o) * SeverityFactor(o) * o.UsageWeight;
         // Severity 0..1 for the occurrence rate. A widespread near-total event at a busy hour reads hottest.
         double Severity(OutageEvent o) => SeverityFactor(o) * o.UsageWeight;
         var windowMinutes = (inputs.WindowEnd - inputs.WindowStart).TotalMinutes;
@@ -293,13 +306,13 @@ public class IspHealthScorer
             overall = (int)Math.Max(0, Math.Round(overall - penalty));
         }
 
-        // Displayed uptime counts a blackout for its full duration and a partial-loss disruption for
-        // the share of it that was actually lost - the detector only declares one past a broad,
-        // multi-ASN half-loss, which is an interruption rather than a blip, but 50% loss is not 50%
-        // down either. Deliberately NOT usage-weighted, unlike the penalty: how much an outage
+        // Displayed uptime counts a blackout for its full in-window duration and a partial-loss
+        // disruption for the share of it that was actually lost - the detector only declares one past
+        // a broad, multi-ASN half-loss, which is an interruption rather than a blip, but 50% loss is
+        // not 50% down either. Deliberately NOT usage-weighted, unlike the penalty: how much an outage
         // mattered is a scoring judgement, while uptime is a fact about the line. Local and
         // acknowledged events are excluded on the same grounds as the penalty.
-        double DowntimeMinutes(OutageEvent o) => o.Duration.TotalMinutes *
+        double DowntimeMinutes(OutageEvent o) => InWindowMinutes(o) *
             (o.IsPartial ? Math.Clamp(o.PeakLossPct / 100.0, 0, 1) : 1.0);
         var downtime = TimeSpan.FromMinutes(wanOutages.Sum(DowntimeMinutes));
         var uptimePercent = windowMinutes > 0
