@@ -897,33 +897,17 @@
         }
         else
         {
-        // Construct OpenSpeedTest URL - supports HTTPS when proxied
+        // OpenSpeedTest URL - host ladder, ports, and display URL are shared with the CORS origin
+        // list in Program.cs and the Client Performance page via OpenSpeedTestSettings
         var hostName = Configuration["HOST_NAME"];
         var hostIp = Configuration["HOST_IP"];
-        var openSpeedTestHost = Configuration["OPENSPEEDTEST_HOST"];
-        var openSpeedTestPortConfig = Configuration["OPENSPEEDTEST_PORT"];
-        var openSpeedTestPort = !string.IsNullOrEmpty(openSpeedTestPortConfig) ? openSpeedTestPortConfig : "3005";
-        var openSpeedTestHttpsConfig = Configuration["OPENSPEEDTEST_HTTPS"] ?? "";
-        var openSpeedTestHttpsEnabled = openSpeedTestHttpsConfig.Equals("true", StringComparison.OrdinalIgnoreCase);
-        var openSpeedTestHttpsPortConfig = Configuration["OPENSPEEDTEST_HTTPS_PORT"];
-        var openSpeedTestHttpsPort = !string.IsNullOrEmpty(openSpeedTestHttpsPortConfig) ? openSpeedTestHttpsPortConfig : "443";
-
-        // OPENSPEEDTEST_HOST defaults to HOST_NAME, then - only for the new-style config that sets
-        // REVERSE_PROXIED_PORT with OPENSPEEDTEST_HTTPS=true - to the reverse-proxied host, so an
-        // install serving the app and the speed test on one hostname gets a link through the proxy
-        // rather than a direct-IP fallback. The REVERSE_PROXIED_PORT gate keeps every pre-existing
-        // config's link unchanged. Bare host: any port on that setting is the app's, not the speed
-        // test's.
-        if (string.IsNullOrEmpty(openSpeedTestHost))
-            openSpeedTestHost = hostName;
-        if (string.IsNullOrEmpty(openSpeedTestHost) && openSpeedTestHttpsEnabled
-            && !string.IsNullOrEmpty(Configuration["REVERSE_PROXIED_PORT"]))
-            openSpeedTestHost = NetworkUtilities.AuthorityHost(Configuration["REVERSE_PROXIED_HOST_NAME"]);
+        var openSpeedTest = OpenSpeedTestSettings.Load(Configuration);
+        openSpeedTestUrl = openSpeedTest.DisplayUrl;
 
         // Build health check URL - use HOST_IP when set (handles bridge networking where port is bound
         // to a specific IP), fall back to 127.0.0.1 (not "localhost" which can resolve to IPv6 on Windows)
         var healthCheckHost = !string.IsNullOrEmpty(hostIp) ? hostIp : "127.0.0.1";
-        openSpeedTestHealthCheckUrl = $"http://{healthCheckHost}:{openSpeedTestPort}";
+        openSpeedTestHealthCheckUrl = $"http://{healthCheckHost}:{openSpeedTest.Port}";
 
         // Set serverHost for iperf3 instructions (main app host, not speedtest UI host)
         // Priority: HOST_NAME > HOST_IP > auto-detected IP from network interface
@@ -932,36 +916,8 @@
             : !string.IsNullOrEmpty(hostIp) ? hostIp
             : NetworkUtilities.DetectLocalIpFromInterfaces() ?? "<server IP>";
 
-        // Build display URL
-        // "true" = HTTPS link (everything through TLS proxy)
-        // "false"/unset = HTTP link (direct access)
-        if (!string.IsNullOrEmpty(openSpeedTestHost))
-        {
-            if (openSpeedTestHttpsEnabled)
-            {
-                // HTTPS URL (behind proxy, all traffic through TLS)
-                openSpeedTestUrl = openSpeedTestHttpsPort == "443"
-                    ? $"https://{openSpeedTestHost}"
-                    : $"https://{openSpeedTestHost}:{openSpeedTestHttpsPort}";
-            }
-            else
-            {
-                // HTTP URL (direct access, no proxy)
-                openSpeedTestUrl = $"http://{openSpeedTestHost}:{openSpeedTestPort}";
-            }
-        }
-        else
-        {
-            // Fallback: HOST_IP > auto-detected IP (HTTP only)
-            var fallbackIp = !string.IsNullOrEmpty(hostIp) ? hostIp : NetworkUtilities.DetectLocalIpFromInterfaces();
-            if (!string.IsNullOrEmpty(fallbackIp))
-            {
-                openSpeedTestUrl = $"http://{fallbackIp}:{openSpeedTestPort}";
-            }
-        }
-
         // Check if OpenSpeedTest is actually reachable
-        if (openSpeedTestHttpsEnabled)
+        if (openSpeedTest.HttpsEnabled)
         {
             // HTTPS configured (true or mobile) = user has a working proxy setup, trust them
             openSpeedTestAvailable = true;
