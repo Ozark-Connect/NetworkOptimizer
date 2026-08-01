@@ -809,6 +809,14 @@ public class IspHealthScorer
                 && loaded.Contains(FloorToWindow(s.Time)))
             .Select(s => s.LossPercent!.Value)
             .ToList();
+        // Loaded loss rests on however many samples happen to fall inside the loaded windows, and on
+        // a long window the rate series is aggregated far coarser than LoadWindowSeconds, so that set
+        // can be small enough for a few dark samples to set the whole figure. Log what it was built
+        // from - a mean over a handful of samples is a very different claim from one over thousands.
+        _logger?.LogDebug(
+            "ISP Health: loaded loss pool {Count} sample(s) from {Windows} loaded window key(s), {Dark} at/above 99% ({Mean}% mean)",
+            losses.Count, loaded.Count, losses.Count(l => l >= 99.0),
+            losses.Count > 0 ? losses.Average().ToString("0.##", CultureInfo.InvariantCulture) : "n/a");
         if (losses.Count < _options.MinLoadedSamples) return null;
         return losses.Average();
     }
