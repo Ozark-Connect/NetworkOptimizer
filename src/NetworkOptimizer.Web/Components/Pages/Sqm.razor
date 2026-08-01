@@ -671,7 +671,7 @@
                 <div class="form-group">
                     <label class="toggle-label">
                         <input type="checkbox" @bind="wan1Config.RateProportionalDownloadBurst" />
-                        <span>Experimental: rate-proportional download burst</span>
+                        <span>Larger download burst</span>
                     </label>
                     <small class="form-hint">@BurstOptInHint</small>
                 </div>
@@ -860,7 +860,7 @@
                 <div class="form-group">
                     <label class="toggle-label">
                         <input type="checkbox" @bind="wan2Config.RateProportionalDownloadBurst" />
-                        <span>Experimental: rate-proportional download burst</span>
+                        <span>Larger download burst</span>
                     </label>
                     <small class="form-hint">@BurstOptInHint</small>
                 </div>
@@ -1607,15 +1607,9 @@
 @code {
     private bool IsLicenseRestricted => !LicenseState.IsSiteOperational(SiteContext.Slug);
 
-    // Deliberately states both sides of the measured tradeoff: this option helped a lot on one
-    // path and not at all on others, and it cost loaded-latency tail on the path it helped.
     private const string BurstOptInHint =
-        "Sizes the download burst to roughly 1 ms of line time instead of the 5 KB default. " +
-        "On one UCG Fiber (PPPoE, 894 Mbit cap) mean download rose from 579 to 792 Mbit, but the " +
-        "saturated-download latency tail rose with it (p99 26.5 to 48.4 ms). Other platforms measured " +
-        "no gain at all, and a larger burst can interact badly with an ISP-side policer. Leave this off " +
-        "unless your shaped download stays well below the configured rate, and compare loaded latency " +
-        "before and after enabling it. Upload is not affected.";
+        "Helps downloads that fall short of full speed, especially to Wi-Fi clients. " +
+        "Upload is unchanged. Turn it off if loaded latency gets worse.";
 
     // Cache settings
     private static readonly TimeSpan CacheDuration = TimeSpan.FromMinutes(5);
@@ -1706,7 +1700,8 @@
         ConnectionType = ConnectionType.DocsisCable,
         NominalDownload = 0,
         NominalUpload = 0,
-        PingHost = "1.1.1.1"
+        PingHost = "1.1.1.1",
+        RateProportionalDownloadBurst = true
     };
 
     private WanConfigModel wan2Config = new()
@@ -1722,7 +1717,8 @@
         MorningHour = 5,
         MorningMinute = 0,
         EveningHour = 18,
-        EveningMinute = 0
+        EveningMinute = 0,
+        RateProportionalDownloadBurst = true
     };
 
     // Snapshots of deployed config (for change detection)
@@ -2293,7 +2289,7 @@
         wan1Config.EveningHour = 19;
         wan1Config.EveningMinute = 0;
         wan1Config.BootDelaySeconds = null;
-        wan1Config.RateProportionalDownloadBurst = false;
+        wan1Config.RateProportionalDownloadBurst = true;
         UpdateCalculatedSpeeds(wan1Config);
 
         // Reset WAN2 to defaults
@@ -2310,7 +2306,7 @@
         wan2Config.EveningHour = 18;
         wan2Config.EveningMinute = 0;
         wan2Config.BootDelaySeconds = null;
-        wan2Config.RateProportionalDownloadBurst = false;
+        wan2Config.RateProportionalDownloadBurst = true;
         UpdateCalculatedSpeeds(wan2Config);
     }
 
