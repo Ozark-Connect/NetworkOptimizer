@@ -14,16 +14,8 @@ public interface IAuditContext
     /// <summary>Overrides the target id/name recorded on the event.</summary>
     void SetTarget(string? targetId, string? targetName = null);
 
-    /// <summary>
-    /// Records the site the action acted on, for a method that acts on a site other than the one the
-    /// caller is standing in and cannot say so with a <see cref="SiteSlugAttribute"/> parameter -
-    /// assigning a licence identifies its site by row id, and is reached from a page that only ever
-    /// opens on the default site, so the caller's own site is never the right answer.
-    /// </summary>
-    void SetSite(string? siteSlug);
-
     /// <summary>Reads and clears the pending detail (called by the interceptor after the method runs).</summary>
-    (object? Details, string? TargetId, string? TargetName, string? SiteSlug) Drain();
+    (object? Details, string? TargetId, string? TargetName) Drain();
 }
 
 /// <inheritdoc />
@@ -32,7 +24,6 @@ public sealed class AuditContext : IAuditContext
     private object? _details;
     private string? _targetId;
     private string? _targetName;
-    private string? _siteSlug;
 
     /// <inheritdoc />
     public void SetDetails(object details) => _details = details;
@@ -45,16 +36,12 @@ public sealed class AuditContext : IAuditContext
     }
 
     /// <inheritdoc />
-    public void SetSite(string? siteSlug) => _siteSlug = siteSlug;
-
-    /// <inheritdoc />
-    public (object? Details, string? TargetId, string? TargetName, string? SiteSlug) Drain()
+    public (object? Details, string? TargetId, string? TargetName) Drain()
     {
-        var result = (_details, _targetId, _targetName, _siteSlug);
+        var result = (_details, _targetId, _targetName);
         _details = null;
         _targetId = null;
         _targetName = null;
-        _siteSlug = null;
         return result;
     }
 }
