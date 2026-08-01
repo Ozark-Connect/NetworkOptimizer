@@ -175,7 +175,10 @@ public sealed class MethodSecurityInterceptor : AsyncInterceptorBase
 
     private void EmitAudit(CallerInfo caller, AuditActionAttribute auditAttr, string? siteSlug, string outcome)
     {
-        var (details, targetId, targetName) = _auditContext.Drain();
+        var (details, targetId, targetName, suppressed) = _auditContext.Drain();
+        // A method that ran fine and changed nothing writes no event. Never applied to a failure:
+        // only the success path can call SuppressNoChange, so a throw still lands in the log.
+        if (suppressed && outcome == AuditOutcomes.Success) return;
         _audit.Log(AuditEventBuilder.From(
             caller,
             auditAttr.Category,
