@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.UniFi;
 using NetworkOptimizer.Web.Services.Ssh;
+using NetworkOptimizer.Core.Helpers;
 
 namespace NetworkOptimizer.Web.Services;
 
@@ -477,7 +478,7 @@ public class PerfTweaksDeploymentService : IPerfTweaksDeploymentService
                 return (false, $"Embedded resource not found: {scriptName}", steps);
 
             Report($"Deploying {scriptName}...");
-            var b64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(scriptContent));
+            var b64 = GatewayFile.ToBase64(scriptContent);
             var deployCmd = $"echo '{b64}' | base64 -d > {OnBootDir}/{scriptName} && chmod +x {OnBootDir}/{scriptName} && echo 'deployed'";
             var result = await RunCommandAsync(deployCmd);
             if (!result.success || !result.output.Contains("deployed"))
@@ -491,7 +492,7 @@ public class PerfTweaksDeploymentService : IPerfTweaksDeploymentService
                 if (backupContent != null)
                 {
                     Report($"Deploying {backupName} (backup companion)...");
-                    var b64Backup = Convert.ToBase64String(Encoding.UTF8.GetBytes(backupContent));
+                    var b64Backup = GatewayFile.ToBase64(backupContent);
                     var backupCmd = $"echo '{b64Backup}' | base64 -d > {OnBootDir}/{backupName} && chmod +x {OnBootDir}/{backupName} && echo 'deployed'";
                     await RunCommandAsync(backupCmd);
                 }
@@ -571,7 +572,7 @@ public class PerfTweaksDeploymentService : IPerfTweaksDeploymentService
                 return (false, $"Boot script not found: {scriptName}", steps);
 
             Report($"Deploying {scriptName}...");
-            var b64Script = Convert.ToBase64String(Encoding.UTF8.GetBytes(scriptContent));
+            var b64Script = GatewayFile.ToBase64(scriptContent);
             var scriptCmd = $"echo '{b64Script}' | base64 -d > {OnBootDir}/{scriptName} && chmod +x {OnBootDir}/{scriptName} && echo 'deployed'";
             var scriptResult = await RunCommandAsync(scriptCmd);
             if (!scriptResult.success || !scriptResult.output.Contains("deployed"))
@@ -647,7 +648,7 @@ public class PerfTweaksDeploymentService : IPerfTweaksDeploymentService
                         c.update("config.fan", fan)
                         time.sleep(1)
                         """;
-                    var resetB64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(resetScript));
+                    var resetB64 = GatewayFile.ToBase64(resetScript);
                     removeCmd = $"rm -f {OnBootDir}/{scriptName}; " +
                         $"echo '{resetB64}' | base64 -d | python3 2>/dev/null; " +
                         "systemctl restart uhwd 2>/dev/null; " +

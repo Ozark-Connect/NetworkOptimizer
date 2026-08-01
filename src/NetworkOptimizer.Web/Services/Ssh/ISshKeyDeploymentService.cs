@@ -1,6 +1,7 @@
-﻿using System.Text;
+using System.Text;
 using NetworkOptimizer.Storage.Models.Identity;
 using NetworkOptimizer.Web.Services.Gates;
+using NetworkOptimizer.Core.Helpers;
 
 namespace NetworkOptimizer.Web.Services.Ssh;
 
@@ -170,8 +171,8 @@ public sealed class SshKeyDeploymentService : ISshKeyDeploymentService
 
         // base64 both payloads so no quoting or newline in a key or script can break the command,
         // the same way Performance Tweaks ships its scripts.
-        var keyB64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(key.PublicKey + "\n"));
-        var scriptB64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(BootScript()));
+        var keyB64 = GatewayFile.ToBase64(key.PublicKey + "\n");
+        var scriptB64 = GatewayFile.ToBase64(BootScript());
 
         var deploy = await _gatewaySsh.RunCommandAsync(
             $"mkdir -p {KeyDir} && echo '{keyB64}' | base64 -d > {KeyPath} && chmod 600 {KeyPath} && "

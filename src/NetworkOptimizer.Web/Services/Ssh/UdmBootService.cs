@@ -1,3 +1,5 @@
+using NetworkOptimizer.Core.Helpers;
+
 namespace NetworkOptimizer.Web.Services.Ssh;
 
 /// <summary>
@@ -40,19 +42,14 @@ public class UdmBootService : IUdmBootService
         return result.success && result.output.Contains("installed");
     }
 
-    public async Task<(bool success, string message)> InstallAsync()
-    {
-        var settings = await _gatewaySsh.GetSettingsAsync();
-
-        try
-        {
-            _logger.LogInformation("Installing udm-boot on gateway {Host}", settings.Host);
-
-            // Create the udm-boot service file directly (works on all UDM/UCG devices).
-            // This matches the upstream unifios-utilities version exactly.
-            // Note: In C# verbatim strings, "" produces a single ". The bash escape pattern '"'"'
-            // (end single quote, double-quoted single quote, resume single quote) is written as '""'""'
-            var serviceContent = @"[Unit]
+    /// <summary>
+    /// The udm-boot systemd unit, matching the upstream unifios-utilities version exactly. This is
+    /// what makes anything in /data/on_boot.d/ run at boot, so every deployment feature depends on it.
+    ///
+    /// Note: In C# verbatim strings, "" produces a single ". The bash escape pattern '"'"'
+    /// (end single quote, double-quoted single quote, resume single quote) is written as '""'""'
+    /// </summary>
+    internal const string ServiceUnitContent = @"[Unit]
 Description=Run On Startup UDM 2.x and above
 Wants=network-online.target
 After=network-online.target
@@ -68,8 +65,16 @@ RemainAfterExit=true
 WantedBy=multi-user.target
 ";
 
+    public async Task<(bool success, string message)> InstallAsync()
+    {
+        var settings = await _gatewaySsh.GetSettingsAsync();
+
+        try
+        {
+            _logger.LogInformation("Installing udm-boot on gateway {Host}", settings.Host);
+
             // Use base64 encoding to avoid all shell quoting issues when transferring via SSH
-            var base64Content = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(serviceContent));
+            var base64Content = GatewayFile.ToBase64(ServiceUnitContent);
 
             // Write service file via base64 decode, enable and start.
             // Use --no-block so we don't wait for boot scripts to finish (they can take a while).

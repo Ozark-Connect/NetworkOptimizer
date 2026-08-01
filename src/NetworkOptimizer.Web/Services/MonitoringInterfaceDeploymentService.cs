@@ -491,8 +491,7 @@ public class MonitoringInterfaceDeploymentService : IMonitoringInterfaceDeployme
 
         // Write and run the idempotent boot script.
         var script = GenerateBootScript(mi);
-        var unix = script.Replace("\r\n", "\n").Replace("\r", "\n");
-        var b64 = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(unix));
+        var b64 = GatewayFile.ToBase64(script);
         var path = ScriptPath(mi);
 
         var write = await RunAsync($"mkdir -p {OnBootDir} && echo '{b64}' | base64 -d > '{path}' && chmod +x '{path}'");
