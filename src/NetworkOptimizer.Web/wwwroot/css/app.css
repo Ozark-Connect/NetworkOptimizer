@@ -19762,6 +19762,13 @@ body.kiosk-mode .status-indicators {
     margin-left: auto;
 }
 
+.audit-filter-clear {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding-inline: 0.4rem;
+}
+
 .audit-pager {
     display: flex;
     align-items: center;

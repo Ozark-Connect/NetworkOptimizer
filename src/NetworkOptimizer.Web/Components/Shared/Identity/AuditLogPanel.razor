@@ -33,9 +33,20 @@
                fires on blur, and Enter does not blur. *@
             <input class="form-control" placeholder="Actor" @bind="_actor" @bind:event="oninput"
                    @onkeydown="FilterKeyDownAsync" style="max-width: 160px;" />
-            <input class="form-control" placeholder="Site slug" @bind="_site" @bind:event="oninput"
+            <input class="form-control" placeholder="Site ID" @bind="_site" @bind:event="oninput"
                    @onkeydown="FilterKeyDownAsync" style="max-width: 160px;" />
             <button class="btn btn-primary btn-sm" @onclick="ApplyAsync">Filter</button>
+            @if (HasFilter)
+            {
+                <button class="btn btn-secondary btn-sm audit-filter-clear" @onclick="ClearFilterAsync"
+                        data-tooltip="Clear filter" aria-label="Clear filter">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                         stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M3 5h14l-5.25 6.2V17l-3.5 1.75v-7.55z" />
+                        <path d="m16.5 16.5 4.5 4.5m0-4.5-4.5 4.5" />
+                    </svg>
+                </button>
+            }
             <div class="audit-filter-actions">
                 <a class="btn btn-secondary btn-sm" href="@ExportUrl("csv")" target="_blank" rel="noopener">Export CSV</a>
                 <a class="btn btn-secondary btn-sm" href="@ExportUrl("json")" target="_blank" rel="noopener">Export JSON</a>
@@ -57,7 +68,7 @@
                     <thead>
                         <tr>
                             <th>Time (UTC)</th><th>Category</th><th>Action</th>
-                            <th>Actor</th><th class="hide-mobile">Site</th><th>Outcome</th><th></th>
+                            <th>Actor</th><th class="hide-mobile">Site ID</th><th>Outcome</th><th></th>
                         </tr>
                     </thead>
                     <tbody>
@@ -68,7 +79,7 @@
                                 <td>@e.Category</td>
                                 <td>@e.Action</td>
                                 <td>@e.ActorName</td>
-                                <td class="hide-mobile">@e.SiteSlug</td>
+                                <td class="hide-mobile">@(string.IsNullOrEmpty(e.SiteSlug) ? "-" : e.SiteSlug)</td>
                                 <td>
                                     <span class="status-badge @OutcomeClass(e.Outcome)">@e.Outcome</span>
                                 </td>
@@ -178,6 +189,16 @@
     }
 
     private async Task ApplyAsync() { _skip = 0; await LoadAsync(); }
+
+    private bool HasFilter =>
+        !string.IsNullOrEmpty(_category) || !string.IsNullOrEmpty(_outcome)
+        || !string.IsNullOrEmpty(_actor) || !string.IsNullOrEmpty(_site);
+
+    private async Task ClearFilterAsync()
+    {
+        _category = _outcome = _actor = _site = "";
+        await ApplyAsync();
+    }
 
     /// <summary>Enter in a filter field runs the filter, the same as pressing the button.</summary>
     private async Task FilterKeyDownAsync(KeyboardEventArgs e)
