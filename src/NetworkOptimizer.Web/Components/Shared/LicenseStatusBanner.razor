@@ -9,7 +9,7 @@
             <span class="banner-icon">!</span>
             <div class="banner-text">
                 <strong>Sites restricted by licensing</strong>
-                <span>@RestrictedCount site(s) are restricted by licensing. Historic data remains available.</span>
+                <span>@RestrictedSentence</span>
             </div>
             <a href="/settings?tab=application#licensing" class="btn btn-primary">Open Settings</a>
         </div>
@@ -22,7 +22,7 @@
             <span class="banner-icon">!</span>
             <div class="banner-text">
                 <strong>License attention needed</strong>
-                <span>@GraceCount site(s) lose operations in @SoonestGraceDays days - renew or reassign in Settings &gt; Application &gt; Licensing.</span>
+                <span>@GraceSentence</span>
             </div>
             <a href="/settings?tab=application#licensing" class="btn btn-primary">Open Settings</a>
         </div>
@@ -35,6 +35,21 @@
 
     private int GraceCount =>
         LicenseState.Snapshot?.States.Values.Count(s => s.State == SiteLicenseState.Grace) ?? 0;
+
+    private string RestrictedSentence =>
+        RestrictedCount == 1
+            ? "1 site is restricted by licensing. Historic data remains available."
+            : $"{RestrictedCount} sites are restricted by licensing. Historic data remains available.";
+
+    private string GraceSentence
+    {
+        get
+        {
+            var sites = GraceCount == 1 ? "1 site loses" : $"{GraceCount} sites lose";
+            var days = SoonestGraceDays == 1 ? "1 day" : $"{SoonestGraceDays} days";
+            return $"{sites} operations in {days} - renew or reassign in Settings > Application > Licensing.";
+        }
+    }
 
     private int SoonestGraceDays
     {

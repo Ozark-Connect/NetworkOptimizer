@@ -175,7 +175,7 @@ public sealed class MethodSecurityInterceptor : AsyncInterceptorBase
 
     private void EmitAudit(CallerInfo caller, AuditActionAttribute auditAttr, string? siteSlug, string outcome)
     {
-        var (details, targetId, targetName) = _auditContext.Drain();
+        var (details, targetId, targetName, contextSite) = _auditContext.Drain();
         _audit.Log(AuditEventBuilder.From(
             caller,
             auditAttr.Category,
@@ -184,7 +184,7 @@ public sealed class MethodSecurityInterceptor : AsyncInterceptorBase
             targetType: auditAttr.TargetType,
             targetId: targetId,
             targetName: targetName,
-            siteSlug: AuditSiteSlug(siteSlug, auditAttr),
+            siteSlug: AuditSiteSlug(siteSlug ?? contextSite, auditAttr),
             details: details));
     }
 
