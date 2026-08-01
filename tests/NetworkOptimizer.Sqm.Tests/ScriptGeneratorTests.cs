@@ -1,5 +1,4 @@
 using System.Globalization;
-using NetworkOptimizer.Sqm;
 using NetworkOptimizer.Sqm.Models;
 using Xunit;
 
@@ -480,7 +479,11 @@ public class ScriptGeneratorTests
         };
 
         var generator = new ScriptGenerator(config);
-        return generator.GenerateAllScripts(new Dictionary<string, string> { ["0_12"] = "880" });
+        // SqmDeploymentService normalizes to LF before a script reaches a gateway, so assert against
+        // LF rather than the build host's Environment.NewLine (StringBuilder.AppendLine emits CRLF
+        // on Windows, which made these assertions pass on CI and fail locally).
+        return generator.GenerateAllScripts(new Dictionary<string, string> { ["0_12"] = "880" })
+            .ToDictionary(kv => kv.Key, kv => kv.Value.Replace("\r\n", "\n"));
     }
 
     /// <summary>
