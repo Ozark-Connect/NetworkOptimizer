@@ -676,6 +676,15 @@ public class IspHealthService
         var customSeries = ToSamples(await customSeriesTask);
         var wanRates = await ratesTask;
         var (expectedDown, expectedUp, expectedSource, smartQueuesEnabled, scoredWan) = await speedsTask;
+
+        // A counter reset at a link flap reports a rate the line cannot carry. Left in, one such
+        // sample marks its window loaded and drags the flap's own loss into Loaded Loss.
+        var sanitized = WanRateSanitizer.Filter(wanRates, expectedDown, expectedUp, _options);
+        if (sanitized.Dropped > 0)
+            _logger.LogInformation(
+                "ISP Health: discarded {Dropped} of {Total} WAN rate sample(s) above {Multiple}x the {Down}/{Up} Mbps plan (counter artifacts)",
+                sanitized.Dropped, wanRates.Count, _options.WanRateImplausibleMultiple, expectedDown, expectedUp);
+        wanRates = sanitized.Samples;
         var wanSpeedTests = await speedTestsTask;
         // Gateway samples feed only the outage waterfall's gateway hop, so they carry the full extended
         // window (the detector clips each hop's series to the detected event span anyway).
@@ -743,10 +752,14 @@ public class IspHealthService
         // feeding the pool through the same span, so pooled loss stays usable on paths with
         // several upstream ASNs - and surfaced as path events after outage detection. The
         // ASN's own grade uses the unfiltered grading series, so it still takes the hit.
+        // Both rules: cleanly withdrawn (every sample dark for minutes) and flapping (mostly dark for
+        // longer, answering the odd probe). Overlapping windows are harmless - masking is a range test.
         var transitDarkWindows = transitTargets
             .Where(t => transitSeries.ContainsKey(t.TargetId))
             .SelectMany(t => TransitUnreachableDetector.Detect(
-                t.TargetId, t.AsnNumber ?? 0, AsnNameCleanup.Clean(t.AsnName), transitSeries[t.TargetId], _options))
+                    t.TargetId, t.AsnNumber ?? 0, AsnNameCleanup.Clean(t.AsnName), transitSeries[t.TargetId], _options)
+                .Concat(TransitUnreachableDetector.DetectMostlyDark(
+                    t.TargetId, t.AsnNumber ?? 0, AsnNameCleanup.Clean(t.AsnName), transitSeries[t.TargetId], _options)))
             .ToList();
         var darkByTargetId = transitDarkWindows
             .GroupBy(w => w.TargetId)

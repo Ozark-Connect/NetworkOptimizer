@@ -357,6 +357,28 @@ public class IspHealthOptions
     public int TransitUnreachableMaxGapSeconds { get; set; } = 300;
 
     /// <summary>
+    /// Fraction of a span's samples that must be dark for a FLAPPING transit target to read as
+    /// unreachable (see TransitUnreachableDetector.DetectMostlyDark). A target answering under half
+    /// its probes is not measuring the path either, but it never sustains a solid run, so the
+    /// every-sample rule never sees it.
+    /// </summary>
+    public double TransitUnreachableMostlyDarkFraction { get; set; } = 0.5;
+
+    /// <summary>
+    /// Minimum span in seconds before a mostly-dark (flapping) target is carved out. Much longer than
+    /// the solid-dark rule's: intermittent evidence is weaker, so a brief burst of flapping stays in
+    /// the loss pool and only a persistent one is treated as a path event.
+    /// </summary>
+    public int TransitUnreachableMostlyDarkMinSeconds { get; set; } = 600;
+
+    /// <summary>
+    /// How long a flapping target must answer continuously before its mostly-dark span is considered
+    /// over. Short enough that a genuine recovery ends the span promptly, long enough that one or two
+    /// answered probes mid-event do not split it into fragments that each miss the duration bar.
+    /// </summary>
+    public int TransitUnreachableRecoverySeconds { get; set; } = 120;
+
+    /// <summary>
     /// Bucket size in seconds for outage detection. Sub-minute so a brief (~30 s) drop resolves
     /// into its own fully-dark buckets instead of being diluted to a partial-loss bucket inside a
     /// one-minute window and failing the dark-fraction gate. At the internet targets' ~7-10 s
@@ -529,6 +551,15 @@ public class IspHealthOptions
     {
         (0, 0), (0.1, 3), (0.5, 8), (1, 14), (3, 25), (8, 35)
     };
+
+    /// <summary>
+    /// Multiple of the configured plan speed above which a WAN throughput sample is treated as a
+    /// counter artifact and discarded (see <see cref="WanRateSanitizer"/>) rather than as load. Well
+    /// above 1 because ISPs over-provision and a burst can genuinely beat the plan; this exists only
+    /// to reject the impossible readings a counter reset produces at a link flap, which would
+    /// otherwise mark the window loaded and pull the flap's own loss into Loaded Loss.
+    /// </summary>
+    public double WanRateImplausibleMultiple { get; set; } = 2.0;
 
     /// <summary>
     /// Loss (percent) at or above which one sample counts as dark for flat-line detection. Just under
