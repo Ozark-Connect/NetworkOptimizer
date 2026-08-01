@@ -26,6 +26,13 @@ public class TourPredicateResolver
     /// </summary>
     public const string IspHealth = "isp-health";
 
+    /// <summary>
+    /// The site runs Adaptive SQM on at least one WAN. Without it the page is a setup prompt with no
+    /// WAN cards at all, so a step pointing at a per-WAN control has nothing to spotlight and must be
+    /// filtered out BEFORE the driver navigates - "optional" only skips the step once you are there.
+    /// </summary>
+    public const string SqmEnabled = "sqm-enabled";
+
     private readonly SiteManagementService _siteManagement;
     private readonly GatewaySshRegistry _gatewaySshRegistry;
     private readonly AgentEnrollmentService _agentEnrollment;
@@ -111,6 +118,7 @@ public class TourPredicateResolver
         // others down with it - a site whose database is unreachable simply qualifies for neither.
         var gatewaySshSites = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var ispHealthSites = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var sqmSites = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var site in sites)
         {
             try
@@ -132,11 +140,23 @@ public class TourPredicateResolver
             {
                 _logger.LogDebug(ex, "Tour predicate {Predicate} evaluation failed for site {Slug}", IspHealth, site.Slug);
             }
+
+            try
+            {
+                if (await HasSqmEnabledAsync(site.Slug, site.IsDefault))
+                    sqmSites.Add(site.Slug);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Tour predicate {Predicate} evaluation failed for site {Slug}", SqmEnabled, site.Slug);
+            }
         }
         if (gatewaySshSites.Count > 0)
             qualifying[GatewaySsh] = gatewaySshSites;
         if (ispHealthSites.Count > 0)
             qualifying[IspHealth] = ispHealthSites;
+        if (sqmSites.Count > 0)
+            qualifying[SqmEnabled] = sqmSites;
 
         return new PredicateContext
         {
@@ -162,5 +182,17 @@ public class TourPredicateResolver
         using var db = _siteDbFactory.CreateForSite(slug, isDefault);
         return await db.MonitoringTargets.AsNoTracking()
             .AnyAsync(t => t.Enabled && t.TargetType == MonitoringTargetType.AccessIsp);
+    }
+
+    /// <summary>
+    /// Whether the site has Adaptive SQM turned on for at least one WAN. A saved row check rather
+    /// than asking the gateway what tc is currently doing: the question is whether the user has this
+    /// feature configured, and reaching a gateway over SSH to answer it would put a network round
+    /// trip on a path that runs on every Dashboard visit.
+    /// </summary>
+    private async Task<bool> HasSqmEnabledAsync(string slug, bool isDefault)
+    {
+        using var db = _siteDbFactory.CreateForSite(slug, isDefault);
+        return await db.SqmWanConfigurations.AsNoTracking().AnyAsync(c => c.Enabled);
     }
 }
