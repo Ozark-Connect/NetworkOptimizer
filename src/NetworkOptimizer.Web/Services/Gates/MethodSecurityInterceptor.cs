@@ -168,7 +168,7 @@ public sealed class MethodSecurityInterceptor : AsyncInterceptorBase
             auditAttr?.Category ?? AuditCategories.Action,
             auditAttr?.Action ?? "authz.denied",
             outcome: AuditOutcomes.Denied,
-            siteSlug: siteSlug,
+            siteSlug: AuditSiteSlug(siteSlug),
             details: new { reason }));
         throw new AuthorizationDeniedException($"Access denied: {reason}.");
     }
@@ -184,9 +184,20 @@ public sealed class MethodSecurityInterceptor : AsyncInterceptorBase
             targetType: auditAttr.TargetType,
             targetId: targetId,
             targetName: targetName,
-            siteSlug: siteSlug,
+            siteSlug: AuditSiteSlug(siteSlug),
             details: details));
     }
+
+    /// <summary>
+    /// The site an audited call acted on: the method's own [SiteSlug] argument when it declares one,
+    /// otherwise the site the caller is working in. Only a gated method that takes an explicit slug
+    /// used to be stamped, so everything done from the normal UI - which is nearly everything - landed
+    /// with no site at all, and filtering the Audit Log by the default site's ID returned nothing while
+    /// other sites worked. Authorization deliberately keeps reading the raw argument (a null there is a
+    /// missing [SiteSlug] parameter and must still fail loudly); this fallback is for attribution only,
+    /// and matches what AuthorizeAsync already does when it ranks a site-scoped call.
+    /// </summary>
+    private string? AuditSiteSlug(string? siteSlug) => siteSlug ?? _siteContext.Slug;
 
     /// <summary>
     /// Reads a gate attribute from the invoked member. Property accessors carry the gate on the
