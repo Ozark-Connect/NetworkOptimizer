@@ -234,7 +234,7 @@ else
             <a href="/wan-speedtest" class="isp-health-hero-speed">
                 <div class="isp-speed-label">Speed vs Plan</div>
                 <div class="isp-speed-headline" data-tooltip="Best download and best upload from your recent WAN speed tests; each may come from a different test."
-                     data-tooltip-click>
+                     data-tooltip-click data-tooltip-wide>
                     <span class="isp-speed-measured">@FormatSpeed(r.MeasuredDownloadMbps) / @FormatSpeed(r.MeasuredUploadMbps)</span>
                     <span class="isp-speed-unit">Mbps</span>
                 </div>
@@ -268,7 +268,7 @@ else
             <div class="isp-health-hero-side">
                 <div class="isp-health-uptime" data-tour="isp-uptime"
                      data-tooltip="Share of the window the internet was reachable. Excludes your own LAN drops and &quot;that was me&quot; events."
-                     data-tooltip-click>
+                     data-tooltip-click data-tooltip-wide>
                     <div class="isp-uptime-label">Uptime</div>
                     <div class="isp-uptime-value">@FormatUptime(r)</div>
                     <div class="isp-uptime-sub">@FormatDowntime(r.Downtime) &middot; @WindowLabel(r)</div>

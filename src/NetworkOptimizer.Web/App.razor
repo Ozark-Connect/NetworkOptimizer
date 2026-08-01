@@ -323,7 +323,9 @@
                     appendTo: document.body,
                     maxWidth: el.hasAttribute('data-tooltip-wrap')
                         ? 'min(100vw - 10px, 320px)'
-                        : 'min(100vw - 10px, 360px)',
+                        : el.hasAttribute('data-tooltip-wide')
+                            ? 'min(100vw - 10px, 400px)'
+                            : 'min(100vw - 10px, 360px)',
                     onShow: function(instance) {
                         // Suppress if an adjacent sibling already shows the same tooltip
                         var ref = instance.reference;
@@ -404,7 +406,9 @@
                     appendTo: document.body,
                     maxWidth: el.hasAttribute('data-tooltip-wrap')
                         ? 'min(100vw - 10px, 320px)'
-                        : 'min(100vw - 10px, 360px)',
+                        : el.hasAttribute('data-tooltip-wide')
+                            ? 'min(100vw - 10px, 400px)'
+                            : 'min(100vw - 10px, 360px)',
                     onShow: function(instance) {
                         var ref = instance.reference;
                         var siblings = [ref.previousElementSibling, ref.nextElementSibling];
