@@ -212,7 +212,42 @@ public class IspHealthScorerTests
     }
 
     [Fact]
-    public void Uptime_counts_blackouts_only_and_never_rounds_a_bad_window_to_a_clean_one()
+    public void Uptime_counts_a_partial_disruption_by_the_share_it_dropped()
+    {
+        // A 20 min disruption at 75% loss is 15 min of lost service, not 20 and not zero: the
+        // detector only declares one past a broad multi-ASN half-loss, but half the packets is not
+        // half the clock.
+        var partial = new OutageEvent
+        {
+            Start = TestSeries.Start.AddHours(2),
+            End = TestSeries.Start.AddHours(2).AddMinutes(20),
+            PeakLossPct = 75,
+            DegradedTargetCount = 6,
+            PathTargetCount = 9,
+            IsPartial = true
+        };
+        var report = new IspHealthScorer(Options).Score(
+            BuildInputs(outages: new List<OutageEvent> { partial }, scoreWindow: TimeSpan.FromHours(720)), Gpon);
+
+        report.Downtime.Should().Be(TimeSpan.FromMinutes(15));
+
+        // Usage weighting softens the SCORE but must not move uptime - how much an outage mattered is
+        // a judgement, while uptime is a fact about the line.
+        var quiet = new IspHealthScorer(Options).Score(
+            BuildInputs(
+                outages: new List<OutageEvent> { new()
+                {
+                    Start = partial.Start, End = partial.End, PeakLossPct = 75,
+                    DegradedTargetCount = 6, PathTargetCount = 9, IsPartial = true, UsageWeight = 0.4
+                } },
+                scoreWindow: TimeSpan.FromHours(720)),
+            Gpon);
+        quiet.Downtime.Should().Be(report.Downtime);
+        quiet.OverallScore.Should().BeGreaterThan(report.OverallScore);
+    }
+
+    [Fact]
+    public void Uptime_never_rounds_a_bad_window_to_a_clean_one()
     {
         var report = new IspHealthScorer(Options).Score(
             BuildInputs(outages: new List<OutageEvent> { Blackout(TimeSpan.FromMinutes(15)) }, scoreWindow: TimeSpan.FromHours(720)),

@@ -293,13 +293,15 @@ public class IspHealthScorer
             overall = (int)Math.Max(0, Math.Round(overall - penalty));
         }
 
-        // Displayed uptime counts BLACKOUT time only (full and brief outages), at raw duration: the
-        // card must agree with the minutes on the timeline, so no usage or loss weighting here, and a
-        // partial-loss disruption is degraded service rather than downtime. Local and acknowledged
-        // events are excluded on the same grounds as the penalty. The scored figure above additionally
-        // folds in weighted partial minutes, so the two can differ slightly by design.
-        var blackouts = wanOutages.Where(o => !o.IsPartial).ToList();
-        var downtime = TimeSpan.FromMinutes(blackouts.Sum(o => o.Duration.TotalMinutes));
+        // Displayed uptime counts a blackout for its full duration and a partial-loss disruption for
+        // the share of it that was actually lost - the detector only declares one past a broad,
+        // multi-ASN half-loss, which is an interruption rather than a blip, but 50% loss is not 50%
+        // down either. Deliberately NOT usage-weighted, unlike the penalty: how much an outage
+        // mattered is a scoring judgement, while uptime is a fact about the line. Local and
+        // acknowledged events are excluded on the same grounds as the penalty.
+        double DowntimeMinutes(OutageEvent o) => o.Duration.TotalMinutes *
+            (o.IsPartial ? Math.Clamp(o.PeakLossPct / 100.0, 0, 1) : 1.0);
+        var downtime = TimeSpan.FromMinutes(wanOutages.Sum(DowntimeMinutes));
         var uptimePercent = windowMinutes > 0
             ? Math.Clamp(100.0 - 100.0 * downtime.TotalMinutes / windowMinutes, 0, 100)
             : 100.0;

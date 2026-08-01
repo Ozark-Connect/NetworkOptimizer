@@ -173,6 +173,17 @@ public class IspHealthPdfGenerator
                 });
             });
 
+            // Uptime leads the dimension grades for the same reason it leads the score card: those say
+            // how the path behaved, this says whether it was there at all. Column widths match the
+            // table below so it reads as that table's first line rather than a floating stat.
+            column.Item().PaddingTop(12).Row(row =>
+            {
+                row.RelativeItem(2f).Text("Uptime").FontSize(10).SemiBold();
+                row.RelativeItem(1f).Text(IspHealthPresentation.FormatUptime(report)).FontSize(10).Bold();
+                row.RelativeItem(1f).Text(IspHealthPresentation.FormatDowntime(report.Downtime))
+                    .FontSize(10).FontColor(Colors.Grey.Medium);
+            });
+
             column.Item().PaddingTop(12).Table(table =>
             {
                 table.ColumnsDefinition(columns =>
