@@ -2224,6 +2224,9 @@ a.stat-card-link:active {
     padding: 0 20px;
     border: none;
     border-radius: var(--border-radius);
+    /* Form controls carry an explicit UA font, which beats inheritance - without this every
+       <button class="btn"> renders in the browser's default while <a class="btn"> uses ours. */
+    font-family: inherit;
     font-size: 0.875rem;
     font-weight: 500;
     cursor: pointer;
