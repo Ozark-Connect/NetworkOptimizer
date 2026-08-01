@@ -39,6 +39,8 @@ public class IspHealthScorer
     {
         _outages = inputs.Outages;
         _profile = profile;
+        _loadedDownKeys = null;
+        _loadedUpKeys = null;
         if (inputs.LoadExclusionWindows.Count > 0)
         {
             foreach (var (exStart, exEnd) in inputs.LoadExclusionWindows)
@@ -831,6 +833,31 @@ public class IspHealthScorer
     /// tail does not bleed into its upload phase. Idle classification is unaffected (this builds a
     /// loaded set only), keeping the baseline a clean uncongested floor.
     /// </summary>
+    // Loaded window keys per direction for the current report. Both lists are filled on the first
+    // request from a single pass, since the dilation asks for them four times.
+    private List<DateTime>? _loadedDownKeys;
+    private List<DateTime>? _loadedUpKeys;
+
+    /// <summary>The keys the selector calls loaded, scanning the window dictionary at most once.</summary>
+    private List<DateTime> LoadedKeysFor(Dictionary<DateTime, LoadWindow> loadWindows, Func<LoadWindow, bool> directionSelector)
+    {
+        if (_loadedDownKeys == null || _loadedUpKeys == null)
+        {
+            var down = new List<DateTime>();
+            var up = new List<DateTime>();
+            foreach (var (key, w) in loadWindows)
+            {
+                if (w.IsLoadedDown) down.Add(key);
+                if (w.IsLoadedUp) up.Add(key);
+            }
+            _loadedDownKeys = down;
+            _loadedUpKeys = up;
+        }
+        // The selector is one of the two direction predicates; probe it with a window loaded in
+        // download only, which the up selector rejects.
+        return directionSelector(new LoadWindow(false, true, false)) ? _loadedDownKeys : _loadedUpKeys;
+    }
+
     private HashSet<DateTime> DilateLoadedWindows(
         Dictionary<DateTime, LoadWindow> loadWindows,
         Func<LoadWindow, bool> directionSelector,
@@ -840,9 +867,11 @@ public class IspHealthScorer
         var tailWindows = (int)Math.Ceiling((double)_options.LoadedTailSeconds / _options.LoadWindowSeconds);
 
         var loaded = new HashSet<DateTime>();
-        foreach (var (key, w) in loadWindows)
+        // Only the loaded keys matter, and there are a couple of dozen of them against six figures of
+        // windows on a long span. This runs four times - latency and loss, each direction - so the
+        // scan is cached per Score() call rather than repeated.
+        foreach (var key in LoadedKeysFor(loadWindows, directionSelector))
         {
-            if (!directionSelector(w)) continue;
             loaded.Add(key);
             for (var i = 1; i <= leadWindows; i++)
             {

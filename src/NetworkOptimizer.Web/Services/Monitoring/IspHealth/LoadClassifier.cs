@@ -26,30 +26,52 @@ public static class LoadClassifier
         var windowSize = TimeSpan.FromSeconds(options.LoadWindowSeconds);
         var excluded = 0;
         var excludedLoaded = 0;
-        foreach (var group in rates.GroupBy(r => CongestionDetector.FloorTime(r.Time, windowSize)))
+        // Peak per window, accumulated in one pass. GroupBy allocated an IGrouping and a backing list
+        // per window, and ISP Health now holds the rate series fine on long spans - six figures of
+        // windows, nearly all of them holding a single sample.
+        var peaks = new Dictionary<DateTime, (double Down, double Up)>();
+        var maxDown = 0.0;
+        var maxUp = 0.0;
+        DateTime firstTime = default, lastTime = default;
+        for (var i = 0; i < rates.Count; i++)
         {
-            var down = group.Max(r => r.DownloadBps ?? 0);
-            var up = group.Max(r => r.UploadBps ?? 0);
+            var r = rates[i];
+            var key = CongestionDetector.FloorTime(r.Time, windowSize);
+            var d = r.DownloadBps ?? 0;
+            var u = r.UploadBps ?? 0;
+            if (peaks.TryGetValue(key, out var cur))
+                peaks[key] = (d > cur.Down ? d : cur.Down, u > cur.Up ? u : cur.Up);
+            else
+                peaks[key] = (d, u);
 
-            var loadedDown = expectedDownBps.HasValue && down >= options.LoadedThresholdFraction * expectedDownBps.Value;
-            var loadedUp = expectedUpBps.HasValue && up >= options.LoadedThresholdFraction * expectedUpBps.Value;
+            // Log inputs gathered here rather than in four more passes over the series.
+            if (d > maxDown) maxDown = d;
+            if (u > maxUp) maxUp = u;
+            if (i == 0 || r.Time < firstTime) firstTime = r.Time;
+            if (i == 0 || r.Time > lastTime) lastTime = r.Time;
+        }
 
-            if (exclusionWindows != null && IsExcluded(group.Key, windowSize, exclusionWindows))
+        foreach (var (key, peak) in peaks)
+        {
+            var loadedDown = expectedDownBps.HasValue && peak.Down >= options.LoadedThresholdFraction * expectedDownBps.Value;
+            var loadedUp = expectedUpBps.HasValue && peak.Up >= options.LoadedThresholdFraction * expectedUpBps.Value;
+
+            if (exclusionWindows != null && IsExcluded(key, windowSize, exclusionWindows))
             {
                 // Still drop the window from the analysis, but classify it first so the
                 // log reflects how many GENUINELY-LOADED windows were removed - the only
                 // exclusions that change the loaded-line result. Idle exclusions are noise.
-                result[group.Key] = new LoadWindow(false, false, false);
+                result[key] = new LoadWindow(false, false, false);
                 excluded++;
                 if (loadedDown || loadedUp) excludedLoaded++;
                 continue;
             }
 
             var idle = expectedDownBps.HasValue && expectedUpBps.HasValue
-                && down < options.IdleThresholdFraction * expectedDownBps.Value
-                && up < options.IdleThresholdFraction * expectedUpBps.Value;
+                && peak.Down < options.IdleThresholdFraction * expectedDownBps.Value
+                && peak.Up < options.IdleThresholdFraction * expectedUpBps.Value;
 
-            result[group.Key] = new LoadWindow(idle, loadedDown, loadedUp);
+            result[key] = new LoadWindow(idle, loadedDown, loadedUp);
         }
 
         // Demote loaded windows that stand alone. A saturating transfer holds across consecutive
@@ -64,21 +86,23 @@ public static class LoadClassifier
                 "ISP Health: excluded {Count} window(s) overlapping SQM probe schedule, {Loaded} of which would have classified as loaded",
                 excluded, excludedLoaded);
 
-        // What the classifier actually saw. On a long window the rate series arrives aggregated far
-        // coarser than LoadWindowSeconds, so each sample keys one narrow window while standing for a
-        // much wider span - print the rates and the windows they produced rather than inferring them
-        // from the raw series, which is aggregated differently.
-        var loadedKeys = result.Where(kv => kv.Value.IsLoadedDown || kv.Value.IsLoadedUp).Select(kv => kv.Key).OrderBy(k => k).ToList();
-        logger?.LogDebug(
-            "ISP Health: load classify - {Rates} rate sample(s) spanning {First:MM-dd HH:mm:ss} to {Last:MM-dd HH:mm:ss}, max {MaxDown}/{MaxUp} Mbps vs {PlanDown}/{PlanUp} plan, {Loaded} of {Total} window(s) loaded: {Keys}",
-            rates.Count,
-            rates.Count > 0 ? rates.Min(r => r.Time) : default,
-            rates.Count > 0 ? rates.Max(r => r.Time) : default,
-            (rates.Count > 0 ? rates.Max(r => r.DownloadBps ?? 0) / 1e6 : 0).ToString("0.#"),
-            (rates.Count > 0 ? rates.Max(r => r.UploadBps ?? 0) / 1e6 : 0).ToString("0.#"),
-            expectedDownloadMbps, expectedUploadMbps,
-            loadedKeys.Count, result.Count,
-            string.Join(" | ", loadedKeys.Take(8).Select(k => k.ToString("MM-dd HH:mm:ss"))));
+        // What the classifier actually saw. Guarded, and built from values gathered in the pass above:
+        // debug logging is on permanently at the test sites, so an unguarded diagnostic here walked
+        // six figures of samples several more times on every compute.
+        if (logger?.IsEnabled(LogLevel.Debug) == true)
+        {
+            var loadedKeys = new List<DateTime>();
+            foreach (var (key, w) in result)
+                if (w.IsLoadedDown || w.IsLoadedUp) loadedKeys.Add(key);
+            loadedKeys.Sort();
+            logger.LogDebug(
+                "ISP Health: load classify - {Rates} rate sample(s) spanning {First:MM-dd HH:mm:ss} to {Last:MM-dd HH:mm:ss}, max {MaxDown}/{MaxUp} Mbps vs {PlanDown}/{PlanUp} plan, {Loaded} of {Total} window(s) loaded: {Keys}",
+                rates.Count, firstTime, lastTime,
+                (maxDown / 1e6).ToString("0.#"), (maxUp / 1e6).ToString("0.#"),
+                expectedDownloadMbps, expectedUploadMbps,
+                loadedKeys.Count, result.Count,
+                string.Join(" | ", loadedKeys.Take(8).Select(k => k.ToString("MM-dd HH:mm:ss"))));
+        }
         return result;
     }
 
