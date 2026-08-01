@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Storage.Models;
+using NetworkOptimizer.Web.Services.Gates;
 
 namespace NetworkOptimizer.Web.Services.Licensing;
 
@@ -23,19 +24,22 @@ public class LicenseActivationService : ILicenseActivationService
     private readonly LicenseStateService _stateService;
     private readonly TimeProvider _time;
     private readonly ILogger<LicenseActivationService> _logger;
+    private readonly IAuditContext _auditContext;
 
     public LicenseActivationService(
         IDbContextFactory<NetworkOptimizerDbContext> mainDbFactory,
         LicenseServerClient client,
         LicenseStateService stateService,
         TimeProvider time,
-        ILogger<LicenseActivationService> logger)
+        ILogger<LicenseActivationService> logger,
+        IAuditContext auditContext)
     {
         _mainDbFactory = mainDbFactory;
         _client = client;
         _stateService = stateService;
         _time = time;
         _logger = logger;
+        _auditContext = auditContext;
     }
 
     /// <summary>All entered keys, newest first (for the Licensing card).</summary>
@@ -199,6 +203,12 @@ public class LicenseActivationService : ILicenseActivationService
     {
         await using (var db = await _mainDbFactory.CreateDbContextAsync())
         {
+            // The site is identified by row id and this runs from a default-site-only page, so
+            // without this the audit envelope would file the change under whoever's site was open.
+            var site = await db.Sites.FirstOrDefaultAsync(s => s.Id == siteId);
+            _auditContext.SetSite(site?.Slug);
+            _auditContext.SetTarget(site?.Slug, site?.Name);
+
             var existing = await db.SiteLicenseAssignments.FirstOrDefaultAsync(a => a.SiteId == siteId);
 
             if (licenseKeyRecordId == null)
