@@ -12,7 +12,7 @@
       "title": "Uptime",
       "listLabel": "Outages scored against the window, not in flat minutes",
       "badge": "improved",
-      "body": "**Uptime** now sits above the three gauges, and outages are scored against the window you are looking at rather than in flat minutes. Fifteen minutes down is a very different line over a month than over a day, and those no longer cost the same. A long outage still lands hard wherever you look from, and a line that drops over and over is now judged on how often it does it.",
+      "body": "**Uptime** now sits above the three gauges. Outages are scored against the window you are looking at, so fifteen minutes down costs far less over a month than over a day.",
       "placement": "bottom",
       "requires": ["isp-health"],
       "optional": true
