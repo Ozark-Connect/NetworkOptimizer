@@ -492,6 +492,11 @@ public class IspHealthService
     private async Task<ComputeOutcome> ComputeCoreAsync(DateTime windowStart, DateTime windowEnd,
         IReadOnlyList<CongestionEvent>? referenceEvents, CancellationToken ct)
     {
+        // Only the auto-compute path was timed, so a custom window - which is where the expensive
+        // long spans are actually requested - had no cost signal at all. The budget's failure mode is
+        // silently dropping the user to a shorter window, so changes near the query path need a
+        // before/after number rather than an assumption.
+        var computeSw = System.Diagnostics.Stopwatch.StartNew();
         if (!_influx.IsConfigured && !await _influx.ReconfigureAsync(ct))
             return new ComputeOutcome(IspHealthStatus.NotConfigured, null, new List<AsnSeries>());
 
@@ -1203,6 +1208,9 @@ public class IspHealthService
         report.PppoeSession = pppoeSession == true;
         _logger.LogDebug("ISP Health computed: {Score} ({Tech}), {Events} congestion events, {Shifts} path shifts",
             report.OverallScore, profile.DisplayName, congestionEvents.Count, pathShifts.Count);
+        _logger.LogDebug("ISP Health compute timing: {Hours}h window in {Ms}ms ({Rates} rate sample(s), {LossSeries} loss series)",
+            (windowEnd - windowStart).TotalHours.ToString("0.#"), computeSw.ElapsedMilliseconds,
+            wanRates.Count, lossPool.Count);
         return new ComputeOutcome(IspHealthStatus.Ready, report, chartClusters);
     }
 
