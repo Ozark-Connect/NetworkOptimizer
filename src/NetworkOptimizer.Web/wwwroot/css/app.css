@@ -2231,7 +2231,7 @@ a.stat-card-link:active {
     text-decoration: none;
     white-space: nowrap;
     box-sizing: border-box;
-    line-height: 1;
+    line-height: normal;
     vertical-align: middle;
 }
 
