@@ -70,6 +70,9 @@ public class SqmWanConfiguration
     /// <summary>Delay in seconds before running the first speedtest after deploy/boot. Null = use default (5s solo, staggered for dual-WAN).</summary>
     public int? BootDelaySeconds { get; set; }
 
+    /// <summary>Opt-in rate-proportional download burst (~1 ms of line time) instead of the conservative 5 KB clamp. False = conservative (default).</summary>
+    public bool RateProportionalDownloadBurst { get; set; } = false;
+
     /// <summary>When this configuration was created</summary>
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 

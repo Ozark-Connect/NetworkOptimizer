@@ -668,6 +668,13 @@
                         <span class="form-hint" style="margin: 0;">seconds</span>
                     </div>
                 </div>
+                <div class="form-group">
+                    <label class="toggle-label">
+                        <input type="checkbox" @bind="wan1Config.RateProportionalDownloadBurst" />
+                        <span>Experimental: rate-proportional download burst</span>
+                    </label>
+                    <small class="form-hint">@BurstOptInHint</small>
+                </div>
             </div>
                 </div>
             </div>
@@ -849,6 +856,13 @@
                                @onchange="@(e => wan2Config.BootDelaySeconds = ParseNullableInt(e.Value?.ToString(), 0, 600))" />
                         <span class="form-hint" style="margin: 0;">seconds</span>
                     </div>
+                </div>
+                <div class="form-group">
+                    <label class="toggle-label">
+                        <input type="checkbox" @bind="wan2Config.RateProportionalDownloadBurst" />
+                        <span>Experimental: rate-proportional download burst</span>
+                    </label>
+                    <small class="form-hint">@BurstOptInHint</small>
                 </div>
             </div>
                 </div>
@@ -1593,6 +1607,16 @@
 @code {
     private bool IsLicenseRestricted => !LicenseState.IsSiteOperational(SiteContext.Slug);
 
+    // Deliberately states both sides of the measured tradeoff: this option helped a lot on one
+    // path and not at all on others, and it cost loaded-latency tail on the path it helped.
+    private const string BurstOptInHint =
+        "Sizes the download burst to roughly 1 ms of line time instead of the 5 KB default. " +
+        "On one UCG Fiber (PPPoE, 894 Mbit cap) mean download rose from 579 to 792 Mbit, but the " +
+        "saturated-download latency tail rose with it (p99 26.5 to 48.4 ms). Other platforms measured " +
+        "no gain at all, and a larger burst can interact badly with an ISP-side policer. Leave this off " +
+        "unless your shaped download stays well below the configured rate, and compare loaded latency " +
+        "before and after enabling it. Upload is not affected.";
+
     // Cache settings
     private static readonly TimeSpan CacheDuration = TimeSpan.FromMinutes(5);
     private static DateTime _lastStatusCheck = DateTime.MinValue;
@@ -1966,6 +1990,7 @@
                     config.WanLinkSpeedMbps = matchingWan?.LinkSpeedMbps;
                     config.LinkSpeedOverrideMbps = saved.LinkSpeedOverrideMbps;
                     config.BootDelaySeconds = saved.BootDelaySeconds;
+                    config.RateProportionalDownloadBurst = saved.RateProportionalDownloadBurst;
 
                     UpdateCalculatedSpeeds(config);
 
@@ -2023,6 +2048,7 @@
                     CongestionSeverity = wan1Config.CongestionSeverity,
                     LinkSpeedOverrideMbps = wan1Config.LinkSpeedOverrideMbps,
                     BootDelaySeconds = wan1Config.BootDelaySeconds,
+                    RateProportionalDownloadBurst = wan1Config.RateProportionalDownloadBurst,
                     SpeedtestMorningHour = wan1Config.MorningHour,
                     SpeedtestMorningMinute = wan1Config.MorningMinute,
                     SpeedtestEveningHour = wan1Config.EveningHour,
@@ -2052,6 +2078,7 @@
                     CongestionSeverity = wan2Config.CongestionSeverity,
                     LinkSpeedOverrideMbps = wan2Config.LinkSpeedOverrideMbps,
                     BootDelaySeconds = wan2Config.BootDelaySeconds,
+                    RateProportionalDownloadBurst = wan2Config.RateProportionalDownloadBurst,
                     SpeedtestMorningHour = wan2Config.MorningHour,
                     SpeedtestMorningMinute = wan2Config.MorningMinute,
                     SpeedtestEveningHour = wan2Config.EveningHour,
@@ -2266,6 +2293,7 @@
         wan1Config.EveningHour = 19;
         wan1Config.EveningMinute = 0;
         wan1Config.BootDelaySeconds = null;
+        wan1Config.RateProportionalDownloadBurst = false;
         UpdateCalculatedSpeeds(wan1Config);
 
         // Reset WAN2 to defaults
@@ -2282,6 +2310,7 @@
         wan2Config.EveningHour = 18;
         wan2Config.EveningMinute = 0;
         wan2Config.BootDelaySeconds = null;
+        wan2Config.RateProportionalDownloadBurst = false;
         UpdateCalculatedSpeeds(wan2Config);
     }
 
@@ -3168,6 +3197,7 @@
             NominalDownloadSpeed = model.NominalDownload,
             NominalUploadSpeed = model.NominalUpload,
             ShapeUpload = true,
+            RateProportionalDownloadBurst = model.RateProportionalDownloadBurst,
             PingHost = model.PingHost,
             PreferredSpeedtestServerId = model.SpeedtestServerId,
             // Use user-configured schedule times
@@ -3300,6 +3330,9 @@
         // Delay before first speedtest after deploy/boot (null = use default)
         public int? BootDelaySeconds { get; set; }
 
+        // Opt-in rate-proportional download burst (~1 ms of line time) instead of the 5 KB clamp
+        public bool RateProportionalDownloadBurst { get; set; }
+
         // Physical WAN port link speed (null if unknown, e.g., GRE tunnels)
         public int? WanLinkSpeedMbps { get; set; }
 
@@ -3388,7 +3421,7 @@
             Enabled, Name, Interface, ConnectionType, NominalDownload, NominalUpload,
             PingHost, SpeedtestServerId, MorningHour, MorningMinute, EveningHour, EveningMinute,
             BaselineLatency, LatencyThreshold, CongestionSeverity, LinkSpeedOverrideMbps,
-            BootDelaySeconds);
+            BootDelaySeconds, RateProportionalDownloadBurst);
 
         // Check if current config differs from a snapshot
         public bool DiffersFrom(WanConfigSnapshot? snapshot)
@@ -3410,7 +3443,8 @@
                    Math.Abs(LatencyThreshold - snapshot.LatencyThreshold) > 0.01 ||
                    Math.Abs(CongestionSeverity - snapshot.CongestionSeverity) > 0.001 ||
                    LinkSpeedOverrideMbps != snapshot.LinkSpeedOverrideMbps ||
-                   BootDelaySeconds != snapshot.BootDelaySeconds;
+                   BootDelaySeconds != snapshot.BootDelaySeconds ||
+                   RateProportionalDownloadBurst != snapshot.RateProportionalDownloadBurst;
         }
     }
 
@@ -3420,7 +3454,7 @@
         int NominalDownload, int NominalUpload, string PingHost, string? SpeedtestServerId,
         int MorningHour, int MorningMinute, int EveningHour, int EveningMinute,
         double BaselineLatency, double LatencyThreshold, double CongestionSeverity,
-        int? LinkSpeedOverrideMbps, int? BootDelaySeconds);
+        int? LinkSpeedOverrideMbps, int? BootDelaySeconds, bool RateProportionalDownloadBurst);
 
     public void Dispose()
     {
