@@ -269,7 +269,7 @@
                     placement: 'top',
                     theme: 'custom',
                     appendTo: document.body,
-                    maxWidth: isWide ? 380 : 320,
+                    maxWidth: isWide ? 'min(100vw - 10px, 400px)' : 'min(100vw - 10px, 360px)',
                     onShow(instance) {
                         // Close other open tooltips
                         document.querySelectorAll('.tooltip-icon').forEach(function(other) {
@@ -321,7 +321,9 @@
                     placement: 'top',
                     theme: 'custom',
                     appendTo: document.body,
-                    maxWidth: el.hasAttribute('data-tooltip-wrap') ? 320 : 'none',
+                    maxWidth: el.hasAttribute('data-tooltip-wrap')
+                        ? 'min(100vw - 10px, 320px)'
+                        : 'min(100vw - 10px, 360px)',
                     onShow: function(instance) {
                         // Suppress if an adjacent sibling already shows the same tooltip
                         var ref = instance.reference;
@@ -400,7 +402,9 @@
                     placement: 'top',
                     theme: 'custom',
                     appendTo: document.body,
-                    maxWidth: el.hasAttribute('data-tooltip-wrap') ? 320 : 'none',
+                    maxWidth: el.hasAttribute('data-tooltip-wrap')
+                        ? 'min(100vw - 10px, 320px)'
+                        : 'min(100vw - 10px, 360px)',
                     onShow: function(instance) {
                         var ref = instance.reference;
                         var siblings = [ref.previousElementSibling, ref.nextElementSibling];
