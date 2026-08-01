@@ -67,7 +67,7 @@ public class AlertProcessingService : BackgroundService
         var hostIp = configuration["HOST_IP"];
 
         if (!string.IsNullOrEmpty(reverseProxy))
-            _appBaseUrl = $"https://{reverseProxy}";
+            _appBaseUrl = $"https://{NetworkUtilities.ComposeAuthority(reverseProxy, configuration["REVERSE_PROXIED_PORT"], defaultPort: 443)}";
         else if (!string.IsNullOrEmpty(hostName))
             _appBaseUrl = $"http://{hostName}:8042";
         else if (!string.IsNullOrEmpty(hostIp))

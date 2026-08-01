@@ -2351,42 +2351,9 @@
             return;
         }
 
-        var hostName = Configuration["HOST_NAME"];
-        var hostIp = Configuration["HOST_IP"];
-        var openSpeedTestHost = Configuration["OPENSPEEDTEST_HOST"];
-        var openSpeedTestPortConfig = Configuration["OPENSPEEDTEST_PORT"];
-        var openSpeedTestPort = !string.IsNullOrEmpty(openSpeedTestPortConfig) ? openSpeedTestPortConfig : "3005";
-        var openSpeedTestHttpsConfig = Configuration["OPENSPEEDTEST_HTTPS"] ?? "";
-        var openSpeedTestHttpsEnabled = openSpeedTestHttpsConfig.Equals("true", StringComparison.OrdinalIgnoreCase);
-        var openSpeedTestHttpsPortConfig = Configuration["OPENSPEEDTEST_HTTPS_PORT"];
-        var openSpeedTestHttpsPort = !string.IsNullOrEmpty(openSpeedTestHttpsPortConfig) ? openSpeedTestHttpsPortConfig : "443";
-
-        if (string.IsNullOrEmpty(openSpeedTestHost))
-            openSpeedTestHost = hostName;
-
-        if (!string.IsNullOrEmpty(openSpeedTestHost))
-        {
-            if (openSpeedTestHttpsEnabled)
-            {
-                // HTTPS URL (behind proxy, all traffic through TLS)
-                _openSpeedTestUrl = openSpeedTestHttpsPort == "443"
-                    ? $"https://{openSpeedTestHost}"
-                    : $"https://{openSpeedTestHost}:{openSpeedTestHttpsPort}";
-            }
-            else
-            {
-                // HTTP URL (direct access, no proxy)
-                _openSpeedTestUrl = $"http://{openSpeedTestHost}:{openSpeedTestPort}";
-            }
-        }
-        else
-        {
-            var fallbackIp = !string.IsNullOrEmpty(hostIp) ? hostIp : NetworkUtilities.DetectLocalIpFromInterfaces();
-            if (!string.IsNullOrEmpty(fallbackIp))
-            {
-                _openSpeedTestUrl = $"http://{fallbackIp}:{openSpeedTestPort}";
-            }
-        }
+        // Host ladder, ports, and display URL are shared with the CORS origin list in Program.cs
+        // and the Client Speed Test page via OpenSpeedTestSettings
+        _openSpeedTestUrl = OpenSpeedTestSettings.Load(Configuration).DisplayUrl;
     }
 
     // --- Chart Configuration ---
