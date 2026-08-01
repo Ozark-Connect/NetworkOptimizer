@@ -1,4 +1,4 @@
-﻿using NetworkOptimizer.Storage.Models;
+using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Models.Identity;
 using NetworkOptimizer.Web.Services.Gates;
 
@@ -22,17 +22,17 @@ public interface ILicenseActivationService
 
     /// <summary>Activates a licence key against the licence server.</summary>
     [RequireRole(Roles.Admin)]
-    [AuditAction(AuditActions.LicenseChanged, Category = AuditCategories.License, TargetType = "license_key")]
+    [AuditAction(AuditActions.LicenseChanged, Category = AuditCategories.License, TargetType = "license_key", InstanceScoped = true)]
     Task<string?> ActivateAsync(string enteredKey);
 
     /// <summary>Re-checks a key with the licence server and refreshes its stored entitlement.</summary>
     [RequireRole(Roles.Admin)]
-    [AuditAction(AuditActions.LicenseChanged, Category = AuditCategories.License, TargetType = "license_key")]
+    [AuditAction(AuditActions.LicenseChanged, Category = AuditCategories.License, TargetType = "license_key", InstanceScoped = true)]
     Task<string?> RefreshKeyAsync(string canonicalKey);
 
     /// <summary>Removes a licence key from this install.</summary>
     [RequireRole(Roles.Admin)]
-    [AuditAction(AuditActions.LicenseChanged, Category = AuditCategories.License, TargetType = "license_key")]
+    [AuditAction(AuditActions.LicenseChanged, Category = AuditCategories.License, TargetType = "license_key", InstanceScoped = true)]
     Task RemoveAsync(int licenseKeyRecordId);
 
     /// <summary>Assigns (or clears) the licence key covering a site.</summary>
