@@ -1530,18 +1530,10 @@ from(bucket: ""{_bucket}"")
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
   |> sort(columns: [""_time""])
 ";
-        var results = new List<WanRatePoint>();
-        await foreach (var record in QueryFluxAsync(flux, ct))
-        {
-            // SNMP rate_in_bps on a WAN interface = bytes received from ISP = download.
-            // rate_out_bps = bytes sent to ISP = upload.
-            results.Add(new WanRatePoint
-            {
-                Time = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow),
-                DownloadBps = AsDoubleOrNull(record.GetValueByKey("rate_in_bps")),
-                UploadBps = AsDoubleOrNull(record.GetValueByKey("rate_out_bps"))
-            });
-        }
+        // Raw CSV rather than the client's FluxRecord model, same as the latency-detail reads: ISP
+        // Health holds this series fine-grained however long the window is, so a month reads six
+        // figures of rows and the per-record boxing costs multiples of the query itself.
+        var results = ParseWanRatesCsv(await QueryRawAsync(flux, ct));
         // Order on assembly: the Flux result is NOT globally ordered. pivot emits a separate table
         // whenever a row's field set differs, and those tables arrive after the main one - so an
         // interval where a device reported some fields but not others comes back at the END.
@@ -2675,6 +2667,86 @@ from(bucket: ""{_longtermBucket}"")
             _ = PersistHealthAsync(false, ex.Message, CancellationToken.None);
             return string.Empty;
         }
+    }
+
+    /// <summary>
+    /// Parses the annotated-CSV result of the WAN rate pivot query (columns _time, rate_in_bps,
+    /// rate_out_bps) into points, on the same span-based basis as <see cref="ParseLatencyDetailCsv"/>
+    /// and for the same reason: ISP Health holds the rate series at a fine interval however long the
+    /// window is - it is the only signal that can tell sustained load from a spike - so a month-long
+    /// window reads six figures of rows here, and the client's FluxRecord model costs more per record
+    /// than the query costs in total.
+    /// </summary>
+    internal static List<WanRatePoint> ParseWanRatesCsv(string csv)
+    {
+        var result = new List<WanRatePoint>();
+        if (string.IsNullOrEmpty(csv)) return result;
+
+        int iTime = -1, iIn = -1, iOut = -1;
+        var expectHeader = true;
+
+        var span = csv.AsSpan();
+        int pos = 0;
+        while (pos < span.Length)
+        {
+            var nl = span.Slice(pos).IndexOf('\n');
+            var line = nl < 0 ? span.Slice(pos) : span.Slice(pos, nl);
+            pos = nl < 0 ? span.Length : pos + nl + 1;
+            if (line.Length > 0 && line[line.Length - 1] == '\r') line = line.Slice(0, line.Length - 1);
+            if (line.IsEmpty) continue;
+            if (line[0] == '#') { expectHeader = true; continue; }
+
+            if (expectHeader)
+            {
+                // Re-read on every header: pivot emits a fresh table whenever the field set differs,
+                // so a run where one direction went missing has its own column order.
+                iTime = iIn = iOut = -1;
+                int col = 0, p = 0;
+                while (true)
+                {
+                    var comma = line.Slice(p).IndexOf(',');
+                    var cell = comma < 0 ? line.Slice(p) : line.Slice(p, comma);
+                    if (cell.SequenceEqual("_time")) iTime = col;
+                    else if (cell.SequenceEqual("rate_in_bps")) iIn = col;
+                    else if (cell.SequenceEqual("rate_out_bps")) iOut = col;
+                    col++;
+                    if (comma < 0) break;
+                    p += comma + 1;
+                }
+                expectHeader = false;
+                continue;
+            }
+
+            if (iTime < 0) continue;
+
+            ReadOnlySpan<char> tTime = default, tIn = default, tOut = default;
+            int c = 0, q = 0;
+            while (true)
+            {
+                var comma = line.Slice(q).IndexOf(',');
+                var cell = comma < 0 ? line.Slice(q) : line.Slice(q, comma);
+                if (c == iTime) tTime = cell;
+                else if (c == iIn) tIn = cell;
+                else if (c == iOut) tOut = cell;
+                c++;
+                if (comma < 0) break;
+                q += comma + 1;
+            }
+
+            if (tTime.IsEmpty) continue;
+            if (!DateTime.TryParse(tTime, System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.RoundtripKind, out var time))
+                continue;
+
+            // rate_in_bps on a WAN interface = bytes received from the ISP = download.
+            result.Add(new WanRatePoint
+            {
+                Time = DateTime.SpecifyKind(time.ToUniversalTime(), DateTimeKind.Utc),
+                DownloadBps = ParseDoubleOrNull(tIn),
+                UploadBps = ParseDoubleOrNull(tOut)
+            });
+        }
+        return result;
     }
 
     /// <summary>

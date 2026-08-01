@@ -69,4 +69,51 @@ public class MonitoringInfluxCsvParserTests
         result["transit-x"].Should().HaveCount(2);
         result["cdn-y"][0].RttAvgMs.Should().Be(12.3);
     }
+
+    // The WAN rate pivot, with rate_out_bps before rate_in_bps to prove name-based mapping, and a
+    // second table whose header omits rate_out_bps - which is exactly what pivot emits for an
+    // interval where only one direction reported, and why the header is re-read after each #-block.
+    private const string RatesCsv =
+        "#group,false,false,true,true,false,false,false\r\n" +
+        "#datatype,string,long,dateTime:RFC3339,dateTime:RFC3339,dateTime:RFC3339,double,double\r\n" +
+        "#default,_result,,,,,,\r\n" +
+        ",result,table,_start,_stop,_time,rate_out_bps,rate_in_bps\r\n" +
+        ",,0,2026-07-06T00:00:00Z,2026-07-07T00:00:00Z,2026-07-06T22:00:00Z,5000000,350000000\r\n" +
+        ",,0,2026-07-06T00:00:00Z,2026-07-07T00:00:00Z,2026-07-06T22:00:15Z,4000000,340000000\r\n" +
+        "#group,false,false,true,true,false,false\r\n" +
+        "#datatype,string,long,dateTime:RFC3339,dateTime:RFC3339,dateTime:RFC3339,double\r\n" +
+        "#default,_result,,,,,\r\n" +
+        ",result,table,_start,_stop,_time,rate_in_bps\r\n" +
+        ",,1,2026-07-06T00:00:00Z,2026-07-07T00:00:00Z,2026-07-06T22:00:30Z,120000000\r\n";
+
+    [Fact]
+    public void Parses_wan_rates_mapping_columns_by_name_across_tables()
+    {
+        var result = MonitoringInfluxClient.ParseWanRatesCsv(RatesCsv);
+
+        result.Should().HaveCount(3);
+        result[0].Time.Should().Be(new DateTime(2026, 7, 6, 22, 0, 0, DateTimeKind.Utc));
+        result[0].Time.Kind.Should().Be(DateTimeKind.Utc);
+        result[0].DownloadBps.Should().Be(350_000_000);
+        result[0].UploadBps.Should().Be(5_000_000);
+
+        // Second table: upload column absent entirely, so upload is null rather than misread from
+        // whatever sat in that position in the previous header.
+        result[2].DownloadBps.Should().Be(120_000_000);
+        result[2].UploadBps.Should().BeNull();
+    }
+
+    [Fact]
+    public void Wan_rates_empty_or_null_csv_returns_empty()
+    {
+        MonitoringInfluxClient.ParseWanRatesCsv("").Should().BeEmpty();
+        MonitoringInfluxClient.ParseWanRatesCsv(null!).Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Wan_rates_tolerate_lf_only_line_endings()
+    {
+        MonitoringInfluxClient.ParseWanRatesCsv(RatesCsv.Replace("\r\n", "\n"))
+            .Should().HaveCount(3);
+    }
 }

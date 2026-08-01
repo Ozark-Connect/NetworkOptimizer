@@ -92,7 +92,10 @@ public static class LoadClassifier
     {
         if (options.MinLoadedRunSamples <= 1 || windows.Count == 0) return;
 
-        var ordered = windows.Keys.OrderBy(k => k).ToList();
+        // Sorted once and reused for both directions: at a long window this list runs to six figures,
+        // and sorting it twice was pure waste.
+        var ordered = windows.Keys.ToList();
+        ordered.Sort();
         // Samples arrive on the rate aggregation interval, which is coarser than the window size, so
         // "adjacent" is measured against the observed spacing rather than assumed to be one window.
         var spacing = ordered.Count > 1
