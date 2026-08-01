@@ -741,6 +741,52 @@ public static class NetworkUtilities
     }
 
     /// <summary>
+    /// Join a declared host with an optional declared port into a URL authority ("host" or
+    /// "host:port"), so callers can keep interpolating a single value into "https://{authority}".
+    ///
+    /// The default port is omitted rather than written out, because it has to be: an origin string
+    /// with an explicit :443 does not match the browser's own origin for CORS, and existing installs
+    /// declare no port at all. An embedded port in <paramref name="host"/> wins over
+    /// <paramref name="port"/> - operators who wrote "host:8443" in the hostname field mean it, and
+    /// appending would produce "host:8443:8443".
+    /// </summary>
+    /// <param name="host">Declared hostname, optionally already carrying ":port".</param>
+    /// <param name="port">Declared port, or null/empty for the scheme default.</param>
+    /// <param name="defaultPort">The port the scheme implies, omitted from the result.</param>
+    public static string? ComposeAuthority(string? host, string? port, int defaultPort)
+    {
+        var value = host?.Trim();
+        if (string.IsNullOrEmpty(value))
+            return null;
+
+        var declared = port?.Trim();
+        if (string.IsNullOrEmpty(declared) || (int.TryParse(declared, out var parsed) && parsed == defaultPort))
+            return value;
+
+        return PortSeparatorIndex(value) >= 0 ? value : $"{value}:{declared}";
+    }
+
+    /// <summary>
+    /// The host part of a URL authority, dropping any ":port". Null/empty in, null out.
+    /// </summary>
+    public static string? AuthorityHost(string? authority)
+    {
+        var value = authority?.Trim();
+        if (string.IsNullOrEmpty(value))
+            return null;
+
+        var separator = PortSeparatorIndex(value);
+        return separator < 0 ? value : value[..separator];
+    }
+
+    /// <summary>
+    /// Index of the colon introducing a port, or -1. Bracketed IPv6 literals keep their colons
+    /// inside the brackets, so only a colon after the closing bracket counts.
+    /// </summary>
+    private static int PortSeparatorIndex(string authority) =>
+        authority.IndexOf(':', authority.LastIndexOf(']') + 1);
+
+    /// <summary>
     /// Normalize a controller URL: prepend https:// if needed, strip any path/query/fragment.
     /// E.g., "unifi.example.com/network/default/" becomes "https://unifi.example.com"
     /// </summary>

@@ -287,6 +287,10 @@
     <Property Id="REVERSE_PROXIED_HOST_NAME" Secure="yes">
       <RegistrySearch Id="SearchReverseProxy" Root="HKLM" Key="SOFTWARE\Ozark Connect\Network Optimizer" Name="REVERSE_PROXIED_HOST_NAME" Type="raw" />
     </Property>
+    <!-- Registry-only (no dialog field): front-end port of the reverse proxy when it is not 443 -->
+    <Property Id="REVERSE_PROXIED_PORT" Secure="yes">
+      <RegistrySearch Id="SearchReverseProxyPort" Root="HKLM" Key="SOFTWARE\Ozark Connect\Network Optimizer" Name="REVERSE_PROXIED_PORT" Type="raw" />
+    </Property>
     <Property Id="IPERF3_SERVER_ENABLED" Value="true" Secure="yes">
       <RegistrySearch Id="SearchIperf3" Root="HKLM" Key="SOFTWARE\Ozark Connect\Network Optimizer" Name="IPERF3_SERVER_ENABLED" Type="raw" />
     </Property>

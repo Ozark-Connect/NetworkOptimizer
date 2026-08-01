@@ -29,12 +29,24 @@ fi
 # API endpoint path (single source of truth)
 API_PATH="/api/public/speedtest/results"
 
+# Fold REVERSE_PROXIED_PORT into the hostname once, so everything below treats the result as a
+# single authority. 443 stays implicit (an origin that spells out :443 does not match the browser's
+# own), and a port already written into the hostname wins over the separate setting.
+PROXIED_AUTHORITY="$REVERSE_PROXIED_HOST_NAME"
+PROXIED_HOST="${REVERSE_PROXIED_HOST_NAME%%:*}"
+if [ -n "$PROXIED_AUTHORITY" ] && [ -n "$REVERSE_PROXIED_PORT" ] && [ "$REVERSE_PROXIED_PORT" != "443" ]; then
+    case "$PROXIED_AUTHORITY" in
+        *:*) ;;
+        *) PROXIED_AUTHORITY="${PROXIED_AUTHORITY}:${REVERSE_PROXIED_PORT}" ;;
+    esac
+fi
+
 # Construct the save URL from environment variables
 # Priority: REVERSE_PROXIED_HOST_NAME > HOST_NAME > HOST_IP
 # IMPORTANT: Keep this logic in sync with NginxHostedService.cs:ConstructSaveDataUrl() (Windows installer)
 if [ -n "$REVERSE_PROXIED_HOST_NAME" ]; then
-    # Behind reverse proxy - use https and no port (proxy handles it)
-    SAVE_DATA_URL="https://${REVERSE_PROXIED_HOST_NAME}${API_PATH}"
+    # Behind reverse proxy - https, and the proxy's own front-end port when it is not 443
+    SAVE_DATA_URL="https://${PROXIED_AUTHORITY}${API_PATH}"
 elif [ -n "$HOST_NAME" ]; then
     SAVE_DATA_URL="http://${HOST_NAME}:8042${API_PATH}"
 elif [ -n "$HOST_IP" ]; then
@@ -92,8 +104,19 @@ fi
 OST_PORT="${OPENSPEEDTEST_PORT:-3005}"
 OST_HTTPS_PORT="${OPENSPEEDTEST_HTTPS_PORT:-443}"
 
-# Match UI: OPENSPEEDTEST_HOST defaults to HOST_NAME
-OST_HOST="${OPENSPEEDTEST_HOST:-$HOST_NAME}"
+# Match UI: OPENSPEEDTEST_HOST defaults to HOST_NAME, then - only for the new-style config that
+# sets REVERSE_PROXIED_PORT with OPENSPEEDTEST_HTTPS=true - to the reverse-proxied host. That last
+# rung is what an install serving the app and the speed test on one hostname (different ports) has
+# set; without it there is no canonical URL, so the HTTP->HTTPS redirect below is never installed.
+# Gating on REVERSE_PROXIED_PORT keeps every pre-existing config byte-identical (the variable is
+# new with this rung, so no earlier install has it) - ungated, this would newly install a redirect
+# on installs whose speed test is reached directly by LAN address.
+# The bare host, not the authority: the port here is the speed test's, not the app's.
+if [ "$OPENSPEEDTEST_HTTPS" = "true" ] && [ -n "$REVERSE_PROXIED_PORT" ]; then
+    OST_HOST="${OPENSPEEDTEST_HOST:-${HOST_NAME:-$PROXIED_HOST}}"
+else
+    OST_HOST="${OPENSPEEDTEST_HOST:-$HOST_NAME}"
+fi
 
 # Build canonical URL (same logic as ClientSpeedTest.razor)
 # "true" = HTTPS via proxy, "false"/unset = HTTP direct

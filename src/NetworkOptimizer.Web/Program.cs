@@ -751,9 +751,6 @@ builder.Services.AddHttpClient("TcMonitor", client =>
 // CORS for client speed test endpoint (OpenSpeedTest sends results from browser)
 // Auto-construct allowed origins from HOST_IP/HOST_NAME, or use CORS_ORIGINS if set
 var corsOriginsList = new List<string>();
-var hostIp = builder.Configuration["HOST_IP"];
-var hostName = builder.Configuration["HOST_NAME"];
-var reverseProxiedHostName = builder.Configuration["REVERSE_PROXIED_HOST_NAME"];
 var corsOriginsConfig = builder.Configuration["CORS_ORIGINS"];
 
 // Add origins from config
@@ -762,35 +759,26 @@ if (!string.IsNullOrEmpty(corsOriginsConfig))
     corsOriginsList.AddRange(corsOriginsConfig.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
 }
 
-// Auto-add origins from HOST_IP and HOST_NAME (OpenSpeedTest port)
-var openSpeedTestPortConfig = builder.Configuration["OPENSPEEDTEST_PORT"];
-var openSpeedTestPort = !string.IsNullOrEmpty(openSpeedTestPortConfig) ? openSpeedTestPortConfig : "3005";
-var openSpeedTestHostConfig = builder.Configuration["OPENSPEEDTEST_HOST"];
-var openSpeedTestHost = !string.IsNullOrEmpty(openSpeedTestHostConfig) ? openSpeedTestHostConfig : hostName;
-var openSpeedTestHttpsConfig = builder.Configuration["OPENSPEEDTEST_HTTPS"] ?? "";
-var openSpeedTestHttpsEnabled = openSpeedTestHttpsConfig.Equals("true", StringComparison.OrdinalIgnoreCase);
-var openSpeedTestHttpsPortConfig = builder.Configuration["OPENSPEEDTEST_HTTPS_PORT"];
-var openSpeedTestHttpsPort = !string.IsNullOrEmpty(openSpeedTestHttpsPortConfig) ? openSpeedTestHttpsPortConfig : "443";
+// Auto-add origins from HOST_IP and HOST_NAME (OpenSpeedTest port). The host ladder and ports come
+// from OpenSpeedTestSettings, shared with the Client Speed Test and Client Performance pages, so the
+// allowed origins and the links those pages hand out can't drift apart. An install without the
+// speed test's own origin allowed here has its results silently blocked by CORS.
+var openSpeedTest = OpenSpeedTestSettings.Load(builder.Configuration);
 
 // HTTP origins (direct access via IP or hostname) - always added
-// Use HOST_IP if set, otherwise auto-detect from network interfaces
-var corsIp = !string.IsNullOrEmpty(hostIp) ? hostIp : NetworkUtilities.DetectLocalIpFromInterfaces();
-if (!string.IsNullOrEmpty(corsIp))
+if (!string.IsNullOrEmpty(openSpeedTest.FallbackIp))
 {
-    corsOriginsList.Add($"http://{corsIp}:{openSpeedTestPort}");
+    corsOriginsList.Add($"http://{openSpeedTest.FallbackIp}:{openSpeedTest.Port}");
 }
-if (!string.IsNullOrEmpty(openSpeedTestHost))
+if (!string.IsNullOrEmpty(openSpeedTest.Host))
 {
-    corsOriginsList.Add($"http://{openSpeedTestHost}:{openSpeedTestPort}");
+    corsOriginsList.Add($"http://{openSpeedTest.Host}:{openSpeedTest.Port}");
 }
 
 // HTTPS proxy origin (when OPENSPEEDTEST_HTTPS=true)
-if (openSpeedTestHttpsEnabled && !string.IsNullOrEmpty(openSpeedTestHost))
+if (openSpeedTest.HttpsEnabled && !string.IsNullOrEmpty(openSpeedTest.Host))
 {
-    var httpsOrigin = openSpeedTestHttpsPort == "443"
-        ? $"https://{openSpeedTestHost}"
-        : $"https://{openSpeedTestHost}:{openSpeedTestHttpsPort}";
-    corsOriginsList.Add(httpsOrigin);
+    corsOriginsList.Add($"https://{NetworkUtilities.ComposeAuthority(openSpeedTest.Host, openSpeedTest.HttpsPort, defaultPort: 443)}");
 }
 
 builder.Services.AddCors(options =>
@@ -1435,6 +1423,7 @@ static Dictionary<string, string?> LoadWindowsRegistrySettings()
             ["HOST_IP"] = "HOST_IP",
             ["HOST_NAME"] = "HOST_NAME",
             ["REVERSE_PROXIED_HOST_NAME"] = "REVERSE_PROXIED_HOST_NAME",
+            ["REVERSE_PROXIED_PORT"] = "REVERSE_PROXIED_PORT",
             ["IPERF3_SERVER_ENABLED"] = "Iperf3Server:Enabled",  // Maps to Iperf3Server:Enabled
             ["OPENSPEEDTEST_PORT"] = "OPENSPEEDTEST_PORT",
             ["OPENSPEEDTEST_HOST"] = "OPENSPEEDTEST_HOST",
