@@ -67,6 +67,8 @@ public static class MonitoringChartEndpoints
             MonitoringInfluxClient influx,
             MonitoringLiveStats liveStats,
             UniFiConnectionService connectionService,
+            NetworkOptimizer.Storage.Services.SiteDbContextFactory siteDb,
+            SiteContextService siteContext,
             DateTime? from,
             DateTime? to,
             CancellationToken ct) =>
@@ -94,6 +96,35 @@ public static class MonitoringChartEndpoints
                 wanIfNames = gw?.WanInterfaceNames;
             }
             catch { }
+
+            // The stored rates are keyed on gateway MAC + counter interface, and both normally come
+            // from the console - so an offline site skipped the query entirely and read as having no
+            // history, when the history is sitting in InfluxDB. Fall back to the remembered WAN
+            // profile, which records exactly that pair.
+            //
+            // ONLY while the console is down, so nothing about the online path changes: a connected
+            // console that returns no gateway still yields an empty series as before, and eth0,
+            // eth6.100 and ppp0 keep resolving live. CounterInterface, not the data path - a VLAN
+            // sub-interface's counters double, which is why the two are stored apart.
+            if ((string.IsNullOrEmpty(gatewayMac) || wanIfNames is not { Count: > 0 })
+                && !connectionService.IsConnected)
+            {
+                try
+                {
+                    await using var db = siteDb.CreateForSite(siteContext.Slug, siteContext.IsDefault);
+                    var profile = await db.WanProfiles.AsNoTracking()
+                        .Where(w => w.GatewayMac != null && w.CounterInterface != null)
+                        .OrderBy(w => w.WanNetworkgroup)
+                        .ThenByDescending(w => w.UpdatedAt)
+                        .FirstOrDefaultAsync(ct);
+                    if (profile != null)
+                    {
+                        gatewayMac ??= profile.GatewayMac;
+                        wanIfNames = new List<string> { profile.CounterInterface! };
+                    }
+                }
+                catch { }
+            }
 
             var wanTask = !string.IsNullOrEmpty(gatewayMac) && wanIfNames?.Count > 0
                 ? influx.QueryGatewayWanRatesAsync(gatewayMac, wanIfNames, queryFrom, queryTo, ct: ct)
