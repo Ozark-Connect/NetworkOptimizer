@@ -478,16 +478,24 @@ async function catchUpTick() {
     }
 }
 
-function restartBackfill() {
-    if (!backfillTimer) {
-        dbg('restartBackfill SKIPPED - no timer (chart paused or not mounted)');
-        return;
-    }
-    dbg(`restartBackfill - ${CATCHUP_TRIES} fills every ${CATCHUP_MS / 1000}s, then ${BACKFILL_MS / 1000}s`);
-    clearInterval(backfillTimer);
+// Arms the fills in catch-up mode. Called wherever polling starts, so it cannot depend on the
+// first live sample arriving after the timer exists - it did not, and the trigger was wasted on a
+// stale sample served before the agent had even connected.
+function startBackfillCatchUp() {
+    if (backfillTimer) clearInterval(backfillTimer);
+    dbg(`backfill armed - ${CATCHUP_TRIES} fills every ${CATCHUP_MS / 1000}s, then ${BACKFILL_MS / 1000}s`);
     catchUpLeft = CATCHUP_TRIES;
     backfillTimer = setInterval(catchUpTick, CATCHUP_MS);
-    catchUpTick();
+}
+
+// Live data resuming after a stall re-arms the same burst: the history for the gap only becomes
+// queryable once the server catches up, which is after the samples themselves start arriving.
+function restartBackfill() {
+    if (!backfillTimer) {
+        dbg('restartBackfill skipped - not polling');
+        return;
+    }
+    startBackfillCatchUp();
 }
 
 async function backfillHistory() {
@@ -640,7 +648,7 @@ export async function mount(containerId, opts) {
 
     pollTimer = setInterval(pollLive, interval);
     scrollTimer = setInterval(updateChart, SCROLL_MS);
-    backfillTimer = setInterval(backfillHistory, BACKFILL_MS);
+    startBackfillCatchUp();
 
     if (visHandler) document.removeEventListener('visibilitychange', visHandler);
     visHandler = async () => {
@@ -677,7 +685,7 @@ export function resume() {
     if (!chart || pollTimer) return;
     pollTimer = setInterval(pollLive, POLL_MS);
     scrollTimer = setInterval(updateChart, SCROLL_MS);
-    backfillTimer = setInterval(backfillHistory, BACKFILL_MS);
+    startBackfillCatchUp();
 }
 
 // Render the historic view at a given playhead time from the current buffer.
@@ -758,7 +766,7 @@ export async function seekTime(isoTimestamp) {
         updateChart();
         pollTimer = setInterval(pollLive, POLL_MS);
         scrollTimer = setInterval(updateChart, SCROLL_MS);
-        backfillTimer = setInterval(backfillHistory, BACKFILL_MS);
+        startBackfillCatchUp();
         return;
     }
     // Historic mode: stop polling, fetch window centered on timestamp
