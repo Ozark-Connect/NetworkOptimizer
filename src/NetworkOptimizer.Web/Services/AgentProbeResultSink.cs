@@ -110,6 +110,8 @@ public class AgentProbeResultSink
         ICredentialProtectionService credentialProtection,
         MonitoringCollectionRegistry collectionRegistry,
         SiteAgentCoverage agentCoverage,
+        AgentOnGatewayDetector onGatewayDetector,
+        IAgentEnrollmentService enrollment,
         ILogger<AgentProbeResultSink> logger)
     {
         _siteDbFactory = siteDbFactory;
@@ -122,11 +124,15 @@ public class AgentProbeResultSink
         _credentialProtection = credentialProtection;
         _collectionRegistry = collectionRegistry;
         _agentCoverage = agentCoverage;
+        _onGatewayDetector = onGatewayDetector;
+        _enrollment = enrollment;
         _logger = logger;
     }
 
     private readonly MonitoringCollectionRegistry _collectionRegistry;
     private readonly SiteAgentCoverage _agentCoverage;
+    private readonly AgentOnGatewayDetector _onGatewayDetector;
+    private readonly IAgentEnrollmentService _enrollment;
 
     /// <summary>Called once per connection after the hello exchange, and by the periodic refresh.</summary>
     public async Task OnAgentConnectedAsync(AgentTunnelConnection connection, CancellationToken ct)
@@ -260,9 +266,25 @@ public class AgentProbeResultSink
                 .ToListAsync(ct);
             var contextsById = await db.WanContexts.AsNoTracking().ToDictionaryAsync(c => c.Id, ct);
 
+            // An agent running ON the gateway cannot usefully probe it: the target is the box the
+            // probe runs on, so every reply is loopback - 0 ms and no loss - which reads as a
+            // perfectly healthy gateway precisely when it might not be. Skipped for this agent at
+            // push time rather than disabled in the database, so the target stays as the user left
+            // it and any other vantage keeps measuring it.
+            var selfAddress = await _onGatewayDetector.IsAgentOnGatewayAsync(connection.SiteSlug)
+                ? await _enrollment.GetOnlineAgentLanIpAsync(connection.SiteSlug)
+                : null;
+            var skippedSelf = 0;
+
             var config = new ProbeConfig();
             foreach (var target in targets)
             {
+                if (!string.IsNullOrEmpty(selfAddress)
+                    && string.Equals(target.Address, selfAddress, StringComparison.OrdinalIgnoreCase))
+                {
+                    skippedSelf++;
+                    continue;
+                }
                 // Targets in an agent-assigned WAN context go only to that agent
                 // (typically a probe-only instance bound behind the right WAN);
                 // unassigned targets go to every agent as extra vantage points.
@@ -284,8 +306,9 @@ public class AgentProbeResultSink
             }
 
             connection.TrySend(new ServerMessage { ProbeConfig = config });
-            _logger.LogInformation("Pushed {Count} probe target(s) to agent {Id} (site {Slug})",
-                config.Targets.Count, connection.AgentId, connection.SiteSlug);
+            _logger.LogInformation("Pushed {Count} probe target(s) to agent {Id} (site {Slug}){Skipped}",
+                config.Targets.Count, connection.AgentId, connection.SiteSlug,
+                skippedSelf > 0 ? $" - {skippedSelf} skipped: the agent runs on that target" : "");
         }
         catch (Exception ex)
         {
