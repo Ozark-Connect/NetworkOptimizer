@@ -64,6 +64,15 @@ if [ "$LAN_SPEED_TEST" != true ] && grep -q '"lanSpeedTest"[[:space:]]*:[[:space
     LAN_SPEED_TEST=true
 fi
 
+# Likewise the port: an install already serving on one keeps it unless this run names a different
+# one. Upgrading should not move a page that clients and firewall rules already know about, and an
+# agent enrolled before the port was configurable has the old 3000 recorded. Deleting that line from
+# agent.json is how an existing install adopts the current default.
+if [ "$SPEED_TEST_PORT" = "24443" ] && [ -f "${INSTALL_DIR}/agent.json" ]; then
+    EXISTING_PORT=$(sed -n 's/.*"lanSpeedTestPort"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' "${INSTALL_DIR}/agent.json" | head -1)
+    [ -n "$EXISTING_PORT" ] && SPEED_TEST_PORT="$EXISTING_PORT"
+fi
+
 # --- Output helpers -----------------------------------------------------------
 # Colorized, structured output; colors collapse to empty when stdout isn't a
 # terminal (piped/redirected/logged), so captured output stays clean.

@@ -6,12 +6,19 @@
 # down and nginx goes with it.
 set -e
 
-# Serve the page somewhere other than 24443 when asked. Only the public listener moves - the
-# loopback relay stays where the agent binary expects it - and the agent announces the port it
-# was given, so the server's speed test links follow without being configured separately.
-if [ -n "${AGENT_SPEEDTEST_PORT:-}" ] && [ "${AGENT_SPEEDTEST_PORT}" != "24443" ]; then
-    sed -i "/listen/ s/24443/${AGENT_SPEEDTEST_PORT}/" /etc/nginx/netopt-speedtest-server.conf
-    echo "entrypoint: LAN speed test page on port ${AGENT_SPEEDTEST_PORT}"
+# Which port the page is served on. nginx and the agent must resolve this identically or the agent
+# announces a port nginx is not listening on: environment variable first, then whatever agent.json
+# records, then the image's own default. The config case matters on upgrade - an agent enrolled
+# before the port was configurable has 3000 written in its config and should keep serving it, rather
+# than being moved to a port its clients and firewall rules have never heard of. Deleting that line
+# from agent.json is all it takes to adopt the current default.
+PAGE_PORT="${AGENT_SPEEDTEST_PORT:-}"
+if [ -z "$PAGE_PORT" ] && [ -f /data/agent.json ]; then
+    PAGE_PORT=$(sed -n 's/.*"lanSpeedTestPort"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' /data/agent.json | head -1)
+fi
+if [ -n "$PAGE_PORT" ] && [ "$PAGE_PORT" != "24443" ]; then
+    sed -i "/listen/ s/24443/${PAGE_PORT}/" /etc/nginx/netopt-speedtest-server.conf
+    echo "entrypoint: LAN speed test page on port ${PAGE_PORT}"
 fi
 
 # Self-signed TLS opt-out (AGENT_SPEEDTEST_TLS=0): serve the speed test listener as

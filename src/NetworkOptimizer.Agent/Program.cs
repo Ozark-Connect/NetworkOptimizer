@@ -93,10 +93,11 @@ var version = Assembly.GetExecutingAssembly()
 var lanIpOverride = Environment.GetEnvironmentVariable("NO_AGENT_LAN_IP");
 
 // The port the speed test page is served on, for the announcement to the server. nginx is what
-// actually listens, and in a container the entrypoint moves that listener from an environment
-// variable - so the same variable has to reach the announcement, or the agent would report a port
-// nginx is no longer using. Native installs do not set the variable - they record the port in
-// agent.json instead, which is what the fallback reads.
+// actually listens, so both have to resolve it the same way: the environment variable first (the
+// container's entrypoint moves nginx's listener from it), then whatever agent.json records, then
+// the built-in default. An agent enrolled before the port was configurable has the old 3000 in its
+// config and keeps serving it - upgrading should not move a port that clients and firewall rules
+// already know about. New installs get the current default instead.
 static int SpeedTestPagePort(NetworkOptimizer.Agent.AgentConfig cfg) =>
     int.TryParse(Environment.GetEnvironmentVariable("AGENT_SPEEDTEST_PORT"), out var p) && p > 0
         ? p
