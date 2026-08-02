@@ -13,8 +13,12 @@ namespace NetworkOptimizer.Web.Services;
 /// </summary>
 public class SiteManagementService : ISiteManagementService
 {
-    /// <summary>Slug reserved for the default site (the pre-multi-site instance).</summary>
-    public const string DefaultSiteSlug = "main";
+    /// <summary>
+    /// Slug reserved for the default site (the pre-multi-site instance). Defined in the storage
+    /// layer, which needs it to resolve database paths, and mirrored here so the two cannot drift -
+    /// a mismatch would send the default site's data to a folder that should never exist.
+    /// </summary>
+    public const string DefaultSiteSlug = SiteDatabasePaths.DefaultSiteSlug;
 
     private readonly ISiteRepository _siteRepository;
     private readonly Authorization.IEffectiveSiteRoleResolver _siteRoles;
