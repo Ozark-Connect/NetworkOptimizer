@@ -33,10 +33,14 @@
     //
     // Each frame moves by whatever is currently needed, which is small while the card is still
     // growing, so no easing of our own is wanted: the transition supplies the pacing.
+    // Returns false only when there is nothing to wait for. Not-yet-expanded is NOT that: Blazor
+    // has not re-rendered on the frame the click lands, so the class arrives a frame or two later -
+    // treating its absence as "done" made the loop quit before it ever started, which is why
+    // dropping the fixed delay appeared to disable this entirely.
     function step(header) {
         var wrapper = header.nextElementSibling;
         if (!wrapper || !wrapper.classList.contains('expand-wrapper')) return false;
-        if (!wrapper.classList.contains('expanded')) return false;
+        if (!wrapper.classList.contains('expanded')) return true;
 
         var card = header.parentElement;
         if (!card) return false;
