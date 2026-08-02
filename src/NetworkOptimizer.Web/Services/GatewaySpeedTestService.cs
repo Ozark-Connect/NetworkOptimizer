@@ -379,7 +379,7 @@ public class GatewaySpeedTestService : IGatewaySpeedTestService
     private async Task<(bool success, string output)> RunIperf3ClientAsync(
         string host, int port, int duration, int parallel, bool reverse)
     {
-        if (!_siteContext.IsDefault && await _tunnelRouting.IsViaAgentAsync(_siteContext.Slug))
+        if (await _tunnelRouting.IsViaAgentAsync(_siteContext.Slug))
         {
             _logger.LogDebug("Routing gateway iperf3 client to agent for site {Slug} against {Host}:{Port} (reverse={Reverse})",
                 _siteContext.Slug, host, port, reverse);

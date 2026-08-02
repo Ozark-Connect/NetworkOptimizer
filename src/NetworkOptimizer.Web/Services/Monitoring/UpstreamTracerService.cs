@@ -36,7 +36,10 @@ public class UpstreamTracerService
     private readonly NetworkOptimizer.Storage.Services.SiteDbContextFactory _siteDbFactory;
     private readonly IDbContextFactory<NetworkOptimizerDbContext> _dbFactory;
     private readonly AsnResolutionService _asnResolution;
-    private readonly IProbeExecutor _traceExecutor;
+    // Resolved per use, not captured: whether the site's agent covers it can change while the
+    // instance lives, and the registry caches one tracer per site for the life of the process.
+    private readonly Func<IProbeExecutor> _traceExecutorFactory;
+    private IProbeExecutor _traceExecutor => _traceExecutorFactory();
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IspHealth.IspHealthService _ispHealth;
     private readonly NetworkOptimizer.Audit.Services.IeeeOuiDatabase _ouiDb;
@@ -257,7 +260,7 @@ public class UpstreamTracerService
         UniFiConnectionService connectionService,
         IGatewaySshService gatewaySsh,
         IspHealth.IspHealthService ispHealth,
-        IProbeExecutor traceExecutor,
+        Func<IProbeExecutor> traceExecutor,
         NetworkOptimizer.Storage.Services.SiteDbContextFactory siteDbFactory,
         IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
         AsnResolutionService asnResolution,
@@ -270,7 +273,7 @@ public class UpstreamTracerService
         _connectionService = connectionService;
         _gatewaySsh = gatewaySsh;
         _ispHealth = ispHealth;
-        _traceExecutor = traceExecutor;
+        _traceExecutorFactory = traceExecutor;
         _siteDbFactory = siteDbFactory;
         _dbFactory = dbFactory;
         _asnResolution = asnResolution;

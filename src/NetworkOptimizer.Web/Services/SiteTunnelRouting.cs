@@ -11,8 +11,9 @@ namespace NetworkOptimizer.Web.Services;
 /// instead of directly. When enabled, <see cref="RouteAsync"/> rewrites a
 /// host:port to a loopback endpoint from <see cref="AgentTunnelProxyService"/>;
 /// the agent dials the real target inside the site's network, and the caller's
-/// transport (SSH.NET, HttpClient) is unaware of the proxying. The default
-/// site is this server's own network and never routes via tunnel.
+/// transport (SSH.NET, HttpClient) is unaware of the proxying. The default site is normally this
+/// server's own network and routes directly; it can route via tunnel too, but only once it is
+/// explicitly configured for its agent to cover it (the off-site-server case).
 /// </summary>
 public class SiteTunnelRouting
 {
@@ -24,19 +25,24 @@ public class SiteTunnelRouting
     private static readonly TimeSpan FlagCacheExpiry = TimeSpan.FromMinutes(1);
 
     private readonly IServiceProvider _serviceProvider;
+    private readonly SiteAgentCoverage _agentCoverage;
     private readonly ILogger<SiteTunnelRouting> _logger;
     private readonly ConcurrentDictionary<string, (bool Enabled, DateTime At)> _flags = new();
 
-    public SiteTunnelRouting(IServiceProvider serviceProvider, ILogger<SiteTunnelRouting> logger)
+    public SiteTunnelRouting(IServiceProvider serviceProvider, SiteAgentCoverage agentCoverage, ILogger<SiteTunnelRouting> logger)
     {
         _serviceProvider = serviceProvider;
+        _agentCoverage = agentCoverage;
         _logger = logger;
     }
 
     /// <summary>Whether the site's devices are configured to be reached through its agent tunnel.</summary>
     public async Task<bool> IsViaAgentAsync(string slug)
     {
-        if (string.IsNullOrEmpty(slug) || slug == SiteManagementService.DefaultSiteSlug)
+        if (string.IsNullOrEmpty(slug)) return false;
+        // The default site answers no without touching the database unless it has been handed to
+        // its agent - this is consulted per SSH command and per modem poll on every install.
+        if (slug == SiteManagementService.DefaultSiteSlug && !_agentCoverage.Covers(slug))
             return false;
         if (_flags.TryGetValue(slug, out var cached) && DateTime.UtcNow - cached.At < FlagCacheExpiry)
             return cached.Enabled;
@@ -65,7 +71,8 @@ public class SiteTunnelRouting
     /// </summary>
     public bool IsAgentOnline(string slug)
     {
-        if (string.IsNullOrEmpty(slug) || slug == SiteManagementService.DefaultSiteSlug)
+        if (string.IsNullOrEmpty(slug)) return false;
+        if (slug == SiteManagementService.DefaultSiteSlug && !_agentCoverage.Covers(slug))
             return false;
         var registry = _serviceProvider.GetService<AgentTunnelRegistry>();
         return registry != null && registry.GetForSite(slug).Count > 0;

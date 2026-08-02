@@ -7,7 +7,7 @@ using NetworkOptimizer.Web.Services.Gates;
 namespace NetworkOptimizer.Web.Services;
 
 /// <summary>The per-site settings the Multi-Site table edits, read in one pass.</summary>
-public sealed record SiteConfiguration(bool ConsoleViaAgent, bool DevicesViaAgent, string? ClientSpeedTestTarget);
+public sealed record SiteConfiguration(bool ConsoleViaAgent, bool DevicesViaAgent, bool AgentCoversSite, string? ClientSpeedTestTarget);
 
 /// <summary>
 /// The tunnel routing and speed-test target a site runs with. These were written straight from the
@@ -37,6 +37,15 @@ public interface ISiteConfigurationService
     [AuditAction(AuditActions.SiteChanged, TargetType = "site")]
     Task SetDevicesViaAgentAsync([SiteSlug] string siteSlug, bool enabled);
 
+    /// <summary>
+    /// Hands collection for this site to its on-site agent, standing this server down. Only
+    /// meaningful for the default site - a secondary site's agent already collects - and only takes
+    /// effect while an agent is actually enrolled.
+    /// </summary>
+    [RequireSiteRole(SiteRole.SiteAdmin)]
+    [AuditAction(AuditActions.SiteChanged, TargetType = "site")]
+    Task SetAgentCoversSiteAsync([SiteSlug] string siteSlug, bool enabled);
+
     /// <summary>Overrides where browsers reach this site's speed test pages. Null clears it.</summary>
     [RequireSiteRole(SiteRole.SiteAdmin)]
     [AuditAction(AuditActions.SiteChanged, TargetType = "site")]
@@ -47,8 +56,13 @@ public interface ISiteConfigurationService
 public sealed class SiteConfigurationService : ISiteConfigurationService
 {
     private readonly SiteDbContextFactory _siteDb;
+    private readonly SiteAgentCoverage _agentCoverage;
 
-    public SiteConfigurationService(SiteDbContextFactory siteDb) => _siteDb = siteDb;
+    public SiteConfigurationService(SiteDbContextFactory siteDb, SiteAgentCoverage agentCoverage)
+    {
+        _siteDb = siteDb;
+        _agentCoverage = agentCoverage;
+    }
 
     /// <inheritdoc />
     public async Task<SiteConfiguration> GetAsync(string siteSlug)
@@ -57,12 +71,14 @@ public sealed class SiteConfigurationService : ISiteConfigurationService
         var settings = await db.SystemSettings
             .Where(s => s.Key == UniFiConnectionService.ConsoleViaAgentKey
                      || s.Key == SiteTunnelRouting.DevicesViaAgentKey
+                     || s.Key == SiteAgentCoverage.AgentCoversSiteKey
                      || s.Key == SystemSettingKeys.ClientSpeedTestTargetOverride)
             .ToListAsync();
 
         return new SiteConfiguration(
             ReadFlag(settings, UniFiConnectionService.ConsoleViaAgentKey),
             ReadFlag(settings, SiteTunnelRouting.DevicesViaAgentKey),
+            ReadFlag(settings, SiteAgentCoverage.AgentCoversSiteKey),
             settings.FirstOrDefault(s => s.Key == SystemSettingKeys.ClientSpeedTestTargetOverride)?.Value);
     }
 
@@ -73,6 +89,15 @@ public sealed class SiteConfigurationService : ISiteConfigurationService
     /// <inheritdoc />
     public Task SetDevicesViaAgentAsync(string siteSlug, bool enabled)
         => WriteAsync(siteSlug, SiteTunnelRouting.DevicesViaAgentKey, enabled.ToString());
+
+    /// <inheritdoc />
+    public async Task SetAgentCoversSiteAsync(string siteSlug, bool enabled)
+    {
+        await WriteAsync(siteSlug, SiteAgentCoverage.AgentCoversSiteKey, enabled.ToString());
+        // The collection paths read this through a one-minute cache; a setting that decides whether
+        // the server collects at all should not wait that long to take effect.
+        _agentCoverage.Invalidate(siteSlug);
+    }
 
     /// <inheritdoc />
     public Task SetClientSpeedTestTargetAsync(string siteSlug, string? target)

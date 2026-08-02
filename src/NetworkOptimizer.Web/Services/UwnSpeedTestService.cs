@@ -96,10 +96,11 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase, IUwnSpeedTestService
         Action<string, int, string?> report,
         CancellationToken cancellationToken)
     {
-        // A non-default site that is reached via its agent runs the binary at the
-        // site, so the measured WAN is the site's rather than this server's.
-        // CanRunForSiteAsync has already refused non-default sites without an agent.
-        if (!IsDefaultSite && await _tunnelRouting.IsViaAgentAsync(SiteSlug))
+        // A site reached via its agent runs the binary at the site, so the measured WAN is the
+        // site's rather than this server's. CanRunForSiteAsync has already refused non-default
+        // sites without an agent, and IsViaAgentAsync answers false for the default site unless it
+        // has been handed to its agent.
+        if (await _tunnelRouting.IsViaAgentAsync(SiteSlug))
             return await RunViaAgentAsync(report, cancellationToken);
 
         return await RunLocalAsync(report, cancellationToken);

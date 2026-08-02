@@ -109,6 +109,7 @@ public class AgentProbeResultSink
         MonitoringAlertRegistry alertRegistry,
         ICredentialProtectionService credentialProtection,
         MonitoringCollectionRegistry collectionRegistry,
+        SiteAgentCoverage agentCoverage,
         ILogger<AgentProbeResultSink> logger)
     {
         _siteDbFactory = siteDbFactory;
@@ -120,10 +121,12 @@ public class AgentProbeResultSink
         _alertRegistry = alertRegistry;
         _credentialProtection = credentialProtection;
         _collectionRegistry = collectionRegistry;
+        _agentCoverage = agentCoverage;
         _logger = logger;
     }
 
     private readonly MonitoringCollectionRegistry _collectionRegistry;
+    private readonly SiteAgentCoverage _agentCoverage;
 
     /// <summary>Called once per connection after the hello exchange, and by the periodic refresh.</summary>
     public async Task OnAgentConnectedAsync(AgentTunnelConnection connection, CancellationToken ct)
@@ -331,15 +334,17 @@ public class AgentProbeResultSink
     /// Builds and pushes the site's SNMP monitoring config: credentials from
     /// the site's MonitoringSettings, device list from the site's console
     /// connection, filtered and addressed by the same SnmpDeviceRules the
-    /// local collection agent uses. Default-site agents never get SNMP config
-    /// - the server's own collection agent already polls those devices.
+    /// local collection agent uses. A default-site agent gets SNMP config only when the site is
+    /// configured for its agent to cover it - otherwise the server's own collection agent is still
+    /// polling those devices and pushing a second poller would double every sample.
     /// </summary>
     public async Task PushSnmpConfigAsync(AgentTunnelConnection connection, CancellationToken ct)
     {
-        if (connection.SiteSlug == SiteManagementService.DefaultSiteSlug) return;
+        var isDefault = connection.SiteSlug == SiteManagementService.DefaultSiteSlug;
+        if (isDefault && !await _agentCoverage.CoversAsync(connection.SiteSlug)) return;
         try
         {
-            await using var db = _siteDbFactory.CreateForSite(connection.SiteSlug, isDefault: false);
+            await using var db = _siteDbFactory.CreateForSite(connection.SiteSlug, isDefault);
             var settings = await db.MonitoringSettings.AsNoTracking().FirstOrDefaultAsync(ct);
 
             // Before building the push, re-detect the SNMP config from the site's console

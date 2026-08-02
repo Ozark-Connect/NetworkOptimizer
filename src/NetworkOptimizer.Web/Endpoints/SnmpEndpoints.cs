@@ -25,6 +25,7 @@ public static class SnmpEndpoints
             SiteContextService siteContext,
             ICredentialProtectionService credentialProtection,
             AgentSnmpQueryService agentSnmpQuery,
+            SiteAgentCoverage agentCoverage,
             ILoggerFactory loggerFactory,
             CancellationToken ct) =>
         {
@@ -32,7 +33,7 @@ public static class SnmpEndpoints
             if (string.IsNullOrWhiteSpace(request.DeviceMac) || string.IsNullOrWhiteSpace(request.Oid))
                 return Results.BadRequest(new TestOidResponse { ErrorMessage = "Device MAC and OID are required." });
 
-            var hasAgent = !siteContext.IsDefault && agentSnmpQuery.HasAgentForSite(siteContext.Slug);
+            var hasAgent = agentCoverage.AgentCovers(siteContext.Slug, agentSnmpQuery.HasAgentForSite(siteContext.Slug));
             oidLog.LogDebug(
                 "OID test: site={Slug} isDefault={IsDefault} hasAgent={HasAgent} mac={Mac} oid={Oid}",
                 siteContext.Slug, siteContext.IsDefault, hasAgent, request.DeviceMac, request.Oid);

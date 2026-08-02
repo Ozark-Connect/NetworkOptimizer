@@ -316,6 +316,9 @@ builder.Services.AddSingleton<SshClientService>();
 // pages): consults the site's devices.via_agent flag and rewrites host:port to
 // an agent tunnel proxy endpoint when enabled.
 builder.Services.AddSingleton<SiteTunnelRouting>();
+// Whether a site's agent collects instead of this server. Singleton: consulted by the
+// per-site collection loops and the probe executor factory, and it caches per slug.
+builder.Services.AddSingleton<SiteAgentCoverage>();
 builder.Services.AddSiteScopedRegistry<GatewaySshRegistry>();
 builder.Services.AddScoped<IGatewaySshService>(sp => sp.GetRequiredService<GatewaySshRegistry>()
     .GetFor(sp.GetRequiredService<SiteContextService>().Slug));

@@ -1,4 +1,4 @@
-﻿using System.Security.Cryptography;
+using System.Security.Cryptography;
 using System.Text;
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Storage.Models;
@@ -24,6 +24,7 @@ public class AgentEnrollmentService : IAgentEnrollmentService
 
     private readonly IDbContextFactory<NetworkOptimizerDbContext> _mainDbFactory;
     private readonly AgentTunnelRegistry _tunnelRegistry;
+    private readonly SiteAgentCoverage _agentCoverage;
     private readonly ILogger<AgentEnrollmentService> _logger;
     private readonly Authorization.ISiteAccessFilter _siteAccess;
 
@@ -31,11 +32,13 @@ public class AgentEnrollmentService : IAgentEnrollmentService
         IDbContextFactory<NetworkOptimizerDbContext> mainDbFactory,
         AgentTunnelRegistry tunnelRegistry,
         Authorization.ISiteAccessFilter siteAccess,
+        SiteAgentCoverage agentCoverage,
         ILogger<AgentEnrollmentService> logger)
     {
         _siteAccess = siteAccess;
         _mainDbFactory = mainDbFactory;
         _tunnelRegistry = tunnelRegistry;
+        _agentCoverage = agentCoverage;
         _logger = logger;
     }
 
@@ -267,13 +270,16 @@ public class AgentEnrollmentService : IAgentEnrollmentService
 
     /// <summary>
     /// The LAN IP of an enrolled, enabled, online agent for the given site slug,
-    /// or null when the site has no such agent (default site, no agent, agent
-    /// offline, or its LAN IP is not yet known). Used to point site clients at the
-    /// on-site agent for LAN speed tests.
+    /// or null when the site has no such agent (no agent, agent offline, or its LAN IP is not yet
+    /// known). Used to point site clients at the on-site agent for LAN speed tests. The default
+    /// site answers null unless it is configured for its agent to cover it - otherwise clients
+    /// would be sent to an agent for a network this server is already on.
     /// </summary>
     public async Task<string?> GetOnlineAgentLanIpAsync(string siteSlug)
     {
-        if (string.IsNullOrWhiteSpace(siteSlug) || siteSlug == SiteManagementService.DefaultSiteSlug)
+        if (string.IsNullOrWhiteSpace(siteSlug))
+            return null;
+        if (siteSlug == SiteManagementService.DefaultSiteSlug && !_agentCoverage.Covers(siteSlug))
             return null;
 
         await using var db = await _mainDbFactory.CreateDbContextAsync();

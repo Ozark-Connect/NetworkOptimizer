@@ -27,6 +27,7 @@ public class ProbeExecutorFactory
     private readonly SiteContextService _siteContext;
     private readonly SiteTunnelRouting _tunnelRouting;
     private readonly ILoggerFactory _loggerFactory;
+    private readonly SiteAgentCoverage _agentCoverage;
     private readonly ILogger<ProbeExecutorFactory> _logger;
 
     public ProbeExecutorFactory(
@@ -39,6 +40,7 @@ public class ProbeExecutorFactory
         AgentProbeService agentProbe,
         SiteContextService siteContext,
         SiteTunnelRouting tunnelRouting,
+        SiteAgentCoverage agentCoverage,
         ILoggerFactory loggerFactory,
         ILogger<ProbeExecutorFactory> logger)
     {
@@ -51,6 +53,7 @@ public class ProbeExecutorFactory
         _agentProbe = agentProbe;
         _siteContext = siteContext;
         _tunnelRouting = tunnelRouting;
+        _agentCoverage = agentCoverage;
         _loggerFactory = loggerFactory;
         _logger = logger;
     }
@@ -58,12 +61,13 @@ public class ProbeExecutorFactory
     /// <summary>
     /// The "server" vantage. On a secondary site with an online agent that's the on-site
     /// agent host (the central server can't reach the site's network) - it runs the
-    /// identical LocalProbeExecutor over the tunnel. Falls back to the local server on the
-    /// default site or when no agent is online.
+    /// identical LocalProbeExecutor over the tunnel. The default site resolves the same way
+    /// once it is configured for its agent to cover it; otherwise, and whenever no agent is
+    /// online, this is the local server.
     /// </summary>
     public IProbeExecutor GetServer()
     {
-        if (!_siteContext.IsDefault && _agentProbe.HasAgentForSite(_siteContext.Slug))
+        if (ServerVantageIsAgent)
             return new AgentProbeExecutor(_agentProbe, _siteContext.Slug,
                 _loggerFactory.CreateLogger<AgentProbeExecutor>());
         return _local;
@@ -71,7 +75,7 @@ public class ProbeExecutorFactory
 
     /// <summary>Whether the "server" vantage resolves to the on-site agent for the current site.</summary>
     public bool ServerVantageIsAgent =>
-        !_siteContext.IsDefault && _agentProbe.HasAgentForSite(_siteContext.Slug);
+        _agentCoverage.AgentCovers(_siteContext.Slug, _agentProbe.HasAgentForSite(_siteContext.Slug));
 
     /// <summary>
     /// Build an executor that runs probes from the chosen UniFi device via SSH. Returns
