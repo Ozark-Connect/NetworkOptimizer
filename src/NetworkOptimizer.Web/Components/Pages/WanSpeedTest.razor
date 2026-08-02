@@ -141,7 +141,8 @@
                         }
                     </div>
                     <div class="wan-test-option-hint">
-                        Deploys a speed test binary to the gateway and runs it directly. Most accurate WAN measurement - no LAN overhead. For multi-gig connections, a Server-based test may be best.
+                        Deploys a speed test binary to the gateway and runs it directly. Most accurate WAN measurement - no LAN overhead.@if (!_agentOnGateway)
+                        {<text> For multi-gig connections, @(RunsOnAgent ? "an Agent-based" : "a Server-based") test may be best.</text>}
                     </div>
                     @if (!_gatewayAvailable && !_isRunning && !string.IsNullOrEmpty(_gatewayUnavailableReason))
                     {
@@ -169,7 +170,7 @@
                 {
                 <div class="wan-test-option @(_serverAvailable ? "" : "wan-test-option-unavailable")">
                     <div class="wan-test-option-header">
-                        <span class="wan-test-option-label">Server</span>
+                        <span class="wan-test-option-label">@(RunsOnAgent ? "On-site agent" : "Server")</span>
                         @if (!_serverAvailable && !_isRunning)
                         {
                             <span class="wan-test-option-badge" data-tooltip="@_serverUnavailableReason">Unavailable</span>
@@ -194,7 +195,7 @@
                             }
                             else
                             {
-                                <span>Run Test from Server</span>
+                                <span>Run Test from @(RunsOnAgent ? "Agent" : "Server")</span>
                             }
                         </button>
                         </SiteOperatorOnly>
@@ -206,11 +207,11 @@
                     <div class="wan-test-option-hint">
                         @if (_hasMultipleWans)
                         {
-                            <text>Tests from this server through the LAN. Traffic may be load-balanced across WAN interfaces.</text>
+                            <text>Tests from @(RunsOnAgent ? "the on-site agent" : "this server") through the LAN. Traffic may be load-balanced across WAN interfaces.</text>
                         }
                         else
                         {
-                            <text>Tests from this server through the LAN. Includes LAN traversal overhead.</text>
+                            <text>Tests from @(RunsOnAgent ? "the on-site agent" : "this server") through the LAN. Includes LAN traversal overhead.</text>
                         }
                     </div>
                 </div>
@@ -621,7 +622,7 @@
             {
                 <div class="empty-state">
                     <p>No WAN speed tests recorded yet.</p>
-                    <p class="form-help">Click "Run Test from Gateway" or "Run Test from Server" above to measure your internet connection speed.</p>
+                    <p class="form-help">Click "Run Test from Gateway" or "Run Test from @(RunsOnAgent ? "Agent" : "Server")" above to measure your internet connection speed.</p>
                 </div>
             }
         </div>
@@ -685,6 +686,14 @@
     // Both WAN tests run through that agent, so they can't run until it reconnects.
     private bool _siteAgentOffline;
     private bool _agentOnGateway;
+
+    /// <summary>
+    /// Whether the non-gateway run happens on the site's agent rather than on this server, which is
+    /// what the option is called and described as. True for a site the server cannot reach itself;
+    /// an agent that runs ON the gateway is not this case - that option is hidden entirely, because
+    /// the Gateway option already runs there.
+    /// </summary>
+    private bool RunsOnAgent => !SiteContext.IsDefault && !_agentOnGateway;
     private bool _serverAvailable = true;
     private string? _serverUnavailableReason;
     private System.Threading.Timer? _agentStatusTimer;
