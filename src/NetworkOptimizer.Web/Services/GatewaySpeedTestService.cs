@@ -24,6 +24,7 @@ public class GatewaySpeedTestService : IGatewaySpeedTestService
     private readonly SiteDbContextFactory _siteDbFactory;
     private readonly SiteContextService _siteContext;
     private readonly SiteTunnelRouting _tunnelRouting;
+    private readonly SiteAgentCoverage _agentCoverage;
     private readonly AgentIperf3Service _agentIperf3;
     private readonly AgentEnrollmentService _agentEnrollment;
 
@@ -40,6 +41,7 @@ public class GatewaySpeedTestService : IGatewaySpeedTestService
         SiteDbContextFactory siteDbFactory,
         SiteContextService siteContext,
         SiteTunnelRouting tunnelRouting,
+        SiteAgentCoverage agentCoverage,
         AgentIperf3Service agentIperf3,
         AgentEnrollmentService agentEnrollment,
         Licensing.LicenseStateService licenseState)
@@ -54,6 +56,7 @@ public class GatewaySpeedTestService : IGatewaySpeedTestService
         // path analysis resolves against the current site's topology.
         _pathAnalyzer = speedTestRegistry.GetFor(_siteContext.Slug).PathAnalyzer;
         _tunnelRouting = tunnelRouting;
+        _agentCoverage = agentCoverage;
         _agentIperf3 = agentIperf3;
         _agentEnrollment = agentEnrollment;
     }
@@ -509,7 +512,8 @@ public class GatewaySpeedTestService : IGatewaySpeedTestService
             // agent's reported LAN IP is the operator-correctable address the site
             // already advertises for speed test targets (NO_AGENT_LAN_IP), so when
             // the server endpoint wasn't found, retry the trace anchored there.
-            if (!_siteContext.IsDefault && !path.IsValid && path.ErrorMessage == NetworkPath.ServerPositionNotFoundError)
+            if ((!_siteContext.IsDefault || await _agentCoverage.CoversAsync(_siteContext.Slug))
+                && !path.IsValid && path.ErrorMessage == NetworkPath.ServerPositionNotFoundError)
             {
                 var agentLanIp = await _agentEnrollment.GetOnlineAgentLanIpAsync(_siteContext.Slug);
                 if (!string.IsNullOrEmpty(agentLanIp) && agentLanIp != localIp)

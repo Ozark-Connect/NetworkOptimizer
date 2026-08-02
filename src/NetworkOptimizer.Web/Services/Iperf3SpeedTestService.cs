@@ -858,7 +858,8 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
             // agent's reported LAN IP is the operator-correctable address the site
             // already advertises for speed test targets (NO_AGENT_LAN_IP), so when
             // the server endpoint wasn't found, retry the trace anchored there.
-            if (!_isDefault && !path.IsValid && path.ErrorMessage == NetworkPath.ServerPositionNotFoundError)
+            if ((!_isDefault || await _serviceProvider.GetRequiredService<SiteAgentCoverage>().CoversAsync(_siteSlug))
+                && !path.IsValid && path.ErrorMessage == NetworkPath.ServerPositionNotFoundError)
             {
                 var agentLanIp = await _serviceProvider.GetRequiredService<AgentEnrollmentService>()
                     .GetOnlineAgentLanIpAsync(_siteSlug);

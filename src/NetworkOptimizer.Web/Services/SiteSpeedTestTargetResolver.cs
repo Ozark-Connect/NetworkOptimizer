@@ -38,17 +38,20 @@ public class SiteSpeedTestTargetResolver
     private readonly AgentEnrollmentService _agentEnrollment;
     private readonly ISystemSettingsService _settings;
     private readonly AgentOnGatewayDetector _onGatewayDetector;
+    private readonly SiteAgentCoverage _agentCoverage;
 
     public SiteSpeedTestTargetResolver(
         SiteContextService siteContext,
         AgentEnrollmentService agentEnrollment,
         ISystemSettingsService settings,
-        AgentOnGatewayDetector onGatewayDetector)
+        AgentOnGatewayDetector onGatewayDetector,
+        SiteAgentCoverage agentCoverage)
     {
         _siteContext = siteContext;
         _agentEnrollment = agentEnrollment;
         _settings = settings;
         _onGatewayDetector = onGatewayDetector;
+        _agentCoverage = agentCoverage;
     }
 
     /// <summary>
@@ -61,7 +64,10 @@ public class SiteSpeedTestTargetResolver
     /// </summary>
     public async Task<Result> ResolveAsync()
     {
-        if (_siteContext.IsDefault)
+        // The main site normally has no agent to point clients at - this server IS the site's
+        // speed test host. Once its agent covers the site, it is the host, exactly as on a
+        // secondary site.
+        if (_siteContext.IsDefault && !await _agentCoverage.CoversAsync(_siteContext.Slug))
             return new Result(null, null, null, UsesAgent: false, AgentOffline: false);
 
         var targetOverride = (await _settings.GetAsync(SystemSettingKeys.ClientSpeedTestTargetOverride))?.Trim();

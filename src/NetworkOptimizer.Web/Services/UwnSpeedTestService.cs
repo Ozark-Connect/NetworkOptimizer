@@ -25,6 +25,7 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase, IUwnSpeedTestService
     private readonly IGatewaySshService _gatewaySsh;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly SiteTunnelRouting _tunnelRouting;
+    private readonly SiteAgentCoverage _agentCoverage;
     private readonly AgentUwnService _agentUwn;
     private readonly AgentEnrollmentService _agentEnrollment;
 
@@ -52,6 +53,7 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase, IUwnSpeedTestService
         GatewaySshRegistry gatewaySshRegistry,
         IServiceScopeFactory scopeFactory,
         SiteTunnelRouting tunnelRouting,
+        SiteAgentCoverage agentCoverage,
         AgentUwnService agentUwn,
         AgentEnrollmentService agentEnrollment,
         NetworkOptimizer.Storage.Services.SiteDbContextFactory siteDbFactory,
@@ -65,6 +67,7 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase, IUwnSpeedTestService
         _gatewaySsh = gatewaySshRegistry.GetFor(SiteSlug);
         _scopeFactory = scopeFactory;
         _tunnelRouting = tunnelRouting;
+        _agentCoverage = agentCoverage;
         _agentUwn = agentUwn;
         _agentEnrollment = agentEnrollment;
     }
@@ -303,7 +306,7 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase, IUwnSpeedTestService
         // from the on-site agent, so the trace source is the agent's LAN IP on that
         // site's topology (this server's HOST_IP is off-network there) - same
         // resolution the Client Speed Test uses for agent-relayed results.
-        var serverIp = IsDefaultSite
+        var serverIp = IsDefaultSite && !await _agentCoverage.CoversAsync(SiteSlug)
             ? _configuration["HOST_IP"]
             : await _agentEnrollment.GetOnlineAgentLanIpAsync(SiteSlug);
 
