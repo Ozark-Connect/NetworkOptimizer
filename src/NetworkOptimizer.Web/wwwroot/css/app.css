@@ -18271,7 +18271,9 @@ a.isp-outage-ack:hover {
 .isp-events-jump {
     cursor: pointer;
     text-decoration: underline dotted;
-    text-decoration-color: var(--text-muted);
+    /* A dimmed version of the score color the value is carrying, not a flat grey: the count is
+       colored by its grade, so its underline should be a quieter shade of the same thing. */
+    text-decoration-color: color-mix(in srgb, currentColor 45%, transparent);
     text-underline-offset: 3px;
 }
 
