@@ -1694,6 +1694,7 @@ public class IspHealthScorer
             RawJitterMs = grade?.RawJitterMs ?? rawScored,
             JitterAssimilated = grade?.JitterAssimilated ?? false,
             LossPct = losses.Count > 0 ? losses.Average() : null,
+            LatencyStabilityScore = grade?.LatencyStabilityScore,
             OverallScore = grade?.OverallScore,
             ReachDeltaMs = grade?.ReachDeltaMs,
             IsGradedHop = isGraded,

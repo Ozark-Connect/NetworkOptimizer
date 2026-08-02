@@ -190,6 +190,14 @@ public class IspTargetHealth
 
     public double? LossPct { get; init; }
 
+    /// <summary>
+    /// 0-100 for how steady this hop's round-trip time stayed across the window, from its RTT median
+    /// absolute deviation. Distinct from jitter, which measures variation between probes: a hop can be
+    /// jittery per-probe yet steady across the day, or smooth per-probe while drifting badly. Taken
+    /// from the hop's grade so the row and the grade beside it cannot disagree; null when ungraded.
+    /// </summary>
+    public int? LatencyStabilityScore { get; init; }
+
     /// <summary>Per-hop quality grade (stability, jitter, loss, congestion, intra-ASN reach).</summary>
     public int? OverallScore { get; init; }
 

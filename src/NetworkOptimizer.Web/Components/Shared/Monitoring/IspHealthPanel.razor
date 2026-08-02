@@ -430,6 +430,13 @@ else
                                         </span>
                                     </span>
                                     <span class="isp-target-stat"><span class="isp-target-stat-label">Loss</span>@FormatLossPct(target.LossPct)</span>
+                                    @if (target.LatencyStabilityScore.HasValue)
+                                    {
+                                        <span class="isp-target-stat">
+                                            <span class="isp-target-stat-label">Stability</span>
+                                            <span class="isp-target-stat-value @ScoreTextClass(target.LatencyStabilityScore)">@target.LatencyStabilityScore</span>
+                                        </span>
+                                    }
                                     @if (target.ReachDeltaMs is > 0.15)
                                     {
                                         <span class="isp-target-stat"><span class="isp-target-stat-label">Beyond nearest</span>+@FormatMs(target.ReachDeltaMs)</span>
@@ -586,6 +593,13 @@ else
                                     </span>
                                 </div>
                                 <div class="isp-asn-stat"><span class="detail-label">Loss</span><span class="detail-value">@FormatLossPct(asn.LossPct)</span></div>
+                                @if (asn.LatencyStabilityScore.HasValue)
+                                {
+                                    <div class="isp-asn-stat">
+                                        <span class="detail-label">Stability</span>
+                                        <span class="detail-value @ScoreTextClass(asn.LatencyStabilityScore)">@asn.LatencyStabilityScore</span>
+                                    </div>
+                                }
                                 @if (asn.ReachDeltaMs.HasValue)
                                 {
                                     <div class="isp-asn-stat"><span class="detail-label">Beyond ISP</span><span class="detail-value">+@FormatMs(asn.ReachDeltaMs)</span></div>
