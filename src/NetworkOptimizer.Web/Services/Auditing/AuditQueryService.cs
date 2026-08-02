@@ -103,7 +103,14 @@ public sealed class AuditQueryService : IAuditQueryService
             var slug = f.SiteSlug.ToLowerInvariant();
             q = q.Where(e => e.SiteSlug == slug);
         }
-        if (!string.IsNullOrEmpty(f.Actor)) q = q.Where(e => e.ActorName != null && e.ActorName.Contains(f.Actor));
+        // Both sides here, unlike the slug above: actor names are whatever the identity provider
+        // gave us, so neither end has a guaranteed case. Contains translates to instr() on SQLite,
+        // which is case-sensitive - searching "Kira" found nothing for a user stored as "kira".
+        if (!string.IsNullOrEmpty(f.Actor))
+        {
+            var actor = f.Actor.ToLowerInvariant();
+            q = q.Where(e => e.ActorName != null && e.ActorName.ToLower().Contains(actor));
+        }
         return q;
     }
 
