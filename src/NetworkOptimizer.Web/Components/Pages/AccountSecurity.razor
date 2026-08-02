@@ -260,9 +260,6 @@
     private bool _mfaEnabled;
     private bool _roleRequiresMfa;
 
-    /// <summary>Whether this page has resolved the requirement from the roles at least once.</summary>
-    private bool _requirementChecked;
-
     /// <summary>
     /// Whether this account still owes the second factor its role requires. Recomputed on every
     /// render rather than captured at load: enrolling happens on this page, so a flag set in
@@ -318,11 +315,16 @@
             // kept being told they owed a factor they no longer did. Once we have looked for
             // ourselves and found no requirement, the stale parameter goes with it.
             var roleRequires = await Mfa.RoleRequiresMfaAsync(_user);
-            _roleRequiresMfa = roleRequires || (!_requirementChecked && Setup == "required");
-            if (_requirementChecked && !roleRequires && Setup == "required")
+            _roleRequiresMfa = roleRequires || Setup == "required";
+
+            // Consume it. The parameter is a one-shot handoff from whoever sent the user here, not a
+            // standing fact, and it cannot be revoked while it sits in the address bar - someone
+            // promoted to Operator and then put back to Viewer kept the URL and kept being told they
+            // owed a factor. Dropping it after it has been read leaves the roles as the only lasting
+            // source, so the next load - and a role change reloads this page - reflects the change.
+            if (Setup == "required")
                 Navigation.NavigateTo(
                     Navigation.GetUriWithQueryParameter("setup", (string?)null), replace: true);
-            _requirementChecked = true;
 
             _passkeyIsOnlyWayIn = _passkeys.Count > 0
                 && !_mfaEnabled
