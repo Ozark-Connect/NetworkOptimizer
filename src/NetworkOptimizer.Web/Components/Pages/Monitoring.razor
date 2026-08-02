@@ -115,8 +115,8 @@
         <div class="wifi-view-tabs">
             <button class="wifi-view-tab @(_activeTab == "live" ? "active" : "")"
                     @onclick="@(() => SetActiveTab("live"))"
-                    disabled="@(!_monitoringReady || !ConnectionService.IsConnected)"
-                    data-tooltip="@(ConnectionService.IsConnected ? null : "Needs a live console connection")">
+                    disabled="@(!_monitoringReady)"
+                    data-tooltip="@(ConnectionService.IsConnected ? null : "Live values need a console; the timeline still plays back")">
                 Live View
             </button>
             <button class="wifi-view-tab @(_activeTab == "isp-health" ? "active" : "")"
@@ -188,7 +188,7 @@
     </div>
 
     @* ──────────────── Tab: Live View ──────────────── *@
-    @if (_activeTab == "live" && _monitoringReady && ConnectionService.IsConnected)
+    @if (_activeTab == "live" && _monitoringReady)
     {
         @* Too-long community shows even when the gateway is still polling - gateways
            often tolerate a long Community String while the switches silently drop. *@
@@ -1869,15 +1869,11 @@
         // default rather than opening a tab the site chose to hide.
         if (TabParam != null && ValidTabs.Contains(TabParam) && !IsHardwareTabHidden(TabParam.ToLowerInvariant()))
         {
-            var pinned = TabParam.ToLowerInvariant();
-            // Live View is the one tab a stored history cannot fill. Landing on it with the console
-            // down would answer a site-is-offline visit with the emptiest page we have.
-            if (pinned != "live" || ConnectionService.IsConnected)
-                return pinned;
+            return TabParam.ToLowerInvariant();
         }
         if (_influxReachable == false || _snmpState == SnmpDetectionState.PollFailing)
             return "setup";
-        return ConnectionService.IsConnected ? "live" : "isp-health";
+        return "live";
     }
 
     private async void SetActiveTab(string tab)
@@ -3640,27 +3636,10 @@
         // the same path also tears the modules down when the console drops mid-session
         // (Blazor destroyed their DOM with the region swap).
         //
-        // Only Live View's region swaps out now - the historical tabs stay rendered with the console
-        // down, which is the point of them. So this tears down the four live modules and nothing
-        // else, and no longer returns: the stat charts still need mounting while offline, and
-        // unmounting them here is what would leave a disconnected site staring at blank panels.
-        if (!ConnectionService.IsConnected)
-        {
-            if (_mapMounted || _map2dMounted || _wanLiveChartMounted || _portStatsMounted)
-            {
-                _mapMounted = _map2dMounted = _wanLiveChartMounted = _portStatsMounted = false;
-                try
-                {
-                    await JS.InvokeVoidAsync("eval",
-                        "window.__lanFlowMap?.unmount(); window.__lanFlowMap2d?.unmount();" +
-                        "window.__wanLiveChart?.unmount(); window.__portStatsTable?.unmount();");
-                }
-                catch (Exception ex)
-                {
-                    Logger.LogDebug(ex, "Could not unmount the Live View modules after the console dropped");
-                }
-            }
-        }
+        // Nothing swaps out on a disconnect any more: every tab, Live View included, stays rendered
+        // so a site whose console is gone can still be read. The map and port stats are what replay
+        // the timeline, so tearing them down here is exactly what would empty the tab this comment
+        // used to justify emptying. Their live polling already returns early while disconnected.
 
         // Auto-expand the SNMP Devices table after the Live-tab banner jumps here.
         if (_pendingExpandSnmpCard && _activeTab == "setup" && _snmpDeviceCard != null)
@@ -3733,7 +3712,7 @@
         }
 
         // 3D map - Live tab only
-        if (_activeTab == "live" && _monitoringReady && ConnectionService.IsConnected && !_mapMounted)
+        if (_activeTab == "live" && _monitoringReady && !_mapMounted)
         {
             _mapMounted = true;
             try
@@ -3776,7 +3755,7 @@
         }
 
         // 2D hierarchy map - Live tab only
-        if (_activeTab == "live" && _monitoringReady && ConnectionService.IsConnected && !_map2dMounted)
+        if (_activeTab == "live" && _monitoringReady && !_map2dMounted)
         {
             _map2dMounted = true;
             try
@@ -3794,7 +3773,7 @@
         }
 
         // WAN live chart - Live tab only
-        if (_activeTab == "live" && _monitoringReady && ConnectionService.IsConnected && !_wanLiveChartMounted)
+        if (_activeTab == "live" && _monitoringReady && !_wanLiveChartMounted)
         {
             _wanLiveChartMounted = true;
             try
@@ -3817,7 +3796,7 @@
         }
 
         // Port stats playback table - Live tab only
-        if (_activeTab == "live" && _monitoringReady && ConnectionService.IsConnected && !_portStatsMounted)
+        if (_activeTab == "live" && _monitoringReady && !_portStatsMounted)
         {
             _portStatsMounted = true;
             try

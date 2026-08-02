@@ -300,7 +300,7 @@
         if (!string.IsNullOrEmpty(_category)) query.Add($"category={Uri.EscapeDataString(_category)}");
         if (!string.IsNullOrEmpty(_outcome)) query.Add($"outcome={Uri.EscapeDataString(_outcome)}");
         if (!string.IsNullOrEmpty(_actor)) query.Add($"actor={Uri.EscapeDataString(_actor)}");
-        if (!string.IsNullOrEmpty(_site)) query.Add($"site={Uri.EscapeDataString(_site)}");
+        if (!string.IsNullOrEmpty(_site)) query.Add($"siteSlug={Uri.EscapeDataString(_site)}");
         var suffix = query.Count > 0 ? "?" + string.Join("&", query) : "";
         return $"/api/audit/export.{format}{suffix}";
     }
