@@ -14,7 +14,9 @@
 # Options:
 #   --server URL     Central server HTTPS address (required; same URL as the app)
 #   --token  TOKEN   One-time enrollment token (required on first install)
-#   --lan-speed-test Host the LAN speed test page (port 3000) and iperf3 (5201)
+#   --lan-speed-test Host the LAN speed test page (port 24443) and iperf3 (5201)
+#   --speed-test-port N  Serve the LAN speed test page on N instead of 24443. The agent tells the
+#                    server which port it uses, so in-app links follow automatically.
 #   --insecure       Accept a self-signed cert on the server's reverse proxy
 #   --force-native   Skip the UniFi gateway refusal (this installer targets a
 #                    separate box; on a UniFi OS gateway use install-agent-gateway.sh)
@@ -29,6 +31,7 @@ set -euo pipefail
 SERVER=""
 TOKEN=""
 LAN_SPEED_TEST=false
+SPEED_TEST_PORT=24443
 INSECURE=false
 UNINSTALL=false
 FORCE_NATIVE=false
@@ -43,6 +46,7 @@ while [ $# -gt 0 ]; do
         --server) SERVER="$2"; shift 2 ;;
         --token) TOKEN="$2"; shift 2 ;;
         --lan-speed-test) LAN_SPEED_TEST=true; shift ;;
+        --speed-test-port) SPEED_TEST_PORT="$2"; shift 2 ;;
         --insecure) INSECURE=true; shift ;;
         --uninstall) UNINSTALL=true; shift ;;
         --force-native) FORCE_NATIVE=true; shift ;;
@@ -385,6 +389,18 @@ step "Configuring the agent"
 # update the binary) never wipes the persisted agent key.
 if grep -q '"agentKey"' "$CONFIG" 2>/dev/null; then
     note "Existing enrollment found - keeping agent.json"
+    # ...except the speed test port, when this run asked for a different one. nginx's listener is
+    # rewritten below either way, and the agent announces the port from here - so leaving this
+    # alone would have the agent advertising a port it no longer serves, which is precisely the
+    # mismatch the announcement exists to prevent.
+    if [ "$SPEED_TEST_PORT" != "24443" ]; then
+        if grep -q '"lanSpeedTestPort"' "$CONFIG"; then
+            sed -i "s/\"lanSpeedTestPort\": *[0-9]*/\"lanSpeedTestPort\": ${SPEED_TEST_PORT}/" "$CONFIG"
+        else
+            sed -i "s/\"lanSpeedTest\": true/\"lanSpeedTest\": true,\n  \"lanSpeedTestPort\": ${SPEED_TEST_PORT}/" "$CONFIG"
+        fi
+        note "Speed test port set to ${SPEED_TEST_PORT} in agent.json"
+    fi
 else
     [ -n "$TOKEN" ] || err "--token is required for a first-time install"
     {
@@ -395,6 +411,9 @@ else
         printf '  "ignoreSslErrors": %s' "$INSECURE"
         if [ "$LAN_SPEED_TEST" = true ]; then
             printf ',\n  "lanSpeedTest": true'
+            # The agent announces this to the server, so in-app speed test links follow it.
+            [ "$SPEED_TEST_PORT" != "24443" ] && printf ',
+  "lanSpeedTestPort": %s' "$SPEED_TEST_PORT"
         fi
         printf '\n}\n'
     } > "$CONFIG"
@@ -402,7 +421,7 @@ else
 fi
 
 # nginx serves the OpenSpeedTest page + the throughput-critical transfer legs
-# (sendfile, 10 GbE); the agent's loopback relay (127.0.0.1:18042) forwards result
+# (sendfile, 10 GbE); the agent's loopback relay (127.0.0.1:24042) forwards result
 # posts to the central server. Only needed with --lan-speed-test.
 #
 # We run our OWN dedicated nginx master - its own config, webroot, pidfile, and
@@ -454,6 +473,14 @@ CFGJS
         curl -fsSL "$RAW/docker/agent/nginx.conf" -o "${INSTALL_DIR}/nginx-speedtest-server.conf"
         sed -i "s#root /usr/share/nginx/html;#root ${WEBROOT};#" "${INSTALL_DIR}/nginx-speedtest-server.conf"
 
+        # Serve on a different port when asked. Only the public listener moves; the loopback
+        # relay stays where the agent binary expects it. The agent announces the port it was
+        # given, so the server's links follow without being told separately.
+        if [ "$SPEED_TEST_PORT" != "24443" ]; then
+            sed -i "/listen/ s/24443/${SPEED_TEST_PORT}/" "${INSTALL_DIR}/nginx-speedtest-server.conf"
+            note "LAN speed test page on port ${SPEED_TEST_PORT}"
+        fi
+
         if [ "${AGENT_SPEEDTEST_TLS:-1}" = "0" ]; then
             # Self-signed TLS opt-out (AGENT_SPEEDTEST_TLS=0 at install time): serve the
             # speed test listener as plain http - for sites already behind their own
@@ -465,7 +492,7 @@ CFGJS
                 -e 's/^\([[:space:]]*listen[[:space:]][^;]*\) ssl\([^;]*;\)/\1\2/' \
                 -e '/^[[:space:]]*ssl_/d' \
                 "${INSTALL_DIR}/nginx-speedtest-server.conf"
-            note "AGENT_SPEEDTEST_TLS=0 - serving plain http on port 3000"
+            note "AGENT_SPEEDTEST_TLS=0 - serving plain http on port 24443"
         else
             # Persisted self-signed cert for the LAN speed test's TLS listener (secure context
             # for the browser Geolocation API / GPS-tagged results, no per-site reverse proxy).
@@ -511,7 +538,7 @@ CFGJS
 [Unit]
 Description=Network Optimizer LAN speed test (nginx)
 # The speed test only matters when the agent is up (results relay through the
-# agent on 18042), so bind nginx's lifecycle to the agent: it starts after the
+# agent on 24042), so bind nginx's lifecycle to the agent: it starts after the
 # agent and stops whenever the agent stops or crashes. Mirrors the Docker
 # single-container model where the agent is PID 1 and nginx dies with it.
 After=network-online.target netopt-agent.service
@@ -555,7 +582,7 @@ UNIT
             # symlink from installs made before nginx was wanted by the agent.
             systemctl reenable --quiet netopt-speedtest-nginx.service
             START_SPEEDTEST_NGINX=1
-            ok "LAN speed test ready on port 3000 (starts with the agent)"
+            ok "LAN speed test ready on port 24443 (starts with the agent)"
         else
             warn "nginx config test failed - the LAN speed test page won't serve."
             print_speedtest_apparmor_hint

@@ -91,6 +91,16 @@ var version = Assembly.GetExecutingAssembly()
 // NO_AGENT_LAN_IP overrides auto-detection for deployments where it can't see the
 // real LAN address (e.g. Docker bridge mode instead of host, or multi-NIC hosts).
 var lanIpOverride = Environment.GetEnvironmentVariable("NO_AGENT_LAN_IP");
+
+// The port the speed test page is served on, for the announcement to the server. nginx is what
+// actually listens, and in a container the entrypoint moves that listener from an environment
+// variable - so the same variable has to reach the announcement, or the agent would report a port
+// nginx is no longer using. Native installs do not set the variable - they record the port in
+// agent.json instead, which is what the fallback reads.
+static int SpeedTestPagePort(NetworkOptimizer.Agent.AgentConfig cfg) =>
+    int.TryParse(Environment.GetEnvironmentVariable("AGENT_SPEEDTEST_PORT"), out var p) && p > 0
+        ? p
+        : cfg.LanSpeedTestPort;
 var lanIp = !string.IsNullOrWhiteSpace(lanIpOverride)
     ? lanIpOverride.Trim()
     : NetworkOptimizer.Core.Helpers.NetworkUtilities.DetectLocalIpFromInterfaces();
@@ -283,9 +293,9 @@ while (!cts.IsCancellationRequested)
         {
             // Announce the port only when a speed test server is actually up. An agent that
             // serves none - a gateway install, or one where the server failed to start - has no
-            // port to give, and claiming 3000 would advertise a listener that is not there.
+            // port to give, and claiming a port would advertise a listener that is not there.
             await tunnel.RunAsync(config.TunnelUrl, config.AgentKey!, version, lanIp,
-                speedTestServer != null ? config.LanSpeedTestPort : 0,
+                speedTestServer != null ? SpeedTestPagePort(config) : 0,
                 speedTestServer != null, config.IgnoreSslErrors, cts.Token);
             Console.Error.WriteLine("Tunnel closed by server, reconnecting...");
         }
@@ -383,7 +393,7 @@ namespace NetworkOptimizer.Agent
         string? TunnelUrl = null,
         string? ProbeSourceIp = null,
         bool LanSpeedTest = false,
-        int LanSpeedTestPort = 3000,
+        int LanSpeedTestPort = 24443,
         IReadOnlyList<string>? ProxyAllowedCidrs = null);
 
     public record EnrollmentResponse(string AgentKey, string SiteSlug, int? TunnelPort = null);
