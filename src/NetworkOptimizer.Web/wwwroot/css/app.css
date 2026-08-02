@@ -18268,6 +18268,22 @@ a.isp-outage-ack:hover {
     color: var(--primary-hover);
 }
 
+/* Arriving somewhere from a link elsewhere in Monitoring: the target rings itself so the eye lands
+   on it, then fades out on its own. Every jump used to inline its own copy of this. The ring is
+   painted with a transparent outline always present, so the color transition has something to
+   animate from and the fade is not a hard cut. */
+.nav-highlight {
+    outline: 2px solid transparent;
+    outline-offset: 4px;
+    border-radius: 12px;
+    transition: outline-color 0.9s ease-out;
+}
+
+.nav-highlight-on {
+    outline-color: rgba(59, 130, 246, 0.5);
+    transition: outline-color 0.15s ease-in;
+}
+
 .isp-events-jump {
     cursor: pointer;
     text-decoration: underline dotted;

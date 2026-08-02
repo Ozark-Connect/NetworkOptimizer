@@ -2841,35 +2841,13 @@
     private async Task ScrollToUpstreamDiscoveryAsync()
     {
         await Task.Delay(500);
-        await JS.InvokeVoidAsync("eval", @"
-            (function() {
-                var el = document.getElementById('upstream-discovery');
-                if (el) {
-                    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                    el.style.transition = 'outline-color 0.3s';
-                    el.style.outline = '2px solid rgba(59, 130, 246, 0.5)';
-                    el.style.outlineOffset = '4px';
-                    el.style.borderRadius = '12px';
-                    setTimeout(function() { el.style.outline = ''; el.style.outlineOffset = ''; }, 2000);
-                }
-            })();");
+        await JS.InvokeVoidAsync("noHighlightTarget", "upstream-discovery");
     }
 
     private async Task ScrollToFlakyTargetsAsync()
     {
         await Task.Delay(500);
-        await JS.InvokeVoidAsync("eval", @"
-            (function() {
-                var el = document.getElementById('flaky-targets');
-                if (el) {
-                    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                    el.style.transition = 'outline-color 0.3s';
-                    el.style.outline = '2px solid rgba(59, 130, 246, 0.5)';
-                    el.style.outlineOffset = '4px';
-                    el.style.borderRadius = '12px';
-                    setTimeout(function() { el.style.outline = ''; el.style.outlineOffset = ''; }, 2000);
-                }
-            })();");
+        await JS.InvokeVoidAsync("noHighlightTarget", "flaky-targets");
     }
 
     private async Task ScrollToSnmpDevicesAsync()
@@ -2878,18 +2856,7 @@
         // final position. Mirrors ScrollToUpstreamDiscoveryAsync, including the
         // brief highlight outline.
         await Task.Delay(400);
-        await JS.InvokeVoidAsync("eval", @"
-            (function() {
-                var el = document.getElementById('snmp-devices');
-                if (el) {
-                    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                    el.style.transition = 'outline-color 0.3s';
-                    el.style.outline = '2px solid rgba(59, 130, 246, 0.5)';
-                    el.style.outlineOffset = '4px';
-                    el.style.borderRadius = '12px';
-                    setTimeout(function() { el.style.outline = ''; el.style.outlineOffset = ''; }, 2000);
-                }
-            })();");
+        await JS.InvokeVoidAsync("noHighlightTarget", "snmp-devices");
     }
 
     private async Task ScrollToMonitoringInterfacesAsync()
@@ -2897,18 +2864,7 @@
         // Mirror ScrollToSnmpDevicesAsync: wait for the expand animation, then scroll
         // to the Monitoring Interfaces card with the same brief highlight outline.
         await Task.Delay(400);
-        await JS.InvokeVoidAsync("eval", @"
-            (function() {
-                var el = document.getElementById('monitoring-interfaces');
-                if (el) {
-                    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                    el.style.transition = 'outline-color 0.3s';
-                    el.style.outline = '2px solid rgba(59, 130, 246, 0.5)';
-                    el.style.outlineOffset = '4px';
-                    el.style.borderRadius = '12px';
-                    setTimeout(function() { el.style.outline = ''; el.style.outlineOffset = ''; }, 2000);
-                }
-            })();");
+        await JS.InvokeVoidAsync("noHighlightTarget", "monitoring-interfaces");
     }
 
     private async Task ScrollToSfpChartsAsync()

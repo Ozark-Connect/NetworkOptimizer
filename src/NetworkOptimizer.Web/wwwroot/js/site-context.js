@@ -173,3 +173,19 @@
         return originalFetch.call(this, input, init);
     };
 })();
+
+// Scroll to a card and ring it briefly, the one behavior every in-page jump in Monitoring shares
+// (findings, advisories, an event count). Kept here because this file already loads app-wide and
+// the callers are spread across pages and components.
+window.noHighlightTarget = function (id) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    el.classList.add('nav-highlight');
+    // Next frame, so the class that defines the transition is applied before the color changes -
+    // set together, the browser has nothing to animate from.
+    requestAnimationFrame(function () {
+        el.classList.add('nav-highlight-on');
+        setTimeout(function () { el.classList.remove('nav-highlight-on'); }, 1800);
+    });
+};
