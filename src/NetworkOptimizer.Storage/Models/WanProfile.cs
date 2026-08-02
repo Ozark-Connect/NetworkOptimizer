@@ -28,13 +28,35 @@ public class WanProfile
     [MaxLength(50)]
     public string WanNetworkgroup { get; set; } = string.Empty;
 
-    /// <summary>Interface name as reported when the speeds were read (eth4, ppp0). Diagnostic only.</summary>
+    /// <summary>
+    /// The data-path interface: the logical uplink the WAN payload rides - "eth4" plain, "eth4.100"
+    /// VLAN-tagged, "ppp0" for PPPoE. What SQM deploys on, and what PPPoE detection reads.
+    /// </summary>
     [MaxLength(100)]
-    public string? Interface { get; set; }
+    public string? DataPathInterface { get; set; }
+
+    /// <summary>
+    /// The interface whose counters represent this WAN's throughput. NOT the same as
+    /// <see cref="DataPathInterface"/> on a VLAN-tagged WAN: the sub-interface double-counts on some
+    /// kernels, so the physical port wins there, while ppp0/gre1 win over their physical port
+    /// because those carry exactly the WAN payload. See NetworkUtilities.PreferredWanCounterInterface,
+    /// which is what fills this - the two names are stored separately because using one for the
+    /// other's job silently reports the wrong throughput.
+    /// </summary>
+    [MaxLength(100)]
+    public string? CounterInterface { get; set; }
 
     /// <summary>The WAN's display name when the speeds were read. Diagnostic only.</summary>
     [MaxLength(200)]
     public string? Name { get; set; }
+
+    /// <summary>
+    /// The gateway whose port counters serve this WAN, as the throughput series are tagged. Cached
+    /// with the interface names because the pair is useless apart: querying stored WAN rates needs
+    /// both, and both otherwise come from a console read.
+    /// </summary>
+    [MaxLength(50)]
+    public string? GatewayMac { get; set; }
 
     /// <summary>Expected download in Mbps, null when the console reported none.</summary>
     public double? DownloadMbps { get; set; }

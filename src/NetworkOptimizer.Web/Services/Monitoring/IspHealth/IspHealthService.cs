@@ -1571,7 +1571,7 @@ public class IspHealthService
                 up ??= remembered.UploadMbps;
                 if (down != null || up != null)
                     source ??= "UniFi Network (last known)";
-                wan ??= new WanIdentity(remembered.Name, remembered.WanNetworkgroup, remembered.Interface);
+                wan ??= new WanIdentity(remembered.Name, remembered.WanNetworkgroup, remembered.CounterInterface);
             }
 
             // Truly inferred, so it goes last: only reached when the console has never told us.
@@ -1606,11 +1606,13 @@ public class IspHealthService
                 row = new WanProfile { WanNetworkgroup = wan.NetworkGroup! };
                 db.WanProfiles.Add(row);
             }
-            // The DATA-PATH interface, not the WAN's ifname: they diverge on PPPoE (ppp0 vs the
-            // physical eth) and every consumer of this field wants the data path - the throughput
-            // series are keyed on it, and PPPoE is detected from its name. Caching the ifname would
-            // hand an offline PPPoE site the physical interface and quietly drop its overlay.
-            row.Interface = await _connectionService.GetPrimaryWanDataPathInterfaceAsync(ct) ?? wan.Interface;
+            // Both names, because they are not interchangeable. The data path is what SQM deploys on
+            // and what PPPoE is read from; the counter interface is what throughput is keyed on, and
+            // on a VLAN-tagged WAN that is the PHYSICAL port - the sub-interface's counters double.
+            // Storing one and using it for the other's job silently reports the wrong throughput.
+            var dataPath = await _connectionService.GetPrimaryWanDataPathInterfaceAsync(ct) ?? wan.Interface;
+            row.DataPathInterface = dataPath;
+            row.CounterInterface = NetworkUtilities.PreferredWanCounterInterface(wan.Interface, dataPath);
             row.Name = wan.Name;
             row.DownloadMbps = down;
             row.UploadMbps = up;
@@ -1645,14 +1647,20 @@ public class IspHealthService
             _logger.LogDebug(ex, "Could not read the primary WAN interface from the console");
         }
 
+        // ONLY when the console is down. A connected console that answers with nothing keeps
+        // answering nothing, exactly as before: eth0, eth6.100 and ppp0 all resolve live on that
+        // path, and substituting a remembered name there would change an online result on the
+        // strength of a stale row. The cache exists for the site with no console to ask.
+        if (_connectionService.IsConnected) return null;
+
         try
         {
             await using var db = await CreateSiteDbAsync(ct);
             return await db.WanProfiles.AsNoTracking()
-                .Where(w => w.Interface != null)
+                .Where(w => w.DataPathInterface != null)
                 .OrderBy(w => w.WanNetworkgroup)
                 .ThenByDescending(w => w.UpdatedAt)
-                .Select(w => w.Interface)
+                .Select(w => w.DataPathInterface)
                 .FirstOrDefaultAsync(ct);
         }
         catch (Exception ex)
