@@ -38,6 +38,7 @@
 @inject IHttpClientFactory HttpClientFactory
 @inject NavigationManager NavigationManager
 @inject ISiteManagementService SiteManagement
+@inject SiteRegistryChangeNotifier SiteChangeNotifier
 @inject SiteSwitchService SiteSwitch
 @inject IAgentEnrollmentService AgentEnrollment
 @inject AgentServerUrlProvider AgentServerUrl
@@ -3948,8 +3949,31 @@
 
     private System.Threading.Timer? _agentPollTimer;
 
+    /// <summary>
+    /// The Sites table is a live list of who can reach what, and both halves of that change from
+    /// outside this circuit: a site removed by another admin, or this user's own membership
+    /// granted or revoked. The site switcher already rebuilds on the broadcast; this table did
+    /// not, so it kept showing a site until you navigated away and back.
+    /// </summary>
+    private async void OnSiteRegistryChanged()
+    {
+        try
+        {
+            await InvokeAsync(async () =>
+            {
+                await LoadMultiSiteSettings();
+                StateHasChanged();
+            });
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Could not refresh the Sites table after a site registry change");
+        }
+    }
+
     public void Dispose()
     {
+        SiteChangeNotifier.SitesChanged -= OnSiteRegistryChanged;
         _agentPollTimer?.Dispose();
     }
 
@@ -4843,6 +4867,7 @@
         await LoadMonitoringSettings();
         await LoadMapboxToken();
         await LoadMultiSiteSettings();
+        SiteChangeNotifier.SitesChanged += OnSiteRegistryChanged;
 
         if (_multiSiteEnabled)
             _currentSiteName = _sites.FirstOrDefault(s => s.Slug == SiteContext.Slug)?.Name ?? SiteContext.Slug;
