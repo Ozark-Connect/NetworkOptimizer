@@ -465,7 +465,96 @@ public class IspHealthService
         var outcome = await ComputeCoreAsync(windowStart, windowEnd, referenceEvents, ct);
         if (outcome.Report != null)
             _customCache = new CustomWindowSnapshot(windowStart, windowEnd, outcome.Report, outcome.ChartClusters, DateTime.UtcNow);
+        await CompareResolutionsAsync(windowStart, windowEnd, referenceEvents, outcome.Report, ct);
         return (outcome.Report, outcome.ChartClusters);
+    }
+
+    /// <summary>
+    /// Diagnostic: recomputes this window at other aggregate resolutions and logs how the findings
+    /// differ from the one just produced. Off unless ISP_HEALTH_COMPARE_AGGREGATES lists the
+    /// resolutions to try, in seconds, e.g. "60,104". Each entry is a full extra compute, so it is
+    /// meant for answering "does resolution actually change the answer" on a test box, not for
+    /// production. Never touches the cache or the returned report.
+    /// </summary>
+    private async Task CompareResolutionsAsync(
+        DateTime windowStart, DateTime windowEnd, IReadOnlyList<CongestionEvent>? referenceEvents,
+        IspHealthReport? baseline, CancellationToken ct)
+    {
+        var spec = Environment.GetEnvironmentVariable("ISP_HEALTH_COMPARE_AGGREGATES");
+        if (string.IsNullOrWhiteSpace(spec) || baseline == null) return;
+
+        var seconds = spec.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(s => int.TryParse(s, out var v) ? v : 0)
+            .Where(v => v > 0)
+            .Distinct()
+            .ToList();
+        if (seconds.Count == 0) return;
+
+        _logger.LogInformation("ISP Health resolution compare: baseline {Baseline}", Fingerprint(baseline));
+        foreach (var s in seconds)
+        {
+            try
+            {
+                var alt = await ComputeCoreAsync(windowStart, windowEnd, referenceEvents, ct,
+                    aggregateOverride: TimeSpan.FromSeconds(s));
+                if (alt.Report == null)
+                {
+                    _logger.LogInformation("ISP Health resolution compare: {Sec}s produced no report ({Status})", s, alt.Status);
+                    continue;
+                }
+                _logger.LogInformation("ISP Health resolution compare: {Sec,4}s {Fingerprint}", s, Fingerprint(alt.Report));
+                foreach (var d in DiffReports(baseline, alt.Report))
+                    _logger.LogInformation("ISP Health resolution compare: {Sec,4}s   DIFF {Detail}", s, d);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogInformation(ex, "ISP Health resolution compare: {Sec}s failed", s);
+            }
+        }
+    }
+
+    /// <summary>One line capturing everything a resolution change could plausibly move.</summary>
+    private static string Fingerprint(IspHealthReport r) =>
+        $"score={r.OverallScore} access={r.AccessDimension.Score} isp={r.IspAsnDimension.Score} transit={r.TransitDimension.Score} " +
+        $"uptime={r.UptimePercent:0.###}% down={r.Downtime.TotalMinutes:0.#}m " +
+        $"congestion={r.CongestionEvents.Count} shifts={r.PathShifts.Count} outages={r.Outages.Count} findings={r.Issues.Count} " +
+        $"factors=[{string.Join(" ", r.AccessDimension.Factors.Select(f => $"{Abbrev(f.Name)}:{f.Score?.ToString() ?? "-"}"))}]";
+
+    private static string Abbrev(string name) =>
+        new string(name.Split(' ').Select(w => w[0]).ToArray());
+
+    /// <summary>Field-level differences between two reports of the same window, most consequential first.</summary>
+    private static IEnumerable<string> DiffReports(IspHealthReport a, IspHealthReport b)
+    {
+        if (a.OverallScore != b.OverallScore) yield return $"overall {a.OverallScore} -> {b.OverallScore}";
+        if (a.AccessDimension.Score != b.AccessDimension.Score) yield return $"access {a.AccessDimension.Score} -> {b.AccessDimension.Score}";
+        if (a.IspAsnDimension.Score != b.IspAsnDimension.Score) yield return $"isp {a.IspAsnDimension.Score} -> {b.IspAsnDimension.Score}";
+        if (a.TransitDimension.Score != b.TransitDimension.Score) yield return $"transit {a.TransitDimension.Score} -> {b.TransitDimension.Score}";
+        if (a.Outages.Count != b.Outages.Count) yield return $"outages {a.Outages.Count} -> {b.Outages.Count}";
+        if (a.CongestionEvents.Count != b.CongestionEvents.Count) yield return $"congestion events {a.CongestionEvents.Count} -> {b.CongestionEvents.Count}";
+        if (a.PathShifts.Count != b.PathShifts.Count) yield return $"path shifts {a.PathShifts.Count} -> {b.PathShifts.Count}";
+        if (Math.Abs(a.UptimePercent - b.UptimePercent) > 0.0005) yield return $"uptime {a.UptimePercent:0.###}% -> {b.UptimePercent:0.###}%";
+
+        // Congestion localization is the thing prior tuning moved without anyone noticing, so compare
+        // where each event landed, not just how many there were.
+        var aHops = a.CongestionEvents.Select(e => e.BottleneckHopIp ?? "unlocalized").OrderBy(x => x).ToList();
+        var bHops = b.CongestionEvents.Select(e => e.BottleneckHopIp ?? "unlocalized").OrderBy(x => x).ToList();
+        if (!aHops.SequenceEqual(bHops))
+            yield return $"congestion localization {aHops.Count(h => h != "unlocalized")} localized -> {bHops.Count(h => h != "unlocalized")} localized (hop set differs)";
+
+        foreach (var fa in a.AccessDimension.Factors)
+        {
+            var fb = b.AccessDimension.Factors.FirstOrDefault(x => x.Name == fa.Name);
+            if (fb != null && fa.Score != fb.Score)
+                yield return $"factor {fa.Name} {fa.Score?.ToString() ?? "-"} -> {fb.Score?.ToString() ?? "-"} ({fa.ValueText} -> {fb.ValueText})";
+        }
+
+        foreach (var ga in a.IspAsns.Concat(a.TransitAsns))
+        {
+            var gb = b.IspAsns.Concat(b.TransitAsns).FirstOrDefault(x => x.AsnNumber == ga.AsnNumber);
+            if (gb != null && ga.OverallScore != gb.OverallScore)
+                yield return $"AS{ga.AsnNumber} grade {ga.OverallScore?.ToString() ?? "-"} -> {gb.OverallScore?.ToString() ?? "-"}";
+        }
     }
 
     /// <summary>
@@ -489,8 +578,30 @@ public class IspHealthService
             .ToList();
     }
 
+    /// <summary>
+    /// Rounds the aggregate down to whole units - days, then hours, then minutes, then seconds.
+    ///
+    /// This is not a nicety: until the Flux duration renderer was corrected it truncated to whole
+    /// units on the way out, so a computed 103.97 s ran as 60 s and ISP Health's real resolution on a
+    /// 30-day window was 60 s, not 104 s. Rendering it exactly would silently coarsen every detector
+    /// and score on long windows, so the historical value is reproduced here deliberately instead.
+    /// Charts are left on the corrected value - they target ~150 points and do not care - but ISP
+    /// Health's resolution is a correctness property of the outage, congestion and loss analysis, and
+    /// is not something to change as a side effect of fixing a renderer.
+    /// </summary>
+    internal static TimeSpan SnapAggregate(TimeSpan window)
+    {
+        var seconds =
+            window.TotalDays >= 1 ? Math.Floor(window.TotalDays) * 86400
+            : window.TotalHours >= 1 ? Math.Floor(window.TotalHours) * 3600
+            : window.TotalMinutes >= 1 ? Math.Floor(window.TotalMinutes) * 60
+            : Math.Floor(window.TotalSeconds);
+        return TimeSpan.FromSeconds(Math.Max(1, seconds));
+    }
+
     private async Task<ComputeOutcome> ComputeCoreAsync(DateTime windowStart, DateTime windowEnd,
-        IReadOnlyList<CongestionEvent>? referenceEvents, CancellationToken ct)
+        IReadOnlyList<CongestionEvent>? referenceEvents, CancellationToken ct,
+        TimeSpan? aggregateOverride = null)
     {
         // Only the auto-compute path was timed, so a custom window - which is where the expensive
         // long spans are actually requested - had no cost signal at all. The budget's failure mode is
@@ -638,8 +749,8 @@ public class IspHealthService
         // loaded instead of diluting into minute-level means. Longer (filter-selected) windows
         // coarsen it to keep the point count bounded; the canonical 48 h window lands on exactly
         // LoadWindowSeconds, so the auto-computed report is unchanged.
-        var aggregate = TimeSpan.FromSeconds(Math.Max(
-            _options.LoadWindowSeconds, (windowEnd - windowStart).TotalSeconds / 25000.0));
+        var aggregate = aggregateOverride ?? SnapAggregate(TimeSpan.FromSeconds(Math.Max(
+            _options.LoadWindowSeconds, (windowEnd - windowStart).TotalSeconds / 25000.0)));
 
         // Outage detection reaches back a bounded lead-in BEFORE the window start so an outage already
         // in progress when the window opens is detected from its true onset instead of being clipped to

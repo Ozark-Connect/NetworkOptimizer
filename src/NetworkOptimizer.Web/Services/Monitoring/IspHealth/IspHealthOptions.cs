@@ -553,6 +553,17 @@ public class IspHealthOptions
     };
 
     /// <summary>
+    /// How long a gateway loss reading stays valid as the loss floor after the sample it came from
+    /// (see <see cref="GatewayLossFloor"/>). The floor reflects a physical condition - a struggling
+    /// forwarding path, an overloaded switch, a bad cable - that persists across a poll or two, so
+    /// carrying the last reading forward is more faithful than assuming the chain went clean between
+    /// samples. Past this it decays to zero, so a stale reading cannot keep suppressing loss forever.
+    /// Set well above the aggregate interval a long window uses, and comfortably above the probe
+    /// cadence, so an ordinary gap does not drop the floor mid-incident.
+    /// </summary>
+    public int GatewayFloorMaxStalenessSeconds { get; set; } = 300;
+
+    /// <summary>
     /// Ceiling on the WAN rate aggregation interval, independent of the report window. Everything else
     /// is thinned as the window grows, but load classification is the one signal that cannot survive
     /// it: at a month-long window the rate series arrived aggregated to ~60 s, which collapses a
