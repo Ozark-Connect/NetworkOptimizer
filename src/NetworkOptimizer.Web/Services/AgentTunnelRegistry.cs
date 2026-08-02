@@ -137,6 +137,14 @@ public sealed class AgentTunnelConnection
         LastMessageAt = DateTime.UtcNow;
     }
 
+    /// <summary>
+    /// Port this agent serves its LAN speed test page on, as announced in its hello. Zero for an
+    /// agent old enough not to say, which the callers read as the 3000 those agents serve. Lives on
+    /// the connection rather than the agent row because it only means anything while the agent is
+    /// connected - a target is never composed for an offline one.
+    /// </summary>
+    public int SpeedTestPort { get; internal set; }
+
     public int AgentId { get; }
     public string SiteSlug { get; }
     public string AgentName { get; }

@@ -394,7 +394,7 @@ else
 fi
 
 # nginx serves the OpenSpeedTest page + the throughput-critical transfer legs
-# (sendfile, 10 GbE); the agent's loopback relay (127.0.0.1:3001) forwards result
+# (sendfile, 10 GbE); the agent's loopback relay (127.0.0.1:18042) forwards result
 # posts to the central server. Only needed with --lan-speed-test.
 #
 # We run our OWN dedicated nginx master - its own config, webroot, pidfile, and
@@ -503,7 +503,7 @@ CFGJS
 [Unit]
 Description=Network Optimizer LAN speed test (nginx)
 # The speed test only matters when the agent is up (results relay through the
-# agent on 3001), so bind nginx's lifecycle to the agent: it starts after the
+# agent on 18042), so bind nginx's lifecycle to the agent: it starts after the
 # agent and stops whenever the agent stops or crashes. Mirrors the Docker
 # single-container model where the agent is PID 1 and nginx dies with it.
 After=network-online.target netopt-agent.service

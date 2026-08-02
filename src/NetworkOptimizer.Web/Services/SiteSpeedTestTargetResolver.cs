@@ -14,6 +14,11 @@ namespace NetworkOptimizer.Web.Services;
 public class SiteSpeedTestTargetResolver
 {
     /// <summary>The agent's nginx speed-test listener (self-signed https).</summary>
+    /// <summary>
+    /// Where an agent serves its LAN speed test page when it does not say otherwise. Agents announce
+    /// their port in the tunnel hello now; this is what agents predating that announcement serve,
+    /// and it is what the server assumed unconditionally before.
+    /// </summary>
     public const int AgentOpenSpeedTestPort = 3000;
 
     /// <summary>
@@ -38,6 +43,7 @@ public class SiteSpeedTestTargetResolver
     private readonly AgentEnrollmentService _agentEnrollment;
     private readonly ISystemSettingsService _settings;
     private readonly AgentOnGatewayDetector _onGatewayDetector;
+    private readonly AgentTunnelRegistry _tunnelRegistry;
     private readonly SiteAgentCoverage _agentCoverage;
 
     public SiteSpeedTestTargetResolver(
@@ -45,13 +51,27 @@ public class SiteSpeedTestTargetResolver
         AgentEnrollmentService agentEnrollment,
         ISystemSettingsService settings,
         AgentOnGatewayDetector onGatewayDetector,
-        SiteAgentCoverage agentCoverage)
+        SiteAgentCoverage agentCoverage,
+        AgentTunnelRegistry tunnelRegistry)
     {
         _siteContext = siteContext;
         _agentEnrollment = agentEnrollment;
         _settings = settings;
         _onGatewayDetector = onGatewayDetector;
         _agentCoverage = agentCoverage;
+        _tunnelRegistry = tunnelRegistry;
+    }
+
+    /// <summary>
+    /// The port the site's connected agent says it serves its speed test page on, or the historic
+    /// 3000 when it does not say. Several agents on one site are possible, so the first that
+    /// announces a port wins - they serve the same page and a site with two disagreeing agents has
+    /// a bigger problem than which one a link points at.
+    /// </summary>
+    private int AgentSpeedTestPortFor(string slug)
+    {
+        var announced = _tunnelRegistry.GetForSite(slug).FirstOrDefault(c => c.SpeedTestPort > 0);
+        return announced?.SpeedTestPort ?? AgentOpenSpeedTestPort;
     }
 
     /// <summary>
@@ -99,7 +119,7 @@ public class SiteSpeedTestTargetResolver
         }
         else
         {
-            baseUrl = $"https://{effectiveTarget}:{AgentOpenSpeedTestPort}";
+            baseUrl = $"https://{effectiveTarget}:{AgentSpeedTestPortFor(_siteContext.Slug)}";
             host = effectiveTarget;
         }
 

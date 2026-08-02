@@ -281,7 +281,7 @@ while (!cts.IsCancellationRequested)
         var drainTask = tunnel.DrainResultsAsync(resultBuffer, connectionCts.Token);
         try
         {
-            await tunnel.RunAsync(config.TunnelUrl, config.AgentKey!, version, lanIp, config.IgnoreSslErrors, cts.Token);
+            await tunnel.RunAsync(config.TunnelUrl, config.AgentKey!, version, lanIp, config.LanSpeedTestPort, config.IgnoreSslErrors, cts.Token);
             Console.Error.WriteLine("Tunnel closed by server, reconnecting...");
         }
         catch (OperationCanceledException) when (cts.IsCancellationRequested)

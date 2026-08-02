@@ -4440,8 +4440,12 @@
             .OrderByDescending(a => a.LastSeenAt)
             .Select(a => a.LanIp)
             .FirstOrDefault();
+        // The port the agent says it serves on, not an assumed one - otherwise the hint advertises a
+        // URL that differs from the one clients are actually sent to.
+        var port = TunnelRegistry.GetForSite(site.Slug).FirstOrDefault(c => c.SpeedTestPort > 0)?.SpeedTestPort
+            ?? SiteSpeedTestTargetResolver.AgentOpenSpeedTestPort;
         return lanIp != null
-            ? $"auto: https://{lanIp}:{SiteSpeedTestTargetResolver.AgentOpenSpeedTestPort} (agent's detected LAN IP)"
+            ? $"auto: https://{lanIp}:{port} (agent's detected LAN IP)"
             : "e.g. 192.168.1.50 or https://speed.example.com";
     }
 
