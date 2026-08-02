@@ -517,8 +517,13 @@
                 // write is simply allowed to clamp when there is nowhere further to go.
                 if (r.height <= sc.clientHeight) return Math.abs(drift) > 2 ? drift : 0;
                 var paneBottom = isDoc ? window.innerHeight : sc.getBoundingClientRect().bottom;
+                // Both directions. A section that measures tall while it is building and settles
+                // shorter a frame later leaves the view parked past the end of the card, and a
+                // downward-only follow has no way back - it reads as scrolling below the results and
+                // staying there until the run ends. Correcting upward too means an overshoot is
+                // undone as soon as the layout settles, which is the frame after it happens.
                 var below = r.bottom - paneBottom;
-                return below > 2 ? below : 0;
+                return Math.abs(below) > 2 ? below : 0;
             };
 
             var raf = 0;
