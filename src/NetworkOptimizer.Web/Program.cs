@@ -79,18 +79,33 @@ var loggerConfig = new LoggerConfiguration()
     .Enrich.FromLogContext()
     .WriteTo.Console(outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] {Message:lj}{NewLine}{Exception}");
 
-// Add file logging for Windows (in the logs folder under install directory)
-if (OperatingSystem.IsWindows())
+// File logging, in the logs folder under the install directory. Every platform, not just Windows:
+// in a container the console is the only record, and it goes with the container - so an upgrade,
+// or any recreate, destroyed the logs covering whatever prompted it. Docker compose already mounts
+// this folder to the host for exactly this purpose; nothing was ever written to it.
 {
     var logFolder = Path.Combine(AppContext.BaseDirectory, "logs");
-    Directory.CreateDirectory(logFolder);
-    var logPath = Path.Combine(logFolder, "networkoptimizer-.log");
+    try
+    {
+        Directory.CreateDirectory(logFolder);
+        var logPath = Path.Combine(logFolder, "networkoptimizer-.log");
 
-    loggerConfig.WriteTo.File(
-        logPath,
-        rollingInterval: RollingInterval.Day,
-        retainedFileCountLimit: 7,
-        outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff} [{Level:u3}] {Message:lj}{NewLine}{Exception}");
+        loggerConfig.WriteTo.File(
+            logPath,
+            rollingInterval: RollingInterval.Day,
+            // Rolls on size as well as by day, and keeps a bounded number of files: debug logging
+            // on a busy install writes fast, and a log that fills the disk is worse than no log.
+            fileSizeLimitBytes: 20 * 1024 * 1024,
+            rollOnFileSizeLimit: true,
+            retainedFileCountLimit: 7,
+            outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff} [{Level:u3}] {Message:lj}{NewLine}{Exception}");
+    }
+    catch (Exception ex)
+    {
+        // A read-only or unwritable install directory must not stop the app starting; the console
+        // sink is already attached and keeps working.
+        Console.Error.WriteLine($"File logging disabled - could not use {logFolder}: {ex.Message}");
+    }
 }
 
 Log.Logger = loggerConfig.CreateLogger();
