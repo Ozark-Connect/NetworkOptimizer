@@ -25,6 +25,7 @@ public class SiteManagementService : ISiteManagementService
     private readonly Licensing.LicenseStateService _licenseState;
     private readonly Licensing.LicenseActivationService _activation;
     private readonly SiteConnectionRegistry _siteConnections;
+    private readonly MonitoringInfluxRegistry _influxRegistry;
     private readonly MonitoringCollectionRegistry _collectionRegistry;
     private readonly SiteRegistryChangeNotifier _changeNotifier;
     private readonly ILogger<SiteManagementService> _logger;
@@ -40,6 +41,7 @@ public class SiteManagementService : ISiteManagementService
         Licensing.LicenseStateService licenseState,
         Licensing.LicenseActivationService activation,
         SiteConnectionRegistry siteConnections,
+        MonitoringInfluxRegistry influxRegistry,
         MonitoringCollectionRegistry collectionRegistry,
         SiteRegistryChangeNotifier changeNotifier,
         Authorization.ISiteAccessFilter siteAccess,
@@ -55,6 +57,7 @@ public class SiteManagementService : ISiteManagementService
         _licenseState = licenseState;
         _activation = activation;
         _siteConnections = siteConnections;
+        _influxRegistry = influxRegistry;
         _collectionRegistry = collectionRegistry;
         _changeNotifier = changeNotifier;
         _logger = logger;
@@ -285,6 +288,9 @@ public class SiteManagementService : ISiteManagementService
         await _siteRepository.UpdateAsync(site);
         await _collectionRegistry.StopForSiteAsync(site.Slug);
         _siteConnections.RemoveFor(site.Slug);
+        // The Influx client caches this site's connection and is rebuilt from the site's own
+        // database; leaving it registered points it at a file that is about to be deleted.
+        await _influxRegistry.RemoveAsync(site.Slug);
         DropTunnels(site.Slug, "site removed");
 
         await using (var db = await _mainDbFactory.CreateDbContextAsync())

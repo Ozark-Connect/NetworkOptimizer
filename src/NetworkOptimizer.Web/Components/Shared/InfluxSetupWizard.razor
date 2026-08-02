@@ -502,6 +502,7 @@
         }
         catch (Exception ex)
         {
+            Logger.LogError(ex, "InfluxDB provisioning failed for site {Slug}", SiteContext.Slug);
             _message = $"Provisioning failed: {ex.Message}";
             _messageClass = "danger";
         }
@@ -670,6 +671,7 @@
         }
         catch (Exception ex)
         {
+            Logger.LogError(ex, "InfluxDB provisioning failed for site {Slug}", SiteContext.Slug);
             _message = $"Provisioning failed: {ex.Message}";
             _messageClass = "danger";
         }
