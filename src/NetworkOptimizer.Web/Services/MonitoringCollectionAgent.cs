@@ -110,6 +110,21 @@ public class MonitoringCollectionAgent : BackgroundService
     public bool CommunityTooLongDetected { get; private set; }
 
     /// <summary>
+    /// When a collection tier last completed a pass. Monitoring - Setup reported "Agent running"
+    /// from the enabled flag and InfluxDB reachability alone, which says nothing about whether
+    /// anything is actually collecting - a wedged or crashed loop still read as running. Stamped by
+    /// every tier, so a value going stale means all of them stopped, not just one.
+    /// </summary>
+    public DateTime? LastCollectionUtc { get; private set; }
+
+    /// <summary>
+    /// Whether this site's probing happens here. The server stands down from probing on every
+    /// non-default site (see the comment in FastTierCollectAsync) - the site's own agent probes
+    /// from inside instead - so a status display must not claim the server is collecting there.
+    /// </summary>
+    public bool ServerProbesThisSite => _isDefault;
+
+    /// <summary>
     /// Lets the Setup page's interactive re-check override the cached self-heal sighting
     /// with its fresher console read. Without this, a user who shortens the community and
     /// hits Re-check still sees the too-long banner until the agent's next re-pull.
@@ -346,6 +361,7 @@ public class MonitoringCollectionAgent : BackgroundService
                 {
                     interval = intervalSelector(settings);
                     await collect(settings, stoppingToken);
+                    LastCollectionUtc = DateTime.UtcNow;
                 }
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)

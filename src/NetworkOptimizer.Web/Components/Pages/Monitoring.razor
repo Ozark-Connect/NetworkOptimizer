@@ -41,6 +41,9 @@
 @inject CellularModemService CellularModemService
 @inject StarlinkMonitorService StarlinkMonitor
 @inject MonitoringCollectionAgent CollectionAgent
+@inject AgentTunnelRegistry TunnelRegistry
+@inject NetworkOptimizer.Web.Services.IAgentEnrollmentService AgentEnrollment
+@inject NetworkOptimizer.Web.Services.ISiteManagementService SiteManagement
 @inject IspHealthService IspHealthService
 @inject NetworkOptimizer.Web.Services.Monitoring.FlakyTargetService FlakyTargets
 @inject NetworkOptimizer.Web.Services.LanFlowMap.LanFlowMapCache LanFlowMapCache
@@ -1583,20 +1586,24 @@
                     <div class="form-group">
                         <label class="form-label">Collection</label>
                         <div class="form-value">
-                            @if (_monitoringEnabled && _influxReachable == true)
-                            {
-                                <span class="status-indicator status-active"></span>
-                                <span>Agent running</span>
-                            }
-                            else if (_monitoringEnabled && _influxReachable != true)
-                            {
-                                <span class="status-indicator status-danger"></span>
-                                <span>Enabled, but InfluxDB unreachable</span>
-                            }
-                            else
+                            @if (!_monitoringEnabled)
                             {
                                 <span class="status-indicator status-inactive"></span>
                                 <span>Disabled</span>
+                            }
+                            else
+                            {
+                                <div>
+                                    <span class="status-indicator @(ServerCollecting ? "status-active" : "status-danger")"></span>
+                                    <span>Server: @ServerCollectionState</span>
+                                </div>
+                                @if (_siteAgent is not null)
+                                {
+                                    <div>
+                                        <span class="status-indicator @(TunnelRegistry.IsAgentLive(_siteAgent) ? "status-active" : "status-danger")"></span>
+                                        <span>On-site agent: @AgentCollectionState</span>
+                                    </div>
+                                }
                             }
                         </div>
                     </div>
@@ -1769,6 +1776,67 @@
     private string _activeTab = "setup";
 
     private bool _monitoringReady => _monitoringEnabled && _influxConfigured;
+
+    /// <summary>This site's agent, when it has one. Null on a server-polled site.</summary>
+    private SiteAgent? _siteAgent;
+
+    // A tier that has not completed a pass in this long has stopped, not slowed: the slowest tier
+    // runs on a 60s cadence and every tier stamps the same field.
+    private static readonly TimeSpan CollectionStaleAfter = TimeSpan.FromMinutes(5);
+
+    /// <summary>
+    /// Whether collection is actually happening here. The server stands down from probing on every
+    /// non-default site, so on an agent site "collecting" is the agent's answer, not the server's.
+    /// </summary>
+    private bool ServerCollecting =>
+        _influxReachable == true
+        && CollectionAgent.LastCollectionUtc is DateTime last
+        && DateTime.UtcNow - last < CollectionStaleAfter;
+
+    private string ServerCollectionState =>
+        _influxReachable != true ? "enabled, but InfluxDB unreachable"
+        : !CollectionAgent.ServerProbesThisSite ? "syncing targets (this site is probed by its agent)"
+        : ServerCollecting ? "collecting"
+        : CollectionAgent.LastCollectionUtc is DateTime last
+            ? $"last collected {TimeFormatHelper.FormatRelativeTime(last).ToLowerInvariant()}"
+            : "not collecting";
+
+    private string AgentCollectionState
+    {
+        get
+        {
+            if (_siteAgent is null) return "";
+            var version = _siteAgent.LastVersion is null ? ""
+                : $", v{NetworkOptimizer.Core.Helpers.VersionUtilities.StripBuildMetadata(_siteAgent.LastVersion)}";
+            if (TunnelRegistry.IsAgentLive(_siteAgent)) return $"connected{version}";
+            if (_siteAgent.EnrolledAt is null) return "enrolled but never connected";
+            return _siteAgent.LastSeenAt is DateTime seen
+                ? $"last seen {TimeFormatHelper.FormatRelativeTime(seen).ToLowerInvariant()}{version}"
+                : $"not connected{version}";
+        }
+    }
+
+    /// <summary>
+    /// Loads this site's agent so the Collection status can report it. Best-effort: a registry that
+    /// will not answer leaves the agent line off rather than taking the Setup tab down with it.
+    /// </summary>
+    private async Task LoadSiteAgentAsync()
+    {
+        try
+        {
+            var site = (await SiteManagement.GetSitesAsync())
+                .FirstOrDefault(x => string.Equals(x.Slug, SiteCtx.Slug, StringComparison.OrdinalIgnoreCase));
+            if (site == null) return;
+            _siteAgent = (await AgentEnrollment.GetAgentsForSiteAsync(site.Id))
+                .Where(a => a.Enabled)
+                .OrderByDescending(a => a.LastSeenAt)
+                .FirstOrDefault();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Could not read the site's agent for the Collection status");
+        }
+    }
     private bool _cmHasDevices;
     private bool _ontHasDevices;
     private bool _cellularHasDevices;
@@ -2060,6 +2128,8 @@
 
         _activeTab = ResolveDefaultTab();
         _lastTabParam = TabParam ?? _activeTab;
+
+        await LoadSiteAgentAsync();
 
         await RefreshUpstreamReviewAsync();
 
