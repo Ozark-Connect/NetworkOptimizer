@@ -22,6 +22,7 @@
     --warning-color: #e79613;
     --danger-color: #ee6368;
     --info-color: #4797ff;
+    --good-color: #3b82f6;
 
     /* Purple/Violet - WiFi 6E, sponsorship */
     --purple-color: #a855f7;
@@ -2073,13 +2074,6 @@ a.stat-card-link:active {
 
 .latency-target-paused td:not(:last-child) {
     opacity: 0.55;
-}
-
-.isp-events-jump {
-    cursor: pointer;
-    text-decoration: underline dotted;
-    text-decoration-color: var(--text-muted);
-    text-underline-offset: 3px;
 }
 
 .data-table thead {
@@ -16911,16 +16905,16 @@ tr.stats-row-filtered {
     line-height: 1.4;
 }
 
-.isp-score-excellent { color: #24bc70; }
-.isp-score-good { color: #3b82f6; }
+.isp-score-excellent { color: var(--success-color); }
+.isp-score-good { color: var(--good-color); }
 .isp-score-fair { color: var(--warning-color); }
-.isp-score-poor { color: #ef4444; }
+.isp-score-poor { color: var(--danger-color); }
 .isp-score-none { color: var(--text-muted); }
 
-.monitoring-stat-card .stat-value.isp-score-excellent { color: #24bc70; }
-.monitoring-stat-card .stat-value.isp-score-good { color: #3b82f6; }
+.monitoring-stat-card .stat-value.isp-score-excellent { color: var(--success-color); }
+.monitoring-stat-card .stat-value.isp-score-good { color: var(--good-color); }
 .monitoring-stat-card .stat-value.isp-score-fair { color: var(--warning-color); }
-.monitoring-stat-card .stat-value.isp-score-poor { color: #ef4444; }
+.monitoring-stat-card .stat-value.isp-score-poor { color: var(--danger-color); }
 .monitoring-stat-card .stat-value.isp-score-none { color: var(--text-muted); }
 
 .isp-health-tile {
@@ -16932,10 +16926,10 @@ tr.stats-row-filtered {
         linear-gradient(160deg, rgba(43, 168, 154, 0.07), transparent 55%);
 }
 
-.isp-health-tile.isp-score-excellent { --tile-accent: #24bc70; }
-.isp-health-tile.isp-score-good { --tile-accent: #3b82f6; }
-.isp-health-tile.isp-score-fair { --tile-accent: #f59e0b; }
-.isp-health-tile.isp-score-poor { --tile-accent: #ef4444; }
+.isp-health-tile.isp-score-excellent { --tile-accent: var(--success-color); }
+.isp-health-tile.isp-score-good { --tile-accent: var(--good-color); }
+.isp-health-tile.isp-score-fair { --tile-accent: var(--warning-color); }
+.isp-health-tile.isp-score-poor { --tile-accent: var(--danger-color); }
 .isp-health-tile.isp-score-none { --tile-accent: var(--text-muted); }
 
 .isp-health-tile .stat-value.isp-tile-score {
@@ -18272,6 +18266,13 @@ a.isp-outage-ack:hover {
 
 .isp-factor-link:hover {
     color: var(--primary-hover);
+}
+
+.isp-events-jump {
+    cursor: pointer;
+    text-decoration: underline dotted;
+    text-decoration-color: var(--text-muted);
+    text-underline-offset: 3px;
 }
 
 body.kiosk-mode .hamburger-btn {
