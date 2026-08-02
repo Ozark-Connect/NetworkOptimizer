@@ -18277,6 +18277,10 @@ a.isp-outage-ack:hover {
 .card-highlight {
     outline: 2px solid transparent;
     outline-offset: 4px;
+    /* Card radius by default: half these targets are a bare wrapper div around a card, which has no
+       radius of its own, so the ring drew square corners around a rounded card. Not on the row
+       variant below - a row tints rather than rings, so it has nothing to round. */
+    border-radius: var(--border-radius-lg);
     transition: outline-color 0.9s ease-out;
 }
 
@@ -18287,6 +18291,17 @@ a.isp-outage-ack:hover {
 .card-highlight {
     outline-color: color-mix(in srgb, var(--highlight-color) 50%, transparent);
     transition: outline-color 0.25s ease-in;
+}
+
+/* Row variant: a ring around a table row fights its neighbours, so a row tints instead. Same
+   variable, same timing, so the two read as one behavior seen on different shapes. */
+.nav-highlight-row {
+    transition: background-color 0.9s ease-out;
+}
+
+.nav-highlight-row.nav-highlight-on {
+    background-color: color-mix(in srgb, var(--highlight-color) 30%, transparent);
+    transition: background-color 0.25s ease-in;
 }
 
 .isp-events-jump {

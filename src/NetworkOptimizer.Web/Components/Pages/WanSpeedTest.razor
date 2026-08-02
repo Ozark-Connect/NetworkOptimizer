@@ -1783,17 +1783,7 @@
 
         // Give time for the DOM to update, then scroll
         await Task.Delay(100);
-        await JS.InvokeVoidAsync("eval", $@"
-            (function() {{
-                var el = document.getElementById('result-{resultId}');
-                if (el) {{
-                    el.scrollIntoView({{ behavior: 'smooth', block: 'center' }});
-                    el.style.transition = 'background-color 0.3s';
-                    el.style.backgroundColor = 'rgba(59, 130, 246, 0.3)';
-                    setTimeout(function() {{ el.style.backgroundColor = ''; }}, 1500);
-                }}
-            }})();
-        ");
+        await JS.InvokeVoidAsync("noHighlightRow", $"result-{resultId}");
     }
 
     private static string FormatResultSummary(Iperf3Result result)

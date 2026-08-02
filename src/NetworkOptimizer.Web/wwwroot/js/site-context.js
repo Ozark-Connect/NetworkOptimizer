@@ -177,15 +177,21 @@
 // Scroll to a card and ring it briefly, the one behavior every in-page jump in Monitoring shares
 // (findings, advisories, an event count). Kept here because this file already loads app-wide and
 // the callers are spread across pages and components.
-window.noHighlightTarget = function (id, block) {
+function noHighlight(id, block, variant) {
     var el = document.getElementById(id);
     if (!el) return;
     el.scrollIntoView({ behavior: 'smooth', block: block || 'start' });
-    el.classList.add('nav-highlight');
+    el.classList.add(variant);
     // Next frame, so the class that defines the transition is applied before the color changes -
     // set together, the browser has nothing to animate from.
     requestAnimationFrame(function () {
         el.classList.add('nav-highlight-on');
         setTimeout(function () { el.classList.remove('nav-highlight-on'); }, 1800);
     });
-};
+}
+
+// A card or section: ringed.
+window.noHighlightTarget = function (id, block) { noHighlight(id, block, 'nav-highlight'); };
+
+// A table row: tinted, because an offset ring around a row collides with the rows either side.
+window.noHighlightRow = function (id, block) { noHighlight(id, block || 'center', 'nav-highlight-row'); };

@@ -291,16 +291,7 @@
         StateHasChanged();
         // Let the expand animation start and the row render before scrolling to it.
         await Task.Delay(350);
-        await JS.InvokeVoidAsync("eval", $@"
-            (function() {{
-                var el = document.getElementById('latency-target-{targetId}');
-                if (el) {{
-                    el.scrollIntoView({{ behavior: 'smooth', block: 'center' }});
-                    el.style.transition = 'background-color 0.3s';
-                    el.style.backgroundColor = 'rgba(59, 130, 246, 0.18)';
-                    setTimeout(function() {{ el.style.backgroundColor = ''; }}, 2000);
-                }}
-            }})();");
+        await JS.InvokeVoidAsync("noHighlightRow", $"latency-target-{targetId}");
     }
 
     private async Task SetTargetEnabledAsync(int targetId, bool enabled)
