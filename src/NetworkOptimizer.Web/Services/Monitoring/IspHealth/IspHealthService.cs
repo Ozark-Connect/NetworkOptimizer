@@ -490,7 +490,13 @@ public class IspHealthService
             .ToList();
         if (seconds.Count == 0) return;
 
-        _logger.LogInformation("ISP Health resolution compare: baseline {Baseline}", Fingerprint(baseline));
+        var label = $"{_siteSlug}_{windowStart.ToLocalTime():yyyyMMdd-HHmm}_to_{windowEnd.ToLocalTime():yyyyMMdd-HHmm}";
+        _logger.LogInformation("ISP Health resolution compare [{Label}]: baseline({Agg}s) {Baseline}",
+            label, SnapAggregate(TimeSpan.FromSeconds(Math.Max(
+                _options.LoadWindowSeconds, (windowEnd - windowStart).TotalSeconds / 25000.0))).TotalSeconds,
+            Fingerprint(baseline));
+        SaveComparisonPdf(baseline, label, "baseline");
+
         foreach (var s in seconds)
         {
             try
@@ -499,17 +505,42 @@ public class IspHealthService
                     aggregateOverride: TimeSpan.FromSeconds(s));
                 if (alt.Report == null)
                 {
-                    _logger.LogInformation("ISP Health resolution compare: {Sec}s produced no report ({Status})", s, alt.Status);
+                    _logger.LogInformation("ISP Health resolution compare [{Label}]: {Sec}s produced no report ({Status})", label, s, alt.Status);
                     continue;
                 }
-                _logger.LogInformation("ISP Health resolution compare: {Sec,4}s {Fingerprint}", s, Fingerprint(alt.Report));
+                _logger.LogInformation("ISP Health resolution compare [{Label}]: {Sec,4}s {Fingerprint}", label, s, Fingerprint(alt.Report));
                 foreach (var d in DiffReports(baseline, alt.Report))
-                    _logger.LogInformation("ISP Health resolution compare: {Sec,4}s   DIFF {Detail}", s, d);
+                    _logger.LogInformation("ISP Health resolution compare [{Label}]: {Sec,4}s   DIFF {Detail}", label, s, d);
+                SaveComparisonPdf(alt.Report, label, $"{s}s");
             }
             catch (Exception ex)
             {
-                _logger.LogInformation(ex, "ISP Health resolution compare: {Sec}s failed", s);
+                _logger.LogInformation(ex, "ISP Health resolution compare [{Label}]: {Sec}s failed", label, s);
             }
+        }
+    }
+
+    /// <summary>
+    /// Writes the report as it would be exported, one file per resolution, so the comparison can be
+    /// made on what a user actually receives rather than on the fields a diff happened to check.
+    /// Directory comes from ISP_HEALTH_COMPARE_PDF_DIR; skipped when unset. Named by site, window and
+    /// resolution so runs across several sites and windows - including historical ones - accumulate
+    /// side by side without colliding.
+    /// </summary>
+    private void SaveComparisonPdf(IspHealthReport report, string label, string resolution)
+    {
+        var dir = Environment.GetEnvironmentVariable("ISP_HEALTH_COMPARE_PDF_DIR");
+        if (string.IsNullOrWhiteSpace(dir)) return;
+        try
+        {
+            Directory.CreateDirectory(dir);
+            var path = Path.Combine(dir, $"{label}__{resolution}.pdf");
+            File.WriteAllBytes(path, new IspHealthPdfGenerator().GenerateReportBytes(report, _siteSlug));
+            _logger.LogInformation("ISP Health resolution compare: wrote {Path}", path);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogInformation(ex, "ISP Health resolution compare: could not write the {Resolution} PDF", resolution);
         }
     }
 
@@ -1299,6 +1330,7 @@ public class IspHealthService
             TargetAddresses = await ResolveHopAddressesAsync(ispTargets, ct),
             LossPoolSeries = lossPool,
             LossPoolExcludedTargetIds = flatlined,
+            GatewayLossSeries = gatewaySamples,
             TransitAsnSeries = transitGrading,
             IspAsnSeries = ispGrading,
             DestinationSeries = internetTargetSeries,

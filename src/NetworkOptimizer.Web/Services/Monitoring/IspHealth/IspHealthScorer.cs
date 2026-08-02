@@ -19,6 +19,10 @@ public class IspHealthScorer
     // they would double-count and tank the Transit/ISP dimensions. Set per Score() call.
     private IReadOnlyList<OutageEvent> _outages = System.Array.Empty<OutageEvent>();
 
+    // The loss floor for the current report; GatewayLossFloor.None when no gateway target is
+    // monitored, which subtracts nothing.
+    private GatewayLossFloor _gatewayFloor = GatewayLossFloor.None;
+
     // The access profile for the current report, set per Score() call. Carries the per-tech jitter
     // band (Item E) used to grade ISP and transit jitter against the access medium's inherent floor.
     private AccessProfile? _profile;
@@ -41,6 +45,16 @@ public class IspHealthScorer
         _profile = profile;
         _loadedDownKeys = null;
         _loadedUpKeys = null;
+        // Loss to the gateway is the common-mode floor of the measurement chain: every probe crosses
+        // the host's NIC, its cable, the switching fabric and the gateway before reaching anything
+        // upstream, so whatever is lost there is lost to every target at once and none of it is the
+        // ISP's. Subtracted from each upstream loss reading below.
+        _gatewayFloor = GatewayLossFloor.Build(inputs.GatewayLossSeries, _options);
+        if (_gatewayFloor.HasLoss)
+            _logger?.LogDebug(
+                "ISP Health: gateway loss floor active - {Mean}% mean, {Peak}% peak; upstream loss is graded net of it",
+                _gatewayFloor.MeanLossPct.ToString("0.###", CultureInfo.InvariantCulture),
+                _gatewayFloor.PeakLossPct.ToString("0.###", CultureInfo.InvariantCulture));
         if (inputs.LoadExclusionWindows.Count > 0)
         {
             foreach (var (exStart, exEnd) in inputs.LoadExclusionWindows)
@@ -583,7 +597,7 @@ public class IspHealthScorer
         // against the profile's loaded band.
         var losses = lossPool.SelectMany(series => series)
             .Where(s => s.LossPercent.HasValue && !InOutage(s.Time))
-            .Select(s => s.LossPercent!.Value)
+            .Select(s => _gatewayFloor.Apply(s.LossPercent!.Value, s.Time))
             .ToList();
         if (losses.Count == 0)
         {
@@ -809,7 +823,7 @@ public class IspHealthScorer
         var losses = lossPool.SelectMany(series => series)
             .Where(s => s.LossPercent.HasValue && !InOutage(s.Time)
                 && loaded.Contains(FloorToWindow(s.Time)))
-            .Select(s => s.LossPercent!.Value)
+            .Select(s => _gatewayFloor.Apply(s.LossPercent!.Value, s.Time))
             .ToList();
         // Loaded loss rests on however many samples happen to fall inside the loaded windows, and on
         // a long window the rate series is aggregated far coarser than LoadWindowSeconds, so that set
@@ -911,7 +925,8 @@ public class IspHealthScorer
         double? stabilityMadOverrideMs = null)
     {
         var rtts = series.Samples.Where(s => s.RttAvgMs.HasValue).Select(s => s.RttAvgMs!.Value).ToList();
-        var losses = series.Samples.Where(s => s.LossPercent.HasValue && !InOutage(s.Time)).Select(s => s.LossPercent!.Value).ToList();
+        var losses = series.Samples.Where(s => s.LossPercent.HasValue && !InOutage(s.Time))
+            .Select(s => _gatewayFloor.Apply(s.LossPercent!.Value, s.Time)).ToList();
         var jitters = series.Samples.Select(s => s.EffectiveJitterMs).Where(j => j.HasValue).Select(j => j!.Value).ToList();
 
         // Sort the RTT set once; median, MAD, and the winsorized-mean / P95 below all read from it.
@@ -1648,7 +1663,8 @@ public class IspHealthScorer
     {
         var rtts = series.Samples.Where(s => s.RttAvgMs.HasValue).Select(s => s.RttAvgMs!.Value).ToList();
         var jitters = series.Samples.Select(s => s.EffectiveJitterMs).Where(j => j.HasValue).Select(j => j!.Value).ToList();
-        var losses = series.Samples.Where(s => s.LossPercent.HasValue && !InOutage(s.Time)).Select(s => s.LossPercent!.Value).ToList();
+        var losses = series.Samples.Where(s => s.LossPercent.HasValue && !InOutage(s.Time))
+            .Select(s => _gatewayFloor.Apply(s.LossPercent!.Value, s.Time)).ToList();
         var targetId = series.TargetIds.FirstOrDefault() ?? "";
         var grade = hopGrades.FirstOrDefault(g => g.TargetIds.Contains(targetId));
         // Jitter comes from the grade (the effective/absolved value the hop is scored on), so

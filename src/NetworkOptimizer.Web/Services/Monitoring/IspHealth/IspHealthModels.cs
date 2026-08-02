@@ -721,6 +721,14 @@ public class IspHealthInputs
     /// </summary>
     public IReadOnlyCollection<string> LossPoolExcludedTargetIds { get; init; } = Array.Empty<string>();
 
+    /// <summary>
+    /// The LAN gateway's own series, when a gateway target is monitored. Its LOSS becomes the floor
+    /// under every upstream loss measurement (see <see cref="GatewayLossFloor"/>); its latency is
+    /// deliberately not used that way. Empty when no gateway target exists, which leaves every
+    /// measurement untouched.
+    /// </summary>
+    public List<LatencySample> GatewayLossSeries { get; init; } = new();
+
     /// <summary>Per-ASN series for transit targets.</summary>
     public List<AsnSeries> TransitAsnSeries { get; init; } = new();
 
