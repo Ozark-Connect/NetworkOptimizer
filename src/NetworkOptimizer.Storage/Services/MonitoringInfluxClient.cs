@@ -1821,9 +1821,16 @@ from(bucket: ""{_bucket}"")
   |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false)
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
 ";
+        // Per-query timing: the aggregate figure said the reads cost ~6.7s in-process while the same
+        // queries run in ~1s from a shell on the same box, and neither the parser nor the CPU accounts
+        // for the gap. Split it per query so one slow read cannot hide behind the others.
+        var sw = System.Diagnostics.Stopwatch.StartNew();
         var parser = new LatencyDetailCsvParser();
         await QueryRawLinesAsync(flux, parser.ProcessLine, ct);
-        return parser.Finish();
+        var result = parser.Finish();
+        _logger.LogDebug("Influx latency-detail read: {Type} in {Ms}ms, {Targets} target(s), {Points} point(s), window {Window}",
+            targetType, sw.ElapsedMilliseconds, result.Count, result.Sum(kv => kv.Value.Count), ToFluxDuration(window));
+        return result;
     }
 
     /// <summary>
