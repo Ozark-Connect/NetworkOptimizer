@@ -564,6 +564,14 @@ public class IspHealthOptions
     public int GatewayFloorMaxStalenessSeconds { get; set; } = 300;
 
     /// <summary>
+    /// Mean gateway loss (percent) at or above which the local-network finding is raised. Any loss to
+    /// the gateway is worth knowing about, but a single dropped probe over a long window is noise
+    /// rather than a fault, and a finding that fires on it would train people to ignore the one that
+    /// matters. The floor still subtracts below this threshold - only the finding is gated.
+    /// </summary>
+    public double GatewayLossFindingMinPct { get; set; } = 0.5;
+
+    /// <summary>
     /// Ceiling on the WAN rate aggregation interval, independent of the report window. Everything else
     /// is thinned as the window grows, but load classification is the one signal that cannot survive
     /// it: at a month-long window the rate series arrived aggregated to ~60 s, which collapses a

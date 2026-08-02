@@ -50,11 +50,15 @@ public class IspHealthScorer
         // upstream, so whatever is lost there is lost to every target at once and none of it is the
         // ISP's. Subtracted from each upstream loss reading below.
         _gatewayFloor = GatewayLossFloor.Build(inputs.GatewayLossSeries, _options);
-        if (_gatewayFloor.HasLoss)
-            _logger?.LogDebug(
-                "ISP Health: gateway loss floor active - {Mean}% mean, {Peak}% peak; upstream loss is graded net of it",
-                _gatewayFloor.MeanLossPct.ToString("0.###", CultureInfo.InvariantCulture),
-                _gatewayFloor.PeakLossPct.ToString("0.###", CultureInfo.InvariantCulture));
+        // Log the floor's state whether or not it bites: "no gateway readings" and "readings that were
+        // all clean" are different situations, and only one of them means the floor is untested.
+        _logger?.LogDebug(
+            _gatewayFloor.ReadingCount == 0
+                ? "ISP Health: gateway loss floor inactive - no gateway loss readings in the window; upstream loss is graded as measured"
+                : "ISP Health: gateway loss floor built from {Readings} reading(s) covering {From:MM-dd HH:mm} to {To:MM-dd HH:mm}, {Mean}% mean, {Peak}% peak",
+            _gatewayFloor.ReadingCount, _gatewayFloor.FirstReading, _gatewayFloor.LastReading,
+            _gatewayFloor.MeanLossPct.ToString("0.###", CultureInfo.InvariantCulture),
+            _gatewayFloor.PeakLossPct.ToString("0.###", CultureInfo.InvariantCulture));
         if (inputs.LoadExclusionWindows.Count > 0)
         {
             foreach (var (exStart, exEnd) in inputs.LoadExclusionWindows)
@@ -368,6 +372,14 @@ public class IspHealthScorer
         };
         report.Issues.AddRange(CollectIssues(inputs, profile, report, loadWindows, loadedDeltas));
         report.Issues.AddRange(physicalIssues);
+        // What the floor actually did, counted during scoring: a floor that was built but never
+        // reduced anything is the healthy case, and it should look different in the log from one that
+        // was never built at all.
+        if (_gatewayFloor.ReadingCount > 0)
+            _logger?.LogDebug(
+                "ISP Health: gateway loss floor saw {Seen} upstream loss sample(s) and reduced {Reduced}, {Total} percentage-points removed in total",
+                _gatewayFloor.SamplesSeen, _gatewayFloor.SamplesReduced,
+                _gatewayFloor.TotalReductionPct.ToString("0.##", CultureInfo.InvariantCulture));
         return report;
     }
 
@@ -1797,6 +1809,28 @@ public class IspHealthScorer
 
         // Local (LAN/gateway) outages are surfaced in the waterfall but are not internet outages and
         // don't affect the score, so they never appear in this ISP-impact issue.
+        // Loss to the gateway is loss inside the user's own network, and the score has already stopped
+        // attributing it to the ISP - so say so, or a failing switch reads as a normal report with an
+        // unexplained deduction. Gated on a mean rather than any loss at all: one dropped probe over a
+        // long window is noise, and a finding that fires on it teaches people to ignore this one.
+        if (_gatewayFloor.MeanLossPct >= _options.GatewayLossFindingMinPct)
+        {
+            issues.Add(new IspHealthIssue
+            {
+                Severity = IspIssueSeverity.Warning,
+                Title = "Packet loss inside your own network",
+                Description =
+                    $"Your gateway dropped {FormatPct(_gatewayFloor.MeanLossPct)} of probes to itself, peaking at "
+                    + $"{FormatPct(_gatewayFloor.PeakLossPct)}. A healthy UniFi gateway does not drop pings addressed to it, "
+                    + "so this points at the path between this server and the gateway rather than at your ISP. That loss "
+                    + "has been subtracted from every upstream measurement, so your ISP scores are not being penalized for it.",
+                Recommendation =
+                    "Check the switching path between this server and the gateway: port errors, a marginal cable or SFP, "
+                    + "an overloaded uplink, or gateway CPU under sustained load. Gateway CPU shows as high latency too; "
+                    + "errors or a bad link usually do not."
+            });
+        }
+
         // Full outages and brief disruptions are surfaced as separate findings: a 30 s transit flap
         // shouldn't read as the same event as a multi-minute outage. Both ride the same duration and
         // occurrence terms (a brief disruption costs about a point on its own), so the per-event score

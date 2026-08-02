@@ -44,6 +44,20 @@ public sealed class GatewayLossFloor
     /// <summary>Mean gateway loss across the samples that carried a reading.</summary>
     public double MeanLossPct { get; private set; }
 
+    /// <summary>Gateway readings behind the floor, and the span they cover.</summary>
+    public int ReadingCount => _times.Length;
+    public DateTime? FirstReading => _times.Length > 0 ? _times[0] : null;
+    public DateTime? LastReading => _times.Length > 0 ? _times[^1] : null;
+
+    /// <summary>
+    /// How the floor actually behaved this report: upstream loss readings seen, how many it reduced,
+    /// and by how much in total. Counted rather than inferred, so "did it do anything" is answerable
+    /// from a log line instead of from the shape of the input.
+    /// </summary>
+    public long SamplesSeen { get; private set; }
+    public long SamplesReduced { get; private set; }
+    public double TotalReductionPct { get; private set; }
+
     /// <summary>
     /// Builds the floor from the gateway target's series. Samples without a loss reading are dropped
     /// rather than treated as zero: an absent measurement is not evidence the chain was clean.
@@ -106,7 +120,15 @@ public sealed class GatewayLossFloor
     public double Apply(double lossPct, DateTime time)
     {
         if (_times.Length == 0) return lossPct;
+        SamplesSeen++;
         var floor = FloorAt(time);
-        return floor <= 0 ? lossPct : Math.Max(0, lossPct - floor);
+        if (floor <= 0) return lossPct;
+        var reduced = Math.Max(0, lossPct - floor);
+        if (reduced < lossPct)
+        {
+            SamplesReduced++;
+            TotalReductionPct += lossPct - reduced;
+        }
+        return reduced;
     }
 }
