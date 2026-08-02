@@ -2,7 +2,7 @@
   "id": "2.5.3",
   "kind": "whats-new",
   "title": "What's new in v2.5.3",
-  "summary": "Uptime on the ISP Health score card, outages scored against the window you are looking at, and a larger download burst for Adaptive SQM.",
+  "summary": "Uptime on the ISP Health score card, outages and congestion scored against the window you are looking at, and a larger download burst for Adaptive SQM.",
   "steps": [
     {
       "id": "isp-uptime",
@@ -10,9 +10,9 @@
       "url": "/monitoring?tab=isp-health",
       "selector": "[data-tour=\"isp-uptime\"]",
       "title": "Uptime",
-      "listLabel": "Outages scored against the window, not in flat minutes",
+      "listLabel": "Outages and congestion scored against the window, not in flat minutes",
       "badge": "improved",
-      "body": "**Uptime** now sits above the three gauges. Outages are scored against the window you are looking at, so fifteen minutes down costs far less over a month than over a day.",
+      "body": "**Uptime** now sits above the three gauges. Outages and congestion are both scored against the window you are looking at, so fifteen minutes down costs far less over a month than over a day.",
       "placement": "bottom",
       "requires": ["isp-health"],
       "optional": true
