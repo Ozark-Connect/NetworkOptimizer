@@ -387,7 +387,7 @@ async function loadHistory() {
         const resp = await fetch(
             `/api/monitoring/wan-live-chart-data?from=${from.toISOString()}&to=${to.toISOString()}`,
             { credentials: 'same-origin' });
-        if (!resp.ok) return;
+        if (!resp.ok) return 0;
         const data = await resp.json();
         buffer = (data.points || []).map(p => ({
             time: new Date(p.time).getTime(),
@@ -470,9 +470,16 @@ const CATCHUP_TRIES = 6;
 let catchUpLeft = 0;
 
 async function catchUpTick() {
-    await backfillHistory();
-    if (catchUpLeft > 0 && --catchUpLeft === 0 && backfillTimer) {
-        dbg('catch-up done - back to the ' + (BACKFILL_MS / 1000) + 's cadence');
+    // Stop as soon as a fill actually returns something: the burst exists only to bridge the wait
+    // until the server has the window queryable, and once it does there is nothing left to catch up
+    // on. Normally that is a single extra fill, not the whole burst - each one re-pulls the entire
+    // history window, so running them when they are not needed is pure waste.
+    const got = await backfillHistory();
+    if (!backfillTimer) return;
+    if (got > 0 || --catchUpLeft <= 0) {
+        dbg(got > 0 ? 'caught up - back to the normal cadence' : 'catch-up exhausted - normal cadence',
+            { fillsLeftUnused: Math.max(catchUpLeft, 0) });
+        catchUpLeft = 0;
         clearInterval(backfillTimer);
         backfillTimer = setInterval(backfillHistory, BACKFILL_MS);
     }
@@ -501,7 +508,7 @@ function restartBackfill() {
 async function backfillHistory() {
     if (!chart || !pollTimer || document.hidden) {
         dbg('backfill skipped', { chart: !!chart, polling: !!pollTimer, hidden: document.hidden });
-        return;
+        return 0;
     }
     const startedAt = Date.now();
     const gen = mountGen;
@@ -521,9 +528,9 @@ async function backfillHistory() {
             rtt: p.rttMs,
             loss: p.lossPercent ?? 0,
         }));
-    } catch { return; }
+    } catch { return 0; }
     // Bail if the mount changed or we left live mode while fetching.
-    if (gen !== mountGen || !pollTimer) return;
+    if (gen !== mountGen || !pollTimer) return 0;
     const newestHist = points.length ? points[points.length - 1].time : 0;
     // The number that matters when the fill looks like it did nothing: zero points means the fill
     // ran BEFORE the server had that window queryable, so the data arrives on the next tick.
@@ -539,6 +546,7 @@ async function backfillHistory() {
         if (p.time > lastSampleTime) lastSampleTime = p.time;
     }
     updateChart();
+    return points.length;
 }
 
 // Upper-left mode cluster: play/pause + Historic badge, shown only while the
