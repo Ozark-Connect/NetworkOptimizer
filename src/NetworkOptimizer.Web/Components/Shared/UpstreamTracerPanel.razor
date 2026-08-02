@@ -470,7 +470,7 @@
 <script suppress-error="BL9992">
     window.noUpstreamPin = (function () {
         var release = null;
-        var lastKeep = null;
+        var lastTop = null;
 
         function start(id) {
             stop();
@@ -492,17 +492,33 @@
                 var paneTop = isDoc ? 0 : sc.getBoundingClientRect().top;
                 var drift = cur.getBoundingClientRect().top - paneTop;
 
-                // Hold the TOP, always. An earlier version switched to following the bottom once the
-                // card outgrew the pane, which at the end of a run left the view parked at the
-                // bottom of a very long card - the opposite of what pinning means.
+                // WHILE RUNNING: show the newest work. If the card still fits the pane, holding its
+                // top does that already; once it is taller, follow the bottom edge so each section
+                // appears as it lands. Landing on the top at the END is handled by finish(), which
+                // is the one moment you want the whole result from its start rather than its tail.
                 //
-                // No spacer either. Adding one below this card pushed the Latency targets panel off
-                // screen, and adding it to the pane wrote to layout every page shares; the write is
-                // simply allowed to clamp when there is nowhere further to go.
-                if (Math.abs(drift) > 2) sc.scrollTop += drift;
+                // No spacer either way. Adding one below this card pushed the Latency targets panel
+                // off screen, and adding it to the pane wrote to layout every page shares; the
+                // write is simply allowed to clamp when there is nowhere further to go.
+                var r = cur.getBoundingClientRect();
+                if (r.height <= sc.clientHeight) {
+                    if (Math.abs(drift) > 2) sc.scrollTop += drift;
+                } else {
+                    var paneBottom = isDoc ? window.innerHeight : sc.getBoundingClientRect().bottom;
+                    var below = r.bottom - paneBottom;
+                    if (below > 2) sc.scrollTop += below;
+                }
             };
 
-            lastKeep = keep;
+            lastTop = function () {
+                var cur = document.getElementById(id);
+                if (!cur) return;
+                var sc = scrollerOf(cur);
+                var isDoc = sc === document.scrollingElement || sc === document.documentElement;
+                var paneTop = isDoc ? 0 : sc.getBoundingClientRect().top;
+                var drift = cur.getBoundingClientRect().top - paneTop;
+                if (Math.abs(drift) > 2) sc.scrollTop += drift;
+            };
             var timer = setInterval(keep, 300);
             // Wheel, touch and the scrolling keys are unambiguous intent; a scroll event would also
             // catch our own corrections.
@@ -519,7 +535,7 @@
                 window.removeEventListener('touchmove', give);
                 window.removeEventListener('keydown', onKey, true);
                 release = null;
-                lastKeep = null;
+                lastTop = null;
             };
             keep();
         }
@@ -533,7 +549,10 @@
         function finish() {
             if (!release) return;
             setTimeout(function () {
-                if (lastKeep) lastKeep();
+                // Land on the TOP, not wherever the follow had got to. Following the edge is right
+                // while sections are still arriving; at the end it parks you past all the detail
+                // you came for, so the last move is to the start of the card.
+                if (lastTop) lastTop();
                 stop();
             }, 400);
         }

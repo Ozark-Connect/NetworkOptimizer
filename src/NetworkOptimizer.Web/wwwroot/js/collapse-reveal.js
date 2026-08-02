@@ -16,8 +16,8 @@
     'use strict';
 
     // The expand animates grid-template-rows over 0.25s; measure once it has settled.
-    var SETTLE_MS = 320;
-    var GLIDE_MS = 200;
+    // A touch longer than the 0.25s expand transition, so the last pixels are followed.
+    var FOLLOW_MS = 400;
 
     function scrollerOf(node) {
         for (var n = node.parentElement; n && n !== document.body; n = n.parentElement) {
@@ -27,30 +27,19 @@
         return document.scrollingElement || document.documentElement;
     }
 
-    // Driven by hand rather than behavior:'smooth': the native curve has a fixed duration that
-    // reads as sluggish for a short hop like this. Long enough that the movement is visible - an
-    // instant jump looks like a glitch - and short enough not to be waited on.
-    function glide(sc, by) {
-        var from = sc.scrollTop;
-        var t0 = performance.now();
-        function step(now) {
-            var p = Math.min(1, (now - t0) / GLIDE_MS);
-            // easeInOutQuad
-            var e = p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2;
-            sc.scrollTop = from + by * e;
-            if (p < 1) requestAnimationFrame(step);
-        }
-        requestAnimationFrame(step);
-    }
-
-    function reveal(header) {
+    // Track the expansion as it happens rather than waiting for it to finish. The card grows over
+    // the transition, so following it frame by frame reads as one movement - the view opening with
+    // the panel - where measuring once at the end is a separate jump after the fact.
+    //
+    // Each frame moves by whatever is currently needed, which is small while the card is still
+    // growing, so no easing of our own is wanted: the transition supplies the pacing.
+    function step(header) {
         var wrapper = header.nextElementSibling;
-        // Collapsed, or not the pattern we expect - nothing to do.
-        if (!wrapper || !wrapper.classList.contains('expand-wrapper')) return;
-        if (!wrapper.classList.contains('expanded')) return;
+        if (!wrapper || !wrapper.classList.contains('expand-wrapper')) return false;
+        if (!wrapper.classList.contains('expanded')) return false;
 
         var card = header.parentElement;
-        if (!card) return;
+        if (!card) return false;
 
         var sc = scrollerOf(card);
         var isDoc = sc === document.scrollingElement || sc === document.documentElement;
@@ -59,20 +48,24 @@
 
         var r = card.getBoundingClientRect();
         var below = r.bottom - paneBottom;
-        if (below <= 2) return;
-
-        // Never past the card's own top: scrolling further would hide the header just clicked.
-        var headroom = Math.max(0, r.top - paneTop);
-        var by = Math.min(below, headroom);
-        if (by <= 0) return;
-
-        glide(sc, by);
+        if (below > 1) {
+            // Never past the card's own top: scrolling further would hide the header just clicked.
+            var headroom = Math.max(0, r.top - paneTop);
+            var by = Math.min(below, headroom);
+            if (by > 0) sc.scrollTop += by;
+        }
+        return true;
     }
 
     document.addEventListener('click', function (e) {
         var header = e.target.closest && e.target.closest('.card-header-collapsible');
         if (!header) return;
-        // After the component has re-rendered and the transition has run.
-        setTimeout(function () { reveal(header); }, SETTLE_MS);
+        // Blazor re-renders before the transition starts, so begin on the next frame and run for a
+        // little longer than the 0.25s expand to catch the final pixels.
+        var until = performance.now() + FOLLOW_MS;
+        requestAnimationFrame(function frame(now) {
+            if (!step(header)) return;
+            if (now < until) requestAnimationFrame(frame);
+        });
     }, true);
 })();
