@@ -2078,7 +2078,7 @@ a.stat-card-link:active {
 .isp-events-jump {
     cursor: pointer;
     text-decoration: underline dotted;
-    text-underline-offset: 2px;
+    text-underline-offset: 3px;
 }
 
 .data-table thead {
