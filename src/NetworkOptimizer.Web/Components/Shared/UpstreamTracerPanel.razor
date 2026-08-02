@@ -546,6 +546,26 @@
         catch { _needsReview = false; }
     }
 
+    /// <summary>
+    /// Lets the card pin go once the run has settled. StartAsync returns while the run is still
+    /// going, so the release cannot live beside it - this fires on the render that carries the
+    /// terminal state instead.
+    /// </summary>
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_state.Step is TracerStep.Done or TracerStep.ReviewingResults or TracerStep.Failed)
+        {
+            try
+            {
+                await JS.InvokeVoidAsync("noAnchorRelease");
+            }
+            catch (Exception ex)
+            {
+                Logger.LogDebug(ex, "Could not release the discovery card pin");
+            }
+        }
+    }
+
     private async Task StartAsync()
     {
         if (!_canOperate) return;
@@ -561,21 +581,11 @@
         {
             Logger.LogDebug(ex, "Could not pin the discovery card while it runs");
         }
-        try
-        {
-            await Discovery.StartAsync();
-        }
-        finally
-        {
-            try
-            {
-                await JS.InvokeVoidAsync("noAnchorRelease");
-            }
-            catch (Exception ex)
-            {
-                Logger.LogDebug(ex, "Could not release the discovery card pin");
-            }
-        }
+        // Deliberately NOT released here. StartAsync returns as soon as the run is under way, not
+        // when it finishes, so releasing in a finally killed the pin about a tick after it started -
+        // one correction, then nothing, with no scroll from the reader to explain it. The pin ends
+        // when the run reaches a terminal step (below), or the moment they scroll for themselves.
+        await Discovery.StartAsync();
         _state = Tracer.State;
         StateHasChanged();
     }
