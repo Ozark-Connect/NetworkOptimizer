@@ -10,44 +10,63 @@ window.noTour = (function () {
     // must not build a zombie overlay for a tour that already moved on.
     let generation = 0;
 
-    // A step can target something inside a collapsed card, as the Adaptive SQM WAN panels do.
-    // Collapsed content is still laid out, at zero height, so it satisfies an offsetParent test
-    // while being invisible - open the section and let a later tick take it once the transition
-    // has run. Each wrapper is clicked once per wait so a section the user closes behind us does
-    // not get reopened in a loop.
-    function revealCollapsedAncestors(el, opened) {
+    // A collapsed section clips its content rather than removing it: the wrapper is a zero-height
+    // grid row and the content overflows hidden, so a target inside still reports a normal
+    // offsetParent and a normal height. Measuring the target alone cannot tell collapsed from
+    // visible - the answer is in its ancestors.
+    function collapsedAncestors(el) {
+        const found = [];
         for (let node = el.parentElement; node && node !== document.body; node = node.parentElement) {
-            if (!node.classList.contains('expand-wrapper') || node.classList.contains('expanded')) continue;
+            if (node.classList.contains('expand-wrapper') && !node.classList.contains('expanded')) found.push(node);
+        }
+        return found;
+    }
+
+    // Open any collapsed section the target sits in, by clicking the header that owns it so the
+    // component's own state flips (setting the class by hand would be undone on its next render).
+    // Each wrapper is opened at most once per step: a section the user closes deliberately during
+    // the tour stays closed. Returns whether anything was opened.
+    function revealCollapsedAncestors(el, opened) {
+        let clicked = false;
+        for (const node of collapsedAncestors(el)) {
             if (opened.has(node)) continue;
             opened.add(node);
             const toggle = node.previousElementSibling;
             if (toggle && toggle.classList.contains('card-header-collapsible')) {
                 toggle.click();
+                clicked = true;
             } else {
                 console.warn('noTour: target sits in a collapsed section with no recognized toggle', node);
             }
         }
+        return clicked;
     }
 
-    function waitFor(selector, timeoutMs) {
+    function waitFor(selector, timeoutMs, opened) {
         return new Promise(resolve => {
             const started = Date.now();
-            const opened = new Set();
+            let settleUntil = 0;
             const tick = () => {
                 if (!document.body) return resolve(null);
+                const matches = Array.from(document.querySelectorAll(selector));
+                // Open before measuring, not after: a clipped target passes every measurement a
+                // visible one does, so a filter-first pass would accept it and never get here.
+                if (matches.map(e => revealCollapsedAncestors(e, opened)).some(Boolean)) {
+                    settleUntil = Date.now() + 350; // let the expand transition finish before measuring
+                }
+                if (Date.now() - started > timeoutMs) return resolve(null);
+                if (Date.now() < settleUntil) return setTimeout(tick, 100);
                 // The same anchor can exist more than once (the 3D and 2D Live View maps
                 // both carry the timeline anchor). Pick by LAYOUT order, not DOM order:
                 // the user can swap the two maps, and the spotlight should follow
                 // whichever is actually on top.
-                const matches = Array.from(document.querySelectorAll(selector));
                 const visible = matches.filter(e => e.offsetParent !== null
-                    && e.getBoundingClientRect().width > 0 && e.getBoundingClientRect().height > 0);
+                    && e.getBoundingClientRect().width > 0 && e.getBoundingClientRect().height > 0
+                    && collapsedAncestors(e).length === 0);
                 if (visible.length) {
                     visible.sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);
                     return resolve(visible[0]);
                 }
-                matches.forEach(e => revealCollapsedAncestors(e, opened));
-                if (Date.now() - started > timeoutMs) return resolve(null);
                 setTimeout(tick, 150);
             };
             tick();
@@ -111,6 +130,11 @@ window.noTour = (function () {
 
     function position() {
         if (!active || !active.target || !document.contains(active.target)) return;
+        // A page that finishes loading after the spotlight lands can collapse the section out from
+        // under it - Adaptive SQM opens its WAN cards, then closes the ones that turn out to have a
+        // saved config. Reopen on the drift tick; the once-per-step rule keeps a section the user
+        // closed on purpose from springing back.
+        revealCollapsedAncestors(active.target, active.opened);
         const pad = 6;
         const r = active.target.getBoundingClientRect();
         const hole = active.hole;
@@ -220,7 +244,10 @@ window.noTour = (function () {
         showStep: async function (dotNetRef, opts) {
             const gen = ++generation;
             teardown();
-            const el = await waitFor(opts.selector, opts.waitMs || 8000);
+            // Shared with position() so a section opened during the wait is not reopened after,
+            // and so the once-per-step rule spans the whole step rather than just the wait.
+            const opened = new Set();
+            const el = await waitFor(opts.selector, opts.waitMs || 8000, opened);
             if (gen !== generation) return 'stale';
             if (!el) return 'missing';
 
@@ -238,7 +265,7 @@ window.noTour = (function () {
             overlay.appendChild(card);
             document.body.appendChild(overlay);
 
-            active = { dotNetRef, overlay, hole, card, target: el, placement: opts.placement, cleanup: [] };
+            active = { dotNetRef, overlay, hole, card, target: el, placement: opts.placement, opened, cleanup: [] };
 
             const onKey = e => {
                 if (e.key === 'Escape') { e.stopPropagation(); invoke('escape'); }
