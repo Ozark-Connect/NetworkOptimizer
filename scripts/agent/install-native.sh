@@ -52,6 +52,14 @@ while [ $# -gt 0 ]; do
     esac
 done
 
+# An install that already serves the LAN speed test keeps serving it, whether or not the flag was
+# repeated on this run. Without this, re-running to update the binary quietly stopped refreshing the
+# nginx config while agent.json (deliberately preserved) kept the speed test switched on - so the two
+# could end up disagreeing about the loopback relay port, and results would silently stop posting.
+if [ "$LAN_SPEED_TEST" != true ] && grep -q '"lanSpeedTest"[[:space:]]*:[[:space:]]*true' "${INSTALL_DIR}/agent.json" 2>/dev/null; then
+    LAN_SPEED_TEST=true
+fi
+
 # --- Output helpers -----------------------------------------------------------
 # Colorized, structured output; colors collapse to empty when stdout isn't a
 # terminal (piped/redirected/logged), so captured output stays clean.
