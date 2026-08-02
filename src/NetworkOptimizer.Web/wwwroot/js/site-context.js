@@ -222,42 +222,45 @@ window.noAnchorTop = function (id) {
     // Re-resolved every tick rather than captured: the card re-renders as discovery adds sections,
     // and Blazor can swap the element out. Holding the original node meant the pin let go the first
     // time that happened - one scroll, then nothing, which is exactly what it looked like.
-    // FOLLOW the growing edge, do not pin the top. Pinning the top is what this did first, and it
-    // worked exactly as asked - one scroll, then nothing to do, because the card's top was already
-    // in place. That is the wrong goal: discovery makes the card taller than the screen, so the new
-    // sections land below the fold and the reader is left chasing them. Keeping the BOTTOM in view
-    // is what "I should not have to scroll" actually means here.
-    //
-    // scrollIntoView is the mechanism the highlight jumps already use successfully in this layout,
-    // so it is what this uses too rather than second-guessing which element scrolls.
+    // PIN THE TOP: hold the card's top at the top of whatever actually scrolls, correcting every
+    // tick, until the reader scrolls for themselves. Earlier attempts measured against
+    // window.innerHeight, but this app scrolls .main-content / .page-content, not the document - so
+    // the numbers were about the wrong box. Find the real scroller and work in its coordinates.
+    var scrollerOf = function (node) {
+        for (var n = node.parentElement; n && n !== document.body; n = n.parentElement) {
+            var oy = getComputedStyle(n).overflowY;
+            if ((oy === 'auto' || oy === 'scroll') && n.scrollHeight > n.clientHeight + 4) return n;
+        }
+        return document.scrollingElement || document.documentElement;
+    };
+
     var ticks = 0;
-    var lastBottom = 0;
+    var named = false;
     var keep = function () {
         var cur = document.getElementById(id);
         if (!cur) return false;
-        var r = cur.getBoundingClientRect();
-        var grew = r.bottom > lastBottom + 1;
-        var off = r.bottom > window.innerHeight;
-        // Report the actual numbers whenever it grows, so a run that does nothing says why rather
-        // than leaving us to guess which half of the condition failed.
-        if (grew) {
-            console.log('[anchor] grew: bottom=' + Math.round(r.bottom)
-                + ' top=' + Math.round(r.top)
-                + ' innerHeight=' + window.innerHeight
-                + ' offscreen=' + off
-                + ' -> ' + (off ? 'scrolling' : 'no scroll needed'));
+        var sc = scrollerOf(cur);
+        var isDoc = sc === document.scrollingElement || sc === document.documentElement;
+        var paneTop = isDoc ? 0 : sc.getBoundingClientRect().top;
+        var drift = cur.getBoundingClientRect().top - paneTop;
+        if (!named) {
+            named = true;
+            console.log('[anchor] scroller=' + (isDoc ? 'document' : (sc.tagName + '.' + sc.className))
+                + ' scrollHeight=' + sc.scrollHeight + ' clientHeight=' + sc.clientHeight);
         }
-        lastBottom = r.bottom;
-        // Instant, not smooth: repeated smooth calls restart the animation and can net out to no
-        // movement at all. The highlight jumps that work in this layout use the instant form.
-        if (grew && off) cur.scrollIntoView({ block: 'end' });
+        if (Math.abs(drift) > 2) {
+            var before = sc.scrollTop;
+            sc.scrollTop = before + drift;
+            console.log('[anchor] drift=' + Math.round(drift)
+                + ' scrollTop ' + Math.round(before) + ' -> ' + Math.round(sc.scrollTop));
+        }
         return true;
     };
     var timer = setInterval(function () {
         ticks++;
         if (!keep()) console.log('[anchor] no element for ' + id + ' this tick (' + ticks + ')');
     }, 300);
-    console.log('[anchor] following ' + id);
+    console.log('[anchor] pinning top of ' + id);
 
     var give = function () { console.log('[anchor] released by user scroll'); window.noAnchorRelease(); };
     var keys = { PageDown: 1, PageUp: 1, ArrowDown: 1, ArrowUp: 1, Home: 1, End: 1, ' ': 1 };
