@@ -234,28 +234,21 @@ window.noAnchorTop = function (id) {
         return document.scrollingElement || document.documentElement;
     };
 
-    var ticks = 0;
-    var named = false;
     var padded = -1;
     var paddedPane = null;
     var keep = function () {
         var cur = document.getElementById(id);
-        if (!cur) return false;
+        if (!cur) return;
         var sc = scrollerOf(cur);
         var isDoc = sc === document.scrollingElement || sc === document.documentElement;
         var paneTop = isDoc ? 0 : sc.getBoundingClientRect().top;
         var drift = cur.getBoundingClientRect().top - paneTop;
-        if (!named) {
-            named = true;
-            console.log('[anchor] scroller=' + (isDoc ? 'document' : (sc.tagName + '.' + sc.className))
-                + ' scrollHeight=' + sc.scrollHeight + ' clientHeight=' + sc.clientHeight);
-        }
+
         // The card is the last thing on the page, so bringing its top to the pane's top means
-        // scrolling past the end of the document - which the browser clamps. Until the card is
-        // taller than the pane there is literally nothing below it to scroll into view, and the
-        // write silently does nothing. Give the pane exactly the shortfall as temporary space so
-        // the position becomes reachable; it shrinks to nothing as the card grows, and is removed
-        // when the pin lets go.
+        // scrolling past the end of the document, which the browser clamps - until the card is
+        // taller than the pane there is nothing below it to scroll into view and the write silently
+        // does nothing. Lend the pane exactly the shortfall so the position becomes reachable; it
+        // shrinks to nothing as the card grows, and is handed back when the pin releases.
         var shortfall = Math.max(0, Math.round(sc.clientHeight - cur.getBoundingClientRect().height));
         if (shortfall !== padded) {
             padded = shortfall;
@@ -263,24 +256,11 @@ window.noAnchorTop = function (id) {
             paddedPane = shortfall ? sc : null;
         }
 
-        if (Math.abs(drift) > 2) {
-            var before = sc.scrollTop;
-            sc.scrollTop = before + drift;
-            if (Math.round(sc.scrollTop) === Math.round(before) && Math.abs(drift) > 2) {
-                console.log('[anchor] clamped at ' + Math.round(before)
-                    + ' (max ' + Math.round(sc.scrollHeight - sc.clientHeight)
-                    + ', pad ' + shortfall + ') - drift ' + Math.round(drift));
-            }
-        }
-        return true;
+        if (Math.abs(drift) > 2) sc.scrollTop += drift;
     };
-    var timer = setInterval(function () {
-        ticks++;
-        if (!keep()) console.log('[anchor] no element for ' + id + ' this tick (' + ticks + ')');
-    }, 300);
-    console.log('[anchor] pinning top of ' + id);
+    var timer = setInterval(keep, 300);
 
-    var give = function () { console.log('[anchor] released by user scroll'); window.noAnchorRelease(); };
+    var give = function () { window.noAnchorRelease(); };
     var keys = { PageDown: 1, PageUp: 1, ArrowDown: 1, ArrowUp: 1, Home: 1, End: 1, ' ': 1 };
     var onKey = function (e) { if (keys[e.key]) give(); };
     window.addEventListener('wheel', give, { passive: true });
