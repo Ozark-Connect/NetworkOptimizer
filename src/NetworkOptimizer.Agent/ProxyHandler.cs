@@ -63,9 +63,18 @@ public sealed class ProxyHandler
                 await SendOpenFailureAsync(open.ConnectionId, $"could not resolve '{open.Host}': {ex.Message}", ct);
                 return;
             }
+            // A name the resolver cannot answer for does not always throw: it can come back as the
+            // unspecified address (:: or 0.0.0.0), which is not a host anyone can dial. Left in, it
+            // reached the scope check and was refused there, reporting a policy problem for what is
+            // really a name this agent cannot resolve - and sending whoever read it looking in the
+            // wrong place entirely.
+            addresses = addresses.Where(a => !a.Equals(IPAddress.Any) && !a.Equals(IPAddress.IPv6Any)).ToArray();
             if (addresses.Length == 0)
             {
-                await SendOpenFailureAsync(open.ConnectionId, $"'{open.Host}' resolved to no addresses", ct);
+                var msg = $"could not resolve '{open.Host}' from this agent - use an address the "
+                    + "site's network can reach, or give the agent host a name server that knows it";
+                Console.Error.WriteLine($"Proxy dial DENIED: {open.Host}:{open.Port} (conn {open.ConnectionId}) - {msg}");
+                await SendOpenFailureAsync(open.ConnectionId, msg, ct);
                 return;
             }
         }
