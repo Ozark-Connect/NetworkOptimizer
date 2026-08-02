@@ -18,7 +18,7 @@ namespace NetworkOptimizer.Web.Services;
 /// UIs need to render specific error states (URL unreachable vs. bad token vs. lacking
 /// permissions) and a thrown exception would force the UI to parse messages.
 /// </summary>
-public class InfluxDbProvisioningService : IInfluxDbProvisioningService
+public class InfluxDbProvisioningService : IInfluxDbProvisioningService, ISiteInfluxProvisioningService
 {
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<InfluxDbProvisioningService> _logger;

@@ -222,11 +222,27 @@ window.noAnchorTop = function (id) {
     // Re-resolved every tick rather than captured: the card re-renders as discovery adds sections,
     // and Blazor can swap the element out. Holding the original node meant the pin let go the first
     // time that happened - one scroll, then nothing, which is exactly what it looked like.
+    // Drive the owning scroller by hand rather than calling scrollIntoView. The app scrolls
+    // .main-content or .page-content, not the document, and scrollIntoView does not reliably move
+    // those - the tour driver hit the same thing and does its own scroller math for it.
+    var scrollerOf = function (node) {
+        for (var n = node.parentElement; n && n !== document.body; n = n.parentElement) {
+            var oy = getComputedStyle(n).overflowY;
+            if ((oy === 'auto' || oy === 'scroll') && n.scrollHeight > n.clientHeight + 4) return n;
+        }
+        return document.scrollingElement || document.documentElement;
+    };
     var ticks = 0;
     var keep = function () {
         var cur = document.getElementById(id);
-        if (cur) cur.scrollIntoView({ block: 'start' });
-        return !!cur;
+        if (!cur) return false;
+        var sc = scrollerOf(cur);
+        var isDoc = sc === document.scrollingElement || sc === document.documentElement;
+        var top = isDoc ? 0 : sc.getBoundingClientRect().top;
+        var delta = cur.getBoundingClientRect().top - top;
+        // Only correct real drift, so we are not fighting the browser over sub-pixel rounding.
+        if (Math.abs(delta) > 2) sc.scrollTop += delta;
+        return true;
     };
     var timer = setInterval(function () {
         ticks++;

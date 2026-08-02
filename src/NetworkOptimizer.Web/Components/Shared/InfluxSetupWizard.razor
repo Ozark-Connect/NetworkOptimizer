@@ -5,6 +5,7 @@
 @using NetworkOptimizer.Web.Services.Identity
 @using Microsoft.EntityFrameworkCore
 @inject IInfluxDbProvisioningService Provisioner
+@inject ISiteInfluxProvisioningService SiteProvisioner
 @inject MonitoringInfluxRegistry InfluxRegistry
 @inject ICredentialProtectionService CredentialService
 @inject SiteContextService SiteContext
@@ -21,7 +22,7 @@
             </div>
             <div class="card-body">
                 <div class="empty-state">
-                    @if (_canProvision)
+                    @if (_canProvision || _canProvisionSite)
                     {
                         <span class="spinner"></span>
                         <p>Looking for InfluxDB on this network...</p>
@@ -291,8 +292,13 @@
         await ProvisionAsync();
     }
 
-    /// <summary>Whether this user could actually complete a provisioning step, resolved once on init.</summary>
+    /// <summary>Whether this user can establish the installation's InfluxDB - orgs, tokens, the
+    /// shared connection. Instance-wide Admin, because those are installation-wide decisions.</summary>
     private bool _canProvision;
+
+    /// <summary>Whether they can finish THIS site off an existing shared connection. Admin on this
+    /// site is enough: adding a site's own buckets decides nothing for the installation.</summary>
+    private bool _canProvisionSite;
 
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
 
@@ -303,10 +309,15 @@
         // looking - and a Viewer got two denied audit entries per visit (prerender, then the
         // circuit), swallowed by the catch below and therefore invisible except in the log. Ask
         // first: someone who could not finish the wizard has no business starting it.
-        _canProvision = AuthState is null
-            || (await Authz.AuthorizeAsync((await AuthState).User, Policies.RequireAdmin)).Succeeded;
+        var user = AuthState is null ? null : (await AuthState).User;
+        _canProvision = user is null || (await Authz.AuthorizeAsync(user, Policies.RequireAdmin)).Succeeded;
+        _canProvisionSite = _canProvision
+            || (await Authz.AuthorizeAsync(user!, SiteContext.Slug, Policies.SiteAdmin)).Succeeded;
 
-        if (!IsDefaultSite && _canProvision)
+        // Site mode only needs the site's own admin - it adds this site's buckets to a connection
+        // that already exists. The full flow establishes that connection, so it keeps the
+        // instance-wide check.
+        if (!IsDefaultSite && _canProvisionSite)
             await TryEnterSiteModeAsync();
         if (!_siteMode && _canProvision)
             await DetectAgainAsync();
@@ -370,11 +381,11 @@
     private async Task<bool> TrySilentProvisionAsync()
     {
         if (string.IsNullOrEmpty(_sharedToken)) return false;
-        var orgId = await Provisioner.TryResolveOrgIdAsync(_sharedUrl, _sharedToken, _sharedOrgName);
+        var orgId = await SiteProvisioner.TryResolveOrgIdAsync(_sharedUrl, _sharedToken, _sharedOrgName);
         if (string.IsNullOrEmpty(orgId)) return false;
         try
         {
-            await Provisioner.EnsureBucketsAsync(_sharedUrl, _sharedToken, orgId, SitePrimaryBucket, SiteLongtermBucket);
+            await SiteProvisioner.EnsureBucketsAsync(_sharedUrl, _sharedToken, orgId, SitePrimaryBucket, SiteLongtermBucket);
         }
         catch (Exception ex)
         {

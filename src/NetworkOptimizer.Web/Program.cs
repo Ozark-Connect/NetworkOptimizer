@@ -613,6 +613,10 @@ builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.UpstreamT
 builder.Services.AddScoped(sp => sp.GetRequiredService<NetworkOptimizer.Web.Services.Monitoring.UpstreamTracerRegistry>()
     .GetFor(sp.GetRequiredService<SiteContextService>().Slug));
 builder.Services.AddMutatingService<IInfluxDbProvisioningService, InfluxDbProvisioningService>();
+// The same implementation behind a site-scoped gate, for the one thing a Site Admin should be able
+// to finish alone: adding their own site's buckets to a shared connection that already exists.
+builder.Services.AddMutatingService<ISiteInfluxProvisioningService>(
+    sp => ActivatorUtilities.CreateInstance<InfluxDbProvisioningService>(sp));
 // Probe-execution layer: the server-side LocalProbeExecutor is the default vantage. SSH
 // vantages (gateway/switch/AP) are constructed per-device via SshProbeExecutor later.
 builder.Services.AddSingleton<NetworkOptimizer.Monitoring.Probes.LocalProbeExecutor>();
