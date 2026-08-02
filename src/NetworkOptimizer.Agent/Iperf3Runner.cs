@@ -50,7 +50,11 @@ public static class Iperf3Runner
                 }
 
                 Console.WriteLine("iperf3 server running (default port 5201)");
-                _ = CaptureResultsAsync(process.StandardOutput, relayResult, ct);
+                // iperf3 -J reports a refusal to start on STDOUT as {"error": "..."} rather than on
+                // stderr, so the only account of why it would not start arrives through the same
+                // stream as the results. Kept here so the exit can be explained with it.
+                var stdoutError = new ErrorSink();
+                var stdout = CaptureResultsAsync(process.StandardOutput, relayResult, stdoutError, ct);
                 // Kept rather than drained: when iperf3 refuses to start, its reason is the only
                 // thing that distinguishes "someone else already has 5201" from a real fault, and
                 // discarding it left an exit code and nothing to act on.
@@ -67,8 +71,9 @@ public static class Iperf3Runner
                     continue;
                 }
 
+                await stdout;
                 var detail = await stderr;
-                var reason = string.IsNullOrWhiteSpace(detail) ? $"exit code {process.ExitCode}" : detail!.Trim();
+                var reason = FirstNonEmpty(stdoutError.Message, detail) ?? $"exit code {process.ExitCode}";
 
                 if (DateTime.UtcNow - startedAt > HealthyRun)
                 {
@@ -120,6 +125,32 @@ public static class Iperf3Runner
         }
     }
 
+    /// <summary>Holds the last error iperf3 wrote to stdout, for explaining an exit.</summary>
+    private sealed class ErrorSink
+    {
+        public string? Message;
+    }
+
+    private static string? FirstNonEmpty(params string?[] candidates) =>
+        candidates.FirstOrDefault(c => !string.IsNullOrWhiteSpace(c))?.Trim();
+
+    /// <summary>The "error" text of an iperf3 JSON object, or null if it has none.</summary>
+    private static string? ErrorTextOf(string json)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            return doc.RootElement.ValueKind == JsonValueKind.Object
+                && doc.RootElement.TryGetProperty("error", out var error)
+                ? error.GetString()
+                : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     private static TimeSpan BackoffFor(int failures)
     {
         var seconds = FirstRetry.TotalSeconds * Math.Pow(2, Math.Max(0, failures - 1));
@@ -134,7 +165,7 @@ public static class Iperf3Runner
     /// Brace-counts <c>iperf3 -s -J</c> stdout to isolate each completed test's JSON object and
     /// relays it, mirroring the central <c>Iperf3ServerService</c>'s capture exactly.
     /// </summary>
-    private static async Task CaptureResultsAsync(StreamReader reader, Func<string, CancellationToken, Task>? relayResult, CancellationToken ct)
+    private static async Task CaptureResultsAsync(StreamReader reader, Func<string, CancellationToken, Task>? relayResult, ErrorSink errors, CancellationToken ct)
     {
         var accumulator = new JsonObjectAccumulator();
         try
@@ -149,6 +180,8 @@ public static class Iperf3Runner
                     // non-result to the server on every restart, which answered 404 each time.
                     if (relayResult != null && IsTestResult(json))
                         _ = relayResult(json, ct);
+                    else
+                        errors.Message = ErrorTextOf(json) ?? errors.Message;
                 });
             }
         }
