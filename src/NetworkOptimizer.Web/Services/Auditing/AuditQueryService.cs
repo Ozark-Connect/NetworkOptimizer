@@ -96,7 +96,13 @@ public sealed class AuditQueryService : IAuditQueryService
         if (f.ToUtc is not null) q = q.Where(e => e.TimestampUtc <= f.ToUtc);
         if (!string.IsNullOrEmpty(f.Category)) q = q.Where(e => e.Category == f.Category);
         if (!string.IsNullOrEmpty(f.Outcome)) q = q.Where(e => e.Outcome == f.Outcome);
-        if (!string.IsNullOrEmpty(f.SiteSlug)) q = q.Where(e => e.SiteSlug == f.SiteSlug);
+        // Only the typed side is normalized: slugs are stored lowercase, so lowering the column too
+        // would run a function per row and give up the index for a case that cannot occur.
+        if (!string.IsNullOrEmpty(f.SiteSlug))
+        {
+            var slug = f.SiteSlug.ToLowerInvariant();
+            q = q.Where(e => e.SiteSlug == slug);
+        }
         if (!string.IsNullOrEmpty(f.Actor)) q = q.Where(e => e.ActorName != null && e.ActorName.Contains(f.Actor));
         return q;
     }
