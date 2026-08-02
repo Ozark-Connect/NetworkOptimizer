@@ -188,7 +188,17 @@ function noHighlight(id, block, variant, radius) {
     // set together, the browser has nothing to animate from.
     requestAnimationFrame(function () {
         el.classList.add('nav-highlight-on');
-        setTimeout(function () { el.classList.remove('nav-highlight-on'); }, 1800);
+        setTimeout(function () {
+            el.classList.remove('nav-highlight-on');
+            // Take the rest off once the fade has run, rather than leaving it on the element for
+            // good: the base class carries a transition and a radius override, so a highlighted
+            // table row would keep fading its hover afterwards and a wrapper would keep the
+            // corners the ring gave it.
+            setTimeout(function () {
+                el.classList.remove(variant);
+                el.style.removeProperty('--nav-highlight-radius');
+            }, 1000);
+        }, 1800);
     });
 }
 
