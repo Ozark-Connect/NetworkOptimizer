@@ -101,8 +101,9 @@ public class IspHealthScorerTests
         int OverallWith(double mins) => new IspHealthScorer(Options)
             .Score(BuildInputs(outages: new List<OutageEvent> { Outage(mins) }), Gpon).OverallScore;
 
-        // Default severity curve: 10 min -> 14, 60 min -> 45, 8 h -> 90 (off a clean 100).
-        OverallWith(10).Should().Be(86);
+        // Graded as a share of the 24 h window: 10 min is 0.69% down -> 15, 60 min is 4.2% -> 45,
+        // 8 h is a third of the window and pins the curve's tail -> 90 (all off a clean 100).
+        OverallWith(10).Should().Be(85);
         OverallWith(60).Should().Be(55);
         OverallWith(480).Should().Be(10);
     }
@@ -117,6 +118,182 @@ public class IspHealthScorerTests
         PathTargetCount = total
     };
 
+    /// <summary>A full-breadth, near-total blackout of the given length, starting 2 h into the window.</summary>
+    private static OutageEvent Blackout(TimeSpan duration) => new()
+    {
+        Start = TestSeries.Start.AddHours(2),
+        End = TestSeries.Start.AddHours(2) + duration,
+        PeakLossPct = 100,
+        DegradedTargetCount = 9,
+        PathTargetCount = 9
+    };
+
+    /// <summary><paramref name="count"/> identical blackouts spaced 2 h apart so they never coalesce.</summary>
+    private static List<OutageEvent> Blackouts(int count, TimeSpan each) =>
+        Enumerable.Range(0, count).Select(i => new OutageEvent
+        {
+            Start = TestSeries.Start.AddHours(2 + i * 2),
+            End = TestSeries.Start.AddHours(2 + i * 2) + each,
+            PeakLossPct = 100,
+            DegradedTargetCount = 9,
+            PathTargetCount = 9
+        }).ToList();
+
+    private static int DropFor(TimeSpan window, List<OutageEvent> outages) =>
+        100 - new IspHealthScorer(Options)
+            .Score(BuildInputs(outages: outages, scoreWindow: window), Gpon).OverallScore;
+
+    [Theory]
+    // 15 min down reads as four-nines over a month and barely two-nines over 24 h. The old absolute
+    // minutes curve scored all three of these identically, at ~16 points.
+    [InlineData(15, 720, 5, 9)]
+    [InlineData(15, 48, 10, 15)]
+    [InlineData(15, 24, 17, 24)]
+    // 4 h down: the felt-event floor keeps it plainly visible on a month, where the availability ratio
+    // alone would price a memorable outage at about a dozen points; on 48 h the ratio takes over.
+    [InlineData(240, 720, 17, 24)]
+    [InlineData(240, 48, 58, 68)]
+    public void Outage_duration_is_graded_against_the_window(int downMinutes, int windowHours, int minDrop, int maxDrop)
+    {
+        DropFor(TimeSpan.FromHours(windowHours), new List<OutageEvent> { Blackout(TimeSpan.FromMinutes(downMinutes)) })
+            .Should().BeInRange(minDrop, maxDrop);
+    }
+
+    [Fact]
+    public void Same_outage_never_scores_worse_on_a_longer_window()
+    {
+        var windows = new[] { 24, 48, 168, 720 };
+        var drops = windows
+            .Select(h => DropFor(TimeSpan.FromHours(h), new List<OutageEvent> { Blackout(TimeSpan.FromMinutes(15)) }))
+            .ToList();
+
+        drops.Should().BeInDescendingOrder();
+        // And the floor holds: more clean time around an outage never erases it.
+        drops[^1].Should().BeGreaterThan(0);
+    }
+
+    [Fact]
+    public void Longer_outage_never_scores_better_on_the_same_window()
+    {
+        var drops = new[] { 1, 5, 15, 60, 240 }
+            .Select(m => DropFor(Day, new List<OutageEvent> { Blackout(TimeSpan.FromMinutes(m)) }))
+            .ToList();
+
+        drops.Should().BeInAscendingOrder();
+    }
+
+    [Fact]
+    public void Same_events_at_double_the_rate_score_worse()
+    {
+        // Eight one-minute drops is a flaky line over two days and a quirk over a month. The old
+        // window-ratio scaling of the per-event cost scored these two the same.
+        var dense = DropFor(TimeSpan.FromHours(48), Blackouts(8, TimeSpan.FromMinutes(1)));
+        var sparse = DropFor(TimeSpan.FromHours(720), Blackouts(8, TimeSpan.FromMinutes(1)));
+
+        dense.Should().BeGreaterThan(sparse * 3);
+        sparse.Should().BeGreaterThan(0);
+    }
+
+    [Fact]
+    public void A_lone_outage_is_not_charged_as_recurrence()
+    {
+        // One event must cost the same whether the window is 48 h or a week: rating a single sample as
+        // a per-day rate would let window length alone change what "one outage" costs.
+        var outage = new List<OutageEvent> { Blackout(TimeSpan.FromMinutes(2)) };
+        var twoDay = DropFor(TimeSpan.FromHours(48), outage);
+        var week = DropFor(TimeSpan.FromHours(168), outage);
+
+        // Only the availability ratio may differ, and at 2 min both are deep in felt-floor territory.
+        twoDay.Should().Be(week);
+
+        // A second event of the same size is where recurrence starts, so it must cost more than double.
+        var twoEvents = DropFor(TimeSpan.FromHours(48), Blackouts(2, TimeSpan.FromMinutes(2)));
+        twoEvents.Should().BeGreaterThan(twoDay * 2);
+    }
+
+    [Fact]
+    public void Straddling_outage_is_counted_only_for_its_in_window_minutes()
+    {
+        // Outage detection reaches back OutageDetectionLeadInHours before the window so an outage
+        // that STRADDLES the start is stitched whole, and such an event keeps its true onset
+        // (IspHealthService only drops events that ended before the start). A 2 h outage whose last
+        // 5 min land in the window is 5 min of this window's downtime, not 120.
+        var straddling = new OutageEvent
+        {
+            Start = TestSeries.Start.AddHours(-2),
+            End = TestSeries.Start.AddMinutes(5),
+            PeakLossPct = 100,
+            DegradedTargetCount = 9,
+            PathTargetCount = 9
+        };
+        var report = new IspHealthScorer(Options).Score(
+            BuildInputs(outages: new List<OutageEvent> { straddling }, scoreWindow: TimeSpan.FromHours(48)), Gpon);
+
+        report.Downtime.Should().Be(TimeSpan.FromMinutes(5));
+
+        // 5 min of 48 h is 0.17% unavailability, which the felt-event floor prices at about 5 points.
+        (100 - report.OverallScore).Should().BeInRange(3, 9);
+    }
+
+    [Fact]
+    public void Uptime_counts_a_partial_disruption_by_the_share_it_dropped()
+    {
+        // A 20 min disruption at 75% loss is 15 min of lost service, not 20 and not zero: the
+        // detector only declares one past a broad multi-ASN half-loss, but half the packets is not
+        // half the clock.
+        var partial = new OutageEvent
+        {
+            Start = TestSeries.Start.AddHours(2),
+            End = TestSeries.Start.AddHours(2).AddMinutes(20),
+            PeakLossPct = 75,
+            DegradedTargetCount = 6,
+            PathTargetCount = 9,
+            IsPartial = true
+        };
+        var report = new IspHealthScorer(Options).Score(
+            BuildInputs(outages: new List<OutageEvent> { partial }, scoreWindow: TimeSpan.FromHours(720)), Gpon);
+
+        report.Downtime.Should().Be(TimeSpan.FromMinutes(15));
+
+        // Usage weighting softens the SCORE but must not move uptime - how much an outage mattered is
+        // a judgment, while uptime is a fact about the line.
+        var quiet = new IspHealthScorer(Options).Score(
+            BuildInputs(
+                outages: new List<OutageEvent> { new()
+                {
+                    Start = partial.Start, End = partial.End, PeakLossPct = 75,
+                    DegradedTargetCount = 6, PathTargetCount = 9, IsPartial = true, UsageWeight = 0.4
+                } },
+                scoreWindow: TimeSpan.FromHours(720)),
+            Gpon);
+        quiet.Downtime.Should().Be(report.Downtime);
+        quiet.OverallScore.Should().BeGreaterThan(report.OverallScore);
+    }
+
+    [Fact]
+    public void Uptime_never_rounds_a_bad_window_to_a_clean_one()
+    {
+        var report = new IspHealthScorer(Options).Score(
+            BuildInputs(outages: new List<OutageEvent> { Blackout(TimeSpan.FromMinutes(15)) }, scoreWindow: TimeSpan.FromHours(720)),
+            Gpon);
+
+        report.Downtime.Should().Be(TimeSpan.FromMinutes(15));
+        report.UptimePercent.Should().BeApproximately(99.965, 0.01);
+        IspHealthPresentation.FormatUptime(report).Should().Be("99.97%");
+
+        // A one-second blackout is five-nines-plus, but the timeline shows an outage, so the card
+        // must not claim a flat 100%.
+        var sliver = new IspHealthScorer(Options).Score(
+            BuildInputs(outages: new List<OutageEvent> { Blackout(TimeSpan.FromSeconds(1)) }, scoreWindow: TimeSpan.FromHours(720)),
+            Gpon);
+        IspHealthPresentation.FormatUptime(sliver).Should().Be("99.99%");
+
+        var clean = new IspHealthScorer(Options).Score(BuildInputs(scoreWindow: TimeSpan.FromHours(720)), Gpon);
+        clean.Downtime.Should().Be(TimeSpan.Zero);
+        IspHealthPresentation.FormatUptime(clean).Should().Be("100%");
+        IspHealthPresentation.FormatDowntime(clean.Downtime).Should().Be("no downtime");
+    }
+
     [Fact]
     public void Recurring_micro_outages_compound_far_beyond_one_point()
     {
@@ -128,9 +305,11 @@ public class IspHealthScorerTests
             return 100 - new IspHealthScorer(Options).Score(BuildInputs(outages: events), Gpon).OverallScore;
         }
 
-        // A single 28 s near-total broad drop is felt: a few points, not the old flat 1.
+        // A single 28 s drop across 5 of 9 targets is 99.97% uptime over the day. It registers rather
+        // than rounding to zero - that is the felt-event floor's job - but it is not a few points:
+        // downtime is now graded as a share of the window, and this is a rounding error of one.
         var one = DropFor(1);
-        one.Should().BeInRange(2, 5);
+        one.Should().BeInRange(1, 3);
 
         // Ten of them across the window cost far more - the occurrence component compounds rather
         // than collapsing to ~one point the way summed-duration alone would.
@@ -208,7 +387,7 @@ public class IspHealthScorerTests
     }
 
     [Fact]
-    public void Micro_outages_weigh_less_over_a_longer_window_a_long_outage_does_not()
+    public void Outages_weigh_less_over_a_longer_window_but_a_long_one_stays_visible()
     {
         int Drop(List<OutageEvent> outages, TimeSpan window) => 100 - new IspHealthScorer(Options)
             .Score(BuildInputs(outages: outages, scoreWindow: window), Gpon).OverallScore;
@@ -221,22 +400,14 @@ public class IspHealthScorerTests
         micro7d.Should().BeLessThan(micro48h);
         (micro48h - micro7d).Should().BeGreaterThanOrEqualTo(2);
 
-        // A long, duration-dominated outage weighs roughly the same in either window (duration is
-        // absolute; only its small occurrence part rescales).
-        var longOutage = new List<OutageEvent>
-        {
-            new()
-            {
-                Start = TestSeries.Start.AddHours(2),
-                End = TestSeries.Start.AddHours(4),
-                PeakLossPct = 100,
-                DegradedTargetCount = 9,
-                PathTargetCount = 9
-            }
-        };
+        // A long outage also eases over a longer window - 2 h is 4.2% of two days but 1.2% of a week,
+        // and those are genuinely different lines - but the felt-event floor keeps it substantial
+        // rather than letting a memorable outage dissolve into the surrounding clean time.
+        var longOutage = new List<OutageEvent> { Blackout(TimeSpan.FromHours(2)) };
         var long48h = Drop(longOutage, TimeSpan.FromHours(48));
         var long7d = Drop(longOutage, TimeSpan.FromDays(7));
-        long7d.Should().BeCloseTo(long48h, 3);
+        long7d.Should().BeLessThan(long48h);
+        long7d.Should().BeGreaterThan(15);
     }
 
     [Fact]
@@ -1435,8 +1606,50 @@ public class IspHealthScorerTests
 
         var graded = withEvents.TransitAsns.Single();
         graded.CongestionEventCount.Should().Be(1);
-        graded.CongestionScore.Should().Be(20); // 100 - 20/hr x 4 h
+        // 4 h of a 24 h window is a sixth of it, graded on the congestion curve.
+        graded.CongestionScore.Should().BeInRange(45, 60);
         graded.OverallScore.Should().BeLessThan(withoutEvents.TransitAsns.Single().OverallScore!.Value);
+    }
+
+    [Fact]
+    public void The_same_congested_hours_matter_less_over_a_longer_window()
+    {
+        // Congested hours only mean something against the time observed. Four hours is a sixth of two
+        // days and an afternoon of a week, and the old flat per-hour penalty scored them identically -
+        // and floored the component past five hours, so a hop congested briefly and one congested for
+        // the whole window were indistinguishable.
+        var series = new List<AsnSeries> { TestSeries.Asn(64500, "TransitOne", TestSeries.Flat(TestSeries.Start, Day, 10, 0.5)) };
+        var congestion = new List<CongestionEvent>
+        {
+            new() { Start = TestSeries.Start.AddHours(2), End = TestSeries.Start.AddHours(6), AsnNumbers = { 64500 } }
+        };
+
+        int ScoreFor(TimeSpan window) => new IspHealthScorer(Options)
+            .Score(BuildInputs(transit: series, congestion: congestion, scoreWindow: window), Gpon)
+            .TransitAsns.Single().CongestionScore!.Value;
+
+        var day = ScoreFor(Day);
+        var week = ScoreFor(TimeSpan.FromDays(7));
+        var month = ScoreFor(TimeSpan.FromDays(30));
+
+        week.Should().BeGreaterThan(day);
+        month.Should().BeGreaterThan(week);
+        month.Should().BeGreaterThan(90, "four congested hours in a month is a good line, not a floored one");
+    }
+
+    [Fact]
+    public void Sustained_congestion_still_grades_badly()
+    {
+        // The other direction: the curve must not be so forgiving that a network congested for most
+        // of the window escapes. Twelve hours of a twenty-four hour window is half its life.
+        var series = new List<AsnSeries> { TestSeries.Asn(64500, "TransitOne", TestSeries.Flat(TestSeries.Start, Day, 10, 0.5)) };
+        var congestion = new List<CongestionEvent>
+        {
+            new() { Start = TestSeries.Start.AddHours(6), End = TestSeries.Start.AddHours(18), AsnNumbers = { 64500 } }
+        };
+
+        new IspHealthScorer(Options).Score(BuildInputs(transit: series, congestion: congestion), Gpon)
+            .TransitAsns.Single().CongestionScore.Should().BeLessThan(25);
     }
 
     [Fact]

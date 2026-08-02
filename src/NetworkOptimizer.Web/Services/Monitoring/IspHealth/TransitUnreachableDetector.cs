@@ -65,6 +65,68 @@ public static class TransitUnreachableDetector
     }
 
     /// <summary>
+    /// Second pass for a transit target that FLAPS rather than going cleanly dark: unreachable,
+    /// answering for a probe or two, unreachable again. <see cref="Detect"/> requires every sample in
+    /// a run to be dark, so a single answered probe resets it and a target that spent most of an hour
+    /// unreachable never produces a window - while contributing its ~100% samples to the pooled loss
+    /// the whole time. That is the same routing event, just seen through a hop that answers
+    /// intermittently, and it is no more usable as an access-layer loss measurement.
+    ///
+    /// A span opens on the first dark sample and closes once the target has answered continuously for
+    /// <see cref="IspHealthOptions.TransitUnreachableRecoverySeconds"/>, and only counts if it was
+    /// dark for at least <see cref="IspHealthOptions.TransitUnreachableMostlyDarkFraction"/> of its
+    /// samples across at least <see cref="IspHealthOptions.TransitUnreachableMostlyDarkMinSeconds"/>.
+    /// The bar is deliberately longer than the solid-dark rule's: intermittent evidence is weaker, so
+    /// it has to persist before we stop believing the target. Bounds still run first dark sample to
+    /// last, so masking never hides a sample the target actually answered after recovering.
+    /// </summary>
+    public static List<DarkWindow> DetectMostlyDark(string targetId, int asnNumber, string? asnName,
+        IReadOnlyList<LatencySample> samples, IspHealthOptions options)
+    {
+        var windows = new List<DarkWindow>();
+        DateTime? runStart = null, lastDark = null, aliveSince = null;
+        // Counted as of the last dark sample, so trailing answered probes before recovery cannot
+        // dilute the fraction of the span we actually emit.
+        int darkAtLastDark = 0, totalAtLastDark = 0, dark = 0, total = 0;
+
+        void CloseRun()
+        {
+            if (runStart.HasValue && lastDark.HasValue && totalAtLastDark > 0
+                && (lastDark.Value - runStart.Value).TotalSeconds >= options.TransitUnreachableMostlyDarkMinSeconds
+                && (double)darkAtLastDark / totalAtLastDark >= options.TransitUnreachableMostlyDarkFraction)
+                windows.Add(new DarkWindow(targetId, asnNumber, asnName, runStart.Value, lastDark.Value));
+            runStart = null;
+            lastDark = null;
+            aliveSince = null;
+            darkAtLastDark = totalAtLastDark = dark = total = 0;
+        }
+
+        foreach (var s in samples)
+        {
+            if (!s.LossPercent.HasValue) continue;
+            if (s.LossPercent.Value >= options.TransitUnreachableLossPct)
+            {
+                runStart ??= s.Time;
+                lastDark = s.Time;
+                aliveSince = null;
+                dark++;
+                total++;
+                darkAtLastDark = dark;
+                totalAtLastDark = total;
+            }
+            else if (runStart.HasValue)
+            {
+                total++;
+                aliveSince ??= s.Time;
+                if ((s.Time - aliveSince.Value).TotalSeconds >= options.TransitUnreachableRecoverySeconds)
+                    CloseRun();
+            }
+        }
+        CloseRun();
+        return windows;
+    }
+
+    /// <summary>
     /// Collapses per-target dark windows into one event per ASN: windows on the same network
     /// that overlap (or sit within the run-coalescing gap of each other) merge, so an RTT
     /// cluster's members washing out together read as a single path event rather than one per

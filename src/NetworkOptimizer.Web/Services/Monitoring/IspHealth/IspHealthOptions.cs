@@ -189,6 +189,21 @@ public class IspHealthOptions
     /// </summary>
     public double CongestionPenaltyPerHour { get; set; } = 20.0;
 
+    /// <summary>
+    /// Congestion curve: the network's congestion sub-score per (percent of the window spent
+    /// congested, score) anchor. Congested hours only mean something against the time observed - nine
+    /// hours across two days is a fifth of the line's life and bad, the same nine hours across a month
+    /// is an afternoon - and the flat per-hour penalty scored them identically. It also saturated: at
+    /// 20 points an hour anything past five hours floored the component, so a hop congested for five
+    /// hours and one congested for the entire window were indistinguishable, and at weight 0.3 that is
+    /// a flat 30-point deduction that no amount of otherwise-perfect latency, jitter, loss or
+    /// stability can offset. Same reasoning as the outage unavailability curve.
+    /// </summary>
+    public (double CongestedPercent, double Score)[] AsnCongestionCurve { get; set; } =
+    {
+        (0, 100), (1, 95), (3, 88), (5, 80), (10, 65), (20, 45), (40, 20), (70, 0)
+    };
+
     /// <summary>Minimum number of ASNs with overlapping events to merge them into a shared upstream event.</summary>
     public int SharedEventMinAsns { get; set; } = 2;
 
@@ -357,6 +372,28 @@ public class IspHealthOptions
     public int TransitUnreachableMaxGapSeconds { get; set; } = 300;
 
     /// <summary>
+    /// Fraction of a span's samples that must be dark for a FLAPPING transit target to read as
+    /// unreachable (see TransitUnreachableDetector.DetectMostlyDark). A target answering under half
+    /// its probes is not measuring the path either, but it never sustains a solid run, so the
+    /// every-sample rule never sees it.
+    /// </summary>
+    public double TransitUnreachableMostlyDarkFraction { get; set; } = 0.5;
+
+    /// <summary>
+    /// Minimum span in seconds before a mostly-dark (flapping) target is carved out. Much longer than
+    /// the solid-dark rule's: intermittent evidence is weaker, so a brief burst of flapping stays in
+    /// the loss pool and only a persistent one is treated as a path event.
+    /// </summary>
+    public int TransitUnreachableMostlyDarkMinSeconds { get; set; } = 600;
+
+    /// <summary>
+    /// How long a flapping target must answer continuously before its mostly-dark span is considered
+    /// over. Short enough that a genuine recovery ends the span promptly, long enough that one or two
+    /// answered probes mid-event do not split it into fragments that each miss the duration bar.
+    /// </summary>
+    public int TransitUnreachableRecoverySeconds { get; set; } = 120;
+
+    /// <summary>
     /// Bucket size in seconds for outage detection. Sub-minute so a brief (~30 s) drop resolves
     /// into its own fully-dark buckets instead of being diluted to a partial-loss bucket inside a
     /// one-minute window and failing the dark-fraction gate. At the internet targets' ~7-10 s
@@ -480,39 +517,149 @@ public class IspHealthOptions
     public int OutageAccessGroupToleranceSeconds { get; set; } = 10;
 
     /// <summary>
-    /// Outage severity curve: points deducted from the OVERALL score per (totalDowntimeMinutes,
-    /// penaltyPoints) anchor, interpolated. This is the DURATION component of the outage penalty,
-    /// applied at the top level rather than buried in the Packet Loss factor (where the dimension
-    /// weights would dilute a multi-hour outage to a couple of points). The front is deliberately
-    /// steep - a 30 s drop is felt out of all proportion to its seconds (a dropped call, a stalled
-    /// stream), so a sub-minute outage carries a couple of points on duration alone rather than
-    /// rounding to zero; ~10 min is a clear ding; multi-hour drives the score toward zero. Recurrence
-    /// is scored separately by <see cref="OutageEventCost"/>, so this curve need not also encode "many
-    /// short drops are bad".
+    /// Unavailability curve: points deducted from the OVERALL score per (percent of the window spent
+    /// down, penaltyPoints) anchor, interpolated. This is the RATIO half of the outage DURATION
+    /// penalty, applied at the top level rather than buried in the Packet Loss factor (where the
+    /// dimension weights would dilute a multi-hour outage to a couple of points). Downtime only means
+    /// something against the time observed - 15 min is two-nines over 48 h but four-nines over 30
+    /// days, and scoring both the same (as the old absolute minutes curve did) made a good line on a
+    /// long window read as a bad one. Anchors sit on the SLA nines people already argue with their ISP
+    /// about: 0.1% is the 99.9% line, 43 min/month. Floored by <see cref="OutageFeltEventCurve"/>.
     /// </summary>
-    public (double Minutes, double Penalty)[] OutageSeverityCurve { get; set; } =
+    public (double DownPercent, double Penalty)[] OutageUnavailabilityCurve { get; set; } =
     {
-        (0, 0), (0.5, 1.5), (1, 2.5), (2, 4), (5, 7), (10, 14), (30, 28), (60, 45), (180, 70), (480, 90)
+        (0, 0), (0.01, 1), (0.1, 4), (0.5, 12), (1, 20), (3, 40), (10, 70), (25, 90)
     };
 
     /// <summary>
-    /// Per-event occurrence cost: the OCCURRENCE component of the outage penalty, summed across every
-    /// WAN outage on top of the duration curve. Each event contributes OutageEventCost x severity,
-    /// where severity = breadth (fraction of monitored targets that dropped) x depth (peak loss
-    /// fraction), 0..1. This is what makes recurrence bite: ten separate micro-drops cost ~ten times
-    /// a single one, where the duration curve alone would treat them as one slightly-longer drop. It
-    /// also lifts a single felt short outage off the floor. Kept modest because these events still
-    /// feed the Packet Loss factor (not masked), so we don't want to triple-count.
+    /// Felt-event curve: points the SINGLE worst outage earns on its own absolute effective minutes,
+    /// regardless of window length. The duration penalty is the GREATER of this and
+    /// <see cref="OutageUnavailabilityCurve"/>, because a four-hour outage is a memorable,
+    /// complaint-worthy event whether you are looking at two days or a month, and a pure availability
+    /// ratio would price it at almost nothing on a long window. Deliberately far gentler than the
+    /// ratio curve - it is a floor for what was FELT, not a second full penalty - and it is what keeps
+    /// a single short drop off zero now that the ratio term is tiny on long windows. The front stays
+    /// steep (the old severity curve's shape): a 30 s drop is felt out of all proportion to its
+    /// seconds - a dropped call, a stalled stream - so it carries a couple of points rather than the
+    /// near-nothing its share of a day would suggest. The tail is flat by comparison, because past a
+    /// few minutes the ratio term is the one that should be doing the talking.
     /// </summary>
-    public double OutageEventCost { get; set; } = 3.0;
+    public (double Minutes, double Penalty)[] OutageFeltEventCurve { get; set; } =
+    {
+        (0, 0), (0.5, 1.5), (1, 2.5), (2, 3.5), (5, 5), (15, 6.5), (60, 12), (240, 20), (720, 30)
+    };
 
     /// <summary>
-    /// Cap on the summed occurrence component so a pathologically flaky window doesn't run the penalty
-    /// away on its own (the duration curve still adds on top, uncapped). Set high - a line dropping
-    /// dozens of times in the window SHOULD score badly - but bounded so occurrence can't alone zero a
-    /// score that the duration barely touched.
+    /// Occurrence curve: points deducted per (severity-weighted WAN outages per DAY, penaltyPoints)
+    /// anchor. This is the RECURRENCE component, on top of the duration penalty, and it is scored as a
+    /// true rate so a given drop rate costs the same in any window. Eight drops in 48 h is a crisis
+    /// and the same eight over a month is a quirk; the previous per-event cost scaled by the window
+    /// ratio scored those two identically, and worse, made a sustained rate cost LESS the longer it
+    /// was observed. Each event contributes its severity (breadth x depth x usage weight, 0..1) to the
+    /// daily rate, so shallow or narrow events push the rate up less than clean blackouts. The rate is
+    /// built from every event PAST the worst one, since recurrence starts at the second: a lone outage
+    /// is an incident rather than a pattern, and rating one drop in 48 h as "0.5 a day" would read a
+    /// single sample as a trend and charge it here as well as on duration. The top anchor caps the
+    /// component, so occurrence alone cannot zero a score the duration barely touched.
     /// </summary>
-    public double OutageOccurrenceCap { get; set; } = 35.0;
+    public (double EventsPerDay, double Penalty)[] OutageOccurrenceRateCurve { get; set; } =
+    {
+        (0, 0), (0.1, 3), (0.5, 8), (1, 14), (3, 25), (8, 35)
+    };
+
+    /// <summary>
+    /// How long a gateway loss reading stays valid as the loss floor after the sample it came from
+    /// (see <see cref="GatewayLossFloor"/>). The floor reflects a physical condition - a struggling
+    /// forwarding path, an overloaded switch, a bad cable - that persists across a poll or two, so
+    /// carrying the last reading forward is more faithful than assuming the chain went clean between
+    /// samples. Past this it decays to zero, so a stale reading cannot keep suppressing loss forever.
+    /// Set well above the aggregate interval a long window uses, and comfortably above the probe
+    /// cadence, so an ordinary gap does not drop the floor mid-incident.
+    /// </summary>
+    public int GatewayFloorMaxStalenessSeconds { get; set; } = 300;
+
+    /// <summary>
+    /// How far either side of an upstream sample the floor looks for gateway readings, taking the
+    /// worst it finds. An impairment that drops probes drops them continuously, but the gateway is
+    /// sampled on its own cadence, so which tick precedes a given probe is an artifact of timing. A
+    /// real capture made the point: saturating the LAN between the gateway and this server took every
+    /// upstream target to 60-80% loss for about ten seconds while the gateway itself read 66.7% then
+    /// 33.3%, and matching backwards only would have subtracted anywhere from 0% to 46.7% across that
+    /// one burst depending purely on alignment. Kept small - a couple of sample intervals at the fine
+    /// end - so an isolated gateway spike cannot absolve a span it did not overlap.
+    /// </summary>
+    public int GatewayFloorMatchSeconds { get; set; } = 15;
+
+    /// <summary>
+    /// Mean gateway loss (percent) at or above which the local-network finding is raised. Any loss to
+    /// the gateway is worth knowing about, but a single dropped probe over a long window is noise
+    /// rather than a fault, and a finding that fires on it would train people to ignore the one that
+    /// matters. The floor still subtracts below this threshold - only the finding is gated.
+    /// </summary>
+    public double GatewayLossFindingMinPct { get; set; } = 0.5;
+
+    /// <summary>
+    /// Ceiling on the WAN rate aggregation interval, independent of the report window. Everything else
+    /// is thinned as the window grows, but load classification is the one signal that cannot survive
+    /// it: at a month-long window the rate series arrived aggregated to ~60 s, which collapses a
+    /// minute-long transfer and a single counter artifact into the same thing - one sample, no
+    /// neighbors - so sustained load became indistinguishable from a spike. The rate series is ONE
+    /// series against roughly twenty-five per-target latency series, so holding it fine costs little.
+    /// </summary>
+    public int WanRateMaxAggregateSeconds { get; set; } = 15;
+
+    /// <summary>
+    /// Consecutive loaded rate samples required before a span counts as loaded. Real saturation
+    /// sustains across samples; a counter artifact is one sample with idle neighbors, and magnitude
+    /// cannot tell them apart because bursty access media legitimately read well above plan (a gig
+    /// GPON line under full load sawtooths roughly 0.8x to 1.4x, so even its troughs clear the loaded
+    /// threshold and a run requirement passes easily). Two samples is deliberately low: it is enough
+    /// to reject the singleton, without demanding a transfer longer than a scheduled speed test.
+    /// </summary>
+    public int MinLoadedRunSamples { get; set; } = 2;
+
+    /// <summary>
+    /// Multiple of the configured plan speed above which a WAN throughput sample is treated as a
+    /// counter artifact and discarded (see <see cref="WanRateSanitizer"/>) rather than as load. Well
+    /// above 1 because ISPs over-provision and a burst can genuinely beat the plan; this exists only
+    /// to reject the impossible readings a counter reset produces at a link flap, which would
+    /// otherwise mark the window loaded and pull the flap's own loss into Loaded Loss.
+    /// </summary>
+    public double WanRateImplausibleMultiple { get; set; } = 2.0;
+
+    /// <summary>
+    /// Loss (percent) at or above which one sample counts as dark for flat-line detection. Just under
+    /// total: a blocked or retired target answers nothing at all, so this is deliberately stricter
+    /// than any congestion threshold and cannot catch a merely lossy hop.
+    /// </summary>
+    public double LossPoolFlatlineLossPct { get; set; } = 99.0;
+
+    /// <summary>
+    /// Fraction of a target's samples that must be dark before it is treated as flat-lined rather
+    /// than badly degraded. Near-total, so a target that recovered for even a small slice of the
+    /// window stays in the pool - that recovery is real measurement.
+    /// </summary>
+    public double LossPoolFlatlineFraction { get; set; } = 0.98;
+
+    /// <summary>
+    /// Minimum loss samples before a target can be judged flat-lined or counted as a healthy peer.
+    /// A target that barely reported cannot support either conclusion.
+    /// </summary>
+    public int LossPoolFlatlineMinSamples { get; set; } = 20;
+
+    /// <summary>
+    /// Mean loss (percent) at or below which a peer counts as still measuring healthily. At least one
+    /// such peer must exist before anything is excluded, which is what keeps a genuine path-wide
+    /// outage - where every target reads 100% at once - from having its own evidence filtered away.
+    /// </summary>
+    public double LossPoolHealthyPeerMaxLossPct { get; set; } = 5.0;
+
+    /// <summary>
+    /// Minimum window length before findings quote an uptime percentage. Below this the figure is
+    /// read as a monthly SLA number when it actually covers a few hours. The score card states the
+    /// period right next to the number, so it is not gated - only the prose is.
+    /// </summary>
+    public int UptimeProseMinWindowHours { get; set; } = 24;
 
     /// <summary>
     /// Weight outage severity by a time-of-day usage fingerprint: an outage during the hours the user

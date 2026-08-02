@@ -467,7 +467,6 @@ public class IspHealthService
             _customCache = new CustomWindowSnapshot(windowStart, windowEnd, outcome.Report, outcome.ChartClusters, DateTime.UtcNow);
         return (outcome.Report, outcome.ChartClusters);
     }
-
     /// <summary>
     /// Drops congestion events in the canonical-covered recent window (the trailing
     /// <see cref="IspHealthOptions.ScoreWindowHours"/>) that the fine-resolution canonical report
@@ -489,9 +488,35 @@ public class IspHealthService
             .ToList();
     }
 
+    /// <summary>
+    /// Rounds the aggregate down to whole units - days, then hours, then minutes, then seconds.
+    ///
+    /// This is not a nicety: until the Flux duration renderer was corrected it truncated to whole
+    /// units on the way out, so a computed 103.97 s ran as 60 s and ISP Health's real resolution on a
+    /// 30-day window was 60 s, not 104 s. Rendering it exactly would silently coarsen every detector
+    /// and score on long windows, so the historical value is reproduced here deliberately instead.
+    /// Charts are left on the corrected value - they target ~150 points and do not care - but ISP
+    /// Health's resolution is a correctness property of the outage, congestion and loss analysis, and
+    /// is not something to change as a side effect of fixing a renderer.
+    /// </summary>
+    internal static TimeSpan SnapAggregate(TimeSpan window)
+    {
+        var seconds =
+            window.TotalDays >= 1 ? Math.Floor(window.TotalDays) * 86400
+            : window.TotalHours >= 1 ? Math.Floor(window.TotalHours) * 3600
+            : window.TotalMinutes >= 1 ? Math.Floor(window.TotalMinutes) * 60
+            : Math.Floor(window.TotalSeconds);
+        return TimeSpan.FromSeconds(Math.Max(1, seconds));
+    }
+
     private async Task<ComputeOutcome> ComputeCoreAsync(DateTime windowStart, DateTime windowEnd,
         IReadOnlyList<CongestionEvent>? referenceEvents, CancellationToken ct)
     {
+        // Only the auto-compute path was timed, so a custom window - which is where the expensive
+        // long spans are actually requested - had no cost signal at all. The budget's failure mode is
+        // silently dropping the user to a shorter window, so changes near the query path need a
+        // before/after number rather than an assumption.
+        var computeSw = System.Diagnostics.Stopwatch.StartNew();
         if (!_influx.IsConfigured && !await _influx.ReconfigureAsync(ct))
             return new ComputeOutcome(IspHealthStatus.NotConfigured, null, new List<AsnSeries>());
 
@@ -633,8 +658,8 @@ public class IspHealthService
         // loaded instead of diluting into minute-level means. Longer (filter-selected) windows
         // coarsen it to keep the point count bounded; the canonical 48 h window lands on exactly
         // LoadWindowSeconds, so the auto-computed report is unchanged.
-        var aggregate = TimeSpan.FromSeconds(Math.Max(
-            _options.LoadWindowSeconds, (windowEnd - windowStart).TotalSeconds / 25000.0));
+        var aggregate = SnapAggregate(TimeSpan.FromSeconds(Math.Max(
+            _options.LoadWindowSeconds, (windowEnd - windowStart).TotalSeconds / 25000.0)));
 
         // Outage detection reaches back a bounded lead-in BEFORE the window start so an outage already
         // in progress when the window opens is detected from its true onset instead of being clipped to
@@ -651,17 +676,32 @@ public class IspHealthService
         // bursts, which a coarse mean blunts), so it diverged from the fine-resolution attribution on
         // transit-heavy paths. Kept fine everywhere; the compute-time wins now come from the in-memory
         // detector/scorer paths, not from coarsening the input.
+        // Everything above runs before a single query is issued - site database reads, target and
+        // technology resolution, and console calls. The "fetch" figure lumped it in with the reads,
+        // which measured the four latency queries at ~1s from the box while fetch showed ~6.8s.
+        var setupMs = computeSw.ElapsedMilliseconds;
         var ispSeriesTask = _influx.QueryLatencyDetailByTargetTypeAsync(MonitoringTargetType.AccessIsp, outageQueryStart, windowEnd, aggregate, ct);
         var transitSeriesTask = _influx.QueryLatencyDetailByTargetTypeAsync(MonitoringTargetType.Transit, windowStart, windowEnd, aggregate, ct);
         var internetSeriesTask = _influx.QueryLatencyDetailByTargetTypeAsync(MonitoringTargetType.InternetService, outageQueryStart, windowEnd, aggregate, ct);
         var customSeriesTask = _influx.QueryLatencyDetailByTargetTypeAsync(MonitoringTargetType.Custom, windowStart, windowEnd, aggregate, ct);
-        var ratesTask = QueryWanRatesAsync(windowStart, windowEnd, aggregate, ct);
+        // Rates keep a fine interval whatever the window length. Thinning them with everything else
+        // destroys the only property that separates sustained load from a spike - whether neighboring
+        // samples are loaded too - because a minute-long transfer and a one-sample counter artifact
+        // both collapse to a single point. One series against ~25 per-target latency series, so the
+        // extra rows are cheap relative to what the compute already carries.
+        var rateAggregate = TimeSpan.FromSeconds(
+            Math.Min(aggregate.TotalSeconds, Math.Max(_options.LoadWindowSeconds, _options.WanRateMaxAggregateSeconds)));
+        var ratesTask = QueryWanRatesAsync(windowStart, windowEnd, rateAggregate, ct);
         var speedsTask = ResolveExpectedSpeedsAsync(ct);
         var speedTestsTask = LoadWanSpeedTestsAsync(windowStart, windowEnd, ct);
         var gatewaySeriesTask = gatewayTarget == null
             ? Task.FromResult(new List<MonitoringInfluxClient.LatencySeriesPoint>())
             : _influx.QueryLatencyDetailByTargetIdAsync(gatewayTarget.TargetId, outageQueryStart, windowEnd, aggregate, ct);
         await Task.WhenAll(ispSeriesTask, transitSeriesTask, internetSeriesTask, customSeriesTask, ratesTask, speedsTask, speedTestsTask, gatewaySeriesTask);
+        // Split the compute at the point every query has returned. Three rounds of optimizing the rate
+        // path moved the total by nothing, which means the cost is not where it was assumed to be -
+        // and query time versus post-query work are the two halves that need different answers.
+        var fetchMs = computeSw.ElapsedMilliseconds;
 
         // Extended (lead-in) series: used only to build the outage detector's trigger and hops below.
         var ispSeriesExt = ToSamples(await ispSeriesTask);
@@ -676,6 +716,15 @@ public class IspHealthService
         var customSeries = ToSamples(await customSeriesTask);
         var wanRates = await ratesTask;
         var (expectedDown, expectedUp, expectedSource, smartQueuesEnabled, scoredWan) = await speedsTask;
+
+        // A counter reset at a link flap reports a rate the line cannot carry. Left in, one such
+        // sample marks its window loaded and drags the flap's own loss into Loaded Loss.
+        var sanitized = WanRateSanitizer.Filter(wanRates, expectedDown, expectedUp, _options);
+        if (sanitized.Dropped > 0)
+            _logger.LogInformation(
+                "ISP Health: discarded {Dropped} of {Total} WAN rate sample(s) above {Multiple}x the {Down}/{Up} Mbps plan (counter artifacts)",
+                sanitized.Dropped, wanRates.Count, _options.WanRateImplausibleMultiple, expectedDown, expectedUp);
+        wanRates = sanitized.Samples;
         var wanSpeedTests = await speedTestsTask;
         // Gateway samples feed only the outage waterfall's gateway hop, so they carry the full extended
         // window (the detector clips each hop's series to the detected event span anyway).
@@ -743,10 +792,14 @@ public class IspHealthService
         // feeding the pool through the same span, so pooled loss stays usable on paths with
         // several upstream ASNs - and surfaced as path events after outage detection. The
         // ASN's own grade uses the unfiltered grading series, so it still takes the hit.
+        // Both rules: cleanly withdrawn (every sample dark for minutes) and flapping (mostly dark for
+        // longer, answering the odd probe). Overlapping windows are harmless - masking is a range test.
         var transitDarkWindows = transitTargets
             .Where(t => transitSeries.ContainsKey(t.TargetId))
             .SelectMany(t => TransitUnreachableDetector.Detect(
-                t.TargetId, t.AsnNumber ?? 0, AsnNameCleanup.Clean(t.AsnName), transitSeries[t.TargetId], _options))
+                    t.TargetId, t.AsnNumber ?? 0, AsnNameCleanup.Clean(t.AsnName), transitSeries[t.TargetId], _options)
+                .Concat(TransitUnreachableDetector.DetectMostlyDark(
+                    t.TargetId, t.AsnNumber ?? 0, AsnNameCleanup.Clean(t.AsnName), transitSeries[t.TargetId], _options)))
             .ToList();
         var darkByTargetId = transitDarkWindows
             .GroupBy(w => w.TargetId)
@@ -761,19 +814,37 @@ public class IspHealthService
         // nearest hop because far-hop RTT carries transit variance that isn't the access
         // link's loaded behavior - see PickFirstCleanHop / spec "Measurement sources".)
         // Transit series enter minus their unreachable windows (see transitDarkWindows above).
-        var lossPool = new List<List<LatencySample>>();
-        lossPool.AddRange(ispTargets.Where(t => ispSeries.ContainsKey(t.TargetId)).Select(t => ispSeries[t.TargetId]));
-        lossPool.AddRange(transitTargets.Where(t => transitSeries.ContainsKey(t.TargetId)).Select(t =>
-            darkByTargetId.TryGetValue(t.TargetId, out var dark)
-                ? transitSeries[t.TargetId].Where(s => !dark.Any(w => s.Time >= w.Start && s.Time <= w.End)).ToList()
-                : transitSeries[t.TargetId]));
-        lossPool.AddRange(targets
+        // Built WITH target ids so flat-lined members can be identified before the ids are dropped:
+        // the scorer's pool is anonymous (LatencySample carries no target), so this is the last point
+        // where a target can be named.
+        var identifiedPool = new List<LossPoolFilter.PoolEntry>();
+        identifiedPool.AddRange(ispTargets.Where(t => ispSeries.ContainsKey(t.TargetId))
+            .Select(t => new LossPoolFilter.PoolEntry(t.TargetId, ispSeries[t.TargetId])));
+        identifiedPool.AddRange(transitTargets.Where(t => transitSeries.ContainsKey(t.TargetId)).Select(t =>
+            new LossPoolFilter.PoolEntry(t.TargetId,
+                darkByTargetId.TryGetValue(t.TargetId, out var dark)
+                    ? transitSeries[t.TargetId].Where(s => !dark.Any(w => s.Time >= w.Start && s.Time <= w.End)).ToList()
+                    : transitSeries[t.TargetId])));
+        identifiedPool.AddRange(targets
             .Where(t => t.TargetType == MonitoringTargetType.InternetService
                 && AnycastDnsIps.Contains(t.Address)
                 && internetSeries.ContainsKey(t.TargetId))
-            .Select(t => internetSeries[t.TargetId]));
+            .Select(t => new LossPoolFilter.PoolEntry(t.TargetId, internetSeries[t.TargetId])));
 
+        // A target dark for the whole window while its peers keep measuring is blocked or retired, not
+        // losing; its constant 100% would swamp the pooled mean both loss factors are graded on.
+        var flatlined = LossPoolFilter.FindFlatlined(identifiedPool, _options);
+        if (flatlined.Count > 0)
+            _logger.LogInformation("ISP Health: excluding {Count} flat-lined target(s) from the loss pool: {Targets}",
+                flatlined.Count, string.Join(", ", flatlined));
+        var lossPool = identifiedPool
+            .Where(e => !flatlined.Contains(e.TargetId))
+            .Select(e => e.Samples.ToList())
+            .ToList();
+
+        var trimAndMaskMs = computeSw.ElapsedMilliseconds - fetchMs;
         var (ispGrading, transitGrading, allClusters, ispChart, transitChart) = BuildAsnSeriesSets(ispTargets, transitTargets, ispSeries, transitSeries, ancestorIpsByTargetId);
+        var asnBuildMs = computeSw.ElapsedMilliseconds - fetchMs - trimAndMaskMs;
         var chartClusters = ispChart.Concat(transitChart).ToList();
         var internetTargetSeries = targets
             .Where(t => t.TargetType == MonitoringTargetType.InternetService && internetSeries.ContainsKey(t.TargetId))
@@ -895,6 +966,7 @@ public class IspHealthService
         // Internet/CDN targets join step detection because routing shifts in a transit
         // network show up on every path that crosses it (per the real shift examples)
         var stepInput = allClusters.Concat(internetTargetSeries).ToList();
+        var detectorsStartMs = computeSw.ElapsedMilliseconds;
         var pathShifts = StepChangeDetector.Detect(stepInput, _options);
 
         // Outage detection: the internet targets going dark defines an outage; every hop is
@@ -1135,6 +1207,8 @@ public class IspHealthService
             IspTargetSeries = ispTargetSeries,
             TargetAddresses = await ResolveHopAddressesAsync(ispTargets, ct),
             LossPoolSeries = lossPool,
+            LossPoolExcludedTargetIds = flatlined,
+            GatewayLossSeries = gatewaySamples,
             TransitAsnSeries = transitGrading,
             IspAsnSeries = ispGrading,
             DestinationSeries = internetTargetSeries,
@@ -1161,7 +1235,10 @@ public class IspHealthService
         };
 
         ct.ThrowIfCancellationRequested();
+        var detectorsMs = computeSw.ElapsedMilliseconds - detectorsStartMs;
+        var scoreStartMs = computeSw.ElapsedMilliseconds;
         var report = new IspHealthScorer(_options, _logger).Score(inputs, profile);
+        var scoreMs = computeSw.ElapsedMilliseconds - scoreStartMs;
         report.AccessTechnology = technology;
         report.PhysicalLinkCandidates = physical.Candidates;
         report.PhysicalLinkSelectedKey = physical.SelectedKey;
@@ -1173,6 +1250,15 @@ public class IspHealthService
         report.PppoeSession = pppoeSession == true;
         _logger.LogDebug("ISP Health computed: {Score} ({Tech}), {Events} congestion events, {Shifts} path shifts",
             report.OverallScore, profile.DisplayName, congestionEvents.Count, pathShifts.Count);
+        _logger.LogDebug(
+            "ISP Health compute timing: {Hours}h in {Ms}ms = setup {Setup} + query {Query} + trim/mask {Trim} + asn {Asn} + detect {Detect} + score {Score} + other {Other}; {Rates} rates, {LatencyPoints} latency points, {LossSeries} loss series",
+            (windowEnd - windowStart).TotalHours.ToString("0.#"), computeSw.ElapsedMilliseconds,
+            setupMs, fetchMs - setupMs, trimAndMaskMs, asnBuildMs, detectorsMs, scoreMs,
+            computeSw.ElapsedMilliseconds - fetchMs - trimAndMaskMs - asnBuildMs - detectorsMs - scoreMs,
+            wanRates.Count,
+            ispSeries.Sum(kv => kv.Value.Count) + transitSeries.Sum(kv => kv.Value.Count)
+                + internetSeries.Sum(kv => kv.Value.Count),
+            lossPool.Count);
         return new ComputeOutcome(IspHealthStatus.Ready, report, chartClusters);
     }
 
@@ -1368,12 +1454,17 @@ public class IspHealthService
                 || t.TargetType == MonitoringTargetType.Transit
                 || t.TargetType == MonitoringTargetType.InternetService))
             .ToListAsync(ct);
+        // Flat-lined targets the last computed report dropped come out here too. Subtracting from the
+        // report rather than re-deriving it keeps this the single definition: the exclusion is a
+        // measurement judgment and this method only reads the database, so it cannot make it itself.
+        var excluded = _cached?.Report.LossPoolExcludedTargetIds ?? Array.Empty<string>();
         return targets
             .Where(t => t.TargetType == MonitoringTargetType.AccessIsp
                 || (t.TargetType == MonitoringTargetType.Transit
                     && !(t.AsnNumber is int a && WellKnownAsns.NonTransitInfrastructure.Contains(a)))
                 || (t.TargetType == MonitoringTargetType.InternetService && AnycastDnsIps.Contains(t.Address)))
             .Select(t => t.TargetId)
+            .Where(id => !excluded.Contains(id))
             .ToList();
     }
 

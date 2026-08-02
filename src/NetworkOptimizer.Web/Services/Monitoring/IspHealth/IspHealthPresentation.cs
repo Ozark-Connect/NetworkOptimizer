@@ -181,6 +181,63 @@ public static class IspHealthPresentation
         return $"{span.TotalDays:0.#} {(Math.Abs(span.TotalDays - 1) < 0.05 ? "day" : "days")}";
     }
 
+    /// <summary>Window span written out for prose ("30 days", "48 hours"), where
+    /// <see cref="WindowLabel"/>'s abbreviated units would read badly mid-sentence.</summary>
+    public static string ProseWindowLabel(IspHealthReport r)
+    {
+        var span = r.WindowEnd - r.WindowStart;
+        if (span.TotalMinutes < 60)
+            return $"{span.TotalMinutes:0} minutes";
+        if (span.TotalHours < 72)
+            return $"{span.TotalHours:0.#} hours";
+        return $"{span.TotalDays:0.#} {(Math.Abs(span.TotalDays - 1) < 0.05 ? "day" : "days")}";
+    }
+
+    /// <summary>
+    /// The window's uptime percentage. A window that had ANY downtime never renders as a flat 100%:
+    /// the outage is right there on the timeline, so a near-miss is held at 99.99% rather than
+    /// rounding into a claim the timeline contradicts.
+    /// </summary>
+    public static string FormatUptime(IspHealthReport r) =>
+        r.Downtime > TimeSpan.Zero && r.UptimePercent >= 99.995
+            ? "99.99%"
+            : $"{r.UptimePercent:0.##}%";
+
+    /// <summary>Total downtime for the score card's uptime sub-line; "no downtime" when nothing went dark.</summary>
+    public static string FormatDowntime(TimeSpan d) =>
+        d <= TimeSpan.Zero ? "no downtime"
+        : d.TotalSeconds < 90 ? $"{d.TotalSeconds:0} sec down"
+        : d.TotalMinutes < 90 ? $"{d.TotalMinutes:0} min down"
+        : $"{d.TotalHours:0.#} h down";
+
+    /// <summary>
+    /// Which of the two score-only grade components is costing this network more, for the single stat
+    /// the row has space for. Jitter and loss already appear as measurements; stability and congestion
+    /// exist only as scores, so without this the card can show four healthy numbers beside a grade
+    /// that does not follow from them - a hop reading 100 stability, 0% loss and unremarkable jitter
+    /// while grading in the sixties on congestion nothing on screen mentioned.
+    ///
+    /// Compared by contribution to the deficit - weight x shortfall - not by raw score, because the
+    /// components carry different weights. Congestion reports its event COUNT rather than its score:
+    /// "2 Events" says what happened, where "Congestion 48" invites being read as a percentage.
+    /// </summary>
+    public static (string Label, string Value, int? Score)? LimitingAspect(
+        int? stabilityScore, int? congestionScore, int congestionEvents,
+        double stabilityWeight, double congestionWeight)
+    {
+        if (stabilityScore is null && congestionScore is null) return null;
+
+        var stabilityDeficit = stabilityScore is int s ? stabilityWeight * (100 - s) : -1;
+        var congestionDeficit = congestionScore is int c ? congestionWeight * (100 - c) : -1;
+
+        // Ties go to congestion, except when it has nothing to report - "0 Events" only ever wins
+        // the slot against a perfect stability score, and the number is the more useful of the two.
+        if (congestionScore is int cs && congestionDeficit >= stabilityDeficit
+            && (congestionEvents > 0 || stabilityScore is null))
+            return ("Congestion", congestionEvents == 1 ? "1 Event" : $"{congestionEvents} Events", cs);
+        return stabilityScore is int ss ? ("Stability", ss.ToString(), ss) : null;
+    }
+
     /// <summary>The window's absolute bounds in local time, for a report that outlives the page.</summary>
     public static string WindowRangeLabel(IspHealthReport r) =>
         $"{r.WindowStart.ToLocalTime():MMM d, yyyy HH:mm} to {r.WindowEnd.ToLocalTime():MMM d, yyyy HH:mm}";

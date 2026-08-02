@@ -1,0 +1,33 @@
+{
+  "id": "2.5.3",
+  "kind": "whats-new",
+  "title": "What's new in v2.5.3",
+  "summary": "Uptime on the ISP Health score card, outages and congestion scored against the window you are looking at, and a larger download burst for Adaptive SQM.",
+  "steps": [
+    {
+      "id": "isp-uptime",
+      "level": "minor",
+      "url": "/monitoring?tab=isp-health",
+      "selector": "[data-tour=\"isp-uptime\"]",
+      "title": "Uptime",
+      "listLabel": "Outages and congestion scored against the window, not in flat minutes",
+      "badge": "improved",
+      "body": "**Uptime** now sits above the three gauges. Outages and congestion are both scored against the window you are looking at, so fifteen minutes down costs far less over a month than over a day.",
+      "placement": "bottom",
+      "requires": ["isp-health"],
+      "optional": true
+    },
+    {
+      "id": "sqm-download-burst",
+      "level": "minor",
+      "url": "/sqm",
+      "selector": "[data-tour=\"sqm-download-burst\"]",
+      "title": "Larger download burst",
+      "listLabel": "Downloads that fall short of your plan may have more to give",
+      "body": "If your downloads never quite reach your plan, **Larger download burst** may find the rest. Turn it on for your WAN and redeploy to try it.",
+      "placement": "top",
+      "requires": ["sqm-enabled"],
+      "optional": true
+    }
+  ]
+}

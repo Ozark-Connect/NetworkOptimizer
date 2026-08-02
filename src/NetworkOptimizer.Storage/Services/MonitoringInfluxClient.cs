@@ -34,6 +34,10 @@ public class MonitoringInfluxClient : IAsyncDisposable
 
     private InfluxDBClient? _client;
     private WriteApiAsync? _writeApi;
+    // Direct HTTP client for the high-volume raw-CSV reads (see QueryRawLinesAsync). Built and torn
+    // down alongside _client from the same settings; holds the token only in its Authorization
+    // header, the same in-memory exposure as the InfluxDB client itself.
+    private HttpClient? _rawQueryHttp;
     private string? _org;
     private string? _bucket;
     private string? _longtermBucket;
@@ -243,6 +247,22 @@ public class MonitoringInfluxClient : IAsyncDisposable
 
             _client = new InfluxDBClient(options);
             _writeApi = _client.GetWriteApiAsync();
+
+            // Sibling client for the streamed raw-CSV reads. Same wire behavior as the InfluxDB
+            // client's transport (RestSharp defaults to requesting compressed responses) and the
+            // same 60 s timeout - which here bounds only the wait for response headers, so the
+            // body read stays governed by the caller's token (ISP Health's compute budget),
+            // exactly the "budget is the single authority" intent of the 60 s bump above.
+            _rawQueryHttp = new HttpClient(new SocketsHttpHandler
+            {
+                AutomaticDecompression = System.Net.DecompressionMethods.All
+            })
+            {
+                BaseAddress = new Uri(url.EndsWith('/') ? url : url + "/"),
+                Timeout = TimeSpan.FromSeconds(60)
+            };
+            _rawQueryHttp.DefaultRequestHeaders.Authorization =
+                new System.Net.Http.Headers.AuthenticationHeaderValue("Token", plainToken);
             _url = url;
             _org = SanitizeFluxString(org);
             _bucket = SanitizeFluxString(bucket);
@@ -1516,6 +1536,17 @@ from(bucket: ""{_bucket}"")
         var mac = NormalizeMac(deviceMac);
         var ifFilter = string.Join(" or ", wanIfNames.Select(n =>
             $@"r.if_name == ""{SanitizeFluxString(n)}"""));
+        // Summing across interfaces groups by (_time, _field), which on a long window at a fine
+        // aggregate means one server-side group per sample - measured at 6657ms against 490ms without,
+        // for 148k samples over 30 days. With a single WAN there is nothing to sum: the stage returns
+        // its one input value unchanged, so skipping it is identical output, not an approximation.
+        // Several interfaces still take the summing path, where it earns its cost.
+        var multiWanSum = wanIfNames.Count > 1
+            ? @"
+  |> group(columns: [""_time"", ""_field""])
+  |> sum()
+  |> group()"
+            : string.Empty;
         var flux = $@"
 from(bucket: ""{_bucket}"")
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
@@ -1523,25 +1554,17 @@ from(bucket: ""{_bucket}"")
   |> filter(fn: (r) => r.device_mac == ""{mac}"")
   |> filter(fn: (r) => {ifFilter})
   |> filter(fn: (r) => r._field == ""rate_in_bps"" or r._field == ""rate_out_bps"")
-  |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false)
-  |> group(columns: [""_time"", ""_field""])
-  |> sum()
-  |> group()
+  |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false){multiWanSum}
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
   |> sort(columns: [""_time""])
 ";
-        var results = new List<WanRatePoint>();
-        await foreach (var record in QueryFluxAsync(flux, ct))
-        {
-            // SNMP rate_in_bps on a WAN interface = bytes received from ISP = download.
-            // rate_out_bps = bytes sent to ISP = upload.
-            results.Add(new WanRatePoint
-            {
-                Time = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow),
-                DownloadBps = AsDoubleOrNull(record.GetValueByKey("rate_in_bps")),
-                UploadBps = AsDoubleOrNull(record.GetValueByKey("rate_out_bps"))
-            });
-        }
+        // Raw CSV rather than the client's FluxRecord model, same as the latency-detail reads: ISP
+        // Health holds this series fine-grained however long the window is, so a month reads six
+        // figures of rows and the per-record boxing costs multiples of the query itself. Parsed
+        // line-by-line as the response streams in - never materialized as one large string.
+        var parser = new WanRatesCsvParser();
+        await QueryRawLinesAsync(flux, parser.ProcessLine, ct);
+        var results = parser.Finish();
         // Order on assembly: the Flux result is NOT globally ordered. pivot emits a separate table
         // whenever a row's field set differs, and those tables arrive after the main one - so an
         // interval where a device reported some fields but not others comes back at the END.
@@ -1806,7 +1829,16 @@ from(bucket: ""{_bucket}"")
   |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false)
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
 ";
-        return ParseLatencyDetailCsv(await QueryRawAsync(flux, ct));
+        // Per-query timing: the aggregate figure said the reads cost ~6.7s in-process while the same
+        // queries run in ~1s from a shell on the same box, and neither the parser nor the CPU accounts
+        // for the gap. Split it per query so one slow read cannot hide behind the others.
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var parser = new LatencyDetailCsvParser();
+        await QueryRawLinesAsync(flux, parser.ProcessLine, ct);
+        var result = parser.Finish();
+        _logger.LogDebug("Influx latency-detail read: {Type} in {Ms}ms, {Targets} target(s), {Points} point(s), window {Window}",
+            targetType, sw.ElapsedMilliseconds, result.Count, result.Sum(kv => kv.Value.Count), ToFluxDuration(window));
+        return result;
     }
 
     /// <summary>
@@ -1832,7 +1864,9 @@ from(bucket: ""{_bucket}"")
   |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false)
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
 ";
-        var byTarget = ParseLatencyDetailCsv(await QueryRawAsync(flux, ct));
+        var idParser = new LatencyDetailCsvParser();
+        await QueryRawLinesAsync(flux, idParser.ProcessLine, ct);
+        var byTarget = idParser.Finish();
         // Single target filter, but flatten defensively in case the pivot emits more than one key.
         var list = byTarget.Values.SelectMany(x => x).ToList();
         list.Sort((a, b) => a.Time.CompareTo(b.Time));
@@ -2612,13 +2646,16 @@ from(bucket: ""{_longtermBucket}"")
     private static string ToFluxInstant(DateTime t) =>
         t.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ");
 
-    private static string ToFluxDuration(TimeSpan window)
-    {
-        if (window.TotalDays >= 1) return $"{(int)window.TotalDays}d";
-        if (window.TotalHours >= 1) return $"{(int)window.TotalHours}h";
-        if (window.TotalMinutes >= 1) return $"{(int)window.TotalMinutes}m";
-        return $"{Math.Max(1, (int)window.TotalSeconds)}s";
-    }
+    /// <summary>
+    /// The window as a Flux duration, exactly. Rendering it in whole units truncated anything that was
+    /// not a round number of them - a computed 103.97s asked Influx for "1m", so the query ran at 60s
+    /// and returned 1.7x the points the caller had sized for, and 90s likewise became "1m". Every
+    /// aggregateWindow in this file goes through here, so the drift was silent and app-wide. Seconds
+    /// are a valid Flux duration at any magnitude, so emitting them keeps the requested window and the
+    /// executed window the same thing.
+    /// </summary>
+    private static string ToFluxDuration(TimeSpan window) =>
+        $"{Math.Max(1, (long)Math.Round(window.TotalSeconds))}s";
 
     private static string SanitizeFluxString(string value) =>
         value.Replace("\"", "").Replace("\\", "").Replace(")", "").Replace("|>", "");
@@ -2640,31 +2677,40 @@ from(bucket: ""{_longtermBucket}"")
     };
 
     /// <summary>
-    /// Runs a Flux query and returns the raw annotated CSV. Used for the high-volume latency-detail
-    /// reads, where the client's buffered FluxRecord model (a Dictionary&lt;string,object&gt; with
-    /// boxed values per record) is the dominant cost; <see cref="ParseLatencyDetailCsv"/> stream-parses
-    /// this directly into points with no per-record allocation. Same error handling as QueryFluxAsync.
+    /// Runs a Flux query over a directly-streamed HTTP response and feeds each raw annotated-CSV
+    /// line to <paramref name="onLine"/> as it comes off the wire. Used for the high-volume
+    /// latency-detail and WAN-rate reads, where the InfluxDB client is the dominant cost rather
+    /// than the server: its FluxRecord model boxes every value into a per-record dictionary, its
+    /// string-returning QueryRawAsync accumulates every line and joins them into one tens-of-MB
+    /// large-object-heap string, and either way its transport (RestSharp with the default
+    /// ResponseContentRead) buffers the ENTIRE response body in memory before the first line is
+    /// handed over - so a month-long read paid the payload several times over in allocations and
+    /// could not start parsing until the last byte arrived. This path sends the same query and
+    /// annotated-CSV dialect (<see cref="BuildRawQueryBody"/>) with ResponseHeadersRead and parses
+    /// incrementally, so the only per-row allocations left are the result points themselves.
+    /// Query failures are mapped through the client's own <c>HttpException.Create</c>, keeping the
+    /// exception types (and this method's not-found/bad-request/unauthorized handling) identical
+    /// to the buffered path it replaces; same error handling as QueryFluxAsync.
     /// </summary>
-    // The annotated CSV dialect (datatype/group/default header rows) - same as the client's default
-    // query dialect, so QueryRawAsync returns the format ParseLatencyDetailCsv expects.
-    private static readonly InfluxDB.Client.Api.Domain.Dialect AnnotatedCsvDialect = new(
-        header: true,
-        delimiter: ",",
-        annotations: new List<InfluxDB.Client.Api.Domain.Dialect.AnnotationsEnum>
-        {
-            InfluxDB.Client.Api.Domain.Dialect.AnnotationsEnum.Group,
-            InfluxDB.Client.Api.Domain.Dialect.AnnotationsEnum.Datatype,
-            InfluxDB.Client.Api.Domain.Dialect.AnnotationsEnum.Default,
-        },
-        commentPrefix: "#",
-        dateTimeFormat: null);
-
-    private async Task<string> QueryRawAsync(string flux, CancellationToken ct)
+    private async Task QueryRawLinesAsync(string flux, CsvLineSink onLine, CancellationToken ct)
     {
-        if (_client == null || string.IsNullOrEmpty(_org)) return string.Empty;
+        if (_rawQueryHttp == null || string.IsNullOrEmpty(_org)) return;
         try
         {
-            return await _client.GetQueryApi().QueryRawAsync(flux, AnnotatedCsvDialect, _org, ct);
+            using var request = new HttpRequestMessage(HttpMethod.Post,
+                "api/v2/query?org=" + Uri.EscapeDataString(_org));
+            request.Content = new StringContent(BuildRawQueryBody(flux),
+                System.Text.Encoding.UTF8, "application/json");
+            using var response = await _rawQueryHttp
+                .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorBody = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+                throw InfluxDB.Client.Core.Exceptions.HttpException.Create(errorBody,
+                    (IEnumerable<RestSharp.HeaderParameter>?)null, response.ReasonPhrase, response.StatusCode);
+            }
+            await using var stream = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+            await FeedStreamLinesAsync(stream, onLine, ct).ConfigureAwait(false);
         }
         catch (Exception ex) when (
             ex is InfluxDB.Client.Core.Exceptions.NotFoundException
@@ -2673,8 +2719,187 @@ from(bucket: ""{_longtermBucket}"")
         {
             _logger.LogWarning("InfluxDB query failed ({Error}) — check Settings > Monitoring", ex.Message);
             _ = PersistHealthAsync(false, ex.Message, CancellationToken.None);
-            return string.Empty;
         }
+    }
+
+    /// <summary>
+    /// JSON body for the raw /api/v2/query POST: the same Flux text and the same annotated-CSV
+    /// dialect (group/datatype/default annotations, header row, comma delimiter, '#' comments,
+    /// default RFC3339 timestamps) the InfluxDB client sent for these reads, so the response
+    /// format - and therefore the parsed result - is unchanged.
+    /// </summary>
+    private static string BuildRawQueryBody(string flux) =>
+        System.Text.Json.JsonSerializer.Serialize(new
+        {
+            query = flux,
+            type = "flux",
+            dialect = new
+            {
+                header = true,
+                delimiter = ",",
+                annotations = new[] { "group", "datatype", "default" },
+                commentPrefix = "#"
+            }
+        });
+
+    /// <summary>
+    /// Reads a UTF-8 CSV response stream and feeds each line to <paramref name="sink"/> with no
+    /// per-line string allocation, splitting on LF exactly as <see cref="FeedCsvLines"/> splits the
+    /// buffered string (the parsers strip the trailing CR of InfluxDB's CRLF terminators), so the
+    /// streamed and string entry points deliver an identical line sequence.
+    /// </summary>
+    private static async Task FeedStreamLinesAsync(Stream stream, CsvLineSink sink, CancellationToken ct)
+    {
+        using var reader = new StreamReader(stream, System.Text.Encoding.UTF8);
+        var pool = System.Buffers.ArrayPool<char>.Shared;
+        var buf = pool.Rent(64 * 1024);
+        try
+        {
+            var len = 0;
+            while (true)
+            {
+                if (len == buf.Length)
+                {
+                    // A single line larger than the buffer (never expected for this data): grow.
+                    var bigger = pool.Rent(buf.Length * 2);
+                    Array.Copy(buf, bigger, len);
+                    pool.Return(buf);
+                    buf = bigger;
+                }
+                var read = await reader.ReadAsync(buf.AsMemory(len, buf.Length - len), ct).ConfigureAwait(false);
+                if (read == 0) break;
+                len += read;
+
+                var start = 0;
+                while (true)
+                {
+                    var nl = buf.AsSpan(start, len - start).IndexOf('\n');
+                    if (nl < 0) break;
+                    sink(buf.AsSpan(start, nl));
+                    start += nl + 1;
+                }
+                if (start > 0)
+                {
+                    Array.Copy(buf, start, buf, 0, len - start);
+                    len -= start;
+                }
+            }
+            if (len > 0) sink(buf.AsSpan(0, len));
+        }
+        finally
+        {
+            pool.Return(buf);
+        }
+    }
+
+    private delegate void CsvLineSink(ReadOnlySpan<char> line);
+
+    /// <summary>
+    /// Splits an in-memory CSV string into lines (LF or CRLF; the parsers strip a trailing CR
+    /// themselves) and feeds them to <paramref name="sink"/> - the string-input counterpart of
+    /// <see cref="QueryRawLinesAsync"/>, so the string-based parse entry points and the streamed
+    /// query path run the exact same per-line logic.
+    /// </summary>
+    private static void FeedCsvLines(string csv, CsvLineSink sink)
+    {
+        var span = csv.AsSpan();
+        int pos = 0;
+        while (pos < span.Length)
+        {
+            var nl = span.Slice(pos).IndexOf('\n');
+            var line = nl < 0 ? span.Slice(pos) : span.Slice(pos, nl);
+            pos = nl < 0 ? span.Length : pos + nl + 1;
+            sink(line);
+        }
+    }
+
+    /// <summary>
+    /// Parses the annotated-CSV result of the WAN rate pivot query (columns _time, rate_in_bps,
+    /// rate_out_bps) into points, on the same span-based basis as <see cref="ParseLatencyDetailCsv"/>
+    /// and for the same reason: ISP Health holds the rate series at a fine interval however long the
+    /// window is - it is the only signal that can tell sustained load from a spike - so a month-long
+    /// window reads six figures of rows here, and the client's FluxRecord model costs more per record
+    /// than the query costs in total.
+    /// </summary>
+    internal static List<WanRatePoint> ParseWanRatesCsv(string csv)
+    {
+        var parser = new WanRatesCsvParser();
+        if (!string.IsNullOrEmpty(csv)) FeedCsvLines(csv, parser.ProcessLine);
+        return parser.Finish();
+    }
+
+    /// <summary>
+    /// Incremental line-by-line form of <see cref="ParseWanRatesCsv"/>, fed straight from
+    /// <see cref="QueryRawLinesAsync"/> so a month-long rate read is parsed as it streams in
+    /// instead of being materialized as one large string first. The per-line logic is the
+    /// string parser's, verbatim; <see cref="ParseWanRatesCsv"/> delegates here so the two
+    /// entry points can never drift.
+    /// </summary>
+    internal sealed class WanRatesCsvParser
+    {
+        private readonly List<WanRatePoint> _result = new();
+        private int _iTime = -1, _iIn = -1, _iOut = -1;
+        private bool _expectHeader = true;
+
+        public void ProcessLine(ReadOnlySpan<char> line)
+        {
+            if (line.Length > 0 && line[line.Length - 1] == '\r') line = line.Slice(0, line.Length - 1);
+            if (line.IsEmpty) return;
+            if (line[0] == '#') { _expectHeader = true; return; }
+
+            if (_expectHeader)
+            {
+                // Re-read on every header: pivot emits a fresh table whenever the field set differs,
+                // so a run where one direction went missing has its own column order.
+                _iTime = _iIn = _iOut = -1;
+                int col = 0, p = 0;
+                while (true)
+                {
+                    var comma = line.Slice(p).IndexOf(',');
+                    var cell = comma < 0 ? line.Slice(p) : line.Slice(p, comma);
+                    if (cell.SequenceEqual("_time")) _iTime = col;
+                    else if (cell.SequenceEqual("rate_in_bps")) _iIn = col;
+                    else if (cell.SequenceEqual("rate_out_bps")) _iOut = col;
+                    col++;
+                    if (comma < 0) break;
+                    p += comma + 1;
+                }
+                _expectHeader = false;
+                return;
+            }
+
+            if (_iTime < 0) return;
+
+            ReadOnlySpan<char> tTime = default, tIn = default, tOut = default;
+            int c = 0, q = 0;
+            while (true)
+            {
+                var comma = line.Slice(q).IndexOf(',');
+                var cell = comma < 0 ? line.Slice(q) : line.Slice(q, comma);
+                if (c == _iTime) tTime = cell;
+                else if (c == _iIn) tIn = cell;
+                else if (c == _iOut) tOut = cell;
+                c++;
+                if (comma < 0) break;
+                q += comma + 1;
+            }
+
+            if (tTime.IsEmpty) return;
+            if (!DateTime.TryParse(tTime, System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.RoundtripKind, out var time))
+                return;
+
+            // rate_in_bps on a WAN interface = bytes received from the ISP = download.
+            _result.Add(new WanRatePoint
+            {
+                Time = DateTime.SpecifyKind(time.ToUniversalTime(), DateTimeKind.Utc),
+                DownloadBps = ParseDoubleOrNull(tIn),
+                UploadBps = ParseDoubleOrNull(tOut)
+            });
+        }
+
+        /// <summary>Returns the accumulated points in arrival order (callers sort, as before).</summary>
+        public List<WanRatePoint> Finish() => _result;
     }
 
     /// <summary>
@@ -2688,48 +2913,55 @@ from(bucket: ""{_longtermBucket}"")
     /// </summary>
     internal static Dictionary<string, List<LatencySeriesPoint>> ParseLatencyDetailCsv(string csv)
     {
-        var result = new Dictionary<string, List<LatencySeriesPoint>>();
-        if (string.IsNullOrEmpty(csv)) return result;
+        var parser = new LatencyDetailCsvParser();
+        if (!string.IsNullOrEmpty(csv)) FeedCsvLines(csv, parser.ProcessLine);
+        return parser.Finish();
+    }
 
-        int iTime = -1, iTarget = -1, iRtt = -1, iRttMax = -1, iJitter = -1, iLoss = -1;
-        var expectHeader = true; // first non-# line is a header (annotated dialect re-arms this after each #-block)
-        string? lastKey = null;
-        List<LatencySeriesPoint>? lastList = null;
+    /// <summary>
+    /// Incremental line-by-line form of <see cref="ParseLatencyDetailCsv"/>, fed straight from
+    /// <see cref="QueryRawLinesAsync"/> so a month-long latency read is parsed as it streams in
+    /// instead of being materialized as one large string first. The per-line logic is the string
+    /// parser's, verbatim; <see cref="ParseLatencyDetailCsv"/> delegates here so the two entry
+    /// points can never drift.
+    /// </summary>
+    internal sealed class LatencyDetailCsvParser
+    {
+        private readonly Dictionary<string, List<LatencySeriesPoint>> _result = new();
+        private int _iTime = -1, _iTarget = -1, _iRtt = -1, _iRttMax = -1, _iJitter = -1, _iLoss = -1;
+        private bool _expectHeader = true; // first non-# line is a header (annotated dialect re-arms this after each #-block)
+        private string? _lastKey;
+        private List<LatencySeriesPoint>? _lastList;
 
-        var span = csv.AsSpan();
-        int pos = 0;
-        while (pos < span.Length)
+        public void ProcessLine(ReadOnlySpan<char> line)
         {
-            var nl = span.Slice(pos).IndexOf('\n');
-            var line = nl < 0 ? span.Slice(pos) : span.Slice(pos, nl);
-            pos = nl < 0 ? span.Length : pos + nl + 1;
             if (line.Length > 0 && line[line.Length - 1] == '\r') line = line.Slice(0, line.Length - 1);
-            if (line.IsEmpty) continue;
-            if (line[0] == '#') { expectHeader = true; continue; }
+            if (line.IsEmpty) return;
+            if (line[0] == '#') { _expectHeader = true; return; }
 
-            if (expectHeader)
+            if (_expectHeader)
             {
-                iTime = iTarget = iRtt = iRttMax = iJitter = iLoss = -1;
+                _iTime = _iTarget = _iRtt = _iRttMax = _iJitter = _iLoss = -1;
                 int col = 0, p = 0;
                 while (true)
                 {
                     var comma = line.Slice(p).IndexOf(',');
                     var cell = comma < 0 ? line.Slice(p) : line.Slice(p, comma);
-                    if (cell.SequenceEqual("_time")) iTime = col;
-                    else if (cell.SequenceEqual("target_id")) iTarget = col;
-                    else if (cell.SequenceEqual("rtt_avg_ms")) iRtt = col;
-                    else if (cell.SequenceEqual("rtt_max_ms")) iRttMax = col;
-                    else if (cell.SequenceEqual("jitter_ms")) iJitter = col;
-                    else if (cell.SequenceEqual("loss_percent")) iLoss = col;
+                    if (cell.SequenceEqual("_time")) _iTime = col;
+                    else if (cell.SequenceEqual("target_id")) _iTarget = col;
+                    else if (cell.SequenceEqual("rtt_avg_ms")) _iRtt = col;
+                    else if (cell.SequenceEqual("rtt_max_ms")) _iRttMax = col;
+                    else if (cell.SequenceEqual("jitter_ms")) _iJitter = col;
+                    else if (cell.SequenceEqual("loss_percent")) _iLoss = col;
                     col++;
                     if (comma < 0) break;
                     p += comma + 1;
                 }
-                expectHeader = false;
-                continue;
+                _expectHeader = false;
+                return;
             }
 
-            if (iTime < 0 || iTarget < 0) continue;
+            if (_iTime < 0 || _iTarget < 0) return;
 
             ReadOnlySpan<char> tTime = default, tTarget = default, tRtt = default, tRttMax = default, tJitter = default, tLoss = default;
             int c = 0, q = 0;
@@ -2737,34 +2969,34 @@ from(bucket: ""{_longtermBucket}"")
             {
                 var comma = line.Slice(q).IndexOf(',');
                 var cell = comma < 0 ? line.Slice(q) : line.Slice(q, comma);
-                if (c == iTime) tTime = cell;
-                else if (c == iTarget) tTarget = cell;
-                else if (c == iRtt) tRtt = cell;
-                else if (c == iRttMax) tRttMax = cell;
-                else if (c == iJitter) tJitter = cell;
-                else if (c == iLoss) tLoss = cell;
+                if (c == _iTime) tTime = cell;
+                else if (c == _iTarget) tTarget = cell;
+                else if (c == _iRtt) tRtt = cell;
+                else if (c == _iRttMax) tRttMax = cell;
+                else if (c == _iJitter) tJitter = cell;
+                else if (c == _iLoss) tLoss = cell;
                 c++;
                 if (comma < 0) break;
                 q += comma + 1;
             }
 
-            if (tTarget.IsEmpty || tTime.IsEmpty) continue;
+            if (tTarget.IsEmpty || tTime.IsEmpty) return;
             if (!DateTime.TryParse(tTime, System.Globalization.CultureInfo.InvariantCulture,
                     System.Globalization.DateTimeStyles.RoundtripKind, out var time))
-                continue;
+                return;
 
             // Rows are grouped by target, so reuse the key/list across a run rather than re-allocating.
             List<LatencySeriesPoint>? list;
-            if (lastKey != null && tTarget.SequenceEqual(lastKey))
+            if (_lastKey != null && tTarget.SequenceEqual(_lastKey))
             {
-                list = lastList;
+                list = _lastList;
             }
             else
             {
                 var key = tTarget.ToString();
-                if (!result.TryGetValue(key, out list)) { list = new List<LatencySeriesPoint>(); result[key] = list; }
-                lastKey = key;
-                lastList = list;
+                if (!_result.TryGetValue(key, out list)) { list = new List<LatencySeriesPoint>(); _result[key] = list; }
+                _lastKey = key;
+                _lastList = list;
             }
 
             list!.Add(new LatencySeriesPoint
@@ -2777,9 +3009,13 @@ from(bucket: ""{_longtermBucket}"")
             });
         }
 
-        foreach (var list in result.Values)
-            list.Sort((a, b) => a.Time.CompareTo(b.Time));
-        return result;
+        /// <summary>Sorts each target's points by time and returns the accumulated result.</summary>
+        public Dictionary<string, List<LatencySeriesPoint>> Finish()
+        {
+            foreach (var list in _result.Values)
+                list.Sort((a, b) => a.Time.CompareTo(b.Time));
+            return _result;
+        }
     }
 
     private static double? ParseDoubleOrNull(ReadOnlySpan<char> s) =>
@@ -3322,6 +3558,8 @@ from(bucket: ""{_longtermBucket}"")
         _client?.Dispose();
         _client = null;
         _writeApi = null;
+        _rawQueryHttp?.Dispose();
+        _rawQueryHttp = null;
     }
 
     private static string NormalizeMac(string mac) =>

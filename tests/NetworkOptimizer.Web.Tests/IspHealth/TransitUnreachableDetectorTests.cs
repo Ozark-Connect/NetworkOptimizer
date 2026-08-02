@@ -13,6 +13,73 @@ public class TransitUnreachableDetectorTests
     private static List<TransitUnreachableDetector.DarkWindow> Detect(List<LatencySample> samples) =>
         TransitUnreachableDetector.Detect("t1", 3356, "Lumen", samples, Options);
 
+    private static List<TransitUnreachableDetector.DarkWindow> DetectMostlyDark(List<LatencySample> samples) =>
+        TransitUnreachableDetector.DetectMostlyDark("t1", 3356, "Lumen", samples, Options);
+
+    /// <summary>
+    /// A target that answers roughly one probe in three, for the given span. This is the shape that
+    /// slipped through every filter: never a solid run so <see cref="TransitUnreachableDetector.Detect"/>
+    /// never fires, healthy on a month-wide average so neither the flat-line nor the flaky check sees
+    /// it, and ~100% loss for most of the samples that land inside a loaded window.
+    /// </summary>
+    private static List<LatencySample> Flapping(DateTime from, TimeSpan span, int answerEveryNth = 3)
+    {
+        var samples = new List<LatencySample>();
+        var minutes = (int)span.TotalMinutes;
+        for (var i = 0; i < minutes; i++)
+            samples.Add(new LatencySample(from.AddMinutes(i), 12, 14, 1, i % answerEveryNth == 0 ? 0.5 : 100));
+        return samples;
+    }
+
+    [Fact]
+    public void Flapping_target_is_carved_out_even_though_it_never_goes_solidly_dark()
+    {
+        var samples = TestSeries.Flat(Start, Hour, 12, 0.5).Take(10).ToList();
+        samples.AddRange(Flapping(Start.AddMinutes(10), TimeSpan.FromMinutes(40)));
+
+        // The every-sample rule sees nothing: an answered probe resets it before it reaches 180 s.
+        Detect(samples).Should().BeEmpty();
+
+        var windows = DetectMostlyDark(samples);
+        windows.Should().ContainSingle();
+        windows[0].Start.Should().Be(Start.AddMinutes(11));
+        windows[0].AsnNumber.Should().Be(3356);
+    }
+
+    [Fact]
+    public void Brief_flapping_stays_in_the_loss_pool()
+    {
+        // Intermittent evidence is weaker than a solid washout, so it has to persist. Five minutes of
+        // flapping is a loss burst and belongs in the pool.
+        var samples = TestSeries.Flat(Start, Hour, 12, 0.5).Take(10).ToList();
+        samples.AddRange(Flapping(Start.AddMinutes(10), TimeSpan.FromMinutes(5)));
+
+        DetectMostlyDark(samples).Should().BeEmpty();
+    }
+
+    [Fact]
+    public void A_target_answering_most_probes_is_never_carved_out()
+    {
+        // Answers 2 of every 3. Lossy, and that loss is real signal the score should keep.
+        var samples = Flapping(Start, TimeSpan.FromMinutes(40), answerEveryNth: 2)
+            .Select((s, i) => i % 3 == 0 ? s with { LossPercent = 100 } : s with { LossPercent = 0.5 })
+            .ToList();
+
+        DetectMostlyDark(samples).Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Recovery_ends_the_span_at_the_last_dark_sample()
+    {
+        // Masking must never hide samples the target actually answered after it came back.
+        var samples = Flapping(Start, TimeSpan.FromMinutes(40)).ToList();
+        samples.AddRange(TestSeries.Flat(Start.AddMinutes(40), TimeSpan.FromMinutes(20), 12, 0.5));
+
+        var windows = DetectMostlyDark(samples);
+        windows.Should().ContainSingle();
+        windows[0].End.Should().BeBefore(Start.AddMinutes(40));
+    }
+
     [Fact]
     public void Sustained_total_loss_becomes_a_dark_window()
     {

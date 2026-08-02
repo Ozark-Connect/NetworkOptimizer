@@ -668,7 +668,8 @@
                         <span class="form-hint" style="margin: 0;">seconds</span>
                     </div>
                 </div>
-                <div class="form-group">
+                @* Tour anchor sits on WAN 1 only; a duplicate selector would just resolve to this one. *@
+                <div class="form-group" data-tour="sqm-download-burst">
                     <label class="toggle-label">
                         <input type="checkbox" @bind="wan1Config.RateProportionalDownloadBurst" />
                         <span>Larger download burst</span>
