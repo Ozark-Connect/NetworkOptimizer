@@ -654,12 +654,20 @@ public class IspHealthService
         // report leaves _cached untouched, so the next read recomputes. Empty list rather than a
         // missing gateway: a site behind a third-party router has no gateway and must still score.
         var discoveredDevices = await _connectionService.GetDiscoveredDevicesAsync(ct);
-        if (discoveredDevices.Count == 0)
+        // Only suspect while the console CLAIMS to be up: a connected console serving nothing is
+        // the transient this guard was written for. A console that is plainly down is not a
+        // half-loaded one - it is a site someone is trying to look at after the fact, and the
+        // expected speeds it used to supply now come from the remembered WAN profile. Deferring
+        // there would refuse every offline site, which is the case the history exists for.
+        if (discoveredDevices.Count == 0 && _connectionService.IsConnected)
         {
             _logger.LogWarning("ISP Health: the console returned no devices, so its data is not yet trustworthy; " +
                 "deferring rather than caching a report computed without the console-derived inputs");
             return new ComputeOutcome(IspHealthStatus.AwaitingConnection, null, new List<AsnSeries>());
         }
+        if (discoveredDevices.Count == 0)
+            _logger.LogDebug("ISP Health: computing without the console (site offline); expected speeds come from " +
+                "the remembered WAN profile and device-derived detail is omitted");
 
         var profile = IspHealthProfiles.GetProfile(technology);
         if (profile == null)
