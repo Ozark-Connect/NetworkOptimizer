@@ -74,6 +74,7 @@
             <div class="form-group">
                 <div class="input-with-button">
                     <input type="text" id="site-name-input" class="form-control" @bind="_name" @bind:event="oninput"
+                           @onkeydown="SiteNameKeyDownAsync"
                            placeholder="Site name (e.g. Lake House)" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
                     <button type="button" class="btn btn-primary btn-sm" @onclick="CreateSiteAsync"
                             disabled="@(_busy || string.IsNullOrWhiteSpace(_name))">
@@ -343,6 +344,17 @@
         _message = "";
         _messageClass = "";
         StateHasChanged();
+    }
+
+    /// <summary>
+    /// Enter creates the site, matching the button beside the field. Guarded on the same conditions
+    /// the button is disabled by, so a stray Enter on an empty field or mid-create does nothing.
+    /// </summary>
+    private async Task SiteNameKeyDownAsync(KeyboardEventArgs e)
+    {
+        if (e.Key != "Enter" || _busy || string.IsNullOrWhiteSpace(_name))
+            return;
+        await CreateSiteAsync();
     }
 
     private async Task CreateSiteAsync()
