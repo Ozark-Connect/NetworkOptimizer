@@ -1,3 +1,4 @@
+using System.Net;
 using System.Text;
 using Renci.SshNet;
 using Renci.SshNet.Common;
@@ -11,10 +12,27 @@ namespace NetworkOptimizer.Web.Services.Ssh;
 public class SshClientService
 {
     private readonly ILogger<SshClientService> _logger;
+    private readonly AgentTunnelProxyService? _tunnelProxy;
 
-    public SshClientService(ILogger<SshClientService> logger)
+    public SshClientService(ILogger<SshClientService> logger, AgentTunnelProxyService? tunnelProxy = null)
     {
         _logger = logger;
+        _tunnelProxy = tunnelProxy;
+    }
+
+    /// <summary>
+    /// The reason a connection really failed. A host reached through its site's agent is dialed on a
+    /// loopback listener, and when the agent cannot open the far side the server simply closes that
+    /// socket - which SSH.NET reports as a missing protocol banner. That message describes the
+    /// symptom and hides the cause, so the agent's own reason replaces it when there is one.
+    /// </summary>
+    private string ExplainConnectionFailure(SshConnectionInfo connection, string sshNetMessage)
+    {
+        if (_tunnelProxy == null || !IPAddress.TryParse(connection.Host, out var ip) || !IPAddress.IsLoopback(ip))
+            return sshNetMessage;
+        return _tunnelProxy.RecentOpenFailure(connection.Port) is { } reason
+            ? $"could not reach {reason}"
+            : sshNetMessage;
     }
 
     /// <summary>
@@ -68,12 +86,13 @@ public class SshClientService
         }
         catch (SshConnectionException ex)
         {
-            _logger.LogError("SSH connection failed for {Host}: {Error}", connection.Host, ex.Message);
+            var explained = ExplainConnectionFailure(connection, ex.Message);
+            _logger.LogError("SSH connection failed for {Host}: {Error}", connection.Host, explained);
             return new SshCommandResult
             {
                 Success = false,
                 ExitCode = -1,
-                Error = $"Connection failed: {ex.Message}"
+                Error = $"Connection failed: {explained}"
             };
         }
         catch (SshOperationTimeoutException ex)
@@ -136,8 +155,9 @@ public class SshClientService
         }
         catch (SshConnectionException ex)
         {
-            _logger.LogWarning("SSH connection failed for {Host}: {Error}", connection.Host, ex.Message);
-            return (false, $"Connection failed: {ex.Message}");
+            var explained = ExplainConnectionFailure(connection, ex.Message);
+            _logger.LogWarning("SSH connection failed for {Host}: {Error}", connection.Host, explained);
+            return (false, $"Connection failed: {explained}");
         }
         catch (Exception ex)
         {
