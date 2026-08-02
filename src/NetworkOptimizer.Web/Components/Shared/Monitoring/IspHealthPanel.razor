@@ -442,7 +442,7 @@ else
                                             @if (hopLimit.Value.Label == "Congestion")
                                             {
                                                 <span class="isp-target-stat-value isp-events-jump @ScoreTextClass(hopLimit.Value.Score)"
-                                                      data-tooltip="Show these events" @onclick="ScrollToEventsAsync">@hopLimit.Value.Value</span>
+                                                      data-tooltip="Show these events" data-tooltip-hover @onclick="ScrollToEventsAsync">@hopLimit.Value.Value</span>
                                             }
                                             else
                                             {
@@ -618,7 +618,7 @@ else
                                         @if (asnLimit.Value.Label == "Congestion")
                                         {
                                             <span class="detail-value isp-events-jump @ScoreTextClass(asnLimit.Value.Score)"
-                                                  data-tooltip="Show these events" @onclick="ScrollToEventsAsync">@asnLimit.Value.Value</span>
+                                                  data-tooltip="Show these events" data-tooltip-hover @onclick="ScrollToEventsAsync">@asnLimit.Value.Value</span>
                                         }
                                         else
                                         {
@@ -1485,11 +1485,7 @@ else
         await JS.InvokeVoidAsync("eval", @"
             (function() {
                 var el = document.getElementById('isp-events');
-                if (!el) return;
-                el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                el.style.transition = 'background-color 0.3s';
-                el.style.backgroundColor = 'rgba(59, 130, 246, 0.18)';
-                setTimeout(function() { el.style.backgroundColor = ''; }, 2000);
+                if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
             })();");
     }
 
