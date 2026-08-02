@@ -18264,7 +18264,7 @@ a.isp-outage-ack:hover {
 
 .isp-factor-link {
     color: var(--text-primary);
-    text-decoration: underline;
+    text-decoration: underline dotted;
     text-decoration-color: var(--text-muted);
     text-underline-offset: 3px;
 }
