@@ -2075,6 +2075,12 @@ a.stat-card-link:active {
     opacity: 0.55;
 }
 
+.isp-events-jump {
+    cursor: pointer;
+    text-decoration: underline dotted;
+    text-underline-offset: 2px;
+}
+
 .data-table thead {
     background: var(--bg-primary);
 }

@@ -439,7 +439,15 @@ else
                                     {
                                         <span class="isp-target-stat">
                                             <span class="isp-target-stat-label">@hopLimit.Value.Label</span>
-                                            <span class="isp-target-stat-value @ScoreTextClass(hopLimit.Value.Score)">@hopLimit.Value.Value</span>
+                                            @if (hopLimit.Value.Label == "Congestion")
+                                            {
+                                                <span class="isp-target-stat-value isp-events-jump @ScoreTextClass(hopLimit.Value.Score)"
+                                                      data-tooltip="Show these events" @onclick="ScrollToEventsAsync">@hopLimit.Value.Value</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="isp-target-stat-value @ScoreTextClass(hopLimit.Value.Score)">@hopLimit.Value.Value</span>
+                                            }
                                         </span>
                                     }
                                     @if (target.ReachDeltaMs is > 0.15)
@@ -607,7 +615,15 @@ else
                                 {
                                     <div class="isp-asn-stat">
                                         <span class="detail-label">@asnLimit.Value.Label</span>
-                                        <span class="detail-value @ScoreTextClass(asnLimit.Value.Score)">@asnLimit.Value.Value</span>
+                                        @if (asnLimit.Value.Label == "Congestion")
+                                        {
+                                            <span class="detail-value isp-events-jump @ScoreTextClass(asnLimit.Value.Score)"
+                                                  data-tooltip="Show these events" @onclick="ScrollToEventsAsync">@asnLimit.Value.Value</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="detail-value @ScoreTextClass(asnLimit.Value.Score)">@asnLimit.Value.Value</span>
+                                        }
                                     </div>
                                 }
                                 @if (asn.ReachDeltaMs.HasValue)
@@ -754,7 +770,7 @@ else
         </div>
     }
 
-    <div class="card isp-health-card">
+    <div class="card isp-health-card" id="isp-events">
         <div class="card-header isp-events-header">
             <h2 class="card-title">Path &amp; Congestion Events (@EventsWindowLabel(r))</h2>
             <div class="time-range-selector isp-event-filter">
@@ -1460,6 +1476,23 @@ else
 
     // Ctrl+Click (Cmd+Click on macOS) bypasses the solo/restore semantics and just toggles the one
     // category, so a single category can be hidden straight from the all-on state.
+    /// <summary>
+    /// Jumps to Path &amp; Congestion Events. The event count on a hop or network row is only useful
+    /// next to the events it counts, and they sit far enough down the page to be worth a shortcut.
+    /// </summary>
+    private async Task ScrollToEventsAsync()
+    {
+        await JS.InvokeVoidAsync("eval", @"
+            (function() {
+                var el = document.getElementById('isp-events');
+                if (!el) return;
+                el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                el.style.transition = 'background-color 0.3s';
+                el.style.backgroundColor = 'rgba(59, 130, 246, 0.18)';
+                setTimeout(function() { el.style.backgroundColor = ''; }, 2000);
+            })();");
+    }
+
     private async Task ToggleEventFilterAsync(EventCategory cat, MouseEventArgs e)
     {
         if (e.CtrlKey || e.MetaKey)
