@@ -1316,7 +1316,10 @@ public class IspHealthService
     {
         try
         {
-            var dataPath = await _connectionService.GetPrimaryWanDataPathInterfaceAsync(ct);
+            // Through the resolver, not the console directly: PPPoE is read off the interface NAME,
+            // and the remembered profile holds that name, so an offline site keeps its overlay
+            // instead of silently grading a PPPoE line against its medium's raw thresholds.
+            var dataPath = await GetPrimaryWanInterfaceAsync(ct);
             if (string.IsNullOrEmpty(dataPath))
             {
                 _logger.LogWarning("ISP Health could not resolve the primary WAN's data-path interface; " +
@@ -1618,13 +1621,41 @@ public class IspHealthService
 
     private static readonly TimeSpan SqmProbeDuration = TimeSpan.FromSeconds(30);
 
+    /// <summary>
+    /// The primary WAN's data-path interface. Falls back to the remembered WAN profile so an
+    /// offline site still resolves it - the interface is what the throughput series are keyed on,
+    /// so without it a site with plenty of stored history reads as having none.
+    ///
+    /// Multi-WAN planned: this returns the primary only, and picks the first WAN group when there
+    /// is no console to ask. Per-WAN scoring resolves its own WAN's interface from its own row.
+    /// </summary>
     private async Task<string?> GetPrimaryWanInterfaceAsync(CancellationToken ct)
     {
         try
         {
-            return await _connectionService.GetPrimaryWanDataPathInterfaceAsync(ct);
+            var live = await _connectionService.GetPrimaryWanDataPathInterfaceAsync(ct);
+            if (!string.IsNullOrEmpty(live)) return live;
         }
-        catch { return null; }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not read the primary WAN interface from the console");
+        }
+
+        try
+        {
+            await using var db = await CreateSiteDbAsync(ct);
+            return await db.WanProfiles.AsNoTracking()
+                .Where(w => w.Interface != null)
+                .OrderBy(w => w.WanNetworkgroup)
+                .ThenByDescending(w => w.UpdatedAt)
+                .Select(w => w.Interface)
+                .FirstOrDefaultAsync(ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not read the remembered primary WAN interface");
+            return null;
+        }
     }
 
     private async Task<List<(DateTime Start, DateTime End)>> BuildSqmProbeExclusionsAsync(
