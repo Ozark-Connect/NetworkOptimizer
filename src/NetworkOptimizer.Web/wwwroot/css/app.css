@@ -23,6 +23,9 @@
     --danger-color: #ee6368;
     --info-color: #4797ff;
     --good-color: #3b82f6;
+    /* What "look here" is drawn in: the nav-to-card ring and a card held called out. Its own name
+       rather than borrowing a score color, so changing either cannot move the other. */
+    --highlight-color: var(--primary-color);
 
     /* Purple/Violet - WiFi 6E, sponsorship */
     --purple-color: #a855f7;
@@ -18283,7 +18286,7 @@ a.isp-outage-ack:hover {
    two cannot drift into different blues, which is what they had done. */
 .nav-highlight-on,
 .card-highlight {
-    outline-color: color-mix(in srgb, var(--good-color) 50%, transparent);
+    outline-color: color-mix(in srgb, var(--highlight-color) 50%, transparent);
     transition: outline-color 0.25s ease-in;
 }
 
