@@ -18283,7 +18283,7 @@ a.isp-outage-ack:hover {
    two cannot drift into different blues, which is what they had done. */
 .nav-highlight-on,
 .card-highlight {
-    outline-color: rgba(59, 130, 246, 0.5);
+    outline-color: color-mix(in srgb, var(--good-color) 50%, transparent);
     transition: outline-color 0.25s ease-in;
 }
 
