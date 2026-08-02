@@ -2691,6 +2691,35 @@
                 }
             }
             catch { }
+
+            // Every historic query is keyed on these - WAN rates, the gateway's CPU/memory/temp,
+            // fabric ingress and egress - and they come from a console read, so an offline site
+            // scrubbed the timeline against keys it did not have and every card came back blank
+            // while the chart plotted. The remembered WAN profile holds exactly this pair.
+            //
+            // Only while the console is down: a connected console that reports no gateway keeps
+            // resolving to nothing, as before.
+            if (_gatewayMac == null && !ConnectionService.IsConnected)
+            {
+                try
+                {
+                    await using var wanDb = SiteDb.CreateForSite(SiteCtx.Slug, SiteCtx.IsDefault);
+                    var profile = await wanDb.WanProfiles.AsNoTracking()
+                        .Where(w => w.GatewayMac != null && w.CounterInterface != null)
+                        .OrderBy(w => w.WanNetworkgroup)
+                        .ThenByDescending(w => w.UpdatedAt)
+                        .FirstOrDefaultAsync();
+                    if (profile != null)
+                    {
+                        _gatewayMac = profile.GatewayMac!.Replace("-", ":").ToLowerInvariant();
+                        _gatewayWanIfNames = new List<string> { profile.CounterInterface! };
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogDebug(ex, "Could not read the remembered gateway and WAN interface for historic playback");
+                }
+            }
         }
         catch
         {
