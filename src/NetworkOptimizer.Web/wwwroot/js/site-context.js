@@ -222,33 +222,33 @@ window.noAnchorTop = function (id) {
     // Re-resolved every tick rather than captured: the card re-renders as discovery adds sections,
     // and Blazor can swap the element out. Holding the original node meant the pin let go the first
     // time that happened - one scroll, then nothing, which is exactly what it looked like.
-    // Drive the owning scroller by hand rather than calling scrollIntoView. The app scrolls
-    // .main-content or .page-content, not the document, and scrollIntoView does not reliably move
-    // those - the tour driver hit the same thing and does its own scroller math for it.
-    var scrollerOf = function (node) {
-        for (var n = node.parentElement; n && n !== document.body; n = n.parentElement) {
-            var oy = getComputedStyle(n).overflowY;
-            if ((oy === 'auto' || oy === 'scroll') && n.scrollHeight > n.clientHeight + 4) return n;
-        }
-        return document.scrollingElement || document.documentElement;
-    };
+    // FOLLOW the growing edge, do not pin the top. Pinning the top is what this did first, and it
+    // worked exactly as asked - one scroll, then nothing to do, because the card's top was already
+    // in place. That is the wrong goal: discovery makes the card taller than the screen, so the new
+    // sections land below the fold and the reader is left chasing them. Keeping the BOTTOM in view
+    // is what "I should not have to scroll" actually means here.
+    //
+    // scrollIntoView is the mechanism the highlight jumps already use successfully in this layout,
+    // so it is what this uses too rather than second-guessing which element scrolls.
     var ticks = 0;
+    var lastBottom = 0;
     var keep = function () {
         var cur = document.getElementById(id);
         if (!cur) return false;
-        var sc = scrollerOf(cur);
-        var isDoc = sc === document.scrollingElement || sc === document.documentElement;
-        var top = isDoc ? 0 : sc.getBoundingClientRect().top;
-        var delta = cur.getBoundingClientRect().top - top;
-        // Only correct real drift, so we are not fighting the browser over sub-pixel rounding.
-        if (Math.abs(delta) > 2) sc.scrollTop += delta;
+        var r = cur.getBoundingClientRect();
+        var grew = r.bottom > lastBottom + 1;
+        lastBottom = r.bottom;
+        // Only act when it has grown AND the new edge is off screen: otherwise a short card would
+        // be yanked around for no reason.
+        if (grew && r.bottom > window.innerHeight)
+            cur.scrollIntoView({ block: 'end', behavior: 'smooth' });
         return true;
     };
     var timer = setInterval(function () {
         ticks++;
         if (!keep()) console.log('[anchor] no element for ' + id + ' this tick (' + ticks + ')');
     }, 300);
-    console.log('[anchor] pinned ' + id);
+    console.log('[anchor] following ' + id);
 
     var give = function () { console.log('[anchor] released by user scroll'); window.noAnchorRelease(); };
     var keys = { PageDown: 1, PageUp: 1, ArrowDown: 1, ArrowUp: 1, Home: 1, End: 1, ' ': 1 };
