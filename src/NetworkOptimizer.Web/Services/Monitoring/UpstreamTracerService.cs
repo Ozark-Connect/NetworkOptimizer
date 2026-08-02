@@ -1674,19 +1674,27 @@ public class UpstreamTracerService
     // spacing) to be auto-selected, so flaky, ICMP-deprioritized routers don't get monitored - and
     // so a curated transit witness (e.g. Level 3 4.2.2.2) must itself clear the gate before it is
     // attached. We always send 3; the required successes depend on the connection's access medium
-    // (Item B): air-interface mediums (WISP, cellular) and the unconfigured Unknown case allow one
-    // dropped reply (2/3); stable wired/fiber/LEO mediums demand 3/3.
+    // (Item B): air-interface mediums (WISP, cellular) allow one dropped reply (2/3), everything
+    // else demands 3/3.
     private const int ReachabilityPingCount = 3;
 
     /// <summary>
     /// Required successful pings (out of <see cref="ReachabilityPingCount"/>) for a candidate to be
     /// auto-selected, by the connection's access technology. WISP / cellular have inherent
-    /// air-interface transient loss, and Unknown is unconfigured, so we don't penalize them for a
-    /// single drop; everything else (including LEO, which is stable) demands all three.
+    /// air-interface transient loss, so a single drop does not disqualify a candidate there;
+    /// everything else (including LEO, which is stable) demands all three.
+    ///
+    /// Unknown demands all three too. It used to be lenient on the grounds that an unconfigured
+    /// link might turn out to be air-interface - but Unknown is the state of every FIRST run on a
+    /// WAN, which is precisely the run that decides which candidates get seeded as monitoring
+    /// targets. Relaxing the gate exactly when the least is known adopted flaky routers on the
+    /// strength of the run with the weakest evidence. Leniency now follows a deliberate statement
+    /// about the medium rather than the absence of one: someone on a WISP sets the technology and
+    /// re-runs.
     /// </summary>
     private static int RequiredReachabilitySuccesses(AccessTechnology tech) => tech switch
     {
-        AccessTechnology.FixedWireless or AccessTechnology.Cellular or AccessTechnology.Unknown => 2,
+        AccessTechnology.FixedWireless or AccessTechnology.Cellular => 2,
         _ => 3
     };
 
