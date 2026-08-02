@@ -145,6 +145,12 @@ public sealed class AgentTunnelConnection
     /// </summary>
     public int SpeedTestPort { get; internal set; }
 
+    /// <summary>
+    /// Whether this agent serves a LAN speed test page, as it stated in its hello. Null for an
+    /// agent that does not say, which leaves the server to work it out as it always has.
+    /// </summary>
+    public bool? ServesSpeedTest { get; internal set; }
+
     public int AgentId { get; }
     public string SiteSlug { get; }
     public string AgentName { get; }

@@ -285,7 +285,8 @@ while (!cts.IsCancellationRequested)
             // serves none - a gateway install, or one where the server failed to start - has no
             // port to give, and claiming 3000 would advertise a listener that is not there.
             await tunnel.RunAsync(config.TunnelUrl, config.AgentKey!, version, lanIp,
-                speedTestServer != null ? config.LanSpeedTestPort : 0, config.IgnoreSslErrors, cts.Token);
+                speedTestServer != null ? config.LanSpeedTestPort : 0,
+                speedTestServer != null, config.IgnoreSslErrors, cts.Token);
             Console.Error.WriteLine("Tunnel closed by server, reconnecting...");
         }
         catch (OperationCanceledException) when (cts.IsCancellationRequested)

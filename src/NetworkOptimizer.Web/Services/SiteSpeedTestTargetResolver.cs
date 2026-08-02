@@ -100,10 +100,21 @@ public class SiteSpeedTestTargetResolver
         // wins (a separate box the operator knows about). When speed-test-capable
         // gateway installs arrive, replace this location check with the agent's
         // speed-test capability so the config can flow through.
-        if (string.IsNullOrEmpty(targetOverride) && agentLanIp != null
-            && await _onGatewayDetector.IsAgentOnGatewayAsync(_siteContext.Slug))
+        // The agent's own word first, where it gives one: an agent that says it serves no speed test
+        // has nothing to point clients at, whatever host it runs on - and an agent that says it DOES
+        // serve one is taken at its word even on a gateway, which is what a speed-test-capable
+        // gateway install needs. Only an agent that says nothing falls back to deciding by location.
+        var servesSpeedTest = _tunnelRegistry.GetForSite(_siteContext.Slug)
+            .Select(c => c.ServesSpeedTest)
+            .FirstOrDefault(v => v.HasValue);
+        // Location is still asked separately, because it is what the copy reports. An agent that
+        // simply serves no speed test is not necessarily on a gateway, and saying so would be wrong.
+        var onGateway = await _onGatewayDetector.IsAgentOnGatewayAsync(_siteContext.Slug);
+        var noSpeedTestHost = servesSpeedTest.HasValue ? !servesSpeedTest.Value : onGateway;
+
+        if (string.IsNullOrEmpty(targetOverride) && agentLanIp != null && noSpeedTestHost)
         {
-            return new Result(null, null, null, UsesAgent: false, AgentOffline: false, AgentOnGateway: true);
+            return new Result(null, null, null, UsesAgent: false, AgentOffline: false, AgentOnGateway: onGateway);
         }
 
         var effectiveTarget = !string.IsNullOrEmpty(targetOverride) ? targetOverride : agentLanIp;
