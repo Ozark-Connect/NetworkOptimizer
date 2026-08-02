@@ -1536,6 +1536,17 @@ from(bucket: ""{_bucket}"")
         var mac = NormalizeMac(deviceMac);
         var ifFilter = string.Join(" or ", wanIfNames.Select(n =>
             $@"r.if_name == ""{SanitizeFluxString(n)}"""));
+        // Summing across interfaces groups by (_time, _field), which on a long window at a fine
+        // aggregate means one server-side group per sample - measured at 6657ms against 490ms without,
+        // for 148k samples over 30 days. With a single WAN there is nothing to sum: the stage returns
+        // its one input value unchanged, so skipping it is identical output, not an approximation.
+        // Several interfaces still take the summing path, where it earns its cost.
+        var multiWanSum = wanIfNames.Count > 1
+            ? @"
+  |> group(columns: [""_time"", ""_field""])
+  |> sum()
+  |> group()"
+            : string.Empty;
         var flux = $@"
 from(bucket: ""{_bucket}"")
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
@@ -1543,10 +1554,7 @@ from(bucket: ""{_bucket}"")
   |> filter(fn: (r) => r.device_mac == ""{mac}"")
   |> filter(fn: (r) => {ifFilter})
   |> filter(fn: (r) => r._field == ""rate_in_bps"" or r._field == ""rate_out_bps"")
-  |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false)
-  |> group(columns: [""_time"", ""_field""])
-  |> sum()
-  |> group()
+  |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false){multiWanSum}
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
   |> sort(columns: [""_time""])
 ";
