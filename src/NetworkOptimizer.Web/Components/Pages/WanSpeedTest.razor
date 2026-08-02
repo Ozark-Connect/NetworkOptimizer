@@ -17,6 +17,7 @@
 @inject IGatewaySshService GatewaySshService
 @inject SpeedTestServiceRegistry SpeedTestRegistry
 @inject SiteContextService SiteContext
+@inject SiteAgentCoverage AgentCoverage
 @inject MonitoringReadinessService Readiness
 @inject NetworkOptimizer.Web.Services.Licensing.LicenseStateService LicenseState
 @inject SiteTunnelRouting TunnelRouting
@@ -689,11 +690,13 @@
 
     /// <summary>
     /// Whether the non-gateway run happens on the site's agent rather than on this server, which is
-    /// what the option is called and described as. True for a site the server cannot reach itself;
-    /// an agent that runs ON the gateway is not this case - that option is hidden entirely, because
-    /// the Gateway option already runs there.
+    /// what the option is called and described as. True for a site the server cannot reach itself,
+    /// and for the main site once its agent covers it - the run moves to the agent there too, so
+    /// the label has to move with it. An agent that runs ON the gateway is not this case: that
+    /// option is hidden entirely, because the Gateway option already runs there.
     /// </summary>
-    private bool RunsOnAgent => !SiteContext.IsDefault && !_agentOnGateway;
+    private bool _runsOnAgent;
+    private bool RunsOnAgent => _runsOnAgent;
     private bool _serverAvailable = true;
     private string? _serverUnavailableReason;
     private System.Threading.Timer? _agentStatusTimer;
@@ -962,6 +965,8 @@
         // one to use. When speed-test-capable gateway installs arrive, key this off
         // the agent's capability instead of its location.
         _agentOnGateway = agentOnline && await OnGatewayDetector.IsAgentOnGatewayAsync(SiteContext.Slug);
+        _runsOnAgent = !_agentOnGateway
+            && (!SiteContext.IsDefault || await AgentCoverage.CoversAsync(SiteContext.Slug));
         var agentRequired = !SiteContext.IsDefault && !agentOnline;
         var agentReason = _siteAgentOffline ? AgentOfflineReason : NoAgentReason;
 
