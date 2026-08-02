@@ -207,12 +207,17 @@ window.noTour = (function () {
         const actions = document.createElement('div');
         actions.className = 'tour-card-actions';
 
-        const skip = document.createElement('button');
-        skip.type = 'button';
-        skip.className = 'tour-card-skip';
-        skip.textContent = 'Skip tour';
-        skip.addEventListener('click', () => invoke('skip'));
-        actions.appendChild(skip);
+        // No Skip on the last step: there is nothing left to skip, and taking it there would file
+        // a tour the user actually finished as deferred. Done is the only sensible exit.
+        const isLast = opts.index + 1 >= opts.total;
+        if (!isLast) {
+            const skip = document.createElement('button');
+            skip.type = 'button';
+            skip.className = 'tour-card-skip';
+            skip.textContent = 'Skip tour';
+            skip.addEventListener('click', () => invoke('skip'));
+            actions.appendChild(skip);
+        }
 
         const spacer = document.createElement('div');
         spacer.className = 'tour-card-spacer';
@@ -230,7 +235,7 @@ window.noTour = (function () {
         const next = document.createElement('button');
         next.type = 'button';
         next.className = 'btn btn-primary btn-sm';
-        next.textContent = opts.index + 1 >= opts.total ? 'Done' : 'Next';
+        next.textContent = isLast ? 'Done' : 'Next';
         next.addEventListener('click', () => invoke('next'));
         actions.appendChild(next);
 
