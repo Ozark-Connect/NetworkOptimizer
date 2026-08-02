@@ -1,12 +1,16 @@
 @using NetworkOptimizer.Storage.Models
 @using NetworkOptimizer.Storage.Services
 @using NetworkOptimizer.Web.Services
+@using Microsoft.AspNetCore.Components.Authorization
+@using NetworkOptimizer.Web.Services.Identity
 @using Microsoft.EntityFrameworkCore
 @inject IInfluxDbProvisioningService Provisioner
 @inject MonitoringInfluxRegistry InfluxRegistry
 @inject ICredentialProtectionService CredentialService
 @inject SiteContextService SiteContext
 @inject SiteDbContextFactory SiteDbFactory
+@inject Microsoft.AspNetCore.Authorization.IAuthorizationService Authz
+@inject ILogger<InfluxSetupWizard> Logger
 
 @switch (_state)
 {
@@ -277,11 +281,24 @@
         await ProvisionAsync();
     }
 
+    /// <summary>Whether this user could actually complete a provisioning step, resolved once on init.</summary>
+    private bool _canProvision;
+
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
     protected override async Task OnInitializedAsync()
     {
-        if (!IsDefaultSite)
+        // Provisioning is Admin-gated at the service. Site mode opens by ATTEMPTING a silent bucket
+        // creation, so every Monitoring load on a managed site ran an Admin-only call as whoever was
+        // looking - and a Viewer got two denied audit entries per visit (prerender, then the
+        // circuit), swallowed by the catch below and therefore invisible except in the log. Ask
+        // first: someone who could not finish the wizard has no business starting it.
+        _canProvision = AuthState is null
+            || (await Authz.AuthorizeAsync((await AuthState).User, Policies.RequireAdmin)).Succeeded;
+
+        if (!IsDefaultSite && _canProvision)
             await TryEnterSiteModeAsync();
-        if (!_siteMode)
+        if (!_siteMode && _canProvision)
             await DetectAgainAsync();
     }
 
@@ -349,8 +366,9 @@
         {
             await Provisioner.EnsureBucketsAsync(_sharedUrl, _sharedToken, orgId, SitePrimaryBucket, SiteLongtermBucket);
         }
-        catch
+        catch (Exception ex)
         {
+            Logger.LogDebug(ex, "Silent bucket provisioning did not go through; falling back to the token prompt");
             return false;
         }
         await ReconfigureSiteClientAsync();

@@ -81,7 +81,7 @@
                                 <td>
                                     @if (TargetLabel(e) is string label)
                                     {
-                                        <span data-tooltip="@e.TargetType">@label</span>
+                                        <span>@label</span>
                                     }
                                     else
                                     {
@@ -122,14 +122,78 @@
 
 @code {
     /// <summary>
+    /// Reader-facing names for the stored target type slugs, using each feature's own on-screen name
+    /// where it has one. Anything absent falls back to title-casing the slug, so a type added later
+    /// reads as words rather than as a raw identifier.
+    /// </summary>
+    private static readonly Dictionary<string, string> TargetTypeNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["monitoring_target"] = "Latency Target",
+        ["monitoring_settings"] = "Monitoring Settings",
+        ["monitoring_interface"] = "Monitoring Interface",
+        ["upstream_discovery"] = "Upstream Discovery",
+        ["tc_monitor"] = "SQM Monitor",
+        ["influx_org"] = "InfluxDB Organization",
+        ["influx_bucket"] = "InfluxDB Bucket",
+        ["influx_token"] = "InfluxDB Token",
+        ["wan_speedtest"] = "WAN Speed Test",
+        ["wan_speedtest_binary"] = "WAN Speed Test Binary",
+        ["lan_speedtest"] = "LAN Speed Test",
+        ["client_speedtest"] = "Client Speed Test",
+        ["gateway_speedtest"] = "Gateway Speed Test",
+        ["speedtest_device"] = "Speed Test Device",
+        ["alert"] = "Alert",
+        ["alert_rule"] = "Alert Rule",
+        ["alert_channel"] = "Notification Channel",
+        ["incident"] = "Incident",
+        ["schedule"] = "Schedule",
+        ["wan"] = "WAN",
+        ["wan_steering"] = "WAN Steering",
+        ["wan_steer_rule"] = "WAN Steering Rule",
+        ["perftweak"] = "Performance Tweak",
+        ["network_purpose"] = "Network Purpose",
+        ["config_archive"] = "Config Archive",
+        ["floor_plan"] = "Floor Plan",
+        ["planned_ap"] = "Planned AP",
+        ["ap_location"] = "AP Location",
+        ["mesh_ap"] = "Mesh AP",
+        ["spectrum_scan"] = "Spectrum Scan",
+        ["dashboard_layout"] = "Dashboard Layout",
+        ["site"] = "Site",
+        ["multi_site"] = "Multi-Site",
+        ["agent"] = "On-Site Agent",
+        ["auth_policy"] = "Authentication Policy",
+        ["license_key"] = "License Key",
+        ["setting"] = "Setting",
+        ["ssh_key"] = "SSH Key",
+        ["ssh_key_deployment"] = "SSH Key Deployment",
+        ["gateway_ssh"] = "Gateway SSH",
+        ["device_ssh"] = "Device SSH",
+        ["udm_boot"] = "UDM Boot Script",
+        ["security_audit"] = "Security Audit",
+        ["audit_issue"] = "Security Audit Issue",
+        ["threat_noise_filter"] = "Threat Intelligence Filter",
+    };
+
+    private static string TargetTypeName(string type) =>
+        TargetTypeNames.TryGetValue(type, out var name) ? name
+        : string.Join(' ', type.Split('_', StringSplitOptions.RemoveEmptyEntries)
+            .Select(word => char.ToUpperInvariant(word[0]) + word[1..]));
+
+    /// <summary>
     /// What the event acted on. Every audited action records this, and none of it was shown: the
     /// table said a monitoring target had been paused without saying which one. The name is what a
     /// reader recognizes, so it wins; the id is the fallback for an action that has no name to give.
+    /// The type leads, so "Test" reads as the Latency Target it was rather than as a bare word.
     /// </summary>
-    private static string? TargetLabel(AuditEvent e) =>
-        !string.IsNullOrEmpty(e.TargetName) ? e.TargetName
-        : !string.IsNullOrEmpty(e.TargetId) ? e.TargetId
-        : null;
+    private static string? TargetLabel(AuditEvent e)
+    {
+        var name = !string.IsNullOrEmpty(e.TargetName) ? e.TargetName : e.TargetId;
+        if (string.IsNullOrEmpty(e.TargetType))
+            return string.IsNullOrEmpty(name) ? null : name;
+        var type = TargetTypeName(e.TargetType);
+        return string.IsNullOrEmpty(name) ? type : $"{type}: {name}";
+    }
 
     private const int PageSize = 100;
     private static readonly string[] Categories =
