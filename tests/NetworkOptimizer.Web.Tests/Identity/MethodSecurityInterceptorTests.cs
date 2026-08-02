@@ -22,6 +22,11 @@ public class MethodSecurityInterceptorTests
         [RequireRoleAttribute(Roles.Admin)]
         [AuditActionAttribute("widget.changed", Category = AuditCategories.Settings, TargetType = "widget")]
         Task ApplyAsync(string value);
+
+        /// <summary>An idempotent "ensure" that found everything already in place.</summary>
+        [RequireRoleAttribute(Roles.Admin)]
+        [AuditActionAttribute("widget.changed", Category = AuditCategories.Settings, TargetType = "widget")]
+        Task EnsureAsync(bool changed);
     }
 
     private sealed class WidgetService : IWidgetService
@@ -35,6 +40,14 @@ public class MethodSecurityInterceptorTests
             Ran = true;
             _auditContext.SetDetails(new { value });
             _auditContext.SetTarget("widget-1", value);
+            return Task.CompletedTask;
+        }
+
+        public Task EnsureAsync(bool changed)
+        {
+            Ran = true;
+            if (changed) _auditContext.SetTarget("widget-1", "created");
+            else _auditContext.SuppressNoChange();
             return Task.CompletedTask;
         }
     }
@@ -86,6 +99,29 @@ public class MethodSecurityInterceptorTests
         e.Outcome.Should().Be(AuditOutcomes.Success);
         e.TargetId.Should().Be("widget-1");
         e.ActorName.Should().Be("tester");
+    }
+
+    [Fact]
+    public async Task NoOp_Ensure_Writes_No_Event_But_A_Real_Change_Still_Does()
+    {
+        var audit = new CapturingAudit();
+        await using var provider = Build(audit);
+        using var scope = provider.CreateScope();
+        scope.ServiceProvider.GetRequiredService<ICallerContext>()
+            .SetUser(CallerInfo.ForUser(User(Roles.Admin), null, null, null));
+        var svc = scope.ServiceProvider.GetRequiredService<IWidgetService>();
+
+        // An ensure that found everything in place is not a change, so it files nothing. This is what
+        // keeps a page load that touches an idempotent provisioning call out of the audit log.
+        await svc.EnsureAsync(changed: false);
+        audit.Events.Should().BeEmpty();
+
+        // The suppression must not persist past the call that asked for it - the context is scoped and
+        // reused, so a leaked flag would silently swallow every later change in the same circuit.
+        await svc.EnsureAsync(changed: true);
+        audit.Events.Should().ContainSingle();
+        audit.Events[0].Outcome.Should().Be(AuditOutcomes.Success);
+        audit.Events[0].TargetId.Should().Be("widget-1");
     }
 
     [Fact]

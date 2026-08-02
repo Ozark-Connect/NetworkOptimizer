@@ -190,6 +190,24 @@ public class IspTargetHealth
 
     public double? LossPct { get; init; }
 
+    /// <summary>
+    /// 0-100 for how steady this hop's round-trip time stayed across the window, from its RTT median
+    /// absolute deviation. Distinct from jitter, which measures variation between probes: a hop can be
+    /// jittery per-probe yet steady across the day, or smooth per-probe while drifting badly. Taken
+    /// from the hop's grade so the row and the grade beside it cannot disagree; null when ungraded.
+    /// </summary>
+    public int? LatencyStabilityScore { get; init; }
+
+    /// <summary>
+    /// 0-100 for how little of the window this hop spent congested. Score-only, like stability: the
+    /// card shows jitter and loss as measurements, so these two are the components of the grade that
+    /// have no other representation on screen.
+    /// </summary>
+    public int? CongestionScore { get; init; }
+
+    /// <summary>Confirmed congestion events attributed to this hop, shown in place of the score.</summary>
+    public int CongestionEventCount { get; init; }
+
     /// <summary>Per-hop quality grade (stability, jitter, loss, congestion, intra-ASN reach).</summary>
     public int? OverallScore { get; init; }
 
@@ -509,6 +527,28 @@ public class IspHealthReport
     public DateTime ComputedAt { get; init; }
     public DateTime WindowStart { get; init; }
     public DateTime WindowEnd { get; init; }
+
+    /// <summary>
+    /// Percent of the window the internet was reachable, 0..100. A blackout counts for its full
+    /// duration; a partial-loss disruption counts for the share of it that was actually lost, since
+    /// the detector only declares one past a broad multi-ASN half-loss (an interruption, not a blip)
+    /// but half the packets is not half the clock. Local (LAN/gateway) and acknowledged outages are
+    /// excluded, same as from the score penalty. Deliberately NOT usage-weighted, unlike the penalty:
+    /// how much an outage mattered is a scoring judgment, while uptime is a fact about the line -
+    /// so this figure and the scored unavailability can differ, by design. 100 when nothing dropped.
+    /// </summary>
+    public double UptimePercent { get; init; } = 100;
+
+    /// <summary>Total downtime behind <see cref="UptimePercent"/>; zero when nothing dropped.</summary>
+    public TimeSpan Downtime { get; init; }
+
+    /// <summary>
+    /// Targets left out of the Packet Loss and Loaded Loss pool because they were dark for the whole
+    /// window while their peers kept measuring (see <see cref="LossPoolFilter"/>). Investigate reads
+    /// this so its pooled figure grades the same set the score did.
+    /// </summary>
+    public IReadOnlyCollection<string> LossPoolExcludedTargetIds { get; init; } = Array.Empty<string>();
+
     public required AccessProfile Profile { get; init; }
 
     /// <summary>The access technology that selected <see cref="Profile"/>, so the UI can offer a
@@ -691,6 +731,21 @@ public class IspHealthInputs
 
     /// <summary>Per-target series pooled for packet loss (ISP + transit + anycast DNS targets).</summary>
     public List<List<LatencySample>> LossPoolSeries { get; init; } = new();
+
+    /// <summary>
+    /// Targets dropped from <see cref="LossPoolSeries"/> as flat-lined (see
+    /// <see cref="LossPoolFilter"/>). Carried through so the report can name them: the pool itself is
+    /// anonymous, and Investigate has to grade the same set the score did.
+    /// </summary>
+    public IReadOnlyCollection<string> LossPoolExcludedTargetIds { get; init; } = Array.Empty<string>();
+
+    /// <summary>
+    /// The LAN gateway's own series, when a gateway target is monitored. Its LOSS becomes the floor
+    /// under every upstream loss measurement (see <see cref="GatewayLossFloor"/>); its latency is
+    /// deliberately not used that way. Empty when no gateway target exists, which leaves every
+    /// measurement untouched.
+    /// </summary>
+    public List<LatencySample> GatewayLossSeries { get; init; } = new();
 
     /// <summary>Per-ASN series for transit targets.</summary>
     public List<AsnSeries> TransitAsnSeries { get; init; } = new();

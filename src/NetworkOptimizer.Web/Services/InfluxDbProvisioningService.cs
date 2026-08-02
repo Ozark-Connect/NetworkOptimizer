@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using NetworkOptimizer.Web.Services.Gates;
 
 namespace NetworkOptimizer.Web.Services;
 
@@ -21,13 +22,16 @@ public class InfluxDbProvisioningService : IInfluxDbProvisioningService
 {
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<InfluxDbProvisioningService> _logger;
+    private readonly IAuditContext _auditContext;
 
     public InfluxDbProvisioningService(
         IHttpClientFactory httpClientFactory,
-        ILogger<InfluxDbProvisioningService> logger)
+        ILogger<InfluxDbProvisioningService> logger,
+        IAuditContext auditContext)
     {
         _httpClientFactory = httpClientFactory;
         _logger = logger;
+        _auditContext = auditContext;
     }
 
     /// <summary>
@@ -169,16 +173,35 @@ public class InfluxDbProvisioningService : IInfluxDbProvisioningService
     {
         var primary = await EnsureBucketAsync(url, adminToken, orgId, primaryBucket, retentionSeconds: 90 * 86400, ct);
         var longterm = await EnsureBucketAsync(url, adminToken, orgId, longtermBucket, retentionSeconds: 365 * 86400, ct);
+
+        // This method is idempotent and sits on a path the Monitoring page walks on every load, so
+        // most calls create nothing. Say so: no event at all when nothing was created, and when
+        // something was, name the buckets rather than filing a bare "monitoring setup changed".
+        var created = new List<string>();
+        if (primary.Created) created.Add(primary.Bucket.Name);
+        if (longterm.Created) created.Add(longterm.Bucket.Name);
+        if (created.Count == 0)
+        {
+            _auditContext.SuppressNoChange();
+        }
+        else
+        {
+            _auditContext.SetTarget(string.Join(",", created), string.Join(", ", created));
+            _auditContext.SetDetails(new { createdBuckets = created, orgId });
+        }
+
         return new BucketProvisionResult
         {
-            PrimaryBucketId = primary.Id,
-            PrimaryBucketName = primary.Name,
-            LongtermBucketId = longterm.Id,
-            LongtermBucketName = longterm.Name
+            PrimaryBucketId = primary.Bucket.Id,
+            PrimaryBucketName = primary.Bucket.Name,
+            LongtermBucketId = longterm.Bucket.Id,
+            LongtermBucketName = longterm.Bucket.Name,
+            CreatedBucketNames = created
         };
     }
 
-    private async Task<InfluxBucket> EnsureBucketAsync(string url, string adminToken, string orgId, string name, long retentionSeconds, CancellationToken ct)
+    /// <summary>Finds or creates one bucket, reporting which of the two it did.</summary>
+    private async Task<(InfluxBucket Bucket, bool Created)> EnsureBucketAsync(string url, string adminToken, string orgId, string name, long retentionSeconds, CancellationToken ct)
     {
         using var http = _httpClientFactory.CreateClient();
         var listUri = $"{NormalizeUrl(url)}/api/v2/buckets?orgID={Uri.EscapeDataString(orgId)}&name={Uri.EscapeDataString(name)}";
@@ -190,7 +213,7 @@ public class InfluxDbProvisioningService : IInfluxDbProvisioningService
             var listBody = await listResp.Content.ReadAsStringAsync(ct);
             var existing = JsonSerializer.Deserialize<InfluxBucketList>(listBody, SerializerOptions);
             var found = existing?.Buckets?.FirstOrDefault();
-            if (found != null) return found;
+            if (found != null) return (found, false);
         }
 
         var createReq = new HttpRequestMessage(HttpMethod.Post, NormalizeUrl(url) + "/api/v2/buckets")
@@ -210,8 +233,9 @@ public class InfluxDbProvisioningService : IInfluxDbProvisioningService
             throw new InvalidOperationException($"Create bucket {name} failed: HTTP {(int)createResp.StatusCode}: {errBody}");
         }
         var body = await createResp.Content.ReadAsStringAsync(ct);
-        return JsonSerializer.Deserialize<InfluxBucket>(body, SerializerOptions)
+        var createdBucket = JsonSerializer.Deserialize<InfluxBucket>(body, SerializerOptions)
             ?? throw new InvalidOperationException("Bucket created but response could not be parsed");
+        return (createdBucket, true);
     }
 
     /// <summary>
@@ -361,6 +385,9 @@ public class InfluxDbProvisioningService : IInfluxDbProvisioningService
         public required string PrimaryBucketName { get; init; }
         public required string LongtermBucketId { get; init; }
         public required string LongtermBucketName { get; init; }
+
+        /// <summary>Names of the buckets this call actually created; empty when both already existed.</summary>
+        public IReadOnlyList<string> CreatedBucketNames { get; init; } = Array.Empty<string>();
     }
 
     public record ScopedTokenResult
