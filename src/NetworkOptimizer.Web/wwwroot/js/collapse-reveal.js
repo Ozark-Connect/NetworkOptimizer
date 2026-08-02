@@ -17,6 +17,7 @@
 
     // The expand animates grid-template-rows over 0.25s; measure once it has settled.
     var SETTLE_MS = 320;
+    var GLIDE_MS = 200;
 
     function scrollerOf(node) {
         for (var n = node.parentElement; n && n !== document.body; n = n.parentElement) {
@@ -24,6 +25,22 @@
             if ((oy === 'auto' || oy === 'scroll') && n.scrollHeight > n.clientHeight + 4) return n;
         }
         return document.scrollingElement || document.documentElement;
+    }
+
+    // Driven by hand rather than behavior:'smooth': the native curve has a fixed duration that
+    // reads as sluggish for a short hop like this. Long enough that the movement is visible - an
+    // instant jump looks like a glitch - and short enough not to be waited on.
+    function glide(sc, by) {
+        var from = sc.scrollTop;
+        var t0 = performance.now();
+        function step(now) {
+            var p = Math.min(1, (now - t0) / GLIDE_MS);
+            // easeInOutQuad
+            var e = p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2;
+            sc.scrollTop = from + by * e;
+            if (p < 1) requestAnimationFrame(step);
+        }
+        requestAnimationFrame(step);
     }
 
     function reveal(header) {
@@ -49,14 +66,7 @@
         var by = Math.min(below, headroom);
         if (by <= 0) return;
 
-        // Animated rather than jumped, so the reader keeps their place. scrollBy honors the pane's
-        // own scroll-behavior; the fallback covers a scroller that does not implement the options
-        // form, which would otherwise silently do nothing.
-        if (typeof sc.scrollBy === 'function') {
-            sc.scrollBy({ top: by, behavior: 'smooth' });
-        } else {
-            sc.scrollTop += by;
-        }
+        glide(sc, by);
     }
 
     document.addEventListener('click', function (e) {
