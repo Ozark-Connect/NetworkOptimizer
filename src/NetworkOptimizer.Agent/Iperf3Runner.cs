@@ -21,6 +21,8 @@ public static class Iperf3Runner
     // A server that stayed up this long was working; the next failure starts a fresh backoff rather
     // than inheriting the delay from whatever went wrong before it.
     private static readonly TimeSpan HealthyRun = TimeSpan.FromMinutes(1);
+    // Long enough for a bind to fail, short enough not to delay a healthy start noticeably.
+    private static readonly TimeSpan StartupGrace = TimeSpan.FromSeconds(2);
 
     public static async Task RunAsync(Func<string, CancellationToken, Task>? relayResult, CancellationToken ct)
     {
@@ -49,7 +51,10 @@ public static class Iperf3Runner
                     return;
                 }
 
-                Console.WriteLine("iperf3 server running (default port 5201)");
+                // Announced only once it has survived a moment. Saying it the instant the process
+                // starts claimed a server was running every ten seconds on a host where it could
+                // never bind - the one line in the log that was reliably untrue.
+                var announced = false;
                 // iperf3 -J reports a refusal to start on STDOUT as {"error": "..."} rather than on
                 // stderr, so the only account of why it would not start arrives through the same
                 // stream as the results. Kept here so the exit can be explained with it.
@@ -59,10 +64,18 @@ public static class Iperf3Runner
                 // thing that distinguishes "someone else already has 5201" from a real fault, and
                 // discarding it left an exit code and nothing to act on.
                 var stderr = CaptureLastLineAsync(process.StandardError, ct);
-                await process.WaitForExitAsync(ct);
+
+                var exited = process.WaitForExitAsync(ct);
+                if (await Task.WhenAny(exited, Task.Delay(StartupGrace, ct)) != exited)
+                {
+                    Console.WriteLine("iperf3 server running (default port 5201)");
+                    announced = true;
+                    await exited;
+                }
 
                 if (process.ExitCode == 0)
                 {
+                    if (announced) Console.WriteLine("iperf3 server stopped, restarting");
                     // A clean exit is a stop we did not ask for (a signal, usually). Start again,
                     // but not instantly - an immediate loop here would spin.
                     failures = 0;
