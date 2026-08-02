@@ -470,11 +470,23 @@
 <script suppress-error="BL9992">
     window.noUpstreamPin = (function () {
         var release = null;
-        var lastTop = null;
+        var goTop = false;
+
+        // Glide rather than jump, matching the app-wide card expand. That one looks smooth because a
+        // CSS transition feeds it a few pixels per frame; here the content arrives in chunks of
+        // several hundred pixels at a time, so applying the whole correction in one frame is exactly
+        // the snap this replaces. Easing a fraction of what remains each frame reads as the view
+        // following the work, and re-targets for free every time another section lands.
+        var EASE = 0.18;
+        var SETTLED = 1;
+        // A correction that cannot move (already at the top or bottom of the scroller) would
+        // otherwise ease forever against a clamp.
+        var MAX_STALLED_FRAMES = 12;
 
         function start(id) {
             stop();
             if (!document.getElementById(id)) return;
+            goTop = false;
 
             var scrollerOf = function (node) {
                 for (var n = node.parentElement; n && n !== document.body; n = n.parentElement) {
@@ -484,42 +496,57 @@
                 return document.scrollingElement || document.documentElement;
             };
 
-            var keep = function () {
-                var cur = document.getElementById(id);
-                if (!cur) { stop(); return; }
-                var sc = scrollerOf(cur);
+            // How far the view is from where it should be right now, or 0 when it is close enough.
+            var correction = function (cur, sc) {
                 var isDoc = sc === document.scrollingElement || sc === document.documentElement;
                 var paneTop = isDoc ? 0 : sc.getBoundingClientRect().top;
-                var drift = cur.getBoundingClientRect().top - paneTop;
+                var r = cur.getBoundingClientRect();
+                var drift = r.top - paneTop;
+
+                // AT THE END: land on the TOP, not wherever the follow had got to. Following the
+                // edge is right while sections are still arriving; at the end it parks you past all
+                // the detail you came for, so the last move is to the start of the card.
+                if (goTop) return Math.abs(drift) > 2 ? drift : 0;
 
                 // WHILE RUNNING: show the newest work. If the card still fits the pane, holding its
                 // top does that already; once it is taller, follow the bottom edge so each section
-                // appears as it lands. Landing on the top at the END is handled by finish(), which
-                // is the one moment you want the whole result from its start rather than its tail.
+                // appears as it lands.
                 //
                 // No spacer either way. Adding one below this card pushed the Latency targets panel
                 // off screen, and adding it to the pane wrote to layout every page shares; the
                 // write is simply allowed to clamp when there is nowhere further to go.
-                var r = cur.getBoundingClientRect();
-                if (r.height <= sc.clientHeight) {
-                    if (Math.abs(drift) > 2) sc.scrollTop += drift;
-                } else {
-                    var paneBottom = isDoc ? window.innerHeight : sc.getBoundingClientRect().bottom;
-                    var below = r.bottom - paneBottom;
-                    if (below > 2) sc.scrollTop += below;
-                }
+                if (r.height <= sc.clientHeight) return Math.abs(drift) > 2 ? drift : 0;
+                var paneBottom = isDoc ? window.innerHeight : sc.getBoundingClientRect().bottom;
+                var below = r.bottom - paneBottom;
+                return below > 2 ? below : 0;
             };
 
-            lastTop = function () {
+            var raf = 0;
+            var stalled = 0;
+            var frame = function () {
                 var cur = document.getElementById(id);
-                if (!cur) return;
+                if (!cur) { stop(); return; }
                 var sc = scrollerOf(cur);
-                var isDoc = sc === document.scrollingElement || sc === document.documentElement;
-                var paneTop = isDoc ? 0 : sc.getBoundingClientRect().top;
-                var drift = cur.getBoundingClientRect().top - paneTop;
-                if (Math.abs(drift) > 2) sc.scrollTop += drift;
+                var delta = correction(cur, sc);
+
+                if (Math.abs(delta) <= SETTLED) {
+                    stalled = 0;
+                    // Nothing left to do and nothing more coming: the run is over.
+                    if (goTop) { stop(); return; }
+                } else {
+                    var step = delta * EASE;
+                    // Cover the last pixel or two outright rather than crawling at them.
+                    if (Math.abs(step) < 0.5) step = delta;
+                    var before = sc.scrollTop;
+                    sc.scrollTop += step;
+                    if (sc.scrollTop === before && ++stalled >= MAX_STALLED_FRAMES) {
+                        if (goTop) { stop(); return; }
+                    } else if (sc.scrollTop !== before) {
+                        stalled = 0;
+                    }
+                }
+                raf = requestAnimationFrame(frame);
             };
-            var timer = setInterval(keep, 300);
             // Wheel, touch and the scrolling keys are unambiguous intent; a scroll event would also
             // catch our own corrections.
             var give = function () { stop(); };
@@ -530,14 +557,14 @@
             window.addEventListener('keydown', onKey, true);
 
             release = function () {
-                clearInterval(timer);
+                if (raf) cancelAnimationFrame(raf);
                 window.removeEventListener('wheel', give);
                 window.removeEventListener('touchmove', give);
                 window.removeEventListener('keydown', onKey, true);
                 release = null;
-                lastTop = null;
+                goTop = false;
             };
-            keep();
+            raf = requestAnimationFrame(frame);
         }
 
         function stop() { if (release) release(); }
@@ -549,11 +576,10 @@
         function finish() {
             if (!release) return;
             setTimeout(function () {
-                // Land on the TOP, not wherever the follow had got to. Following the edge is right
-                // while sections are still arriving; at the end it parks you past all the detail
-                // you came for, so the last move is to the start of the card.
-                if (lastTop) lastTop();
-                stop();
+                // Switch the running loop's target to the card's top and let it ease there; it
+                // stops itself once it arrives. Setting the flag rather than jumping is what keeps
+                // the final move as smooth as the following that preceded it.
+                goTop = true;
             }, 400);
         }
 
