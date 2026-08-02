@@ -1606,8 +1606,50 @@ public class IspHealthScorerTests
 
         var graded = withEvents.TransitAsns.Single();
         graded.CongestionEventCount.Should().Be(1);
-        graded.CongestionScore.Should().Be(20); // 100 - 20/hr x 4 h
+        // 4 h of a 24 h window is a sixth of it, graded on the congestion curve.
+        graded.CongestionScore.Should().BeInRange(45, 60);
         graded.OverallScore.Should().BeLessThan(withoutEvents.TransitAsns.Single().OverallScore!.Value);
+    }
+
+    [Fact]
+    public void The_same_congested_hours_matter_less_over_a_longer_window()
+    {
+        // Congested hours only mean something against the time observed. Four hours is a sixth of two
+        // days and an afternoon of a week, and the old flat per-hour penalty scored them identically -
+        // and floored the component past five hours, so a hop congested briefly and one congested for
+        // the whole window were indistinguishable.
+        var series = new List<AsnSeries> { TestSeries.Asn(64500, "TransitOne", TestSeries.Flat(TestSeries.Start, Day, 10, 0.5)) };
+        var congestion = new List<CongestionEvent>
+        {
+            new() { Start = TestSeries.Start.AddHours(2), End = TestSeries.Start.AddHours(6), AsnNumbers = { 64500 } }
+        };
+
+        int ScoreFor(TimeSpan window) => new IspHealthScorer(Options)
+            .Score(BuildInputs(transit: series, congestion: congestion, scoreWindow: window), Gpon)
+            .TransitAsns.Single().CongestionScore!.Value;
+
+        var day = ScoreFor(Day);
+        var week = ScoreFor(TimeSpan.FromDays(7));
+        var month = ScoreFor(TimeSpan.FromDays(30));
+
+        week.Should().BeGreaterThan(day);
+        month.Should().BeGreaterThan(week);
+        month.Should().BeGreaterThan(90, "four congested hours in a month is a good line, not a floored one");
+    }
+
+    [Fact]
+    public void Sustained_congestion_still_grades_badly()
+    {
+        // The other direction: the curve must not be so forgiving that a network congested for most
+        // of the window escapes. Twelve hours of a twenty-four hour window is half its life.
+        var series = new List<AsnSeries> { TestSeries.Asn(64500, "TransitOne", TestSeries.Flat(TestSeries.Start, Day, 10, 0.5)) };
+        var congestion = new List<CongestionEvent>
+        {
+            new() { Start = TestSeries.Start.AddHours(6), End = TestSeries.Start.AddHours(18), AsnNumbers = { 64500 } }
+        };
+
+        new IspHealthScorer(Options).Score(BuildInputs(transit: series, congestion: congestion), Gpon)
+            .TransitAsns.Single().CongestionScore.Should().BeLessThan(25);
     }
 
     [Fact]

@@ -189,6 +189,21 @@ public class IspHealthOptions
     /// </summary>
     public double CongestionPenaltyPerHour { get; set; } = 20.0;
 
+    /// <summary>
+    /// Congestion curve: the network's congestion sub-score per (percent of the window spent
+    /// congested, score) anchor. Congested hours only mean something against the time observed - nine
+    /// hours across two days is a fifth of the line's life and bad, the same nine hours across a month
+    /// is an afternoon - and the flat per-hour penalty scored them identically. It also saturated: at
+    /// 20 points an hour anything past five hours floored the component, so a hop congested for five
+    /// hours and one congested for the entire window were indistinguishable, and at weight 0.3 that is
+    /// a flat 30-point deduction that no amount of otherwise-perfect latency, jitter, loss or
+    /// stability can offset. Same reasoning as the outage unavailability curve.
+    /// </summary>
+    public (double CongestedPercent, double Score)[] AsnCongestionCurve { get; set; } =
+    {
+        (0, 100), (1, 95), (3, 88), (5, 80), (10, 65), (20, 45), (40, 20), (70, 0)
+    };
+
     /// <summary>Minimum number of ASNs with overlapping events to merge them into a shared upstream event.</summary>
     public int SharedEventMinAsns { get; set; } = 2;
 

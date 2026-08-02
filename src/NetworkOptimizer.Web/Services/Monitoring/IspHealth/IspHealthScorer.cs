@@ -19,6 +19,10 @@ public class IspHealthScorer
     // they would double-count and tank the Transit/ISP dimensions. Set per Score() call.
     private IReadOnlyList<OutageEvent> _outages = System.Array.Empty<OutageEvent>();
 
+    // Hours in the report's window, so congestion can be judged as a share of the time observed
+    // rather than in absolute hours. Set per Score() call.
+    private double _windowHours;
+
     // The loss floor for the current report; GatewayLossFloor.None when no gateway target is
     // monitored, which subtracts nothing.
     private GatewayLossFloor _gatewayFloor = GatewayLossFloor.None;
@@ -43,6 +47,7 @@ public class IspHealthScorer
     {
         _outages = inputs.Outages;
         _profile = profile;
+        _windowHours = (inputs.WindowEnd - inputs.WindowStart).TotalHours;
         _loadedDownKeys = null;
         _loadedUpKeys = null;
         // Loss to the gateway is the common-mode floor of the measurement chain: every probe crosses
@@ -1073,7 +1078,11 @@ public class IspHealthScorer
         // same window (e.g. parallel backbone links, or a dead-end hop confirmed by its sibling)
         // are one incident and must not double-count the congestion hours.
         var eventHours = UnionHours(asnEvents);
-        var congestionScore = (int)Math.Round(Math.Max(0, 100 - _options.CongestionPenaltyPerHour * eventHours));
+        // Graded against the window rather than in absolute hours: the same congested hours are a
+        // fifth of a two-day window and an afternoon of a month, and the flat per-hour penalty scored
+        // them the same and saturated to zero past five hours either way.
+        var congestedPct = _windowHours > 0 ? Math.Clamp(100.0 * eventHours / _windowHours, 0, 100) : 0;
+        var congestionScore = (int)Math.Round(ScoreCurve.Interpolate(congestedPct, _options.AsnCongestionCurve));
 
         int? overall = null;
         var weighted = new List<(double Score, double Weight)>();
@@ -1092,12 +1101,13 @@ public class IspHealthScorer
             // loss and unremarkable jitter can still grade in the sixties with nothing on screen or
             // in the log saying which component took it there.
             _logger?.LogDebug(
-                "ISP Health: AS{Asn} grade {Overall} = ceiling {Ceiling} - deficit {Deficit} | stability {Stab} jitter {Jit} loss {Loss} congestion {Cong} ({Hours} h over {Events} event(s))",
+                "ISP Health: AS{Asn} grade {Overall} = ceiling {Ceiling} - deficit {Deficit} | stability {Stab} jitter {Jit} loss {Loss} congestion {Cong} ({Hours} h = {Pct}% of window, {Events} event(s))",
                 series.AsnNumber, overall, reachCeiling?.ToString() ?? "none",
                 (100 - quality).ToString("0.#", CultureInfo.InvariantCulture),
                 stabilityScore?.ToString() ?? "-", jitterScore?.ToString() ?? "-",
                 lossScore?.ToString() ?? "-", congestionScore,
-                eventHours.ToString("0.##", CultureInfo.InvariantCulture), asnEvents.Count);
+                eventHours.ToString("0.##", CultureInfo.InvariantCulture),
+                congestedPct.ToString("0.#", CultureInfo.InvariantCulture), asnEvents.Count);
         }
 
         return new IspAsnHealth
@@ -1711,6 +1721,8 @@ public class IspHealthScorer
             JitterAssimilated = grade?.JitterAssimilated ?? false,
             LossPct = losses.Count > 0 ? losses.Average() : null,
             LatencyStabilityScore = grade?.LatencyStabilityScore,
+            CongestionScore = grade?.CongestionScore,
+            CongestionEventCount = grade?.CongestionEventCount ?? 0,
             OverallScore = grade?.OverallScore,
             ReachDeltaMs = grade?.ReachDeltaMs,
             IsGradedHop = isGraded,

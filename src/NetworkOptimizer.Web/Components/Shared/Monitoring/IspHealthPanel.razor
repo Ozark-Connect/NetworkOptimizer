@@ -430,11 +430,16 @@ else
                                         </span>
                                     </span>
                                     <span class="isp-target-stat"><span class="isp-target-stat-label">Loss</span>@FormatLossPct(target.LossPct)</span>
-                                    @if (target.LatencyStabilityScore.HasValue)
+                                    @{
+                                        var hopLimit = LimitingAspect(target.LatencyStabilityScore, target.CongestionScore,
+                                            target.CongestionEventCount, IspHealth.Options.AsnLatencyStabilityWeight,
+                                            IspHealth.Options.AsnCongestionWeight);
+                                    }
+                                    @if (hopLimit is not null)
                                     {
                                         <span class="isp-target-stat">
-                                            <span class="isp-target-stat-label">Stability</span>
-                                            <span class="isp-target-stat-value @ScoreTextClass(target.LatencyStabilityScore)">@target.LatencyStabilityScore</span>
+                                            <span class="isp-target-stat-label">@hopLimit.Value.Label</span>
+                                            <span class="isp-target-stat-value @ScoreTextClass(hopLimit.Value.Score)">@hopLimit.Value.Value</span>
                                         </span>
                                     }
                                     @if (target.ReachDeltaMs is > 0.15)
@@ -593,11 +598,16 @@ else
                                     </span>
                                 </div>
                                 <div class="isp-asn-stat"><span class="detail-label">Loss</span><span class="detail-value">@FormatLossPct(asn.LossPct)</span></div>
-                                @if (asn.LatencyStabilityScore.HasValue)
+                                @{
+                                    var asnLimit = LimitingAspect(asn.LatencyStabilityScore, asn.CongestionScore,
+                                        asn.CongestionEventCount, IspHealth.Options.AsnLatencyStabilityWeight,
+                                        IspHealth.Options.AsnCongestionWeight);
+                                }
+                                @if (asnLimit is not null)
                                 {
                                     <div class="isp-asn-stat">
-                                        <span class="detail-label">Stability</span>
-                                        <span class="detail-value @ScoreTextClass(asn.LatencyStabilityScore)">@asn.LatencyStabilityScore</span>
+                                        <span class="detail-label">@asnLimit.Value.Label</span>
+                                        <span class="detail-value @ScoreTextClass(asnLimit.Value.Score)">@asnLimit.Value.Value</span>
                                     </div>
                                 }
                                 @if (asn.ReachDeltaMs.HasValue)

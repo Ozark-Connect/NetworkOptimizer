@@ -198,6 +198,16 @@ public class IspTargetHealth
     /// </summary>
     public int? LatencyStabilityScore { get; init; }
 
+    /// <summary>
+    /// 0-100 for how little of the window this hop spent congested. Score-only, like stability: the
+    /// card shows jitter and loss as measurements, so these two are the components of the grade that
+    /// have no other representation on screen.
+    /// </summary>
+    public int? CongestionScore { get; init; }
+
+    /// <summary>Confirmed congestion events attributed to this hop, shown in place of the score.</summary>
+    public int CongestionEventCount { get; init; }
+
     /// <summary>Per-hop quality grade (stability, jitter, loss, congestion, intra-ASN reach).</summary>
     public int? OverallScore { get; init; }
 

@@ -210,6 +210,32 @@ public static class IspHealthPresentation
         : d.TotalMinutes < 90 ? $"{d.TotalMinutes:0} min down"
         : $"{d.TotalHours:0.#} h down";
 
+    /// <summary>
+    /// Which of the two score-only grade components is costing this network more, for the single stat
+    /// the row has space for. Jitter and loss already appear as measurements; stability and congestion
+    /// exist only as scores, so without this the card can show four healthy numbers beside a grade
+    /// that does not follow from them - a hop reading 100 stability, 0% loss and unremarkable jitter
+    /// while grading in the sixties on congestion nothing on screen mentioned.
+    ///
+    /// Compared by contribution to the deficit - weight x shortfall - not by raw score, because the
+    /// components carry different weights. Congestion reports its event COUNT rather than its score:
+    /// "2 Events" says what happened, where "Congestion 48" invites being read as a percentage.
+    /// </summary>
+    public static (string Label, string Value, int? Score)? LimitingAspect(
+        int? stabilityScore, int? congestionScore, int congestionEvents,
+        double stabilityWeight, double congestionWeight)
+    {
+        if (stabilityScore is null && congestionScore is null) return null;
+
+        var stabilityDeficit = stabilityScore is int s ? stabilityWeight * (100 - s) : -1;
+        var congestionDeficit = congestionScore is int c ? congestionWeight * (100 - c) : -1;
+
+        // Ties go to congestion: with both clean it reads "0 Events", which says more than a bare 100.
+        if (congestionScore is int cs && congestionDeficit >= stabilityDeficit)
+            return ("Congestion", congestionEvents == 1 ? "1 Event" : $"{congestionEvents} Events", cs);
+        return stabilityScore is int ss ? ("Stability", ss.ToString(), ss) : null;
+    }
+
     /// <summary>The window's absolute bounds in local time, for a report that outlives the page.</summary>
     public static string WindowRangeLabel(IspHealthReport r) =>
         $"{r.WindowStart.ToLocalTime():MMM d, yyyy HH:mm} to {r.WindowEnd.ToLocalTime():MMM d, yyyy HH:mm}";
