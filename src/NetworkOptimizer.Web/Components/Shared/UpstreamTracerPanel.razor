@@ -483,7 +483,6 @@
                 return document.scrollingElement || document.documentElement;
             };
 
-            var spaced = -1;
             var keep = function () {
                 var cur = document.getElementById(id);
                 if (!cur) { stop(); return; }
@@ -492,15 +491,11 @@
                 var paneTop = isDoc ? 0 : sc.getBoundingClientRect().top;
                 var drift = cur.getBoundingClientRect().top - paneTop;
 
-                // The card is last on the page, so its top cannot reach the pane's top until there
-                // is something below it - the browser clamps the write and nothing moves. Make up
-                // the shortfall with margin on the card itself: it does not paint, and it goes away
-                // with the element, so it can never be stranded on anything shared.
-                var shortfall = Math.max(0, Math.round(sc.clientHeight - cur.getBoundingClientRect().height));
-                if (shortfall !== spaced) {
-                    spaced = shortfall;
-                    cur.style.marginBottom = shortfall ? shortfall + 'px' : '';
-                }
+                // No spacer of any kind. Adding one below this card pushed the Latency targets panel
+                // that follows it clean off the screen, and adding it to the pane wrote to layout
+                // every page shares. It was only ever needed while the card is short - and a short
+                // card is fully visible anyway - so the write is simply allowed to clamp. Once
+                // discovery grows the card past the pane height, the top reaches on its own.
                 if (Math.abs(drift) > 2) sc.scrollTop += drift;
             };
 
@@ -519,8 +514,6 @@
                 window.removeEventListener('wheel', give);
                 window.removeEventListener('touchmove', give);
                 window.removeEventListener('keydown', onKey, true);
-                var cur = document.getElementById(id);
-                if (cur) cur.style.marginBottom = '';
                 release = null;
             };
             keep();
