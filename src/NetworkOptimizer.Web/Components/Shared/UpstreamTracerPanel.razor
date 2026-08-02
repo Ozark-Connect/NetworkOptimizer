@@ -492,26 +492,14 @@
                 var paneTop = isDoc ? 0 : sc.getBoundingClientRect().top;
                 var drift = cur.getBoundingClientRect().top - paneTop;
 
-                // Two phases, because one rule cannot serve the whole run.
+                // Hold the TOP, always. An earlier version switched to following the bottom once the
+                // card outgrew the pane, which at the end of a run left the view parked at the
+                // bottom of a very long card - the opposite of what pinning means.
                 //
-                // While the card still fits the pane, hold its TOP: the whole thing is on screen and
-                // the reader watches it fill. Once discovery has grown it taller than the pane,
-                // holding the top would park the newest sections below the fold - which is exactly
-                // what happens at the end of a long run - so follow the BOTTOM instead, keeping the
-                // freshest content in view like a log tail.
-                //
-                // No spacer either way. Adding one below this card pushed the Latency targets panel
-                // off screen, and adding it to the pane wrote to layout every page shares; the
-                // write is simply allowed to clamp when there is nowhere further to go.
-                var r = cur.getBoundingClientRect();
-                var fits = r.height <= sc.clientHeight;
-                if (fits) {
-                    if (Math.abs(drift) > 2) sc.scrollTop += drift;
-                } else {
-                    var paneBottom = isDoc ? window.innerHeight : sc.getBoundingClientRect().bottom;
-                    var below = r.bottom - paneBottom;
-                    if (below > 2) sc.scrollTop += below;
-                }
+                // No spacer either. Adding one below this card pushed the Latency targets panel off
+                // screen, and adding it to the pane wrote to layout every page shares; the write is
+                // simply allowed to clamp when there is nowhere further to go.
+                if (Math.abs(drift) > 2) sc.scrollTop += drift;
             };
 
             lastKeep = keep;
