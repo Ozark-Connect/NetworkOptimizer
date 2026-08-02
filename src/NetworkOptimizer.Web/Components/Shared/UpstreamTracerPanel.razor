@@ -471,6 +471,7 @@
     window.noUpstreamPin = (function () {
         var release = null;
         var goTop = false;
+        var frozen = false;
 
         // Glide rather than jump, matching the app-wide card expand. That one looks smooth because a
         // CSS transition feeds it a few pixels per frame; here the content arrives in chunks of
@@ -487,6 +488,7 @@
             stop();
             if (!document.getElementById(id)) return;
             goTop = false;
+            frozen = false;
 
             var scrollerOf = function (node) {
                 for (var n = node.parentElement; n && n !== document.body; n = n.parentElement) {
@@ -531,6 +533,13 @@
             var frame = function () {
                 var cur = document.getElementById(id);
                 if (!cur) { stop(); return; }
+
+                // Hold position while the terminal render lands. It is the largest one of the run -
+                // the whole review UI arrives at once - and following it drags the view to the
+                // bottom of results we are about to leave, so the landing that follows reads as a
+                // long scroll back up rather than a single move.
+                if (frozen) { raf = requestAnimationFrame(frame); return; }
+
                 var sc = scrollerOf(cur);
                 var delta = correction(cur, sc);
 
@@ -568,6 +577,7 @@
                 window.removeEventListener('keydown', onKey, true);
                 release = null;
                 goTop = false;
+                frozen = false;
             };
             raf = requestAnimationFrame(frame);
         }
@@ -580,10 +590,15 @@
         // let go. A scroll of the reader's own still stops immediately via stop().
         function finish() {
             if (!release) return;
+            // Stop following FIRST. The run finishing is not the same as the card having finished
+            // growing: the render carrying the terminal state is the one that adds the review UI,
+            // and chasing it is what put the view below the results in the first place.
+            frozen = true;
             setTimeout(function () {
-                // Switch the running loop's target to the card's top and let it ease there; it
-                // stops itself once it arrives. Setting the flag rather than jumping is what keeps
-                // the final move as smooth as the following that preceded it.
+                // Layout has settled. Switch the loop's target to the card's top and let it ease
+                // there; it stops itself once it arrives. Setting the flag rather than jumping is
+                // what keeps the final move as smooth as the following that preceded it.
+                frozen = false;
                 goTop = true;
             }, 400);
         }
