@@ -281,7 +281,11 @@ while (!cts.IsCancellationRequested)
         var drainTask = tunnel.DrainResultsAsync(resultBuffer, connectionCts.Token);
         try
         {
-            await tunnel.RunAsync(config.TunnelUrl, config.AgentKey!, version, lanIp, config.LanSpeedTestPort, config.IgnoreSslErrors, cts.Token);
+            // Announce the port only when a speed test server is actually up. An agent that
+            // serves none - a gateway install, or one where the server failed to start - has no
+            // port to give, and claiming 3000 would advertise a listener that is not there.
+            await tunnel.RunAsync(config.TunnelUrl, config.AgentKey!, version, lanIp,
+                speedTestServer != null ? config.LanSpeedTestPort : 0, config.IgnoreSslErrors, cts.Token);
             Console.Error.WriteLine("Tunnel closed by server, reconnecting...");
         }
         catch (OperationCanceledException) when (cts.IsCancellationRequested)
