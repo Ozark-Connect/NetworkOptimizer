@@ -236,6 +236,8 @@ window.noAnchorTop = function (id) {
 
     var ticks = 0;
     var named = false;
+    var padded = -1;
+    var paddedPane = null;
     var keep = function () {
         var cur = document.getElementById(id);
         if (!cur) return false;
@@ -248,11 +250,27 @@ window.noAnchorTop = function (id) {
             console.log('[anchor] scroller=' + (isDoc ? 'document' : (sc.tagName + '.' + sc.className))
                 + ' scrollHeight=' + sc.scrollHeight + ' clientHeight=' + sc.clientHeight);
         }
+        // The card is the last thing on the page, so bringing its top to the pane's top means
+        // scrolling past the end of the document - which the browser clamps. Until the card is
+        // taller than the pane there is literally nothing below it to scroll into view, and the
+        // write silently does nothing. Give the pane exactly the shortfall as temporary space so
+        // the position becomes reachable; it shrinks to nothing as the card grows, and is removed
+        // when the pin lets go.
+        var shortfall = Math.max(0, Math.round(sc.clientHeight - cur.getBoundingClientRect().height));
+        if (shortfall !== padded) {
+            padded = shortfall;
+            sc.style.paddingBottom = shortfall ? shortfall + 'px' : '';
+            paddedPane = shortfall ? sc : null;
+        }
+
         if (Math.abs(drift) > 2) {
             var before = sc.scrollTop;
             sc.scrollTop = before + drift;
-            console.log('[anchor] drift=' + Math.round(drift)
-                + ' scrollTop ' + Math.round(before) + ' -> ' + Math.round(sc.scrollTop));
+            if (Math.round(sc.scrollTop) === Math.round(before) && Math.abs(drift) > 2) {
+                console.log('[anchor] clamped at ' + Math.round(before)
+                    + ' (max ' + Math.round(sc.scrollHeight - sc.clientHeight)
+                    + ', pad ' + shortfall + ') - drift ' + Math.round(drift));
+            }
         }
         return true;
     };
@@ -271,6 +289,8 @@ window.noAnchorTop = function (id) {
 
     anchorRelease = function () {
         clearInterval(timer);
+        // Hand the pane back the space we borrowed.
+        if (paddedPane) { paddedPane.style.paddingBottom = ''; paddedPane = null; }
         window.removeEventListener('wheel', give);
         window.removeEventListener('touchmove', give);
         window.removeEventListener('keydown', onKey, true);
