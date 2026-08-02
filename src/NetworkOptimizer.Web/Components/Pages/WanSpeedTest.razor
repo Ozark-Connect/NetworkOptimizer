@@ -1051,7 +1051,6 @@
         {
             var networks = await ConnectionService.GetNetworksAsync();
             var wanNetworks = networks.Where(n => n.IsWan && n.Enabled).ToList();
-            _hasMultipleWans = wanNetworks.Count > 1;
             _availableWans = wanNetworks
                 .Select(n => new WanOption(
                     n.WanNetworkgroup ?? "WAN",
@@ -1060,6 +1059,13 @@
 
             // Load WAN interfaces with physical names for gateway test
             _wanInterfaces = await SqmService.GetWanInterfacesFromControllerAsync();
+
+            // Whether traffic can actually be spread across WANs, from the gateway's real
+            // interfaces rather than the console's network list. A WAN network can be enabled with
+            // nothing attached to it, and counting those claimed load balancing on sites that have
+            // one working uplink. This is the same list the Gateway selector is built from, and the
+            // same source Adaptive SQM uses.
+            _hasMultipleWans = _wanInterfaces.Count > 1;
             _consoleDataLoaded = true;
         }
         catch { /* Non-critical */ }
