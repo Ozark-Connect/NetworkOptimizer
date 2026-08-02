@@ -68,6 +68,14 @@ public class NetworkOptimizerDbContext : DbContext
     public DbSet<ApNeighborSighting> ApNeighborSightings { get; set; }
     public DbSet<Site> Sites { get; set; }
     public DbSet<WanContext> WanContexts { get; set; }
+
+    /// <summary>
+    /// What we have determined per WAN, starting with the expected ISP speeds read from the console.
+    /// The site's first per-WAN table: AccessTechnology and the WAN neighbor fields still sit on
+    /// MonitoringSettings, one set per site. ISP Health and Monitoring are multi-WAN planned, so a
+    /// new per-WAN fact belongs here rather than as another single-WAN field on the settings row.
+    /// </summary>
+    public DbSet<WanProfile> WanProfiles { get; set; }
     public DbSet<SiteAgent> SiteAgents { get; set; }
     public DbSet<LicenseKeyRecord> LicenseKeyRecords { get; set; }
     public DbSet<SiteLicenseAssignment> SiteLicenseAssignments { get; set; }
@@ -558,6 +566,12 @@ public class NetworkOptimizerDbContext : DbContext
             entity.ToTable("ApNeighborSightings");
             entity.HasIndex(e => new { e.ApMac, e.Band, e.Bssid, e.Channel }).IsUnique();
             entity.HasIndex(e => e.LastSeenUtc);
+        });
+
+        modelBuilder.Entity<WanProfile>(entity =>
+        {
+            // One row per WAN: the console's own WAN group is the identity that survives a rename.
+            entity.HasIndex(e => e.WanNetworkgroup).IsUnique();
         });
     }
 }

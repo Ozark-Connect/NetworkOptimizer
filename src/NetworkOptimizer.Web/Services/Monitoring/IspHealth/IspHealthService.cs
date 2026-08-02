@@ -84,7 +84,31 @@ public class IspHealthService
     /// an unscored Speed vs Plan factor. Gates every compute entry point; a managed site's
     /// connection simply comes up later (over its agent tunnel) than the home site's.
     /// </summary>
-    private bool CanCompute => _connectionService.IsConnected;
+    // A remembered WAN profile is enough to grade a site whose console is unreachable - the scored
+    // inputs are latency and throughput history out of InfluxDB, and the console only supplied the
+    // expected speeds. Resolved per compute rather than cached: a site that has never had a
+    // successful console read still has nothing to score against.
+    private bool CanCompute => _connectionService.IsConnected || _hasRememberedWanSpeeds;
+
+    private bool _hasRememberedWanSpeeds;
+
+    /// <summary>
+    /// Whether any WAN has speeds remembered from an earlier console read. Refreshed on each compute
+    /// so a site that gains its first successful read starts computing without a restart.
+    /// </summary>
+    private async Task RefreshRememberedWanSpeedsAsync(CancellationToken ct)
+    {
+        try
+        {
+            await using var db = await CreateSiteDbAsync(ct);
+            _hasRememberedWanSpeeds = await db.WanProfiles
+                .AnyAsync(w => w.DownloadMbps != null || w.UploadMbps != null, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not check for remembered WAN speeds");
+        }
+    }
 
     /// <summary>Context for the database holding this instance's site data.</summary>
     private async Task<NetworkOptimizerDbContext> CreateSiteDbAsync(CancellationToken ct)
@@ -236,8 +260,15 @@ public class IspHealthService
         if (!mustRecompute && cached != null && DateTime.UtcNow - cached.ComputedAt < _options.CacheTtl)
             return cached;
 
-        // Defer computing until the console connection is up (expected ISP speeds come from
-        // it). Serve any existing report; otherwise publish AwaitingConnection for the funnels.
+        // The console supplies the expected ISP speeds, so a site that has never had a successful
+        // read has nothing to score against and still waits. One that has cannot be held back by an
+        // unreachable console: the scored inputs are history out of InfluxDB, and an offline site is
+        // exactly when someone wants to look at it. Checked here rather than cached at startup so a
+        // site gains computing on its first successful read without a restart.
+        if (!_connectionService.IsConnected)
+            await RefreshRememberedWanSpeedsAsync(ct);
+
+        // Serve any existing report; otherwise publish AwaitingConnection for the funnels.
         // Keep _recomputePending set so the recompute happens once the connection lands.
         if (!CanCompute)
         {
@@ -1501,6 +1532,13 @@ public class IspHealthService
             _logger.LogDebug(ex, "ISP Health could not read UniFi WAN provider capabilities");
         }
 
+        // Remember what the console said, per WAN. This is what lets a site whose console has gone
+        // away still be graded, and it is stored per WAN because plan speeds belong to a WAN:
+        // scoring reads the primary today, and multi-WAN scoring is planned, at which point each
+        // WAN's row is already here.
+        if (wan?.NetworkGroup is { Length: > 0 } && (down != null || up != null))
+            await RememberWanSpeedsAsync(wan, down, up, ct);
+
         if (down == null || up == null)
         {
             await using var db = await CreateSiteDbAsync(ct);
@@ -1513,8 +1551,55 @@ public class IspHealthService
                 up ??= sqmWan.NominalUploadMbps;
                 source ??= "Adaptive SQM settings";
             }
+
+            // Last rung: what the console told us before it went away. With the console down we
+            // cannot ask which WAN is primary, so prefer the first WAN group and fall back to the
+            // most recently confirmed row. Multi-WAN scoring will pick its own WAN here instead.
+            if (down == null || up == null)
+            {
+                var remembered = await db.WanProfiles.AsNoTracking()
+                    .OrderBy(w => w.WanNetworkgroup)
+                    .ThenByDescending(w => w.UpdatedAt)
+                    .FirstOrDefaultAsync(ct);
+                if (remembered != null)
+                {
+                    down ??= remembered.DownloadMbps;
+                    up ??= remembered.UploadMbps;
+                    if (down != null || up != null)
+                        source ??= "UniFi Network (last known)";
+                    wan ??= new WanIdentity(remembered.Name, remembered.WanNetworkgroup, remembered.Interface);
+                }
+            }
         }
         return (down, up, source, smartQueues, wan);
+    }
+
+    /// <summary>
+    /// Stores this WAN's expected speeds so they outlive the console connection. One row per WAN
+    /// group; a rename changes the display name, not the identity.
+    /// </summary>
+    private async Task RememberWanSpeedsAsync(WanIdentity wan, double? down, double? up, CancellationToken ct)
+    {
+        try
+        {
+            await using var db = await CreateSiteDbAsync(ct);
+            var row = await db.WanProfiles.FirstOrDefaultAsync(w => w.WanNetworkgroup == wan.NetworkGroup, ct);
+            if (row == null)
+            {
+                row = new WanProfile { WanNetworkgroup = wan.NetworkGroup! };
+                db.WanProfiles.Add(row);
+            }
+            row.Interface = wan.Interface;
+            row.Name = wan.Name;
+            row.DownloadMbps = down;
+            row.UploadMbps = up;
+            row.UpdatedAt = DateTime.UtcNow;
+            await db.SaveChangesAsync(ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not remember the expected speeds for WAN {Wan}", wan.NetworkGroup);
+        }
     }
 
     private static readonly TimeSpan SqmProbeDuration = TimeSpan.FromSeconds(30);

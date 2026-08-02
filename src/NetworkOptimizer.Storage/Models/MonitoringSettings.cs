@@ -77,7 +77,13 @@ public class MonitoringSettings
     public DateTime? LastSnmpDetection { get; set; }
     public DateTime? LastSnmpSuccess { get; set; }
 
-    // Access ISP context (set by the upstream wizard, used for first-mile labelling)
+    // Access ISP context (set by the upstream wizard, used for first-mile labelling).
+    //
+    // MOVE TO WanProfile: all three describe ONE WAN's first mile, but there is one set per site, so
+    // a second WAN cannot be described at all - a site with fiber and an LTE backup gets whichever
+    // the wizard looked at last. ISP Health and Monitoring are multi-WAN planned; WanProfile is the
+    // per-WAN home these belong in. Left here until each reader is taught to ask per WAN, so one
+    // place holds each fact rather than two disagreeing ones.
     public AccessTechnology AccessTechnology { get; set; } = AccessTechnology.Unknown;
 
     [MaxLength(50)]
