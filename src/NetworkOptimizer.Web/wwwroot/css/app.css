@@ -15748,6 +15748,13 @@ tr.stats-row-filtered {
     gap: 0.5rem;
 }
 
+.form-value-line {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
+}
+
 /* 3D LAN Flow Map (spec 5.7) */
 .lan-flow-map-body {
     padding: 0;

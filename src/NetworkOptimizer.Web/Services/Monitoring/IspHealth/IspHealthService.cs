@@ -1606,7 +1606,11 @@ public class IspHealthService
                 row = new WanProfile { WanNetworkgroup = wan.NetworkGroup! };
                 db.WanProfiles.Add(row);
             }
-            row.Interface = wan.Interface;
+            // The DATA-PATH interface, not the WAN's ifname: they diverge on PPPoE (ppp0 vs the
+            // physical eth) and every consumer of this field wants the data path - the throughput
+            // series are keyed on it, and PPPoE is detected from its name. Caching the ifname would
+            // hand an offline PPPoE site the physical interface and quietly drop its overlay.
+            row.Interface = await _connectionService.GetPrimaryWanDataPathInterfaceAsync(ct) ?? wan.Interface;
             row.Name = wan.Name;
             row.DownloadMbps = down;
             row.UploadMbps = up;

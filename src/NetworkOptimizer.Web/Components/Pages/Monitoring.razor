@@ -1593,13 +1593,13 @@
                             }
                             else
                             {
-                                <div>
+                                <div class="form-value-line">
                                     <span class="status-indicator @(ServerCollecting ? "status-active" : "status-danger")"></span>
                                     <span>Server: @ServerCollectionState</span>
                                 </div>
                                 @if (_siteAgent is not null)
                                 {
-                                    <div>
+                                    <div class="form-value-line">
                                         <span class="status-indicator @(TunnelRegistry.IsAgentLive(_siteAgent) ? "status-active" : "status-danger")"></span>
                                         <span>On-site agent: @AgentCollectionState</span>
                                     </div>
