@@ -122,12 +122,19 @@
                 </button>
             }
         </AuthorizeView>
-        @* Managing the set of sites is instance-wide, so it is not a site admin's tab either. *@
+        @* The tab is not instance-wide the way its title suggests: the site list is access-filtered
+           and every row authorizes for its own site, so a site's own admin gets that site's controls
+           and a row they only view carries nothing but Switch to Site. Offer it to anyone once
+           multi-site is on - /sites is RequireViewer and links straight here - and to an
+           instance-wide Admin always, since only they can turn multi-site on in the first place. *@
         <AuthorizeView Policy="@Policies.RequireAdmin" Context="multiSiteTab">
-            <button class="wifi-view-tab @(_activeTab == "multisite" ? "active" : "")"
-                    @onclick="@(() => SetActiveTab("multisite"))">
-                Multi-Site
-            </button>
+            <Authorized>@MultiSiteTabButton</Authorized>
+            <NotAuthorized>
+                @if (_multiSiteEnabled)
+                {
+                    @MultiSiteTabButton
+                }
+            </NotAuthorized>
         </AuthorizeView>
     </div>
     <button class="wifi-tabs-scroll-btn wifi-tabs-scroll-right" onclick="this.parentElement.querySelector('.wifi-view-tabs').scrollBy({left: 200, behavior: 'smooth'})">&#8250;</button>
@@ -3903,6 +3910,11 @@
     }
 
     // Multi-Site
+    private RenderFragment MultiSiteTabButton => @<button class="wifi-view-tab @(_activeTab == "multisite" ? "active" : "")"
+                                                          @onclick="@(() => SetActiveTab("multisite"))">
+        Multi-Site
+    </button>;
+
     private bool _multiSiteEnabled = false;
     private List<Site> _sites = new();
     private string _multiSiteMessage = "";

@@ -15,7 +15,7 @@ namespace NetworkOptimizer.Web.Services;
 /// inject this registry and pin GetDefault(). Same ownership pattern as
 /// SiteConnectionRegistry.
 /// </summary>
-public class SpeedTestServiceRegistry
+public class SpeedTestServiceRegistry : ISiteScopedRegistry
 {
     /// <summary>One site's speed test service bundle.</summary>
     public sealed record SiteSpeedTestServices(
@@ -73,4 +73,11 @@ public class SpeedTestServiceRegistry
 
     /// <summary>The default site's speed test bundle.</summary>
     public SiteSpeedTestServices GetDefault() => GetFor(SiteManagementService.DefaultSiteSlug);
+
+    /// <inheritdoc />
+    public Func<ValueTask>? EvictSite(string slug)
+    {
+        _instances.TryRemove(slug, out _);
+        return null;
+    }
 }

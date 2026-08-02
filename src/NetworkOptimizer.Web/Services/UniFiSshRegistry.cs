@@ -11,7 +11,7 @@ namespace NetworkOptimizer.Web.Services;
 /// Instances hold no connections (SSH sessions are per-command), so nothing
 /// needs disposal.
 /// </summary>
-public class UniFiSshRegistry
+public class UniFiSshRegistry : ISiteScopedRegistry
 {
     private readonly IServiceProvider _serviceProvider;
     private readonly ConcurrentDictionary<string, UniFiSshService> _instances = new();
@@ -28,4 +28,11 @@ public class UniFiSshRegistry
 
     /// <summary>The default site's device SSH service.</summary>
     public UniFiSshService GetDefault() => GetFor(SiteManagementService.DefaultSiteSlug);
+
+    /// <inheritdoc />
+    public Func<ValueTask>? EvictSite(string slug)
+    {
+        _instances.TryRemove(slug, out _);
+        return null;
+    }
 }

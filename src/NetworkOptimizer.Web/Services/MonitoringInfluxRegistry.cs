@@ -12,7 +12,7 @@ namespace NetworkOptimizer.Web.Services;
 /// the registry and pin GetDefault(). Same ownership pattern as
 /// SiteConnectionRegistry: the registry disposes what it creates.
 /// </summary>
-public class MonitoringInfluxRegistry : IAsyncDisposable
+public class MonitoringInfluxRegistry : IAsyncDisposable, ISiteScopedRegistry
 {
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<MonitoringInfluxRegistry> _logger;
@@ -62,15 +62,14 @@ public class MonitoringInfluxRegistry : IAsyncDisposable
         }
     }
 
-    /// <summary>
-    /// Drops a removed site's client. Without this the registry keeps an entry pointing at a
-    /// database file that no longer exists, and every later ReconfigureAllAsync trips over it.
-    /// </summary>
-    public async Task RemoveAsync(string slug)
-    {
-        if (_clients.TryRemove(slug, out var client))
-            await client.DisposeOwnedAsync();
-    }
+    /// <inheritdoc />
+    /// <remarks>
+    /// Teardown is deferred rather than done here on purpose: the site's ISP Health service and
+    /// collection agent hold this client, so disposing it while they are still registered turns
+    /// every later background pass into an ObjectDisposedException on its config lock.
+    /// </remarks>
+    public Func<ValueTask>? EvictSite(string slug)
+        => _clients.TryRemove(slug, out var client) ? () => client.DisposeOwnedAsync() : null;
 
     public async ValueTask DisposeAsync()
     {

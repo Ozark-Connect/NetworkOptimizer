@@ -17,7 +17,7 @@ namespace NetworkOptimizer.Web.Services;
 /// resolution forwards to the current site's bundle so the Monitoring page,
 /// stats panels, and chart endpoints show the site being viewed.
 /// </summary>
-public class ModemMonitorRegistry : BackgroundService
+public class ModemMonitorRegistry : BackgroundService, ISiteScopedRegistry
 {
     /// <summary>One site's modem monitors.</summary>
     public sealed record SiteModemMonitors(
@@ -118,6 +118,19 @@ public class ModemMonitorRegistry : BackgroundService
             bundle.Starlink.DisposeOwned();
         }
     }
+
+    /// <inheritdoc />
+    public Func<ValueTask>? EvictSite(string slug)
+        => _instances.TryRemove(slug, out var bundle)
+            ? () =>
+            {
+                bundle.CableModem.DisposeOwned();
+                bundle.Ont.DisposeOwned();
+                bundle.Cellular.DisposeOwned();
+                bundle.Starlink.DisposeOwned();
+                return ValueTask.CompletedTask;
+            }
+            : null;
 
     private async Task ReconcileAsync(CancellationToken ct)
     {

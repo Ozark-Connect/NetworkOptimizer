@@ -15,7 +15,7 @@ namespace NetworkOptimizer.Web.Services.Monitoring;
 /// agent (running the same LocalProbeExecutor over the tunnel) on a secondary site, so the
 /// path originates on the site's own network with first-hop logic identical to home.
 /// </summary>
-public class UpstreamTracerRegistry
+public class UpstreamTracerRegistry : ISiteScopedRegistry
 {
     private readonly SiteConnectionRegistry _connections;
     private readonly GatewaySshRegistry _gatewaySsh;
@@ -82,4 +82,11 @@ public class UpstreamTracerRegistry
 
     /// <summary>The default site's tracer.</summary>
     public UpstreamTracerService GetDefault() => GetFor(SiteManagementService.DefaultSiteSlug);
+
+    /// <inheritdoc />
+    public Func<ValueTask>? EvictSite(string slug)
+    {
+        _instances.TryRemove(slug, out _);
+        return null;
+    }
 }

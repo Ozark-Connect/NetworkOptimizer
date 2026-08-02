@@ -2150,6 +2150,7 @@
                     await LoadTargetsAsync();
                     await LoadSnmpDeviceStatusesAsync();
                     await RefreshUpstreamReviewAsync();
+                    await RefreshSetupStatusAsync();
                     StateHasChanged();
                 });
             }
@@ -2171,6 +2172,64 @@
             }
         });
     }
+
+    /// <summary>
+    /// Keeps the Setup tab's status current while the page is open. Everything it reads is written
+    /// by something other than this circuit - the collection tier records InfluxDB reachability and
+    /// SNMP poll health, another admin can turn collection off, an agent can be enrolled or removed -
+    /// so without this the statuses are a page-load snapshot and fixing the underlying problem shows
+    /// nothing until a reload.
+    ///
+    /// Deliberately a database read and nothing more. Re-running SNMP detection would put a console
+    /// round trip (and a write) on a 15 second timer; the stored state already carries what the
+    /// poller found, and the Re-check button stays the way to ask the console again.
+    /// </summary>
+    private async Task RefreshSetupStatusAsync()
+    {
+        try
+        {
+            var settings = await SnmpDetection.GetOrCreateSettingsAsync();
+            _monitoringEnabled = settings.Enabled;
+
+            // A secondary site's connection is derived rather than stored, so its configured /
+            // reachable state comes from an active health check (RefreshInfluxStateAsync) that this
+            // poll deliberately does not run. Poll it only while setup is unfinished, which is when
+            // someone is waiting to see it complete, and leave a working site to the Test button.
+            if (SiteCtx.IsDefault)
+            {
+                _influxReachable = settings.InfluxDbReachable;
+                _influxError = settings.LastInfluxDbError;
+                _influxConfigured = !string.IsNullOrEmpty(settings.InfluxDbToken)
+                    && !string.IsNullOrEmpty(settings.InfluxDbUrl);
+            }
+            else if (!_influxConfigured)
+            {
+                await RefreshInfluxStateAsync(settings);
+            }
+
+            // The stored SNMP state drives which card the whole tab renders, so adopting a change
+            // mid-edit would tear a half-typed custom OID or interface form off the screen. Hold it
+            // until the editors are idle - the status lines above update either way. Skipped while a
+            // detection is running or after one failed here, so a fresh console error is not
+            // immediately overwritten by the older stored value.
+            if (!_detecting && _detectionError == null
+                && settings.SnmpDetectionState != _snmpState
+                && !SetupEditInFlight)
+            {
+                _snmpState = settings.SnmpDetectionState;
+            }
+
+            await LoadSiteAgentAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Could not refresh the Monitoring setup status");
+        }
+    }
+
+    /// <summary>Whether a Setup tab card is holding an edit that a re-layout would destroy.</summary>
+    private bool SetupEditInFlight =>
+        (_snmpDeviceCard?.HasUnsavedEdit ?? false) || (_miCard?.HasUnsavedEdit ?? false);
 
     private void LoadInfluxStateFromSettings(MonitoringSettings settings)
     {

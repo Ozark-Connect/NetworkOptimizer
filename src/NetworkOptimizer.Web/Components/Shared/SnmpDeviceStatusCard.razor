@@ -252,6 +252,13 @@
     private bool _testingOid;
     private TestOidResult? _testResult;
 
+    /// <summary>
+    /// Whether the custom OID form is holding work the user would lose. The page checks this before
+    /// adopting a polled status change that would re-render this card away.
+    /// </summary>
+    public bool HasUnsavedEdit =>
+        _showAddForm && (!string.IsNullOrWhiteSpace(_editOid) || !string.IsNullOrWhiteSpace(_editFieldName));
+
     protected override async Task OnParametersSetAsync()
     {
         // Nudge users who haven't touched custom OIDs yet: auto-expand the first device so the

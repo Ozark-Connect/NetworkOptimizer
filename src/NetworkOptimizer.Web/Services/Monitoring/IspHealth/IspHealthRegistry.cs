@@ -10,7 +10,7 @@ namespace NetworkOptimizer.Web.Services.Monitoring.IspHealth;
 /// resolution forwards to the current site's instance, same pattern as
 /// MonitoringInfluxRegistry / MonitoringCollectionRegistry.
 /// </summary>
-public class IspHealthRegistry
+public class IspHealthRegistry : ISiteScopedRegistry
 {
     private readonly IServiceProvider _serviceProvider;
     private readonly ConcurrentDictionary<string, IspHealthService> _instances = new(StringComparer.OrdinalIgnoreCase);
@@ -30,4 +30,11 @@ public class IspHealthRegistry
 
     /// <summary>The default site's ISP Health service.</summary>
     public IspHealthService GetDefault() => GetFor(SiteManagementService.DefaultSiteSlug);
+
+    /// <inheritdoc />
+    public Func<ValueTask>? EvictSite(string slug)
+    {
+        _instances.TryRemove(slug, out _);
+        return null;
+    }
 }

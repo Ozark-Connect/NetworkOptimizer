@@ -109,7 +109,7 @@ builder.Services.AddSingleton<NetworkOptimizer.Storage.Services.ICredentialProte
 // instance per site. Scoped resolution (components, request handlers, per-site
 // scopes) forwards to the current site's instance; singletons and background
 // code inject the registry directly.
-builder.Services.AddSingleton<SiteConnectionRegistry>();
+builder.Services.AddSiteScopedRegistry<SiteConnectionRegistry>();
 builder.Services.AddScoped(sp => sp.GetRequiredService<SiteConnectionRegistry>()
     .GetFor(sp.GetRequiredService<SiteContextService>().Slug));
 builder.Services.AddSingleton<IUniFiClientProvider>(sp => sp.GetRequiredService<SiteConnectionRegistry>().GetDefault());
@@ -316,7 +316,7 @@ builder.Services.AddSingleton<SshClientService>();
 // pages): consults the site's devices.via_agent flag and rewrites host:port to
 // an agent tunnel proxy endpoint when enabled.
 builder.Services.AddSingleton<SiteTunnelRouting>();
-builder.Services.AddSingleton<GatewaySshRegistry>();
+builder.Services.AddSiteScopedRegistry<GatewaySshRegistry>();
 builder.Services.AddScoped<IGatewaySshService>(sp => sp.GetRequiredService<GatewaySshRegistry>()
     .GetFor(sp.GetRequiredService<SiteContextService>().Slug));
 
@@ -329,7 +329,7 @@ builder.Services.AddScoped<IUdmBootService, UdmBootService>();
 // device credentials + per-device configs from that site's DB). Scoped resolution
 // forwards to the current site's instance; singleton consumers inject the
 // registry and pin GetDefault() or GetFor(slug).
-builder.Services.AddSingleton<UniFiSshRegistry>();
+builder.Services.AddSiteScopedRegistry<UniFiSshRegistry>();
 builder.Services.AddScoped(sp => sp.GetRequiredService<UniFiSshRegistry>()
     .GetFor(sp.GetRequiredService<SiteContextService>().Slug));
 
@@ -350,7 +350,7 @@ builder.Services.AddSingleton<ICableModemProvider, ArrisSurfboardHttpProvider>()
 builder.Services.AddSingleton<ICableModemProvider, ArrisSurfboardHnapProvider>();
 builder.Services.AddSingleton<ICableModemProvider, MotorolaHnapProvider>();
 builder.Services.AddSingleton<ICableModemProvider, XfinityGatewayProvider>();
-builder.Services.AddSingleton<ModemMonitorRegistry>();
+builder.Services.AddSiteScopedRegistry<ModemMonitorRegistry>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<ModemMonitorRegistry>());
 builder.Services.AddScoped(sp => sp.GetRequiredService<ModemMonitorRegistry>()
     .GetFor(sp.GetRequiredService<SiteContextService>().Slug).CableModem);
@@ -391,7 +391,7 @@ builder.Services.AddMutatingService<IGatewaySpeedTestService, GatewaySpeedTestSe
 // (path analyzer + topology snapshots + client speed test service). Scoped
 // resolution forwards to the current site's instance so pages show that site's
 // results; the public results endpoint routes by slug parameter.
-builder.Services.AddSingleton<SpeedTestServiceRegistry>();
+builder.Services.AddSiteScopedRegistry<SpeedTestServiceRegistry>();
 builder.Services.AddMutatingService<IClientSpeedTestService>(sp => sp.GetRequiredService<SpeedTestServiceRegistry>()
     .GetFor(sp.GetRequiredService<SiteContextService>().Slug).ClientSpeedTest);
 
@@ -508,7 +508,7 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<NetworkOptimizer.A
 // WAN data usage tracking is per site: the registry owns one WanDataUsageService per
 // site (its console + its DB), the default starting with the app and non-default sites
 // reconciled in. Scoped resolution forwards to the current site's collector.
-builder.Services.AddSingleton<WanDataUsageRegistry>();
+builder.Services.AddSiteScopedRegistry<WanDataUsageRegistry>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<WanDataUsageRegistry>());
 builder.Services.AddScoped(sp => sp.GetRequiredService<WanDataUsageRegistry>()
     .GetFor(sp.GetRequiredService<SiteContextService>().Slug));
@@ -567,13 +567,13 @@ builder.Services.AddScoped<MonitoringReadinessService>();
 // default site's included. Scoped resolution forwards to the current site's
 // client so chart endpoints and pages read that site's buckets; singleton
 // consumers inject the registry and pin GetDefault().
-builder.Services.AddSingleton<MonitoringInfluxRegistry>();
+builder.Services.AddSiteScopedRegistry<MonitoringInfluxRegistry>();
 builder.Services.AddScoped(sp => sp.GetRequiredService<MonitoringInfluxRegistry>()
     .GetFor(sp.GetRequiredService<SiteContextService>().Slug));
 // Per-site live monitoring caches, same forwarding shape: pages/endpoints get
 // the current site's instance, singleton collectors pin the default, and the
 // agent result sink records into the owning site's instance.
-builder.Services.AddSingleton<MonitoringLiveStatsRegistry>();
+builder.Services.AddSiteScopedRegistry<MonitoringLiveStatsRegistry>();
 builder.Services.AddScoped(sp => sp.GetRequiredService<MonitoringLiveStatsRegistry>()
     .GetFor(sp.GetRequiredService<SiteContextService>().Slug));
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.WanSummaryCache>();
@@ -583,7 +583,7 @@ builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.DeviceTra
 // Per-site device reboot trackers: uptime samples go in - from the collection tier where it is
 // running, and from DeviceRebootObserver regardless - and the dashboard reads the reason behind
 // each device's current boot back out.
-builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.RebootReason.DeviceRebootRegistry>();
+builder.Services.AddSiteScopedRegistry<NetworkOptimizer.Web.Services.Monitoring.RebootReason.DeviceRebootRegistry>();
 // Observes device uptime from the console alone, so reboot reasons resolve whether or not
 // monitoring is collecting anything.
 builder.Services.AddHostedService<NetworkOptimizer.Web.Services.Monitoring.RebootReason.DeviceRebootObserver>();
@@ -592,7 +592,7 @@ builder.Services.AddScoped(sp => sp.GetRequiredService<NetworkOptimizer.Web.Serv
 // ISP Health is per site: the registry owns one IspHealthService (with its own
 // PhysicalLinkResolver, report cache, and compute state) per site; scoped
 // resolution forwards to the current site's instance.
-builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.IspHealth.IspHealthRegistry>();
+builder.Services.AddSiteScopedRegistry<NetworkOptimizer.Web.Services.Monitoring.IspHealth.IspHealthRegistry>();
 builder.Services.AddScoped(sp => sp.GetRequiredService<NetworkOptimizer.Web.Services.Monitoring.IspHealth.IspHealthRegistry>()
     .GetFor(sp.GetRequiredService<SiteContextService>().Slug));
 // Scoped - forwards to the current site's Influx client and database.
@@ -603,13 +603,13 @@ builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.AsnResolu
 // in-memory state machines keyed by target id / MAC, which repeat across sites, so
 // each site gets its own bundle. Local collection loops and the agent tunnel sink
 // both evaluate through the owning site's instances.
-builder.Services.AddSingleton<MonitoringAlertRegistry>();
+builder.Services.AddSiteScopedRegistry<MonitoringAlertRegistry>();
 // (The cable modem, ONT, and cellular alert evaluators are per site via
 // MonitoringAlertRegistry.)
 // Upstream tracer is per site (isolated discovery state in each site's DB, traceroute
 // from the site's own vantage). Scoped resolution forwards to the current site's tracer;
 // the background re-discovery iterates sites via the registry.
-builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.UpstreamTracerRegistry>();
+builder.Services.AddSiteScopedRegistry<NetworkOptimizer.Web.Services.Monitoring.UpstreamTracerRegistry>();
 builder.Services.AddScoped(sp => sp.GetRequiredService<NetworkOptimizer.Web.Services.Monitoring.UpstreamTracerRegistry>()
     .GetFor(sp.GetRequiredService<SiteContextService>().Slug));
 builder.Services.AddMutatingService<IInfluxDbProvisioningService, InfluxDbProvisioningService>();
@@ -632,7 +632,7 @@ builder.Services.AddScoped<NetworkOptimizer.Web.Services.Monitoring.GatewayDiagn
 // (default always runs; non-default sites start/stop on site enable/disable). Scoped
 // resolution forwards to the current site's instance so the Setup dashboard reads
 // per-device SNMP status for the site it is showing.
-builder.Services.AddSingleton<MonitoringCollectionRegistry>();
+builder.Services.AddSiteScopedRegistry<MonitoringCollectionRegistry>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<MonitoringCollectionRegistry>());
 builder.Services.AddScoped(sp => sp.GetRequiredService<MonitoringCollectionRegistry>()
     .GetFor(sp.GetRequiredService<SiteContextService>().Slug));
@@ -643,7 +643,7 @@ builder.Services.AddHostedService<NetworkOptimizer.Web.Services.Monitoring.Upstr
 // forwarding hands each request the current site's instance, so a secondary
 // site's rebuild can no longer overwrite the main site's map snapshot. Service
 // is Scoped so it can consume scoped deps.
-builder.Services.AddSingleton<NetworkOptimizer.Web.Services.LanFlowMap.LanFlowMapCacheRegistry>();
+builder.Services.AddSiteScopedRegistry<NetworkOptimizer.Web.Services.LanFlowMap.LanFlowMapCacheRegistry>();
 builder.Services.AddScoped(sp => sp.GetRequiredService<NetworkOptimizer.Web.Services.LanFlowMap.LanFlowMapCacheRegistry>()
     .GetFor(sp.GetRequiredService<SiteContextService>().Slug));
 builder.Services.AddScoped<NetworkOptimizer.Web.Services.LanFlowMap.LanFlowMapService>();
@@ -745,7 +745,7 @@ builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IChannelMemoryRep
         sp,
         sp.GetRequiredService<SiteContextService>().Slug,
         sp.GetRequiredService<SiteContextService>().IsDefault));
-builder.Services.AddSingleton<ChannelMemoryRegistry>();
+builder.Services.AddSiteScopedRegistry<ChannelMemoryRegistry>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<ChannelMemoryRegistry>());
 
 // Add ApexCharts for Wi-Fi Optimizer visualizations

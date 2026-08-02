@@ -9,7 +9,7 @@ namespace NetworkOptimizer.Web.Services;
 /// registration; singletons and background code inject this registry and use
 /// GetDefault() or GetFor(slug).
 /// </summary>
-public class SiteConnectionRegistry : IDisposable
+public class SiteConnectionRegistry : IDisposable, ISiteScopedRegistry
 {
     private readonly IServiceProvider _serviceProvider;
     private readonly ConcurrentDictionary<string, UniFiConnectionService> _connections = new();
@@ -38,6 +38,18 @@ public class SiteConnectionRegistry : IDisposable
         if (_connections.TryRemove(slug, out var connection))
             connection.DisposeOwned();
     }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// Teardown is deferred rather than done here: the site's tracer, speed test bundle and
+    /// gateway SSH service all hold this connection, so it must not be disposed until they have
+    /// been evicted too. <see cref="RemoveFor"/> stays for the disable path, where the site and
+    /// everything holding it remain in place.
+    /// </remarks>
+    public Func<ValueTask>? EvictSite(string slug)
+        => _connections.TryRemove(slug, out var connection)
+            ? () => { connection.DisposeOwned(); return ValueTask.CompletedTask; }
+            : null;
 
     public void Dispose()
     {

@@ -25,7 +25,7 @@ public class SiteManagementService : ISiteManagementService
     private readonly Licensing.LicenseStateService _licenseState;
     private readonly Licensing.LicenseActivationService _activation;
     private readonly SiteConnectionRegistry _siteConnections;
-    private readonly MonitoringInfluxRegistry _influxRegistry;
+    private readonly IEnumerable<ISiteScopedRegistry> _siteRegistries;
     private readonly MonitoringCollectionRegistry _collectionRegistry;
     private readonly SiteRegistryChangeNotifier _changeNotifier;
     private readonly ILogger<SiteManagementService> _logger;
@@ -41,7 +41,7 @@ public class SiteManagementService : ISiteManagementService
         Licensing.LicenseStateService licenseState,
         Licensing.LicenseActivationService activation,
         SiteConnectionRegistry siteConnections,
-        MonitoringInfluxRegistry influxRegistry,
+        IEnumerable<ISiteScopedRegistry> siteRegistries,
         MonitoringCollectionRegistry collectionRegistry,
         SiteRegistryChangeNotifier changeNotifier,
         Authorization.ISiteAccessFilter siteAccess,
@@ -57,7 +57,7 @@ public class SiteManagementService : ISiteManagementService
         _licenseState = licenseState;
         _activation = activation;
         _siteConnections = siteConnections;
-        _influxRegistry = influxRegistry;
+        _siteRegistries = siteRegistries;
         _collectionRegistry = collectionRegistry;
         _changeNotifier = changeNotifier;
         _logger = logger;
@@ -287,10 +287,7 @@ public class SiteManagementService : ISiteManagementService
         site.Enabled = false;
         await _siteRepository.UpdateAsync(site);
         await _collectionRegistry.StopForSiteAsync(site.Slug);
-        _siteConnections.RemoveFor(site.Slug);
-        // The Influx client caches this site's connection and is rebuilt from the site's own
-        // database; leaving it registered points it at a file that is about to be deleted.
-        await _influxRegistry.RemoveAsync(site.Slug);
+        await SweepSiteRegistriesAsync(site.Slug);
         DropTunnels(site.Slug, "site removed");
 
         await using (var db = await _mainDbFactory.CreateDbContextAsync())
@@ -321,6 +318,50 @@ public class SiteManagementService : ISiteManagementService
         _siteRoles.InvalidateAll();
         _changeNotifier.NotifySitesChanged();
         _logger.LogInformation("Removed site {Slug} (id {Id}) and its data", site.Slug, site.Id);
+    }
+
+    /// <summary>
+    /// Empties every per-site registry of a site being removed.
+    ///
+    /// Two passes, because the instances hold one another: the tracer holds the site's console
+    /// connection, the ISP Health service holds its InfluxDB client. Evicting and disposing in one
+    /// pass hands a live holder a disposed dependency - which is how a re-created site ended up
+    /// with an ObjectDisposedException on every ISP Health pass and a discovery run that saw an
+    /// empty device list. So: evict everything first, then tear down.
+    ///
+    /// Loop owners are torn down before the rest so a running collection pass cannot reach a
+    /// client that has just been disposed.
+    /// </summary>
+    private async Task SweepSiteRegistriesAsync(string slug)
+    {
+        var loopTeardowns = new List<Func<ValueTask>>();
+        var teardowns = new List<Func<ValueTask>>();
+
+        foreach (var registry in _siteRegistries)
+        {
+            try
+            {
+                var teardown = registry.EvictSite(slug);
+                if (teardown == null) continue;
+                (registry is BackgroundService ? loopTeardowns : teardowns).Add(teardown);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Could not evict site {Slug} from {Registry}", slug, registry.GetType().Name);
+            }
+        }
+
+        foreach (var teardown in loopTeardowns.Concat(teardowns))
+        {
+            try
+            {
+                await teardown();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Teardown for removed site {Slug} failed", slug);
+            }
+        }
     }
 
     /// <summary>
