@@ -208,3 +208,41 @@ window.noHighlightTarget = function (id, block, radius) { noHighlight(id, block,
 
 // A table row: tinted, because an offset ring around a row collides with the rows either side.
 window.noHighlightRow = function (id, block) { noHighlight(id, block || 'center', 'nav-highlight-row'); };
+
+// Keeps a long-running card's top pinned to the view while it grows - upstream discovery adds
+// sections for a minute or so, and without this the reader chases them down the page. Released the
+// moment the user scrolls for themselves: wheel, touch and the scrolling keys are unambiguous
+// intent, unlike a scroll event, which our own scrolling would also raise.
+var anchorRelease = null;
+
+window.noAnchorTop = function (id) {
+    window.noAnchorRelease();
+    var el = document.getElementById(id);
+    if (!el) return;
+
+    var keep = function () { el.scrollIntoView({ block: 'start' }); };
+    var timer = setInterval(function () {
+        if (!document.contains(el)) { window.noAnchorRelease(); return; }
+        keep();
+    }, 400);
+
+    var give = function () { window.noAnchorRelease(); };
+    var keys = { PageDown: 1, PageUp: 1, ArrowDown: 1, ArrowUp: 1, Home: 1, End: 1, ' ': 1 };
+    var onKey = function (e) { if (keys[e.key]) give(); };
+    window.addEventListener('wheel', give, { passive: true });
+    window.addEventListener('touchmove', give, { passive: true });
+    window.addEventListener('keydown', onKey, true);
+
+    anchorRelease = function () {
+        clearInterval(timer);
+        window.removeEventListener('wheel', give);
+        window.removeEventListener('touchmove', give);
+        window.removeEventListener('keydown', onKey, true);
+        anchorRelease = null;
+    };
+    keep();
+};
+
+window.noAnchorRelease = function () {
+    if (anchorRelease) anchorRelease();
+};

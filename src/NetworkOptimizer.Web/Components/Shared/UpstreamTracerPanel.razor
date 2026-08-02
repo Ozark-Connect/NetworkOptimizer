@@ -549,7 +549,18 @@
     {
         if (!_canOperate) return;
         _justSaved = false;
-        await Discovery.StartAsync();
+        // Discovery adds sections to this card for a minute or so; keep its top in view rather than
+        // making the reader follow them down the page. Released when it finishes, or sooner if they
+        // scroll for themselves.
+        try { await JS.InvokeVoidAsync("noAnchorTop", "upstream-discovery"); } catch { }
+        try
+        {
+            await Discovery.StartAsync();
+        }
+        finally
+        {
+            try { await JS.InvokeVoidAsync("noAnchorRelease"); } catch { }
+        }
         _state = Tracer.State;
         StateHasChanged();
     }
