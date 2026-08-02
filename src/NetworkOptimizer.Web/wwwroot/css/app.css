@@ -19865,11 +19865,21 @@ body.kiosk-mode .status-indicators {
     margin-left: auto;
 }
 
+/* An icon, not a button: it sits among the filter inputs to save the width a labelled control
+   would take, so it carries no button chrome. */
 .audit-filter-clear {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    padding-inline: 0.4rem;
+    padding: 0;
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+}
+
+.audit-filter-clear:hover {
+    color: var(--text-secondary);
 }
 
 .audit-pager {

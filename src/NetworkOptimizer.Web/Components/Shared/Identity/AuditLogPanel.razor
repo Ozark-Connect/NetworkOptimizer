@@ -38,7 +38,7 @@
             <button class="btn btn-primary btn-sm" @onclick="ApplyAsync">Filter</button>
             @if (HasFilter)
             {
-                <button class="btn btn-secondary btn-sm audit-filter-clear" @onclick="ClearFilterAsync"
+                <button type="button" class="audit-filter-clear" @onclick="ClearFilterAsync"
                         data-tooltip="Clear filter" aria-label="Clear filter">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                          stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
