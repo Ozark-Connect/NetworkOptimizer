@@ -22,7 +22,7 @@
             </div>
             <div class="card-body">
                 <div class="empty-state">
-                    @if (_canProvision || _canProvisionSite)
+                    @if (!_noWorkPossible)
                     {
                         <span class="spinner"></span>
                         <p>Looking for InfluxDB on this network...</p>
@@ -300,6 +300,9 @@
     /// site is enough: adding a site's own buckets decides nothing for the installation.</summary>
     private bool _canProvisionSite;
 
+    /// <summary>No provisioning path is open to this caller, so the wizard has nothing to do.</summary>
+    private bool _noWorkPossible;
+
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
 
     protected override async Task OnInitializedAsync()
@@ -321,6 +324,12 @@
             await TryEnterSiteModeAsync();
         if (!_siteMode && _canProvision)
             await DetectAgainAsync();
+
+        // Nothing above ran, so nothing will ever move off Detecting: site mode was skipped or bowed
+        // out, and the full flow needs an instance-wide Admin this caller does not have. Say so
+        // rather than spinning forever - a site's admin can land here on the default site, or on a
+        // managed site before the shared connection exists, and the spinner reads as a broken page.
+        _noWorkPossible = _state == Step.Detecting && !_siteMode && !_canProvision;
     }
 
     /// <summary>
