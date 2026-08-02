@@ -470,6 +470,7 @@
 <script suppress-error="BL9992">
     window.noUpstreamPin = (function () {
         var release = null;
+        var lastKeep = null;
 
         function start(id) {
             stop();
@@ -513,6 +514,7 @@
                 }
             };
 
+            lastKeep = keep;
             var timer = setInterval(keep, 300);
             // Wheel, touch and the scrolling keys are unambiguous intent; a scroll event would also
             // catch our own corrections.
@@ -529,13 +531,26 @@
                 window.removeEventListener('touchmove', give);
                 window.removeEventListener('keydown', onKey, true);
                 release = null;
+                lastKeep = null;
             };
             keep();
         }
 
         function stop() { if (release) release(); }
 
-        return { start: start, stop: stop };
+        // The run finishing is not the same as the card having finished growing: the render that
+        // carries the terminal state is the one that adds the review UI, so stopping on it leaves
+        // that last, largest addition unfollowed. Give the layout a moment, follow once more, then
+        // let go. A scroll of the reader's own still stops immediately via stop().
+        function finish() {
+            if (!release) return;
+            setTimeout(function () {
+                if (lastKeep) lastKeep();
+                stop();
+            }, 400);
+        }
+
+        return { start: start, stop: stop, finish: finish };
     })();
 </script>
 
@@ -634,7 +649,7 @@
         {
             try
             {
-                await JS.InvokeVoidAsync("noUpstreamPin.stop");
+                await JS.InvokeVoidAsync("noUpstreamPin.finish");
             }
             catch (Exception ex)
             {
