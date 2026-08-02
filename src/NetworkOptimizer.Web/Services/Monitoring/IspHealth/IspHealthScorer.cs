@@ -1088,6 +1088,16 @@ public class IspHealthScorer
             // Quality deficits subtract below the ceiling so congestion, loss, and
             // jitter always move the grade even on distant POPs
             overall = (int)Math.Round(Math.Max(0, (reachCeiling ?? 100) - (100 - quality)));
+            // The arithmetic behind the grade. Without this a hop showing perfect stability, zero
+            // loss and unremarkable jitter can still grade in the sixties with nothing on screen or
+            // in the log saying which component took it there.
+            _logger?.LogDebug(
+                "ISP Health: AS{Asn} grade {Overall} = ceiling {Ceiling} - deficit {Deficit} | stability {Stab} jitter {Jit} loss {Loss} congestion {Cong} ({Hours} h over {Events} event(s))",
+                series.AsnNumber, overall, reachCeiling?.ToString() ?? "none",
+                (100 - quality).ToString("0.#", CultureInfo.InvariantCulture),
+                stabilityScore?.ToString() ?? "-", jitterScore?.ToString() ?? "-",
+                lossScore?.ToString() ?? "-", congestionScore,
+                eventHours.ToString("0.##", CultureInfo.InvariantCulture), asnEvents.Count);
         }
 
         return new IspAsnHealth
@@ -1644,6 +1654,11 @@ public class IspHealthScorer
             var lossVals = hops.Select(h => h.LossPct).Where(l => l.HasValue).Select(l => l!.Value).ToList();
             var medianRtts = hops.Select(h => h.MedianRttMs).Where(m => m.HasValue).Select(m => m!.Value).ToList();
             var scored = hops.Where(h => h.OverallScore.HasValue).Select(h => h.OverallScore!.Value).ToList();
+            // Averaged across the ASN's hops, like every other figure on this card and like the grade
+            // itself. A worst-hop minimum would read as a different kind of number from the RTT, jitter
+            // and loss beside it, and the per-hop rows below already show where the spread really sits.
+            var stabilities = hops.Where(h => h.LatencyStabilityScore.HasValue)
+                .Select(h => h.LatencyStabilityScore!.Value).ToList();
             result.Add(new IspAsnHealth
             {
                 AsnNumber = group.Key,
@@ -1656,6 +1671,7 @@ public class IspHealthScorer
                 MaxRttMs = means.Count > 0 ? means.Max() : null,
                 ScoredJitterMs = effMean,
                 LossPct = lossVals.Count > 0 ? lossVals.Average() : null,
+                LatencyStabilityScore = stabilities.Count > 0 ? (int)Math.Round(stabilities.Average()) : null,
                 OverallScore = scored.Count > 0 ? (int)Math.Round(scored.Average()) : null,
                 CongestionEventCount = asnEvents.Count,
                 JitterAssimilated = effMean.HasValue && rawMean.HasValue && effMean.Value < rawMean.Value - assimilationMinDeltaMs,
