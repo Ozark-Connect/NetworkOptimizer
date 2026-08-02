@@ -237,11 +237,20 @@ window.noAnchorTop = function (id) {
         if (!cur) return false;
         var r = cur.getBoundingClientRect();
         var grew = r.bottom > lastBottom + 1;
+        var off = r.bottom > window.innerHeight;
+        // Report the actual numbers whenever it grows, so a run that does nothing says why rather
+        // than leaving us to guess which half of the condition failed.
+        if (grew) {
+            console.log('[anchor] grew: bottom=' + Math.round(r.bottom)
+                + ' top=' + Math.round(r.top)
+                + ' innerHeight=' + window.innerHeight
+                + ' offscreen=' + off
+                + ' -> ' + (off ? 'scrolling' : 'no scroll needed'));
+        }
         lastBottom = r.bottom;
-        // Only act when it has grown AND the new edge is off screen: otherwise a short card would
-        // be yanked around for no reason.
-        if (grew && r.bottom > window.innerHeight)
-            cur.scrollIntoView({ block: 'end', behavior: 'smooth' });
+        // Instant, not smooth: repeated smooth calls restart the animation and can net out to no
+        // movement at all. The highlight jumps that work in this layout use the instant form.
+        if (grew && off) cur.scrollIntoView({ block: 'end' });
         return true;
     };
     var timer = setInterval(function () {
