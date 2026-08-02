@@ -1542,32 +1542,38 @@ public class IspHealthService
         if (down == null || up == null)
         {
             await using var db = await CreateSiteDbAsync(ct);
-            var sqmWan = await db.SqmWanConfigurations.AsNoTracking()
-                .OrderBy(c => c.WanNumber)
+
+            // What the console told us before it went away. This ranks ABOVE the Adaptive SQM
+            // figure: it is a reading from the authoritative source that is merely out of date,
+            // where the SQM value is a shaping target someone typed in - what to rate-limit to,
+            // not what the ISP confirmed the line does.
+            //
+            // With no console we cannot ask which WAN is primary, so prefer the first WAN group and
+            // fall back to the most recently confirmed row. Multi-WAN scoring picks its own WAN here.
+            var remembered = await db.WanProfiles.AsNoTracking()
+                .OrderBy(w => w.WanNetworkgroup)
+                .ThenByDescending(w => w.UpdatedAt)
                 .FirstOrDefaultAsync(ct);
-            if (sqmWan != null)
+            if (remembered != null)
             {
-                down ??= sqmWan.NominalDownloadMbps;
-                up ??= sqmWan.NominalUploadMbps;
-                source ??= "Adaptive SQM settings";
+                down ??= remembered.DownloadMbps;
+                up ??= remembered.UploadMbps;
+                if (down != null || up != null)
+                    source ??= "UniFi Network (last known)";
+                wan ??= new WanIdentity(remembered.Name, remembered.WanNetworkgroup, remembered.Interface);
             }
 
-            // Last rung: what the console told us before it went away. With the console down we
-            // cannot ask which WAN is primary, so prefer the first WAN group and fall back to the
-            // most recently confirmed row. Multi-WAN scoring will pick its own WAN here instead.
+            // Truly inferred, so it goes last: only reached when the console has never told us.
             if (down == null || up == null)
             {
-                var remembered = await db.WanProfiles.AsNoTracking()
-                    .OrderBy(w => w.WanNetworkgroup)
-                    .ThenByDescending(w => w.UpdatedAt)
+                var sqmWan = await db.SqmWanConfigurations.AsNoTracking()
+                    .OrderBy(c => c.WanNumber)
                     .FirstOrDefaultAsync(ct);
-                if (remembered != null)
+                if (sqmWan != null)
                 {
-                    down ??= remembered.DownloadMbps;
-                    up ??= remembered.UploadMbps;
-                    if (down != null || up != null)
-                        source ??= "UniFi Network (last known)";
-                    wan ??= new WanIdentity(remembered.Name, remembered.WanNetworkgroup, remembered.Interface);
+                    down ??= sqmWan.NominalDownloadMbps;
+                    up ??= sqmWan.NominalUploadMbps;
+                    source ??= "Adaptive SQM settings";
                 }
             }
         }
