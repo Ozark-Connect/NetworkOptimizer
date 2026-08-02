@@ -116,4 +116,32 @@ public class MonitoringInfluxCsvParserTests
         MonitoringInfluxClient.ParseWanRatesCsv(RatesCsv.Replace("\r\n", "\n"))
             .Should().HaveCount(3);
     }
+
+    // The streamed query path feeds the parser one line at a time, exactly as the InfluxDB client's
+    // line reader delivers them (line terminators already stripped). These pin that the line-fed
+    // path produces identical results to the whole-string parse it replaced as the query-time path.
+
+    [Fact]
+    public void Line_fed_latency_parser_matches_string_parse()
+    {
+        var parser = new MonitoringInfluxClient.LatencyDetailCsvParser();
+        foreach (var line in Csv.Split("\r\n"))
+            parser.ProcessLine(line);
+        var streamed = parser.Finish();
+
+        var buffered = MonitoringInfluxClient.ParseLatencyDetailCsv(Csv);
+        streamed.Keys.Should().BeEquivalentTo(buffered.Keys);
+        foreach (var key in buffered.Keys)
+            streamed[key].Should().Equal(buffered[key]);
+    }
+
+    [Fact]
+    public void Line_fed_wan_rates_parser_matches_string_parse()
+    {
+        var parser = new MonitoringInfluxClient.WanRatesCsvParser();
+        foreach (var line in RatesCsv.Split("\r\n"))
+            parser.ProcessLine(line);
+
+        parser.Finish().Should().Equal(MonitoringInfluxClient.ParseWanRatesCsv(RatesCsv));
+    }
 }
