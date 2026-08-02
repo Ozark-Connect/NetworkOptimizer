@@ -220,13 +220,20 @@ window.noAnchorTop = function (id) {
     var el = document.getElementById(id);
     if (!el) return;
 
+    var ticks = 0;
     var keep = function () { el.scrollIntoView({ block: 'start' }); };
     var timer = setInterval(function () {
-        if (!document.contains(el)) { window.noAnchorRelease(); return; }
+        if (!document.contains(el)) {
+            console.log('[anchor] target left the DOM after ' + ticks + ' ticks, releasing');
+            window.noAnchorRelease();
+            return;
+        }
+        ticks++;
         keep();
     }, 400);
+    console.log('[anchor] pinned ' + id);
 
-    var give = function () { window.noAnchorRelease(); };
+    var give = function () { console.log('[anchor] released by user scroll'); window.noAnchorRelease(); };
     var keys = { PageDown: 1, PageUp: 1, ArrowDown: 1, ArrowUp: 1, Home: 1, End: 1, ' ': 1 };
     var onKey = function (e) { if (keys[e.key]) give(); };
     window.addEventListener('wheel', give, { passive: true });

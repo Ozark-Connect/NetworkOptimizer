@@ -4,6 +4,7 @@
 @implements IDisposable
 @inject UpstreamTracerService Tracer
 @inject NetworkOptimizer.Web.Services.IUpstreamDiscoveryService Discovery
+@inject ILogger<UpstreamTracerPanel> Logger
 @inject NetworkOptimizer.Storage.Services.SiteDbContextFactory SiteDb
 @inject SiteContextService SiteCtx
 @inject NetworkOptimizer.Web.Services.Monitoring.ProbeExecutorFactory ExecutorFactory
@@ -552,14 +553,28 @@
         // Discovery adds sections to this card for a minute or so; keep its top in view rather than
         // making the reader follow them down the page. Released when it finishes, or sooner if they
         // scroll for themselves.
-        try { await JS.InvokeVoidAsync("noAnchorTop", "upstream-discovery"); } catch { }
+        try
+        {
+            await JS.InvokeVoidAsync("noAnchorTop", "upstream-discovery");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Could not pin the discovery card while it runs");
+        }
         try
         {
             await Discovery.StartAsync();
         }
         finally
         {
-            try { await JS.InvokeVoidAsync("noAnchorRelease"); } catch { }
+            try
+            {
+                await JS.InvokeVoidAsync("noAnchorRelease");
+            }
+            catch (Exception ex)
+            {
+                Logger.LogDebug(ex, "Could not release the discovery card pin");
+            }
         }
         _state = Tracer.State;
         StateHasChanged();
