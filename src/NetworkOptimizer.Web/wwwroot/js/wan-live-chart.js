@@ -37,6 +37,26 @@ let lastSampleTime = 0;
 // backfill points also advance - so on any site with stored history it is never 0 by the time the
 // first live sample arrives, and keying the re-phase off it did nothing.
 let seenLiveSample = false;
+// Wall-clock of the last accepted live sample, and how long a stall has to last before data coming
+// back counts as "started flowing again". Keyed on a GAP rather than on the first sample of a mount
+// because the case that matters is the server restarting under a tab that stays open all the way
+// through: the chart never remounts, so any per-mount flag is already set and never re-arms.
+// Comfortably longer than the poll interval so ordinary jitter or one failed poll is not a resume.
+let lastLiveAt = 0;
+const RESUME_AFTER_MS = 20000;
+
+// Opt-in tracing for the backfill cadence, which is otherwise invisible: it is all client side and
+// the interesting part is WHEN each fill runs relative to the first live sample. Enable with
+//   localStorage.setItem('no-wan-chart-debug', '1')
+// and reload; clear it with removeItem. Off by default so nothing ships noise to users.
+const CHART_DEBUG = (() => {
+    try { return localStorage.getItem('no-wan-chart-debug') === '1'; } catch { return false; }
+})();
+const mountedAt = () => (chartMountedAt ? ((Date.now() - chartMountedAt) / 1000).toFixed(1) + 's' : 'n/a');
+let chartMountedAt = 0;
+function dbg(what, detail) {
+    if (CHART_DEBUG) console.log(`[wan-chart +${mountedAt()}] ${what}`, detail ?? '');
+}
 // Historic playback interpolation state (see seekTime).
 let histTimer = null;
 let histAt = 0;
@@ -406,10 +426,19 @@ async function pollLive() {
         // reconnecting). The backfill cadence was started at mount against a site that had nothing
         // to backfill, so its next tick sits at an arbitrary point in the 60s window. Restart it
         // from here so the first fill happens now rather than up to a minute into live data.
-        const dataJustStarted = !seenLiveSample;
+        const now = Date.now();
+        const stalledFor = lastLiveAt ? now - lastLiveAt : Infinity;
+        const dataJustStarted = !seenLiveSample || stalledFor > RESUME_AFTER_MS;
         seenLiveSample = true;
+        lastLiveAt = now;
         lastSampleTime = sampleTime;
-        if (dataJustStarted) restartBackfill();
+        if (dataJustStarted) {
+            dbg('live data started flowing', {
+                stalledForSec: stalledFor === Infinity ? 'first' : (stalledFor / 1000).toFixed(1),
+                sampleTime: new Date(sampleTime).toISOString(),
+            });
+            restartBackfill();
+        }
         const cutoff = Date.now() - HISTORY_MINUTES * 60000;
         buffer.push({
             time: sampleTime,
@@ -430,15 +459,43 @@ async function pollLive() {
 // the live edge never flickers back.
 // Runs a fill now and re-phases the 60s cadence to this moment. Only meaningful while mounted;
 // pause() clears the timer and a later mount starts its own.
+// Data starting to flow does not mean the history is queryable yet: the latency line appears first,
+// SNMP rates a couple of seconds later, and the server needs a moment more before a fill returns
+// anything. Firing one fill at that instant returns nothing and leaves the next attempt a full
+// BACKFILL_MS away, which is why this felt unchanged. Run a short burst of closely spaced fills
+// instead, then settle back to the normal cadence - whenever the data lands, a fill is at most
+// CATCHUP_MS behind it.
+const CATCHUP_MS = 10000;
+const CATCHUP_TRIES = 6;
+let catchUpLeft = 0;
+
+async function catchUpTick() {
+    await backfillHistory();
+    if (catchUpLeft > 0 && --catchUpLeft === 0 && backfillTimer) {
+        dbg('catch-up done - back to the ' + (BACKFILL_MS / 1000) + 's cadence');
+        clearInterval(backfillTimer);
+        backfillTimer = setInterval(backfillHistory, BACKFILL_MS);
+    }
+}
+
 function restartBackfill() {
-    if (!backfillTimer) return;
+    if (!backfillTimer) {
+        dbg('restartBackfill SKIPPED - no timer (chart paused or not mounted)');
+        return;
+    }
+    dbg(`restartBackfill - ${CATCHUP_TRIES} fills every ${CATCHUP_MS / 1000}s, then ${BACKFILL_MS / 1000}s`);
     clearInterval(backfillTimer);
-    backfillHistory();
-    backfillTimer = setInterval(backfillHistory, BACKFILL_MS);
+    catchUpLeft = CATCHUP_TRIES;
+    backfillTimer = setInterval(catchUpTick, CATCHUP_MS);
+    catchUpTick();
 }
 
 async function backfillHistory() {
-    if (!chart || !pollTimer || document.hidden) return;
+    if (!chart || !pollTimer || document.hidden) {
+        dbg('backfill skipped', { chart: !!chart, polling: !!pollTimer, hidden: document.hidden });
+        return;
+    }
+    const startedAt = Date.now();
     const gen = mountGen;
     const to = new Date();
     const from = new Date(to.getTime() - HISTORY_MINUTES * 60000);
@@ -460,6 +517,13 @@ async function backfillHistory() {
     // Bail if the mount changed or we left live mode while fetching.
     if (gen !== mountGen || !pollTimer) return;
     const newestHist = points.length ? points[points.length - 1].time : 0;
+    // The number that matters when the fill looks like it did nothing: zero points means the fill
+    // ran BEFORE the server had that window queryable, so the data arrives on the next tick.
+    dbg('backfill returned', {
+        points: points.length,
+        newestHist: newestHist ? new Date(newestHist).toISOString() : null,
+        tookMs: Date.now() - startedAt,
+    });
     const liveTail = buffer.filter(p => p.time > newestHist);
     const cutoff = Date.now() - HISTORY_MINUTES * 60000;
     buffer = points.concat(liveTail).filter(p => p.time >= cutoff).sort((a, b) => a.time - b.time);
@@ -538,6 +602,9 @@ export async function mount(containerId, opts) {
     buffer = [];
     lastSampleTime = 0;
     seenLiveSample = false;
+    lastLiveAt = 0;
+    chartMountedAt = Date.now();
+    dbg('mount', { backfillEverySec: BACKFILL_MS / 1000 });
     const gen = ++mountGen;
     elId = containerId;
     const el = document.getElementById(containerId);
