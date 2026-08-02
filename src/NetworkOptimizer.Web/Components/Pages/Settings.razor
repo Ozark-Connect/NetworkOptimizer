@@ -3628,7 +3628,7 @@
                                                                 <input type="checkbox" checked="@AgentCoversSite(site.Id)"
                                                                        disabled="@(!AgentsFor(site.Id).Any())"
                                                                        @onchange="e => ToggleAgentCoversSite(site, (bool)e.Value!)" />
-                                                                The agent collects for this site - probes, path discovery and SNMP run
+                                                                An agent collects for this site - probes, path discovery and SNMP run
                                                                 there instead of on this server. Turn on only if this server is off-site.
                                                             </label>
                                                             @if (AgentCoversSite(site.Id))
