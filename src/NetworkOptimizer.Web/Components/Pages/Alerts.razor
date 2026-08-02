@@ -3202,7 +3202,9 @@
     private async Task ScrollToAddFormAsync(string elementId)
     {
         await Task.Delay(300);
-        await JS.InvokeVoidAsync("noHighlightTarget", elementId, "center");
+        // The target wraps a .schedule-card, which rounds at --border-radius rather than the card
+        // radius the ring assumes, so it says so instead of ringing wider than the form it marks.
+        await JS.InvokeVoidAsync("noHighlightTarget", elementId, "center", "var(--border-radius)");
     }
 
     private void CancelEditLanSchedule()
