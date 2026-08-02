@@ -95,7 +95,21 @@
                 </span>
             </div>
             <div class="card-body">
-                @if (_siteMode)
+                @if (!_canProvision)
+                {
+                    @* An All Access token is an installation-wide credential, and everything this
+                       step does with it - creating the org's buckets, upgrading the shared token -
+                       is gated on the instance-wide role. Asking a site's own admin for one sends
+                       them to fetch a credential they have no authority to hold, and refuses them
+                       after they have gone and got it. Say who can do this instead. *@
+                    <p class="section-description">
+                        This site's monitoring data will live in the shared InfluxDB, in buckets
+                        named <code>@SitePrimaryBucket</code> and <code>@SiteLongtermBucket</code>.
+                        Creating them needs an administrator for this installation - the shared
+                        connection is set up once and covers every site.
+                    </p>
+                }
+                else if (_siteMode)
                 {
                     <p class="section-description">
                         This site will store its monitoring data in the shared InfluxDB,
@@ -122,12 +136,15 @@
                     </p>
                 }
 
-                <div class="form-group">
-                    <label class="form-label">All Access API Token</label>
-                    <input type="password" class="form-control" @bind="_adminToken" @bind:event="oninput" placeholder="Paste your InfluxDB All Access API Token" autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore />
-                </div>
+                @if (_canProvision)
+                {
+                    <div class="form-group">
+                        <label class="form-label">All Access API Token</label>
+                        <input type="password" class="form-control" @bind="_adminToken" @bind:event="oninput" placeholder="Paste your InfluxDB All Access API Token" autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore />
+                    </div>
+                }
 
-                @if (_state == Step.PickOrg)
+                @if (_canProvision && _state == Step.PickOrg)
                 {
                     <div class="form-group">
                         @if (_orgs.Count == 0)
@@ -176,17 +193,22 @@
                     <div class="alert alert-@_messageClass">@_message</div>
                 }
 
-                <div class="action-buttons">
-                    @if (!_siteMode)
-                    {
-                        <button class="btn btn-secondary" @onclick="DetectAgainAsync" disabled="@_busy">Use a different URL</button>
-                    }
-                    <button class="btn btn-primary" @onclick="OnPrimaryActionAsync"
-                            disabled="@(_busy || !CanPrimaryAction)">
-                        @if (_busy) { <span class="spinner-sm"></span> <span>@PrimaryBusyLabel</span> }
-                        else { <span>@PrimaryLabel</span> }
-                    </button>
-                </div>
+                @* No actions for someone who cannot complete any of them - every button here ends
+                   in an instance-wide gated call. *@
+                @if (_canProvision)
+                {
+                    <div class="action-buttons">
+                        @if (!_siteMode)
+                        {
+                            <button class="btn btn-secondary" @onclick="DetectAgainAsync" disabled="@_busy">Use a different URL</button>
+                        }
+                        <button class="btn btn-primary" @onclick="OnPrimaryActionAsync"
+                                disabled="@(_busy || !CanPrimaryAction)">
+                            @if (_busy) { <span class="spinner-sm"></span> <span>@PrimaryBusyLabel</span> }
+                            else { <span>@PrimaryLabel</span> }
+                        </button>
+                    </div>
+                }
             </div>
         </div>
         break;
