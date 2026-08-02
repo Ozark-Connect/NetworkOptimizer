@@ -177,10 +177,12 @@
 // Scroll to a card and ring it briefly, the one behavior every in-page jump in Monitoring shares
 // (findings, advisories, an event count). Kept here because this file already loads app-wide and
 // the callers are spread across pages and components.
-function noHighlight(id, block, variant) {
+function noHighlight(id, block, variant, radius) {
     var el = document.getElementById(id);
     if (!el) return;
     el.scrollIntoView({ behavior: 'smooth', block: block || 'start' });
+    // The caller says what shape it is pointing at; the default suits a card.
+    if (radius) el.style.setProperty('--nav-highlight-radius', radius);
     el.classList.add(variant);
     // Next frame, so the class that defines the transition is applied before the color changes -
     // set together, the browser has nothing to animate from.
@@ -190,8 +192,9 @@ function noHighlight(id, block, variant) {
     });
 }
 
-// A card or section: ringed.
-window.noHighlightTarget = function (id, block) { noHighlight(id, block, 'nav-highlight'); };
+// A card or section: ringed. Pass a CSS length as `radius` for a target that is not card-shaped,
+// e.g. "var(--border-radius)" for a form or control inside a card.
+window.noHighlightTarget = function (id, block, radius) { noHighlight(id, block, 'nav-highlight', radius); };
 
 // A table row: tinted, because an offset ring around a row collides with the rows either side.
 window.noHighlightRow = function (id, block) { noHighlight(id, block || 'center', 'nav-highlight-row'); };

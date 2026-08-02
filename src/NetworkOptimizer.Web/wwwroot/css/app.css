@@ -18277,10 +18277,12 @@ a.isp-outage-ack:hover {
 .card-highlight {
     outline: 2px solid transparent;
     outline-offset: 4px;
-    /* Card radius by default: half these targets are a bare wrapper div around a card, which has no
-       radius of its own, so the ring drew square corners around a rounded card. Not on the row
-       variant below - a row tints rather than rings, so it has nothing to round. */
-    border-radius: var(--border-radius-lg);
+    /* Card radius by default, since most targets are a card or a bare wrapper around one, which has
+       no radius of its own and would otherwise ring square around rounded content. A target that is
+       not card-shaped - a sub-card form, a button - overrides it by passing a radius to the helper,
+       which sets --nav-highlight-radius on the element. Declared by the caller, never guessed at
+       from the children. Not on the row variant below: a row tints rather than rings. */
+    border-radius: var(--nav-highlight-radius, var(--border-radius-lg));
     transition: outline-color 0.9s ease-out;
 }
 
