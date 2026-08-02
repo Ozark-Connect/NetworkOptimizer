@@ -122,8 +122,15 @@ public class UpstreamTracerService
     /// <summary>Sub-80ms regionals that are "enough": once a probe round has found this many, later rounds are skipped.</summary>
     internal const int AwsEnoughRegionals = 6;
 
-    /// <summary>Max AWS regionals surfaced as path-end candidates (transit-eliciting first, then lowest RTT).</summary>
-    internal const int MaxAwsPathEndTargets = 5;
+    /// <summary>Max AWS regionals SURFACED as path-end candidates (transit-eliciting first, then lowest RTT).</summary>
+    internal const int MaxAwsPathEndTargets = 7;
+
+    /// <summary>
+    /// How many of those arrive pre-enabled. Surfacing is cheap - a row to tick - but every enabled
+    /// one becomes a probed target forever, and four path-ends through one provider already
+    /// characterize the path. The rest are offered rather than chosen.
+    /// </summary>
+    internal const int MaxAwsAutoEnabledTargets = 4;
 
     // A resolved AWS regional: the hostname (what we persist as the target address, since AWS rotates
     // the regional IPs and the hostname re-resolves to a live in-region IP each poll) and the concrete
@@ -1505,8 +1512,9 @@ public class UpstreamTracerService
             var amazon = await _asnResolution.ResolveAsync(_awsRegionals[0].Ip, ct);
             var amazonAsn = amazon?.Asn ?? 0;
             var amazonName = string.IsNullOrEmpty(amazon?.Name) ? "Amazon" : CleanAsnName(amazon.Name);
-            // The via (farthest transit) labels the row, decides pre-enable, and ranks the trim: a
-            // region is pre-checked only when its trace actually crosses transit.
+            // The via (farthest transit) labels the row and ranks the trim. It also gates pre-enable:
+            // a region is pre-checked only when its trace actually crosses transit, and only while
+            // the pre-enabled count is under its own cap.
             var rankedAws = _awsRegionals
                 .Select(r =>
                 {
@@ -1515,9 +1523,15 @@ public class UpstreamTracerService
                 })
                 .OrderByDescending(x => x.Via != null)
                 .ThenBy(x => x.Regional.RttMs)
-                .Take(MaxAwsPathEndTargets);
+                .Take(MaxAwsPathEndTargets)
+                .ToList();
+            // Pre-enable only the best few. The list is already ordered transit-eliciting first,
+            // then by RTT, so taking from the front enables the most useful of them.
+            var autoEnabled = 0;
             foreach (var (r, via, awsComplete) in rankedAws)
             {
+                var enable = via != null && autoEnabled < MaxAwsAutoEnabledTargets;
+                if (enable) autoEnabled++;
                 candidates.Add(new TransitAsnCandidate
                 {
                     AsnNumber = amazonAsn,
@@ -1528,7 +1542,7 @@ public class UpstreamTracerService
                     HopAddress = r.Hostname,
                     PathProxyTarget = r.Hostname,
                     RespondedTo = ProbeMode.Icmp,
-                    Enabled = via != null,
+                    Enabled = enable,
                     ViaAsnNumber = via?.Asn,
                     ViaAsnName = via?.Name,
                     ViaPathComplete = awsComplete
