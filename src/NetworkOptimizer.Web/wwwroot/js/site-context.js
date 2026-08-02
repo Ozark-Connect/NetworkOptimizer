@@ -235,7 +235,6 @@ window.noAnchorTop = function (id) {
     };
 
     var padded = -1;
-    var paddedPane = null;
     var keep = function () {
         var cur = document.getElementById(id);
         if (!cur) {
@@ -253,13 +252,14 @@ window.noAnchorTop = function (id) {
         // The card is the last thing on the page, so bringing its top to the pane's top means
         // scrolling past the end of the document, which the browser clamps - until the card is
         // taller than the pane there is nothing below it to scroll into view and the write silently
-        // does nothing. Lend the pane exactly the shortfall so the position becomes reachable; it
-        // shrinks to nothing as the card grows, and is handed back when the pin releases.
+        // does nothing. Make up the shortfall with margin ON THE CARD, never padding on the pane:
+        // the pane is shared by every page, and a niche affordance has no business leaving state
+        // there - stranding it once put a screen of blank space under an unrelated page. Margin
+        // does not paint, and it is removed with the card, so it cannot outlive this.
         var shortfall = Math.max(0, Math.round(sc.clientHeight - cur.getBoundingClientRect().height));
         if (shortfall !== padded) {
             padded = shortfall;
-            sc.style.paddingBottom = shortfall ? shortfall + 'px' : '';
-            paddedPane = shortfall ? sc : null;
+            cur.style.marginBottom = shortfall ? shortfall + 'px' : '';
         }
 
         if (Math.abs(drift) > 2) sc.scrollTop += drift;
@@ -275,8 +275,9 @@ window.noAnchorTop = function (id) {
 
     anchorRelease = function () {
         clearInterval(timer);
-        // Hand the pane back the space we borrowed.
-        if (paddedPane) { paddedPane.style.paddingBottom = ''; paddedPane = null; }
+        // Give the card its own margin back.
+        var cur = document.getElementById(id);
+        if (cur) cur.style.marginBottom = '';
         window.removeEventListener('wheel', give);
         window.removeEventListener('touchmove', give);
         window.removeEventListener('keydown', onKey, true);
