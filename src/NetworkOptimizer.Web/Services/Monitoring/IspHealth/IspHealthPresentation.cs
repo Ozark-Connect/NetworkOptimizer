@@ -230,8 +230,10 @@ public static class IspHealthPresentation
         var stabilityDeficit = stabilityScore is int s ? stabilityWeight * (100 - s) : -1;
         var congestionDeficit = congestionScore is int c ? congestionWeight * (100 - c) : -1;
 
-        // Ties go to congestion: with both clean it reads "0 Events", which says more than a bare 100.
-        if (congestionScore is int cs && congestionDeficit >= stabilityDeficit)
+        // Ties go to congestion, except when it has nothing to report - "0 Events" only ever wins
+        // the slot against a perfect stability score, and the number is the more useful of the two.
+        if (congestionScore is int cs && congestionDeficit >= stabilityDeficit
+            && (congestionEvents > 0 || stabilityScore is null))
             return ("Congestion", congestionEvents == 1 ? "1 Event" : $"{congestionEvents} Events", cs);
         return stabilityScore is int ss ? ("Stability", ss.ToString(), ss) : null;
     }
