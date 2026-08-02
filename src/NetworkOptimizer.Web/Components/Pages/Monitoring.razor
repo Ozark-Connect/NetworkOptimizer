@@ -27,6 +27,8 @@
 @inject MonitoringLiveStats LiveStats
 @inject NetworkOptimizer.Storage.Services.SiteDbContextFactory SiteDb
 @inject SiteContextService SiteCtx
+@inject NetworkOptimizer.Web.Services.IMonitoringSettingsService MonitoringSettings
+@inject NetworkOptimizer.Web.Services.IMonitoringTargetService TargetService
 @inject Microsoft.JSInterop.IJSRuntime JS
 @inject Microsoft.AspNetCore.Mvc.ViewFeatures.IFileVersionProvider FileVersionProvider
 @inject NavigationManager NavigationManager
@@ -2101,21 +2103,7 @@ else
 
     private async Task ResetInfluxSetup()
     {
-        await using var db = SiteDb.CreateForSite(SiteCtx.Slug, SiteCtx.IsDefault);
-        var settings = await db.MonitoringSettings.FirstOrDefaultAsync();
-        if (settings != null)
-        {
-            settings.Enabled = false;
-            settings.InfluxDbToken = "";
-            settings.InfluxDbUrl = "";
-            settings.InfluxDbOrg = "";
-            settings.InfluxDbBucket = "";
-            settings.InfluxDbLongtermBucket = "";
-            settings.InfluxDbReachable = null;
-            settings.LastInfluxDbError = null;
-            settings.UpdatedAt = DateTime.UtcNow;
-            await db.SaveChangesAsync();
-        }
+        await MonitoringSettings.ResetInfluxSetupAsync();
         _influxConfigured = false;
         _influxReachable = null;
         _influxError = null;
@@ -2207,8 +2195,6 @@ else
         NetworkOptimizer.Web.Services.Monitoring.DeviceHealthAlertEvaluator.DefaultDeviceTempHighC.ToString("0");
 
     // Blank/zero/negative entries mean "use the built-in default" (stored as null).
-    private static double? NormalizeTempThreshold(double? value) => value is > 0 ? value : null;
-
     private async Task SaveTempThresholdsAsync()
     {
         _savingTempThresholds = true;
@@ -2216,14 +2202,8 @@ else
         StateHasChanged();
         try
         {
-            await using var db = SiteDb.CreateForSite(SiteCtx.Slug, SiteCtx.IsDefault);
-            var settings = await db.MonitoringSettings.FirstOrDefaultAsync()
-                ?? new MonitoringSettings();
-            if (settings.Id == 0) db.MonitoringSettings.Add(settings);
-            settings.SwitchTempHighC = NormalizeTempThreshold(_switchTempThresholdInput);
-            settings.GatewayTempHighC = NormalizeTempThreshold(_gatewayTempThresholdInput);
-            settings.UpdatedAt = DateTime.UtcNow;
-            await db.SaveChangesAsync();
+            var settings = await MonitoringSettings.SaveTempThresholdsAsync(
+                _switchTempThresholdInput, _gatewayTempThresholdInput);
             _switchTempThresholdInput = settings.SwitchTempHighC;
             _gatewayTempThresholdInput = settings.GatewayTempHighC;
             _tempThresholdsSaved = true;
@@ -2277,21 +2257,16 @@ else
         StateHasChanged();
         try
         {
-            await using var db = SiteDb.CreateForSite(SiteCtx.Slug, SiteCtx.IsDefault);
-            var settings = await db.MonitoringSettings.FirstOrDefaultAsync()
-                ?? new MonitoringSettings();
-            if (settings.Id == 0) db.MonitoringSettings.Add(settings);
-            // Temperature must be positive; power thresholds may legitimately be
-            // negative (RX low) so a blank field (null) is the only "use default".
-            settings.PonTempHighC = NormalizeTempThreshold(_sfpPonTemp);
-            settings.PonRxPowerLowDbm = _sfpPonRx;
-            settings.PonTxPowerHighDbm = _sfpPonTx;
-            settings.AeTempHighC = NormalizeTempThreshold(_sfpAeTemp);
-            settings.AeRxPowerLowDbm = _sfpAeRx;
-            settings.AeTxPowerHighDbm = _sfpAeTx;
-            settings.SfpTempHighGenericC = NormalizeTempThreshold(_sfpGenericTemp);
-            settings.UpdatedAt = DateTime.UtcNow;
-            await db.SaveChangesAsync();
+            var settings = await MonitoringSettings.SaveSfpThresholdsAsync(new NetworkOptimizer.Web.Services.SfpThresholdEdit
+            {
+                PonTempHighC = _sfpPonTemp,
+                PonRxPowerLowDbm = _sfpPonRx,
+                PonTxPowerHighDbm = _sfpPonTx,
+                AeTempHighC = _sfpAeTemp,
+                AeRxPowerLowDbm = _sfpAeRx,
+                AeTxPowerHighDbm = _sfpAeTx,
+                SfpTempHighGenericC = _sfpGenericTemp
+            });
             LoadSfpThresholdInputs(settings);
             _sfpThresholdsSaved = true;
         }
@@ -2314,15 +2289,7 @@ else
         StateHasChanged();
         try
         {
-            await using var db = SiteDb.CreateForSite(SiteCtx.Slug, SiteCtx.IsDefault);
-            var settings = await db.MonitoringSettings.FirstOrDefaultAsync()
-                ?? new MonitoringSettings();
-            if (settings.Id == 0) db.MonitoringSettings.Add(settings);
-            // Temperature must be positive; a blank RX field (null) means "use default".
-            settings.PonTempHighC = NormalizeTempThreshold(_sfpPonTemp);
-            settings.PonRxPowerLowDbm = _sfpPonRx;
-            settings.UpdatedAt = DateTime.UtcNow;
-            await db.SaveChangesAsync();
+            var settings = await MonitoringSettings.SaveOntThresholdsAsync(_sfpPonTemp, _sfpPonRx);
             LoadSfpThresholdInputs(settings);
             _ontThresholdsSaved = true;
         }
@@ -2339,13 +2306,7 @@ else
         StateHasChanged();
         try
         {
-            await using var db = SiteDb.CreateForSite(SiteCtx.Slug, SiteCtx.IsDefault);
-            var settings = await db.MonitoringSettings.FirstOrDefaultAsync()
-                ?? new MonitoringSettings();
-            if (settings.Id == 0) db.MonitoringSettings.Add(settings);
-            settings.Enabled = enabled;
-            settings.UpdatedAt = DateTime.UtcNow;
-            await db.SaveChangesAsync();
+            await MonitoringSettings.SetEnabledAsync(enabled);
             _monitoringEnabled = enabled;
 
             if (_monitoringReady && _activeTab == "setup")
@@ -2968,15 +2929,12 @@ else
     {
         try
         {
-            await using var db = SiteDb.CreateForSite(SiteCtx.Slug, SiteCtx.IsDefault);
-            var row = await db.MonitoringTargets.FindAsync(target.Id);
-            if (row != null)
-            {
-                row.LanFlakyHintDismissedAt = DateTime.UtcNow;
-                await db.SaveChangesAsync();
-            }
+            await TargetService.DismissLanFlakyHintAsync(target.Id);
         }
-        catch { }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Could not persist the LAN flaky-hint dismissal for target {TargetId}", target.Id);
+        }
         // _targets is loaded AsNoTracking, so reflect the dismissal in memory to drop the row
         // from the advisory immediately without waiting for a reload.
         var local = _targets.FirstOrDefault(t => t.Id == target.Id);

@@ -3,6 +3,7 @@
 @using NetworkOptimizer.Web.Services.Monitoring
 @implements IDisposable
 @inject UpstreamTracerService Tracer
+@inject NetworkOptimizer.Web.Services.IUpstreamDiscoveryService Discovery
 @inject NetworkOptimizer.Storage.Services.SiteDbContextFactory SiteDb
 @inject SiteContextService SiteCtx
 @inject NetworkOptimizer.Web.Services.Monitoring.ProbeExecutorFactory ExecutorFactory
@@ -548,7 +549,7 @@
     {
         if (!_canOperate) return;
         _justSaved = false;
-        await Tracer.StartDiscoveryAsync();
+        await Discovery.StartAsync();
         _state = Tracer.State;
         StateHasChanged();
     }
@@ -556,7 +557,7 @@
     private async Task CommitAsync()
     {
         if (!_canOperate) return;
-        await Tracer.CommitResultsAsync();
+        await Discovery.CommitAsync();
         _state = Tracer.State;
         _justSaved = true;
         await OnSaved.InvokeAsync();

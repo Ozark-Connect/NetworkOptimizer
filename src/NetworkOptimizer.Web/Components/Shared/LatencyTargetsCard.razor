@@ -1,10 +1,9 @@
 @using NetworkOptimizer.Storage.Models
 @using Microsoft.EntityFrameworkCore
 @inject MonitoringLiveStats LiveStats
-@inject NetworkOptimizer.Storage.Services.SiteDbContextFactory SiteDb
 @inject SiteContextService SiteCtx
 @inject NetworkOptimizer.Web.Services.Monitoring.ProbeExecutorFactory ExecutorFactory
-@inject NetworkOptimizer.Web.Services.Monitoring.AsnResolutionService AsnResolution
+@inject NetworkOptimizer.Web.Services.IMonitoringTargetService TargetService
 @inject Microsoft.JSInterop.IJSRuntime JS
 
 <div class="card">
@@ -133,7 +132,7 @@
                             <td style="white-space: nowrap;">
                                 <SiteOperatorOnly>
                                     <button class="btn btn-sm btn-secondary"
-                                        @onclick="() => ToggleTargetAsync(t.Id)"
+                                        @onclick="() => SetTargetEnabledAsync(t.Id, !t.Enabled)"
                                         title="@(t.Enabled ? "Pause probing" : "Resume probing")">
                                     @(t.Enabled ? "Pause" : "Resume")
                                 </button>
@@ -151,6 +150,10 @@
                     }
                 </tbody>
             </table>
+                @if (!string.IsNullOrEmpty(_targetError))
+                {
+                    <p class="alert alert-danger">@_targetError</p>
+                }
             </div>
             <p class="page-description" style="margin-top: 0.5rem;">
                 Removing a fabric or default WAN target will trigger it to be re-created
@@ -262,9 +265,6 @@
     // from inside the site, so adding is gated. The default site always probes locally.
     private bool CanAddTargets => SiteCtx.IsDefault || ExecutorFactory.ServerVantageIsAgent;
 
-    // Targets are per-site data: route through the current site's database.
-    private NetworkOptimizerDbContext CreateDb() => SiteDb.CreateForSite(SiteCtx.Slug, SiteCtx.IsDefault);
-
     private bool _collapsed = true;
     private bool _showAddTarget;
     private bool _addingTarget;
@@ -275,6 +275,7 @@
     private int _newTargetPort = 443;
     private int _newTargetInterval = 10;
     private string? _addTargetError;
+    private string? _targetError;
 
     private void ToggleCollapse() => _collapsed = !_collapsed;
 
@@ -302,160 +303,67 @@
             }})();");
     }
 
-    private async Task ToggleTargetAsync(int targetId)
+    private async Task SetTargetEnabledAsync(int targetId, bool enabled)
     {
-        try
-        {
-            await using var db = CreateDb();
-            var row = await db.MonitoringTargets.FindAsync(targetId);
-            if (row == null) return;
-            row.Enabled = !row.Enabled;
-            await db.SaveChangesAsync();
-            await OnTargetsChanged.InvokeAsync();
-        }
-        catch { }
+        await MutateAsync(() => TargetService.SetEnabledAsync(targetId, enabled));
     }
 
     private async Task DeleteTargetAsync(int targetId)
     {
-        try
-        {
-            await using var db = CreateDb();
-            var row = await db.MonitoringTargets.FindAsync(targetId);
-            if (row == null) return;
-            db.MonitoringTargets.Remove(row);
-            await db.SaveChangesAsync();
-            await OnTargetsChanged.InvokeAsync();
-        }
-        catch { }
+        await MutateAsync(() => TargetService.DeleteAsync(targetId));
     }
 
     private async Task UpdateIntervalAsync(int targetId, ChangeEventArgs e)
     {
         if (!int.TryParse(e.Value?.ToString(), out var interval)) return;
-        try
-        {
-            await using var db = CreateDb();
-            var row = await db.MonitoringTargets.FindAsync(targetId);
-            if (row == null) return;
-            row.PollIntervalSeconds = interval;
-            await db.SaveChangesAsync();
-            await OnTargetsChanged.InvokeAsync();
-        }
-        catch { }
+        await MutateAsync(() => TargetService.SetPollIntervalAsync(targetId, interval));
     }
 
     private async Task UpdateWanContextAsync(int targetId, ChangeEventArgs e)
     {
-        var raw = e.Value?.ToString();
-        int? contextId = int.TryParse(raw, out var parsed) ? parsed : null;
+        int? contextId = int.TryParse(e.Value?.ToString(), out var parsed) ? parsed : null;
+        await MutateAsync(() => TargetService.SetWanContextAsync(targetId, contextId));
+    }
+
+    /// <summary>
+    /// Runs a target edit and refreshes the list. A failure surfaces on the card rather than being
+    /// swallowed: these used to end in an empty catch, so a rejected or failed edit looked like a
+    /// row that simply declined to change.
+    /// </summary>
+    private async Task MutateAsync(Func<Task<bool>> edit)
+    {
+        _targetError = null;
         try
         {
-            await using var db = CreateDb();
-            var row = await db.MonitoringTargets.FindAsync(targetId);
-            if (row == null) return;
-            row.WanContextId = contextId;
-            await db.SaveChangesAsync();
+            await edit();
             await OnTargetsChanged.InvokeAsync();
         }
-        catch { }
+        catch (Exception ex)
+        {
+            _targetError = ex is NetworkOptimizer.Web.Services.Gates.AuthorizationDeniedException
+                ? "You do not have permission to change monitoring targets."
+                : $"Could not update the target: {ex.Message}";
+        }
     }
 
     private async Task AddTargetAsync()
     {
         _addTargetError = null;
-        var name = _newTargetName.Trim();
-        var address = _newTargetAddress.Trim();
-        if (string.IsNullOrEmpty(name) || string.IsNullOrEmpty(address))
-        {
-            _addTargetError = "Name and address are required.";
-            return;
-        }
-        if (name.Length > 200 || address.Length > 200)
-        {
-            _addTargetError = "Name and address must be under 200 characters.";
-            return;
-        }
-        if (!System.Net.IPAddress.TryParse(address, out _)
-            && !System.Text.RegularExpressions.Regex.IsMatch(address, @"^[a-zA-Z0-9][a-zA-Z0-9.\-]*$"))
-        {
-            _addTargetError = "Address must be a valid IP or hostname.";
-            return;
-        }
-
         _addingTarget = true;
         StateHasChanged();
         try
         {
-            var targetType = Enum.TryParse<MonitoringTargetType>(_newTargetType, out var tt) ? tt : MonitoringTargetType.Custom;
-            var probeMode = _newTargetProbeMode == "Tcp" ? NetworkOptimizer.Core.Enums.ProbeMode.Tcp : NetworkOptimizer.Core.Enums.ProbeMode.Icmp;
-            var targetId = $"custom-{Guid.NewGuid():N}"[..24];
-
-            int? asnNumber = null;
-            string? asnName = null;
-            if (targetType is MonitoringTargetType.Transit or MonitoringTargetType.AccessIsp)
+            await TargetService.AddAsync(new NetworkOptimizer.Web.Services.NewMonitoringTarget
             {
-                var ip = address;
-                if (!System.Net.IPAddress.TryParse(address, out _))
-                {
-                    try
-                    {
-                        var entries = await System.Net.Dns.GetHostAddressesAsync(address);
-                        ip = entries.FirstOrDefault()?.ToString();
-                    }
-                    catch { ip = null; }
-                }
-                if (ip != null)
-                {
-                    var asn = await AsnResolution.ResolveAsync(ip);
-                    if (asn != null)
-                    {
-                        asnNumber = asn.Asn;
-                        // Apply the same industry-suffix cleanup auto-discovery uses
-                        // (UpstreamTracerService.CleanAsnName), so a manually-added transit hop
-                        // stores "Level 3", not "Level 3 Parent" / "Lumen", matching discovery.
-                        asnName = NetworkOptimizer.Core.Helpers.NetworkFormatHelpers.CleanOrgName(asn.Name);
-                    }
-                }
-            }
-
-            // Manual Transit/Access ISP adds are user-provided upstream hops the tracer didn't
-            // find. Tag them UserProvided so upstream change-detection treats them as curated
-            // (never flags them as "removed", never re-suggests them as "added") while ISP
-            // Health still grades them by TargetType. Generic customs stay unmethoded (null).
-            var discoveryMethod = targetType is MonitoringTargetType.Transit or MonitoringTargetType.AccessIsp
-                ? (DiscoveryMethod?)DiscoveryMethod.UserProvided
-                : null;
-
-            await using var db = CreateDb();
-            var entity = new MonitoringTarget
-            {
-                TargetId = targetId,
-                Name = name,
-                Address = address,
-                TargetType = targetType,
-                ProbeMode = probeMode,
-                Port = probeMode == NetworkOptimizer.Core.Enums.ProbeMode.Tcp ? _newTargetPort : null,
-                PollIntervalSeconds = _newTargetInterval,
-                PingCount = 5,
-                Enabled = true,
-                AutoDiscovered = false,
-                DiscoveryMethod = discoveryMethod,
-                VantagePoint = "server",
-                CreatedAt = DateTime.UtcNow,
-                AsnNumber = asnNumber,
-                AsnName = asnName
-            };
-            db.MonitoringTargets.Add(entity);
-            await db.SaveChangesAsync();
-
-            // Trace-on-save: an Internet/Custom target only absolves the ISP/transit hops it crosses
-            // once it has trace ancestry. Kick off an immediate trace so it can act as a witness now,
-            // instead of waiting for the next upstream discovery cycle. Resolve the "server" vantage
-            // executor here (synchronously, current site context) so external agent sites trace over
-            // the on-site agent tunnel and there's no scoped-context race in the fire-and-forget.
-            if (targetType is MonitoringTargetType.InternetService or MonitoringTargetType.Custom)
-                _ = TraceOnSaveForAncestryAsync(ExecutorFactory.GetServer(), entity.Id, address, SiteCtx.Slug, SiteCtx.IsDefault);
+                Name = _newTargetName,
+                Address = _newTargetAddress,
+                TargetType = Enum.TryParse<MonitoringTargetType>(_newTargetType, out var tt) ? tt : MonitoringTargetType.Custom,
+                ProbeMode = _newTargetProbeMode == "Tcp"
+                    ? NetworkOptimizer.Core.Enums.ProbeMode.Tcp
+                    : NetworkOptimizer.Core.Enums.ProbeMode.Icmp,
+                Port = _newTargetPort,
+                PollIntervalSeconds = _newTargetInterval
+            });
 
             _showAddTarget = false;
             _newTargetName = "";
@@ -465,6 +373,10 @@
             _newTargetPort = 443;
             _newTargetInterval = 10;
             await OnTargetsChanged.InvokeAsync();
+        }
+        catch (NetworkOptimizer.Web.Services.MonitoringTargetValidationException ex)
+        {
+            _addTargetError = ex.Message;
         }
         catch (Exception ex)
         {
@@ -476,17 +388,6 @@
         }
     }
 
-    /// <summary>
-    /// Traces a just-added Internet/Custom target over the site's server/agent vantage and persists
-    /// its hop ancestry as an UpstreamDiscovery row, so ISP Health can immediately use it as a
-    /// routes-through witness. Best-effort; fire-and-forget (reads no component state).
-    /// </summary>
-    private async Task TraceOnSaveForAncestryAsync(NetworkOptimizer.Monitoring.Probes.IProbeExecutor executor,
-        int targetId, string address, string slug, bool isDefault)
-    {
-        await using var db = SiteDb.CreateForSite(slug, isDefault);
-        await NetworkOptimizer.Web.Services.Monitoring.TargetAncestry.TraceAndPersistAsync(executor, db, targetId, address);
-    }
 
     private static string TargetTypeBadgeClass(MonitoringTargetType type) => type switch
     {

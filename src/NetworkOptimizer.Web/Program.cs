@@ -678,6 +678,12 @@ builder.Services.AddMutatingService<ISshKeyDeploymentService, SshKeyDeploymentSe
 // is session-lived, so the compute still runs about once per session.
 builder.Services.AddScoped<ModuleUpdateNotificationService>();
 builder.Services.AddMutatingService<IMonitoringInterfaceDeploymentService, MonitoringInterfaceDeploymentService>();
+// Curating the site's monitoring configuration from the Monitoring page: the Latency targets card's
+// target edits, the Setup tab's enable and alert thresholds, and Upstream path discovery. These ran
+// as direct DbContext writes in the components, so none of them were audited.
+builder.Services.AddMutatingService<IMonitoringTargetService, MonitoringTargetService>();
+builder.Services.AddMutatingService<IMonitoringSettingsService, MonitoringSettingsService>();
+builder.Services.AddMutatingService<IUpstreamDiscoveryService, UpstreamDiscoveryService>();
 
 // Register WiFi Optimizer rules and engine
 builder.Services.AddSingleton<NetworkOptimizer.WiFi.Rules.IWiFiOptimizerRule, NetworkOptimizer.WiFi.Rules.IoTSsidSeparationRule>();
