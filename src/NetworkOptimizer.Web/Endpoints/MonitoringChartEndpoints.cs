@@ -69,6 +69,7 @@ public static class MonitoringChartEndpoints
             UniFiConnectionService connectionService,
             NetworkOptimizer.Storage.Services.SiteDbContextFactory siteDb,
             SiteContextService siteContext,
+            ILoggerFactory loggerFactory,
             DateTime? from,
             DateTime? to,
             CancellationToken ct) =>
@@ -119,11 +120,17 @@ public static class MonitoringChartEndpoints
                         .FirstOrDefaultAsync(ct);
                     if (profile != null)
                     {
-                        gatewayMac ??= profile.GatewayMac;
+                        // Assign rather than ??=: the entry condition allows an EMPTY string, which
+                        // ??= would keep. Normalized to match the other reader and the writer.
+                        gatewayMac = profile.GatewayMac!.Replace("-", ":").ToLowerInvariant();
                         wanIfNames = new List<string> { profile.CounterInterface! };
                     }
                 }
-                catch { }
+                catch (Exception ex)
+                {
+                    loggerFactory.CreateLogger("MonitoringChartEndpoints").LogDebug(ex,
+                        "Could not read the remembered WAN profile; the chart falls back to an empty series");
+                }
             }
 
             var wanTask = !string.IsNullOrEmpty(gatewayMac) && wanIfNames?.Count > 0

@@ -526,7 +526,9 @@
                                 <span class="host-truncate">@t.Name</span>
                                 <span class="lan-flaky-actions">
                                     <button class="btn btn-sm btn-secondary" @onclick="() => JumpToLatencyTargetAsync(t.Id)">Review in Latency Targets</button>
-                                    <button class="btn btn-sm btn-secondary" @onclick="() => DismissLanFlakyHintAsync(t)">Dismiss</button>
+                                    <SiteOperatorOnly>
+                                        <button class="btn btn-sm btn-secondary" @onclick="() => DismissLanFlakyHintAsync(t)">Dismiss</button>
+                                    </SiteOperatorOnly>
                                 </span>
                             </li>
                         }
@@ -3040,7 +3042,10 @@
         }
         catch (Exception ex)
         {
+            // Do NOT hide the row when the write did not happen: it would reappear on the next
+            // load, so the dismissal would read as having worked and then silently undone itself.
             Logger.LogWarning(ex, "Could not persist the LAN flaky-hint dismissal for target {TargetId}", target.Id);
+            return;
         }
         // _targets is loaded AsNoTracking, so reflect the dismissal in memory to drop the row
         // from the advisory immediately without waiting for a reload.

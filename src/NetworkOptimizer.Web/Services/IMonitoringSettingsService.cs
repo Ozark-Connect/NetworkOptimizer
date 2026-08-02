@@ -16,7 +16,10 @@ namespace NetworkOptimizer.Web.Services;
 public interface IMonitoringSettingsService
 {
     /// <summary>Turns the site's monitoring collection on or off.</summary>
-    [RequireRole(Roles.Operator)]
+    /// <remarks>Admin, matching the SiteAdminOnly wrapper the Enable/Disable buttons have always
+    /// had: the gate is the boundary, so granting Operator here would widen it past what the UI
+    /// reserved for Site Admins.</remarks>
+    [RequireRole(Roles.Admin)]
     [AuditAction(AuditActions.MonitoringSetupChanged, TargetType = "monitoring_settings")]
     Task<MonitoringSettings> SetEnabledAsync(bool enabled, CancellationToken ct = default);
 

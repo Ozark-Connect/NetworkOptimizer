@@ -1547,7 +1547,7 @@ public class IspHealthService
         // away still be graded, and it is stored per WAN because plan speeds belong to a WAN:
         // scoring reads the primary today, and multi-WAN scoring is planned, at which point each
         // WAN's row is already here.
-        if (wan?.NetworkGroup is { Length: > 0 } && (down != null || up != null))
+        if (wan?.NetworkGroup is { Length: > 0 })
             await RememberWanSpeedsAsync(wan, down, up, ct);
 
         if (down == null || up == null)
@@ -1610,9 +1610,23 @@ public class IspHealthService
             // and what PPPoE is read from; the counter interface is what throughput is keyed on, and
             // on a VLAN-tagged WAN that is the PHYSICAL port - the sub-interface's counters double.
             // Storing one and using it for the other's job silently reports the wrong throughput.
-            var dataPath = await _connectionService.GetPrimaryWanDataPathInterfaceAsync(ct) ?? wan.Interface;
+            // Keep the previous data path when the device read comes back empty on an otherwise
+            // successful console read: overwriting it with the physical port would make a later
+            // offline PPPoE check grade the line without its overlay, which is what splitting these
+            // two columns exists to prevent.
+            var dataPath = await _connectionService.GetPrimaryWanDataPathInterfaceAsync(ct)
+                ?? row.DataPathInterface ?? wan.Interface;
             row.DataPathInterface = dataPath;
             row.CounterInterface = NetworkUtilities.PreferredWanCounterInterface(wan.Interface, dataPath);
+
+            // Stored WAN rates are keyed on gateway MAC AND interface, so every offline fallback
+            // filters on this being present - without it they match no row and silently do nothing.
+            // Normalized here so readers cannot disagree about the form.
+            var gatewayMac = (await _connectionService.GetDiscoveredDevicesAsync(ct))
+                .FirstOrDefault(d => d.Type == NetworkOptimizer.Core.Enums.DeviceType.Gateway
+                    || d.HardwareType == NetworkOptimizer.Core.Enums.DeviceType.Gateway)?.Mac;
+            if (!string.IsNullOrEmpty(gatewayMac))
+                row.GatewayMac = gatewayMac.Replace("-", ":").ToLowerInvariant();
             row.Name = wan.Name;
             row.DownloadMbps = down;
             row.UploadMbps = up;

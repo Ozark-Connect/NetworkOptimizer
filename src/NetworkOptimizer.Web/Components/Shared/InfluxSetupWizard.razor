@@ -21,8 +21,18 @@
             </div>
             <div class="card-body">
                 <div class="empty-state">
-                    <span class="spinner"></span>
-                    <p>Looking for InfluxDB on this network...</p>
+                    @if (_canProvision)
+                    {
+                        <span class="spinner"></span>
+                        <p>Looking for InfluxDB on this network...</p>
+                    }
+                    else
+                    {
+                        @* Setting this up needs the instance-wide Admin role, which a site's own
+                           admin need not hold. Say so: nothing is going to happen for them, and a
+                           spinner that never resolves reads as the page being broken. *@
+                        <p>Setting up InfluxDB requires an administrator for this installation.</p>
+                    }
                 </div>
             </div>
         </div>
