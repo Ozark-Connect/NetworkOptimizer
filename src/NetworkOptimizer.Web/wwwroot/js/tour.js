@@ -10,21 +10,43 @@ window.noTour = (function () {
     // must not build a zombie overlay for a tour that already moved on.
     let generation = 0;
 
+    // A step can target something inside a collapsed card, as the Adaptive SQM WAN panels do.
+    // Collapsed content is still laid out, at zero height, so it satisfies an offsetParent test
+    // while being invisible - open the section and let a later tick take it once the transition
+    // has run. Each wrapper is clicked once per wait so a section the user closes behind us does
+    // not get reopened in a loop.
+    function revealCollapsedAncestors(el, opened) {
+        for (let node = el.parentElement; node && node !== document.body; node = node.parentElement) {
+            if (!node.classList.contains('expand-wrapper') || node.classList.contains('expanded')) continue;
+            if (opened.has(node)) continue;
+            opened.add(node);
+            const toggle = node.previousElementSibling;
+            if (toggle && toggle.classList.contains('card-header-collapsible')) {
+                toggle.click();
+            } else {
+                console.warn('noTour: target sits in a collapsed section with no recognized toggle', node);
+            }
+        }
+    }
+
     function waitFor(selector, timeoutMs) {
         return new Promise(resolve => {
             const started = Date.now();
+            const opened = new Set();
             const tick = () => {
                 if (!document.body) return resolve(null);
                 // The same anchor can exist more than once (the 3D and 2D Live View maps
                 // both carry the timeline anchor). Pick by LAYOUT order, not DOM order:
                 // the user can swap the two maps, and the spotlight should follow
                 // whichever is actually on top.
-                const visible = Array.from(document.querySelectorAll(selector))
-                    .filter(e => e.offsetParent !== null && e.getBoundingClientRect().width > 0);
+                const matches = Array.from(document.querySelectorAll(selector));
+                const visible = matches.filter(e => e.offsetParent !== null
+                    && e.getBoundingClientRect().width > 0 && e.getBoundingClientRect().height > 0);
                 if (visible.length) {
                     visible.sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);
                     return resolve(visible[0]);
                 }
+                matches.forEach(e => revealCollapsedAncestors(e, opened));
                 if (Date.now() - started > timeoutMs) return resolve(null);
                 setTimeout(tick, 150);
             };
