@@ -2078,6 +2078,7 @@ a.stat-card-link:active {
 .isp-events-jump {
     cursor: pointer;
     text-decoration: underline dotted;
+    text-decoration-color: var(--text-muted);
     text-underline-offset: 3px;
 }
 
@@ -16912,13 +16913,13 @@ tr.stats-row-filtered {
 
 .isp-score-excellent { color: #24bc70; }
 .isp-score-good { color: #3b82f6; }
-.isp-score-fair { color: #f59e0b; }
+.isp-score-fair { color: var(--warning-color); }
 .isp-score-poor { color: #ef4444; }
 .isp-score-none { color: var(--text-muted); }
 
 .monitoring-stat-card .stat-value.isp-score-excellent { color: #24bc70; }
 .monitoring-stat-card .stat-value.isp-score-good { color: #3b82f6; }
-.monitoring-stat-card .stat-value.isp-score-fair { color: #f59e0b; }
+.monitoring-stat-card .stat-value.isp-score-fair { color: var(--warning-color); }
 .monitoring-stat-card .stat-value.isp-score-poor { color: #ef4444; }
 .monitoring-stat-card .stat-value.isp-score-none { color: var(--text-muted); }
 
