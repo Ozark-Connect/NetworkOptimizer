@@ -67,7 +67,7 @@
                 <table class="data-table">
                     <thead>
                         <tr>
-                            <th>Time (UTC)</th><th>Category</th><th>Action</th>
+                            <th>Time (UTC)</th><th>Category</th><th>Action</th><th>Target</th>
                             <th>Actor</th><th class="hide-mobile">Site ID</th><th>Outcome</th><th></th>
                         </tr>
                     </thead>
@@ -78,6 +78,16 @@
                                 <td>@e.TimestampUtc.ToString("yyyy-MM-dd HH:mm:ss")</td>
                                 <td>@e.Category</td>
                                 <td>@e.Action</td>
+                                <td>
+                                    @if (TargetLabel(e) is string label)
+                                    {
+                                        <span data-tooltip="@e.TargetType">@label</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-muted">-</span>
+                                    }
+                                </td>
                                 <td>@e.ActorName</td>
                                 <td class="hide-mobile">@(string.IsNullOrEmpty(e.SiteSlug) ? "-" : e.SiteSlug)</td>
                                 <td>
@@ -93,7 +103,7 @@
                             @if (_expanded == e.Id)
                             {
                                 <tr>
-                                    <td colspan="7"><pre class="detail-value">@e.DetailsJson</pre></td>
+                                    <td colspan="8"><pre class="detail-value">@e.DetailsJson</pre></td>
                                 </tr>
                             }
                         }
@@ -111,6 +121,16 @@
 </div>
 
 @code {
+    /// <summary>
+    /// What the event acted on. Every audited action records this, and none of it was shown: the
+    /// table said a monitoring target had been paused without saying which one. The name is what a
+    /// reader recognizes, so it wins; the id is the fallback for an action that has no name to give.
+    /// </summary>
+    private static string? TargetLabel(AuditEvent e) =>
+        !string.IsNullOrEmpty(e.TargetName) ? e.TargetName
+        : !string.IsNullOrEmpty(e.TargetId) ? e.TargetId
+        : null;
+
     private const int PageSize = 100;
     private static readonly string[] Categories =
     {

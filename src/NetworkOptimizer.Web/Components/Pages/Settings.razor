@@ -3791,8 +3791,28 @@
         ["site-agent-setup"] = "multisite",
     };
 
-    private static string ResolveTab(string? param) =>
-        param != null && ValidTabs.Contains(param) ? param.ToLowerInvariant() : "connection";
+    // Instance-wide tabs: offered only on the default site, so a managed site is never shown a tab
+    // that renders nothing. Kept beside ResolveTab because they are the same rule read two ways -
+    // the markup decides whether to draw the button, this decides whether the URL may select it.
+    private static readonly HashSet<string> DefaultSiteOnlyTabs = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "application", "auditlog"
+    };
+
+    /// <summary>
+    /// The tab a URL selects, given the site being viewed. Switching sites carries the whole URL
+    /// across, so ?tab=auditlog followed the user onto a managed site where that tab does not exist:
+    /// no button was drawn, no panel was rendered, and Settings came up with nothing selected at all.
+    /// A tab the current site cannot show falls back to the first one, which every site has.
+    /// </summary>
+    private string ResolveTab(string? param)
+    {
+        if (param == null || !ValidTabs.Contains(param))
+            return "connection";
+
+        var tab = param.ToLowerInvariant();
+        return DefaultSiteOnlyTabs.Contains(tab) && !SiteContext.IsDefault ? "connection" : tab;
+    }
 
     private AuditLogPanel? _auditLogPanel;
 
@@ -4765,6 +4785,14 @@
         _activeTab = ResolveTab(TabParam);
         _lastTabParam = TabParam;
         _pendingAuditLoad = _activeTab == "auditlog";
+
+        // The address bar still names the tab we just refused. Rewrite it so a reload, a bookmark or
+        // a second site switch does not keep trying to open a tab this site does not have.
+        if (TabParam != null && !string.Equals(_activeTab, TabParam, StringComparison.OrdinalIgnoreCase))
+        {
+            NavigationManager.NavigateTo("/settings?tab=" + _activeTab, forceLoad: false, replace: true);
+            _lastTabParam = _activeTab;
+        }
 
         // Pre-release update notifications default ON (global/instance-wide); only an explicit "false" opts out.
         var prereleaseSetting = await SystemSettings.GetGlobalAsync("updates.include_prereleases");
