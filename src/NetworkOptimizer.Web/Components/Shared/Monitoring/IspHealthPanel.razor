@@ -308,7 +308,7 @@ else
                                     {
                                         @if (issue.LinkUrl!.StartsWith("#"))
                                         {
-                                            <a href="javascript:void(0)" onclick="document.getElementById('@(issue.LinkUrl.TrimStart('#'))').scrollIntoView({ behavior: 'smooth', block: 'start' });" style="margin-left: 0.4rem;">@(issue.LinkText ?? "Open")</a>
+                                            <a href="javascript:void(0)" onclick="window.noIspJumpTo('@(issue.LinkUrl.TrimStart('#'))');" style="margin-left: 0.4rem;">@(issue.LinkText ?? "Open")</a>
                                         }
                                         else
                                         {
@@ -832,6 +832,22 @@ else
         </div>
     </div>
 }
+
+@* One jump behavior for the panel: a finding's Open link and a hop's event count both scroll to
+   their section and mark it with the standard card highlight, so the two cannot drift apart. *@
+<script suppress-error="BL9992">
+    window.noIspJumpTo = function (id) {
+        var el = document.getElementById(id);
+        if (!el) return;
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        // The same outline every other deep link in Monitoring uses (see Monitoring.razor's
+        // scroll-and-highlight helpers) so arriving somewhere always looks the same.
+        el.style.transition = 'outline-color 0.3s';
+        el.style.outline = '2px solid rgba(59, 130, 246, 0.5)';
+        el.style.outlineOffset = '4px';
+        setTimeout(function () { el.style.outline = ''; el.style.outlineOffset = ''; }, 2000);
+    };
+</script>
 
 @code {
     private const int NetworkPreviewCount = 5;
@@ -1480,14 +1496,7 @@ else
     /// Jumps to Path &amp; Congestion Events. The event count on a hop or network row is only useful
     /// next to the events it counts, and they sit far enough down the page to be worth a shortcut.
     /// </summary>
-    private async Task ScrollToEventsAsync()
-    {
-        await JS.InvokeVoidAsync("eval", @"
-            (function() {
-                var el = document.getElementById('isp-events');
-                if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            })();");
-    }
+    private async Task ScrollToEventsAsync() => await JS.InvokeVoidAsync("noIspJumpTo", "isp-events");
 
     private async Task ToggleEventFilterAsync(EventCategory cat, MouseEventArgs e)
     {
