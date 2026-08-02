@@ -33,6 +33,10 @@ let elId = null;
 let visHandler = null;
 let mountGen = 0;
 let lastSampleTime = 0;
+// Whether a LIVE poll has landed this mount. Separate from lastSampleTime, which history and
+// backfill points also advance - so on any site with stored history it is never 0 by the time the
+// first live sample arrives, and keying the re-phase off it did nothing.
+let seenLiveSample = false;
 // Historic playback interpolation state (see seekTime).
 let histTimer = null;
 let histAt = 0;
@@ -402,7 +406,8 @@ async function pollLive() {
         // reconnecting). The backfill cadence was started at mount against a site that had nothing
         // to backfill, so its next tick sits at an arbitrary point in the 60s window. Restart it
         // from here so the first fill happens now rather than up to a minute into live data.
-        const dataJustStarted = lastSampleTime === 0;
+        const dataJustStarted = !seenLiveSample;
+        seenLiveSample = true;
         lastSampleTime = sampleTime;
         if (dataJustStarted) restartBackfill();
         const cutoff = Date.now() - HISTORY_MINUTES * 60000;
@@ -532,6 +537,7 @@ export async function mount(containerId, opts) {
     removeMouseTracking();
     buffer = [];
     lastSampleTime = 0;
+    seenLiveSample = false;
     const gen = ++mountGen;
     elId = containerId;
     const el = document.getElementById(containerId);
