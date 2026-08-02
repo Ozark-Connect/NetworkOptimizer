@@ -224,10 +224,16 @@
                     @if (_siteMode)
                     {
                         <text>This site's buckets are ready on the shared InfluxDB. You can now enable monitoring.</text>
+                        @* Only when they actually pasted one: the silent path never asks, so saying
+                           we are finished with a token they never gave would be nonsense. *@
+                        @if (_usedAllAccessToken)
+                        {
+                            <text> Network Optimizer is finished with your All Access token - future sites provision using the shared token, so you can delete it in InfluxDB if you don't need it elsewhere.</text>
+                        }
                     }
                     else
                     {
-                        <text>Buckets created and a scoped token has been saved. You can now enable monitoring.</text>
+                        <text>Buckets created and a scoped token has been saved. You can now enable monitoring. Network Optimizer is finished with your All Access token - it was never written to disk, and you can delete it in InfluxDB if you don't need it elsewhere.</text>
                     }
                 </div>
                 <div class="action-buttons">
@@ -255,6 +261,10 @@
     private InfluxDbProvisioningService.UrlProbeResult? _probe;
     private string _manualUrl = string.Empty;
     private string _adminToken = string.Empty;
+
+    /// <summary>Whether this run actually asked for and used an All Access token - the silent
+    /// site-mode path never does, so its completion copy must not claim otherwise.</summary>
+    private bool _usedAllAccessToken;
     private string? _authedAs;
     private List<InfluxDbProvisioningService.InfluxOrg> _orgs = new();
     private string? _selectedOrgId;
@@ -479,6 +489,7 @@
                 await mainDb.SaveChangesAsync();
             }
             _adminToken = string.Empty; // drop the admin token explicitly
+            _usedAllAccessToken = true;
             _sharedToken = orgScoped.Token;
 
             // Main and every existing site client pick up the upgraded token
