@@ -23,17 +23,19 @@ public sealed class GatewayLossFloor
     private readonly DateTime[] _times;
     private readonly double[] _lossPct;
     private readonly double _stalenessSeconds;
+    private readonly double _matchSeconds;
 
-    private GatewayLossFloor(DateTime[] times, double[] lossPct, double stalenessSeconds)
+    private GatewayLossFloor(DateTime[] times, double[] lossPct, double stalenessSeconds, double matchSeconds)
     {
         _times = times;
         _lossPct = lossPct;
         _stalenessSeconds = stalenessSeconds;
+        _matchSeconds = matchSeconds;
     }
 
     /// <summary>An empty floor: subtracts nothing. Used when no gateway target is monitored.</summary>
     public static GatewayLossFloor None { get; } =
-        new(Array.Empty<DateTime>(), Array.Empty<double>(), 0);
+        new(Array.Empty<DateTime>(), Array.Empty<double>(), 0, 0);
 
     /// <summary>True when any gateway loss was measured at all - i.e. when the floor can bite.</summary>
     public bool HasLoss { get; private set; }
@@ -85,7 +87,7 @@ public sealed class GatewayLossFloor
             if (v > peak) peak = v;
         }
 
-        return new GatewayLossFloor(times, loss, options.GatewayFloorMaxStalenessSeconds)
+        return new GatewayLossFloor(times, loss, options.GatewayFloorMaxStalenessSeconds, options.GatewayFloorMatchSeconds)
         {
             HasLoss = peak > 0,
             PeakLossPct = peak,
@@ -94,23 +96,46 @@ public sealed class GatewayLossFloor
     }
 
     /// <summary>
-    /// The floor at an instant: the most recent gateway reading at or before it, provided that reading
-    /// is not stale. Carried forward rather than re-interpolated because the floor reflects a physical
-    /// condition that persists across a poll or two; past the staleness bound it decays to zero, so an
-    /// old reading cannot keep suppressing loss indefinitely. Zero when nothing is known, which leaves
-    /// the measurement untouched.
+    /// The floor at an instant: the worst gateway reading in the immediate neighborhood, looking both
+    /// directions. An impairment that drops probes does so for as long as it lasts, so a probe landing
+    /// between two gateway ticks was crossing the same impaired chain as the ticks either side of it.
+    ///
+    /// Where no reading is close enough - a series sampled far coarser than the match window - the
+    /// last reading is carried forward instead, decaying to zero once stale, so an old value cannot
+    /// keep suppressing loss indefinitely. Zero when nothing is known, leaving the measurement alone.
     /// </summary>
     public double FloorAt(DateTime time)
     {
         if (_times.Length == 0) return 0;
 
-        var i = Array.BinarySearch(_times, time);
-        if (i < 0)
+        // Worst gateway reading in the immediate neighborhood, looking both ways. An impairment that
+        // drops probes does so continuously for as long as it lasts, while the gateway is sampled on
+        // its own cadence - so which tick happens to precede a given probe is an artifact of timing,
+        // not a fact about the network. Reading only backwards made one saturation burst subtract
+        // between 0% and 46.7% across the same ten seconds, purely on sample alignment.
+        var lo = LowerBound(time.AddSeconds(-_matchSeconds));
+        var best = -1.0;
+        var limit = time.AddSeconds(_matchSeconds);
+        for (var i = lo; i < _times.Length && _times[i] <= limit; i++)
+            if (_lossPct[i] > best) best = _lossPct[i];
+        if (best >= 0) return best;
+
+        // Nothing close by - fall back to carrying the last reading forward, which covers a series
+        // sampled far coarser than the match window, and decays to zero once it is stale.
+        var j = Array.BinarySearch(_times, time);
+        if (j < 0)
         {
-            i = ~i - 1;          // the entry immediately before the insertion point
-            if (i < 0) return 0; // before the first reading
+            j = ~j - 1;
+            if (j < 0) return 0;
         }
-        return (time - _times[i]).TotalSeconds <= _stalenessSeconds ? _lossPct[i] : 0;
+        return (time - _times[j]).TotalSeconds <= _stalenessSeconds ? _lossPct[j] : 0;
+    }
+
+    /// <summary>Index of the first reading at or after <paramref name="from"/>.</summary>
+    private int LowerBound(DateTime from)
+    {
+        var i = Array.BinarySearch(_times, from);
+        return i >= 0 ? i : ~i;
     }
 
     /// <summary>

@@ -87,6 +87,38 @@ public class GatewayLossFloorTests
     }
 
     [Fact]
+    public void A_saturation_burst_is_subtracted_evenly_across_its_span()
+    {
+        // Modeled on a real capture: saturating the LAN between the gateway and this server took every
+        // upstream target to 60-80% loss for about ten seconds, while the gateway itself read 66.7%
+        // then 33.3% on its own cadence. Matching only backwards subtracted 0% to 46.7% across that
+        // one burst depending on which tick preceded each probe; the whole span crossed the same
+        // impaired chain, so the worst nearby reading governs all of it.
+        var floor = GatewayLossFloor.Build(new List<LatencySample>
+        {
+            new(Start, 1, 1, 0.1, 66.7),
+            new(Start.AddSeconds(8), 1, 1, 0.1, 33.3)
+        }, Options);
+
+        foreach (var offset in new[] { 1, 4, 10 })
+            floor.Apply(80, Start.AddSeconds(offset)).Should().BeApproximately(13.3, 0.05,
+                $"the burst was continuous, so the probe at +{offset}s crossed the same impairment");
+    }
+
+    [Fact]
+    public void An_isolated_spike_does_not_absolve_a_span_it_never_overlapped()
+    {
+        // The match window is deliberately narrow: a gateway blip must not excuse upstream loss
+        // minutes away from it.
+        var floor = GatewayLossFloor.Build(new List<LatencySample> { new(Start, 1, 1, 0.1, 60.0) }, Options);
+
+        floor.Apply(50, Start.AddSeconds(Options.GatewayFloorMatchSeconds + 5))
+            .Should().BeLessThan(50, "still inside the carry-forward window");
+        floor.Apply(50, Start.AddSeconds(Options.GatewayFloorMaxStalenessSeconds + 60))
+            .Should().Be(50, "far past any reading, nothing is subtracted");
+    }
+
+    [Fact]
     public void Nothing_is_subtracted_before_the_first_gateway_reading()
     {
         var floor = GatewayLossFloor.Build(new List<LatencySample> { At(10, 5.0) }, Options);

@@ -564,6 +564,18 @@ public class IspHealthOptions
     public int GatewayFloorMaxStalenessSeconds { get; set; } = 300;
 
     /// <summary>
+    /// How far either side of an upstream sample the floor looks for gateway readings, taking the
+    /// worst it finds. An impairment that drops probes drops them continuously, but the gateway is
+    /// sampled on its own cadence, so which tick precedes a given probe is an artifact of timing. A
+    /// real capture made the point: saturating the LAN between the gateway and this server took every
+    /// upstream target to 60-80% loss for about ten seconds while the gateway itself read 66.7% then
+    /// 33.3%, and matching backwards only would have subtracted anywhere from 0% to 46.7% across that
+    /// one burst depending purely on alignment. Kept small - a couple of sample intervals at the fine
+    /// end - so an isolated gateway spike cannot absolve a span it did not overlap.
+    /// </summary>
+    public int GatewayFloorMatchSeconds { get; set; } = 15;
+
+    /// <summary>
     /// Mean gateway loss (percent) at or above which the local-network finding is raised. Any loss to
     /// the gateway is worth knowing about, but a single dropped probe over a long window is noise
     /// rather than a fault, and a finding that fires on it would train people to ignore the one that
