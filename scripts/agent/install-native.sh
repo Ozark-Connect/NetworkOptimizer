@@ -32,6 +32,7 @@ SERVER=""
 TOKEN=""
 LAN_SPEED_TEST=false
 SPEED_TEST_PORT=24443
+PORT_REQUESTED=false
 INSECURE=false
 UNINSTALL=false
 FORCE_NATIVE=false
@@ -46,7 +47,7 @@ while [ $# -gt 0 ]; do
         --server) SERVER="$2"; shift 2 ;;
         --token) TOKEN="$2"; shift 2 ;;
         --lan-speed-test) LAN_SPEED_TEST=true; shift ;;
-        --speed-test-port) SPEED_TEST_PORT="$2"; shift 2 ;;
+        --speed-test-port) SPEED_TEST_PORT="$2"; PORT_REQUESTED=true; shift 2 ;;
         --insecure) INSECURE=true; shift ;;
         --uninstall) UNINSTALL=true; shift ;;
         --force-native) FORCE_NATIVE=true; shift ;;
@@ -402,7 +403,7 @@ if grep -q '"agentKey"' "$CONFIG" 2>/dev/null; then
     # rewritten below either way, and the agent announces the port from here - so leaving this
     # alone would have the agent advertising a port it no longer serves, which is precisely the
     # mismatch the announcement exists to prevent.
-    if [ "$SPEED_TEST_PORT" != "24443" ]; then
+    if [ "$PORT_REQUESTED" = true ]; then
         if grep -q '"lanSpeedTestPort"' "$CONFIG"; then
             sed -i "s/\"lanSpeedTestPort\": *[0-9]*/\"lanSpeedTestPort\": ${SPEED_TEST_PORT}/" "$CONFIG"
         else
@@ -501,7 +502,7 @@ CFGJS
                 -e 's/^\([[:space:]]*listen[[:space:]][^;]*\) ssl\([^;]*;\)/\1\2/' \
                 -e '/^[[:space:]]*ssl_/d' \
                 "${INSTALL_DIR}/nginx-speedtest-server.conf"
-            note "AGENT_SPEEDTEST_TLS=0 - serving plain http on port 24443"
+            note "AGENT_SPEEDTEST_TLS=0 - serving plain http on port ${SPEED_TEST_PORT}"
         else
             # Persisted self-signed cert for the LAN speed test's TLS listener (secure context
             # for the browser Geolocation API / GPS-tagged results, no per-site reverse proxy).
@@ -591,7 +592,7 @@ UNIT
             # symlink from installs made before nginx was wanted by the agent.
             systemctl reenable --quiet netopt-speedtest-nginx.service
             START_SPEEDTEST_NGINX=1
-            ok "LAN speed test ready on port 24443 (starts with the agent)"
+            ok "LAN speed test ready on port ${SPEED_TEST_PORT} (starts with the agent)"
         else
             warn "nginx config test failed - the LAN speed test page won't serve."
             print_speedtest_apparmor_hint
