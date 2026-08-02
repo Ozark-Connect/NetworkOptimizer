@@ -178,8 +178,7 @@
 // (findings, advisories, an event count). Kept here because this file already loads app-wide and
 // the callers are spread across pages and components.
 function noHighlight(id, block, variant, radius) {
-    var el = document.getElementById(id);
-    if (!el) return;
+    if (!document.getElementById(id)) return;
     el.scrollIntoView({ behavior: 'smooth', block: block || 'start' });
     // The caller says what shape it is pointing at; the default suits a card.
     if (radius) el.style.setProperty('--nav-highlight-radius', radius);
@@ -220,17 +219,19 @@ window.noAnchorTop = function (id) {
     var el = document.getElementById(id);
     if (!el) return;
 
+    // Re-resolved every tick rather than captured: the card re-renders as discovery adds sections,
+    // and Blazor can swap the element out. Holding the original node meant the pin let go the first
+    // time that happened - one scroll, then nothing, which is exactly what it looked like.
     var ticks = 0;
-    var keep = function () { el.scrollIntoView({ block: 'start' }); };
+    var keep = function () {
+        var cur = document.getElementById(id);
+        if (cur) cur.scrollIntoView({ block: 'start' });
+        return !!cur;
+    };
     var timer = setInterval(function () {
-        if (!document.contains(el)) {
-            console.log('[anchor] target left the DOM after ' + ticks + ' ticks, releasing');
-            window.noAnchorRelease();
-            return;
-        }
         ticks++;
-        keep();
-    }, 400);
+        if (!keep()) console.log('[anchor] no element for ' + id + ' this tick (' + ticks + ')');
+    }, 300);
     console.log('[anchor] pinned ' + id);
 
     var give = function () { console.log('[anchor] released by user scroll'); window.noAnchorRelease(); };
