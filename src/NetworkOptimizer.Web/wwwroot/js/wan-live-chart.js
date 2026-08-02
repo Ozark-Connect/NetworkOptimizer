@@ -398,7 +398,13 @@ async function pollLive() {
         // the line double back on itself.
         const sampleTime = d.sampleTime ? new Date(d.sampleTime).getTime() : Date.now();
         if (sampleTime <= lastSampleTime) return;
+        // First sample of this mount: data has just started flowing (an agent coming up, a console
+        // reconnecting). The backfill cadence was started at mount against a site that had nothing
+        // to backfill, so its next tick sits at an arbitrary point in the 60s window. Restart it
+        // from here so the first fill happens now rather than up to a minute into live data.
+        const dataJustStarted = lastSampleTime === 0;
         lastSampleTime = sampleTime;
+        if (dataJustStarted) restartBackfill();
         const cutoff = Date.now() - HISTORY_MINUTES * 60000;
         buffer.push({
             time: sampleTime,
@@ -417,6 +423,15 @@ async function pollLive() {
 // start) show up. Live mode + foreground only. The newest live samples - which
 // can be ahead of Influx ingestion - are kept ahead of the re-pulled history so
 // the live edge never flickers back.
+// Runs a fill now and re-phases the 60s cadence to this moment. Only meaningful while mounted;
+// pause() clears the timer and a later mount starts its own.
+function restartBackfill() {
+    if (!backfillTimer) return;
+    clearInterval(backfillTimer);
+    backfillHistory();
+    backfillTimer = setInterval(backfillHistory, BACKFILL_MS);
+}
+
 async function backfillHistory() {
     if (!chart || !pollTimer || document.hidden) return;
     const gen = mountGen;
