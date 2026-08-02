@@ -462,6 +462,76 @@
     </div>
 </div>
 
+
+@* Scroll behavior for THIS card only. Deliberately not in shared JS: it is a niche affordance for a
+   long-running discovery, and when it lived alongside the app-wide helpers it reached into the
+   scroller every page shares and broke an unrelated jump. Defined here, it ships with the panel and
+   nothing else can call it. *@
+<script suppress-error="BL9992">
+    window.noUpstreamPin = (function () {
+        var release = null;
+
+        function start(id) {
+            stop();
+            if (!document.getElementById(id)) return;
+
+            var scrollerOf = function (node) {
+                for (var n = node.parentElement; n && n !== document.body; n = n.parentElement) {
+                    var oy = getComputedStyle(n).overflowY;
+                    if ((oy === 'auto' || oy === 'scroll') && n.scrollHeight > n.clientHeight + 4) return n;
+                }
+                return document.scrollingElement || document.documentElement;
+            };
+
+            var spaced = -1;
+            var keep = function () {
+                var cur = document.getElementById(id);
+                if (!cur) { stop(); return; }
+                var sc = scrollerOf(cur);
+                var isDoc = sc === document.scrollingElement || sc === document.documentElement;
+                var paneTop = isDoc ? 0 : sc.getBoundingClientRect().top;
+                var drift = cur.getBoundingClientRect().top - paneTop;
+
+                // The card is last on the page, so its top cannot reach the pane's top until there
+                // is something below it - the browser clamps the write and nothing moves. Make up
+                // the shortfall with margin on the card itself: it does not paint, and it goes away
+                // with the element, so it can never be stranded on anything shared.
+                var shortfall = Math.max(0, Math.round(sc.clientHeight - cur.getBoundingClientRect().height));
+                if (shortfall !== spaced) {
+                    spaced = shortfall;
+                    cur.style.marginBottom = shortfall ? shortfall + 'px' : '';
+                }
+                if (Math.abs(drift) > 2) sc.scrollTop += drift;
+            };
+
+            var timer = setInterval(keep, 300);
+            // Wheel, touch and the scrolling keys are unambiguous intent; a scroll event would also
+            // catch our own corrections.
+            var give = function () { stop(); };
+            var keys = { PageDown: 1, PageUp: 1, ArrowDown: 1, ArrowUp: 1, Home: 1, End: 1, ' ': 1 };
+            var onKey = function (e) { if (keys[e.key]) give(); };
+            window.addEventListener('wheel', give, { passive: true });
+            window.addEventListener('touchmove', give, { passive: true });
+            window.addEventListener('keydown', onKey, true);
+
+            release = function () {
+                clearInterval(timer);
+                window.removeEventListener('wheel', give);
+                window.removeEventListener('touchmove', give);
+                window.removeEventListener('keydown', onKey, true);
+                var cur = document.getElementById(id);
+                if (cur) cur.style.marginBottom = '';
+                release = null;
+            };
+            keep();
+        }
+
+        function stop() { if (release) release(); }
+
+        return { start: start, stop: stop };
+    })();
+</script>
+
 @code {
     [Parameter] public bool ForceExpand { get; set; }
     [Parameter] public EventCallback OnSaved { get; set; }
@@ -557,7 +627,7 @@
         {
             try
             {
-                await JS.InvokeVoidAsync("noAnchorRelease");
+                await JS.InvokeVoidAsync("noUpstreamPin.stop");
             }
             catch (Exception ex)
             {
@@ -575,7 +645,7 @@
         // scroll for themselves.
         try
         {
-            await JS.InvokeVoidAsync("noAnchorTop", "upstream-discovery");
+            await JS.InvokeVoidAsync("noUpstreamPin.start", "upstream-discovery");
         }
         catch (Exception ex)
         {

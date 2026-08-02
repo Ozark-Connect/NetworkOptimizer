@@ -178,7 +178,8 @@
 // (findings, advisories, an event count). Kept here because this file already loads app-wide and
 // the callers are spread across pages and components.
 function noHighlight(id, block, variant, radius) {
-    if (!document.getElementById(id)) return;
+    var el = document.getElementById(id);
+    if (!el) return;
     el.scrollIntoView({ behavior: 'smooth', block: block || 'start' });
     // The caller says what shape it is pointing at; the default suits a card.
     if (radius) el.style.setProperty('--nav-highlight-radius', radius);
@@ -207,85 +208,3 @@ window.noHighlightTarget = function (id, block, radius) { noHighlight(id, block,
 
 // A table row: tinted, because an offset ring around a row collides with the rows either side.
 window.noHighlightRow = function (id, block) { noHighlight(id, block || 'center', 'nav-highlight-row'); };
-
-// Keeps a long-running card's top pinned to the view while it grows - upstream discovery adds
-// sections for a minute or so, and without this the reader chases them down the page. Released the
-// moment the user scrolls for themselves: wheel, touch and the scrolling keys are unambiguous
-// intent, unlike a scroll event, which our own scrolling would also raise.
-var anchorRelease = null;
-
-window.noAnchorTop = function (id) {
-    window.noAnchorRelease();
-    var el = document.getElementById(id);
-    if (!el) return;
-
-    // Re-resolved every tick rather than captured: the card re-renders as discovery adds sections,
-    // and Blazor can swap the element out. Holding the original node meant the pin let go the first
-    // time that happened - one scroll, then nothing, which is exactly what it looked like.
-    // PIN THE TOP: hold the card's top at the top of whatever actually scrolls, correcting every
-    // tick, until the reader scrolls for themselves. Earlier attempts measured against
-    // window.innerHeight, but this app scrolls .main-content / .page-content, not the document - so
-    // the numbers were about the wrong box. Find the real scroller and work in its coordinates.
-    var scrollerOf = function (node) {
-        for (var n = node.parentElement; n && n !== document.body; n = n.parentElement) {
-            var oy = getComputedStyle(n).overflowY;
-            if ((oy === 'auto' || oy === 'scroll') && n.scrollHeight > n.clientHeight + 4) return n;
-        }
-        return document.scrollingElement || document.documentElement;
-    };
-
-    var padded = -1;
-    var keep = function () {
-        var cur = document.getElementById(id);
-        if (!cur) {
-            // Gone - navigated away, or the tab re-rendered without it. Release rather than return:
-            // the pane is holding borrowed padding, and leaving it there strands a screen of empty
-            // space at the bottom of a scroller every page shares.
-            window.noAnchorRelease();
-            return;
-        }
-        var sc = scrollerOf(cur);
-        var isDoc = sc === document.scrollingElement || sc === document.documentElement;
-        var paneTop = isDoc ? 0 : sc.getBoundingClientRect().top;
-        var drift = cur.getBoundingClientRect().top - paneTop;
-
-        // The card is the last thing on the page, so bringing its top to the pane's top means
-        // scrolling past the end of the document, which the browser clamps - until the card is
-        // taller than the pane there is nothing below it to scroll into view and the write silently
-        // does nothing. Make up the shortfall with margin ON THE CARD, never padding on the pane:
-        // the pane is shared by every page, and a niche affordance has no business leaving state
-        // there - stranding it once put a screen of blank space under an unrelated page. Margin
-        // does not paint, and it is removed with the card, so it cannot outlive this.
-        var shortfall = Math.max(0, Math.round(sc.clientHeight - cur.getBoundingClientRect().height));
-        if (shortfall !== padded) {
-            padded = shortfall;
-            cur.style.marginBottom = shortfall ? shortfall + 'px' : '';
-        }
-
-        if (Math.abs(drift) > 2) sc.scrollTop += drift;
-    };
-    var timer = setInterval(keep, 300);
-
-    var give = function () { window.noAnchorRelease(); };
-    var keys = { PageDown: 1, PageUp: 1, ArrowDown: 1, ArrowUp: 1, Home: 1, End: 1, ' ': 1 };
-    var onKey = function (e) { if (keys[e.key]) give(); };
-    window.addEventListener('wheel', give, { passive: true });
-    window.addEventListener('touchmove', give, { passive: true });
-    window.addEventListener('keydown', onKey, true);
-
-    anchorRelease = function () {
-        clearInterval(timer);
-        // Give the card its own margin back.
-        var cur = document.getElementById(id);
-        if (cur) cur.style.marginBottom = '';
-        window.removeEventListener('wheel', give);
-        window.removeEventListener('touchmove', give);
-        window.removeEventListener('keydown', onKey, true);
-        anchorRelease = null;
-    };
-    keep();
-};
-
-window.noAnchorRelease = function () {
-    if (anchorRelease) anchorRelease();
-};
