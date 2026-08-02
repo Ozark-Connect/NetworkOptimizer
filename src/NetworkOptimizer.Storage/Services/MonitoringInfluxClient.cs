@@ -2646,13 +2646,16 @@ from(bucket: ""{_longtermBucket}"")
     private static string ToFluxInstant(DateTime t) =>
         t.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ");
 
-    private static string ToFluxDuration(TimeSpan window)
-    {
-        if (window.TotalDays >= 1) return $"{(int)window.TotalDays}d";
-        if (window.TotalHours >= 1) return $"{(int)window.TotalHours}h";
-        if (window.TotalMinutes >= 1) return $"{(int)window.TotalMinutes}m";
-        return $"{Math.Max(1, (int)window.TotalSeconds)}s";
-    }
+    /// <summary>
+    /// The window as a Flux duration, exactly. Rendering it in whole units truncated anything that was
+    /// not a round number of them - a computed 103.97s asked Influx for "1m", so the query ran at 60s
+    /// and returned 1.7x the points the caller had sized for, and 90s likewise became "1m". Every
+    /// aggregateWindow in this file goes through here, so the drift was silent and app-wide. Seconds
+    /// are a valid Flux duration at any magnitude, so emitting them keeps the requested window and the
+    /// executed window the same thing.
+    /// </summary>
+    private static string ToFluxDuration(TimeSpan window) =>
+        $"{Math.Max(1, (long)Math.Round(window.TotalSeconds))}s";
 
     private static string SanitizeFluxString(string value) =>
         value.Replace("\"", "").Replace("\\", "").Replace(")", "").Replace("|>", "");
