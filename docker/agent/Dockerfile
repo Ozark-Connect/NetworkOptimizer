@@ -3,9 +3,14 @@
 # so TARGETARCH matches the build host and no QEMU emulation is needed.
 
 ARG DOTNET_VERSION=10.0
+# Passed from CI on tag push. MinVer reads git tags and .dockerignore keeps .git out of the
+# build context, so without this every image - released ones included - calls itself
+# 0.0.0-alpha.0.
+ARG VERSION=0.0.0-alpha.0
 
 FROM mcr.microsoft.com/dotnet/sdk:${DOTNET_VERSION} AS build
 ARG TARGETARCH
+ARG VERSION
 WORKDIR /src
 COPY . .
 # Grpc.Tools' bundled linux_arm64 protoc segfaults (exit 139) under dotnet on native
@@ -21,6 +26,7 @@ RUN case "$TARGETARCH" in \
     dotnet publish src/NetworkOptimizer.Agent/NetworkOptimizer.Agent.csproj \
         -c Release -r "$RID" --self-contained true \
         -p:PublishSingleFile=true \
+        -p:MinVerVersionOverride=${VERSION} \
         -o /app/publish
 
 # uwnspeedtest Go binary for WAN speed tests run site-local at the agent
