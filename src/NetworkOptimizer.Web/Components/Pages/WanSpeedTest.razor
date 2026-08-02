@@ -696,7 +696,14 @@
     /// option is hidden entirely, because the Gateway option already runs there.
     /// </summary>
     private bool _runsOnAgent;
-    private bool RunsOnAgent => _runsOnAgent;
+    // Resolving the vantage needs an await, so the first render happens before the answer is in and
+    // the label was painted "Server" before flipping to "Agent". The first frame now uses the
+    // cached coverage answer, which any recent read has already populated - so the flash only
+    // survives a cold cache, and never shows the wrong word twice.
+    private bool RunsOnAgent => _vantageResolved
+        ? _runsOnAgent
+        : !SiteContext.IsDefault || AgentCoverage.Covers(SiteContext.Slug);
+    private bool _vantageResolved;
     private bool _serverAvailable = true;
     private string? _serverUnavailableReason;
     private System.Threading.Timer? _agentStatusTimer;
@@ -967,6 +974,7 @@
         _agentOnGateway = agentOnline && await OnGatewayDetector.IsAgentOnGatewayAsync(SiteContext.Slug);
         _runsOnAgent = !_agentOnGateway
             && (!SiteContext.IsDefault || await AgentCoverage.CoversAsync(SiteContext.Slug));
+        _vantageResolved = true;
         var agentRequired = !SiteContext.IsDefault && !agentOnline;
         var agentReason = _siteAgentOffline ? AgentOfflineReason : NoAgentReason;
 
