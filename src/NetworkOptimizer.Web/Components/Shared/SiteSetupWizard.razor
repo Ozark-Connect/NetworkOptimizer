@@ -10,6 +10,7 @@
 @inject NetworkOptimizer.Storage.Services.SiteDbContextFactory SiteDb
 @inject NetworkOptimizer.Web.Services.Licensing.LicenseStateService LicenseState
 @inject SiteSwitchService SiteSwitch
+@inject SiteContextService SiteCtx
 @inject ISiteConfigurationService SiteConfig
 @implements IDisposable
 
@@ -250,13 +251,27 @@
                 <h3 class="site-wizard-title">@_site.Name is ready</h3>
                 <p class="section-description">
                     The site's database is provisioned@(_connected ? ", its UniFi Console is connected" : "")@(_agentToken != null ? ", and its agent token is issued" : "").
-                    Switch to the site to @(_connected ? "" : "connect its UniFi Console, then ")configure monitoring, speed tests,
-                    and everything else, exactly like a single-site install.
+                    @NextStepSentence
                 </p>
             </div>
         </div>
         <div class="action-buttons">
-            <button type="button" class="btn btn-primary" @onclick="SwitchToSiteAsync">Switch to @_site.Name</button>
+            @* Telling someone to switch to the site they are already on is the one instruction that
+               cannot be followed, so when this is the current site the action points at the actual
+               next step instead: monitoring once the console is connected, the console itself when
+               it is not. *@
+            @if (!OnCreatedSite)
+            {
+                <button type="button" class="btn btn-primary" @onclick="SwitchToSiteAsync">Switch to @_site.Name</button>
+            }
+            else if (_connected)
+            {
+                <a class="btn btn-primary" href="/monitoring">Go to Monitoring</a>
+            }
+            else
+            {
+                <a class="btn btn-primary" href="/settings#console-connection">Connect UniFi Console</a>
+            }
             <button type="button" class="btn btn-secondary" @onclick="ResetAsync">Add Another Site</button>
         </div>
     }
@@ -558,6 +573,26 @@
             setting.UpdatedAt = DateTime.UtcNow;
         }
     }
+
+    /// <summary>
+    /// Whether the finished site is the one already being viewed. Reachable through
+    /// <see cref="StartAgentSetupFor"/>, which re-enters the wizard for a site that already exists -
+    /// including the one currently selected.
+    /// </summary>
+    private bool OnCreatedSite =>
+        _site != null && string.Equals(_site.Slug, SiteCtx.Slug, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// What to do next, which depends on where the reader already is. Written out in full rather
+    /// than assembled from fragments: this is curated copy, and it should be legible as sentences.
+    /// </summary>
+    private string NextStepSentence => (OnCreatedSite, _connected) switch
+    {
+        (true, true) => "Configure monitoring, speed tests, and everything else here, exactly like a single-site install.",
+        (true, false) => "Connect its UniFi Console, then configure monitoring, speed tests, and everything else here, exactly like a single-site install.",
+        (false, true) => "Switch to the site to configure monitoring, speed tests, and everything else, exactly like a single-site install.",
+        (false, false) => "Switch to the site to connect its UniFi Console, then configure monitoring, speed tests, and everything else, exactly like a single-site install.",
+    };
 
     private async Task SwitchToSiteAsync()
     {
