@@ -3618,7 +3618,39 @@
                                                         }
                                                     </div>
 
-                                                    @if (!site.IsDefault)
+                                                    @if (site.IsDefault)
+                                                    {
+                                                        <div class="site-config-section">
+                                                            <div class="site-config-section-title">Settings</div>
+                                                            @* Only meaningful with an agent to hand the work to, so it cannot be
+                                                               switched on into a state where nothing collects at all. *@
+                                                            <label class="checkbox-toggle">
+                                                                <input type="checkbox" checked="@AgentCoversSite(site.Id)"
+                                                                       disabled="@(!AgentsFor(site.Id).Any())"
+                                                                       @onchange="e => ToggleAgentCoversSite(site, (bool)e.Value!)" />
+                                                                The agent collects for this site - probes, path discovery and SNMP run
+                                                                there instead of on this server. Turn on only if this server is off-site.
+                                                            </label>
+                                                            @if (AgentCoversSite(site.Id))
+                                                            {
+                                                                <label class="checkbox-toggle">
+                                                                    <input type="checkbox" checked="@ConsoleViaAgent(site.Id)"
+                                                                           @onchange="e => ToggleConsoleViaAgent(site, (bool)e.Value!)" />
+                                                                    Reach this site's UniFi Console through the agent tunnel - no VPN or
+                                                                    port-forward to the console needed. Applies on the next connect.
+                                                                </label>
+                                                                <label class="checkbox-toggle">
+                                                                    <input type="checkbox" checked="@SshViaAgent(site.Id)"
+                                                                           @onchange="e => ToggleSshViaAgent(site, (bool)e.Value!)" />
+                                                                    Reach this site's devices through the agent tunnel: SSH to the gateway
+                                                                    and devices, plus modem and ONT status pages. Enables gateway WAN speed
+                                                                    tests, LAN speed tests, and modem / ONT monitoring without VPN. Applies within
+                                                                    a minute.
+                                                                </label>
+                                                            }
+                                                        </div>
+                                                    }
+                                                    else
                                                     {
                                                         <div class="site-config-section">
                                                             <div class="site-config-section-title">Settings</div>
@@ -4287,6 +4319,7 @@
             {
                 await LoadConsoleViaAgentAsync(site);
                 await LoadSshViaAgentAsync(site);
+                await LoadAgentCoversSiteAsync(site);
                 await LoadClientSpeedTestTargetAsync(site);
                 _agentOnGateway[site.Id] = !site.IsDefault
                     && await OnGatewayDetector.IsAgentOnGatewayAsync(site.Slug);
@@ -4310,6 +4343,7 @@
     {
         await LoadConsoleViaAgentAsync(site);
         await LoadSshViaAgentAsync(site);
+        await LoadAgentCoversSiteAsync(site);
         await LoadClientSpeedTestTargetAsync(site);
         StateHasChanged();
     }
@@ -4321,6 +4355,21 @@
     {
         await SiteConfig.SetConsoleViaAgentAsync(site.Slug, value);
         _consoleViaAgent[site.Id] = value;
+    }
+
+    // "the agent collects for this site" flag, stored in the site's own database. Only offered for
+    // the default site: a secondary site's agent already collects, which is what having one means.
+    private readonly Dictionary<int, bool> _agentCoversSite = new();
+
+    private bool AgentCoversSite(int siteId) => _agentCoversSite.TryGetValue(siteId, out var enabled) && enabled;
+
+    private async Task LoadAgentCoversSiteAsync(Site site)
+        => _agentCoversSite[site.Id] = (await SiteConfig.GetAsync(site.Slug)).AgentCoversSite;
+
+    private async Task ToggleAgentCoversSite(Site site, bool value)
+    {
+        await SiteConfig.SetAgentCoversSiteAsync(site.Slug, value);
+        _agentCoversSite[site.Id] = value;
     }
 
     // Per-site "SSH via agent tunnel" flag (gateway + device SSH), stored in the site's own database
