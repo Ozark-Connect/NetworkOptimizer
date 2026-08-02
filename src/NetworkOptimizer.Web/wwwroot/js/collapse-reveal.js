@@ -46,7 +46,17 @@
 
         // Never past the card's own top: scrolling further would hide the header just clicked.
         var headroom = Math.max(0, r.top - paneTop);
-        sc.scrollTop += Math.min(below, headroom);
+        var by = Math.min(below, headroom);
+        if (by <= 0) return;
+
+        // Animated rather than jumped, so the reader keeps their place. scrollBy honors the pane's
+        // own scroll-behavior; the fallback covers a scroller that does not implement the options
+        // form, which would otherwise silently do nothing.
+        if (typeof sc.scrollBy === 'function') {
+            sc.scrollBy({ top: by, behavior: 'smooth' });
+        } else {
+            sc.scrollTop += by;
+        }
     }
 
     document.addEventListener('click', function (e) {
