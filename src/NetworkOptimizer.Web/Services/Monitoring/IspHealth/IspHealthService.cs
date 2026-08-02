@@ -656,6 +656,10 @@ public class IspHealthService
         // bursts, which a coarse mean blunts), so it diverged from the fine-resolution attribution on
         // transit-heavy paths. Kept fine everywhere; the compute-time wins now come from the in-memory
         // detector/scorer paths, not from coarsening the input.
+        // Everything above runs before a single query is issued - site database reads, target and
+        // technology resolution, and console calls. The "fetch" figure lumped it in with the reads,
+        // which measured the four latency queries at ~1s from the box while fetch showed ~6.8s.
+        var setupMs = computeSw.ElapsedMilliseconds;
         var ispSeriesTask = _influx.QueryLatencyDetailByTargetTypeAsync(MonitoringTargetType.AccessIsp, outageQueryStart, windowEnd, aggregate, ct);
         var transitSeriesTask = _influx.QueryLatencyDetailByTargetTypeAsync(MonitoringTargetType.Transit, windowStart, windowEnd, aggregate, ct);
         var internetSeriesTask = _influx.QueryLatencyDetailByTargetTypeAsync(MonitoringTargetType.InternetService, outageQueryStart, windowEnd, aggregate, ct);
@@ -1226,9 +1230,9 @@ public class IspHealthService
         _logger.LogDebug("ISP Health computed: {Score} ({Tech}), {Events} congestion events, {Shifts} path shifts",
             report.OverallScore, profile.DisplayName, congestionEvents.Count, pathShifts.Count);
         _logger.LogDebug(
-            "ISP Health compute timing: {Hours}h in {Ms}ms = fetch {Fetch} + trim/mask {Trim} + asn {Asn} + detect {Detect} + score {Score} + other {Other}; {Rates} rates, {LatencyPoints} latency points, {LossSeries} loss series",
+            "ISP Health compute timing: {Hours}h in {Ms}ms = setup {Setup} + query {Query} + trim/mask {Trim} + asn {Asn} + detect {Detect} + score {Score} + other {Other}; {Rates} rates, {LatencyPoints} latency points, {LossSeries} loss series",
             (windowEnd - windowStart).TotalHours.ToString("0.#"), computeSw.ElapsedMilliseconds,
-            fetchMs, trimAndMaskMs, asnBuildMs, detectorsMs, scoreMs,
+            setupMs, fetchMs - setupMs, trimAndMaskMs, asnBuildMs, detectorsMs, scoreMs,
             computeSw.ElapsedMilliseconds - fetchMs - trimAndMaskMs - asnBuildMs - detectorsMs - scoreMs,
             wanRates.Count,
             ispSeries.Sum(kv => kv.Value.Count) + transitSeries.Sum(kv => kv.Value.Count)
