@@ -18277,7 +18277,6 @@ a.isp-outage-ack:hover {
 .card-highlight {
     outline: 2px solid transparent;
     outline-offset: 4px;
-    border-radius: 12px;
     transition: outline-color 0.9s ease-out;
 }
 
