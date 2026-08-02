@@ -57,7 +57,7 @@
                     @foreach (var t in Targets.OrderBy(t => t.TargetType).ThenBy(t => t.Name))
                     {
                         var latest = LiveStats.GetTargetStats(t.TargetId);
-                        <tr id="latency-target-@t.Id" style="@(t.Enabled ? "" : "opacity: 0.55;")">
+                        <tr id="latency-target-@t.Id" class="@(t.Enabled ? "" : "latency-target-paused")">
                             <td>
                                 <span class="status-badge @TargetTypeBadgeClass(t.TargetType)">
                                     @t.TargetType.ToDisplayName()
