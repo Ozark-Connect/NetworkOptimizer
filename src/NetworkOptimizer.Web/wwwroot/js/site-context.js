@@ -238,7 +238,13 @@ window.noAnchorTop = function (id) {
     var paddedPane = null;
     var keep = function () {
         var cur = document.getElementById(id);
-        if (!cur) return;
+        if (!cur) {
+            // Gone - navigated away, or the tab re-rendered without it. Release rather than return:
+            // the pane is holding borrowed padding, and leaving it there strands a screen of empty
+            // space at the bottom of a scroller every page shares.
+            window.noAnchorRelease();
+            return;
+        }
         var sc = scrollerOf(cur);
         var isDoc = sc === document.scrollingElement || sc === document.documentElement;
         var paneTop = isDoc ? 0 : sc.getBoundingClientRect().top;
