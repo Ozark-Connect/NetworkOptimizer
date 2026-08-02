@@ -177,10 +177,10 @@
 // Scroll to a card and ring it briefly, the one behavior every in-page jump in Monitoring shares
 // (findings, advisories, an event count). Kept here because this file already loads app-wide and
 // the callers are spread across pages and components.
-window.noHighlightTarget = function (id) {
+window.noHighlightTarget = function (id, block) {
     var el = document.getElementById(id);
     if (!el) return;
-    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    el.scrollIntoView({ behavior: 'smooth', block: block || 'start' });
     el.classList.add('nav-highlight');
     // Next frame, so the class that defines the transition is applied before the color changes -
     // set together, the browser has nothing to animate from.

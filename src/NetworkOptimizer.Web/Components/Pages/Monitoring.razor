@@ -2888,18 +2888,7 @@
     private async Task ScrollToElementAsync(string elementId)
     {
         await Task.Delay(400);
-        await JS.InvokeVoidAsync("eval", $@"
-            (function() {{
-                var el = document.getElementById('{elementId}');
-                if (el) {{
-                    el.scrollIntoView({{ behavior: 'smooth', block: 'start' }});
-                    el.style.transition = 'outline-color 0.3s';
-                    el.style.outline = '2px solid rgba(59, 130, 246, 0.5)';
-                    el.style.outlineOffset = '4px';
-                    el.style.borderRadius = '12px';
-                    setTimeout(function() {{ el.style.outline = ''; el.style.outlineOffset = ''; }}, 2000);
-                }}
-            }})();");
+        await JS.InvokeVoidAsync("noHighlightTarget", elementId);
     }
 
     private async Task OnBeforeInternalNavigation(LocationChangingContext context)

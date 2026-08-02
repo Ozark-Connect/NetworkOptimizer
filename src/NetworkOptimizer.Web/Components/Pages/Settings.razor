@@ -3880,17 +3880,9 @@
         // Let the tab panel render before scrolling; same scroll-and-highlight
         // pattern as the Monitoring page.
         await Task.Delay(300);
+        await JS.InvokeVoidAsync("noHighlightTarget", anchor);
         await JS.InvokeVoidAsync("eval", @"
             (function() {
-                var el = document.getElementById('" + anchor + @"');
-                if (el) {
-                    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                    el.style.transition = 'outline-color 0.3s';
-                    el.style.outline = '2px solid rgba(59, 130, 246, 0.5)';
-                    el.style.outlineOffset = '4px';
-                    el.style.borderRadius = '12px';
-                    setTimeout(function() { el.style.outline = ''; el.style.outlineOffset = ''; }, 2000);
-                }
                 if ('" + anchor + @"' === 'site-agent-setup') {
                     var inp = document.getElementById('site-name-input');
                     if (inp) inp.focus({ preventScroll: true });

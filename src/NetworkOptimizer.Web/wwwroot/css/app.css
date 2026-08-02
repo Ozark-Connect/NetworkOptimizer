@@ -18281,7 +18281,7 @@ a.isp-outage-ack:hover {
 
 .nav-highlight-on {
     outline-color: rgba(59, 130, 246, 0.5);
-    transition: outline-color 0.15s ease-in;
+    transition: outline-color 0.25s ease-in;
 }
 
 .isp-events-jump {
