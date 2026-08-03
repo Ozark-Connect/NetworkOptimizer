@@ -32,7 +32,7 @@ public class GatewaySshService : IGatewaySshService
     /// protocol error. Mirrors the console's awaiting-agent message.
     /// </summary>
     public const string AwaitingAgentMessage =
-        "Waiting for the on-site agent to connect. This site's gateway is reached through its agent; SQM will connect automatically once the agent is online.";
+        "Waiting for the on-site agent to connect. This site's gateway is reached through its agent, and will connect automatically once the agent is online.";
 
     public GatewaySshService(
         ILogger<GatewaySshService> logger,
