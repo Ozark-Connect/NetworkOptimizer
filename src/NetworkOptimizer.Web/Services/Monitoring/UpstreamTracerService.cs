@@ -48,6 +48,24 @@ public class UpstreamTracerService
     private readonly SemaphoreSlim _stateLock = new(1, 1);
     private Task? _runningTask;
 
+    // The WAN context this instance discovers for, or null for the site's primary run - which is
+    // every install with no contexts, and behaves exactly as it did before contexts existed.
+    private readonly WanProbeBinding? _binding;
+
+    /// <summary>
+    /// Ties a discovery run to one WAN context: which UniFi WAN it measures, and what its probes
+    /// bind to on the way out (the context's interface for an on-gateway agent, its policy-routed
+    /// source IP otherwise). A run with a binding traces THAT WAN rather than the configured
+    /// primary, and everything it persists is stamped with the WAN and the context.
+    /// </summary>
+    /// <param name="WanContextId">The <see cref="WanContext"/> row this run belongs to.</param>
+    /// <param name="WanInterface">The UniFi WAN key the context measures ("wan", "wan2").</param>
+    /// <param name="Source">Interface name or source IP the probes bind to; null to leave them on the prober's own route.</param>
+    public sealed record WanProbeBinding(int WanContextId, string WanInterface, string? Source);
+
+    /// <summary>The WAN context this tracer discovers for, or null when it is the site's primary tracer.</summary>
+    public WanProbeBinding? Binding => _binding;
+
     // IPs that belong to *our* gateway (LAN side, WAN side, management VLANs).
     // Used to keep our own gateway out of the access-ISP hop list when the
     // traceroute's first hop is a private/CGNAT address. Collected during
@@ -266,8 +284,10 @@ public class UpstreamTracerService
         AsnResolutionService asnResolution,
         IServiceScopeFactory scopeFactory,
         NetworkOptimizer.Audit.Services.IeeeOuiDatabase ouiDb,
-        ILogger<UpstreamTracerService> logger)
+        ILogger<UpstreamTracerService> logger,
+        WanProbeBinding? binding = null)
     {
+        _binding = binding;
         _siteSlug = siteSlug;
         _isDefault = isDefault;
         _connectionService = connectionService;
@@ -490,6 +510,12 @@ public class UpstreamTracerService
             if (own != null && own.AccessTechnology != AccessTechnology.Unknown)
                 return own.AccessTechnology;
 
+            // A context run measures exactly one WAN, so another WAN's technology is not evidence
+            // about it: an LTE backup behind a fiber primary would inherit "GPON" and have its
+            // first-mile device labeled as an OLT. Unknown is the honest answer, and it is what
+            // the reachability gate and role inference already handle.
+            if (_binding != null) return AccessTechnology.Unknown;
+
             var known = contexts
                 .Where(c => c.AccessTechnology != AccessTechnology.Unknown)
                 .OrderByDescending(c => c.LastDiscoveryAt ?? c.UpdatedAt)
@@ -600,15 +626,20 @@ public class UpstreamTracerService
         // ISP/transit tracing follows the CONFIGURED primary WAN (not whichever WAN
         // happens to be first), matching the rest of the monitoring umbrella. Resolve
         // its networkgroup so the wan-object loop can pick the matching connection.
+        // A context run skips that entirely: the context already names the WAN it
+        // measures, and picking the primary would trace the wrong one.
         string? primaryNg = null;
-        try
+        if (_binding == null)
         {
-            var networks = await _connectionService.GetNetworksAsync(ct);
-            primaryNg = UniFiConnectionService.ResolvePrimaryWanNetwork(networks, _logger)?.WanNetworkgroup;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "UpstreamTracer: failed to resolve primary WAN networkgroup; falling back to first WAN");
+            try
+            {
+                var networks = await _connectionService.GetNetworksAsync(ct);
+                primaryNg = UniFiConnectionService.ResolvePrimaryWanNetwork(networks, _logger)?.WanNetworkgroup;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "UpstreamTracer: failed to resolve primary WAN networkgroup; falling back to first WAN");
+            }
         }
 
         string? wanInterfaceName = null;
@@ -681,6 +712,19 @@ public class UpstreamTracerService
 
                     firstWan ??= (interfaceKey, uplinkIfname, ip);
 
+                    // A context run takes its own WAN and nothing else - no first-WAN fallback,
+                    // since tracing a different WAN than the one being recorded would file this
+                    // WAN's upstream under that one.
+                    if (_binding != null)
+                    {
+                        if (!string.Equals(interfaceKey, _binding.WanInterface, StringComparison.OrdinalIgnoreCase))
+                            continue;
+                        wanInterfaceName = interfaceKey;
+                        wanUplinkIfName = uplinkIfname;
+                        wanIp = ip;
+                        break;
+                    }
+
                     // Resolve this wan's networkgroup and prefer the configured primary.
                     string? ng = null;
                     if (!string.IsNullOrEmpty(wan.IfName))
@@ -697,7 +741,7 @@ public class UpstreamTracerService
                 }
 
                 // Primary unresolved or not matched: fall back to the first WAN found.
-                if (wanInterfaceName == null && firstWan != null)
+                if (wanInterfaceName == null && _binding == null && firstWan != null)
                 {
                     wanInterfaceName = firstWan.Value.Key;
                     wanUplinkIfName = firstWan.Value.Uplink;
@@ -709,7 +753,9 @@ public class UpstreamTracerService
         }
 
         if (wanInterfaceName == null)
-            return Fail("Couldn't identify the WAN port on the gateway.");
+            return Fail(_binding == null
+                ? "Couldn't identify the WAN port on the gateway."
+                : $"The gateway no longer reports {_binding.WanInterface}, so this context's WAN can't be traced.");
 
         State.WanInterface = wanInterfaceName;
         _wanUplinkIfName = wanUplinkIfName;
@@ -1287,7 +1333,7 @@ public class UpstreamTracerService
 
     private async Task<(string Label, TracerouteResult Result)> TraceOneAsync(TraceEndpoint endpoint, ProbeMode mode, CancellationToken ct)
     {
-        var target = new ProbeTarget(endpoint.Address, mode);
+        var target = new ProbeTarget(endpoint.Address, mode, Port: null, SourceInterface: _binding?.Source);
         try
         {
             var result = await _traceExecutor.TracerouteAsync(target, maxHops: 30,
@@ -1701,9 +1747,13 @@ public class UpstreamTracerService
         _ => 3
     };
 
-    /// <summary>Rapid ping burst used for reachability verification.</summary>
+    /// <summary>
+    /// Rapid ping burst used for reachability verification. Bound the same way the traces are on
+    /// a context run: a hop reachable on the primary WAN but not out this one must read as
+    /// unreachable here, which is the whole point of verifying per WAN.
+    /// </summary>
     private Task<PingProbeResult> ProbeReachabilityAsync(string address, ProbeMode mode, CancellationToken ct) =>
-        _traceExecutor.PingAsync(new ProbeTarget(address, mode),
+        _traceExecutor.PingAsync(new ProbeTarget(address, mode, Port: null, SourceInterface: _binding?.Source),
             count: ReachabilityPingCount, perPingTimeout: TimeSpan.FromSeconds(2), ct: ct);
 
     private async Task VerifyReachabilityAsync(CancellationToken ct)
@@ -2227,7 +2277,11 @@ public class UpstreamTracerService
         // Scope all writes to the WAN this discovery ran against. Multi-WAN setups
         // get one row in MonitoringTargets per (target, wan) and one row in
         // WanDiscoveryContexts per WAN.
-        var wanInterface = State.WanInterface ?? "wan";
+        var wanInterface = _binding?.WanInterface ?? State.WanInterface ?? "wan";
+        // A context run's targets carry both keys: the WAN says where the data belongs, the
+        // context says who probes them. Setting them together is what closes the gap where a
+        // context's targets had a context but no WAN, so no per-WAN reader could find them.
+        var wanContextId = _binding?.WanContextId;
 
         // A confirmed provider change resets the connection's upstream monitoring wholesale:
         // pause every enabled access/transit/path target - auto-discovered and hand-added alike
@@ -2251,12 +2305,12 @@ public class UpstreamTracerService
         foreach (var hop in State.AccessHops.Where(h => h.Enabled))
         {
             _logger.LogDebug("Commit access hop: id={TargetId} label='{Label}' addr={Address}", hop.TargetId, hop.Label, hop.Address);
-            await UpsertTargetAsync(db, hop, wanInterface, ct);
+            await UpsertTargetAsync(db, hop, wanInterface, wanContextId, ct);
         }
         foreach (var hop in State.AccessHops.Where(h => !h.Enabled))
         {
             var existing = await db.MonitoringTargets.FirstOrDefaultAsync(t => t.Address == hop.Address, ct);
-            if (existing != null)
+            if (existing != null && OwnsTargetRow(existing.WanInterface, wanInterface))
             {
                 existing.Enabled = false;
                 existing.Name = hop.Label;
@@ -2267,7 +2321,7 @@ public class UpstreamTracerService
         {
             _logger.LogDebug("Commit transit: id={TargetId} label='{Label}' addr={Address} method={Method}",
                 transit.TargetId, transit.Label, transit.HopAddress ?? transit.PathProxyTarget, transit.Method);
-            await UpsertTransitTargetAsync(db, transit, wanInterface, ct);
+            await UpsertTransitTargetAsync(db, transit, wanInterface, wanContextId, ct);
         }
         foreach (var transit in State.TransitAsns.Where(t => !t.Enabled))
         {
@@ -2277,13 +2331,13 @@ public class UpstreamTracerService
             // later. Transit ASNs stay on their off-path / miss-counter mechanism (update-only).
             if (transit.Method == DiscoveryMethod.PathProxy)
             {
-                await UpsertTransitTargetAsync(db, transit, wanInterface, ct, enabled: false);
+                await UpsertTransitTargetAsync(db, transit, wanInterface, wanContextId, ct, enabled: false);
                 continue;
             }
             var addr = transit.HopAddress ?? transit.PathProxyTarget;
             if (string.IsNullOrEmpty(addr)) continue;
             var existing = await db.MonitoringTargets.FirstOrDefaultAsync(t => t.Address == addr, ct);
-            if (existing != null)
+            if (existing != null && OwnsTargetRow(existing.WanInterface, wanInterface))
             {
                 existing.Enabled = false;
                 existing.Name = transit.Label ?? transit.AsnName;
@@ -2340,7 +2394,10 @@ public class UpstreamTracerService
         ctxRow.NeedsReview = false;
         ctxRow.UpdatedAt = DateTime.UtcNow;
 
-        var settings = await db.MonitoringSettings.FirstOrDefaultAsync(ct);
+        // MonitoringSettings holds the LEGACY single-WAN timestamp and review flag, which the
+        // primary run owns. A context run must leave them alone: clearing the review flag here
+        // would dismiss a pending review of the primary WAN that nobody has looked at.
+        var settings = _binding == null ? await db.MonitoringSettings.FirstOrDefaultAsync(ct) : null;
         if (settings != null)
         {
             settings.LastUpstreamDiscoveryAt = DateTime.UtcNow;
@@ -2471,7 +2528,33 @@ public class UpstreamTracerService
             written, wanInterface, _lastTraces.Count);
     }
 
-    private static async Task UpsertTargetAsync(NetworkOptimizerDbContext db, AccessHopCandidate hop, string wanInterface, CancellationToken ct)
+    /// <summary>
+    /// Whether this run may write to an existing target row. A row already homed on a DIFFERENT
+    /// WAN belongs to that WAN's discovery: MonitoringTarget.TargetId is unique, so a path-end
+    /// both WANs reach (an anycast DNS probe, an AWS regional) is one shared row, and letting
+    /// each run re-home it would have the two trading it back and forth every cycle - and would
+    /// let one WAN's run pause a target the other WAN is measuring. A row with no WAN yet is
+    /// unclaimed and adoptable, which is how every pre-existing row behaves on a single-WAN
+    /// install: there, this is always true and nothing changes.
+    /// </summary>
+    /// <param name="rowWanInterface">The WAN currently stamped on the row, if any.</param>
+    /// <param name="wanInterface">The WAN this discovery run is committing.</param>
+    internal static bool OwnsTargetRow(string? rowWanInterface, string wanInterface)
+        => string.IsNullOrEmpty(rowWanInterface)
+           || string.Equals(rowWanInterface, wanInterface, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Creates or re-validates the monitoring target for a discovered access hop, stamped with
+    /// the WAN it was discovered on and - on a context run - the context whose agent probes it.
+    /// Test-visible (internal, see InternalsVisibleTo) because the double stamping and the
+    /// leave-another-WAN's-row-alone rule are the whole of per-WAN discovery's write side.
+    /// </summary>
+    /// <param name="db">The site's database.</param>
+    /// <param name="hop">The discovered hop.</param>
+    /// <param name="wanInterface">WAN this discovery ran against.</param>
+    /// <param name="wanContextId">Context this run belongs to, or null for the primary run.</param>
+    /// <param name="ct">Cancellation.</param>
+    internal static async Task UpsertTargetAsync(NetworkOptimizerDbContext db, AccessHopCandidate hop, string wanInterface, int? wanContextId, CancellationToken ct)
     {
         // UniFi's WAN SLA probe targets (1.1.1.1 / 8.8.8.8) are public DNS resolvers, not
         // ISP first-mile infrastructure. They never belong as an Access ISP target; drop any
@@ -2506,6 +2589,7 @@ public class UpstreamTracerService
                 AutoDiscovered = true,
                 DiscoveryMethod = hop.Method,
                 WanInterface = wanInterface,
+                WanContextId = wanContextId,
                 PtrHostname = hop.PtrHostname,
                 AutoLabel = hop.Role.ToString(),
                 CreatedAt = DateTime.UtcNow,
@@ -2514,6 +2598,10 @@ public class UpstreamTracerService
         }
         else
         {
+            // A row homed on another WAN is that WAN's to maintain - re-enabling and renaming it
+            // here would have the two runs fighting over one shared path-end every cycle.
+            if (!OwnsTargetRow(existing.WanInterface, wanInterface)) return;
+
             // Re-validation: keep target_id stable, update mode if it changed (history
             // preservation per locked decision 6b). Backfill ASN fields whenever a
             // current run resolves them - rows committed before the GeoLite2 fix
@@ -2522,6 +2610,9 @@ public class UpstreamTracerService
             existing.Address = hop.Address;
             existing.ProbeMode = hop.RespondedTo;
             existing.WanInterface = wanInterface;
+            // Written, never cleared: a target the user assigned to a context by hand keeps
+            // that assignment when the primary run re-verifies it.
+            if (wanContextId != null) existing.WanContextId = wanContextId;
             existing.Name = hop.Label;
             if (hop.AsnNumber.HasValue) existing.AsnNumber = hop.AsnNumber;
             if (!string.IsNullOrEmpty(hop.AsnName)) existing.AsnName = CleanAsnName(hop.AsnName);
@@ -2530,7 +2621,18 @@ public class UpstreamTracerService
         }
     }
 
-    private static async Task UpsertTransitTargetAsync(NetworkOptimizerDbContext db, TransitAsnCandidate transit, string wanInterface, CancellationToken ct, bool enabled = true)
+    /// <summary>
+    /// Creates or re-validates the monitoring target for a discovered transit ASN hop or path-end
+    /// host, with the same WAN + context stamping and same-WAN ownership rule as
+    /// <see cref="UpsertTargetAsync"/>. Test-visible for the same reason.
+    /// </summary>
+    /// <param name="db">The site's database.</param>
+    /// <param name="transit">The discovered transit candidate.</param>
+    /// <param name="wanInterface">WAN this discovery ran against.</param>
+    /// <param name="wanContextId">Context this run belongs to, or null for the primary run.</param>
+    /// <param name="ct">Cancellation.</param>
+    /// <param name="enabled">Whether the target is committed enabled (a declined path-end is saved paused).</param>
+    internal static async Task UpsertTransitTargetAsync(NetworkOptimizerDbContext db, TransitAsnCandidate transit, string wanInterface, int? wanContextId, CancellationToken ct, bool enabled = true)
     {
         if (transit.Method == DiscoveryMethod.Unresolved || string.IsNullOrEmpty(transit.TargetId)) return;
 
@@ -2562,12 +2664,16 @@ public class UpstreamTracerService
                 AutoDiscovered = true,
                 DiscoveryMethod = transit.Method,
                 WanInterface = wanInterface,
+                WanContextId = wanContextId,
                 CreatedAt = DateTime.UtcNow,
                 LastVerified = DateTime.UtcNow
             });
         }
         else
         {
+            // Another WAN's row: leave it to that WAN's run (see OwnsTargetRow).
+            if (!OwnsTargetRow(existing.WanInterface, wanInterface)) return;
+
             existing.Enabled = enabled;
             existing.Name = transit.Label ?? transit.AsnName;
             existing.Address = transit.HopAddress ?? transit.PathProxyTarget ?? existing.Address;
@@ -2575,6 +2681,7 @@ public class UpstreamTracerService
             if (!string.IsNullOrEmpty(transit.HopHostname)) existing.PtrHostname = transit.HopHostname;
             existing.DiscoveryMethod = transit.Method;
             existing.WanInterface = wanInterface;
+            if (wanContextId != null) existing.WanContextId = wanContextId;
             // Refresh ASN bookkeeping in case the resolver picked up a name now
             // (legacy rows from before the GeoLite2 path landed had nulls).
             if (transit.AsnNumber > 0) existing.AsnNumber = transit.AsnNumber;
