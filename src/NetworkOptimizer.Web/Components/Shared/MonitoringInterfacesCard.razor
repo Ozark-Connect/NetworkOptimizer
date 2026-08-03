@@ -473,6 +473,14 @@
     private static MonitoringInterface NewInterface() => new() { Name = "modem0", SubnetPrefix = 24, SnatEnabled = true, WatchdogIntervalMinutes = 5 };
 
     /// <summary>
+    /// Whether the form is holding work the user would lose - an edit of an existing interface, or a
+    /// new one they have started filling in. The page checks this before adopting a polled status
+    /// change that would re-render this card away.
+    /// </summary>
+    public bool HasUnsavedEdit =>
+        !_collapsed && (_editingOriginal != null || !string.IsNullOrWhiteSpace(_editing.TargetIp) || _saving);
+
+    /// <summary>
     /// Test-visible (internal, see NetworkOptimizer.Web.csproj InternalsVisibleTo) so the
     /// Disabled-copy can be verified without a Blazor component-test harness.
     /// </summary>

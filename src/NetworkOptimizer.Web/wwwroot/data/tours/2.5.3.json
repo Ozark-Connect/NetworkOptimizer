@@ -23,7 +23,7 @@
       "url": "/sqm",
       "selector": "[data-tour=\"sqm-download-burst\"]",
       "title": "Larger download burst",
-      "listLabel": "Downloads that fall short of your plan may have more to give",
+      "listLabel": "Adaptive SQM: Downloads that fall short of your plan may have more to give",
       "body": "If your downloads never quite reach your plan, **Larger download burst** may find the rest. Turn it on for your WAN and redeploy to try it.",
       "placement": "top",
       "requires": ["sqm-enabled"],

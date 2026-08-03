@@ -67,6 +67,9 @@ public static class MonitoringChartEndpoints
             MonitoringInfluxClient influx,
             MonitoringLiveStats liveStats,
             UniFiConnectionService connectionService,
+            NetworkOptimizer.Storage.Services.SiteDbContextFactory siteDb,
+            SiteContextService siteContext,
+            ILoggerFactory loggerFactory,
             DateTime? from,
             DateTime? to,
             CancellationToken ct) =>
@@ -95,8 +98,60 @@ public static class MonitoringChartEndpoints
             }
             catch { }
 
+            // The stored rates are keyed on gateway MAC + counter interface, and both normally come
+            // from the console - so an offline site skipped the query entirely and read as having no
+            // history, when the history is sitting in InfluxDB. Fall back to the remembered WAN
+            // profile, which records exactly that pair.
+            //
+            // ONLY while the console is down, so nothing about the online path changes: a connected
+            // console that returns no gateway still yields an empty series as before, and eth0,
+            // eth6.100 and ppp0 keep resolving live. CounterInterface, not the data path - a VLAN
+            // sub-interface's counters double, which is why the two are stored apart.
+            if ((string.IsNullOrEmpty(gatewayMac) || wanIfNames is not { Count: > 0 })
+                && !connectionService.IsConnected)
+            {
+                try
+                {
+                    await using var db = siteDb.CreateForSite(siteContext.Slug, siteContext.IsDefault);
+                    var profile = await db.WanProfiles.AsNoTracking()
+                        .Where(w => w.GatewayMac != null && w.CounterInterface != null)
+                        .OrderBy(w => w.WanNetworkgroup)
+                        .ThenByDescending(w => w.UpdatedAt)
+                        .FirstOrDefaultAsync(ct);
+                    if (profile != null)
+                    {
+                        // Assign rather than ??=: the entry condition allows an EMPTY string, which
+                        // ??= would keep. Normalized to match the other reader and the writer.
+                        gatewayMac = profile.GatewayMac!.Replace("-", ":").ToLowerInvariant();
+                        wanIfNames = new List<string> { profile.CounterInterface! };
+                    }
+                }
+                catch (Exception ex)
+                {
+                    loggerFactory.CreateLogger("MonitoringChartEndpoints").LogDebug(ex,
+                        "Could not read the remembered WAN profile; the chart falls back to an empty series");
+                }
+            }
+
+            // Bucket to the site's own sample interval. The chart is only as fine as the data
+            // behind it, and averaging several samples into one bucket throws away resolution a
+            // faster-polling site is paying for. Read from this site's settings, not assumed.
+            var sampleIntervalSeconds = 5;
+            try
+            {
+                await using var sdb = siteDb.CreateForSite(siteContext.Slug, siteContext.IsDefault);
+                var ms = await sdb.MonitoringSettings.AsNoTracking().FirstOrDefaultAsync(ct);
+                if (ms != null) sampleIntervalSeconds = Math.Max(1, ms.FastPollIntervalSeconds);
+            }
+            catch (Exception ex)
+            {
+                loggerFactory.CreateLogger("MonitoringChartEndpoints").LogDebug(ex,
+                    "Could not read the sample interval; the chart buckets at the default");
+            }
+
             var wanTask = !string.IsNullOrEmpty(gatewayMac) && wanIfNames?.Count > 0
-                ? influx.QueryGatewayWanRatesAsync(gatewayMac, wanIfNames, queryFrom, queryTo, ct: ct)
+                ? influx.QueryGatewayWanRatesAsync(gatewayMac, wanIfNames, queryFrom, queryTo,
+                    sampleIntervalSeconds: sampleIntervalSeconds, ct: ct)
                 : Task.FromResult<IReadOnlyList<MonitoringInfluxClient.WanRatePoint>>(Array.Empty<MonitoringInfluxClient.WanRatePoint>());
             var targets = await liveStats.GetIspTransitTargetsAsync(ct);
             var targetIds = targets.Select(t => t.TargetId).ToList();
@@ -131,7 +186,9 @@ public static class MonitoringChartEndpoints
                 };
             }).ToList();
 
-            return Results.Ok(new { points });
+            // The client polls live samples on its own timer; handing it the interval lets that
+            // timer track the site rather than a constant that was right for a 5s tier.
+            return Results.Ok(new { points, sampleIntervalSeconds });
         });
 
         group.MapGet("/api/monitoring/chart-data", async (

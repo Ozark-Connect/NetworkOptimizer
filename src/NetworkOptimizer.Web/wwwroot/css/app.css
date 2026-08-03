@@ -22,6 +22,10 @@
     --warning-color: #e79613;
     --danger-color: #ee6368;
     --info-color: #4797ff;
+    --good-color: #3b82f6;
+    /* What "look here" is drawn in: the nav-to-card ring and a card held called out. Its own name
+       rather than borrowing a score color, so changing either cannot move the other. */
+    --highlight-color: var(--primary-color);
 
     /* Purple/Violet - WiFi 6E, sponsorship */
     --purple-color: #a855f7;
@@ -2069,6 +2073,10 @@ a.stat-card-link:active {
     width: 100%;
     border-collapse: collapse;
     min-width: 500px; /* Ensures table doesn't compress too much */
+}
+
+.latency-target-paused td:not(:last-child) {
+    opacity: 0.55;
 }
 
 .data-table thead {
@@ -7338,9 +7346,7 @@ a.path-hop.hop-clickable:hover {
    the user to act on. .card carries no border, so this is a ring rather than a border-color: the
    same 3px primary halo the focus state uses, which is why it reads as deliberate rather than as a
    hairline stuck to the edge. */
-.card-highlight {
-    box-shadow: 0 0 0 3px rgba(5, 89, 201, 0.5);
-}
+
 
 /* The guidance sits at the top of the card body, where .alert's own top margin doubles the padding
    already there. */
@@ -15744,6 +15750,13 @@ tr.stats-row-filtered {
     gap: 0.5rem;
 }
 
+.form-value-line {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
+}
+
 /* 3D LAN Flow Map (spec 5.7) */
 .lan-flow-map-body {
     padding: 0;
@@ -16893,16 +16906,16 @@ tr.stats-row-filtered {
     line-height: 1.4;
 }
 
-.isp-score-excellent { color: #24bc70; }
-.isp-score-good { color: #3b82f6; }
-.isp-score-fair { color: #f59e0b; }
-.isp-score-poor { color: #ef4444; }
+.isp-score-excellent { color: var(--success-color); }
+.isp-score-good { color: var(--good-color); }
+.isp-score-fair { color: var(--warning-color); }
+.isp-score-poor { color: var(--danger-color); }
 .isp-score-none { color: var(--text-muted); }
 
-.monitoring-stat-card .stat-value.isp-score-excellent { color: #24bc70; }
-.monitoring-stat-card .stat-value.isp-score-good { color: #3b82f6; }
-.monitoring-stat-card .stat-value.isp-score-fair { color: #f59e0b; }
-.monitoring-stat-card .stat-value.isp-score-poor { color: #ef4444; }
+.monitoring-stat-card .stat-value.isp-score-excellent { color: var(--success-color); }
+.monitoring-stat-card .stat-value.isp-score-good { color: var(--good-color); }
+.monitoring-stat-card .stat-value.isp-score-fair { color: var(--warning-color); }
+.monitoring-stat-card .stat-value.isp-score-poor { color: var(--danger-color); }
 .monitoring-stat-card .stat-value.isp-score-none { color: var(--text-muted); }
 
 .isp-health-tile {
@@ -16914,10 +16927,10 @@ tr.stats-row-filtered {
         linear-gradient(160deg, rgba(43, 168, 154, 0.07), transparent 55%);
 }
 
-.isp-health-tile.isp-score-excellent { --tile-accent: #24bc70; }
-.isp-health-tile.isp-score-good { --tile-accent: #3b82f6; }
-.isp-health-tile.isp-score-fair { --tile-accent: #f59e0b; }
-.isp-health-tile.isp-score-poor { --tile-accent: #ef4444; }
+.isp-health-tile.isp-score-excellent { --tile-accent: var(--success-color); }
+.isp-health-tile.isp-score-good { --tile-accent: var(--good-color); }
+.isp-health-tile.isp-score-fair { --tile-accent: var(--warning-color); }
+.isp-health-tile.isp-score-poor { --tile-accent: var(--danger-color); }
 .isp-health-tile.isp-score-none { --tile-accent: var(--text-muted); }
 
 .isp-health-tile .stat-value.isp-tile-score {
@@ -18247,13 +18260,59 @@ a.isp-outage-ack:hover {
 
 .isp-factor-link {
     color: var(--text-primary);
-    text-decoration: underline;
+    text-decoration: underline dotted;
     text-decoration-color: var(--text-muted);
     text-underline-offset: 3px;
 }
 
 .isp-factor-link:hover {
     color: var(--primary-hover);
+}
+
+/* Arriving somewhere from a link elsewhere in Monitoring: the target rings itself so the eye lands
+   on it, then fades out on its own. Every jump used to inline its own copy of this. The ring is
+   painted with a transparent outline always present, so the color transition has something to
+   animate from and the fade is not a hard cut. */
+.nav-highlight,
+.card-highlight {
+    outline: 2px solid transparent;
+    outline-offset: 4px;
+    /* Card radius by default, since most targets are a card or a bare wrapper around one, which has
+       no radius of its own and would otherwise ring square around rounded content. A target that is
+       not card-shaped - a sub-card form, a button - overrides it by passing a radius to the helper,
+       which sets --nav-highlight-radius on the element. Declared by the caller, never guessed at
+       from the children. Not on the row variant below: a row tints rather than rings. */
+    border-radius: var(--nav-highlight-radius, var(--border-radius-lg));
+    transition: outline-color 0.9s ease-out;
+}
+
+/* .card-highlight is the same ring held on: a card that stays called out (MFA still to set up on
+   Account Security) rather than one being pointed at by a jump. Same treatment either way, so the
+   two cannot drift into different blues, which is what they had done. */
+.nav-highlight-on,
+.card-highlight {
+    outline-color: color-mix(in srgb, var(--highlight-color) 50%, transparent);
+    transition: outline-color 0.25s ease-in;
+}
+
+/* Row variant: a ring around a table row fights its neighbours, so a row tints instead. Same
+   variable, same timing, so the two read as one behavior seen on different shapes. */
+.nav-highlight-row {
+    transition: background-color 0.9s ease-out;
+}
+
+.nav-highlight-row.nav-highlight-on {
+    background-color: color-mix(in srgb, var(--highlight-color) 30%, transparent);
+    transition: background-color 0.25s ease-in;
+}
+
+.isp-events-jump {
+    cursor: pointer;
+    text-decoration: underline dotted;
+    /* A dimmed version of the score color the value is carrying, not a flat grey: the count is
+       colored by its grade, so its underline should be a quieter shade of the same thing. */
+    text-decoration-color: color-mix(in srgb, currentColor 45%, transparent);
+    text-underline-offset: 3px;
 }
 
 body.kiosk-mode .hamburger-btn {
@@ -19806,11 +19865,21 @@ body.kiosk-mode .status-indicators {
     margin-left: auto;
 }
 
+/* An icon, not a button: it sits among the filter inputs to save the width a labelled control
+   would take, so it carries no button chrome. */
 .audit-filter-clear {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    padding-inline: 0.4rem;
+    padding: 0;
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+}
+
+.audit-filter-clear:hover {
+    color: var(--text-secondary);
 }
 
 .audit-pager {

@@ -27,6 +27,8 @@
 @inject MonitoringLiveStats LiveStats
 @inject NetworkOptimizer.Storage.Services.SiteDbContextFactory SiteDb
 @inject SiteContextService SiteCtx
+@inject NetworkOptimizer.Web.Services.IMonitoringSettingsService MonitoringSettings
+@inject NetworkOptimizer.Web.Services.IMonitoringTargetService TargetService
 @inject Microsoft.JSInterop.IJSRuntime JS
 @inject Microsoft.AspNetCore.Mvc.ViewFeatures.IFileVersionProvider FileVersionProvider
 @inject NavigationManager NavigationManager
@@ -39,6 +41,9 @@
 @inject CellularModemService CellularModemService
 @inject StarlinkMonitorService StarlinkMonitor
 @inject MonitoringCollectionAgent CollectionAgent
+@inject AgentTunnelRegistry TunnelRegistry
+@inject NetworkOptimizer.Web.Services.IAgentEnrollmentService AgentEnrollment
+@inject NetworkOptimizer.Web.Services.ISiteManagementService SiteManagement
 @inject IspHealthService IspHealthService
 @inject NetworkOptimizer.Web.Services.Monitoring.FlakyTargetService FlakyTargets
 @inject NetworkOptimizer.Web.Services.LanFlowMap.LanFlowMapCache LanFlowMapCache
@@ -95,12 +100,17 @@
                         <span>Configure your UniFi Console connection in Settings to get started.</span>
                     }
                 </div>
-                <a href="/settings" class="btn btn-primary btn-sm">Settings</a>
+                <a href="/settings?tab=connection#console-connection" class="btn btn-primary btn-sm">Settings</a>
             </div>
         </div>
     }
 }
-else
+
+@* The console being down does not take the history with it: the targets, SFP list and every chart
+   come from this site's own database and InfluxDB. So the banner above now sits over the page
+   instead of replacing it, and only the parts that genuinely need a live console are withheld. A
+   site whose gateway is gone can still be read. *@
+@if (ConnectionService.IsConnected || _monitoringReady)
 {
     <!-- Tab bar -->
     <div class="wifi-view-tabs-wrapper">
@@ -108,7 +118,8 @@ else
         <div class="wifi-view-tabs">
             <button class="wifi-view-tab @(_activeTab == "live" ? "active" : "")"
                     @onclick="@(() => SetActiveTab("live"))"
-                    disabled="@(!_monitoringReady)">
+                    disabled="@(!_monitoringReady)"
+                    data-tooltip="@(ConnectionService.IsConnected ? null : "Live values need a console; the timeline still plays back")">
                 Live View
             </button>
             <button class="wifi-view-tab @(_activeTab == "isp-health" ? "active" : "")"
@@ -515,7 +526,9 @@ else
                                 <span class="host-truncate">@t.Name</span>
                                 <span class="lan-flaky-actions">
                                     <button class="btn btn-sm btn-secondary" @onclick="() => JumpToLatencyTargetAsync(t.Id)">Review in Latency Targets</button>
-                                    <button class="btn btn-sm btn-secondary" @onclick="() => DismissLanFlakyHintAsync(t)">Dismiss</button>
+                                    <SiteOperatorOnly>
+                                        <button class="btn btn-sm btn-secondary" @onclick="() => DismissLanFlakyHintAsync(t)">Dismiss</button>
+                                    </SiteOperatorOnly>
                                 </span>
                             </li>
                         }
@@ -1575,20 +1588,24 @@ else
                     <div class="form-group">
                         <label class="form-label">Collection</label>
                         <div class="form-value">
-                            @if (_monitoringEnabled && _influxReachable == true)
-                            {
-                                <span class="status-indicator status-active"></span>
-                                <span>Agent running</span>
-                            }
-                            else if (_monitoringEnabled && _influxReachable != true)
-                            {
-                                <span class="status-indicator status-danger"></span>
-                                <span>Enabled, but InfluxDB unreachable</span>
-                            }
-                            else
+                            @if (!_monitoringEnabled)
                             {
                                 <span class="status-indicator status-inactive"></span>
                                 <span>Disabled</span>
+                            }
+                            else
+                            {
+                                <div class="form-value-line">
+                                    <span class="status-indicator @(ServerCollecting ? "status-active" : "status-danger")"></span>
+                                    <span>Server: @ServerCollectionState</span>
+                                </div>
+                                @if (_siteAgent is not null)
+                                {
+                                    <div class="form-value-line">
+                                        <span class="status-indicator @(TunnelRegistry.IsAgentLive(_siteAgent) ? "status-active" : "status-danger")"></span>
+                                        <span>On-site agent: @AgentCollectionState</span>
+                                    </div>
+                                }
                             }
                         </div>
                     </div>
@@ -1761,6 +1778,67 @@ else
     private string _activeTab = "setup";
 
     private bool _monitoringReady => _monitoringEnabled && _influxConfigured;
+
+    /// <summary>This site's agent, when it has one. Null on a server-polled site.</summary>
+    private SiteAgent? _siteAgent;
+
+    // A tier that has not completed a pass in this long has stopped, not slowed: the slowest tier
+    // runs on a 60s cadence and every tier stamps the same field.
+    private static readonly TimeSpan CollectionStaleAfter = TimeSpan.FromMinutes(5);
+
+    /// <summary>
+    /// Whether collection is actually happening here. The server stands down from probing on every
+    /// non-default site, so on an agent site "collecting" is the agent's answer, not the server's.
+    /// </summary>
+    private bool ServerCollecting =>
+        _influxReachable == true
+        && CollectionAgent.LastCollectionUtc is DateTime last
+        && DateTime.UtcNow - last < CollectionStaleAfter;
+
+    private string ServerCollectionState =>
+        _influxReachable != true ? "enabled, but InfluxDB unreachable"
+        : !CollectionAgent.ServerProbesThisSite ? "syncing targets (this site is probed by its agent)"
+        : ServerCollecting ? "collecting"
+        : CollectionAgent.LastCollectionUtc is DateTime last
+            ? $"last collected {TimeFormatHelper.FormatRelativeTime(last).ToLowerInvariant()}"
+            : "not collecting";
+
+    private string AgentCollectionState
+    {
+        get
+        {
+            if (_siteAgent is null) return "";
+            var version = _siteAgent.LastVersion is null ? ""
+                : $", v{NetworkOptimizer.Core.Helpers.VersionUtilities.StripBuildMetadata(_siteAgent.LastVersion)}";
+            if (TunnelRegistry.IsAgentLive(_siteAgent)) return $"connected{version}";
+            if (_siteAgent.EnrolledAt is null) return "enrolled but never connected";
+            return _siteAgent.LastSeenAt is DateTime seen
+                ? $"last seen {TimeFormatHelper.FormatRelativeTime(seen).ToLowerInvariant()}{version}"
+                : $"not connected{version}";
+        }
+    }
+
+    /// <summary>
+    /// Loads this site's agent so the Collection status can report it. Best-effort: a registry that
+    /// will not answer leaves the agent line off rather than taking the Setup tab down with it.
+    /// </summary>
+    private async Task LoadSiteAgentAsync()
+    {
+        try
+        {
+            var site = (await SiteManagement.GetSitesAsync())
+                .FirstOrDefault(x => string.Equals(x.Slug, SiteCtx.Slug, StringComparison.OrdinalIgnoreCase));
+            if (site == null) return;
+            _siteAgent = (await AgentEnrollment.GetAgentsForSiteAsync(site.Id))
+                .Where(a => a.Enabled)
+                .OrderByDescending(a => a.LastSeenAt)
+                .FirstOrDefault();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Could not read the site's agent for the Collection status");
+        }
+    }
     private bool _cmHasDevices;
     private bool _ontHasDevices;
     private bool _cellularHasDevices;
@@ -1860,7 +1938,9 @@ else
         // site switch, where the tab is carried in the URL) falls through to the
         // default rather than opening a tab the site chose to hide.
         if (TabParam != null && ValidTabs.Contains(TabParam) && !IsHardwareTabHidden(TabParam.ToLowerInvariant()))
+        {
             return TabParam.ToLowerInvariant();
+        }
         if (_influxReachable == false || _snmpState == SnmpDetectionState.PollFailing)
             return "setup";
         return "live";
@@ -2051,6 +2131,8 @@ else
         _activeTab = ResolveDefaultTab();
         _lastTabParam = TabParam ?? _activeTab;
 
+        await LoadSiteAgentAsync();
+
         await RefreshUpstreamReviewAsync();
 
         _liveRefreshTimer = new System.Threading.Timer(_ =>
@@ -2068,6 +2150,7 @@ else
                     await LoadTargetsAsync();
                     await LoadSnmpDeviceStatusesAsync();
                     await RefreshUpstreamReviewAsync();
+                    await RefreshSetupStatusAsync();
                     StateHasChanged();
                 });
             }
@@ -2090,6 +2173,64 @@ else
         });
     }
 
+    /// <summary>
+    /// Keeps the Setup tab's status current while the page is open. Everything it reads is written
+    /// by something other than this circuit - the collection tier records InfluxDB reachability and
+    /// SNMP poll health, another admin can turn collection off, an agent can be enrolled or removed -
+    /// so without this the statuses are a page-load snapshot and fixing the underlying problem shows
+    /// nothing until a reload.
+    ///
+    /// Deliberately a database read and nothing more. Re-running SNMP detection would put a console
+    /// round trip (and a write) on a 15 second timer; the stored state already carries what the
+    /// poller found, and the Re-check button stays the way to ask the console again.
+    /// </summary>
+    private async Task RefreshSetupStatusAsync()
+    {
+        try
+        {
+            var settings = await SnmpDetection.GetOrCreateSettingsAsync();
+            _monitoringEnabled = settings.Enabled;
+
+            // A secondary site's connection is derived rather than stored, so its configured /
+            // reachable state comes from an active health check (RefreshInfluxStateAsync) that this
+            // poll deliberately does not run. Poll it only while setup is unfinished, which is when
+            // someone is waiting to see it complete, and leave a working site to the Test button.
+            if (SiteCtx.IsDefault)
+            {
+                _influxReachable = settings.InfluxDbReachable;
+                _influxError = settings.LastInfluxDbError;
+                _influxConfigured = !string.IsNullOrEmpty(settings.InfluxDbToken)
+                    && !string.IsNullOrEmpty(settings.InfluxDbUrl);
+            }
+            else if (!_influxConfigured)
+            {
+                await RefreshInfluxStateAsync(settings);
+            }
+
+            // The stored SNMP state drives which card the whole tab renders, so adopting a change
+            // mid-edit would tear a half-typed custom OID or interface form off the screen. Hold it
+            // until the editors are idle - the status lines above update either way. Skipped while a
+            // detection is running or after one failed here, so a fresh console error is not
+            // immediately overwritten by the older stored value.
+            if (!_detecting && _detectionError == null
+                && settings.SnmpDetectionState != _snmpState
+                && !SetupEditInFlight)
+            {
+                _snmpState = settings.SnmpDetectionState;
+            }
+
+            await LoadSiteAgentAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Could not refresh the Monitoring setup status");
+        }
+    }
+
+    /// <summary>Whether a Setup tab card is holding an edit that a re-layout would destroy.</summary>
+    private bool SetupEditInFlight =>
+        (_snmpDeviceCard?.HasUnsavedEdit ?? false) || (_miCard?.HasUnsavedEdit ?? false);
+
     private void LoadInfluxStateFromSettings(MonitoringSettings settings)
     {
         _influxConfigured = !string.IsNullOrEmpty(settings.InfluxDbToken)
@@ -2101,21 +2242,7 @@ else
 
     private async Task ResetInfluxSetup()
     {
-        await using var db = SiteDb.CreateForSite(SiteCtx.Slug, SiteCtx.IsDefault);
-        var settings = await db.MonitoringSettings.FirstOrDefaultAsync();
-        if (settings != null)
-        {
-            settings.Enabled = false;
-            settings.InfluxDbToken = "";
-            settings.InfluxDbUrl = "";
-            settings.InfluxDbOrg = "";
-            settings.InfluxDbBucket = "";
-            settings.InfluxDbLongtermBucket = "";
-            settings.InfluxDbReachable = null;
-            settings.LastInfluxDbError = null;
-            settings.UpdatedAt = DateTime.UtcNow;
-            await db.SaveChangesAsync();
-        }
+        await MonitoringSettings.ResetInfluxSetupAsync();
         _influxConfigured = false;
         _influxReachable = null;
         _influxError = null;
@@ -2207,8 +2334,6 @@ else
         NetworkOptimizer.Web.Services.Monitoring.DeviceHealthAlertEvaluator.DefaultDeviceTempHighC.ToString("0");
 
     // Blank/zero/negative entries mean "use the built-in default" (stored as null).
-    private static double? NormalizeTempThreshold(double? value) => value is > 0 ? value : null;
-
     private async Task SaveTempThresholdsAsync()
     {
         _savingTempThresholds = true;
@@ -2216,14 +2341,8 @@ else
         StateHasChanged();
         try
         {
-            await using var db = SiteDb.CreateForSite(SiteCtx.Slug, SiteCtx.IsDefault);
-            var settings = await db.MonitoringSettings.FirstOrDefaultAsync()
-                ?? new MonitoringSettings();
-            if (settings.Id == 0) db.MonitoringSettings.Add(settings);
-            settings.SwitchTempHighC = NormalizeTempThreshold(_switchTempThresholdInput);
-            settings.GatewayTempHighC = NormalizeTempThreshold(_gatewayTempThresholdInput);
-            settings.UpdatedAt = DateTime.UtcNow;
-            await db.SaveChangesAsync();
+            var settings = await MonitoringSettings.SaveTempThresholdsAsync(
+                _switchTempThresholdInput, _gatewayTempThresholdInput);
             _switchTempThresholdInput = settings.SwitchTempHighC;
             _gatewayTempThresholdInput = settings.GatewayTempHighC;
             _tempThresholdsSaved = true;
@@ -2277,21 +2396,16 @@ else
         StateHasChanged();
         try
         {
-            await using var db = SiteDb.CreateForSite(SiteCtx.Slug, SiteCtx.IsDefault);
-            var settings = await db.MonitoringSettings.FirstOrDefaultAsync()
-                ?? new MonitoringSettings();
-            if (settings.Id == 0) db.MonitoringSettings.Add(settings);
-            // Temperature must be positive; power thresholds may legitimately be
-            // negative (RX low) so a blank field (null) is the only "use default".
-            settings.PonTempHighC = NormalizeTempThreshold(_sfpPonTemp);
-            settings.PonRxPowerLowDbm = _sfpPonRx;
-            settings.PonTxPowerHighDbm = _sfpPonTx;
-            settings.AeTempHighC = NormalizeTempThreshold(_sfpAeTemp);
-            settings.AeRxPowerLowDbm = _sfpAeRx;
-            settings.AeTxPowerHighDbm = _sfpAeTx;
-            settings.SfpTempHighGenericC = NormalizeTempThreshold(_sfpGenericTemp);
-            settings.UpdatedAt = DateTime.UtcNow;
-            await db.SaveChangesAsync();
+            var settings = await MonitoringSettings.SaveSfpThresholdsAsync(new NetworkOptimizer.Web.Services.SfpThresholdEdit
+            {
+                PonTempHighC = _sfpPonTemp,
+                PonRxPowerLowDbm = _sfpPonRx,
+                PonTxPowerHighDbm = _sfpPonTx,
+                AeTempHighC = _sfpAeTemp,
+                AeRxPowerLowDbm = _sfpAeRx,
+                AeTxPowerHighDbm = _sfpAeTx,
+                SfpTempHighGenericC = _sfpGenericTemp
+            });
             LoadSfpThresholdInputs(settings);
             _sfpThresholdsSaved = true;
         }
@@ -2314,15 +2428,7 @@ else
         StateHasChanged();
         try
         {
-            await using var db = SiteDb.CreateForSite(SiteCtx.Slug, SiteCtx.IsDefault);
-            var settings = await db.MonitoringSettings.FirstOrDefaultAsync()
-                ?? new MonitoringSettings();
-            if (settings.Id == 0) db.MonitoringSettings.Add(settings);
-            // Temperature must be positive; a blank RX field (null) means "use default".
-            settings.PonTempHighC = NormalizeTempThreshold(_sfpPonTemp);
-            settings.PonRxPowerLowDbm = _sfpPonRx;
-            settings.UpdatedAt = DateTime.UtcNow;
-            await db.SaveChangesAsync();
+            var settings = await MonitoringSettings.SaveOntThresholdsAsync(_sfpPonTemp, _sfpPonRx);
             LoadSfpThresholdInputs(settings);
             _ontThresholdsSaved = true;
         }
@@ -2339,13 +2445,7 @@ else
         StateHasChanged();
         try
         {
-            await using var db = SiteDb.CreateForSite(SiteCtx.Slug, SiteCtx.IsDefault);
-            var settings = await db.MonitoringSettings.FirstOrDefaultAsync()
-                ?? new MonitoringSettings();
-            if (settings.Id == 0) db.MonitoringSettings.Add(settings);
-            settings.Enabled = enabled;
-            settings.UpdatedAt = DateTime.UtcNow;
-            await db.SaveChangesAsync();
+            await MonitoringSettings.SetEnabledAsync(enabled);
             _monitoringEnabled = enabled;
 
             if (_monitoringReady && _activeTab == "setup")
@@ -2652,6 +2752,35 @@ else
                 }
             }
             catch { }
+
+            // Every historic query is keyed on these - WAN rates, the gateway's CPU/memory/temp,
+            // fabric ingress and egress - and they come from a console read, so an offline site
+            // scrubbed the timeline against keys it did not have and every card came back blank
+            // while the chart plotted. The remembered WAN profile holds exactly this pair.
+            //
+            // Only while the console is down: a connected console that reports no gateway keeps
+            // resolving to nothing, as before.
+            if (_gatewayMac == null && !ConnectionService.IsConnected)
+            {
+                try
+                {
+                    await using var wanDb = SiteDb.CreateForSite(SiteCtx.Slug, SiteCtx.IsDefault);
+                    var profile = await wanDb.WanProfiles.AsNoTracking()
+                        .Where(w => w.GatewayMac != null && w.CounterInterface != null)
+                        .OrderBy(w => w.WanNetworkgroup)
+                        .ThenByDescending(w => w.UpdatedAt)
+                        .FirstOrDefaultAsync();
+                    if (profile != null)
+                    {
+                        _gatewayMac = profile.GatewayMac!.Replace("-", ":").ToLowerInvariant();
+                        _gatewayWanIfNames = new List<string> { profile.CounterInterface! };
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogDebug(ex, "Could not read the remembered gateway and WAN interface for historic playback");
+                }
+            }
         }
         catch
         {
@@ -2771,35 +2900,13 @@ else
     private async Task ScrollToUpstreamDiscoveryAsync()
     {
         await Task.Delay(500);
-        await JS.InvokeVoidAsync("eval", @"
-            (function() {
-                var el = document.getElementById('upstream-discovery');
-                if (el) {
-                    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                    el.style.transition = 'outline-color 0.3s';
-                    el.style.outline = '2px solid rgba(59, 130, 246, 0.5)';
-                    el.style.outlineOffset = '4px';
-                    el.style.borderRadius = '12px';
-                    setTimeout(function() { el.style.outline = ''; el.style.outlineOffset = ''; }, 2000);
-                }
-            })();");
+        await JS.InvokeVoidAsync("noHighlightTarget", "upstream-discovery");
     }
 
     private async Task ScrollToFlakyTargetsAsync()
     {
         await Task.Delay(500);
-        await JS.InvokeVoidAsync("eval", @"
-            (function() {
-                var el = document.getElementById('flaky-targets');
-                if (el) {
-                    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                    el.style.transition = 'outline-color 0.3s';
-                    el.style.outline = '2px solid rgba(59, 130, 246, 0.5)';
-                    el.style.outlineOffset = '4px';
-                    el.style.borderRadius = '12px';
-                    setTimeout(function() { el.style.outline = ''; el.style.outlineOffset = ''; }, 2000);
-                }
-            })();");
+        await JS.InvokeVoidAsync("noHighlightTarget", "flaky-targets");
     }
 
     private async Task ScrollToSnmpDevicesAsync()
@@ -2808,18 +2915,7 @@ else
         // final position. Mirrors ScrollToUpstreamDiscoveryAsync, including the
         // brief highlight outline.
         await Task.Delay(400);
-        await JS.InvokeVoidAsync("eval", @"
-            (function() {
-                var el = document.getElementById('snmp-devices');
-                if (el) {
-                    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                    el.style.transition = 'outline-color 0.3s';
-                    el.style.outline = '2px solid rgba(59, 130, 246, 0.5)';
-                    el.style.outlineOffset = '4px';
-                    el.style.borderRadius = '12px';
-                    setTimeout(function() { el.style.outline = ''; el.style.outlineOffset = ''; }, 2000);
-                }
-            })();");
+        await JS.InvokeVoidAsync("noHighlightTarget", "snmp-devices");
     }
 
     private async Task ScrollToMonitoringInterfacesAsync()
@@ -2827,18 +2923,7 @@ else
         // Mirror ScrollToSnmpDevicesAsync: wait for the expand animation, then scroll
         // to the Monitoring Interfaces card with the same brief highlight outline.
         await Task.Delay(400);
-        await JS.InvokeVoidAsync("eval", @"
-            (function() {
-                var el = document.getElementById('monitoring-interfaces');
-                if (el) {
-                    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                    el.style.transition = 'outline-color 0.3s';
-                    el.style.outline = '2px solid rgba(59, 130, 246, 0.5)';
-                    el.style.outlineOffset = '4px';
-                    el.style.borderRadius = '12px';
-                    setTimeout(function() { el.style.outline = ''; el.style.outlineOffset = ''; }, 2000);
-                }
-            })();");
+        await JS.InvokeVoidAsync("noHighlightTarget", "monitoring-interfaces");
     }
 
     private async Task ScrollToSfpChartsAsync()
@@ -2862,18 +2947,7 @@ else
     private async Task ScrollToElementAsync(string elementId)
     {
         await Task.Delay(400);
-        await JS.InvokeVoidAsync("eval", $@"
-            (function() {{
-                var el = document.getElementById('{elementId}');
-                if (el) {{
-                    el.scrollIntoView({{ behavior: 'smooth', block: 'start' }});
-                    el.style.transition = 'outline-color 0.3s';
-                    el.style.outline = '2px solid rgba(59, 130, 246, 0.5)';
-                    el.style.outlineOffset = '4px';
-                    el.style.borderRadius = '12px';
-                    setTimeout(function() {{ el.style.outline = ''; el.style.outlineOffset = ''; }}, 2000);
-                }}
-            }})();");
+        await JS.InvokeVoidAsync("noHighlightTarget", elementId);
     }
 
     private async Task OnBeforeInternalNavigation(LocationChangingContext context)
@@ -2968,15 +3042,15 @@ else
     {
         try
         {
-            await using var db = SiteDb.CreateForSite(SiteCtx.Slug, SiteCtx.IsDefault);
-            var row = await db.MonitoringTargets.FindAsync(target.Id);
-            if (row != null)
-            {
-                row.LanFlakyHintDismissedAt = DateTime.UtcNow;
-                await db.SaveChangesAsync();
-            }
+            await TargetService.DismissLanFlakyHintAsync(target.Id);
         }
-        catch { }
+        catch (Exception ex)
+        {
+            // Do NOT hide the row when the write did not happen: it would reappear on the next
+            // load, so the dismissal would read as having worked and then silently undone itself.
+            Logger.LogWarning(ex, "Could not persist the LAN flaky-hint dismissal for target {TargetId}", target.Id);
+            return;
+        }
         // _targets is loaded AsNoTracking, so reflect the dismissal in memory to drop the row
         // from the advisory immediately without waiting for a reload.
         var local = _targets.FirstOrDefault(t => t.Id == target.Id);
@@ -3669,29 +3743,11 @@ else
         // reset the flags. Reset them here so the connected render remounts cleanly;
         // the same path also tears the modules down when the console drops mid-session
         // (Blazor destroyed their DOM with the region swap).
-        if (!ConnectionService.IsConnected)
-        {
-            if (_mapMounted || _map2dMounted || _wanLiveChartMounted || _portStatsMounted
-                || _latencyChartsMounted || _healthChartsMounted || _sfpChartsMounted
-                || _cellularChartsMounted || _starlinkChartsMounted || _cmChartsMounted || _ontChartsMounted)
-            {
-                _mapMounted = _map2dMounted = _wanLiveChartMounted = _portStatsMounted = false;
-                _latencyChartsMounted = _healthChartsMounted = _sfpChartsMounted = false;
-                _cellularChartsMounted = _starlinkChartsMounted = _cmChartsMounted = _ontChartsMounted = false;
-                try
-                {
-                    await JS.InvokeVoidAsync("eval",
-                        "window.__lanFlowMap?.unmount(); window.__lanFlowMap2d?.unmount();" +
-                        "window.__wanLiveChart?.unmount(); window.__portStatsTable?.unmount();" +
-                        "window.__latencyCharts?.unmount(); window.__healthCharts?.unmount();" +
-                        "window.__sfpCharts?.unmount(); window.__cellularCharts?.unmount();" +
-                        "window.__starlinkCharts?.unmount();" +
-                        "window.__cmCharts?.unmount(); window.__ontCharts?.unmount();");
-                }
-                catch { }
-            }
-            return;
-        }
+        //
+        // Nothing swaps out on a disconnect any more: every tab, Live View included, stays rendered
+        // so a site whose console is gone can still be read. The map and port stats are what replay
+        // the timeline, so tearing them down here is exactly what would empty the tab this comment
+        // used to justify emptying. Their live polling already returns early while disconnected.
 
         // Auto-expand the SNMP Devices table after the Live-tab banner jumps here.
         if (_pendingExpandSnmpCard && _activeTab == "setup" && _snmpDeviceCard != null)

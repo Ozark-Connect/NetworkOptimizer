@@ -10,7 +10,7 @@ namespace NetworkOptimizer.Web.Services;
 /// pattern as SiteConnectionRegistry / MonitoringInfluxRegistry. Instances
 /// are pure in-memory caches, so the registry never needs to dispose them.
 /// </summary>
-public class MonitoringLiveStatsRegistry
+public class MonitoringLiveStatsRegistry : ISiteScopedRegistry
 {
     private readonly IServiceProvider _serviceProvider;
     private readonly ConcurrentDictionary<string, MonitoringLiveStats> _instances = new();
@@ -29,4 +29,11 @@ public class MonitoringLiveStatsRegistry
 
     /// <summary>The default site's cache.</summary>
     public MonitoringLiveStats GetDefault() => GetFor(SiteManagementService.DefaultSiteSlug);
+
+    /// <inheritdoc />
+    public Func<ValueTask>? EvictSite(string slug)
+    {
+        _instances.TryRemove(slug, out _);
+        return null;
+    }
 }

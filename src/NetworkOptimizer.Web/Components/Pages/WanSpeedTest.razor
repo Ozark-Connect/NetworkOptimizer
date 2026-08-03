@@ -17,6 +17,7 @@
 @inject IGatewaySshService GatewaySshService
 @inject SpeedTestServiceRegistry SpeedTestRegistry
 @inject SiteContextService SiteContext
+@inject SiteAgentCoverage AgentCoverage
 @inject MonitoringReadinessService Readiness
 @inject NetworkOptimizer.Web.Services.Licensing.LicenseStateService LicenseState
 @inject SiteTunnelRouting TunnelRouting
@@ -141,7 +142,8 @@
                         }
                     </div>
                     <div class="wan-test-option-hint">
-                        Deploys a speed test binary to the gateway and runs it directly. Most accurate WAN measurement - no LAN overhead. For multi-gig connections, a Server-based test may be best.
+                        Deploys a speed test binary to the gateway and runs it directly. Most accurate WAN measurement - no LAN overhead.@if (!_agentOnGateway)
+                        {<text> For multi-gig connections, @(RunsOnAgent ? "an Agent-based" : "a Server-based") test may be best.</text>}
                     </div>
                     @if (!_gatewayAvailable && !_isRunning && !string.IsNullOrEmpty(_gatewayUnavailableReason))
                     {
@@ -169,7 +171,7 @@
                 {
                 <div class="wan-test-option @(_serverAvailable ? "" : "wan-test-option-unavailable")">
                     <div class="wan-test-option-header">
-                        <span class="wan-test-option-label">Server</span>
+                        <span class="wan-test-option-label">@(RunsOnAgent ? "On-site agent" : "Server")</span>
                         @if (!_serverAvailable && !_isRunning)
                         {
                             <span class="wan-test-option-badge" data-tooltip="@_serverUnavailableReason">Unavailable</span>
@@ -194,7 +196,7 @@
                             }
                             else
                             {
-                                <span>Run Test from Server</span>
+                                <span>Run Test from @(RunsOnAgent ? "Agent" : "Server")</span>
                             }
                         </button>
                         </SiteOperatorOnly>
@@ -206,11 +208,11 @@
                     <div class="wan-test-option-hint">
                         @if (_hasMultipleWans)
                         {
-                            <text>Tests from this server through the LAN. Traffic may be load-balanced across WAN interfaces.</text>
+                            <text>Tests from @(RunsOnAgent ? "the on-site agent" : "this server") through the LAN. Traffic may be load-balanced across WAN interfaces.</text>
                         }
                         else
                         {
-                            <text>Tests from this server through the LAN. Includes LAN traversal overhead.</text>
+                            <text>Tests from @(RunsOnAgent ? "the on-site agent" : "this server") through the LAN. Includes LAN traversal overhead.</text>
                         }
                     </div>
                 </div>
@@ -621,7 +623,7 @@
             {
                 <div class="empty-state">
                     <p>No WAN speed tests recorded yet.</p>
-                    <p class="form-help">Click "Run Test from Gateway" or "Run Test from Server" above to measure your internet connection speed.</p>
+                    <p class="form-help">Click "Run Test from Gateway" or "Run Test from @(RunsOnAgent ? "Agent" : "Server")" above to measure your internet connection speed.</p>
                 </div>
             }
         </div>
@@ -685,6 +687,23 @@
     // Both WAN tests run through that agent, so they can't run until it reconnects.
     private bool _siteAgentOffline;
     private bool _agentOnGateway;
+
+    /// <summary>
+    /// Whether the non-gateway run happens on the site's agent rather than on this server, which is
+    /// what the option is called and described as. True for a site the server cannot reach itself,
+    /// and for the main site once its agent covers it - the run moves to the agent there too, so
+    /// the label has to move with it. An agent that runs ON the gateway is not this case: that
+    /// option is hidden entirely, because the Gateway option already runs there.
+    /// </summary>
+    private bool _runsOnAgent;
+    // Resolving the vantage needs an await, so the first render happens before the answer is in and
+    // the label was painted "Server" before flipping to "Agent". The first frame now uses the
+    // cached coverage answer, which any recent read has already populated - so the flash only
+    // survives a cold cache, and never shows the wrong word twice.
+    private bool RunsOnAgent => _vantageResolved
+        ? _runsOnAgent
+        : !SiteContext.IsDefault || AgentCoverage.Covers(SiteContext.Slug);
+    private bool _vantageResolved;
     private bool _serverAvailable = true;
     private string? _serverUnavailableReason;
     private System.Threading.Timer? _agentStatusTimer;
@@ -953,6 +972,9 @@
         // one to use. When speed-test-capable gateway installs arrive, key this off
         // the agent's capability instead of its location.
         _agentOnGateway = agentOnline && await OnGatewayDetector.IsAgentOnGatewayAsync(SiteContext.Slug);
+        _runsOnAgent = !_agentOnGateway
+            && (!SiteContext.IsDefault || await AgentCoverage.CoversAsync(SiteContext.Slug));
+        _vantageResolved = true;
         var agentRequired = !SiteContext.IsDefault && !agentOnline;
         var agentReason = _siteAgentOffline ? AgentOfflineReason : NoAgentReason;
 
@@ -1029,7 +1051,6 @@
         {
             var networks = await ConnectionService.GetNetworksAsync();
             var wanNetworks = networks.Where(n => n.IsWan && n.Enabled).ToList();
-            _hasMultipleWans = wanNetworks.Count > 1;
             _availableWans = wanNetworks
                 .Select(n => new WanOption(
                     n.WanNetworkgroup ?? "WAN",
@@ -1038,6 +1059,13 @@
 
             // Load WAN interfaces with physical names for gateway test
             _wanInterfaces = await SqmService.GetWanInterfacesFromControllerAsync();
+
+            // Whether traffic can actually be spread across WANs, from the gateway's real
+            // interfaces rather than the console's network list. A WAN network can be enabled with
+            // nothing attached to it, and counting those claimed load balancing on sites that have
+            // one working uplink. This is the same list the Gateway selector is built from, and the
+            // same source Adaptive SQM uses.
+            _hasMultipleWans = _wanInterfaces.Count > 1;
             _consoleDataLoaded = true;
         }
         catch { /* Non-critical */ }
@@ -1783,17 +1811,7 @@
 
         // Give time for the DOM to update, then scroll
         await Task.Delay(100);
-        await JS.InvokeVoidAsync("eval", $@"
-            (function() {{
-                var el = document.getElementById('result-{resultId}');
-                if (el) {{
-                    el.scrollIntoView({{ behavior: 'smooth', block: 'center' }});
-                    el.style.transition = 'background-color 0.3s';
-                    el.style.backgroundColor = 'rgba(59, 130, 246, 0.3)';
-                    setTimeout(function() {{ el.style.backgroundColor = ''; }}, 1500);
-                }}
-            }})();
-        ");
+        await JS.InvokeVoidAsync("noHighlightRow", $"result-{resultId}");
     }
 
     private static string FormatResultSummary(Iperf3Result result)

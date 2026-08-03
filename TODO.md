@@ -681,6 +681,32 @@ Docker bridge mode and multi-NIC hosts. What is left is verification, not code:
   UniFi topology. Speed-test targets and traces break silently unless the override is set.
 - [ ] Run the test matrix: native (works today), Docker host mode, Docker bridge with override.
 
+### Main site agent: speed test capability consistency (only if a user asks)
+`site.agent_covers_collection` moves probes, upstream path discovery, SNMP and device reachability
+to a main site's agent, and the client speed test target follows it. Speed test *hosting* is a
+separate capability: the agent announces `serves_speed_test` in its tunnel hello (driven by
+`lanSpeedTest` in `agent.json`), and `SiteSpeedTestTargetResolver` takes it at its word, so an agent
+that hosts no speed test sends Client Speed Test, Client Dashboard and Client WAN Test back to the
+central server while everything else stays on the agent.
+
+WAN Speed Test does not follow that flag. `RunsOnAgent` keys on coverage alone, and the agent's WAN
+test is `uwnspeedtest` - a different binary from the nginx LAN page, so declining to host the page
+says nothing about whether it can run a WAN test. The result is that WAN tests can only be moved
+back to the server by turning coverage off entirely, which drags probes and SNMP back with them.
+
+Deliberately left alone: the split is coherent (hosting a page for site clients is not the same
+capability as running a test from the site), and nobody has asked for the two to move together. If
+someone wants a covered main site whose speed tests all stay on the server:
+
+- [ ] Decide whether WAN Speed Test should consult `ServesSpeedTest`, or whether the agent needs a
+      second capability flag for "can run a WAN test" so the two stay independently addressable.
+- [ ] Tear down `netopt-speedtest-nginx` when `lanSpeedTest` goes false. The unit is `WantedBy` the
+      agent service and is not driven by `agent.json`, so it relights on every agent start and keeps
+      serving port 24443 with no relay behind it: the page loads and results silently never post.
+      Today that needs a manual `systemctl disable --now`.
+- [ ] Surface it in the UI. Both switches are file-level today (`agent.json`, plus the installer's
+      `--lan-speed-test`), which is fine for an operator and not something to document to users.
+
 ## Distribution
 
 ### ISO/OVA Image for MSP Deployment

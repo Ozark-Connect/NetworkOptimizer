@@ -3,6 +3,8 @@
 @using NetworkOptimizer.Web.Services.Monitoring
 @implements IDisposable
 @inject UpstreamTracerService Tracer
+@inject NetworkOptimizer.Web.Services.IUpstreamDiscoveryService Discovery
+@inject ILogger<UpstreamTracerPanel> Logger
 @inject NetworkOptimizer.Storage.Services.SiteDbContextFactory SiteDb
 @inject SiteContextService SiteCtx
 @inject NetworkOptimizer.Web.Services.Monitoring.ProbeExecutorFactory ExecutorFactory
@@ -37,7 +39,7 @@
             <div class="alert alert-info" style="margin-bottom: 0;">
                 <strong>Deploy an on-site agent first.</strong>
                 Upstream discovery traces the path from inside this site's network, so it needs a
-                connected agent at the site. Enroll one from <a href="/settings">Settings</a>, then
+                connected agent at the site. Enroll one from <a href="/settings?tab=multisite#multi-site">Settings</a>, then
                 run discovery here.
             </div>
         }
@@ -460,6 +462,151 @@
     </div>
 </div>
 
+
+@* Scroll behavior for THIS card only. Deliberately not in shared JS: it is a niche affordance for a
+   long-running discovery, and when it lived alongside the app-wide helpers it reached into the
+   scroller every page shares and broke an unrelated jump. Defined here, it ships with the panel and
+   nothing else can call it. *@
+<script suppress-error="BL9992">
+    window.noUpstreamPin = (function () {
+        var release = null;
+        var goTop = false;
+        var frozen = false;
+
+        // Glide rather than jump, matching the app-wide card expand. That one looks smooth because a
+        // CSS transition feeds it a few pixels per frame; here the content arrives in chunks of
+        // several hundred pixels at a time, so applying the whole correction in one frame is exactly
+        // the snap this replaces. Easing a fraction of what remains each frame reads as the view
+        // following the work, and re-targets for free every time another section lands.
+        var EASE = 0.18;
+        var SETTLED = 1;
+        // A correction that cannot move (already at the top or bottom of the scroller) would
+        // otherwise ease forever against a clamp.
+        var MAX_STALLED_FRAMES = 12;
+
+        function start(id) {
+            stop();
+            if (!document.getElementById(id)) return;
+            goTop = false;
+            frozen = false;
+
+            var scrollerOf = function (node) {
+                for (var n = node.parentElement; n && n !== document.body; n = n.parentElement) {
+                    var oy = getComputedStyle(n).overflowY;
+                    if ((oy === 'auto' || oy === 'scroll') && n.scrollHeight > n.clientHeight + 4) return n;
+                }
+                return document.scrollingElement || document.documentElement;
+            };
+
+            // How far the view is from where it should be right now, or 0 when it is close enough.
+            var correction = function (cur, sc) {
+                var isDoc = sc === document.scrollingElement || sc === document.documentElement;
+                var paneTop = isDoc ? 0 : sc.getBoundingClientRect().top;
+                var r = cur.getBoundingClientRect();
+                var drift = r.top - paneTop;
+
+                // AT THE END: land on the TOP, not wherever the follow had got to. Following the
+                // edge is right while sections are still arriving; at the end it parks you past all
+                // the detail you came for, so the last move is to the start of the card.
+                if (goTop) return Math.abs(drift) > 2 ? drift : 0;
+
+                // WHILE RUNNING: show the newest work. If the card still fits the pane, holding its
+                // top does that already; once it is taller, follow the bottom edge so each section
+                // appears as it lands.
+                //
+                // No spacer either way. Adding one below this card pushed the Latency targets panel
+                // off screen, and adding it to the pane wrote to layout every page shares; the
+                // write is simply allowed to clamp when there is nowhere further to go.
+                if (r.height <= sc.clientHeight) return Math.abs(drift) > 2 ? drift : 0;
+                var paneBottom = isDoc ? window.innerHeight : sc.getBoundingClientRect().bottom;
+                // Both directions. A section that measures tall while it is building and settles
+                // shorter a frame later leaves the view parked past the end of the card, and a
+                // downward-only follow has no way back - it reads as scrolling below the results and
+                // staying there until the run ends. Correcting upward too means an overshoot is
+                // undone as soon as the layout settles, which is the frame after it happens.
+                var below = r.bottom - paneBottom;
+                return Math.abs(below) > 2 ? below : 0;
+            };
+
+            var raf = 0;
+            var stalled = 0;
+            var frame = function () {
+                var cur = document.getElementById(id);
+                if (!cur) { stop(); return; }
+
+                // Hold position while the terminal render lands. It is the largest one of the run -
+                // the whole review UI arrives at once - and following it drags the view to the
+                // bottom of results we are about to leave, so the landing that follows reads as a
+                // long scroll back up rather than a single move.
+                if (frozen) { raf = requestAnimationFrame(frame); return; }
+
+                var sc = scrollerOf(cur);
+                var delta = correction(cur, sc);
+
+                if (Math.abs(delta) <= SETTLED) {
+                    stalled = 0;
+                    // Nothing left to do and nothing more coming: the run is over.
+                    if (goTop) { stop(); return; }
+                } else {
+                    var step = delta * EASE;
+                    // Cover the last pixel or two outright rather than crawling at them.
+                    if (Math.abs(step) < 0.5) step = delta;
+                    var before = sc.scrollTop;
+                    sc.scrollTop += step;
+                    if (sc.scrollTop === before && ++stalled >= MAX_STALLED_FRAMES) {
+                        if (goTop) { stop(); return; }
+                    } else if (sc.scrollTop !== before) {
+                        stalled = 0;
+                    }
+                }
+                raf = requestAnimationFrame(frame);
+            };
+            // Wheel, touch and the scrolling keys are unambiguous intent; a scroll event would also
+            // catch our own corrections.
+            var give = function () { stop(); };
+            var keys = { PageDown: 1, PageUp: 1, ArrowDown: 1, ArrowUp: 1, Home: 1, End: 1, ' ': 1 };
+            var onKey = function (e) { if (keys[e.key]) give(); };
+            window.addEventListener('wheel', give, { passive: true });
+            window.addEventListener('touchmove', give, { passive: true });
+            window.addEventListener('keydown', onKey, true);
+
+            release = function () {
+                if (raf) cancelAnimationFrame(raf);
+                window.removeEventListener('wheel', give);
+                window.removeEventListener('touchmove', give);
+                window.removeEventListener('keydown', onKey, true);
+                release = null;
+                goTop = false;
+                frozen = false;
+            };
+            raf = requestAnimationFrame(frame);
+        }
+
+        function stop() { if (release) release(); }
+
+        // The run finishing is not the same as the card having finished growing: the render that
+        // carries the terminal state is the one that adds the review UI, so stopping on it leaves
+        // that last, largest addition unfollowed. Give the layout a moment, follow once more, then
+        // let go. A scroll of the reader's own still stops immediately via stop().
+        function finish() {
+            if (!release) return;
+            // Stop following FIRST. The run finishing is not the same as the card having finished
+            // growing: the render carrying the terminal state is the one that adds the review UI,
+            // and chasing it is what put the view below the results in the first place.
+            frozen = true;
+            setTimeout(function () {
+                // Layout has settled. Switch the loop's target to the card's top and let it ease
+                // there; it stops itself once it arrives. Setting the flag rather than jumping is
+                // what keeps the final move as smooth as the following that preceded it.
+                frozen = false;
+                goTop = true;
+            }, 400);
+        }
+
+        return { start: start, stop: stop, finish: finish };
+    })();
+</script>
+
 @code {
     [Parameter] public bool ForceExpand { get; set; }
     [Parameter] public EventCallback OnSaved { get; set; }
@@ -544,11 +691,46 @@
         catch { _needsReview = false; }
     }
 
+    /// <summary>
+    /// Lets the card pin go once the run has settled. StartAsync returns while the run is still
+    /// going, so the release cannot live beside it - this fires on the render that carries the
+    /// terminal state instead.
+    /// </summary>
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_state.Step is TracerStep.Done or TracerStep.ReviewingResults or TracerStep.Failed)
+        {
+            try
+            {
+                await JS.InvokeVoidAsync("noUpstreamPin.finish");
+            }
+            catch (Exception ex)
+            {
+                Logger.LogDebug(ex, "Could not release the discovery card pin");
+            }
+        }
+    }
+
     private async Task StartAsync()
     {
         if (!_canOperate) return;
         _justSaved = false;
-        await Tracer.StartDiscoveryAsync();
+        // Discovery adds sections to this card for a minute or so; keep its top in view rather than
+        // making the reader follow them down the page. Released when it finishes, or sooner if they
+        // scroll for themselves.
+        try
+        {
+            await JS.InvokeVoidAsync("noUpstreamPin.start", "upstream-discovery");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Could not pin the discovery card while it runs");
+        }
+        // Deliberately NOT released here. StartAsync returns as soon as the run is under way, not
+        // when it finishes, so releasing in a finally killed the pin about a tick after it started -
+        // one correction, then nothing, with no scroll from the reader to explain it. The pin ends
+        // when the run reaches a terminal step (below), or the moment they scroll for themselves.
+        await Discovery.StartAsync();
         _state = Tracer.State;
         StateHasChanged();
     }
@@ -556,7 +738,7 @@
     private async Task CommitAsync()
     {
         if (!_canOperate) return;
-        await Tracer.CommitResultsAsync();
+        await Discovery.CommitAsync();
         _state = Tracer.State;
         _justSaved = true;
         await OnSaved.InvokeAsync();

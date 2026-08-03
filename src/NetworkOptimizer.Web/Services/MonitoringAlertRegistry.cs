@@ -16,7 +16,7 @@ namespace NetworkOptimizer.Web.Services;
 /// SiteConnectionRegistry / MonitoringInfluxRegistry; instances are pure
 /// in-memory state, so nothing needs disposal.
 /// </summary>
-public class MonitoringAlertRegistry
+public class MonitoringAlertRegistry : ISiteScopedRegistry
 {
     /// <summary>One site's alert evaluators.</summary>
     public sealed record SiteAlertEvaluators(
@@ -57,4 +57,11 @@ public class MonitoringAlertRegistry
 
     /// <summary>The default site's evaluators.</summary>
     public SiteAlertEvaluators GetDefault() => GetFor(SiteManagementService.DefaultSiteSlug);
+
+    /// <inheritdoc />
+    public Func<ValueTask>? EvictSite(string slug)
+    {
+        _instances.TryRemove(slug, out _);
+        return null;
+    }
 }

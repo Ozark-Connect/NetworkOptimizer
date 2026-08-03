@@ -1528,11 +1528,12 @@ from(bucket: ""{_bucket}"")
         DateTime from,
         DateTime to,
         TimeSpan? aggregateWindow = null,
+        int sampleIntervalSeconds = 5,
         CancellationToken ct = default)
     {
         if (!IsConfigured) await ReconfigureAsync(ct);
         if (!IsConfigured || wanIfNames.Count == 0) return Array.Empty<WanRatePoint>();
-        var window = aggregateWindow ?? PickAggregateWindow(to - from);
+        var window = aggregateWindow ?? PickAggregateWindow(to - from, sampleIntervalSeconds);
         var mac = NormalizeMac(deviceMac);
         var ifFilter = string.Join(" or ", wanIfNames.Select(n =>
             $@"r.if_name == ""{SanitizeFluxString(n)}"""));
@@ -2634,12 +2635,20 @@ from(bucket: ""{_longtermBucket}"")
                 yield return record;
     }
 
-    private static TimeSpan PickAggregateWindow(TimeSpan range)
+    /// <summary>
+    /// Bucket size for a range: about 150 points, floored so a short range cannot ask for buckets
+    /// finer than the data actually has.
+    ///
+    /// The floor defaults to 5 s, which was the sample interval when this was written. A caller
+    /// that knows its site's real interval passes it instead - otherwise a site polling faster has
+    /// the extra resolution averaged straight back out, and one polling slower gets buckets with
+    /// nothing in them.
+    /// </summary>
+    private static TimeSpan PickAggregateWindow(TimeSpan range, int floorSeconds = 5)
     {
-        // Target ~150 data points regardless of range. Floor at 5 s so short ranges
-        // don't produce sub-second windows that InfluxDB can't aggregate meaningfully.
         const int targetPoints = 150;
-        var windowSeconds = Math.Max(5, (int)(range.TotalSeconds / targetPoints));
+        var floor = Math.Max(1, floorSeconds);
+        var windowSeconds = Math.Max(floor, (int)(range.TotalSeconds / targetPoints));
         return TimeSpan.FromSeconds(windowSeconds);
     }
 

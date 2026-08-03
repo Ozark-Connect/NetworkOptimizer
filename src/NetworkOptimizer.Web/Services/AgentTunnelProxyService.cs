@@ -188,12 +188,18 @@ public class AgentTunnelProxyService : IDisposable
             {
                 _logger.LogDebug("Proxy open {Host}:{Port} via agent {AgentId} failed: {Error}",
                     listener.TargetHost, listener.TargetPort, agent.AgentId, openError);
+                // Whoever dialed the loopback listener only ever sees it close, so the agent's
+                // reason has to be left where they can find it. SSH.NET, for one, reports the
+                // hang-up as a missing protocol banner and buries the actual cause entirely.
+                _lastOpenFailure[listener.LocalPort] =
+                    ($"{listener.TargetHost}:{listener.TargetPort} via the site's agent - {openError}", DateTime.UtcNow);
                 CloseConnection(connection, notifyAgent: false);
                 return;
             }
 
             // The tunnel answered, so clear any open breaker for this site.
             _openBreaker.TryRemove(listener.SiteSlug, out _);
+            _lastOpenFailure.TryRemove(listener.LocalPort, out _);
 
             // Local reads -> tunnel, with backpressure. The agent-to-local
             // direction is written by the tunnel read loop via OnProxyDataAsync.
@@ -222,6 +228,27 @@ public class AgentTunnelProxyService : IDisposable
     }
 
     /// <summary>Agent answered a ProxyOpen.</summary>
+    // Why the last open on a loopback listener failed, so a caller holding nothing but a closed
+    // socket can say something useful. Short-lived on purpose: an old reason attached to an
+    // unrelated later failure would be worse than no reason at all.
+    private readonly ConcurrentDictionary<int, (string Reason, DateTime At)> _lastOpenFailure = new();
+    private static readonly TimeSpan FailureReasonTtl = TimeSpan.FromSeconds(60);
+
+    /// <summary>
+    /// The agent's own reason for refusing or failing the last open on this loopback port, if it
+    /// was recent. Null when the port is not one of ours, or nothing has failed on it lately.
+    /// </summary>
+    public string? RecentOpenFailure(int localPort)
+    {
+        if (!_lastOpenFailure.TryGetValue(localPort, out var failure)) return null;
+        if (DateTime.UtcNow - failure.At > FailureReasonTtl)
+        {
+            _lastOpenFailure.TryRemove(localPort, out _);
+            return null;
+        }
+        return failure.Reason;
+    }
+
     public void OnProxyOpenResult(ProxyOpenResult result)
     {
         if (_connections.TryGetValue(result.ConnectionId, out var connection))

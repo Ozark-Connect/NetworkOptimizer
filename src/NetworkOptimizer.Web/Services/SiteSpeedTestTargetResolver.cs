@@ -14,6 +14,11 @@ namespace NetworkOptimizer.Web.Services;
 public class SiteSpeedTestTargetResolver
 {
     /// <summary>The agent's nginx speed-test listener (self-signed https).</summary>
+    /// <summary>
+    /// Where an agent serves its LAN speed test page when it does not say otherwise. Agents announce
+    /// their port in the tunnel hello now; this is what agents predating that announcement serve,
+    /// and it is what the server assumed unconditionally before.
+    /// </summary>
     public const int AgentOpenSpeedTestPort = 3000;
 
     /// <summary>
@@ -38,17 +43,35 @@ public class SiteSpeedTestTargetResolver
     private readonly AgentEnrollmentService _agentEnrollment;
     private readonly ISystemSettingsService _settings;
     private readonly AgentOnGatewayDetector _onGatewayDetector;
+    private readonly AgentTunnelRegistry _tunnelRegistry;
+    private readonly SiteAgentCoverage _agentCoverage;
 
     public SiteSpeedTestTargetResolver(
         SiteContextService siteContext,
         AgentEnrollmentService agentEnrollment,
         ISystemSettingsService settings,
-        AgentOnGatewayDetector onGatewayDetector)
+        AgentOnGatewayDetector onGatewayDetector,
+        SiteAgentCoverage agentCoverage,
+        AgentTunnelRegistry tunnelRegistry)
     {
         _siteContext = siteContext;
         _agentEnrollment = agentEnrollment;
         _settings = settings;
         _onGatewayDetector = onGatewayDetector;
+        _agentCoverage = agentCoverage;
+        _tunnelRegistry = tunnelRegistry;
+    }
+
+    /// <summary>
+    /// The port the site's connected agent says it serves its speed test page on, or the historic
+    /// 3000 when it does not say. Several agents on one site are possible, so the first that
+    /// announces a port wins - they serve the same page and a site with two disagreeing agents has
+    /// a bigger problem than which one a link points at.
+    /// </summary>
+    private int AgentSpeedTestPortFor(string slug)
+    {
+        var announced = _tunnelRegistry.GetForSite(slug).FirstOrDefault(c => c.SpeedTestPort > 0);
+        return announced?.SpeedTestPort ?? AgentOpenSpeedTestPort;
     }
 
     /// <summary>
@@ -61,7 +84,10 @@ public class SiteSpeedTestTargetResolver
     /// </summary>
     public async Task<Result> ResolveAsync()
     {
-        if (_siteContext.IsDefault)
+        // The main site normally has no agent to point clients at - this server IS the site's
+        // speed test host. Once its agent covers the site, it is the host, exactly as on a
+        // secondary site.
+        if (_siteContext.IsDefault && !await _agentCoverage.CoversAsync(_siteContext.Slug))
             return new Result(null, null, null, UsesAgent: false, AgentOffline: false);
 
         var targetOverride = (await _settings.GetAsync(SystemSettingKeys.ClientSpeedTestTargetOverride))?.Trim();
@@ -74,10 +100,21 @@ public class SiteSpeedTestTargetResolver
         // wins (a separate box the operator knows about). When speed-test-capable
         // gateway installs arrive, replace this location check with the agent's
         // speed-test capability so the config can flow through.
-        if (string.IsNullOrEmpty(targetOverride) && agentLanIp != null
-            && await _onGatewayDetector.IsAgentOnGatewayAsync(_siteContext.Slug))
+        // The agent's own word first, where it gives one: an agent that says it serves no speed test
+        // has nothing to point clients at, whatever host it runs on - and an agent that says it DOES
+        // serve one is taken at its word even on a gateway, which is what a speed-test-capable
+        // gateway install needs. Only an agent that says nothing falls back to deciding by location.
+        var servesSpeedTest = _tunnelRegistry.GetForSite(_siteContext.Slug)
+            .Select(c => c.ServesSpeedTest)
+            .FirstOrDefault(v => v.HasValue);
+        // Location is still asked separately, because it is what the copy reports. An agent that
+        // simply serves no speed test is not necessarily on a gateway, and saying so would be wrong.
+        var onGateway = await _onGatewayDetector.IsAgentOnGatewayAsync(_siteContext.Slug);
+        var noSpeedTestHost = servesSpeedTest.HasValue ? !servesSpeedTest.Value : onGateway;
+
+        if (string.IsNullOrEmpty(targetOverride) && agentLanIp != null && noSpeedTestHost)
         {
-            return new Result(null, null, null, UsesAgent: false, AgentOffline: false, AgentOnGateway: true);
+            return new Result(null, null, null, UsesAgent: false, AgentOffline: false, AgentOnGateway: onGateway);
         }
 
         var effectiveTarget = !string.IsNullOrEmpty(targetOverride) ? targetOverride : agentLanIp;
@@ -93,7 +130,7 @@ public class SiteSpeedTestTargetResolver
         }
         else
         {
-            baseUrl = $"https://{effectiveTarget}:{AgentOpenSpeedTestPort}";
+            baseUrl = $"https://{effectiveTarget}:{AgentSpeedTestPortFor(_siteContext.Slug)}";
             host = effectiveTarget;
         }
 

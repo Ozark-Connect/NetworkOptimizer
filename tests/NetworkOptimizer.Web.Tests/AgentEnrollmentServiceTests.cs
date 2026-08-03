@@ -1,5 +1,6 @@
-﻿using FluentAssertions;
+using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Moq;
 using NetworkOptimizer.Storage.Models;
@@ -36,7 +37,11 @@ public class AgentEnrollmentServiceTests
             .UseInMemoryDatabase(databaseName: Guid.NewGuid().ToString())
             .Options;
         _factory = new TestDbFactory(options);
-        _service = new AgentEnrollmentService(_factory, _tunnelRegistry, new UnfilteredSiteAccess(), new Mock<ILogger<AgentEnrollmentService>>().Object);
+        // No service provider behind it: every coverage read fails closed to "the server still
+        // collects", which is what these tests assert against.
+        _service = new AgentEnrollmentService(_factory, _tunnelRegistry, new UnfilteredSiteAccess(),
+            new SiteAgentCoverage(new ServiceCollection().BuildServiceProvider()),
+            new Mock<ILogger<AgentEnrollmentService>>().Object);
     }
 
     private const string Slug = "lake-house";

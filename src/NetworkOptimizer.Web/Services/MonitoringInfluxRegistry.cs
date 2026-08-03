@@ -12,14 +12,16 @@ namespace NetworkOptimizer.Web.Services;
 /// the registry and pin GetDefault(). Same ownership pattern as
 /// SiteConnectionRegistry: the registry disposes what it creates.
 /// </summary>
-public class MonitoringInfluxRegistry : IAsyncDisposable
+public class MonitoringInfluxRegistry : IAsyncDisposable, ISiteScopedRegistry
 {
     private readonly IServiceProvider _serviceProvider;
+    private readonly ILogger<MonitoringInfluxRegistry> _logger;
     private readonly ConcurrentDictionary<string, MonitoringInfluxClient> _clients = new();
 
-    public MonitoringInfluxRegistry(IServiceProvider serviceProvider)
+    public MonitoringInfluxRegistry(IServiceProvider serviceProvider, ILogger<MonitoringInfluxRegistry> logger)
     {
         _serviceProvider = serviceProvider;
+        _logger = logger;
     }
 
     /// <summary>The Influx client for a site, created on first use.</summary>
@@ -39,12 +41,35 @@ public class MonitoringInfluxRegistry : IAsyncDisposable
     /// their connection from main at configure time, so reconfiguring only the default
     /// client would leave existing site clients on the stale connection until restart.
     /// Clients not yet created pick up the fresh settings on first use.
+    ///
+    /// Best-effort per client: reconfiguring reads that site's own database, so one site
+    /// whose database is unreadable must not abort the caller. This runs at the end of
+    /// InfluxDB provisioning, after the buckets and token already exist, and letting it
+    /// throw reported a failure for work that had in fact succeeded.
     /// </summary>
     public async Task ReconfigureAllAsync(CancellationToken ct = default)
     {
-        foreach (var client in _clients.Values)
-            await client.ReconfigureAsync(ct);
+        foreach (var (slug, client) in _clients)
+        {
+            try
+            {
+                await client.ReconfigureAsync(ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Could not reconfigure the InfluxDB client for site {Slug}", slug);
+            }
+        }
     }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// Teardown is deferred rather than done here on purpose: the site's ISP Health service and
+    /// collection agent hold this client, so disposing it while they are still registered turns
+    /// every later background pass into an ObjectDisposedException on its config lock.
+    /// </remarks>
+    public Func<ValueTask>? EvictSite(string slug)
+        => _clients.TryRemove(slug, out var client) ? () => client.DisposeOwnedAsync() : null;
 
     public async ValueTask DisposeAsync()
     {

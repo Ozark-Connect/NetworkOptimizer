@@ -109,6 +109,9 @@ public class AgentProbeResultSink
         MonitoringAlertRegistry alertRegistry,
         ICredentialProtectionService credentialProtection,
         MonitoringCollectionRegistry collectionRegistry,
+        SiteAgentCoverage agentCoverage,
+        AgentOnGatewayDetector onGatewayDetector,
+        IAgentEnrollmentService enrollment,
         ILogger<AgentProbeResultSink> logger)
     {
         _siteDbFactory = siteDbFactory;
@@ -120,13 +123,24 @@ public class AgentProbeResultSink
         _alertRegistry = alertRegistry;
         _credentialProtection = credentialProtection;
         _collectionRegistry = collectionRegistry;
+        _agentCoverage = agentCoverage;
+        _onGatewayDetector = onGatewayDetector;
+        _enrollment = enrollment;
         _logger = logger;
     }
 
     private readonly MonitoringCollectionRegistry _collectionRegistry;
+    private readonly SiteAgentCoverage _agentCoverage;
+    private readonly AgentOnGatewayDetector _onGatewayDetector;
+    private readonly IAgentEnrollmentService _enrollment;
 
-    /// <summary>Called once per connection after the hello exchange, and by the periodic refresh.</summary>
-    public async Task OnAgentConnectedAsync(AgentTunnelConnection connection, CancellationToken ct)
+    /// <summary>
+    /// Called once per connection after the hello exchange, and again by the periodic refresh.
+    /// <paramref name="initialConnect"/> separates the two: the console reconnect below belongs to a
+    /// genuine connect and must not run on every refresh, or each cycle re-pushes a config that is
+    /// already current.
+    /// </summary>
+    public async Task OnAgentConnectedAsync(AgentTunnelConnection connection, CancellationToken ct, bool initialConnect = false)
     {
         await PushProbeConfigAsync(connection, ct);
         await PushSnmpConfigAsync(connection, ct);
@@ -137,7 +151,8 @@ public class AgentProbeResultSink
         // before the tunnel is up, exhaust its short retry window, and stay
         // disconnected until a manual reconnect. Now that the tunnel is up,
         // reconnect it - fire-and-forget so we never block the tunnel read loop.
-        _ = ReconnectConsoleIfViaAgentAsync(connection);
+        if (initialConnect)
+            _ = ReconnectConsoleIfViaAgentAsync(connection);
     }
 
     /// <summary>
@@ -205,16 +220,30 @@ public class AgentProbeResultSink
                 return;
 
             var siteConnection = _siteConnections.GetFor(connection.SiteSlug);
-            if (siteConnection.IsConnected || !await siteConnection.IsConsoleViaAgentAsync())
-                return;
-            _logger.LogInformation(
-                "Agent tunnel up for site {Slug}; reconnecting its console via the tunnel", connection.SiteSlug);
-            await siteConnection.ReconnectAsync();
+            if (!siteConnection.IsConnected && await siteConnection.IsConsoleViaAgentAsync())
+            {
+                _logger.LogInformation(
+                    "Agent tunnel up for site {Slug}; reconnecting its console via the tunnel", connection.SiteSlug);
+                await siteConnection.ReconnectAsync();
+            }
 
-            // The initial SNMP push in OnAgentConnectedAsync was deferred because the
-            // console wasn't connected yet (it reaches the console through this same
-            // tunnel). Now that it's up, re-push so the agent gets the full device list
-            // immediately instead of waiting for the next periodic refresh.
+            // The initial SNMP push in OnAgentConnectedAsync was deferred because the console
+            // wasn't connected yet (it reaches the console through this same tunnel). Now that it
+            // is, re-push so the agent gets the full device list immediately instead of waiting for
+            // the next periodic refresh.
+            //
+            // Reached whether or not the console needed reconnecting here. It used to sit behind an
+            // early return that also covered "already connected" - the ordinary case after a server
+            // restart, since the console comes up on its own as soon as the tunnel does - so the
+            // push was skipped exactly when it was wanted and SNMP lagged probes by a full refresh
+            // cycle on every reconnect.
+            // ReconnectAsync returns once the console is ROUTED through the tunnel, not once it has
+            // authenticated - so IsConnected is still false for a moment afterwards and an
+            // immediate push defers for exactly the reason it was retried. Give it a short while to
+            // finish coming up; if it takes longer than this, the periodic refresh has it.
+            for (var i = 0; i < 10 && !siteConnection.IsConnected; i++)
+                await Task.Delay(TimeSpan.FromSeconds(1), CancellationToken.None);
+
             if (siteConnection.IsConnected)
                 await PushSnmpConfigAsync(connection, CancellationToken.None);
         }
@@ -257,9 +286,30 @@ public class AgentProbeResultSink
                 .ToListAsync(ct);
             var contextsById = await db.WanContexts.AsNoTracking().ToDictionaryAsync(c => c.Id, ct);
 
+            // An agent running ON the gateway cannot usefully probe it: the target is the box the
+            // probe runs on, so every reply is loopback - 0 ms and no loss - which reads as a
+            // perfectly healthy gateway precisely when it might not be. Skipped for this agent at
+            // push time rather than disabled in the database, so the target stays as the user left
+            // it and any other vantage keeps measuring it.
+            // The address comes from the detector, which already resolved it while deciding. Asking
+            // the enrollment service directly looked equivalent and was not: it is a gated service,
+            // this runs on the tunnel's background path with no caller context, and the gate threw -
+            // taking the whole push with it, so the site got no targets at all and its monitoring
+            // read as total loss.
+            var selfAddress = await _onGatewayDetector.IsAgentOnGatewayAsync(connection.SiteSlug)
+                ? _onGatewayDetector.LastKnownAgentIp(connection.SiteSlug)
+                : null;
+            var skippedSelf = 0;
+
             var config = new ProbeConfig();
             foreach (var target in targets)
             {
+                if (!string.IsNullOrEmpty(selfAddress)
+                    && string.Equals(target.Address, selfAddress, StringComparison.OrdinalIgnoreCase))
+                {
+                    skippedSelf++;
+                    continue;
+                }
                 // Targets in an agent-assigned WAN context go only to that agent
                 // (typically a probe-only instance bound behind the right WAN);
                 // unassigned targets go to every agent as extra vantage points.
@@ -281,8 +331,9 @@ public class AgentProbeResultSink
             }
 
             connection.TrySend(new ServerMessage { ProbeConfig = config });
-            _logger.LogInformation("Pushed {Count} probe target(s) to agent {Id} (site {Slug})",
-                config.Targets.Count, connection.AgentId, connection.SiteSlug);
+            _logger.LogInformation("Pushed {Count} probe target(s) to agent {Id} (site {Slug}){Skipped}",
+                config.Targets.Count, connection.AgentId, connection.SiteSlug,
+                skippedSelf > 0 ? $" - {skippedSelf} skipped: the agent runs on that target" : "");
         }
         catch (Exception ex)
         {
@@ -331,15 +382,17 @@ public class AgentProbeResultSink
     /// Builds and pushes the site's SNMP monitoring config: credentials from
     /// the site's MonitoringSettings, device list from the site's console
     /// connection, filtered and addressed by the same SnmpDeviceRules the
-    /// local collection agent uses. Default-site agents never get SNMP config
-    /// - the server's own collection agent already polls those devices.
+    /// local collection agent uses. A default-site agent gets SNMP config only when the site is
+    /// configured for its agent to cover it - otherwise the server's own collection agent is still
+    /// polling those devices and pushing a second poller would double every sample.
     /// </summary>
     public async Task PushSnmpConfigAsync(AgentTunnelConnection connection, CancellationToken ct)
     {
-        if (connection.SiteSlug == SiteManagementService.DefaultSiteSlug) return;
+        var isDefault = connection.SiteSlug == SiteManagementService.DefaultSiteSlug;
+        if (isDefault && !await _agentCoverage.CoversAsync(connection.SiteSlug)) return;
         try
         {
-            await using var db = _siteDbFactory.CreateForSite(connection.SiteSlug, isDefault: false);
+            await using var db = _siteDbFactory.CreateForSite(connection.SiteSlug, isDefault);
             var settings = await db.MonitoringSettings.AsNoTracking().FirstOrDefaultAsync(ct);
 
             // Before building the push, re-detect the SNMP config from the site's console

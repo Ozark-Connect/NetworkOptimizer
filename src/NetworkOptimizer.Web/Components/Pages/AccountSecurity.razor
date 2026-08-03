@@ -304,12 +304,27 @@
             _hasPassword = await Mfa.HasPasswordAsync(_user);
             _passkeys = await Passkeys.ListAsync(principal);
 
-            // The requirement, not how they arrived. Keyed on the query string alone, the guidance
-            // and the highlight vanished the moment someone reloaded or opened the page themselves -
-            // which is most of the times they will look at it while still owing a factor.
-            // The redirect that lands here carries setup=required, but the requirement itself is the
-            // thing worth asking about - it survives a reload and clears the moment a factor exists.
-            _roleRequiresMfa = Setup == "required" || await Mfa.RoleRequiresMfaAsync(_user);
+            // The requirement, not how they arrived. Asked of the role every time, so the guidance
+            // and the highlight survive a reload or someone opening the page themselves - which is
+            // most of the times they will look at it while still owing a factor.
+            //
+            // setup=required, which the sign-in and role-grant redirects carry, still counts on the
+            // FIRST pass: a caller may know the requirement before this page's own view of the roles
+            // does. It stops counting after that, because a query string cannot be revoked - someone
+            // sent here by a promotion to Operator and then put back to Viewer kept the URL, and so
+            // kept being told they owed a factor they no longer did. Once we have looked for
+            // ourselves and found no requirement, the stale parameter goes with it.
+            var roleRequires = await Mfa.RoleRequiresMfaAsync(_user);
+            _roleRequiresMfa = roleRequires || Setup == "required";
+
+            // Consume it. The parameter is a one-shot handoff from whoever sent the user here, not a
+            // standing fact, and it cannot be revoked while it sits in the address bar - someone
+            // promoted to Operator and then put back to Viewer kept the URL and kept being told they
+            // owed a factor. Dropping it after it has been read leaves the roles as the only lasting
+            // source, so the next load - and a role change reloads this page - reflects the change.
+            if (Setup == "required")
+                Navigation.NavigateTo(
+                    Navigation.GetUriWithQueryParameter("setup", (string?)null), replace: true);
 
             _passkeyIsOnlyWayIn = _passkeys.Count > 0
                 && !_mfaEnabled

@@ -410,4 +410,32 @@ public class ResultBufferTests
             File.Delete(path);
         }
     }
+
+    [Fact]
+    public void DropTail_removes_only_results_enqueued_inside_the_window()
+    {
+        var buffer = new ResultBuffer();
+        buffer.Enqueue(ProbeMessage("just-measured"));
+
+        // Everything just enqueued is inside a generous window, so it all goes.
+        var dropped = buffer.DropTail(TimeSpan.FromSeconds(5));
+
+        dropped.Should().Be(1);
+        buffer.Count.Should().Be(0);
+    }
+
+    [Fact]
+    public void DropTail_keeps_a_backlog_older_than_the_window()
+    {
+        // The case that makes this safe: a server outage leaves a long backlog, and only the last
+        // few seconds can have been corrupted by the stop. A count-based tail would eat real data.
+        var buffer = new ResultBuffer();
+        for (var i = 0; i < 50; i++)
+            buffer.Enqueue(ProbeMessage($"outage-{i}"));
+
+        var dropped = buffer.DropTail(TimeSpan.Zero);
+
+        dropped.Should().Be(0);
+        buffer.Count.Should().Be(50);
+    }
 }

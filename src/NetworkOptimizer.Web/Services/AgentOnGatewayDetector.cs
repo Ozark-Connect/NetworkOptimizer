@@ -40,6 +40,11 @@ public class AgentOnGatewayDetector
     private readonly NetworkOptimizer.Storage.Services.SiteDbContextFactory _siteDbFactory;
     private readonly ILogger<AgentOnGatewayDetector> _logger;
     private readonly ConcurrentDictionary<string, (bool OnGateway, DateTime At)> _cache = new();
+    // The agent address the last detection compared against the gateway's. Kept so callers that
+    // need it - anything asking "is this target the box the agent runs on" - can have it from here
+    // rather than asking the enrollment service again, which is gated and unusable from background
+    // work without a system scope.
+    private readonly ConcurrentDictionary<string, string> _agentIp = new();
     private readonly ConcurrentDictionary<string, Task> _refreshing = new();
 
     public AgentOnGatewayDetector(
@@ -102,6 +107,14 @@ public class AgentOnGatewayDetector
         return _cache.TryGetValue(siteSlug, out var fresh) && fresh.OnGateway;
     }
 
+    /// <summary>
+    /// The address the site's agent reported at the last detection, or null if none has completed.
+    /// Only meaningful alongside <see cref="IsAgentOnGatewayAsync"/> saying true, where it is the
+    /// gateway's own address - which is to say, the one target that agent must not probe.
+    /// </summary>
+    public string? LastKnownAgentIp(string siteSlug) =>
+        _agentIp.TryGetValue(siteSlug, out var ip) ? ip : null;
+
     /// <summary>One in-flight refresh per site; result lands in the cache, and first-time callers await the returned task.</summary>
     private Task StartOrJoinRefresh(string siteSlug) =>
         _refreshing.GetOrAdd(siteSlug, slug => Task.Run(async () =>
@@ -159,6 +172,7 @@ public class AgentOnGatewayDetector
 
         var onGateway = gatewayIps.Contains(agentIp!, StringComparer.OrdinalIgnoreCase);
         _cache[siteSlug] = (onGateway, DateTime.UtcNow);
+        _agentIp[siteSlug] = agentIp!;
         await PersistAsync(siteSlug, onGateway);
     }
 

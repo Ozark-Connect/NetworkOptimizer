@@ -19,8 +19,18 @@ namespace NetworkOptimizer.Agent;
 /// </summary>
 public sealed class SpeedTestServer : IAsyncDisposable
 {
-    /// <summary>Loopback port the relay binds; nginx proxies /api/public/speedtest/* here.</summary>
-    public const int RelayPort = 3001;
+    /// <summary>
+    /// Loopback port the relay binds; nginx proxies /api/public/speedtest/* here.
+    ///
+    /// Was 3001, which Grafana takes by default - and an agent sharing a host with Grafana had its
+    /// result posts proxied straight into Grafana, which answered 401. Loopback-only and internal,
+    /// so it is free to move somewhere nothing else wants: 24042 echoes the server's own 8042, sits
+    /// below the Linux ephemeral range so a boot-time bind cannot lose a race to an outbound
+    /// connection, and is registered to nothing. 18042 was the first pick and is out: UniFi OS
+    /// Server already listens on 18443, and neighbouring a product this runs alongside is the
+    /// mistake 3001 made.
+    /// </summary>
+    public const int RelayPort = 24042;
 
     /// <summary>One WAN speed-test server the /wan/ router can redirect to.</summary>
     public sealed record WanServerEntry(string ServerId, string Url);

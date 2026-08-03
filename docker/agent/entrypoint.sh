@@ -1,10 +1,29 @@
 #!/bin/sh
 # The agent container runs two processes: nginx (serves OpenSpeedTest + the
-# throughput-critical transfer legs on port 3000) and the .NET agent (the tunnel
-# plus the loopback results relay on 3001). nginx runs in the background; the
+# throughput-critical transfer legs on port 24443) and the .NET agent (the tunnel
+# plus the loopback results relay on 24042). nginx runs in the background; the
 # agent is the main process, so `docker stop` (SIGTERM to it) tears the container
 # down and nginx goes with it.
 set -e
+
+# Which port the page is served on. nginx and the agent must resolve this identically or the agent
+# announces a port nginx is not listening on: environment variable first, then whatever agent.json
+# records, then the image's own default. The config case matters on upgrade - an agent enrolled
+# before the port was configurable has 3000 written in its config and should keep serving it, rather
+# than being moved to a port its clients and firewall rules have never heard of. Deleting that line
+# from agent.json is all it takes to adopt the current default.
+# Start from the pristine config every boot: a restart reuses the container filesystem, so
+# editing the live file in place would make the first boot's choices permanent.
+cp /etc/nginx/netopt-speedtest-server.conf.template /etc/nginx/netopt-speedtest-server.conf
+
+PAGE_PORT="${AGENT_SPEEDTEST_PORT:-}"
+if [ -z "$PAGE_PORT" ] && [ -f /data/agent.json ]; then
+    PAGE_PORT=$(sed -n 's/.*"lanSpeedTestPort"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' /data/agent.json | head -1)
+fi
+if [ -n "$PAGE_PORT" ] && [ "$PAGE_PORT" != "24443" ]; then
+    sed -i "/listen/ s/24443/${PAGE_PORT}/" /etc/nginx/netopt-speedtest-server.conf
+    echo "entrypoint: LAN speed test page on port ${PAGE_PORT}"
+fi
 
 # Self-signed TLS opt-out (AGENT_SPEEDTEST_TLS=0): serve the speed test listener as
 # plain http instead - for sites already behind their own reverse proxy / TLS, or
@@ -17,7 +36,7 @@ if [ "${AGENT_SPEEDTEST_TLS:-1}" = "0" ]; then
         -e 's/^\([[:space:]]*listen[[:space:]][^;]*\) ssl\([^;]*;\)/\1\2/' \
         -e '/^[[:space:]]*ssl_/d' \
         /etc/nginx/netopt-speedtest-server.conf
-    echo "entrypoint: AGENT_SPEEDTEST_TLS=0 - LAN speed test serving plain http on 3000"
+    echo "entrypoint: AGENT_SPEEDTEST_TLS=0 - LAN speed test serving plain http on 24443"
 else
     # Generate a persisted self-signed cert for the LAN speed test's TLS listener if it
     # doesn't exist yet. TLS makes the OpenSpeedTest page a secure context so the browser

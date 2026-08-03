@@ -7,7 +7,7 @@ namespace NetworkOptimizer.Web.Services.Monitoring.RebootReason;
 /// samples; pages read the same instance for the reason behind a device's current boot. Same
 /// pattern as MonitoringLiveStatsRegistry: instances are in-memory caches, nothing to dispose.
 /// </summary>
-public class DeviceRebootRegistry
+public class DeviceRebootRegistry : ISiteScopedRegistry
 {
     private readonly IServiceProvider _serviceProvider;
     private readonly UniFiSshRegistry _deviceSshRegistry;
@@ -52,4 +52,11 @@ public class DeviceRebootRegistry
 
     /// <summary>The default site's tracker.</summary>
     public DeviceRebootTracker GetDefault() => GetFor(SiteManagementService.DefaultSiteSlug);
+
+    /// <inheritdoc />
+    public Func<ValueTask>? EvictSite(string slug)
+    {
+        _instances.TryRemove(slug, out _);
+        return null;
+    }
 }

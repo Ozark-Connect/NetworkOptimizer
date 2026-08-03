@@ -97,6 +97,8 @@ jobs:
           file: ./docker/agent/Dockerfile
           platforms: ${{ matrix.platform }}
           labels: ${{ steps.agent-meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ steps.version.outputs.version }}
           outputs: type=image,name=${{ env.REGISTRY }}/${{ env.AGENT_IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
           cache-from: type=gha,scope=agent-${{ env.PLATFORM_PAIR }}
           cache-to: type=gha,scope=agent-${{ env.PLATFORM_PAIR }},mode=max

@@ -99,6 +99,8 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
         await _enrollment.HeartbeatAsync(hello.AgentKey, hello.Version, hello.LanIp);
 
         var connection = _registry.Register(agent.Id, siteSlug, agent.Name);
+        connection.SpeedTestPort = hello.SpeedTestPort;
+        connection.ServesSpeedTest = hello.HasServesSpeedTest ? hello.ServesSpeedTest : null;
         _logger.LogInformation("Agent {Name} (id {Id}) opened tunnel for site {Slug}", agent.Name, agent.Id, siteSlug);
 
         // The pump and refresh loops must stop when the read loop ends for any
@@ -129,7 +131,7 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
             refreshTask = RefreshProbeConfigLoopAsync(connection, streamCts.Token);
             livenessTask = WatchLivenessAsync(connection, streamCts.Token);
 
-            await _probeResultSink.OnAgentConnectedAsync(connection, ct);
+            await _probeResultSink.OnAgentConnectedAsync(connection, ct, initialConnect: true);
 
             while (await requestStream.MoveNext(ct))
             {

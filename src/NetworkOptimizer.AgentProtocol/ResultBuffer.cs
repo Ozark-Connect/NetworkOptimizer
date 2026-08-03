@@ -163,6 +163,38 @@ public sealed class ResultBuffer
     /// instead of losing it with the process. Deliberately synchronous file
     /// I/O: the async-engine watchdog calls this while async I/O is wedged.
     /// </summary>
+    /// <summary>
+    /// Drops entries enqueued within <paramref name="window"/> of now, newest first, and reports how
+    /// many went.
+    ///
+    /// For the shutdown boundary. systemd delivers SIGTERM to the whole control group, so the ping
+    /// children die at the same instant the agent starts stopping - a burst in flight then completes
+    /// with fewer replies than it sent and looks exactly like real loss. The cancellation check on
+    /// the probe path catches the common case, but not the race where the result is built before the
+    /// flag is observed, and once built it is an ordinary unsent message that the spool faithfully
+    /// preserves and replays. A blip planted this way is indistinguishable from a genuine one after
+    /// the fact.
+    ///
+    /// Dropping by time rather than by count is what keeps this safe: a server outage can leave a
+    /// long backlog, and taking a fixed number of messages off the tail would eat real samples. Only
+    /// the last few seconds can straddle the stop.
+    /// </summary>
+    public int DropTail(TimeSpan window)
+    {
+        lock (_lock)
+        {
+            var cutoff = DateTime.UtcNow - window;
+            var dropped = 0;
+            while (_entries.Last is { } last && last.Value.EnqueuedUtc >= cutoff)
+            {
+                _bytes -= last.Value.SizeBytes;
+                _entries.RemoveLast();
+                dropped++;
+            }
+            return dropped;
+        }
+    }
+
     public void SaveTo(string path)
     {
         lock (_lock)

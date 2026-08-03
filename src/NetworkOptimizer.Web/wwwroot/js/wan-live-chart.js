@@ -6,9 +6,13 @@ import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 import * as flowData from './lan-flow-data.js?v=7';
 
 const HISTORY_MINUTES = 5;
-// Poll faster than the 5s SNMP fast tier so no sample is missed when the two
-// clocks drift out of phase; pollLive dedupes repeat reads via sampleTime.
+// Poll at twice the site's SNMP sample rate so no sample is missed when the two
+// clocks drift out of phase; pollLive dedupes repeat reads via sampleTime. The
+// rate is per-site and configurable, so it comes back with the chart data rather
+// than being assumed - at the 5s default tier this is the 2500ms it always was.
 const POLL_MS = 2500;
+const POLL_MS_MIN = 1000;
+const POLL_MS_MAX = 5000;
 // Window-scroll redraw cadence. At 250ms each step moves well under a pixel
 // on typical widths, so the chart slides instead of visibly ticking.
 const SCROLL_MS = 250;
@@ -33,6 +37,51 @@ let elId = null;
 let visHandler = null;
 let mountGen = 0;
 let lastSampleTime = 0;
+// Whether a LIVE poll has landed this mount. Separate from lastSampleTime, which history and
+// backfill points also advance - so on any site with stored history it is never 0 by the time the
+// first live sample arrives, and keying the re-phase off it did nothing.
+let seenLiveSample = false;
+// Wall-clock of the last accepted live sample, and how long a stall has to last before data coming
+// back counts as "started flowing again". Keyed on a GAP rather than on the first sample of a mount
+// because the case that matters is the server restarting under a tab that stays open all the way
+// through: the chart never remounts, so any per-mount flag is already set and never re-arms.
+// Comfortably longer than the poll interval so ordinary jitter or one failed poll is not a resume.
+let lastLiveAt = 0;
+const RESUME_AFTER_MS = 20000;
+// This site's SNMP sample interval and the poll cadence derived from it. Every
+// chart fetch reports the interval, so a settings change is picked up on the next
+// backfill without a reload. An explicit pollMs from the caller still wins.
+let pollMs = POLL_MS;
+let pollMsOverride = null;
+
+// Adopt the interval a chart-data response reported. Restarts the live timer when
+// the cadence actually moved, so a site polling faster than the chart does stops
+// having samples fall between reads.
+function applySampleInterval(data) {
+    const seconds = data?.sampleIntervalSeconds;
+    if (!seconds || seconds <= 0) return;
+    const next = Math.min(POLL_MS_MAX, Math.max(POLL_MS_MIN, Math.round(seconds * 1000 / 2)));
+    if (next === pollMs) return;
+    dbg('sample interval changed', { seconds, pollMs: next });
+    pollMs = next;
+    if (pollTimer && !pollMsOverride) {
+        clearInterval(pollTimer);
+        pollTimer = setInterval(pollLive, pollMs);
+    }
+}
+
+// Opt-in tracing for the backfill cadence, which is otherwise invisible: it is all client side and
+// the interesting part is WHEN each fill runs relative to the first live sample. Enable with
+//   localStorage.setItem('no-wan-chart-debug', '1')
+// and reload; clear it with removeItem. Off by default so nothing ships noise to users.
+const CHART_DEBUG = (() => {
+    try { return localStorage.getItem('no-wan-chart-debug') === '1'; } catch { return false; }
+})();
+const mountedAt = () => (chartMountedAt ? ((Date.now() - chartMountedAt) / 1000).toFixed(1) + 's' : 'n/a');
+let chartMountedAt = 0;
+function dbg(what, detail) {
+    if (CHART_DEBUG) console.log(`[wan-chart +${mountedAt()}] ${what}`, detail ?? '');
+}
 // Historic playback interpolation state (see seekTime).
 let histTimer = null;
 let histAt = 0;
@@ -363,8 +412,9 @@ async function loadHistory() {
         const resp = await fetch(
             `/api/monitoring/wan-live-chart-data?from=${from.toISOString()}&to=${to.toISOString()}`,
             { credentials: 'same-origin' });
-        if (!resp.ok) return;
+        if (!resp.ok) return 0;
         const data = await resp.json();
+        applySampleInterval(data);
         buffer = (data.points || []).map(p => ({
             time: new Date(p.time).getTime(),
             download: p.downloadBps,
@@ -398,7 +448,23 @@ async function pollLive() {
         // the line double back on itself.
         const sampleTime = d.sampleTime ? new Date(d.sampleTime).getTime() : Date.now();
         if (sampleTime <= lastSampleTime) return;
+        // First sample of this mount: data has just started flowing (an agent coming up, a console
+        // reconnecting). The backfill cadence was started at mount against a site that had nothing
+        // to backfill, so its next tick sits at an arbitrary point in the 60s window. Restart it
+        // from here so the first fill happens now rather than up to a minute into live data.
+        const now = Date.now();
+        const stalledFor = lastLiveAt ? now - lastLiveAt : Infinity;
+        const dataJustStarted = !seenLiveSample || stalledFor > RESUME_AFTER_MS;
+        seenLiveSample = true;
+        lastLiveAt = now;
         lastSampleTime = sampleTime;
+        if (dataJustStarted) {
+            dbg('live data started flowing', {
+                stalledForSec: stalledFor === Infinity ? 'first' : (stalledFor / 1000).toFixed(1),
+                sampleTime: new Date(sampleTime).toISOString(),
+            });
+            restartBackfill();
+        }
         const cutoff = Date.now() - HISTORY_MINUTES * 60000;
         buffer.push({
             time: sampleTime,
@@ -417,8 +483,60 @@ async function pollLive() {
 // start) show up. Live mode + foreground only. The newest live samples - which
 // can be ahead of Influx ingestion - are kept ahead of the re-pulled history so
 // the live edge never flickers back.
+// Runs a fill now and re-phases the 60s cadence to this moment. Only meaningful while mounted;
+// pause() clears the timer and a later mount starts its own.
+// Data starting to flow does not mean the history is queryable yet: the latency line appears first,
+// SNMP rates a couple of seconds later, and the server needs a moment more before a fill returns
+// anything. Firing one fill at that instant returns nothing and leaves the next attempt a full
+// BACKFILL_MS away, which is why this felt unchanged. Run a short burst of closely spaced fills
+// instead, then settle back to the normal cadence - whenever the data lands, a fill is at most
+// CATCHUP_MS behind it.
+const CATCHUP_MS = 10000;
+const CATCHUP_TRIES = 6;
+let catchUpLeft = 0;
+
+async function catchUpTick() {
+    // Stop as soon as a fill actually returns something: the burst exists only to bridge the wait
+    // until the server has the window queryable, and once it does there is nothing left to catch up
+    // on. Normally that is a single extra fill, not the whole burst - each one re-pulls the entire
+    // history window, so running them when they are not needed is pure waste.
+    const got = await backfillHistory();
+    if (!backfillTimer) return;
+    if (got > 0 || --catchUpLeft <= 0) {
+        dbg(got > 0 ? 'caught up - back to the normal cadence' : 'catch-up exhausted - normal cadence',
+            { fillsLeftUnused: Math.max(catchUpLeft, 0) });
+        catchUpLeft = 0;
+        clearInterval(backfillTimer);
+        backfillTimer = setInterval(backfillHistory, BACKFILL_MS);
+    }
+}
+
+// Arms the fills in catch-up mode. Called wherever polling starts, so it cannot depend on the
+// first live sample arriving after the timer exists - it did not, and the trigger was wasted on a
+// stale sample served before the agent had even connected.
+function startBackfillCatchUp() {
+    if (backfillTimer) clearInterval(backfillTimer);
+    dbg(`backfill armed - ${CATCHUP_TRIES} fills every ${CATCHUP_MS / 1000}s, then ${BACKFILL_MS / 1000}s`);
+    catchUpLeft = CATCHUP_TRIES;
+    backfillTimer = setInterval(catchUpTick, CATCHUP_MS);
+}
+
+// Live data resuming after a stall re-arms the same burst: the history for the gap only becomes
+// queryable once the server catches up, which is after the samples themselves start arriving.
+function restartBackfill() {
+    if (!backfillTimer) {
+        dbg('restartBackfill skipped - not polling');
+        return;
+    }
+    startBackfillCatchUp();
+}
+
 async function backfillHistory() {
-    if (!chart || !pollTimer || document.hidden) return;
+    if (!chart || !pollTimer || document.hidden) {
+        dbg('backfill skipped', { chart: !!chart, polling: !!pollTimer, hidden: document.hidden });
+        return 0;
+    }
+    const startedAt = Date.now();
     const gen = mountGen;
     const to = new Date();
     const from = new Date(to.getTime() - HISTORY_MINUTES * 60000);
@@ -429,6 +547,7 @@ async function backfillHistory() {
             { credentials: 'same-origin' });
         if (!resp.ok) return;
         const data = await resp.json();
+        applySampleInterval(data);
         points = (data.points || []).map(p => ({
             time: new Date(p.time).getTime(),
             download: p.downloadBps,
@@ -436,10 +555,17 @@ async function backfillHistory() {
             rtt: p.rttMs,
             loss: p.lossPercent ?? 0,
         }));
-    } catch { return; }
+    } catch { return 0; }
     // Bail if the mount changed or we left live mode while fetching.
-    if (gen !== mountGen || !pollTimer) return;
+    if (gen !== mountGen || !pollTimer) return 0;
     const newestHist = points.length ? points[points.length - 1].time : 0;
+    // The number that matters when the fill looks like it did nothing: zero points means the fill
+    // ran BEFORE the server had that window queryable, so the data arrives on the next tick.
+    dbg('backfill returned', {
+        points: points.length,
+        newestHist: newestHist ? new Date(newestHist).toISOString() : null,
+        tookMs: Date.now() - startedAt,
+    });
     const liveTail = buffer.filter(p => p.time > newestHist);
     const cutoff = Date.now() - HISTORY_MINUTES * 60000;
     buffer = points.concat(liveTail).filter(p => p.time >= cutoff).sort((a, b) => a.time - b.time);
@@ -447,6 +573,7 @@ async function backfillHistory() {
         if (p.time > lastSampleTime) lastSampleTime = p.time;
     }
     updateChart();
+    return points.length;
 }
 
 // Upper-left mode cluster: play/pause + Historic badge, shown only while the
@@ -517,6 +644,10 @@ export async function mount(containerId, opts) {
     removeMouseTracking();
     buffer = [];
     lastSampleTime = 0;
+    seenLiveSample = false;
+    lastLiveAt = 0;
+    chartMountedAt = Date.now();
+    dbg('mount', { backfillEverySec: BACKFILL_MS / 1000 });
     const gen = ++mountGen;
     elId = containerId;
     const el = document.getElementById(containerId);
@@ -548,11 +679,12 @@ export async function mount(containerId, opts) {
     await pollLive();
     if (gen !== mountGen) return;
     updateChart();
-    const interval = opts?.pollMs || POLL_MS;
+    pollMsOverride = opts?.pollMs || null;
+    const interval = pollMsOverride || pollMs;
 
     pollTimer = setInterval(pollLive, interval);
     scrollTimer = setInterval(updateChart, SCROLL_MS);
-    backfillTimer = setInterval(backfillHistory, BACKFILL_MS);
+    startBackfillCatchUp();
 
     if (visHandler) document.removeEventListener('visibilitychange', visHandler);
     visHandler = async () => {
@@ -587,9 +719,9 @@ export function pause() {
 
 export function resume() {
     if (!chart || pollTimer) return;
-    pollTimer = setInterval(pollLive, POLL_MS);
+    pollTimer = setInterval(pollLive, pollMsOverride || pollMs);
     scrollTimer = setInterval(updateChart, SCROLL_MS);
-    backfillTimer = setInterval(backfillHistory, BACKFILL_MS);
+    startBackfillCatchUp();
 }
 
 // Render the historic view at a given playhead time from the current buffer.
@@ -668,9 +800,9 @@ export async function seekTime(isoTimestamp) {
         await loadHistory();
         if (liveGen !== seekGen) return; // seeked again while loading
         updateChart();
-        pollTimer = setInterval(pollLive, POLL_MS);
+        pollTimer = setInterval(pollLive, pollMsOverride || pollMs);
         scrollTimer = setInterval(updateChart, SCROLL_MS);
-        backfillTimer = setInterval(backfillHistory, BACKFILL_MS);
+        startBackfillCatchUp();
         return;
     }
     // Historic mode: stop polling, fetch window centered on timestamp
@@ -696,6 +828,7 @@ export async function seekTime(isoTimestamp) {
         if (!resp.ok) return;
         const data = await resp.json();
         if (gen !== seekGen) return; // a newer seek (or return to live) superseded this one
+        applySampleInterval(data);
         buffer = (data.points || []).map(p => ({
             time: new Date(p.time).getTime(),
             download: p.downloadBps,
