@@ -2309,8 +2309,11 @@ public class UpstreamTracerService
         }
         foreach (var hop in State.AccessHops.Where(h => !h.Enabled))
         {
-            var existing = await db.MonitoringTargets.FirstOrDefaultAsync(t => t.Address == hop.Address, ct);
-            if (existing != null && OwnsTargetRow(existing.WanInterface, wanInterface))
+            // With per-WAN twin rows an address can have several rows; pause only the one this
+            // WAN owns (another WAN's row - and its measuring - is that WAN's to manage).
+            var existing = (await db.MonitoringTargets.Where(t => t.Address == hop.Address).ToListAsync(ct))
+                .FirstOrDefault(t => OwnsTargetRow(t.WanInterface, wanInterface));
+            if (existing != null)
             {
                 existing.Enabled = false;
                 existing.Name = hop.Label;
@@ -2336,8 +2339,10 @@ public class UpstreamTracerService
             }
             var addr = transit.HopAddress ?? transit.PathProxyTarget;
             if (string.IsNullOrEmpty(addr)) continue;
-            var existing = await db.MonitoringTargets.FirstOrDefaultAsync(t => t.Address == addr, ct);
-            if (existing != null && OwnsTargetRow(existing.WanInterface, wanInterface))
+            // Same per-WAN row selection as the access-hop pause above.
+            var existing = (await db.MonitoringTargets.Where(t => t.Address == addr).ToListAsync(ct))
+                .FirstOrDefault(t => OwnsTargetRow(t.WanInterface, wanInterface));
+            if (existing != null)
             {
                 existing.Enabled = false;
                 existing.Name = transit.Label ?? transit.AsnName;
@@ -2530,18 +2535,31 @@ public class UpstreamTracerService
 
     /// <summary>
     /// Whether this run may write to an existing target row. A row already homed on a DIFFERENT
-    /// WAN belongs to that WAN's discovery: MonitoringTarget.TargetId is unique, so a path-end
-    /// both WANs reach (an anycast DNS probe, an AWS regional) is one shared row, and letting
-    /// each run re-home it would have the two trading it back and forth every cycle - and would
-    /// let one WAN's run pause a target the other WAN is measuring. A row with no WAN yet is
-    /// unclaimed and adoptable, which is how every pre-existing row behaves on a single-WAN
-    /// install: there, this is always true and nothing changes.
+    /// WAN belongs to that WAN's discovery: letting each run re-home it would have the two
+    /// trading it back and forth every cycle - and would let one WAN's run pause a target the
+    /// other WAN is measuring. A run that finds an address claimed by another WAN creates its
+    /// OWN row for it instead (see <see cref="WanQualifiedTargetId"/>), so the same host is
+    /// probed from every WAN that discovers it and each WAN's series stay separable. A row with
+    /// no WAN yet is unclaimed and adoptable, which is how every pre-existing row behaves on a
+    /// single-WAN install: there, this is always true and nothing changes.
     /// </summary>
     /// <param name="rowWanInterface">The WAN currently stamped on the row, if any.</param>
     /// <param name="wanInterface">The WAN this discovery run is committing.</param>
     internal static bool OwnsTargetRow(string? rowWanInterface, string wanInterface)
         => string.IsNullOrEmpty(rowWanInterface)
            || string.Equals(rowWanInterface, wanInterface, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The WAN-qualified target id for this WAN's twin of a host another WAN's discovery already
+    /// claimed. MonitoringTarget.TargetId is unique (and is the Influx target_id tag), so a host
+    /// reached from several WANs - a core resolver, a shared ISP hop - gets one row PER WAN: the
+    /// first WAN keeps the base id (existing installs and their history unchanged), every later
+    /// WAN gets "{baseId}@{wanKey}". Distinct ids keep result routing and the per-target Influx
+    /// series unambiguous with zero read-side cost; cross-WAN "same host" linkage for comparison
+    /// views is by <see cref="MonitoringTarget.Address"/> (twins share it).
+    /// </summary>
+    internal static string WanQualifiedTargetId(string baseTargetId, string wanInterface)
+        => $"{baseTargetId}@{wanInterface.ToLowerInvariant()}";
 
     /// <summary>
     /// Creates or re-validates the monitoring target for a discovered access hop, stamped with
@@ -2568,13 +2586,23 @@ public class UpstreamTracerService
             return;
         }
 
-        var existing = await db.MonitoringTargets.FirstOrDefaultAsync(t => t.TargetId == hop.TargetId, ct);
-        existing ??= await db.MonitoringTargets.FirstOrDefaultAsync(t => t.Address == hop.Address, ct);
+        // This WAN's own row for the hop: the base id where this WAN owns it (or it is
+        // unclaimed), this WAN's twin, or any row for the address this WAN owns. When the
+        // address is claimed by ANOTHER WAN, this run creates its own WAN-qualified twin so
+        // the host is probed from both WANs with separable series (see WanQualifiedTargetId).
+        var twinId = WanQualifiedTargetId(hop.TargetId, wanInterface);
+        var rows = await db.MonitoringTargets
+            .Where(t => t.TargetId == hop.TargetId || t.TargetId == twinId || t.Address == hop.Address)
+            .ToListAsync(ct);
+        var existing = rows.FirstOrDefault(t => t.TargetId == hop.TargetId && OwnsTargetRow(t.WanInterface, wanInterface))
+            ?? rows.FirstOrDefault(t => t.TargetId == twinId)
+            ?? rows.FirstOrDefault(t => OwnsTargetRow(t.WanInterface, wanInterface));
+        var claimedByOtherWan = existing == null && rows.Count > 0;
         if (existing == null)
         {
             db.MonitoringTargets.Add(new MonitoringTarget
             {
-                TargetId = hop.TargetId,
+                TargetId = claimedByOtherWan ? twinId : hop.TargetId,
                 Name = hop.Label,
                 Address = hop.Address,
                 ProbeMode = hop.RespondedTo,
@@ -2598,10 +2626,6 @@ public class UpstreamTracerService
         }
         else
         {
-            // A row homed on another WAN is that WAN's to maintain - re-enabling and renaming it
-            // here would have the two runs fighting over one shared path-end every cycle.
-            if (!OwnsTargetRow(existing.WanInterface, wanInterface)) return;
-
             // Re-validation: keep target_id stable, update mode if it changed (history
             // preservation per locked decision 6b). Backfill ASN fields whenever a
             // current run resolves them - rows committed before the GeoLite2 fix
@@ -2641,14 +2665,22 @@ public class UpstreamTracerService
             : MonitoringTargetType.Transit;
 
         var address = transit.HopAddress ?? transit.PathProxyTarget;
-        var existing = await db.MonitoringTargets.FirstOrDefaultAsync(t => t.TargetId == transit.TargetId, ct);
-        if (existing == null && !string.IsNullOrEmpty(address))
-            existing = await db.MonitoringTargets.FirstOrDefaultAsync(t => t.Address == address, ct);
+        // Same twin rule as UpsertTargetAsync: a host another WAN's discovery already claimed
+        // gets this WAN's own WAN-qualified row, so both WANs probe it with separable series.
+        var twinId = WanQualifiedTargetId(transit.TargetId, wanInterface);
+        var rows = await db.MonitoringTargets
+            .Where(t => t.TargetId == transit.TargetId || t.TargetId == twinId
+                || (address != null && t.Address == address))
+            .ToListAsync(ct);
+        var existing = rows.FirstOrDefault(t => t.TargetId == transit.TargetId && OwnsTargetRow(t.WanInterface, wanInterface))
+            ?? rows.FirstOrDefault(t => t.TargetId == twinId)
+            ?? rows.FirstOrDefault(t => OwnsTargetRow(t.WanInterface, wanInterface));
+        var claimedByOtherWan = existing == null && rows.Count > 0;
         if (existing == null)
         {
             db.MonitoringTargets.Add(new MonitoringTarget
             {
-                TargetId = transit.TargetId,
+                TargetId = claimedByOtherWan ? twinId : transit.TargetId,
                 Name = transit.Label ?? transit.AsnName,
                 Address = transit.HopAddress ?? transit.PathProxyTarget ?? "0.0.0.0",
                 ProbeMode = transit.RespondedTo ?? NetworkOptimizer.Core.Enums.ProbeMode.Icmp,
@@ -2671,9 +2703,6 @@ public class UpstreamTracerService
         }
         else
         {
-            // Another WAN's row: leave it to that WAN's run (see OwnsTargetRow).
-            if (!OwnsTargetRow(existing.WanInterface, wanInterface)) return;
-
             existing.Enabled = enabled;
             existing.Name = transit.Label ?? transit.AsnName;
             existing.Address = transit.HopAddress ?? transit.PathProxyTarget ?? existing.Address;

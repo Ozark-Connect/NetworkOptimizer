@@ -129,7 +129,7 @@ public class FlakyTargetService
             Dictionary<string, List<MonitoringInfluxClient.LatencySeriesPoint>> series;
             try
             {
-                series = await _influx.QueryLatencyDetailByTargetTypeAsync(type, from, to, binSize, ct);
+                series = await _influx.QueryLatencyDetailByTargetTypeAsync(type, from, to, binSize, ct: ct);
             }
             catch (Exception ex)
             {
