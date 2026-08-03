@@ -1,4 +1,3 @@
-@using NetworkOptimizer.Core.Helpers
 @using NetworkOptimizer.Core.Interfaces
 @using NetworkOptimizer.Storage.Models
 @using NetworkOptimizer.Web.Services
@@ -75,7 +74,7 @@
             <div class="form-group">
                 <div class="input-with-button">
                     <input type="text" id="site-name-input" class="form-control" @bind="_name" @bind:event="oninput"
-                           @onkeydown="SiteNameKeyDownAsync"
+                           @bind:after="UpdateSlugPreviewAsync" @onkeydown="SiteNameKeyDownAsync"
                            placeholder="Site name (e.g. Lake House)" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
                     <button type="button" class="btn btn-primary btn-sm" @onclick="CreateSiteAsync"
                             disabled="@(_busy || string.IsNullOrWhiteSpace(_name))">
@@ -89,9 +88,9 @@
                         }
                     </button>
                 </div>
-                @if (!string.IsNullOrWhiteSpace(_name))
+                @if (!string.IsNullOrWhiteSpace(_slugPreview))
                 {
-                    <small class="form-help">Site ID: <code>@StringUtilities.ToSlug(_name)</code> - permanent identifier used for the site's database file, InfluxDB buckets, and agent configuration.</small>
+                    <small class="form-help">Site ID: <code>@_slugPreview</code> - permanent identifier used for the site's database file, InfluxDB buckets, and agent configuration.</small>
                 }
             </div>
         }
@@ -322,6 +321,7 @@
     private bool _busy;
     private Site? _site;
     private string _name = "";
+    private string _slugPreview = "";
     private string _message = "";
     private string _messageClass = "";
 
@@ -359,6 +359,28 @@
         _message = "";
         _messageClass = "";
         StateHasChanged();
+    }
+
+    /// <summary>
+    /// Asks the service what slug this name would actually get, rather than slugging the name
+    /// here: the answer depends on what is already taken, so a name that collides with an
+    /// existing site or with the reserved default slug gets its "-2" suffix shown up front
+    /// instead of surprising the user after the site is created.
+    /// </summary>
+    private async Task UpdateSlugPreviewAsync()
+    {
+        var name = _name;
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            _slugPreview = "";
+            return;
+        }
+
+        var preview = await SiteManagement.PreviewSlugAsync(name);
+        // Keystrokes can resolve out of order; a stale answer would show a slug for a
+        // name the field no longer holds.
+        if (name == _name)
+            _slugPreview = preview;
     }
 
     /// <summary>
@@ -640,6 +662,7 @@
         _step = 1;
         _site = null;
         _name = "";
+        _slugPreview = "";
         _consoleUrl = "";
         _username = "";
         _password = "";
