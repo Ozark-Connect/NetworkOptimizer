@@ -43,6 +43,15 @@ public class LocalProbeExecutor : IProbeExecutor
 
     public ProbeVantage Vantage => ProbeVantage.Server;
 
+    /// <summary>
+    /// Whether probes on this host can be bound to a source address or interface.
+    /// Binding rides on the native ping binary's source options, so it is exactly
+    /// the platforms where <see cref="NativePingAsync"/> is the ping path: .NET's
+    /// managed Ping cannot bind at all. Agents announce this in their hello so the
+    /// server only offers a bind mechanism the agent can actually honor.
+    /// </summary>
+    public static bool SupportsSourceBinding => !OperatingSystem.IsWindows();
+
     public async Task<ProbeCapability> GetCapabilityAsync(CancellationToken ct = default)
     {
         if (_capability != null) return _capability;
@@ -122,7 +131,7 @@ public class LocalProbeExecutor : IProbeExecutor
         // ("ping" says 0.2 ms, dashboard says 1.5 ms). Windows ping has different output
         // and gives less useful data, so the managed Ping + Stopwatch path is the
         // Windows MSI fallback.
-        if (!OperatingSystem.IsWindows())
+        if (SupportsSourceBinding)
         {
             return await NativePingAsync(target, count, perPingTimeout ?? TimeSpan.FromSeconds(2), ct);
         }
@@ -300,16 +309,19 @@ public class LocalProbeExecutor : IProbeExecutor
             using var tcp = new TcpClient();
             if (!string.IsNullOrEmpty(target.SourceInterface))
             {
-                // TCP source binding only works with an address (SO_BINDTODEVICE
-                // for interface names needs CAP_NET_RAW; not worth it here).
-                if (!System.Net.IPAddress.TryParse(target.SourceInterface, out var sourceIp))
+                // TCP source binding takes an address, not a device (SO_BINDTODEVICE
+                // for interface names needs CAP_NET_RAW), so an interface name is
+                // resolved to its current address here rather than at push time: a
+                // DHCP or PPPoE WAN moves, and a stale address binds nothing.
+                var (sourceIp, error) = ResolveTcpBindAddress(target.SourceInterface, LookupInterfaceIPv4);
+                if (sourceIp == null)
                 {
                     return new TcpProbeResult
                     {
                         Target = target,
                         Vantage = Vantage,
                         Connected = false,
-                        ErrorMessage = $"TCP probes need an IP address as the probe source, got '{target.SourceInterface}'",
+                        ErrorMessage = error,
                         Timestamp = DateTime.UtcNow
                     };
                 }
@@ -523,6 +535,52 @@ public class LocalProbeExecutor : IProbeExecutor
     /// The probe source goes into a process argument, so restrict it to the
     /// characters valid in IPv4/IPv6 addresses and interface names.
     /// </summary>
+    /// <summary>
+    /// Turns a probe source value into the address a TCP socket can bind to: an IP
+    /// literal is taken as-is, an interface name is resolved to that interface's
+    /// current IPv4 address through <paramref name="interfaceAddresses"/>.
+    ///
+    /// An interface with no IPv4 address returns an error rather than a null bind.
+    /// Probing unbound would leave by the default route and record another WAN's
+    /// latency under this one's name, which reads as data rather than as a failure.
+    /// </summary>
+    /// <param name="source">Source IP or interface name from the WAN context.</param>
+    /// <param name="interfaceAddresses">Looks up an interface's addresses by name; empty when it has none or does not exist.</param>
+    /// <returns>The address to bind, or null with the reason the probe cannot run.</returns>
+    internal static (System.Net.IPAddress? Address, string? Error) ResolveTcpBindAddress(
+        string source,
+        Func<string, IReadOnlyList<System.Net.IPAddress>> interfaceAddresses)
+    {
+        if (System.Net.IPAddress.TryParse(source, out var literal))
+            return (literal, null);
+
+        if (!IsSafeSourceValue(source))
+            return (null, $"Invalid probe source '{source}'");
+
+        var addresses = interfaceAddresses(source);
+        var ipv4 = addresses.FirstOrDefault(a => a.AddressFamily == AddressFamily.InterNetwork);
+        if (ipv4 != null)
+            return (ipv4, null);
+
+        return (null, $"Interface '{source}' has no IPv4 address to bind the TCP probe to");
+    }
+
+    /// <summary>Current unicast IPv4/IPv6 addresses of a local interface by name; empty when there is no such interface.</summary>
+    private static IReadOnlyList<System.Net.IPAddress> LookupInterfaceIPv4(string interfaceName)
+    {
+        try
+        {
+            var nic = NetworkInterface.GetAllNetworkInterfaces()
+                .FirstOrDefault(n => string.Equals(n.Name, interfaceName, StringComparison.OrdinalIgnoreCase));
+            if (nic == null) return Array.Empty<System.Net.IPAddress>();
+            return nic.GetIPProperties().UnicastAddresses.Select(a => a.Address).ToList();
+        }
+        catch (NetworkInformationException)
+        {
+            return Array.Empty<System.Net.IPAddress>();
+        }
+    }
+
     private static bool IsSafeSourceValue(string value) =>
         value.Length <= 64 && value.All(c => char.IsAsciiLetterOrDigit(c) || c is '.' or ':' or '-' or '_' or '%');
 

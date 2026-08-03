@@ -101,6 +101,8 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
         var connection = _registry.Register(agent.Id, siteSlug, agent.Name);
         connection.SpeedTestPort = hello.SpeedTestPort;
         connection.ServesSpeedTest = hello.HasServesSpeedTest ? hello.ServesSpeedTest : null;
+        connection.SupportsSourceBind = hello.HasSupportsSourceBind ? hello.SupportsSourceBind : null;
+        connection.LanIp = string.IsNullOrWhiteSpace(hello.LanIp) ? null : hello.LanIp.Trim();
         _logger.LogInformation("Agent {Name} (id {Id}) opened tunnel for site {Slug}", agent.Name, agent.Id, siteSlug);
 
         // The pump and refresh loops must stop when the read loop ends for any

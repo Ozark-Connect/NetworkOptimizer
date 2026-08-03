@@ -142,6 +142,12 @@ message AgentHello {
   // absent and the server falls back to deciding for itself, while a gateway
   // install answers a definite no without being guessed at by its location.
   optional bool serves_speed_test = 5;
+  // Whether this agent can bind a probe to a source address or interface, which
+  // needs the native ping binary (Linux/macOS). Explicitly optional for the same
+  // reason as above: an agent predating this leaves it absent, and the server
+  // reads "did not say" as "do not offer interface binding" rather than guessing
+  // a capability whose absence fails every probe that relies on it.
+  optional bool supports_source_bind = 6;
 }
 
 message ServerHello {
