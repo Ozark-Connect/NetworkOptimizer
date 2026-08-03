@@ -425,9 +425,11 @@ optimizer.example.com {
 location /networkoptimizer.agent.v1.AgentTunnel/ {
     grpc_pass grpcs://127.0.0.1:8043;
     grpc_ssl_verify off;
+    grpc_set_header Host $host;
 }
 location / {
     proxy_pass http://127.0.0.1:8042;
+    proxy_set_header Host $host;
 }
 ```
 
