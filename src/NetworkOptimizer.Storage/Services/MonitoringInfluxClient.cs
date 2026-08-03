@@ -534,7 +534,9 @@ public class MonitoringInfluxClient : IAsyncDisposable
         if (rttMaxMs.HasValue) point = point.Field("rtt_max_ms", rttMaxMs.Value);
         if (jitterMs.HasValue) point = point.Field("jitter_ms", jitterMs.Value);
         // Multi-WAN context tag, emitted only for non-default contexts so the
-        // schema stays additive-only: single-WAN installs never see it.
+        // schema stays additive-only: single-WAN installs never see it. The value
+        // is the context's UniFi WAN key where it has one (WanContext.InfluxWanTag),
+        // so renaming a context does not orphan its own history under the old tag.
         if (!string.IsNullOrEmpty(wanContext)) point = point.Tag("wan", wanContext);
 
         Enqueue(point, longterm: false);

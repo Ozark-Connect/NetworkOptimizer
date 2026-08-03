@@ -1518,7 +1518,7 @@ public class MonitoringCollectionAgent : BackgroundService
                 sent: ping.Sent,
                 received: ping.Received,
                 timestamp: ping.Timestamp,
-                wanContext: wanContext?.Name);
+                wanContext: wanContext?.InfluxWanTag);
 
             // Surface fabric probe results on the dashboard's device cards (5.6). Other
             // target types (WAN, transit) feed cloud nodes on the 3D map; the per-device
