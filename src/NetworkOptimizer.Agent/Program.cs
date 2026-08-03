@@ -212,6 +212,11 @@ Task? watchdogTask = null;
 var spoolPath = Path.Combine(
     Path.GetDirectoryName(Path.GetFullPath(configPath)) ?? ".", "result-spool.bin");
 
+// How far back from a stop a result may have been corrupted by it: the longest a ping burst can
+// still be running when the signal lands. Generous rather than tight - losing a few seconds of
+// samples at a restart costs nothing next to a false loss spike that outlives it.
+var shutdownBoundary = TimeSpan.FromSeconds(5);
+
 // Best-effort spool of the unacked backlog for the next process to replay.
 // Called on graceful shutdown and by the async-I/O watchdog right before its
 // restart exit, so restarts don't cost the outage data the buffer exists for.
@@ -219,9 +224,20 @@ void SaveSpool()
 {
     if (resultBuffer is not { Count: > 0 })
         return;
+    // Anything measured in the last few seconds may have had its ping children killed underneath it
+    // by the same signal that is stopping us, which reads as loss it never saw. Drop that tail
+    // rather than persist it - see ResultBuffer.DropTail.
+    var poisoned = resultBuffer.DropTail(shutdownBoundary);
+    if (resultBuffer.Count == 0)
+    {
+        if (poisoned > 0)
+            Console.WriteLine($"Discarded {poisoned} result message(s) measured across the shutdown");
+        return;
+    }
     var count = resultBuffer.Count;
     resultBuffer.SaveTo(spoolPath);
-    Console.WriteLine($"Spooled {count} unsent result message(s) for the next start");
+    Console.WriteLine($"Spooled {count} unsent result message(s) for the next start"
+        + (poisoned > 0 ? $"; discarded {poisoned} measured across the shutdown" : ""));
 }
 
 if (!string.IsNullOrEmpty(config.TunnelUrl))
