@@ -56,7 +56,11 @@
   </Target>
 
   <!-- Download Traefik binary and config templates before build -->
-  <Target Name="DownloadTraefik" BeforeTargets="Build" Condition="!Exists('$(TraefikDir)traefik.exe') OR !Exists('$(TraefikTemplatesDir)traefik.yml.template')">
+  <!-- Runs unconditionally: the script self-gates, skipping the pinned 170 MB binary
+       when it is already staged while always refreshing the config templates, which
+       track the companion repo. A presence-based condition here froze the templates
+       at whatever version the machine first downloaded. -->
+  <Target Name="DownloadTraefik" BeforeTargets="Build">
     <Exec Command="powershell -ExecutionPolicy Bypass -File &quot;$(TraefikDir)Download-Traefik.ps1&quot;" />
   </Target>
 
