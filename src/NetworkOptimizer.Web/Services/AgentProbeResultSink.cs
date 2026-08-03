@@ -271,8 +271,13 @@ public class AgentProbeResultSink
             // perfectly healthy gateway precisely when it might not be. Skipped for this agent at
             // push time rather than disabled in the database, so the target stays as the user left
             // it and any other vantage keeps measuring it.
+            // The address comes from the detector, which already resolved it while deciding. Asking
+            // the enrollment service directly looked equivalent and was not: it is a gated service,
+            // this runs on the tunnel's background path with no caller context, and the gate threw -
+            // taking the whole push with it, so the site got no targets at all and its monitoring
+            // read as total loss.
             var selfAddress = await _onGatewayDetector.IsAgentOnGatewayAsync(connection.SiteSlug)
-                ? await _enrollment.GetOnlineAgentLanIpAsync(connection.SiteSlug)
+                ? _onGatewayDetector.LastKnownAgentIp(connection.SiteSlug)
                 : null;
             var skippedSelf = 0;
 
