@@ -25,6 +25,8 @@ public class AgentEnrollmentService : IAgentEnrollmentService
     private readonly IDbContextFactory<NetworkOptimizerDbContext> _mainDbFactory;
     private readonly AgentTunnelRegistry _tunnelRegistry;
     private readonly SiteAgentCoverage _agentCoverage;
+    private readonly IServiceProvider _serviceProvider;
+    private readonly SiteTunnelRouting _tunnelRouting;
     private readonly ILogger<AgentEnrollmentService> _logger;
     private readonly Authorization.ISiteAccessFilter _siteAccess;
 
@@ -33,13 +35,45 @@ public class AgentEnrollmentService : IAgentEnrollmentService
         AgentTunnelRegistry tunnelRegistry,
         Authorization.ISiteAccessFilter siteAccess,
         SiteAgentCoverage agentCoverage,
+        IServiceProvider serviceProvider,
+        SiteTunnelRouting tunnelRouting,
         ILogger<AgentEnrollmentService> logger)
     {
         _siteAccess = siteAccess;
         _mainDbFactory = mainDbFactory;
         _tunnelRegistry = tunnelRegistry;
         _agentCoverage = agentCoverage;
+        _serviceProvider = serviceProvider;
+        _tunnelRouting = tunnelRouting;
         _logger = logger;
+    }
+
+    /// <summary>
+    /// Clears the console and device tunnel routing flags for a site. Both name a tunnel, so once
+    /// the site has no agent they can only point at something that will never answer.
+    /// </summary>
+    private async Task ClearAgentRoutingAsync(string siteSlug)
+    {
+        try
+        {
+            using var scope = _serviceProvider.CreateScope();
+            scope.ServiceProvider.GetRequiredService<SiteContextService>().OverrideSite(siteSlug);
+            var db = scope.ServiceProvider.GetRequiredService<NetworkOptimizerDbContext>();
+            foreach (var key in new[] { UniFiConnectionService.ConsoleViaAgentKey, SiteTunnelRouting.DevicesViaAgentKey })
+            {
+                var setting = await db.SystemSettings.FindAsync(key);
+                if (setting == null || !bool.TryParse(setting.Value, out var on) || !on) continue;
+                setting.Value = bool.FalseString;
+            }
+            await db.SaveChangesAsync();
+            _tunnelRouting.Invalidate(siteSlug);
+            _logger.LogInformation("Cleared agent routing for site {Slug} - its last agent was removed", siteSlug);
+        }
+        catch (Exception ex)
+        {
+            // The agent is already gone; failing to tidy the flags must not fail the removal.
+            _logger.LogWarning(ex, "Could not clear agent routing flags for site {Slug}", siteSlug);
+        }
     }
 
     /// <summary>Agents registered for a site, newest first.</summary>
@@ -165,6 +199,12 @@ public class AgentEnrollmentService : IAgentEnrollmentService
         await db.SaveChangesAsync();
         DropLiveTunnel(agent.Id, agent.Name, "removed");
         _logger.LogInformation("Removed agent {Name} (id {Id}) for site {SiteId}", agent.Name, agent.Id, agent.SiteId);
+
+        // Removing the last agent leaves nothing to route through, so the console and device
+        // routing flags are cleared with it. They outlived the agent otherwise, and every console
+        // read and SSH command went on addressing a tunnel that could never come up again.
+        if (!await db.SiteAgents.AnyAsync(a => a.SiteId == agent.SiteId))
+            await ClearAgentRoutingAsync(siteSlug);
     }
 
     /// <summary>

@@ -275,6 +275,18 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     {
         try
         {
+            // The default site answers no unless it has been handed to its agent, matching
+            // SiteTunnelRouting.IsViaAgentAsync. The flag is deliberately kept rather than cleared
+            // when coverage is switched off, so re-enabling coverage restores the operator's
+            // choice - which is exactly why the flag on its own cannot be trusted here. Without
+            // this, unchecking coverage left the console still dialing an agent that is no longer
+            // meant to serve the site, and every console read failed.
+            if (SiteSlug == SiteManagementService.DefaultSiteSlug
+                && !_serviceProvider.GetRequiredService<SiteAgentCoverage>().Covers(SiteSlug))
+            {
+                return false;
+            }
+
             using var scope = CreateSiteScope();
             var db = scope.ServiceProvider.GetRequiredService<NetworkOptimizerDbContext>();
             var setting = await db.SystemSettings.FindAsync(ConsoleViaAgentKey);
