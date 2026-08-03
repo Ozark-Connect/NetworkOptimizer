@@ -133,8 +133,25 @@ public static class MonitoringChartEndpoints
                 }
             }
 
+            // Bucket to the site's own sample interval. The chart is only as fine as the data
+            // behind it, and averaging several samples into one bucket throws away resolution a
+            // faster-polling site is paying for. Read from this site's settings, not assumed.
+            var sampleIntervalSeconds = 5;
+            try
+            {
+                await using var sdb = siteDb.CreateForSite(siteContext.Slug, siteContext.IsDefault);
+                var ms = await sdb.MonitoringSettings.AsNoTracking().FirstOrDefaultAsync(ct);
+                if (ms != null) sampleIntervalSeconds = Math.Max(1, ms.FastPollIntervalSeconds);
+            }
+            catch (Exception ex)
+            {
+                loggerFactory.CreateLogger("MonitoringChartEndpoints").LogDebug(ex,
+                    "Could not read the sample interval; the chart buckets at the default");
+            }
+
             var wanTask = !string.IsNullOrEmpty(gatewayMac) && wanIfNames?.Count > 0
-                ? influx.QueryGatewayWanRatesAsync(gatewayMac, wanIfNames, queryFrom, queryTo, ct: ct)
+                ? influx.QueryGatewayWanRatesAsync(gatewayMac, wanIfNames, queryFrom, queryTo,
+                    sampleIntervalSeconds: sampleIntervalSeconds, ct: ct)
                 : Task.FromResult<IReadOnlyList<MonitoringInfluxClient.WanRatePoint>>(Array.Empty<MonitoringInfluxClient.WanRatePoint>());
             var targets = await liveStats.GetIspTransitTargetsAsync(ct);
             var targetIds = targets.Select(t => t.TargetId).ToList();
@@ -169,7 +186,9 @@ public static class MonitoringChartEndpoints
                 };
             }).ToList();
 
-            return Results.Ok(new { points });
+            // The client polls live samples on its own timer; handing it the interval lets that
+            // timer track the site rather than a constant that was right for a 5s tier.
+            return Results.Ok(new { points, sampleIntervalSeconds });
         });
 
         group.MapGet("/api/monitoring/chart-data", async (

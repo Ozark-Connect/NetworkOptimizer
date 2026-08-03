@@ -6,9 +6,13 @@ import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 import * as flowData from './lan-flow-data.js?v=7';
 
 const HISTORY_MINUTES = 5;
-// Poll faster than the 5s SNMP fast tier so no sample is missed when the two
-// clocks drift out of phase; pollLive dedupes repeat reads via sampleTime.
+// Poll at twice the site's SNMP sample rate so no sample is missed when the two
+// clocks drift out of phase; pollLive dedupes repeat reads via sampleTime. The
+// rate is per-site and configurable, so it comes back with the chart data rather
+// than being assumed - at the 5s default tier this is the 2500ms it always was.
 const POLL_MS = 2500;
+const POLL_MS_MIN = 1000;
+const POLL_MS_MAX = 5000;
 // Window-scroll redraw cadence. At 250ms each step moves well under a pixel
 // on typical widths, so the chart slides instead of visibly ticking.
 const SCROLL_MS = 250;
@@ -44,6 +48,27 @@ let seenLiveSample = false;
 // Comfortably longer than the poll interval so ordinary jitter or one failed poll is not a resume.
 let lastLiveAt = 0;
 const RESUME_AFTER_MS = 20000;
+// This site's SNMP sample interval and the poll cadence derived from it. Every
+// chart fetch reports the interval, so a settings change is picked up on the next
+// backfill without a reload. An explicit pollMs from the caller still wins.
+let pollMs = POLL_MS;
+let pollMsOverride = null;
+
+// Adopt the interval a chart-data response reported. Restarts the live timer when
+// the cadence actually moved, so a site polling faster than the chart does stops
+// having samples fall between reads.
+function applySampleInterval(data) {
+    const seconds = data?.sampleIntervalSeconds;
+    if (!seconds || seconds <= 0) return;
+    const next = Math.min(POLL_MS_MAX, Math.max(POLL_MS_MIN, Math.round(seconds * 1000 / 2)));
+    if (next === pollMs) return;
+    dbg('sample interval changed', { seconds, pollMs: next });
+    pollMs = next;
+    if (pollTimer && !pollMsOverride) {
+        clearInterval(pollTimer);
+        pollTimer = setInterval(pollLive, pollMs);
+    }
+}
 
 // Opt-in tracing for the backfill cadence, which is otherwise invisible: it is all client side and
 // the interesting part is WHEN each fill runs relative to the first live sample. Enable with
@@ -389,6 +414,7 @@ async function loadHistory() {
             { credentials: 'same-origin' });
         if (!resp.ok) return 0;
         const data = await resp.json();
+        applySampleInterval(data);
         buffer = (data.points || []).map(p => ({
             time: new Date(p.time).getTime(),
             download: p.downloadBps,
@@ -521,6 +547,7 @@ async function backfillHistory() {
             { credentials: 'same-origin' });
         if (!resp.ok) return;
         const data = await resp.json();
+        applySampleInterval(data);
         points = (data.points || []).map(p => ({
             time: new Date(p.time).getTime(),
             download: p.downloadBps,
@@ -652,7 +679,8 @@ export async function mount(containerId, opts) {
     await pollLive();
     if (gen !== mountGen) return;
     updateChart();
-    const interval = opts?.pollMs || POLL_MS;
+    pollMsOverride = opts?.pollMs || null;
+    const interval = pollMsOverride || pollMs;
 
     pollTimer = setInterval(pollLive, interval);
     scrollTimer = setInterval(updateChart, SCROLL_MS);
@@ -691,7 +719,7 @@ export function pause() {
 
 export function resume() {
     if (!chart || pollTimer) return;
-    pollTimer = setInterval(pollLive, POLL_MS);
+    pollTimer = setInterval(pollLive, pollMsOverride || pollMs);
     scrollTimer = setInterval(updateChart, SCROLL_MS);
     startBackfillCatchUp();
 }
@@ -772,7 +800,7 @@ export async function seekTime(isoTimestamp) {
         await loadHistory();
         if (liveGen !== seekGen) return; // seeked again while loading
         updateChart();
-        pollTimer = setInterval(pollLive, POLL_MS);
+        pollTimer = setInterval(pollLive, pollMsOverride || pollMs);
         scrollTimer = setInterval(updateChart, SCROLL_MS);
         startBackfillCatchUp();
         return;
@@ -800,6 +828,7 @@ export async function seekTime(isoTimestamp) {
         if (!resp.ok) return;
         const data = await resp.json();
         if (gen !== seekGen) return; // a newer seek (or return to live) superseded this one
+        applySampleInterval(data);
         buffer = (data.points || []).map(p => ({
             time: new Date(p.time).getTime(),
             download: p.downloadBps,

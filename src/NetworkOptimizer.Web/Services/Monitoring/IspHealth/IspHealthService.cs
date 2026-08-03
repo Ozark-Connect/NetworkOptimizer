@@ -1382,7 +1382,7 @@ public class IspHealthService
             if (mac == null || ifNames == null || ifNames.Count == 0)
                 return new List<ThroughputSample>();
 
-            var rates = await _influx.QueryGatewayWanRatesAsync(mac, ifNames, from, to, aggregate, ct);
+            var rates = await _influx.QueryGatewayWanRatesAsync(mac, ifNames, from, to, aggregate, ct: ct);
             return rates.Select(r => new ThroughputSample(r.Time, r.DownloadBps, r.UploadBps)).ToList();
         }
         catch (Exception ex)
@@ -1439,7 +1439,7 @@ public class IspHealthService
             var from = windowEnd.AddDays(-_options.UsageFingerprintLookbackDays);
             // Active usage is sustained (streaming, calls, uploads); a 5-min mean is plenty to catch
             // it and keeps the lookback series small.
-            var rates = await _influx.QueryGatewayWanRatesAsync(mac, ifNames, from, windowEnd, TimeSpan.FromMinutes(5), ct);
+            var rates = await _influx.QueryGatewayWanRatesAsync(mac, ifNames, from, windowEnd, TimeSpan.FromMinutes(5), ct: ct);
             if (rates.Count == 0) return null;
 
             var tz = TimeZoneInfo.Local;
