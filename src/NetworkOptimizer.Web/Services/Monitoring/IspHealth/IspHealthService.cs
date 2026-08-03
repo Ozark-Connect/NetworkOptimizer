@@ -84,7 +84,31 @@ public class IspHealthService
     /// an unscored Speed vs Plan factor. Gates every compute entry point; a managed site's
     /// connection simply comes up later (over its agent tunnel) than the home site's.
     /// </summary>
-    private bool CanCompute => _connectionService.IsConnected;
+    // A remembered WAN profile is enough to grade a site whose console is unreachable - the scored
+    // inputs are latency and throughput history out of InfluxDB, and the console only supplied the
+    // expected speeds. Resolved per compute rather than cached: a site that has never had a
+    // successful console read still has nothing to score against.
+    private bool CanCompute => _connectionService.IsConnected || _hasRememberedWanSpeeds;
+
+    private bool _hasRememberedWanSpeeds;
+
+    /// <summary>
+    /// Whether any WAN has speeds remembered from an earlier console read. Refreshed on each compute
+    /// so a site that gains its first successful read starts computing without a restart.
+    /// </summary>
+    private async Task RefreshRememberedWanSpeedsAsync(CancellationToken ct)
+    {
+        try
+        {
+            await using var db = await CreateSiteDbAsync(ct);
+            _hasRememberedWanSpeeds = await db.WanProfiles
+                .AnyAsync(w => w.DownloadMbps != null || w.UploadMbps != null, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not check for remembered WAN speeds");
+        }
+    }
 
     /// <summary>Context for the database holding this instance's site data.</summary>
     private async Task<NetworkOptimizerDbContext> CreateSiteDbAsync(CancellationToken ct)
@@ -236,8 +260,15 @@ public class IspHealthService
         if (!mustRecompute && cached != null && DateTime.UtcNow - cached.ComputedAt < _options.CacheTtl)
             return cached;
 
-        // Defer computing until the console connection is up (expected ISP speeds come from
-        // it). Serve any existing report; otherwise publish AwaitingConnection for the funnels.
+        // The console supplies the expected ISP speeds, so a site that has never had a successful
+        // read has nothing to score against and still waits. One that has cannot be held back by an
+        // unreachable console: the scored inputs are history out of InfluxDB, and an offline site is
+        // exactly when someone wants to look at it. Checked here rather than cached at startup so a
+        // site gains computing on its first successful read without a restart.
+        if (!_connectionService.IsConnected)
+            await RefreshRememberedWanSpeedsAsync(ct);
+
+        // Serve any existing report; otherwise publish AwaitingConnection for the funnels.
         // Keep _recomputePending set so the recompute happens once the connection lands.
         if (!CanCompute)
         {
@@ -623,12 +654,20 @@ public class IspHealthService
         // report leaves _cached untouched, so the next read recomputes. Empty list rather than a
         // missing gateway: a site behind a third-party router has no gateway and must still score.
         var discoveredDevices = await _connectionService.GetDiscoveredDevicesAsync(ct);
-        if (discoveredDevices.Count == 0)
+        // Only suspect while the console CLAIMS to be up: a connected console serving nothing is
+        // the transient this guard was written for. A console that is plainly down is not a
+        // half-loaded one - it is a site someone is trying to look at after the fact, and the
+        // expected speeds it used to supply now come from the remembered WAN profile. Deferring
+        // there would refuse every offline site, which is the case the history exists for.
+        if (discoveredDevices.Count == 0 && _connectionService.IsConnected)
         {
             _logger.LogWarning("ISP Health: the console returned no devices, so its data is not yet trustworthy; " +
                 "deferring rather than caching a report computed without the console-derived inputs");
             return new ComputeOutcome(IspHealthStatus.AwaitingConnection, null, new List<AsnSeries>());
         }
+        if (discoveredDevices.Count == 0)
+            _logger.LogDebug("ISP Health: computing without the console (site offline); expected speeds come from " +
+                "the remembered WAN profile and device-derived detail is omitted");
 
         var profile = IspHealthProfiles.GetProfile(technology);
         if (profile == null)
@@ -1277,7 +1316,10 @@ public class IspHealthService
     {
         try
         {
-            var dataPath = await _connectionService.GetPrimaryWanDataPathInterfaceAsync(ct);
+            // Through the resolver, not the console directly: PPPoE is read off the interface NAME,
+            // and the remembered profile holds that name, so an offline site keeps its overlay
+            // instead of silently grading a PPPoE line against its medium's raw thresholds.
+            var dataPath = await GetPrimaryWanInterfaceAsync(ct);
             if (string.IsNullOrEmpty(dataPath))
             {
                 _logger.LogWarning("ISP Health could not resolve the primary WAN's data-path interface; " +
@@ -1340,7 +1382,7 @@ public class IspHealthService
             if (mac == null || ifNames == null || ifNames.Count == 0)
                 return new List<ThroughputSample>();
 
-            var rates = await _influx.QueryGatewayWanRatesAsync(mac, ifNames, from, to, aggregate, ct);
+            var rates = await _influx.QueryGatewayWanRatesAsync(mac, ifNames, from, to, aggregate, ct: ct);
             return rates.Select(r => new ThroughputSample(r.Time, r.DownloadBps, r.UploadBps)).ToList();
         }
         catch (Exception ex)
@@ -1397,7 +1439,7 @@ public class IspHealthService
             var from = windowEnd.AddDays(-_options.UsageFingerprintLookbackDays);
             // Active usage is sustained (streaming, calls, uploads); a 5-min mean is plenty to catch
             // it and keeps the lookback series small.
-            var rates = await _influx.QueryGatewayWanRatesAsync(mac, ifNames, from, windowEnd, TimeSpan.FromMinutes(5), ct);
+            var rates = await _influx.QueryGatewayWanRatesAsync(mac, ifNames, from, windowEnd, TimeSpan.FromMinutes(5), ct: ct);
             if (rates.Count == 0) return null;
 
             var tz = TimeZoneInfo.Local;
@@ -1501,31 +1543,145 @@ public class IspHealthService
             _logger.LogDebug(ex, "ISP Health could not read UniFi WAN provider capabilities");
         }
 
+        // Remember what the console said, per WAN. This is what lets a site whose console has gone
+        // away still be graded, and it is stored per WAN because plan speeds belong to a WAN:
+        // scoring reads the primary today, and multi-WAN scoring is planned, at which point each
+        // WAN's row is already here.
+        if (wan?.NetworkGroup is { Length: > 0 })
+            await RememberWanSpeedsAsync(wan, down, up, ct);
+
         if (down == null || up == null)
         {
             await using var db = await CreateSiteDbAsync(ct);
-            var sqmWan = await db.SqmWanConfigurations.AsNoTracking()
-                .OrderBy(c => c.WanNumber)
+
+            // What the console told us before it went away. This ranks ABOVE the Adaptive SQM
+            // figure: it is a reading from the authoritative source that is merely out of date,
+            // where the SQM value is a shaping target someone typed in - what to rate-limit to,
+            // not what the ISP confirmed the line does.
+            //
+            // With no console we cannot ask which WAN is primary, so prefer the first WAN group and
+            // fall back to the most recently confirmed row. Multi-WAN scoring picks its own WAN here.
+            var remembered = await db.WanProfiles.AsNoTracking()
+                .OrderBy(w => w.WanNetworkgroup)
+                .ThenByDescending(w => w.UpdatedAt)
                 .FirstOrDefaultAsync(ct);
-            if (sqmWan != null)
+            if (remembered != null)
             {
-                down ??= sqmWan.NominalDownloadMbps;
-                up ??= sqmWan.NominalUploadMbps;
-                source ??= "Adaptive SQM settings";
+                down ??= remembered.DownloadMbps;
+                up ??= remembered.UploadMbps;
+                if (down != null || up != null)
+                    source ??= "UniFi Network (last known)";
+                wan ??= new WanIdentity(remembered.Name, remembered.WanNetworkgroup, remembered.CounterInterface);
+            }
+
+            // Truly inferred, so it goes last: only reached when the console has never told us.
+            if (down == null || up == null)
+            {
+                var sqmWan = await db.SqmWanConfigurations.AsNoTracking()
+                    .OrderBy(c => c.WanNumber)
+                    .FirstOrDefaultAsync(ct);
+                if (sqmWan != null)
+                {
+                    down ??= sqmWan.NominalDownloadMbps;
+                    up ??= sqmWan.NominalUploadMbps;
+                    source ??= "Adaptive SQM settings";
+                }
             }
         }
         return (down, up, source, smartQueues, wan);
     }
 
+    /// <summary>
+    /// Stores this WAN's expected speeds so they outlive the console connection. One row per WAN
+    /// group; a rename changes the display name, not the identity.
+    /// </summary>
+    private async Task RememberWanSpeedsAsync(WanIdentity wan, double? down, double? up, CancellationToken ct)
+    {
+        try
+        {
+            await using var db = await CreateSiteDbAsync(ct);
+            var row = await db.WanProfiles.FirstOrDefaultAsync(w => w.WanNetworkgroup == wan.NetworkGroup, ct);
+            if (row == null)
+            {
+                row = new WanProfile { WanNetworkgroup = wan.NetworkGroup! };
+                db.WanProfiles.Add(row);
+            }
+            // Both names, because they are not interchangeable. The data path is what SQM deploys on
+            // and what PPPoE is read from; the counter interface is what throughput is keyed on, and
+            // on a VLAN-tagged WAN that is the PHYSICAL port - the sub-interface's counters double.
+            // Storing one and using it for the other's job silently reports the wrong throughput.
+            // Keep the previous data path when the device read comes back empty on an otherwise
+            // successful console read: overwriting it with the physical port would make a later
+            // offline PPPoE check grade the line without its overlay, which is what splitting these
+            // two columns exists to prevent.
+            var dataPath = await _connectionService.GetPrimaryWanDataPathInterfaceAsync(ct)
+                ?? row.DataPathInterface ?? wan.Interface;
+            row.DataPathInterface = dataPath;
+            row.CounterInterface = NetworkUtilities.PreferredWanCounterInterface(wan.Interface, dataPath);
+
+            // Stored WAN rates are keyed on gateway MAC AND interface, so every offline fallback
+            // filters on this being present - without it they match no row and silently do nothing.
+            // Normalized here so readers cannot disagree about the form.
+            var gatewayMac = (await _connectionService.GetDiscoveredDevicesAsync(ct))
+                .FirstOrDefault(d => d.Type == NetworkOptimizer.Core.Enums.DeviceType.Gateway
+                    || d.HardwareType == NetworkOptimizer.Core.Enums.DeviceType.Gateway)?.Mac;
+            if (!string.IsNullOrEmpty(gatewayMac))
+                row.GatewayMac = gatewayMac.Replace("-", ":").ToLowerInvariant();
+            row.Name = wan.Name;
+            row.DownloadMbps = down;
+            row.UploadMbps = up;
+            row.UpdatedAt = DateTime.UtcNow;
+            await db.SaveChangesAsync(ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not remember the expected speeds for WAN {Wan}", wan.NetworkGroup);
+        }
+    }
+
     private static readonly TimeSpan SqmProbeDuration = TimeSpan.FromSeconds(30);
 
+    /// <summary>
+    /// The primary WAN's data-path interface. Falls back to the remembered WAN profile so an
+    /// offline site still resolves it - the interface is what the throughput series are keyed on,
+    /// so without it a site with plenty of stored history reads as having none.
+    ///
+    /// Multi-WAN planned: this returns the primary only, and picks the first WAN group when there
+    /// is no console to ask. Per-WAN scoring resolves its own WAN's interface from its own row.
+    /// </summary>
     private async Task<string?> GetPrimaryWanInterfaceAsync(CancellationToken ct)
     {
         try
         {
-            return await _connectionService.GetPrimaryWanDataPathInterfaceAsync(ct);
+            var live = await _connectionService.GetPrimaryWanDataPathInterfaceAsync(ct);
+            if (!string.IsNullOrEmpty(live)) return live;
         }
-        catch { return null; }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not read the primary WAN interface from the console");
+        }
+
+        // ONLY when the console is down. A connected console that answers with nothing keeps
+        // answering nothing, exactly as before: eth0, eth6.100 and ppp0 all resolve live on that
+        // path, and substituting a remembered name there would change an online result on the
+        // strength of a stale row. The cache exists for the site with no console to ask.
+        if (_connectionService.IsConnected) return null;
+
+        try
+        {
+            await using var db = await CreateSiteDbAsync(ct);
+            return await db.WanProfiles.AsNoTracking()
+                .Where(w => w.DataPathInterface != null)
+                .OrderBy(w => w.WanNetworkgroup)
+                .ThenByDescending(w => w.UpdatedAt)
+                .Select(w => w.DataPathInterface)
+                .FirstOrDefaultAsync(ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not read the remembered primary WAN interface");
+            return null;
+        }
     }
 
     private async Task<List<(DateTime Start, DateTime End)>> BuildSqmProbeExclusionsAsync(

@@ -132,6 +132,16 @@ message AgentHello {
   string agent_key = 1;
   string version = 2;
   string lan_ip = 3;
+  // Port this agent serves its LAN speed test page on. The server used to assume
+  // 3000, which meant the agent could never move off it without every server
+  // pointing clients at the wrong place. Absent or 0 is an older agent that does
+  // not say - the server assumes 3000, which is what those agents serve.
+  int32 speed_test_port = 4;
+  // Whether this agent serves a LAN speed test page at all. Explicitly optional so
+  // the server can tell "no" from "did not say": an agent predating this leaves it
+  // absent and the server falls back to deciding for itself, while a gateway
+  // install answers a definite no without being guessed at by its location.
+  optional bool serves_speed_test = 5;
 }
 
 message ServerHello {

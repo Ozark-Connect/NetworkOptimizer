@@ -14,7 +14,7 @@ namespace NetworkOptimizer.Web.Services;
 /// instance (the Alerts page reads whichever site it is showing). Same ownership
 /// pattern as MonitoringCollectionRegistry.
 /// </summary>
-public class WanDataUsageRegistry : BackgroundService
+public class WanDataUsageRegistry : BackgroundService, ISiteScopedRegistry
 {
     private static readonly TimeSpan ReconcileInterval = TimeSpan.FromSeconds(30);
 
@@ -122,6 +122,16 @@ public class WanDataUsageRegistry : BackgroundService
         foreach (var slug in toStop)
             await StopInstanceAsync(slug, ct);
     }
+
+    /// <inheritdoc />
+    /// <remarks>The reconcile pass would drop a removed site eventually; this stops it now, before
+    /// the site's database and clients go away underneath the loop.</remarks>
+    public Func<ValueTask>? EvictSite(string slug)
+        => async () =>
+        {
+            await StopInstanceAsync(slug, CancellationToken.None);
+            _instances.TryRemove(slug, out _);
+        };
 
     private async Task StartInstanceAsync(string slug, CancellationToken ct)
     {

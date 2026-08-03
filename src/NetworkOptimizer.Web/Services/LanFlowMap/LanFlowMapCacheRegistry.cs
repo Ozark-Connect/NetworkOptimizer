@@ -10,7 +10,7 @@ namespace NetworkOptimizer.Web.Services.LanFlowMap;
 /// rebuild queried its empty Influx client). Scoped resolution forwards to the
 /// current site's cache, so each site keeps its own snapshot and build lock.
 /// </summary>
-public class LanFlowMapCacheRegistry
+public class LanFlowMapCacheRegistry : ISiteScopedRegistry
 {
     private readonly ConcurrentDictionary<string, LanFlowMapCache> _caches = new(StringComparer.OrdinalIgnoreCase);
 
@@ -19,4 +19,11 @@ public class LanFlowMapCacheRegistry
 
     /// <summary>The default site's map cache.</summary>
     public LanFlowMapCache GetDefault() => GetFor(SiteManagementService.DefaultSiteSlug);
+
+    /// <inheritdoc />
+    public Func<ValueTask>? EvictSite(string slug)
+    {
+        _caches.TryRemove(slug, out _);
+        return null;
+    }
 }

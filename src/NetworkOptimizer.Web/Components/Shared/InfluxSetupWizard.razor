@@ -1,12 +1,17 @@
 @using NetworkOptimizer.Storage.Models
 @using NetworkOptimizer.Storage.Services
 @using NetworkOptimizer.Web.Services
+@using Microsoft.AspNetCore.Components.Authorization
+@using NetworkOptimizer.Web.Services.Identity
 @using Microsoft.EntityFrameworkCore
 @inject IInfluxDbProvisioningService Provisioner
+@inject ISiteInfluxProvisioningService SiteProvisioner
 @inject MonitoringInfluxRegistry InfluxRegistry
 @inject ICredentialProtectionService CredentialService
 @inject SiteContextService SiteContext
 @inject SiteDbContextFactory SiteDbFactory
+@inject Microsoft.AspNetCore.Authorization.IAuthorizationService Authz
+@inject ILogger<InfluxSetupWizard> Logger
 
 @switch (_state)
 {
@@ -17,8 +22,18 @@
             </div>
             <div class="card-body">
                 <div class="empty-state">
-                    <span class="spinner"></span>
-                    <p>Looking for InfluxDB on this network...</p>
+                    @if (!_noWorkPossible)
+                    {
+                        <span class="spinner"></span>
+                        <p>Looking for InfluxDB on this network...</p>
+                    }
+                    else
+                    {
+                        @* Setting this up needs the instance-wide Admin role, which a site's own
+                           admin need not hold. Say so: nothing is going to happen for them, and a
+                           spinner that never resolves reads as the page being broken. *@
+                        <p>Setting up InfluxDB requires an administrator for this installation.</p>
+                    }
                 </div>
             </div>
         </div>
@@ -80,7 +95,21 @@
                 </span>
             </div>
             <div class="card-body">
-                @if (_siteMode)
+                @if (!_canProvision)
+                {
+                    @* An All Access token is an installation-wide credential, and everything this
+                       step does with it - creating the org's buckets, upgrading the shared token -
+                       is gated on the instance-wide role. Asking a site's own admin for one sends
+                       them to fetch a credential they have no authority to hold, and refuses them
+                       after they have gone and got it. Say who can do this instead. *@
+                    <p class="section-description">
+                        This site's monitoring data will live in the shared InfluxDB, in buckets
+                        named <code>@SitePrimaryBucket</code> and <code>@SiteLongtermBucket</code>.
+                        Creating them needs an administrator for this installation - the shared
+                        connection is set up once and covers every site.
+                    </p>
+                }
+                else if (_siteMode)
                 {
                     <p class="section-description">
                         This site will store its monitoring data in the shared InfluxDB,
@@ -107,12 +136,15 @@
                     </p>
                 }
 
-                <div class="form-group">
-                    <label class="form-label">All Access API Token</label>
-                    <input type="password" class="form-control" @bind="_adminToken" @bind:event="oninput" placeholder="Paste your InfluxDB All Access API Token" autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore />
-                </div>
+                @if (_canProvision)
+                {
+                    <div class="form-group">
+                        <label class="form-label">All Access API Token</label>
+                        <input type="password" class="form-control" @bind="_adminToken" @bind:event="oninput" placeholder="Paste your InfluxDB All Access API Token" autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore />
+                    </div>
+                }
 
-                @if (_state == Step.PickOrg)
+                @if (_canProvision && _state == Step.PickOrg)
                 {
                     <div class="form-group">
                         @if (_orgs.Count == 0)
@@ -161,17 +193,22 @@
                     <div class="alert alert-@_messageClass">@_message</div>
                 }
 
-                <div class="action-buttons">
-                    @if (!_siteMode)
-                    {
-                        <button class="btn btn-secondary" @onclick="DetectAgainAsync" disabled="@_busy">Use a different URL</button>
-                    }
-                    <button class="btn btn-primary" @onclick="OnPrimaryActionAsync"
-                            disabled="@(_busy || !CanPrimaryAction)">
-                        @if (_busy) { <span class="spinner-sm"></span> <span>@PrimaryBusyLabel</span> }
-                        else { <span>@PrimaryLabel</span> }
-                    </button>
-                </div>
+                @* No actions for someone who cannot complete any of them - every button here ends
+                   in an instance-wide gated call. *@
+                @if (_canProvision)
+                {
+                    <div class="action-buttons">
+                        @if (!_siteMode)
+                        {
+                            <button class="btn btn-secondary" @onclick="DetectAgainAsync" disabled="@_busy">Use a different URL</button>
+                        }
+                        <button class="btn btn-primary" @onclick="OnPrimaryActionAsync"
+                                disabled="@(_busy || !CanPrimaryAction)">
+                            @if (_busy) { <span class="spinner-sm"></span> <span>@PrimaryBusyLabel</span> }
+                            else { <span>@PrimaryLabel</span> }
+                        </button>
+                    </div>
+                }
             </div>
         </div>
         break;
@@ -187,10 +224,16 @@
                     @if (_siteMode)
                     {
                         <text>This site's buckets are ready on the shared InfluxDB. You can now enable monitoring.</text>
+                        @* Only when they actually pasted one: the silent path never asks, so saying
+                           we are finished with a token they never gave would be nonsense. *@
+                        @if (_usedAllAccessToken)
+                        {
+                            <text> Network Optimizer is finished with your All Access token - future sites provision using the shared token, so you can delete it in InfluxDB if you don't need it elsewhere.</text>
+                        }
                     }
                     else
                     {
-                        <text>Buckets created and a scoped token has been saved. You can now enable monitoring.</text>
+                        <text>Buckets created and a scoped token has been saved. You can now enable monitoring. Network Optimizer is finished with your All Access token - it was never written to disk, and you can delete it in InfluxDB if you don't need it elsewhere.</text>
                     }
                 </div>
                 <div class="action-buttons">
@@ -218,6 +261,10 @@
     private InfluxDbProvisioningService.UrlProbeResult? _probe;
     private string _manualUrl = string.Empty;
     private string _adminToken = string.Empty;
+
+    /// <summary>Whether this run actually asked for and used an All Access token - the silent
+    /// site-mode path never does, so its completion copy must not claim otherwise.</summary>
+    private bool _usedAllAccessToken;
     private string? _authedAs;
     private List<InfluxDbProvisioningService.InfluxOrg> _orgs = new();
     private string? _selectedOrgId;
@@ -277,12 +324,44 @@
         await ProvisionAsync();
     }
 
+    /// <summary>Whether this user can establish the installation's InfluxDB - orgs, tokens, the
+    /// shared connection. Instance-wide Admin, because those are installation-wide decisions.</summary>
+    private bool _canProvision;
+
+    /// <summary>Whether they can finish THIS site off an existing shared connection. Admin on this
+    /// site is enough: adding a site's own buckets decides nothing for the installation.</summary>
+    private bool _canProvisionSite;
+
+    /// <summary>No provisioning path is open to this caller, so the wizard has nothing to do.</summary>
+    private bool _noWorkPossible;
+
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
     protected override async Task OnInitializedAsync()
     {
-        if (!IsDefaultSite)
+        // Provisioning is Admin-gated at the service. Site mode opens by ATTEMPTING a silent bucket
+        // creation, so every Monitoring load on a managed site ran an Admin-only call as whoever was
+        // looking - and a Viewer got two denied audit entries per visit (prerender, then the
+        // circuit), swallowed by the catch below and therefore invisible except in the log. Ask
+        // first: someone who could not finish the wizard has no business starting it.
+        var user = AuthState is null ? null : (await AuthState).User;
+        _canProvision = user is null || (await Authz.AuthorizeAsync(user, Policies.RequireAdmin)).Succeeded;
+        _canProvisionSite = _canProvision
+            || (await Authz.AuthorizeAsync(user!, SiteContext.Slug, Policies.SiteAdmin)).Succeeded;
+
+        // Site mode only needs the site's own admin - it adds this site's buckets to a connection
+        // that already exists. The full flow establishes that connection, so it keeps the
+        // instance-wide check.
+        if (!IsDefaultSite && _canProvisionSite)
             await TryEnterSiteModeAsync();
-        if (!_siteMode)
+        if (!_siteMode && _canProvision)
             await DetectAgainAsync();
+
+        // Nothing above ran, so nothing will ever move off Detecting: site mode was skipped or bowed
+        // out, and the full flow needs an instance-wide Admin this caller does not have. Say so
+        // rather than spinning forever - a site's admin can land here on the default site, or on a
+        // managed site before the shared connection exists, and the spinner reads as a broken page.
+        _noWorkPossible = _state == Step.Detecting && !_siteMode && !_canProvision;
     }
 
     /// <summary>
@@ -343,14 +422,15 @@
     private async Task<bool> TrySilentProvisionAsync()
     {
         if (string.IsNullOrEmpty(_sharedToken)) return false;
-        var orgId = await Provisioner.TryResolveOrgIdAsync(_sharedUrl, _sharedToken, _sharedOrgName);
+        var orgId = await SiteProvisioner.TryResolveOrgIdAsync(_sharedUrl, _sharedToken, _sharedOrgName);
         if (string.IsNullOrEmpty(orgId)) return false;
         try
         {
-            await Provisioner.EnsureBucketsAsync(_sharedUrl, _sharedToken, orgId, SitePrimaryBucket, SiteLongtermBucket);
+            await SiteProvisioner.EnsureBucketsAsync(_sharedUrl, _sharedToken, orgId, SitePrimaryBucket, SiteLongtermBucket);
         }
-        catch
+        catch (Exception ex)
         {
+            Logger.LogDebug(ex, "Silent bucket provisioning did not go through; falling back to the token prompt");
             return false;
         }
         await ReconfigureSiteClientAsync();
@@ -409,6 +489,7 @@
                 await mainDb.SaveChangesAsync();
             }
             _adminToken = string.Empty; // drop the admin token explicitly
+            _usedAllAccessToken = true;
             _sharedToken = orgScoped.Token;
 
             // Main and every existing site client pick up the upgraded token
@@ -421,6 +502,7 @@
         }
         catch (Exception ex)
         {
+            Logger.LogError(ex, "InfluxDB provisioning failed for site {Slug}", SiteContext.Slug);
             _message = $"Provisioning failed: {ex.Message}";
             _messageClass = "danger";
         }
@@ -589,6 +671,7 @@
         }
         catch (Exception ex)
         {
+            Logger.LogError(ex, "InfluxDB provisioning failed for site {Slug}", SiteContext.Slug);
             _message = $"Provisioning failed: {ex.Message}";
             _messageClass = "danger";
         }

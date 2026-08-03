@@ -38,6 +38,7 @@
 @inject IHttpClientFactory HttpClientFactory
 @inject NavigationManager NavigationManager
 @inject ISiteManagementService SiteManagement
+@inject SiteRegistryChangeNotifier SiteChangeNotifier
 @inject SiteSwitchService SiteSwitch
 @inject IAgentEnrollmentService AgentEnrollment
 @inject AgentServerUrlProvider AgentServerUrl
@@ -122,12 +123,19 @@
                 </button>
             }
         </AuthorizeView>
-        @* Managing the set of sites is instance-wide, so it is not a site admin's tab either. *@
+        @* The tab is not instance-wide the way its title suggests: the site list is access-filtered
+           and every row authorizes for its own site, so a site's own admin gets that site's controls
+           and a row they only view carries nothing but Switch to Site. Offer it to anyone once
+           multi-site is on - /sites is RequireViewer and links straight here - and to an
+           instance-wide Admin always, since only they can turn multi-site on in the first place. *@
         <AuthorizeView Policy="@Policies.RequireAdmin" Context="multiSiteTab">
-            <button class="wifi-view-tab @(_activeTab == "multisite" ? "active" : "")"
-                    @onclick="@(() => SetActiveTab("multisite"))">
-                Multi-Site
-            </button>
+            <Authorized>@MultiSiteTabButton</Authorized>
+            <NotAuthorized>
+                @if (_multiSiteEnabled)
+                {
+                    @MultiSiteTabButton
+                }
+            </NotAuthorized>
         </AuthorizeView>
     </div>
     <button class="wifi-tabs-scroll-btn wifi-tabs-scroll-right" onclick="this.parentElement.querySelector('.wifi-view-tabs').scrollBy({left: 200, behavior: 'smooth'})">&#8250;</button>
@@ -3610,7 +3618,40 @@
                                                         }
                                                     </div>
 
-                                                    @if (!site.IsDefault)
+                                                    @if (site.IsDefault)
+                                                    {
+                                                        <div class="site-config-section">
+                                                            <div class="site-config-section-title">Settings</div>
+                                                            @* Only meaningful with an agent to hand the work to, so it cannot be
+                                                               switched on into a state where nothing collects at all. *@
+                                                            <label class="checkbox-toggle">
+                                                                <input type="checkbox" checked="@AgentCoversSite(site.Id)"
+                                                                       disabled="@(!AgentsFor(site.Id).Any())"
+                                                                       @onchange="e => ToggleAgentCoversSite(site, (bool)e.Value!)" />
+                                                                An agent collects for this site - probes, path discovery and SNMP run
+                                                                there instead of on this server. Turn on if this server is off-site, or
+                                                                you want a separate agent.
+                                                            </label>
+                                                            @if (AgentCoversSite(site.Id))
+                                                            {
+                                                                <label class="checkbox-toggle">
+                                                                    <input type="checkbox" checked="@ConsoleViaAgent(site.Id)"
+                                                                           @onchange="e => ToggleConsoleViaAgent(site, (bool)e.Value!)" />
+                                                                    Reach this site's UniFi Console through the agent tunnel - no VPN or
+                                                                    port-forward to the console needed. Applies on the next connect.
+                                                                </label>
+                                                                <label class="checkbox-toggle">
+                                                                    <input type="checkbox" checked="@SshViaAgent(site.Id)"
+                                                                           @onchange="e => ToggleSshViaAgent(site, (bool)e.Value!)" />
+                                                                    Reach this site's devices through the agent tunnel: SSH to the gateway
+                                                                    and devices, plus modem and ONT status pages. Enables gateway WAN speed
+                                                                    tests, LAN speed tests, and modem / ONT monitoring without VPN. Applies within
+                                                                    a minute.
+                                                                </label>
+                                                            }
+                                                        </div>
+                                                    }
+                                                    else
                                                     {
                                                         <div class="site-config-section">
                                                             <div class="site-config-section-title">Settings</div>
@@ -3791,8 +3832,28 @@
         ["site-agent-setup"] = "multisite",
     };
 
-    private static string ResolveTab(string? param) =>
-        param != null && ValidTabs.Contains(param) ? param.ToLowerInvariant() : "connection";
+    // Instance-wide tabs: offered only on the default site, so a managed site is never shown a tab
+    // that renders nothing. Kept beside ResolveTab because they are the same rule read two ways -
+    // the markup decides whether to draw the button, this decides whether the URL may select it.
+    private static readonly HashSet<string> DefaultSiteOnlyTabs = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "application", "auditlog"
+    };
+
+    /// <summary>
+    /// The tab a URL selects, given the site being viewed. Switching sites carries the whole URL
+    /// across, so ?tab=auditlog followed the user onto a managed site where that tab does not exist:
+    /// no button was drawn, no panel was rendered, and Settings came up with nothing selected at all.
+    /// A tab the current site cannot show falls back to the first one, which every site has.
+    /// </summary>
+    private string ResolveTab(string? param)
+    {
+        if (param == null || !ValidTabs.Contains(param))
+            return "connection";
+
+        var tab = param.ToLowerInvariant();
+        return DefaultSiteOnlyTabs.Contains(tab) && !SiteContext.IsDefault ? "connection" : tab;
+    }
 
     private AuditLogPanel? _auditLogPanel;
 
@@ -3860,17 +3921,9 @@
         // Let the tab panel render before scrolling; same scroll-and-highlight
         // pattern as the Monitoring page.
         await Task.Delay(300);
+        await JS.InvokeVoidAsync("noHighlightTarget", anchor);
         await JS.InvokeVoidAsync("eval", @"
             (function() {
-                var el = document.getElementById('" + anchor + @"');
-                if (el) {
-                    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                    el.style.transition = 'outline-color 0.3s';
-                    el.style.outline = '2px solid rgba(59, 130, 246, 0.5)';
-                    el.style.outlineOffset = '4px';
-                    el.style.borderRadius = '12px';
-                    setTimeout(function() { el.style.outline = ''; el.style.outlineOffset = ''; }, 2000);
-                }
                 if ('" + anchor + @"' === 'site-agent-setup') {
                     var inp = document.getElementById('site-name-input');
                     if (inp) inp.focus({ preventScroll: true });
@@ -3891,6 +3944,11 @@
     }
 
     // Multi-Site
+    private RenderFragment MultiSiteTabButton => @<button class="wifi-view-tab @(_activeTab == "multisite" ? "active" : "")"
+                                                          @onclick="@(() => SetActiveTab("multisite"))">
+        Multi-Site
+    </button>;
+
     private bool _multiSiteEnabled = false;
     private List<Site> _sites = new();
     private string _multiSiteMessage = "";
@@ -3924,8 +3982,31 @@
 
     private System.Threading.Timer? _agentPollTimer;
 
+    /// <summary>
+    /// The Sites table is a live list of who can reach what, and both halves of that change from
+    /// outside this circuit: a site removed by another admin, or this user's own membership
+    /// granted or revoked. The site switcher already rebuilds on the broadcast; this table did
+    /// not, so it kept showing a site until you navigated away and back.
+    /// </summary>
+    private async void OnSiteRegistryChanged()
+    {
+        try
+        {
+            await InvokeAsync(async () =>
+            {
+                await LoadMultiSiteSettings();
+                StateHasChanged();
+            });
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Could not refresh the Sites table after a site registry change");
+        }
+    }
+
     public void Dispose()
     {
+        SiteChangeNotifier.SitesChanged -= OnSiteRegistryChanged;
         _agentPollTimer?.Dispose();
     }
 
@@ -4239,6 +4320,7 @@
             {
                 await LoadConsoleViaAgentAsync(site);
                 await LoadSshViaAgentAsync(site);
+                await LoadAgentCoversSiteAsync(site);
                 await LoadClientSpeedTestTargetAsync(site);
                 _agentOnGateway[site.Id] = !site.IsDefault
                     && await OnGatewayDetector.IsAgentOnGatewayAsync(site.Slug);
@@ -4262,6 +4344,7 @@
     {
         await LoadConsoleViaAgentAsync(site);
         await LoadSshViaAgentAsync(site);
+        await LoadAgentCoversSiteAsync(site);
         await LoadClientSpeedTestTargetAsync(site);
         StateHasChanged();
     }
@@ -4273,6 +4356,21 @@
     {
         await SiteConfig.SetConsoleViaAgentAsync(site.Slug, value);
         _consoleViaAgent[site.Id] = value;
+    }
+
+    // "the agent collects for this site" flag, stored in the site's own database. Only offered for
+    // the default site: a secondary site's agent already collects, which is what having one means.
+    private readonly Dictionary<int, bool> _agentCoversSite = new();
+
+    private bool AgentCoversSite(int siteId) => _agentCoversSite.TryGetValue(siteId, out var enabled) && enabled;
+
+    private async Task LoadAgentCoversSiteAsync(Site site)
+        => _agentCoversSite[site.Id] = (await SiteConfig.GetAsync(site.Slug)).AgentCoversSite;
+
+    private async Task ToggleAgentCoversSite(Site site, bool value)
+    {
+        await SiteConfig.SetAgentCoversSiteAsync(site.Slug, value);
+        _agentCoversSite[site.Id] = value;
     }
 
     // Per-site "SSH via agent tunnel" flag (gateway + device SSH), stored in the site's own database
@@ -4343,8 +4441,12 @@
             .OrderByDescending(a => a.LastSeenAt)
             .Select(a => a.LanIp)
             .FirstOrDefault();
+        // The port the agent says it serves on, not an assumed one - otherwise the hint advertises a
+        // URL that differs from the one clients are actually sent to.
+        var port = TunnelRegistry.GetForSite(site.Slug).FirstOrDefault(c => c.SpeedTestPort > 0)?.SpeedTestPort
+            ?? SiteSpeedTestTargetResolver.AgentOpenSpeedTestPort;
         return lanIp != null
-            ? $"auto: https://{lanIp}:{SiteSpeedTestTargetResolver.AgentOpenSpeedTestPort} (agent's detected LAN IP)"
+            ? $"auto: https://{lanIp}:{port} (agent's detected LAN IP)"
             : "e.g. 192.168.1.50 or https://speed.example.com";
     }
 
@@ -4766,6 +4868,14 @@
         _lastTabParam = TabParam;
         _pendingAuditLoad = _activeTab == "auditlog";
 
+        // The address bar still names the tab we just refused. Rewrite it so a reload, a bookmark or
+        // a second site switch does not keep trying to open a tab this site does not have.
+        if (TabParam != null && !string.Equals(_activeTab, TabParam, StringComparison.OrdinalIgnoreCase))
+        {
+            NavigationManager.NavigateTo("/settings?tab=" + _activeTab, forceLoad: false, replace: true);
+            _lastTabParam = _activeTab;
+        }
+
         // Pre-release update notifications default ON (global/instance-wide); only an explicit "false" opts out.
         var prereleaseSetting = await SystemSettings.GetGlobalAsync("updates.include_prereleases");
         receivePrereleaseUpdates = prereleaseSetting is null || (bool.TryParse(prereleaseSetting, out var prPre) && prPre);
@@ -4811,6 +4921,7 @@
         await LoadMonitoringSettings();
         await LoadMapboxToken();
         await LoadMultiSiteSettings();
+        SiteChangeNotifier.SitesChanged += OnSiteRegistryChanged;
 
         if (_multiSiteEnabled)
             _currentSiteName = _sites.FirstOrDefault(s => s.Slug == SiteContext.Slug)?.Name ?? SiteContext.Slug;

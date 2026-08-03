@@ -13,8 +13,12 @@ namespace NetworkOptimizer.Web.Services;
 /// </summary>
 public class SiteManagementService : ISiteManagementService
 {
-    /// <summary>Slug reserved for the default site (the pre-multi-site instance).</summary>
-    public const string DefaultSiteSlug = "main";
+    /// <summary>
+    /// Slug reserved for the default site (the pre-multi-site instance). Defined in the storage
+    /// layer, which needs it to resolve database paths, and mirrored here so the two cannot drift -
+    /// a mismatch would send the default site's data to a folder that should never exist.
+    /// </summary>
+    public const string DefaultSiteSlug = SiteDatabasePaths.DefaultSiteSlug;
 
     private readonly ISiteRepository _siteRepository;
     private readonly Authorization.IEffectiveSiteRoleResolver _siteRoles;
@@ -25,6 +29,7 @@ public class SiteManagementService : ISiteManagementService
     private readonly Licensing.LicenseStateService _licenseState;
     private readonly Licensing.LicenseActivationService _activation;
     private readonly SiteConnectionRegistry _siteConnections;
+    private readonly IEnumerable<ISiteScopedRegistry> _siteRegistries;
     private readonly MonitoringCollectionRegistry _collectionRegistry;
     private readonly SiteRegistryChangeNotifier _changeNotifier;
     private readonly ILogger<SiteManagementService> _logger;
@@ -40,6 +45,7 @@ public class SiteManagementService : ISiteManagementService
         Licensing.LicenseStateService licenseState,
         Licensing.LicenseActivationService activation,
         SiteConnectionRegistry siteConnections,
+        IEnumerable<ISiteScopedRegistry> siteRegistries,
         MonitoringCollectionRegistry collectionRegistry,
         SiteRegistryChangeNotifier changeNotifier,
         Authorization.ISiteAccessFilter siteAccess,
@@ -55,6 +61,7 @@ public class SiteManagementService : ISiteManagementService
         _licenseState = licenseState;
         _activation = activation;
         _siteConnections = siteConnections;
+        _siteRegistries = siteRegistries;
         _collectionRegistry = collectionRegistry;
         _changeNotifier = changeNotifier;
         _logger = logger;
@@ -221,8 +228,10 @@ public class SiteManagementService : ISiteManagementService
         if (!enabled)
         {
             await _collectionRegistry.StopForSiteAsync(site.Slug);
-            _siteConnections.RemoveFor(site.Slug);
+            // After the tunnel, not before: dropping an agent's tunnel runs the console's
+            // reconnect path, which rebuilds the very connection this is trying to drop.
             DropTunnels(site.Slug, "site disabled");
+            _siteConnections.RemoveFor(site.Slug);
         }
         // Re-enable needs no explicit start: the collection registry's reconcile
         // pass picks the site up within its cadence, and the next page view or
@@ -284,7 +293,9 @@ public class SiteManagementService : ISiteManagementService
         site.Enabled = false;
         await _siteRepository.UpdateAsync(site);
         await _collectionRegistry.StopForSiteAsync(site.Slug);
-        _siteConnections.RemoveFor(site.Slug);
+        // Loops first and only loops: they must be down before the database files go, and the
+        // passive registries deliberately wait until afterwards (see the second sweep below).
+        await SweepSiteRegistriesAsync(site.Slug, loopOwners: true);
         DropTunnels(site.Slug, "site removed");
 
         await using (var db = await _mainDbFactory.CreateDbContextAsync())
@@ -310,11 +321,64 @@ public class SiteManagementService : ISiteManagementService
                 site.Slug, site.Slug);
         }
 
+        // Only now, with the registry row and the database files gone, are the passive registries
+        // safe to empty. Evicting them earlier does not hold: anything that touches the slug in the
+        // meantime rebuilds the entry from the site's still-present database, and DropTunnels above
+        // does exactly that - dropping an agent's tunnel runs the console's reconnect path, which
+        // loads that site's saved UniFi configuration into a fresh connection service. The entry
+        // then outlived the site and was handed to the next site created under the same slug,
+        // carrying the removed site's console credentials with it.
+        await SweepSiteRegistriesAsync(site.Slug, loopOwners: false);
+
         // Free the site's license seat.
         await _licenseState.RecomputeAsync();
         _siteRoles.InvalidateAll();
         _changeNotifier.NotifySitesChanged();
         _logger.LogInformation("Removed site {Slug} (id {Id}) and its data", site.Slug, site.Id);
+    }
+
+    /// <summary>
+    /// Empties every per-site registry of a site being removed.
+    ///
+    /// Two passes, because the instances hold one another: the tracer holds the site's console
+    /// connection, the ISP Health service holds its InfluxDB client. Evicting and disposing in one
+    /// pass hands a live holder a disposed dependency - which is how a re-created site ended up
+    /// with an ObjectDisposedException on every ISP Health pass and a discovery run that saw an
+    /// empty device list. So: evict everything first, then tear down.
+    ///
+    /// Loop owners are torn down before the rest so a running collection pass cannot reach a
+    /// client that has just been disposed.
+    /// </summary>
+    private async Task SweepSiteRegistriesAsync(string slug, bool loopOwners)
+    {
+        var loopTeardowns = new List<Func<ValueTask>>();
+        var teardowns = new List<Func<ValueTask>>();
+
+        foreach (var registry in _siteRegistries.Where(r => r is BackgroundService == loopOwners))
+        {
+            try
+            {
+                var teardown = registry.EvictSite(slug);
+                if (teardown == null) continue;
+                (registry is BackgroundService ? loopTeardowns : teardowns).Add(teardown);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Could not evict site {Slug} from {Registry}", slug, registry.GetType().Name);
+            }
+        }
+
+        foreach (var teardown in loopTeardowns.Concat(teardowns))
+        {
+            try
+            {
+                await teardown();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Teardown for removed site {Slug} failed", slug);
+            }
+        }
     }
 
     /// <summary>
@@ -343,6 +407,12 @@ public class SiteManagementService : ISiteManagementService
 
         var slug = await GenerateUniqueSlugAsync(name);
         var site = new Site { Slug = slug, Name = name.Trim() };
+
+        // A slug is free to be reused once its site is gone, so a new site must not be able to
+        // inherit anything cached under that name. Removal sweeps the registries, but a slug can
+        // only be proven clean here: this is the moment the name starts meaning a different site.
+        await SweepSiteRegistriesAsync(slug, loopOwners: true);
+        await SweepSiteRegistriesAsync(slug, loopOwners: false);
 
         await ProvisionSiteDatabaseAsync(slug);
         await _siteRepository.AddAsync(site);

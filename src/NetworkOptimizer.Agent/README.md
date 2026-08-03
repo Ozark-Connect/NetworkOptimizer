@@ -124,7 +124,23 @@ Downloads the self-contained binary (no .NET runtime or Docker), writes
 
 Both scripts accept:
 
-- `--lan-speed-test` - host the LAN speed test page (port 3000) and iperf3 (5201). The only feature that uses nginx.
+- `--lan-speed-test` - host the LAN speed test page (port 24443) and iperf3 (5201). The only feature that uses nginx.
+- `--speed-test-port N` - serve that page on `N` instead of 24443, for a host where 24443 is taken
+  or where you would rather use something else (443, if nothing else on the box wants it). Moves
+  nginx's listener and records the port in `agent.json`; the agent announces it to the server, so
+  in-app speed test links follow with no override needed. Docker equivalent: `AGENT_SPEEDTEST_PORT=N`
+  in the container environment.
+
+Both nginx and the agent resolve the port the same way, so the listener and the announcement can
+never disagree: the environment variable if set, otherwise `"lanSpeedTestPort"` from `agent.json`,
+otherwise 24443. Two consequences worth knowing:
+
+- **An existing install keeps the port it is already serving.** The agent records its whole config
+  on enrollment, so agents set up before the page port was configurable have `3000` written there
+  and go on using it - an upgrade will not move a page that clients and firewall rules already know
+  about. Re-running the installer without `--speed-test-port` preserves it too.
+- **To adopt the current default, delete the `"lanSpeedTestPort"` line** from `agent.json` and
+  restart the agent. That is also the way out if an agent ever ends up on a port that does not work.
 - `--insecure` - accept a self-signed cert on the server's reverse proxy
 - `--dir PATH` - override the install directory
 
@@ -224,15 +240,16 @@ The LAN speed test listener serves self-signed HTTPS by default (a secure
 context, so browser geolocation works for GPS-tagged results). Two supported
 deviations, and **both require updating the site's speed test URL override in
 the central app** (Settings > Multi-Site > the site's Configuration), because
-the app builds agent speed-test links as `https://<agent LAN IP>:3000` by
-default:
+the app builds agent speed-test links from the port the agent announces, defaulting to
+`https://<agent LAN IP>:24443`:
 
 - **Plain HTTP opt-out**: set `AGENT_SPEEDTEST_TLS=0` (an environment variable
   on the Docker container, or in the environment when running
-  `install-native.sh`) to skip cert generation and serve HTTP on port 3000 -
+  `install-native.sh`) to skip cert generation and serve HTTP on port 24443 -
   e.g. to avoid the self-signed trust prompt or shave TLS overhead on a
   high-throughput LAN. Then set the site's URL override to the matching
-  `http://<agent>:3000` address.
+  `http://<agent>:24443` address - the announcement carries the port but not the
+  scheme, and the app defaults to https.
 - **Your own reverse proxy / TLS in front of the agent**: point the site's URL
   override at the proxy's address (e.g. `https://speedtest.site.example.com`).
   The auto-detected agent LAN IP would otherwise bypass your proxy and hit the
@@ -533,7 +550,7 @@ the server's own prober), streaming results back for storage.
 ## LAN speed test serving
 
 Set `"lanSpeedTest": true` and the site's clients get an OpenSpeedTest page on
-port 3000. **nginx** serves the page and the throughput-critical download/upload
+port 24443, or whatever `"lanSpeedTestPort"` records (see above). **nginx** serves the page and the throughput-critical download/upload
 legs (sendfile, so it saturates 10 GbE on modest hardware where a .NET server
 would go CPU-bound) - the Docker image bundles it, and `install-native.sh`
 installs and configures it for the bare-metal install. The .NET agent keeps only

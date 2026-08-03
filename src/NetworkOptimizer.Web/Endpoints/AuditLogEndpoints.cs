@@ -37,7 +37,11 @@ public static class AuditLogEndpoints
             ToUtc = DateTime.TryParse(q["to"], out var t) ? t.ToUniversalTime() : null,
             Category = NullIfEmpty(q["category"]),
             Actor = NullIfEmpty(q["actor"]),
-            SiteSlug = NullIfEmpty(q["site"]),
+            // NOT "site": that name belongs to the app's per-tab site pin, and site-context.js
+            // stamps it onto every /api/ anchor at click time. Reading it here turned Export into
+            // "export the current site only", silently dropping every event that has no site of its
+            // own - which is most of them, so the file came back as just the newest handful.
+            SiteSlug = NullIfEmpty(q["siteSlug"]),
             Outcome = NullIfEmpty(q["outcome"]),
         };
     }

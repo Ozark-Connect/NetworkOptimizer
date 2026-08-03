@@ -2834,6 +2834,50 @@ namespace NetworkOptimizer.Storage.Migrations
                     b.ToTable("WanContexts");
                 });
 
+            modelBuilder.Entity("NetworkOptimizer.Storage.Models.WanProfile", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<double?>("DownloadMbps")
+                        .HasColumnType("REAL");
+
+                    b.Property<string>("CounterInterface")
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DataPathInterface")
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("GatewayMac")
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Name")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<double?>("UploadMbps")
+                        .HasColumnType("REAL");
+
+                    b.Property<string>("WanNetworkgroup")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("WanNetworkgroup")
+                        .IsUnique();
+
+                    b.ToTable("WanProfiles");
+                });
+
             modelBuilder.Entity("NetworkOptimizer.Storage.Models.WanDataUsageConfig", b =>
                 {
                     b.Property<int>("Id")

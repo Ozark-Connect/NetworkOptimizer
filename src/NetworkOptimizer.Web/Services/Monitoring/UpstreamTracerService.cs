@@ -36,7 +36,10 @@ public class UpstreamTracerService
     private readonly NetworkOptimizer.Storage.Services.SiteDbContextFactory _siteDbFactory;
     private readonly IDbContextFactory<NetworkOptimizerDbContext> _dbFactory;
     private readonly AsnResolutionService _asnResolution;
-    private readonly IProbeExecutor _traceExecutor;
+    // Resolved per use, not captured: whether the site's agent covers it can change while the
+    // instance lives, and the registry caches one tracer per site for the life of the process.
+    private readonly Func<IProbeExecutor> _traceExecutorFactory;
+    private IProbeExecutor _traceExecutor => _traceExecutorFactory();
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IspHealth.IspHealthService _ispHealth;
     private readonly NetworkOptimizer.Audit.Services.IeeeOuiDatabase _ouiDb;
@@ -122,8 +125,15 @@ public class UpstreamTracerService
     /// <summary>Sub-80ms regionals that are "enough": once a probe round has found this many, later rounds are skipped.</summary>
     internal const int AwsEnoughRegionals = 6;
 
-    /// <summary>Max AWS regionals surfaced as path-end candidates (transit-eliciting first, then lowest RTT).</summary>
-    internal const int MaxAwsPathEndTargets = 5;
+    /// <summary>Max AWS regionals SURFACED as path-end candidates (transit-eliciting first, then lowest RTT).</summary>
+    internal const int MaxAwsPathEndTargets = 7;
+
+    /// <summary>
+    /// How many of those arrive pre-enabled. Surfacing is cheap - a row to tick - but every enabled
+    /// one becomes a probed target forever, and four path-ends through one provider already
+    /// characterize the path. The rest are offered rather than chosen.
+    /// </summary>
+    internal const int MaxAwsAutoEnabledTargets = 4;
 
     // A resolved AWS regional: the hostname (what we persist as the target address, since AWS rotates
     // the regional IPs and the hostname re-resolves to a live in-region IP each poll) and the concrete
@@ -250,7 +260,7 @@ public class UpstreamTracerService
         UniFiConnectionService connectionService,
         IGatewaySshService gatewaySsh,
         IspHealth.IspHealthService ispHealth,
-        IProbeExecutor traceExecutor,
+        Func<IProbeExecutor> traceExecutor,
         NetworkOptimizer.Storage.Services.SiteDbContextFactory siteDbFactory,
         IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
         AsnResolutionService asnResolution,
@@ -263,7 +273,7 @@ public class UpstreamTracerService
         _connectionService = connectionService;
         _gatewaySsh = gatewaySsh;
         _ispHealth = ispHealth;
-        _traceExecutor = traceExecutor;
+        _traceExecutorFactory = traceExecutor;
         _siteDbFactory = siteDbFactory;
         _dbFactory = dbFactory;
         _asnResolution = asnResolution;
@@ -1505,8 +1515,9 @@ public class UpstreamTracerService
             var amazon = await _asnResolution.ResolveAsync(_awsRegionals[0].Ip, ct);
             var amazonAsn = amazon?.Asn ?? 0;
             var amazonName = string.IsNullOrEmpty(amazon?.Name) ? "Amazon" : CleanAsnName(amazon.Name);
-            // The via (farthest transit) labels the row, decides pre-enable, and ranks the trim: a
-            // region is pre-checked only when its trace actually crosses transit.
+            // The via (farthest transit) labels the row and ranks the trim. It also gates pre-enable:
+            // a region is pre-checked only when its trace actually crosses transit, and only while
+            // the pre-enabled count is under its own cap.
             var rankedAws = _awsRegionals
                 .Select(r =>
                 {
@@ -1515,9 +1526,15 @@ public class UpstreamTracerService
                 })
                 .OrderByDescending(x => x.Via != null)
                 .ThenBy(x => x.Regional.RttMs)
-                .Take(MaxAwsPathEndTargets);
+                .Take(MaxAwsPathEndTargets)
+                .ToList();
+            // Pre-enable only the best few. The list is already ordered transit-eliciting first,
+            // then by RTT, so taking from the front enables the most useful of them.
+            var autoEnabled = 0;
             foreach (var (r, via, awsComplete) in rankedAws)
             {
+                var enable = via != null && autoEnabled < MaxAwsAutoEnabledTargets;
+                if (enable) autoEnabled++;
                 candidates.Add(new TransitAsnCandidate
                 {
                     AsnNumber = amazonAsn,
@@ -1528,7 +1545,7 @@ public class UpstreamTracerService
                     HopAddress = r.Hostname,
                     PathProxyTarget = r.Hostname,
                     RespondedTo = ProbeMode.Icmp,
-                    Enabled = via != null,
+                    Enabled = enable,
                     ViaAsnNumber = via?.Asn,
                     ViaAsnName = via?.Name,
                     ViaPathComplete = awsComplete
@@ -1660,19 +1677,27 @@ public class UpstreamTracerService
     // spacing) to be auto-selected, so flaky, ICMP-deprioritized routers don't get monitored - and
     // so a curated transit witness (e.g. Level 3 4.2.2.2) must itself clear the gate before it is
     // attached. We always send 3; the required successes depend on the connection's access medium
-    // (Item B): air-interface mediums (WISP, cellular) and the unconfigured Unknown case allow one
-    // dropped reply (2/3); stable wired/fiber/LEO mediums demand 3/3.
+    // (Item B): air-interface mediums (WISP, cellular) allow one dropped reply (2/3), everything
+    // else demands 3/3.
     private const int ReachabilityPingCount = 3;
 
     /// <summary>
     /// Required successful pings (out of <see cref="ReachabilityPingCount"/>) for a candidate to be
     /// auto-selected, by the connection's access technology. WISP / cellular have inherent
-    /// air-interface transient loss, and Unknown is unconfigured, so we don't penalize them for a
-    /// single drop; everything else (including LEO, which is stable) demands all three.
+    /// air-interface transient loss, so a single drop does not disqualify a candidate there;
+    /// everything else (including LEO, which is stable) demands all three.
+    ///
+    /// Unknown demands all three too. It used to be lenient on the grounds that an unconfigured
+    /// link might turn out to be air-interface - but Unknown is the state of every FIRST run on a
+    /// WAN, which is precisely the run that decides which candidates get seeded as monitoring
+    /// targets. Relaxing the gate exactly when the least is known adopted flaky routers on the
+    /// strength of the run with the weakest evidence. Leniency now follows a deliberate statement
+    /// about the medium rather than the absence of one: someone on a WISP sets the technology and
+    /// re-runs.
     /// </summary>
     private static int RequiredReachabilitySuccesses(AccessTechnology tech) => tech switch
     {
-        AccessTechnology.FixedWireless or AccessTechnology.Cellular or AccessTechnology.Unknown => 2,
+        AccessTechnology.FixedWireless or AccessTechnology.Cellular => 2,
         _ => 3
     };
 

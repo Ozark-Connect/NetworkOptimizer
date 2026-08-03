@@ -96,8 +96,21 @@ public sealed class AuditQueryService : IAuditQueryService
         if (f.ToUtc is not null) q = q.Where(e => e.TimestampUtc <= f.ToUtc);
         if (!string.IsNullOrEmpty(f.Category)) q = q.Where(e => e.Category == f.Category);
         if (!string.IsNullOrEmpty(f.Outcome)) q = q.Where(e => e.Outcome == f.Outcome);
-        if (!string.IsNullOrEmpty(f.SiteSlug)) q = q.Where(e => e.SiteSlug == f.SiteSlug);
-        if (!string.IsNullOrEmpty(f.Actor)) q = q.Where(e => e.ActorName != null && e.ActorName.Contains(f.Actor));
+        // Only the typed side is normalized: slugs are stored lowercase, so lowering the column too
+        // would run a function per row and give up the index for a case that cannot occur.
+        if (!string.IsNullOrEmpty(f.SiteSlug))
+        {
+            var slug = f.SiteSlug.ToLowerInvariant();
+            q = q.Where(e => e.SiteSlug == slug);
+        }
+        // Both sides here, unlike the slug above: actor names are whatever the identity provider
+        // gave us, so neither end has a guaranteed case. Contains translates to instr() on SQLite,
+        // which is case-sensitive - searching "Kira" found nothing for a user stored as "kira".
+        if (!string.IsNullOrEmpty(f.Actor))
+        {
+            var actor = f.Actor.ToLowerInvariant();
+            q = q.Where(e => e.ActorName != null && e.ActorName.ToLower().Contains(actor));
+        }
         return q;
     }
 

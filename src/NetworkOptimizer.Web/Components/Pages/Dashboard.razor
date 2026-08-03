@@ -114,7 +114,7 @@
                         <span>Connect to your UniFi Console (Controller) to view network data.</span>
                     }
                 </div>
-                <a href="/settings" class="btn btn-primary">@(!string.IsNullOrEmpty(ConnectionService.LastError) ? "Check Settings" : "Connect Now")</a>
+                <a href="/settings?tab=connection#console-connection" class="btn btn-primary">@(!string.IsNullOrEmpty(ConnectionService.LastError) ? "Check Settings" : "Connect Now")</a>
             </div>
         </div>
     }
@@ -799,16 +799,22 @@
         </div>
     };
 
+    // Withheld while the console is down, unlike the Monitoring tab, which stays open so its
+    // timeline can be played back. This card is a live snapshot with nothing to scrub: it would
+    // render only to say the console is disconnected, which the page's own banner already says.
     private RenderFragment RenderLiveView => __builder =>
     {
-        <div class="card" id="live-view">
-            <a href="/monitoring?tab=live" class="card-header card-title-link" @onclick:stopPropagation>
-                <h2 class="card-title">Live View</h2>
-            </a>
-            <div class="card-body">
-                <LiveViewPanel MapMode="@GetLiveViewMapMode()" />
+        @if (ConnectionService.IsConnected || !ConnectionService.IsInitialized)
+        {
+            <div class="card" id="live-view">
+                <a href="/monitoring?tab=live" class="card-header card-title-link" @onclick:stopPropagation>
+                    <h2 class="card-title">Live View</h2>
+                </a>
+                <div class="card-body">
+                    <LiveViewPanel MapMode="@GetLiveViewMapMode()" />
+                </div>
             </div>
-        </div>
+        }
     };
 
     private string GetLiveViewMapMode()

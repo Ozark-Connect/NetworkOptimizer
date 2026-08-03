@@ -23,8 +23,6 @@ public class ComponentDatabaseWriteTests
     {
         "FlakyTargetsCard.razor",
         "InfluxSetupWizard.razor",
-        "LatencyTargetsCard.razor",
-        "Monitoring.razor",
         "Settings.razor",
         "SfpModulesCard.razor",
         "SnmpDeviceStatusCard.razor",

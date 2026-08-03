@@ -45,6 +45,7 @@ public class MonitoringCollectionAgent : BackgroundService
     private readonly IDbContextFactory<NetworkOptimizerDbContext> _dbFactory;
     private readonly SiteDbContextFactory _siteDbFactory;
     private readonly AgentTunnelRegistry _tunnelRegistry;
+    private readonly SiteAgentCoverage _agentCoverage;
     private readonly UniFiConnectionService _connectionService;
     private readonly MonitoringInfluxClient _influx;
     private readonly MonitoringLiveStats _liveStats;
@@ -110,6 +111,22 @@ public class MonitoringCollectionAgent : BackgroundService
     public bool CommunityTooLongDetected { get; private set; }
 
     /// <summary>
+    /// When a collection tier last completed a pass. Monitoring - Setup reported "Agent running"
+    /// from the enabled flag and InfluxDB reachability alone, which says nothing about whether
+    /// anything is actually collecting - a wedged or crashed loop still read as running. Stamped by
+    /// every tier, so a value going stale means all of them stopped, not just one.
+    /// </summary>
+    public DateTime? LastCollectionUtc { get; private set; }
+
+    /// <summary>
+    /// Whether this site's probing happens here. The server stands down from probing on every
+    /// non-default site (see the comment in FastTierCollectAsync) - the site's own agent probes
+    /// from inside instead - and on the default site too once it is configured for its agent to
+    /// cover it. A status display must not claim the server is collecting where it is not.
+    /// </summary>
+    public bool ServerProbesThisSite => _isDefault && !AgentCoversCollection();
+
+    /// <summary>
     /// Lets the Setup page's interactive re-check override the cached self-heal sighting
     /// with its fresher console read. Without this, a user who shortens the community and
     /// hits Re-check still sees the too-long banner until the agent's next re-pull.
@@ -127,6 +144,7 @@ public class MonitoringCollectionAgent : BackgroundService
         IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
         SiteDbContextFactory siteDbFactory,
         AgentTunnelRegistry tunnelRegistry,
+        SiteAgentCoverage agentCoverage,
         SiteConnectionRegistry siteConnections,
         MonitoringInfluxRegistry influxRegistry,
         MonitoringLiveStatsRegistry liveStatsRegistry,
@@ -145,6 +163,7 @@ public class MonitoringCollectionAgent : BackgroundService
         _dbFactory = dbFactory;
         _siteDbFactory = siteDbFactory;
         _tunnelRegistry = tunnelRegistry;
+        _agentCoverage = agentCoverage;
         _licenseState = licenseState;
         _siteSlug = string.IsNullOrEmpty(siteSlug) ? SiteManagementService.DefaultSiteSlug : siteSlug;
         _isDefault = _siteSlug == SiteManagementService.DefaultSiteSlug;
@@ -181,11 +200,17 @@ public class MonitoringCollectionAgent : BackgroundService
     /// Whether a connected on-site agent is collecting for this site right now. The
     /// tunnel relay handles latency probing and SNMP polling from inside the site's
     /// network (where the server often has no reach), so the local loops for those
-    /// paths stand down while an agent is connected. Never true for the default site:
-    /// its agents are additional vantage points, not replacements for local collection.
+    /// paths stand down while an agent is connected.
+    ///
+    /// For the default site this is false unless the site is explicitly configured for its agent to
+    /// cover it: a default-site agent is an ADDITIONAL vantage point by default, not a replacement
+    /// for local collection, and that is what installs using one today rely on.
     /// </summary>
-    private bool AgentCoversCollection() =>
-        !_isDefault && (_tunnelRegistry.GetForSite(_siteSlug).Count > 0 || _siteAgentEnrolled);
+    private bool AgentCoversCollection()
+    {
+        var agentPresent = _tunnelRegistry.GetForSite(_siteSlug).Count > 0 || _siteAgentEnrolled;
+        return _agentCoverage.AgentCovers(_siteSlug, agentPresent);
+    }
 
     // A secondary site is agent-backed if it has an ENROLLED agent, even while that agent
     // is momentarily disconnected (app startup, agent reconnect). The NO Server can't reach
@@ -346,6 +371,7 @@ public class MonitoringCollectionAgent : BackgroundService
                 {
                     interval = intervalSelector(settings);
                     await collect(settings, stoppingToken);
+                    LastCollectionUtc = DateTime.UtcNow;
                 }
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -1406,9 +1432,9 @@ public class MonitoringCollectionAgent : BackgroundService
         // central server can't see the site's network: with an agent connected it double-probes
         // the WAN path instead of the site's own fabric/WAN view, and with no agent yet it would
         // log its own anycast RTT as the site's ISP latency. The site's agent probes its enabled
-        // targets from inside once deployed (AgentProbeResultSink). The default site keeps
-        // probing locally as before.
-        if (!_isDefault) return;
+        // targets from inside once deployed (AgentProbeResultSink). The default site keeps probing
+        // locally unless it too is covered by its agent, which is the off-site-server case.
+        if (!_isDefault || AgentCoversCollection()) return;
 
         await using var db = await CreateSiteDbAsync(ct);
         var targets = await db.MonitoringTargets

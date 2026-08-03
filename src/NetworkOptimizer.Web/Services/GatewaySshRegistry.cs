@@ -12,7 +12,7 @@ namespace NetworkOptimizer.Web.Services;
 /// ownership pattern as SiteConnectionRegistry. Instances hold no connections
 /// (SSH sessions are per-command), so nothing needs disposal.
 /// </summary>
-public class GatewaySshRegistry
+public class GatewaySshRegistry : ISiteScopedRegistry
 {
     private readonly IServiceProvider _serviceProvider;
     private readonly ConcurrentDictionary<string, GatewaySshService> _instances = new();
@@ -29,4 +29,11 @@ public class GatewaySshRegistry
 
     /// <summary>The default site's gateway SSH service.</summary>
     public GatewaySshService GetDefault() => GetFor(SiteManagementService.DefaultSiteSlug);
+
+    /// <inheritdoc />
+    public Func<ValueTask>? EvictSite(string slug)
+    {
+        _instances.TryRemove(slug, out _);
+        return null;
+    }
 }

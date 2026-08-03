@@ -15,7 +15,7 @@ namespace NetworkOptimizer.Web.Services.Monitoring;
 /// agent (running the same LocalProbeExecutor over the tunnel) on a secondary site, so the
 /// path originates on the site's own network with first-hop logic identical to home.
 /// </summary>
-public class UpstreamTracerRegistry
+public class UpstreamTracerRegistry : ISiteScopedRegistry
 {
     private readonly SiteConnectionRegistry _connections;
     private readonly GatewaySshRegistry _gatewaySsh;
@@ -25,6 +25,7 @@ public class UpstreamTracerRegistry
     private readonly SiteDbContextFactory _siteDbFactory;
     private readonly IDbContextFactory<NetworkOptimizerDbContext> _dbFactory;
     private readonly AsnResolutionService _asnResolution;
+    private readonly SiteAgentCoverage _agentCoverage;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly NetworkOptimizer.Audit.Services.IeeeOuiDatabase _ouiDb;
     private readonly ILoggerFactory _loggerFactory;
@@ -39,6 +40,7 @@ public class UpstreamTracerRegistry
         SiteDbContextFactory siteDbFactory,
         IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
         AsnResolutionService asnResolution,
+        SiteAgentCoverage agentCoverage,
         IServiceScopeFactory scopeFactory,
         NetworkOptimizer.Audit.Services.IeeeOuiDatabase ouiDb,
         ILoggerFactory loggerFactory)
@@ -51,6 +53,7 @@ public class UpstreamTracerRegistry
         _siteDbFactory = siteDbFactory;
         _dbFactory = dbFactory;
         _asnResolution = asnResolution;
+        _agentCoverage = agentCoverage;
         _scopeFactory = scopeFactory;
         _ouiDb = ouiDb;
         _loggerFactory = loggerFactory;
@@ -60,11 +63,18 @@ public class UpstreamTracerRegistry
     public UpstreamTracerService GetFor(string slug) => _instances.GetOrAdd(slug, s =>
     {
         var isDefault = s == SiteManagementService.DefaultSiteSlug;
-        // Default site traces from the local server; a secondary site traces from its
-        // on-site agent (analogous to the NO Server on the home LAN).
-        IProbeExecutor traceExecutor = isDefault
-            ? _localProbe
-            : new AgentProbeExecutor(_agentProbe, s, _loggerFactory.CreateLogger<AgentProbeExecutor>());
+        // A secondary site always traces from its on-site agent (analogous to the NO Server on the
+        // home LAN) - tracing it from here would attribute this server's path to that site. The
+        // default site traces locally unless it is configured for its agent to cover it, which is
+        // the off-site-server case.
+        //
+        // Resolved per run rather than baked in here: this registry caches one tracer per site for
+        // the life of the process, so a flag changed afterwards would otherwise never be seen.
+        var agentExecutor = new AgentProbeExecutor(_agentProbe, s, _loggerFactory.CreateLogger<AgentProbeExecutor>());
+        Func<IProbeExecutor> traceExecutor = () =>
+            !isDefault || _agentCoverage.AgentCovers(s, _agentProbe.HasAgentForSite(s))
+                ? agentExecutor
+                : _localProbe;
         return new UpstreamTracerService(
             s,
             isDefault,
@@ -82,4 +92,11 @@ public class UpstreamTracerRegistry
 
     /// <summary>The default site's tracer.</summary>
     public UpstreamTracerService GetDefault() => GetFor(SiteManagementService.DefaultSiteSlug);
+
+    /// <inheritdoc />
+    public Func<ValueTask>? EvictSite(string slug)
+    {
+        _instances.TryRemove(slug, out _);
+        return null;
+    }
 }

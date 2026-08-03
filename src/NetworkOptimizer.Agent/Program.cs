@@ -91,6 +91,17 @@ var version = Assembly.GetExecutingAssembly()
 // NO_AGENT_LAN_IP overrides auto-detection for deployments where it can't see the
 // real LAN address (e.g. Docker bridge mode instead of host, or multi-NIC hosts).
 var lanIpOverride = Environment.GetEnvironmentVariable("NO_AGENT_LAN_IP");
+
+// The port the speed test page is served on, for the announcement to the server. nginx is what
+// actually listens, so both have to resolve it the same way: the environment variable first (the
+// container's entrypoint moves nginx's listener from it), then whatever agent.json records, then
+// the built-in default. An agent enrolled before the port was configurable has the old 3000 in its
+// config and keeps serving it - upgrading should not move a port that clients and firewall rules
+// already know about. New installs get the current default instead.
+static int SpeedTestPagePort(NetworkOptimizer.Agent.AgentConfig cfg) =>
+    int.TryParse(Environment.GetEnvironmentVariable("AGENT_SPEEDTEST_PORT"), out var p) && p > 0
+        ? p
+        : cfg.LanSpeedTestPort;
 var lanIp = !string.IsNullOrWhiteSpace(lanIpOverride)
     ? lanIpOverride.Trim()
     : NetworkOptimizer.Core.Helpers.NetworkUtilities.DetectLocalIpFromInterfaces();
@@ -201,6 +212,11 @@ Task? watchdogTask = null;
 var spoolPath = Path.Combine(
     Path.GetDirectoryName(Path.GetFullPath(configPath)) ?? ".", "result-spool.bin");
 
+// How far back from a stop a result may have been corrupted by it: the longest a ping burst can
+// still be running when the signal lands. Generous rather than tight - losing a few seconds of
+// samples at a restart costs nothing next to a false loss spike that outlives it.
+var shutdownBoundary = TimeSpan.FromSeconds(5);
+
 // Best-effort spool of the unacked backlog for the next process to replay.
 // Called on graceful shutdown and by the async-I/O watchdog right before its
 // restart exit, so restarts don't cost the outage data the buffer exists for.
@@ -208,9 +224,20 @@ void SaveSpool()
 {
     if (resultBuffer is not { Count: > 0 })
         return;
+    // Anything measured in the last few seconds may have had its ping children killed underneath it
+    // by the same signal that is stopping us, which reads as loss it never saw. Drop that tail
+    // rather than persist it - see ResultBuffer.DropTail.
+    var poisoned = resultBuffer.DropTail(shutdownBoundary);
+    if (resultBuffer.Count == 0)
+    {
+        if (poisoned > 0)
+            Console.WriteLine($"Discarded {poisoned} result message(s) measured across the shutdown");
+        return;
+    }
     var count = resultBuffer.Count;
     resultBuffer.SaveTo(spoolPath);
-    Console.WriteLine($"Spooled {count} unsent result message(s) for the next start");
+    Console.WriteLine($"Spooled {count} unsent result message(s) for the next start"
+        + (poisoned > 0 ? $"; discarded {poisoned} measured across the shutdown" : ""));
 }
 
 if (!string.IsNullOrEmpty(config.TunnelUrl))
@@ -281,7 +308,12 @@ while (!cts.IsCancellationRequested)
         var drainTask = tunnel.DrainResultsAsync(resultBuffer, connectionCts.Token);
         try
         {
-            await tunnel.RunAsync(config.TunnelUrl, config.AgentKey!, version, lanIp, config.IgnoreSslErrors, cts.Token);
+            // Announce the port only when a speed test server is actually up. An agent that
+            // serves none - a gateway install, or one where the server failed to start - has no
+            // port to give, and claiming a port would advertise a listener that is not there.
+            await tunnel.RunAsync(config.TunnelUrl, config.AgentKey!, version, lanIp,
+                speedTestServer != null ? SpeedTestPagePort(config) : 0,
+                speedTestServer != null, config.IgnoreSslErrors, cts.Token);
             Console.Error.WriteLine("Tunnel closed by server, reconnecting...");
         }
         catch (OperationCanceledException) when (cts.IsCancellationRequested)
@@ -378,7 +410,7 @@ namespace NetworkOptimizer.Agent
         string? TunnelUrl = null,
         string? ProbeSourceIp = null,
         bool LanSpeedTest = false,
-        int LanSpeedTestPort = 3000,
+        int LanSpeedTestPort = 24443,
         IReadOnlyList<string>? ProxyAllowedCidrs = null);
 
     public record EnrollmentResponse(string AgentKey, string SiteSlug, int? TunnelPort = null);

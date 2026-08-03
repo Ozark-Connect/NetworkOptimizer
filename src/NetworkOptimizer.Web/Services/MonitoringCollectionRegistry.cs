@@ -15,7 +15,7 @@ namespace NetworkOptimizer.Web.Services;
 /// Monitoring page's SNMP status panel reads whichever site it is showing).
 /// Same ownership pattern as SiteConnectionRegistry / MonitoringInfluxRegistry.
 /// </summary>
-public class MonitoringCollectionRegistry : BackgroundService
+public class MonitoringCollectionRegistry : BackgroundService, ISiteScopedRegistry
 {
     private static readonly TimeSpan ReconcileInterval = TimeSpan.FromSeconds(30);
 
@@ -63,6 +63,14 @@ public class MonitoringCollectionRegistry : BackgroundService
         await StopInstanceAsync(slug, ct);
         _instances.TryRemove(slug, out _);
     }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// The loop has to come down before anything it reads from is disposed, so the stop runs in
+    /// the teardown callback and this registry is swept first.
+    /// </remarks>
+    public Func<ValueTask>? EvictSite(string slug)
+        => () => new ValueTask(StopForSiteAsync(slug));
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {

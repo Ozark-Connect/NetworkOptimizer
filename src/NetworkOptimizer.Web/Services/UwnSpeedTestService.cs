@@ -25,6 +25,7 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase, IUwnSpeedTestService
     private readonly IGatewaySshService _gatewaySsh;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly SiteTunnelRouting _tunnelRouting;
+    private readonly SiteAgentCoverage _agentCoverage;
     private readonly AgentUwnService _agentUwn;
     private readonly AgentEnrollmentService _agentEnrollment;
 
@@ -52,6 +53,7 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase, IUwnSpeedTestService
         GatewaySshRegistry gatewaySshRegistry,
         IServiceScopeFactory scopeFactory,
         SiteTunnelRouting tunnelRouting,
+        SiteAgentCoverage agentCoverage,
         AgentUwnService agentUwn,
         AgentEnrollmentService agentEnrollment,
         NetworkOptimizer.Storage.Services.SiteDbContextFactory siteDbFactory,
@@ -65,6 +67,7 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase, IUwnSpeedTestService
         _gatewaySsh = gatewaySshRegistry.GetFor(SiteSlug);
         _scopeFactory = scopeFactory;
         _tunnelRouting = tunnelRouting;
+        _agentCoverage = agentCoverage;
         _agentUwn = agentUwn;
         _agentEnrollment = agentEnrollment;
     }
@@ -96,10 +99,11 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase, IUwnSpeedTestService
         Action<string, int, string?> report,
         CancellationToken cancellationToken)
     {
-        // A non-default site that is reached via its agent runs the binary at the
-        // site, so the measured WAN is the site's rather than this server's.
-        // CanRunForSiteAsync has already refused non-default sites without an agent.
-        if (!IsDefaultSite && await _tunnelRouting.IsViaAgentAsync(SiteSlug))
+        // A site reached via its agent runs the binary at the site, so the measured WAN is the
+        // site's rather than this server's. CanRunForSiteAsync has already refused non-default
+        // sites without an agent, and IsViaAgentAsync answers false for the default site unless it
+        // has been handed to its agent.
+        if (await _tunnelRouting.IsViaAgentAsync(SiteSlug))
             return await RunViaAgentAsync(report, cancellationToken);
 
         return await RunLocalAsync(report, cancellationToken);
@@ -302,7 +306,7 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase, IUwnSpeedTestService
         // from the on-site agent, so the trace source is the agent's LAN IP on that
         // site's topology (this server's HOST_IP is off-network there) - same
         // resolution the Client Speed Test uses for agent-relayed results.
-        var serverIp = IsDefaultSite
+        var serverIp = IsDefaultSite && !await _agentCoverage.CoversAsync(SiteSlug)
             ? _configuration["HOST_IP"]
             : await _agentEnrollment.GetOnlineAgentLanIpAsync(SiteSlug);
 
