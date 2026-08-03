@@ -9,6 +9,7 @@ using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.UniFi;
 using NetworkOptimizer.UniFi.Models;
 using NetworkOptimizer.Web.Models;
+using NetworkOptimizer.Web.Services.Ssh;
 using NetworkOptimizer.WiFi;
 using NetworkOptimizer.WiFi.Models;
 
@@ -31,6 +32,7 @@ public class ClientDashboardService
     private readonly ClientSpeedTestService _speedTestService;
     private readonly IConfiguration _configuration;
     private readonly IServiceScopeFactory _scopeFactory;
+    private readonly IGatewaySshService _gatewaySshService;
 
     // Track last trace hash per client MAC to detect changes
     private readonly ConcurrentDictionary<string, string> _lastTraceHashes = new();
@@ -58,7 +60,8 @@ public class ClientDashboardService
         SpeedTestServiceRegistry speedTestRegistry,
         IConfiguration configuration,
         IServiceScopeFactory scopeFactory,
-        SiteContextService siteContext)
+        SiteContextService siteContext,
+        IGatewaySshService gatewaySshService)
     {
         _logger = logger;
         _siteDbFactory = siteDbFactory;
@@ -71,6 +74,7 @@ public class ClientDashboardService
         _speedTestService = siteServices.ClientSpeedTest;
         _configuration = configuration;
         _scopeFactory = scopeFactory;
+        _gatewaySshService = gatewaySshService;
     }
 
     /// <summary>Context for the database holding this instance's site data.</summary>
@@ -132,6 +136,47 @@ public class ClientDashboardService
         try
         {
             UniFiClientResponse? client = null;
+            List<UniFiClientDetailResponse>? activeDetails = null;
+            List<UniFiClientDetailResponse>? history = null;
+            Dictionary<string, string>? activeIpLookup = null;
+            Dictionary<string, string>? historyIpLookup = null;
+
+            async Task<List<UniFiClientDetailResponse>> GetActiveDetailsAsync()
+            {
+                activeDetails ??= await _connectionService.Client.GetActiveClientsAsync();
+                return activeDetails;
+            }
+
+            async Task<Dictionary<string, string>> GetActiveIpLookupAsync()
+            {
+                activeIpLookup ??= ClientIpEnricher.BuildMacToIpLookup(await GetActiveDetailsAsync());
+                return activeIpLookup;
+            }
+
+            async Task<List<UniFiClientDetailResponse>> GetHistoryAsync()
+            {
+                history ??= await _connectionService.Client.GetClientHistoryAsync(withinHours: 720);
+                return history;
+            }
+
+            async Task<Dictionary<string, string>> GetHistoryIpLookupAsync()
+            {
+                historyIpLookup ??= ClientIpEnricher.BuildMacToIpLookup(await GetHistoryAsync());
+                return historyIpLookup;
+            }
+
+            IReadOnlyDictionary<string, string>? BuildBestIpLookup()
+            {
+                if (activeIpLookup == null)
+                    return historyIpLookup;
+                if (historyIpLookup == null)
+                    return activeIpLookup;
+
+                var combined = new Dictionary<string, string>(historyIpLookup, StringComparer.OrdinalIgnoreCase);
+                foreach (var pair in activeIpLookup)
+                    combined[pair.Key] = pair.Value;
+                return combined;
+            }
 
             // Fast path: if we already know the MAC, fetch just this client
             if (_ipToMacCache.TryGetValue(clientIp, out var knownMac))
@@ -141,11 +186,21 @@ public class ClientDashboardService
 
                 // Verify the IP still matches - if another device took this IP
                 // (DHCP reassignment), the MAC lookup returns the wrong device.
-                // Match on BestIp so fixed/reservation devices (empty live ip) still match.
-                if (client != null && client.BestIp != clientIp)
+                if (client != null && !ClientMatchesIp(client, clientIp))
                 {
-                    _logger.LogTrace("Identify {Ip}: IP mismatch (device now at {NewIp}), invalidating cache", clientIp, client.Ip);
-                    client = null;
+                    var activeLookup = await GetActiveIpLookupAsync();
+                    if (!ClientMatchesIp(client, clientIp, activeLookup))
+                    {
+                        var historyLookup = await GetHistoryIpLookupAsync();
+                        if (!ClientMatchesIp(client, clientIp, historyLookup))
+                        {
+                            _logger.LogTrace(
+                                "Identify {Ip}: IP mismatch (device now at {NewIp}), invalidating cache",
+                                clientIp,
+                                ResolveClientIp(client, BuildBestIpLookup()));
+                            client = null;
+                        }
+                    }
                 }
 
                 // If lookup failed or IP changed, invalidate and fall through to full list
@@ -161,7 +216,18 @@ public class ClientDashboardService
             {
                 _logger.LogTrace("Identify {Ip}: slow path via stat/sta (all clients)", clientIp);
                 var clients = await _connectionService.Client.GetClientsAsync();
-                client = clients?.FirstOrDefault(c => c.BestIp == clientIp);
+                client = clients?.FirstOrDefault(c => ClientMatchesIp(c, clientIp));
+                if (client == null && clients?.Count > 0)
+                {
+                    var activeLookup = await GetActiveIpLookupAsync();
+                    client = clients.FirstOrDefault(c => ClientMatchesIp(c, clientIp, activeLookup));
+                }
+
+                if (client == null && clients?.Count > 0)
+                {
+                    var historyLookup = await GetHistoryIpLookupAsync();
+                    client = clients.FirstOrDefault(c => ClientMatchesIp(c, clientIp, historyLookup));
+                }
             }
 
             if (client != null)
@@ -174,7 +240,7 @@ public class ClientDashboardService
                 // same name here as in Client Stats instead of a raw MAC.
                 var displayNames = await ClientDisplayNameCache.GetAsync(_connectionService.Client);
                 displayNames.TryGetValue(client.Mac.ToLowerInvariant(), out var displayName);
-                var identity = MapClientToIdentity(client, displayName);
+                var identity = MapClientToIdentity(client, displayName, BuildBestIpLookup());
 
                 // Try WiFiman endpoint for more-realtime signal data, overlay on top of stat/sta
                 await OverlayWiFiManDataAsync(identity, clientIp);
@@ -183,13 +249,40 @@ public class ClientDashboardService
                 return identity;
             }
 
+            // The v2 active-client endpoint can still contain a client omitted by stat/sta.
+            var activeDetail = (await GetActiveDetailsAsync())
+                .FirstOrDefault(c => ClientDetailMatchesIp(c, clientIp));
+            if (activeDetail == null)
+            {
+                var clientMac = await ResolveMacFromGatewayNeighborAsync(clientIp);
+                if (!string.IsNullOrEmpty(clientMac))
+                    activeDetail = activeDetails?.FirstOrDefault(c => MacEquals(c.Mac, clientMac));
+            }
+
+            if (activeDetail != null)
+            {
+                var identity = MapClientDetailToIdentity(activeDetail, clientIp);
+                _offlineIdentityCache.TryRemove(clientIp, out _);
+                _ipToMacCache[clientIp] = identity.Mac;
+
+                _logger.LogDebug(
+                    "Identified active client {Ip} as {Name} ({Mac}) from UniFi active-client details",
+                    clientIp,
+                    identity.DisplayName,
+                    identity.Mac);
+
+                await OverlayWiFiManDataAsync(identity, clientIp);
+                return identity;
+            }
+
             // Device not in active list - check offline cache
             if (_offlineIdentityCache.TryGetValue(clientIp, out var cached))
                 return cached;
 
             // Try client history API (includes offline devices)
-            var history = await _connectionService.Client.GetClientHistoryAsync(withinHours: 720);
-            var histClient = history?.FirstOrDefault(c => c.BestIp == clientIp);
+            var historyClients = await GetHistoryAsync();
+            var histClient = historyClients.FirstOrDefault(c =>
+                string.Equals(c.BestIp, clientIp, StringComparison.OrdinalIgnoreCase));
 
             if (histClient != null)
             {
@@ -257,6 +350,34 @@ public class ClientDashboardService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to classify VPN client {Ip}", clientIp);
+            return null;
+        }
+    }
+
+    private async Task<string?> ResolveMacFromGatewayNeighborAsync(string clientIp)
+    {
+        if (!System.Net.IPAddress.TryParse(clientIp, out var ipAddress)
+            || ipAddress.AddressFamily != System.Net.Sockets.AddressFamily.InterNetworkV6)
+        {
+            return null;
+        }
+
+        try
+        {
+            var (success, output) = await _gatewaySshService.RunCommandAsync(
+                "ip -6 neigh show",
+                TimeSpan.FromSeconds(5));
+            if (!success)
+            {
+                _logger.LogDebug("Gateway IPv6 neighbor lookup failed while identifying {Ip}", clientIp);
+                return null;
+            }
+
+            return TryGetMacFromNeighborOutput(output, clientIp);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Gateway IPv6 neighbor lookup failed while identifying {Ip}", clientIp);
             return null;
         }
     }
@@ -950,7 +1071,10 @@ public class ClientDashboardService
         }
     }
 
-    private ClientIdentity MapClientToIdentity(UniFiClientResponse client, string? displayName = null)
+    private ClientIdentity MapClientToIdentity(
+        UniFiClientResponse client,
+        string? displayName = null,
+        IReadOnlyDictionary<string, string>? macToIpLookup = null)
     {
         // Bridged UniFi ecosystem devices (e.g. a Protect camera on a UniFi Device Bridge) have
         // no user Name/display_name but expose a friendly ucore name like "[Camera] Front Door".
@@ -965,7 +1089,7 @@ public class ClientDashboardService
                  : !string.IsNullOrEmpty(client.Name) ? client.Name
                  : !string.IsNullOrEmpty(ucoreName) ? ucoreName : null,
             Hostname = !string.IsNullOrEmpty(client.Hostname) ? client.Hostname : null,
-            Ip = client.Ip,
+            Ip = ResolveClientIp(client, macToIpLookup),
             IsWired = client.IsWired,
             SignalDbm = client.Signal,
             NoiseDbm = client.Noise,
@@ -985,6 +1109,93 @@ public class ClientDashboardService
             Essid = client.Essid,
             Satisfaction = client.Satisfaction
         };
+    }
+
+    internal static bool ClientDetailMatchesIp(UniFiClientDetailResponse client, string clientIp)
+    {
+        return !string.IsNullOrWhiteSpace(clientIp)
+            && string.Equals(client.BestIp, clientIp, StringComparison.OrdinalIgnoreCase);
+    }
+
+    internal static bool MacEquals(string? left, string? right)
+    {
+        return !string.IsNullOrWhiteSpace(left)
+            && !string.IsNullOrWhiteSpace(right)
+            && string.Equals(left, right, StringComparison.OrdinalIgnoreCase);
+    }
+
+    internal static string? TryGetMacFromNeighborOutput(string output, string clientIp)
+    {
+        if (string.IsNullOrWhiteSpace(output) || string.IsNullOrWhiteSpace(clientIp))
+            return null;
+
+        foreach (var line in output.Split(
+                     '\n',
+                     StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var parts = line.Split(
+                ' ',
+                StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            if (parts.Length < 4
+                || !string.Equals(parts[0], clientIp, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            for (var i = 1; i < parts.Length - 1; i++)
+            {
+                if (string.Equals(parts[i], "lladdr", StringComparison.OrdinalIgnoreCase))
+                    return parts[i + 1];
+            }
+        }
+
+        return null;
+    }
+
+    internal static ClientIdentity MapClientDetailToIdentity(
+        UniFiClientDetailResponse client,
+        string requestedIp)
+    {
+        return new ClientIdentity
+        {
+            Mac = client.Mac,
+            Name = !string.IsNullOrEmpty(client.DisplayName) ? client.DisplayName : client.Name,
+            Hostname = client.Hostname,
+            Ip = requestedIp,
+            IsWired = client.IsWired
+                || string.Equals(client.Type, "WIRED", StringComparison.OrdinalIgnoreCase),
+            Oui = client.Oui,
+            NetworkName = client.NetworkName ?? client.LastConnectionNetworkName,
+            IsOffline = string.Equals(client.Status, "offline", StringComparison.OrdinalIgnoreCase)
+        };
+    }
+
+    internal static bool ClientMatchesIp(
+        UniFiClientResponse client,
+        string clientIp,
+        IReadOnlyDictionary<string, string>? macToIpLookup = null)
+    {
+        return !string.IsNullOrWhiteSpace(clientIp)
+            && string.Equals(
+                ResolveClientIp(client, macToIpLookup),
+                clientIp,
+                StringComparison.OrdinalIgnoreCase);
+    }
+
+    internal static string? ResolveClientIp(
+        UniFiClientResponse client,
+        IReadOnlyDictionary<string, string>? macToIpLookup = null)
+    {
+        if (!string.IsNullOrEmpty(client.BestIp))
+            return client.BestIp;
+
+        if (!string.IsNullOrEmpty(client.Mac)
+            && macToIpLookup?.TryGetValue(client.Mac, out var enrichedIp) == true)
+        {
+            return enrichedIp;
+        }
+
+        return null;
     }
 
     /// <summary>
