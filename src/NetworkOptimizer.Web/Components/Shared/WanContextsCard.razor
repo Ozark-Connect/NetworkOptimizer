@@ -24,18 +24,16 @@
     <div class="expand-wrapper @(!_collapsed ? "expanded" : "")">
         <div class="expand-content">
     <div class="card-body">
-        @* COPY-REVIEW *@
         <p class="section-description">
             Monitor a secondary WAN by giving its targets their own context. The primary WAN
             needs no context - targets without one behave exactly as before. A context names the
             WAN it measures and how its probes get there: bound to a source IP the gateway
             policy-routes out that WAN, or run by an agent behind it. Latency points from a
-            context carry a <code>wan</code> tag, so each WAN's results stay its own.
+            context carry a <code>wan</code> tag, so each WAN's results stay separate.
         </p>
 
         @if (WanContexts.Count == 0)
         {
-            @* COPY-REVIEW *@
             <div class="empty-state">
                 <p>No contexts yet. Every target belongs to the primary WAN.</p>
             </div>
@@ -48,9 +46,7 @@
                     <tr>
                         <th>Name</th>
                         <th class="hide-mobile">Description</th>
-                        @* COPY-REVIEW *@
                         <th>WAN</th>
-                        @* COPY-REVIEW *@
                         <th>Probe source</th>
                         <th>Assigned agent</th>
                         <th class="hide-mobile">Targets</th>
@@ -72,7 +68,6 @@
                             <td class="hide-mobile">@_targetCounts.GetValueOrDefault(wc.Id)</td>
                             <td style="white-space: nowrap;">
                                 <SiteAdminOnly>
-                                    @* COPY-REVIEW *@
                                     <button class="btn btn-sm btn-secondary"
                                         @onclick="() => EditContextAsync(wc)"
                                         data-tooltip="Change this context's WAN, probe source, or agent">
@@ -106,10 +101,8 @@
                         <input type="text" class="custom-range-input" @bind="_newDescription" placeholder="optional" />
                     </div>
                     <div class="inline-add-form-field">
-                        @* COPY-REVIEW *@
                         <label class="form-label">WAN</label>
                         <select class="cadence-select" value="@_newWanInterface" @onchange="OnWanSelected">
-                            @* COPY-REVIEW *@
                             <option value="">Select a WAN</option>
                             @foreach (var wan in _wans)
                             {
@@ -141,7 +134,6 @@
                     @if (SelectedAgentCanBindInterface)
                     {
                         <div class="inline-add-form-field">
-                            @* COPY-REVIEW *@
                             <label class="form-label">Interface</label>
                             <input type="text" class="custom-range-input" @bind="_newInterfaceName" placeholder="eth8" />
                         </div>
@@ -150,7 +142,7 @@
                         <SiteAdminOnly>
                             <button class="btn btn-sm btn-primary" @onclick="SaveContextAsync" disabled="@_saving">
                             @if (_saving) { <span class="spinner-sm"></span> }
-                            else if (_editingId != null) { @* COPY-REVIEW *@ <span>Save</span> }
+                            else if (_editingId != null) { <span>Save</span> }
                             else { <span>Add</span> }
                         </button>
                         </SiteAdminOnly>
@@ -164,23 +156,21 @@
                 </p>
                 @if (SelectedAgentCanBindInterface)
                 {
-                    @* COPY-REVIEW *@
                     <p class="form-hint">
-                        This agent runs on the gateway, so its probes can leave by the WAN's own
-                        interface. Selecting a WAN fills this in; clear it to probe on the agent's
+                        This agent runs on the gateway, so its probes can go out the WAN's own
+                        interface. Selecting a WAN fills this in; clear it to use the agent's
                         default route instead.
                     </p>
                 }
                 @if (!string.IsNullOrWhiteSpace(_newSourceIp))
                 {
-                    @* COPY-REVIEW - verify the UniFi Network menu path before release *@
                     <p class="form-hint">
                         A source IP only reaches this WAN if the gateway routes it there. In UniFi
                         Network, go to Settings - Policy Table and add a Policy-Based Route with
                         this WAN as the interface, the probe host's Client Device as the source,
                         and Any as the destination. The source is matched by MAC, so the probe host
                         has to be its own client device - a dedicated box, VM, or macvlan container,
-                        not a second IP on a host that is already on the network.
+                        not a second IP on something already on the network.
                     </p>
                 }
                 @if (!string.IsNullOrEmpty(_addError))
@@ -456,16 +446,14 @@
             return "A name up to 100 characters is required.";
         if (otherNames.Any(n => string.Equals(n, name, StringComparison.OrdinalIgnoreCase)))
             return "A context with that name already exists.";
-        // COPY-REVIEW
         if (string.IsNullOrWhiteSpace(wanInterface))
             return "Choose the WAN this context measures.";
         if (!string.IsNullOrEmpty(sourceIp) && !System.Net.IPAddress.TryParse(sourceIp, out _))
             return "Probe source IP must be a valid IP address.";
         if (agentId != null && !string.IsNullOrEmpty(sourceIp))
             return "Use either a probe source IP or an assigned agent, not both.";
-        // COPY-REVIEW
         if (!string.IsNullOrWhiteSpace(interfaceName) && agentId == null)
-            return "An interface bind runs on the agent, so assign one first.";
+            return "Interface binding runs on an agent - assign one first.";
         return null;
     }
 
@@ -491,7 +479,6 @@
                 var row = await db.WanContexts.FindAsync(editingId);
                 if (row == null)
                 {
-                    // COPY-REVIEW
                     _addError = "That context no longer exists.";
                     return;
                 }
@@ -524,7 +511,6 @@
         }
         catch (Exception ex)
         {
-            // COPY-REVIEW
             _addError = $"Failed to save context: {ex.Message}";
         }
         finally
