@@ -1,0 +1,136 @@
+using FluentAssertions;
+using NetworkOptimizer.UniFi;
+using NetworkOptimizer.Web.Components.Shared;
+using Xunit;
+
+namespace NetworkOptimizer.Web.Tests;
+
+/// <summary>
+/// This project has no Blazor component-test harness (no bunit), so the WAN context form's rules
+/// are covered here through the pure validation function the component calls. The wiring around it
+/// - which fields are shown, the interface auto-fill from the selected WAN - still needs manual
+/// verification. ValidateContext is exposed internal (see NetworkOptimizer.Web.csproj
+/// InternalsVisibleTo).
+/// </summary>
+public class WanContextsCardTests
+{
+    private static readonly string[] NoOtherContexts = Array.Empty<string>();
+
+    [Fact]
+    public void Validate_SourceIpContext_IsAccepted()
+    {
+        var error = WanContextsCard.ValidateContext(
+            name: "backup", wanInterface: "wan2", sourceIp: "192.0.2.10",
+            agentId: null, interfaceName: "", otherNames: NoOtherContexts);
+
+        error.Should().BeNull();
+    }
+
+    [Fact]
+    public void Validate_AgentWithInterfaceBind_IsAccepted()
+    {
+        var error = WanContextsCard.ValidateContext(
+            name: "backup", wanInterface: "wan2", sourceIp: "",
+            agentId: 2, interfaceName: "eth8", otherNames: NoOtherContexts);
+
+        error.Should().BeNull();
+    }
+
+    [Fact]
+    public void Validate_MissingWan_IsRejected()
+    {
+        // A context with no WAN cannot say which WAN its measurements describe.
+        var error = WanContextsCard.ValidateContext(
+            name: "backup", wanInterface: "", sourceIp: "192.0.2.10",
+            agentId: null, interfaceName: "", otherNames: NoOtherContexts);
+
+        error.Should().Contain("WAN");
+    }
+
+    [Fact]
+    public void Validate_SourceIpAndAgentTogether_IsRejected()
+    {
+        var error = WanContextsCard.ValidateContext(
+            name: "backup", wanInterface: "wan2", sourceIp: "192.0.2.10",
+            agentId: 2, interfaceName: "", otherNames: NoOtherContexts);
+
+        error.Should().Contain("not both");
+    }
+
+    [Fact]
+    public void Validate_InterfaceWithoutAgent_IsRejected()
+    {
+        // Nothing on this server can bind a name only the gateway resolves.
+        var error = WanContextsCard.ValidateContext(
+            name: "backup", wanInterface: "wan2", sourceIp: "",
+            agentId: null, interfaceName: "eth8", otherNames: NoOtherContexts);
+
+        error.Should().Contain("agent");
+    }
+
+    [Fact]
+    public void Validate_MalformedSourceIp_IsRejected()
+    {
+        var error = WanContextsCard.ValidateContext(
+            name: "backup", wanInterface: "wan2", sourceIp: "not-an-ip",
+            agentId: null, interfaceName: "", otherNames: NoOtherContexts);
+
+        error.Should().Contain("valid IP address");
+    }
+
+    [Fact]
+    public void Validate_DuplicateName_IsRejected_CaseInsensitively()
+    {
+        var error = WanContextsCard.ValidateContext(
+            name: "Backup", wanInterface: "wan2", sourceIp: "",
+            agentId: 2, interfaceName: "", otherNames: new[] { "backup" });
+
+        error.Should().Contain("already exists");
+    }
+
+    [Fact]
+    public void Validate_EditingAContextKeepingItsOwnName_IsAccepted()
+    {
+        // The caller passes the OTHER contexts' names, so a rename to itself is not a clash.
+        var error = WanContextsCard.ValidateContext(
+            name: "backup", wanInterface: "wan2", sourceIp: "",
+            agentId: 2, interfaceName: "eth8", otherNames: new[] { "starlink" });
+
+        error.Should().BeNull();
+    }
+
+    [Fact]
+    public void Validate_EmptyName_IsRejected()
+    {
+        var error = WanContextsCard.ValidateContext(
+            name: "", wanInterface: "wan2", sourceIp: "",
+            agentId: 2, interfaceName: "", otherNames: NoOtherContexts);
+
+        error.Should().Contain("name");
+    }
+
+    [Theory]
+    [InlineData("wan", 1)]
+    [InlineData("wan1", 1)]
+    [InlineData("wan2", 2)]
+    [InlineData("WAN3", 3)]
+    [InlineData("", 0)]
+    [InlineData("eth8", 0)]
+    public void WanIndexFromKey_FollowsUniFisConvention(string key, int expected)
+    {
+        GatewayWanHelper.WanIndexFromKey(key).Should().Be(expected);
+    }
+
+    [Fact]
+    public void WanLabel_EchoesUniFisFriendlyNamePlusGroupConvention()
+    {
+        // The WAN picker has to read like the one in UniFi Network's policy table so the user can
+        // match them up: "Internet 1 WAN1" for a default name, "My ISP WAN2" for a renamed one.
+        GatewayWanHelper.FormatWanLabel("Internet 1", GatewayWanHelper.WanIndexFromKey("wan"), null, null)
+            .Should().Be("Internet 1 WAN1");
+        GatewayWanHelper.FormatWanLabel("My ISP", GatewayWanHelper.WanIndexFromKey("wan2"), null, null)
+            .Should().Be("My ISP WAN2");
+        GatewayWanHelper.FormatWanLabel(null, GatewayWanHelper.WanIndexFromKey("wan2"), null, null)
+            .Should().Be("WAN2");
+    }
+}

@@ -34,6 +34,7 @@
 @inject NavigationManager NavigationManager
 @inject PersistentComponentState PersistState
 @inject NetworkOptimizer.Web.Services.Monitoring.UpstreamTracerService UpstreamTracer
+@inject NetworkOptimizer.Web.Services.Monitoring.MonitoringPathView PathView
 @inject ISystemSettingsService SystemSettings
 @inject DashboardLayoutService DashboardLayout
 @inject CableModemMonitorService CmMonitorService
@@ -558,9 +559,12 @@
             <LatencyTargetsCard @ref="_latencyTargetsCard" Targets="_targets" WanContexts="_wanContexts" OnTargetsChanged="OnTargetsChanged" />
         </div>
 
-        <div style="margin-top: 1.5rem;">
-            <WanContextsCard WanContexts="_wanContexts" OnChanged="OnTargetsChanged" />
-        </div>
+        @if (_multiWanUiVisible)
+        {
+            <div style="margin-top: 1.5rem;">
+                <WanContextsCard WanContexts="_wanContexts" OnChanged="OnTargetsChanged" />
+            </div>
+        }
     }
 
     @* ──────────────── Tab: Device Stats ──────────────── *@
@@ -1761,6 +1765,11 @@
     private bool _showInfluxWizard;
     private List<MonitoringTarget> _targets = new();
     private List<WanContext> _wanContexts = new();
+    // Multi-WAN surfaces stay invisible until the site is actually multi-WAN: a second active WAN,
+    // or contexts already configured (which can only exist on a site that had one). A single-WAN
+    // install should never meet the concept at all.
+    private bool _multiWanUiVisible;
+    private bool _wanCountChecked;
     private List<MonitoredSfp> _monitoredSfps = new();
     private List<MonitoredSfp> _allSfps = new();
     private Dictionary<string, string> _deviceIpByMac = new();
@@ -2717,6 +2726,25 @@
         }
     }
 
+    /// <summary>
+    /// Whether this site meets multi-WAN at all. Contexts existing answers it on their own - they
+    /// only get created on a multi-WAN site, and they are the only source of WAN-tagged data - so
+    /// the WAN count is consulted only when there are none, and only once per page: this runs on
+    /// the 15-second refresh, and a site does not grow a second WAN while the page is open.
+    /// </summary>
+    private async Task ResolveMultiWanVisibilityAsync()
+    {
+        if (_wanContexts.Count > 0)
+        {
+            _multiWanUiVisible = true;
+            return;
+        }
+        if (_wanCountChecked) return;
+        _wanCountChecked = true;
+        try { _multiWanUiVisible = (await PathView.GetWansAsync()).Count > 1; }
+        catch { _multiWanUiVisible = false; }
+    }
+
     private async Task LoadTargetsAsync()
     {
         try
@@ -2727,6 +2755,7 @@
             _targets = await db.MonitoringTargets.AsNoTracking()
                 .OrderBy(t => t.TargetType).ThenBy(t => t.Name).ToListAsync();
             _wanContexts = await db.WanContexts.AsNoTracking().OrderBy(c => c.Name).ToListAsync();
+            await ResolveMultiWanVisibilityAsync();
             _allSfps = await db.MonitoredSfps.AsNoTracking().ToListAsync();
             _monitoredSfps = _allSfps.Where(s => s.IsMonitoredOnt).ToList();
 

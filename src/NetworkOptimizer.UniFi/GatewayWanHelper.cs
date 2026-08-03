@@ -37,6 +37,22 @@ public static class GatewayWanHelper
             : wanKey.ToLowerInvariant();
 
     /// <summary>
+    /// 1-based WAN index from an interface key or wan object key ("wan" and "wan1" → 1,
+    /// "wan2" → 2). Zero for anything that is not a wan key, which
+    /// <see cref="FormatWanLabel"/> reads as "no WAN label".
+    /// </summary>
+    public static int WanIndexFromKey(string? wanKey)
+    {
+        if (string.IsNullOrWhiteSpace(wanKey)) return 0;
+        var trimmed = wanKey.Trim();
+        if (string.Equals(trimmed, "wan", StringComparison.OrdinalIgnoreCase)) return 1;
+        return trimmed.StartsWith("wan", StringComparison.OrdinalIgnoreCase)
+            && int.TryParse(trimmed[3..], out var index) && index >= 1
+            ? index
+            : 0;
+    }
+
+    /// <summary>
     /// Enumerates a gateway's wan1..wan6 objects from raw device JSON as typed
     /// <see cref="Models.GatewayWanInterface"/> values (Key set to the source property),
     /// reusing the same per-object deserialization as

@@ -1,8 +1,14 @@
 @using Microsoft.EntityFrameworkCore
 @using NetworkOptimizer.Storage.Models
+@using NetworkOptimizer.UniFi
+@using NetworkOptimizer.Web.Services.Monitoring
 @inject NetworkOptimizer.Storage.Services.SiteDbContextFactory SiteDb
 @inject SiteContextService SiteCtx
 @inject IDbContextFactory<NetworkOptimizerDbContext> MainDbFactory
+@inject MonitoringPathView PathView
+@inject AgentTunnelRegistry TunnelRegistry
+@inject AgentOnGatewayDetector OnGatewayDetector
+@inject AgentProbeResultSink ProbeSink
 
 <div class="card">
     <div class="card-header card-header-collapsible" @onclick="ToggleCollapse">
@@ -18,15 +24,23 @@
     <div class="expand-wrapper @(!_collapsed ? "expanded" : "")">
         <div class="expand-content">
     <div class="card-body">
+        @* COPY-REVIEW *@
         <p class="section-description">
             Monitor a secondary WAN by giving its targets their own context. The primary WAN
-            needs no context - targets without one behave exactly as before. A context either
-            binds local probes to a source IP (policy-route that IP out the WAN on the gateway)
-            or assigns its targets to a probe-only agent behind that WAN. Latency points from a
-            context carry a <code>wan</code> tag with the context's name.
+            needs no context - targets without one behave exactly as before. A context names the
+            WAN it measures and how its probes get there: bound to a source IP the gateway
+            policy-routes out that WAN, or run by an agent behind it. Latency points from a
+            context carry a <code>wan</code> tag, so each WAN's results stay its own.
         </p>
 
-        @if (WanContexts.Count > 0)
+        @if (WanContexts.Count == 0)
+        {
+            @* COPY-REVIEW *@
+            <div class="empty-state">
+                <p>No contexts yet. Every target belongs to the primary WAN.</p>
+            </div>
+        }
+        else
         {
             <div class="table-responsive">
             <table class="data-table">
@@ -34,7 +48,10 @@
                     <tr>
                         <th>Name</th>
                         <th class="hide-mobile">Description</th>
-                        <th>Probe source IP</th>
+                        @* COPY-REVIEW *@
+                        <th>WAN</th>
+                        @* COPY-REVIEW *@
+                        <th>Probe source</th>
                         <th>Assigned agent</th>
                         <th class="hide-mobile">Targets</th>
                         <th></th>
@@ -46,14 +63,25 @@
                         <tr>
                             <td><code>@wc.Name</code></td>
                             <td class="hide-mobile">@(string.IsNullOrEmpty(wc.Description) ? "-" : wc.Description)</td>
-                            <td>@(string.IsNullOrEmpty(wc.ProbeSourceIp) ? "-" : wc.ProbeSourceIp)</td>
+                            <td>@WanLabelFor(wc.WanInterface)</td>
+                            <td>
+                                @if (ProbeSourceOf(wc) is string source) { <code>@source</code> }
+                                else { <span class="text-muted">default route</span> }
+                            </td>
                             <td>@AgentLabel(wc.AgentId)</td>
                             <td class="hide-mobile">@_targetCounts.GetValueOrDefault(wc.Id)</td>
                             <td style="white-space: nowrap;">
                                 <SiteAdminOnly>
+                                    @* COPY-REVIEW *@
+                                    <button class="btn btn-sm btn-secondary"
+                                        @onclick="() => EditContextAsync(wc)"
+                                        data-tooltip="Change this context's WAN, probe source, or agent">
+                                    Edit
+                                </button>
                                     <button class="btn btn-sm btn-danger"
                                         @onclick="() => DeleteContextAsync(wc.Id)"
-                                        title="Remove this context (its targets move back to the primary WAN)">
+                                        data-tooltip="Remove this context (its targets move back to the primary WAN)"
+                                        style="margin-left: 0.25rem;">
                                     Remove
                                 </button>
                                 </SiteAdminOnly>
@@ -65,7 +93,7 @@
             </div>
         }
 
-        @if (_showAdd)
+        @if (_showForm)
         {
             <div class="inline-add-form">
                 <div class="inline-add-form-row">
@@ -78,12 +106,31 @@
                         <input type="text" class="custom-range-input" @bind="_newDescription" placeholder="optional" />
                     </div>
                     <div class="inline-add-form-field">
-                        <label class="form-label">Probe source IP</label>
-                        <input type="text" class="custom-range-input" @bind="_newSourceIp" placeholder="optional" />
+                        @* COPY-REVIEW *@
+                        <label class="form-label">WAN</label>
+                        <select class="cadence-select" value="@_newWanInterface" @onchange="OnWanSelected">
+                            @* COPY-REVIEW *@
+                            <option value="">Select a WAN</option>
+                            @foreach (var wan in _wans)
+                            {
+                                <option value="@wan.WanInterface">@WanOptionLabel(wan)</option>
+                            }
+                            @if (_wans.Count == 0 && !string.IsNullOrEmpty(_newWanInterface))
+                            {
+                                <option value="@_newWanInterface">@WanLabelFor(_newWanInterface)</option>
+                            }
+                        </select>
                     </div>
+                    @if (string.IsNullOrEmpty(_newAgentId))
+                    {
+                        <div class="inline-add-form-field">
+                            <label class="form-label">Probe source IP</label>
+                            <input type="text" class="custom-range-input" @bind="_newSourceIp" placeholder="optional" />
+                        </div>
+                    }
                     <div class="inline-add-form-field">
                         <label class="form-label">Assigned agent</label>
-                        <select class="cadence-select" @bind="_newAgentId">
+                        <select class="cadence-select" value="@_newAgentId" @onchange="OnAgentSelected">
                             <option value="">None (probe locally)</option>
                             @foreach (var agent in _agents)
                             {
@@ -91,13 +138,23 @@
                             }
                         </select>
                     </div>
+                    @if (SelectedAgentCanBindInterface)
+                    {
+                        <div class="inline-add-form-field">
+                            @* COPY-REVIEW *@
+                            <label class="form-label">Interface</label>
+                            <input type="text" class="custom-range-input" @bind="_newInterfaceName" placeholder="eth8" />
+                        </div>
+                    }
                     <div class="inline-add-form-actions">
                         <SiteAdminOnly>
-                            <button class="btn btn-sm btn-primary" @onclick="AddContextAsync" disabled="@_adding">
-                            @if (_adding) { <span class="spinner-sm"></span> } else { <span>Add</span> }
+                            <button class="btn btn-sm btn-primary" @onclick="SaveContextAsync" disabled="@_saving">
+                            @if (_saving) { <span class="spinner-sm"></span> }
+                            else if (_editingId != null) { @* COPY-REVIEW *@ <span>Save</span> }
+                            else { <span>Add</span> }
                         </button>
                         </SiteAdminOnly>
-                        <button class="btn btn-sm btn-secondary" @onclick="() => _showAdd = false">Cancel</button>
+                        <button class="btn btn-sm btn-secondary" @onclick="CancelForm">Cancel</button>
                     </div>
                 </div>
                 <p class="form-hint" style="margin-top: 0.5rem;">
@@ -105,6 +162,27 @@
                     WAN), or assign a probe-only agent bound behind the WAN - not both. Assigned
                     targets are probed only by that agent.
                 </p>
+                @if (SelectedAgentCanBindInterface)
+                {
+                    @* COPY-REVIEW *@
+                    <p class="form-hint">
+                        This agent runs on the gateway, so its probes can leave by the WAN's own
+                        interface. Selecting a WAN fills this in; clear it to probe on the agent's
+                        default route instead.
+                    </p>
+                }
+                @if (!string.IsNullOrWhiteSpace(_newSourceIp))
+                {
+                    @* COPY-REVIEW - verify the UniFi Network menu path before release *@
+                    <p class="form-hint">
+                        A source IP only reaches this WAN if the gateway routes it there. In UniFi
+                        Network, go to Settings - Policy Table and add a Policy-Based Route with
+                        this WAN as the interface, the probe host's Client Device as the source,
+                        and Any as the destination. The source is matched by MAC, so the probe host
+                        has to be its own client device - a dedicated box, VM, or macvlan container,
+                        not a second IP on a host that is already on the network.
+                    </p>
+                }
                 @if (!string.IsNullOrEmpty(_addError))
                 {
                     <p class="form-error">@_addError</p>
@@ -132,22 +210,39 @@
     public EventCallback OnChanged { get; set; }
 
     private bool _collapsed = true;
-    private bool _showAdd;
-    private bool _adding;
+    private bool _showForm;
+    private bool _saving;
+    private int? _editingId;
     private string _newName = "";
     private string _newDescription = "";
     private string _newSourceIp = "";
     private string _newAgentId = "";
+    private string _newWanInterface = "";
+    private string _newInterfaceName = "";
     private string? _addError;
     private List<SiteAgent> _agents = new();
+    private IReadOnlyList<WanSummary> _wans = Array.Empty<WanSummary>();
+    // Agents that both run on the gateway and told us they can bind a probe source. Interface
+    // binding is only offered for those: an agent elsewhere on the network has no WAN interface to
+    // bind, and one that cannot bind at all would fail every probe in the context.
+    private HashSet<int> _bindCapableAgents = new();
     private Dictionary<int, int> _targetCounts = new();
+
+    private bool SelectedAgentCanBindInterface =>
+        int.TryParse(_newAgentId, out var agentId) && _bindCapableAgents.Contains(agentId);
 
     // WAN contexts are per-site data: route through the current site's database.
     private NetworkOptimizerDbContext CreateDb() => SiteDb.CreateForSite(SiteCtx.Slug, SiteCtx.IsDefault);
 
     private void ToggleCollapse() => _collapsed = !_collapsed;
 
-    protected override async Task OnInitializedAsync() => await LoadAgentsAsync();
+    protected override async Task OnInitializedAsync()
+    {
+        // Agents and WANs name the rows in the table, not just the form's pickers, so both load up
+        // front. Both are cached upstream, and the card only renders on a multi-WAN site at all.
+        await LoadAgentsAsync();
+        await LoadWansAsync();
+    }
 
     protected override async Task OnParametersSetAsync()
     {
@@ -165,8 +260,48 @@
 
     private async Task ShowAddAsync()
     {
+        ResetForm();
+        await LoadPickerDataAsync();
+        _showForm = true;
+    }
+
+    private async Task EditContextAsync(WanContext context)
+    {
+        ResetForm();
+        _editingId = context.Id;
+        _newName = context.Name;
+        _newDescription = context.Description ?? "";
+        _newSourceIp = context.ProbeSourceIp ?? "";
+        _newAgentId = context.AgentId?.ToString() ?? "";
+        _newWanInterface = context.WanInterface ?? "";
+        _newInterfaceName = context.InterfaceName ?? "";
+        await LoadPickerDataAsync();
+        _showForm = true;
+    }
+
+    private void CancelForm()
+    {
+        _showForm = false;
+        ResetForm();
+    }
+
+    private void ResetForm()
+    {
+        _editingId = null;
+        _newName = "";
+        _newDescription = "";
+        _newSourceIp = "";
+        _newAgentId = "";
+        _newWanInterface = "";
+        _newInterfaceName = "";
+        _addError = null;
+    }
+
+    private async Task LoadPickerDataAsync()
+    {
         await LoadAgentsAsync();
-        _showAdd = true;
+        await LoadWansAsync();
+        await LoadBindCapableAgentsAsync();
     }
 
     /// <summary>
@@ -190,6 +325,84 @@
         catch { _agents = new(); }
     }
 
+    /// <summary>
+    /// The site's real WANs, so the WAN a context measures is picked rather than typed. Empty when
+    /// the console is unreachable; an existing context keeps showing its stored WAN either way.
+    /// </summary>
+    private async Task LoadWansAsync()
+    {
+        try { _wans = await PathView.GetWansAsync(); }
+        catch { _wans = Array.Empty<WanSummary>(); }
+    }
+
+    /// <summary>
+    /// Which connected agents can be offered an interface bind: on the gateway (asked per agent
+    /// address, since a site can have several) and saying in their hello that they can bind a probe
+    /// source at all. An agent too old to say counts as no.
+    /// </summary>
+    private async Task LoadBindCapableAgentsAsync()
+    {
+        var capable = new HashSet<int>();
+        try
+        {
+            foreach (var connection in TunnelRegistry.GetForSite(SiteCtx.Slug))
+            {
+                if (connection.SupportsSourceBind != true) continue;
+                if (await OnGatewayDetector.IsIpOnGatewayAsync(SiteCtx.Slug, connection.LanIp))
+                    capable.Add(connection.AgentId);
+            }
+        }
+        catch { }
+        _bindCapableAgents = capable;
+    }
+
+    /// <summary>
+    /// Assigning an agent settles where the probe leaves from, so the source IP field goes away
+    /// rather than sitting there as a second answer the save would reject.
+    /// </summary>
+    private void OnAgentSelected(ChangeEventArgs e)
+    {
+        _newAgentId = e.Value?.ToString() ?? "";
+        if (!string.IsNullOrEmpty(_newAgentId))
+            _newSourceIp = "";
+        if (!SelectedAgentCanBindInterface)
+            _newInterfaceName = "";
+        else
+            FillInterfaceFromWan();
+    }
+
+    private void OnWanSelected(ChangeEventArgs e)
+    {
+        _newWanInterface = e.Value?.ToString() ?? "";
+        FillInterfaceFromWan();
+    }
+
+    /// <summary>
+    /// Fills the bind interface from the selected WAN's data path (its uplink interface, falling
+    /// back to the physical port). Deliberately not the counter interface: throughput is read from
+    /// the physical port because VLAN sub-interface counters double, while a probe has to leave by
+    /// the logical uplink - a PPPoE WAN's traffic goes out ppp0, not eth6.
+    /// </summary>
+    private void FillInterfaceFromWan()
+    {
+        if (!SelectedAgentCanBindInterface) return;
+        var wan = _wans.FirstOrDefault(w =>
+            string.Equals(w.WanInterface, _newWanInterface, StringComparison.OrdinalIgnoreCase));
+        var dataPath = wan?.UplinkIfName ?? wan?.PhysicalIfName;
+        if (!string.IsNullOrEmpty(dataPath))
+            _newInterfaceName = dataPath!;
+    }
+
+    /// <summary>
+    /// What this context's probes leave from - the bound interface for an on-gateway agent, the
+    /// policy-routed source IP otherwise. Null when it binds neither, which leaves probes on
+    /// whatever route the prober already has.
+    /// </summary>
+    private static string? ProbeSourceOf(WanContext context)
+        => !string.IsNullOrEmpty(context.InterfaceName) ? context.InterfaceName
+            : !string.IsNullOrEmpty(context.ProbeSourceIp) ? context.ProbeSourceIp
+            : null;
+
     private string AgentLabel(int? agentId)
     {
         if (agentId == null) return "-";
@@ -197,61 +410,126 @@
         return agent?.Name ?? $"agent {agentId}";
     }
 
-    private async Task AddContextAsync()
+    /// <summary>WAN option label in UniFi's own convention: friendly name plus WAN group ("My ISP WAN2").</summary>
+    private static string WanOptionLabel(WanSummary wan)
+        => GatewayWanHelper.FormatWanLabel(wan.FriendlyName, GatewayWanHelper.WanIndexFromKey(wan.WanInterface), null, null);
+
+    /// <summary>
+    /// Label for a stored WAN key, preferring the live WAN's friendly name and falling back to the
+    /// group alone so a context whose WAN is down (or predates the column) still reads sensibly.
+    /// </summary>
+    private string WanLabelFor(string? wanInterface)
+    {
+        if (string.IsNullOrEmpty(wanInterface)) return "-";
+        var wan = _wans.FirstOrDefault(w =>
+            string.Equals(w.WanInterface, wanInterface, StringComparison.OrdinalIgnoreCase));
+        return wan != null
+            ? WanOptionLabel(wan)
+            : GatewayWanHelper.FormatWanLabel(null, GatewayWanHelper.WanIndexFromKey(wanInterface), null, null);
+    }
+
+    /// <summary>
+    /// The rules a context has to satisfy, in the order the user meets them. Returns the message to
+    /// show, or null when the context is valid.
+    ///
+    /// A context needs a WAN: without one there is nothing to say which WAN its measurements
+    /// describe, which is what the tag on its points and the report they belong to are keyed on. It
+    /// needs at most one bind mechanism, since a source IP and an agent are two different answers to
+    /// "where does the probe leave from". And an interface bind needs the agent: this server does
+    /// not sit on the gateway, so a name only it could resolve binds nothing here.
+    /// </summary>
+    /// <param name="name">Context name as typed.</param>
+    /// <param name="wanInterface">Selected UniFi WAN key, empty when none was chosen.</param>
+    /// <param name="sourceIp">Probe source IP as typed, empty when none.</param>
+    /// <param name="agentId">Selected agent, null for none.</param>
+    /// <param name="interfaceName">Bind interface as typed, empty when none.</param>
+    /// <param name="otherNames">Names of the site's OTHER contexts (excluding the one being edited).</param>
+    internal static string? ValidateContext(
+        string name,
+        string? wanInterface,
+        string? sourceIp,
+        int? agentId,
+        string? interfaceName,
+        IEnumerable<string> otherNames)
+    {
+        if (string.IsNullOrEmpty(name) || name.Length > 100)
+            return "A name up to 100 characters is required.";
+        if (otherNames.Any(n => string.Equals(n, name, StringComparison.OrdinalIgnoreCase)))
+            return "A context with that name already exists.";
+        // COPY-REVIEW
+        if (string.IsNullOrWhiteSpace(wanInterface))
+            return "Choose the WAN this context measures.";
+        if (!string.IsNullOrEmpty(sourceIp) && !System.Net.IPAddress.TryParse(sourceIp, out _))
+            return "Probe source IP must be a valid IP address.";
+        if (agentId != null && !string.IsNullOrEmpty(sourceIp))
+            return "Use either a probe source IP or an assigned agent, not both.";
+        // COPY-REVIEW
+        if (!string.IsNullOrWhiteSpace(interfaceName) && agentId == null)
+            return "An interface bind runs on the agent, so assign one first.";
+        return null;
+    }
+
+    private async Task SaveContextAsync()
     {
         _addError = null;
         var name = _newName.Trim();
-        if (string.IsNullOrEmpty(name) || name.Length > 100)
-        {
-            _addError = "A name up to 100 characters is required.";
-            return;
-        }
-        if (WanContexts.Any(c => string.Equals(c.Name, name, StringComparison.OrdinalIgnoreCase)))
-        {
-            _addError = "A context with that name already exists.";
-            return;
-        }
         var sourceIp = _newSourceIp.Trim();
-        if (!string.IsNullOrEmpty(sourceIp) && !System.Net.IPAddress.TryParse(sourceIp, out _))
-        {
-            _addError = "Probe source IP must be a valid IP address.";
-            return;
-        }
+        var wanInterface = _newWanInterface.Trim();
+        var interfaceName = _newInterfaceName.Trim();
         int? agentId = int.TryParse(_newAgentId, out var parsedAgent) ? parsedAgent : null;
-        if (agentId != null && !string.IsNullOrEmpty(sourceIp))
-        {
-            _addError = "Use either a probe source IP or an assigned agent, not both.";
-            return;
-        }
 
-        _adding = true;
+        _addError = ValidateContext(name, wanInterface, sourceIp, agentId, interfaceName,
+            WanContexts.Where(c => c.Id != _editingId).Select(c => c.Name));
+        if (_addError != null) return;
+
+        _saving = true;
         try
         {
             await using var db = CreateDb();
-            db.WanContexts.Add(new WanContext
+            if (_editingId is int editingId)
             {
-                Name = name,
-                Description = string.IsNullOrWhiteSpace(_newDescription) ? null : _newDescription.Trim(),
-                ProbeSourceIp = string.IsNullOrEmpty(sourceIp) ? null : sourceIp,
-                AgentId = agentId,
-                CreatedAt = DateTime.UtcNow,
-            });
+                var row = await db.WanContexts.FindAsync(editingId);
+                if (row == null)
+                {
+                    // COPY-REVIEW
+                    _addError = "That context no longer exists.";
+                    return;
+                }
+                row.Name = name;
+                row.Description = string.IsNullOrWhiteSpace(_newDescription) ? null : _newDescription.Trim();
+                row.ProbeSourceIp = string.IsNullOrEmpty(sourceIp) ? null : sourceIp;
+                row.AgentId = agentId;
+                row.WanInterface = wanInterface;
+                row.InterfaceName = string.IsNullOrEmpty(interfaceName) ? null : interfaceName;
+            }
+            else
+            {
+                db.WanContexts.Add(new WanContext
+                {
+                    Name = name,
+                    Description = string.IsNullOrWhiteSpace(_newDescription) ? null : _newDescription.Trim(),
+                    ProbeSourceIp = string.IsNullOrEmpty(sourceIp) ? null : sourceIp,
+                    AgentId = agentId,
+                    WanInterface = wanInterface,
+                    InterfaceName = string.IsNullOrEmpty(interfaceName) ? null : interfaceName,
+                    CreatedAt = DateTime.UtcNow,
+                });
+            }
             await db.SaveChangesAsync();
 
-            _showAdd = false;
-            _newName = "";
-            _newDescription = "";
-            _newSourceIp = "";
-            _newAgentId = "";
+            await RepushProbeConfigAsync();
+            _showForm = false;
+            ResetForm();
             await OnChanged.InvokeAsync();
         }
         catch (Exception ex)
         {
-            _addError = $"Failed to add context: {ex.Message}";
+            // COPY-REVIEW
+            _addError = $"Failed to save context: {ex.Message}";
         }
         finally
         {
-            _adding = false;
+            _saving = false;
         }
     }
 
@@ -271,8 +549,20 @@
                 target.WanContextId = null;
             db.WanContexts.Remove(row);
             await db.SaveChangesAsync();
+            await RepushProbeConfigAsync();
             await OnChanged.InvokeAsync();
         }
+        catch { }
+    }
+
+    /// <summary>
+    /// Tells every connected agent on this site what it should be probing now. Both ends of a
+    /// reassignment need it: the agent that lost the context keeps probing targets it no longer
+    /// owns until it hears otherwise, and the one that gained it does not start until it does.
+    /// </summary>
+    private async Task RepushProbeConfigAsync()
+    {
+        try { await ProbeSink.PushProbeConfigToSiteAsync(SiteCtx.Slug); }
         catch { }
     }
 }
