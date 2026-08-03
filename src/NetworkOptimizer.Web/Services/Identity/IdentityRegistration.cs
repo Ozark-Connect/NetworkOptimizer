@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Authentication.Cookies;
+﻿using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
@@ -126,7 +126,9 @@ public static class IdentityRegistration
         services.AddSingleton<AuditWriterService>();
         services.AddSingleton<IAuditLogger>(sp => sp.GetRequiredService<AuditWriterService>());
         services.AddHostedService(sp => sp.GetRequiredService<AuditWriterService>());
-        services.AddScoped<IAuditQueryService, AuditQueryService>();
+        // Gated, so it goes through the proxy rather than being resolved raw - registering the
+        // implementation as its own service type would leave an ungated instance in the container.
+        services.AddMutatingService<IAuditQueryService, AuditQueryService>();
 
         return services;
     }

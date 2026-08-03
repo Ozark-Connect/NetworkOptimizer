@@ -1,6 +1,7 @@
-using System.Text;
+﻿using System.Text;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using NetworkOptimizer.Web.Services.Gates;
 using NetworkOptimizer.Storage.Models.Identity;
 
 namespace NetworkOptimizer.Web.Services.Auditing;
@@ -18,12 +19,36 @@ public sealed record AuditFilter
     public int Take { get; init; } = 100;
 }
 
-/// <summary>Read-only, filtered access to the audit log plus CSV/JSON export of the current filter.</summary>
+/// <summary>
+/// Read-only, filtered access to the audit log plus CSV/JSON export of the current filter.
+///
+/// Gated even though every member is a read. The audit log is the record of who did what across the
+/// whole install - actors, source addresses, target names, and now the site each action touched - so
+/// it is closer to a credential store than to a status page, and reads of it are worth the same
+/// service-tier check as writes elsewhere.
+///
+/// Until this attribute, nothing here was checked at all. The export endpoints carry
+/// RequireAuthorization(RequireAdmin) and the page sits behind an AuthorizeView, so the surface was
+/// covered in practice - but by the endpoint and the page rather than by the service, which is the
+/// arrangement the gate engine exists to replace. Any new caller reaching this interface (a component
+/// on another page, a background job, a future endpoint) would have inherited nothing.
+///
+/// No [AuditAction]: recording every read would write an entry for each page and each page-turn of
+/// the log itself, which buries the actions the log is kept for.
+/// </summary>
+[MutatingService]
 public interface IAuditQueryService
 {
+    [RequireRole(Roles.Admin)]
     Task<IReadOnlyList<AuditEvent>> QueryAsync(AuditFilter filter);
+
+    [RequireRole(Roles.Admin)]
     Task<int> CountAsync(AuditFilter filter);
+
+    [RequireRole(Roles.Admin)]
     Task<string> ExportJsonAsync(AuditFilter filter);
+
+    [RequireRole(Roles.Admin)]
     Task<string> ExportCsvAsync(AuditFilter filter);
 }
 
