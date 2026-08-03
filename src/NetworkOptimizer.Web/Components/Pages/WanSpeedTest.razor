@@ -1863,7 +1863,19 @@
 
     private async Task RunGatewayTest()
     {
-        if (_isRunning || _wanInterfaces.Count == 0) return;
+        if (_isRunning) return;
+
+        // The WAN list comes from the console, and a gateway test cannot pick an interface without
+        // it. Returning silently here left the button looking broken - it is the one control on
+        // this page that depends on the console, so it is also the one that has to say so.
+        if (_wanInterfaces.Count == 0)
+        {
+            _errorMessage = ConnectionService.IsAwaitingAgent
+                ? "Waiting for the on-site agent to connect. The gateway test needs the WAN interface list from this site's UniFi Console, which is reached through its agent."
+                : "The UniFi Console is unreachable, so the WAN interface list isn't available for a gateway test.";
+            StateHasChanged();
+            return;
+        }
 
         // Resolve the selected option into interface list and WAN metadata
         var selected = _wanSelectorOptions.FirstOrDefault(o => o.Value == _selectedWanOption);
