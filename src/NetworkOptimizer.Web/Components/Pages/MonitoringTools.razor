@@ -11,7 +11,15 @@
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.Components.Authorization
 @using NetworkOptimizer.Web.Services.Authorization
+@using Microsoft.EntityFrameworkCore
+@using NetworkOptimizer.Storage.Models
 @inject IAuthorizationService Authz
+@inject IJSRuntime JS
+@inject NetworkOptimizer.Storage.Services.SiteDbContextFactory SiteDb
+@inject IDbContextFactory<NetworkOptimizerDbContext> MainDbFactory
+@inject AgentTunnelRegistry TunnelRegistry
+@inject AgentOnGatewayDetector OnGatewayDetector
+@inject MonitoringPathView PathView
 @inject NetworkOptimizer.Monitoring.Probes.LocalProbeExecutor LocalProbe
 @inject ProbeExecutorFactory ExecutorFactory
 @inject UniFiConnectionService ConnectionService
@@ -51,12 +59,30 @@
         <div class="form-group">
             <label class="form-label">From (vantage)</label>
             <select class="form-control" value="@_fromKey" @onchange="OnVantageChanged">
-                <option value="server">@(ExecutorFactory.ServerVantageIsAgent ? "On-site agent" : "Network Optimizer server")</option>
+                @if (_probeVantages.Count > 0)
+                {
+                    @foreach (var vantage in _probeVantages)
+                    {
+                        <option value="@vantage.Key">@vantage.Label</option>
+                    }
+                }
+                else
+                {
+                    <option value="server">@(ExecutorFactory.ServerVantageIsAgent ? "On-site agent" : "Network Optimizer server")</option>
+                }
                 @foreach (var d in _devices)
                 {
                     <option value="@($"device:{d.Mac}")">@LabelForDevice(d)</option>
                 }
             </select>
+            @if (_probeVantages.Any(v => v.SourceBind != null))
+            {
+                <p class="form-help">
+                    A probe from a WAN context's vantage should leave by that WAN: its first hops are
+                    that WAN's own gateway and upstream. If they aren't, the policy-based route or the
+                    interface bind isn't sending traffic where it was meant to.
+                </p>
+            }
             @if (_fromKey == "server")
             {
                 <p class="page-description" style="margin-top: 0.5rem;">
@@ -535,6 +561,18 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
     private string _selectedWanInterface = "";
     private bool _isGatewaySelected;
 
+    // Probe origins to choose between - the server and the site's connected agents, each labeled
+    // with the WAN context it probes for. Empty on a site with only one origin, which is where
+    // the picker stays out of the way and the vantage list reads exactly as it always has.
+    private List<ProbeVantageOption> _probeVantages = new();
+
+    /// <summary>
+    /// Remembered vantage, per site. Which box a probe runs from is a property of the site being
+    /// looked at, not of the browser, so a multi-site operator doesn't carry one site's WAN
+    /// vantage into the next.
+    /// </summary>
+    private string VantageStorageKey => SiteContext.ScopeStorageKey("networkToolsVantage");
+
     private PingProbeResult? _pingResult;
     private TracerouteResult? _traceResult;
 
@@ -578,8 +616,110 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
         _localCapabilities = capTask.Result.Describe();
         _consoleDataLoaded = ConnectionService.IsConnected;
 
+        await LoadProbeVantagesAsync();
         await RefreshAgentAvailabilityAsync();
         StartAgentStatusPolling();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        // Only worth restoring when there is a choice; with one origin the stored value would
+        // just be "server" anyway. Interop is unavailable during prerender, hence first render.
+        if (_probeVantages.Count == 0) return;
+        try
+        {
+            var stored = await JS.InvokeAsync<string>("localStorage.getItem", VantageStorageKey);
+            // A remembered agent that has since been removed (or a device that is gone) must not
+            // leave the page pointing at a vantage the select can't show.
+            if (!string.IsNullOrEmpty(stored)
+                && (_probeVantages.Any(v => v.Key == stored)
+                    || (stored.StartsWith("device:") && _devices.Any(d => $"device:{d.Mac}" == stored))))
+            {
+                ApplyVantage(stored);
+                StateHasChanged();
+            }
+        }
+        catch { /* no localStorage, or the circuit went away - the default vantage is fine */ }
+    }
+
+    /// <summary>
+    /// Builds the vantage list: this site's connected agents, each labeled with the WAN context
+    /// assigned to it and whether it runs on the gateway, alongside the server when the server is
+    /// what probes this site. Best-effort - a site whose console or registry can't be read keeps
+    /// the single server vantage it has always had.
+    /// </summary>
+    private async Task LoadProbeVantagesAsync()
+    {
+        try
+        {
+            var connections = TunnelRegistry.GetForSite(SiteContext.Slug);
+            if (connections.Count == 0)
+            {
+                _probeVantages = new();
+                return;
+            }
+
+            List<WanContext> contexts;
+            await using (var siteDb = SiteDb.CreateForSite(SiteContext.Slug, SiteContext.IsDefault))
+                contexts = await siteDb.WanContexts.AsNoTracking().ToListAsync();
+
+            Dictionary<int, string> agentNames;
+            await using (var mainDb = await MainDbFactory.CreateDbContextAsync())
+            {
+                var site = await mainDb.Sites.AsNoTracking().FirstOrDefaultAsync(s => s.Slug == SiteContext.Slug);
+                agentNames = site == null
+                    ? new()
+                    : await mainDb.SiteAgents.AsNoTracking()
+                        .Where(a => a.SiteId == site.Id)
+                        .ToDictionaryAsync(a => a.Id, a => a.Name);
+            }
+
+            var wans = await LoadWanSummariesAsync();
+            var agents = new List<ProbeVantageAgent>();
+            foreach (var connection in connections)
+            {
+                var context = contexts.FirstOrDefault(c => c.AgentId == connection.AgentId);
+                agents.Add(new ProbeVantageAgent(
+                    connection.AgentId,
+                    agentNames.GetValueOrDefault(connection.AgentId, connection.AgentName),
+                    await OnGatewayDetector.IsIpOnGatewayAsync(SiteContext.Slug, connection.LanIp),
+                    context?.Name,
+                    WanLabelFor(wans, context?.WanInterface),
+                    context?.InterfaceName ?? context?.ProbeSourceIp));
+            }
+
+            _probeVantages = ProbeVantages.ForPicker(
+                serverProbesSite: !ExecutorFactory.ServerVantageIsAgent,
+                serverLabel: "Network Optimizer server",
+                agents);
+
+            // With the server not offering itself, the default "server" key names nothing in the
+            // list; start on the first origin that does.
+            if (_probeVantages.Count > 0 && _probeVantages.All(v => v.Key != _fromKey) && !_fromKey.StartsWith("device:"))
+                ApplyVantage(_probeVantages[0].Key);
+        }
+        catch
+        {
+            _probeVantages = new();
+        }
+    }
+
+    /// <summary>The site's WANs for labeling, or none when the console can't answer.</summary>
+    private async Task<IReadOnlyList<WanSummary>> LoadWanSummariesAsync()
+    {
+        try { return await PathView.GetWansAsync(); }
+        catch { return Array.Empty<WanSummary>(); }
+    }
+
+    /// <summary>A WAN key in UniFi's own wording ("My ISP WAN2"), or null when there is no WAN to name.</summary>
+    private static string? WanLabelFor(IReadOnlyList<WanSummary> wans, string? wanInterface)
+    {
+        if (string.IsNullOrEmpty(wanInterface)) return null;
+        var wan = wans.FirstOrDefault(w =>
+            string.Equals(w.WanInterface, wanInterface, StringComparison.OrdinalIgnoreCase));
+        return GatewayWanHelper.FormatWanLabel(
+            wan?.FriendlyName, GatewayWanHelper.WanIndexFromKey(wanInterface), null, null);
     }
 
     /// <summary>
@@ -611,6 +751,10 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
                     var before = _siteAgentOffline;
                     await RefreshAgentAvailabilityAsync();
                     var changed = before != _siteAgentOffline;
+
+                    // The vantage list is built from live tunnels, so an agent that was down when
+                    // the page opened would otherwise never appear in it.
+                    if (changed) await LoadProbeVantagesAsync();
 
                     if (!_consoleDataLoaded && ConnectionService.IsConnected)
                     {
@@ -731,9 +875,18 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
             ? collectedAtUtc.Add(span).ToLocalTime().ToString("MMM d, yyyy HH:mm")
             : "-";
 
-    private void OnVantageChanged(ChangeEventArgs e)
+    private async Task OnVantageChanged(ChangeEventArgs e)
     {
-        _fromKey = e.Value?.ToString() ?? "server";
+        ApplyVantage(e.Value?.ToString() ?? "server");
+        if (_probeVantages.Count == 0) return;
+        try { await JS.InvokeVoidAsync("localStorage.setItem", VantageStorageKey, _fromKey); }
+        catch { /* remembering the vantage is best-effort */ }
+    }
+
+    /// <summary>Selects a vantage and resets the per-vantage state that only applies to the old one.</summary>
+    private void ApplyVantage(string key)
+    {
+        _fromKey = key;
         _selectedWanInterface = "";
         _sshCredentialsMissing = false;
 
@@ -747,6 +900,19 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
         {
             _isGatewaySelected = false;
         }
+    }
+
+    /// <summary>
+    /// What the chosen vantage binds its probes to: the gateway WAN picked by hand on a gateway
+    /// SSH vantage, or the WAN context's own interface / source IP on an agent vantage. Null
+    /// leaves the probe on the vantage's own route, which is what every vantage did before
+    /// contexts existed.
+    /// </summary>
+    private string? SelectedSourceBind()
+    {
+        if (_isGatewaySelected)
+            return string.IsNullOrEmpty(_selectedWanInterface) ? null : _selectedWanInterface;
+        return _probeVantages.FirstOrDefault(v => v.Key == _fromKey)?.SourceBind;
     }
 
     private void OnTargetPresetChange(ChangeEventArgs e)
@@ -774,6 +940,10 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
     {
         _sshCredentialsMissing = false;
         if (_fromKey == "server") return ExecutorFactory.GetServer();
+        // A named agent runs the probe itself, rather than whichever agent the site's "server"
+        // vantage resolves to - the point of picking it is that it sits behind a given WAN.
+        if (_fromKey.StartsWith("agent:") && int.TryParse(_fromKey.AsSpan("agent:".Length), out var vantageAgentId))
+            return ExecutorFactory.ForAgent(vantageAgentId);
         if (_fromKey.StartsWith("device:"))
         {
             var mac = _fromKey.Substring("device:".Length);
@@ -804,8 +974,7 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
                 _runError = "Couldn't resolve the chosen vantage; check SSH credentials.";
                 return;
             }
-            var iface = _isGatewaySelected && !string.IsNullOrEmpty(_selectedWanInterface) ? _selectedWanInterface : null;
-            var target = new ProbeTarget(_targetAddress.Trim(), _probeMode, _probeMode == ProbeMode.Tcp ? _port : null, iface);
+            var target = new ProbeTarget(_targetAddress.Trim(), _probeMode, _probeMode == ProbeMode.Tcp ? _port : null, SelectedSourceBind());
             _pingResult = await executor.PingAsync(target, count: 5);
         }
         catch (Exception ex)
@@ -836,8 +1005,7 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
                 _runError = "Couldn't resolve the chosen vantage; check SSH credentials.";
                 return;
             }
-            var iface = _isGatewaySelected && !string.IsNullOrEmpty(_selectedWanInterface) ? _selectedWanInterface : null;
-            var target = new ProbeTarget(_targetAddress.Trim(), _probeMode, _probeMode == ProbeMode.Tcp ? _port : null, iface);
+            var target = new ProbeTarget(_targetAddress.Trim(), _probeMode, _probeMode == ProbeMode.Tcp ? _port : null, SelectedSourceBind());
             _traceResult = await executor.TracerouteAsync(
                 target,
                 maxHops: 30,
@@ -869,6 +1037,8 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
             var device = _devices.FirstOrDefault(d => d.Mac == mac);
             return device != null ? LabelForDevice(device) : mac;
         }
+        if (vantageId.StartsWith("agent:"))
+            return _probeVantages.FirstOrDefault(v => v.Key == vantageId)?.Label ?? vantageId;
         if (vantageId == "server")
             return ExecutorFactory.ServerVantageIsAgent ? "On-site agent" : "Network Optimizer server";
         return vantageId;
