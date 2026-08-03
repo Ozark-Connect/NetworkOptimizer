@@ -114,6 +114,21 @@ public class SqmDeploymentService : ISqmDeploymentService
     private static string GetSection(Dictionary<string, string> sections, string key)
         => sections.TryGetValue(key, out var value) ? value : "";
 
+    internal static string BuildDeploymentStatusCommand()
+    {
+        return
+            "echo '---UDM_BOOT_CHECK---'; test -f /etc/systemd/system/udm-boot.service && echo 'installed' || echo 'missing'; " +
+            "echo '---UDM_BOOT_ENABLED---'; systemctl is-enabled udm-boot 2>/dev/null || echo 'disabled'; " +
+            $"echo '---SQM_BOOT_SCRIPTS---'; ls {OnBootDir}/20-sqm-*.sh 2>/dev/null | grep -v 'sqm-monitor' | wc -l; " +
+            $"echo '---SQM_SPEEDTEST_SCRIPTS---'; ls {SqmDir}/*-speedtest.sh 2>/dev/null | wc -l; " +
+            $"echo '---SQM_MONITOR_CHECK---'; test -f {OnBootDir}/20-sqm-monitor.sh && echo 'exists' || echo 'missing'; " +
+            "echo '---WATCHDOG_RUNNING---'; crontab -l 2>/dev/null | grep -q sqm-watchdog && echo 'active' || echo 'inactive'; " +
+            "echo '---CRON_CHECK---'; crontab -l 2>/dev/null | grep -c sqm || echo '0'; " +
+            $"echo '---SPEEDTEST_CLI---'; SPEEDTEST_SHA256=$(case \"$(uname -m)\" in aarch64|arm64) echo 'd99fa13293f658b53eaa79fe81f4b210db39fdfc1e9698f33da3f234a6008df7' ;; armv7l|armv7) echo '66ad57568664e6f8580e14ad67316a57038fd22b30548bef98531df4ebcc8956' ;; x86_64|amd64) echo '31f1124c5ab8acdae6b9fe1741e704df420f9f2e7d429679fabe62075453c051' ;; *) echo 'unsupported' ;; esac); test \"$SPEEDTEST_SHA256\" != 'unsupported' && command -v sha256sum >/dev/null 2>&1 && test -f '{ScriptGenerator.ManagedSpeedtestPath}' && test ! -L '{ScriptGenerator.ManagedSpeedtestPath}' && test -x '{ScriptGenerator.ManagedSpeedtestPath}' && printf '%s  %s\\n' \"$SPEEDTEST_SHA256\" '{ScriptGenerator.ManagedSpeedtestPath}' | sha256sum -c - >/dev/null 2>&1 && '{ScriptGenerator.ManagedSpeedtestPath}' --version 2>/dev/null | head -n 1 | grep -Fq 'Speedtest by Ookla {ScriptGenerator.ManagedSpeedtestCliVersion} ({ScriptGenerator.ManagedSpeedtestBuildId})' && echo 'installed' || echo 'missing'; " +
+            "echo '---BC_CHECK---'; command -v bc >/dev/null 2>&1 && echo 'installed' || echo 'missing'; " +
+            "echo '---JQ_CHECK---'; command -v jq >/dev/null 2>&1 && echo 'installed' || echo 'missing'";
+    }
+
     /// <summary>
     /// Check if SQM scripts are already deployed
     /// </summary>
@@ -127,16 +142,7 @@ public class SqmDeploymentService : ISqmDeploymentService
             // TODO: use IUdmBootService.IsInstalledAsync() for the udm-boot check instead of
             // this inline test (shared gateway boot infrastructure -
             // NetworkOptimizer.Web.Services.Ssh.UdmBootService).
-            var combinedCommand =
-                "echo '---UDM_BOOT_CHECK---'; test -f /etc/systemd/system/udm-boot.service && echo 'installed' || echo 'missing'; " +
-                "echo '---UDM_BOOT_ENABLED---'; systemctl is-enabled udm-boot 2>/dev/null || echo 'disabled'; " +
-                $"echo '---SQM_BOOT_SCRIPTS---'; ls {OnBootDir}/20-sqm-*.sh 2>/dev/null | grep -v 'sqm-monitor' | wc -l; " +
-                $"echo '---SQM_SPEEDTEST_SCRIPTS---'; ls {SqmDir}/*-speedtest.sh 2>/dev/null | wc -l; " +
-                $"echo '---SQM_MONITOR_CHECK---'; test -f {OnBootDir}/20-sqm-monitor.sh && echo 'exists' || echo 'missing'; " +
-                "echo '---WATCHDOG_RUNNING---'; crontab -l 2>/dev/null | grep -q sqm-watchdog && echo 'active' || echo 'inactive'; " +
-                "echo '---CRON_CHECK---'; crontab -l 2>/dev/null | grep -c sqm || echo '0'; " +
-                "echo '---SPEEDTEST_CLI---'; which speedtest >/dev/null 2>&1 && echo 'installed' || echo 'missing'; " +
-                "echo '---BC_CHECK---'; which bc >/dev/null 2>&1 && echo 'installed' || echo 'missing'";
+            var combinedCommand = BuildDeploymentStatusCommand();
 
             var result = await RunCommandAsync(combinedCommand);
             var sections = ParseDelimitedOutput(result.output);
@@ -171,6 +177,7 @@ public class SqmDeploymentService : ISqmDeploymentService
             status.SpeedtestCliInstalled = result.success && GetSection(sections, "SPEEDTEST_CLI").Contains("installed");
 
             status.BcInstalled = result.success && GetSection(sections, "BC_CHECK").Contains("installed");
+            status.JqInstalled = result.success && GetSection(sections, "JQ_CHECK").Contains("installed");
 
             status.IsDeployed = status.SpeedtestScriptDeployed && status.PingScriptDeployed;
         }
@@ -1369,6 +1376,7 @@ public class SqmDeploymentStatus
     public int CronJobsConfigured { get; set; }
     public bool SpeedtestCliInstalled { get; set; }
     public bool BcInstalled { get; set; }
+    public bool JqInstalled { get; set; }
     public string? Error { get; set; }
 
     /// <summary>
