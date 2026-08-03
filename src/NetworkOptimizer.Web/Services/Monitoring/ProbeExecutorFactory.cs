@@ -75,7 +75,7 @@ public class ProbeExecutorFactory
 
     /// <summary>Whether the "server" vantage resolves to the on-site agent for the current site.</summary>
     public bool ServerVantageIsAgent =>
-        _agentCoverage.AgentCovers(_siteContext.Slug, _agentProbe.HasAgentForSite(_siteContext.Slug));
+        _agentCoverage.AgentOwnsPathMeasurement(_siteContext.Slug);
 
     /// <summary>
     /// Build an executor that runs probes from the chosen UniFi device via SSH. Returns
