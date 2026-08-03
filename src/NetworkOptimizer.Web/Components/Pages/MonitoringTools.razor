@@ -78,7 +78,7 @@
             @if (_probeVantages.Any(v => v.SourceBind != null))
             {
                 <p class="form-help">
-                    A probe from a WAN context's vantage should leave by that WAN: its first hops are
+                    A probe from a WAN context's vantage should go out that WAN: its first hops are
                     that WAN's own gateway and upstream. If they aren't, the policy-based route or the
                     interface bind isn't sending traffic where it was meant to.
                 </p>

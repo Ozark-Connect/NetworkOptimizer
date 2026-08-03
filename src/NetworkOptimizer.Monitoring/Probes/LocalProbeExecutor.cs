@@ -709,10 +709,10 @@ public class LocalProbeExecutor : IProbeExecutor
             var isAddress = System.Net.IPAddress.TryParse(target.SourceInterface, out _);
             if (isAddress && !traits.CanBindAddress)
                 return ("traceroute", string.Empty,
-                    "This host's traceroute takes no source address, so the probe would leave by the default route");
+                    "This host's traceroute takes no source address, so the probe would go out the default route");
             if (!isAddress && !traits.CanBindInterface)
                 return ("traceroute", string.Empty,
-                    $"This host's traceroute takes no source interface, so the probe would not leave by '{target.SourceInterface}'");
+                    $"This host's traceroute takes no source interface, so the probe would not go out '{target.SourceInterface}'");
 
             sourceArg = isAddress
                 ? $"-s {target.SourceInterface} "
