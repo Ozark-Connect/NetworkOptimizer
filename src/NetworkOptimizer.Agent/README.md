@@ -353,6 +353,18 @@ journalctl -u netopt-agent -f
 
 ## Reverse proxy
 
+The central server never serves TLS itself - it binds plain HTTP on 8042 by
+design, and a reverse proxy in front terminates TLS and manages certificates.
+That proxy is a prerequisite for agents, not a finishing touch: the agent speaks
+HTTPS only and refuses to start against an `http://` server URL.
+
+If you don't already run one,
+**[NetworkOptimizer-Proxy](https://github.com/Ozark-Connect/NetworkOptimizer-Proxy)**
+is a ready-to-use Traefik setup (Let's Encrypt certificates via Cloudflare
+DNS-01) that ships the agent tunnel route **enabled by default** - point it at
+your hostname and there is nothing else to configure for agents. The rest of
+this section is for folding the tunnel into a proxy you already run.
+
 The tunnel listener speaks HTTP/2 over TLS with an ephemeral self-signed
 certificate: the reverse proxy fronting the central server terminates the
 agent's public TLS and re-encrypts to the tunnel port, skipping verification on
@@ -397,8 +409,11 @@ serversTransports:
 ```caddyfile
 optimizer.example.com {
     @grpc path /networkoptimizer.agent.v1.AgentTunnel/*
-    reverse_proxy @grpc https://127.0.0.1:8043 {
-        transport http { tls_insecure_skip_verify }
+    reverse_proxy @grpc https://localhost:8043 {
+        transport http {
+            tls_insecure_skip_verify
+        }
+        header_up Host {http.request.host}
     }
     reverse_proxy 127.0.0.1:8042
 }
