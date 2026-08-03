@@ -78,6 +78,17 @@ public class ProbeExecutorFactory
         _agentCoverage.AgentOwnsPathMeasurement(_siteContext.Slug);
 
     /// <summary>
+    /// An executor that runs on ONE named agent of the current site, rather than on whichever
+    /// agent the site's "server" vantage happens to resolve to. A site can have several agents,
+    /// each behind a different WAN, so a caller that picked one means that one: this never
+    /// substitutes another.
+    /// </summary>
+    /// <param name="agentId">Registry id of the agent to run on.</param>
+    public IProbeExecutor ForAgent(int agentId) =>
+        new AgentProbeExecutor(_agentProbe, _siteContext.Slug,
+            _loggerFactory.CreateLogger<AgentProbeExecutor>(), agentId);
+
+    /// <summary>
     /// Build an executor that runs probes from the chosen UniFi device via SSH. Returns
     /// null if SSH isn't configured for this device or its IP can't be resolved from the
     /// current topology.
