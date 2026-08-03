@@ -244,10 +244,14 @@ else
         return Uri.TryCreate(url.Trim(), UriKind.Absolute, out var uri) ? uri.Host : url.Trim();
     }
 
-    private int AgentCount(int siteId) => _agents.Count(a => a.SiteId == siteId);
+    // Disabled agents are excluded from both halves. A disabled agent is not expected to be
+    // connected, so counting it in the denominator reports a site as missing an agent it was told
+    // to stop using - and a site whose only agent is disabled reads 0/0, which the markup omits
+    // entirely rather than showing a count of nothing.
+    private int AgentCount(int siteId) => _agents.Count(a => a.SiteId == siteId && a.Enabled);
 
     private int OnlineAgentCount(int siteId) =>
-        _agents.Count(a => a.SiteId == siteId && TunnelRegistry.IsAgentLive(a));
+        _agents.Count(a => a.SiteId == siteId && a.Enabled && TunnelRegistry.IsAgentLive(a));
 
     private static string LicenseBadgeClass(SiteLicenseStatus status) => status.State switch
     {
