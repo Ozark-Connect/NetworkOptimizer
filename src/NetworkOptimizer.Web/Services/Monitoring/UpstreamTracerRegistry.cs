@@ -72,7 +72,7 @@ public class UpstreamTracerRegistry : ISiteScopedRegistry
         // the life of the process, so a flag changed afterwards would otherwise never be seen.
         var agentExecutor = new AgentProbeExecutor(_agentProbe, s, _loggerFactory.CreateLogger<AgentProbeExecutor>());
         Func<IProbeExecutor> traceExecutor = () =>
-            !isDefault || _agentCoverage.AgentCovers(s, _agentProbe.HasAgentForSite(s))
+            !isDefault || _agentCoverage.AgentOwnsPathMeasurement(s)
                 ? agentExecutor
                 : _localProbe;
         return new UpstreamTracerService(

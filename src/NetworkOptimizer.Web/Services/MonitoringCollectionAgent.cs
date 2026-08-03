@@ -124,7 +124,7 @@ public class MonitoringCollectionAgent : BackgroundService
     /// from inside instead - and on the default site too once it is configured for its agent to
     /// cover it. A status display must not claim the server is collecting where it is not.
     /// </summary>
-    public bool ServerProbesThisSite => _isDefault && !AgentCoversCollection();
+    public bool ServerProbesThisSite => _isDefault && !AgentOwnsProbing();
 
     /// <summary>
     /// Lets the Setup page's interactive re-check override the cached self-heal sighting
@@ -206,6 +206,14 @@ public class MonitoringCollectionAgent : BackgroundService
     /// cover it: a default-site agent is an ADDITIONAL vantage point by default, not a replacement
     /// for local collection, and that is what installs using one today rely on.
     /// </summary>
+    /// <summary>
+    /// Whether the agent owns this site's probing. Configuration only - unlike
+    /// <see cref="AgentCoversCollection"/>, an agent that is merely offline does NOT hand probing
+    /// back to this server, because a probe from here measures a different path and would be
+    /// recorded as this site's.
+    /// </summary>
+    private bool AgentOwnsProbing() => _agentCoverage.AgentOwnsPathMeasurement(_siteSlug);
+
     private bool AgentCoversCollection()
     {
         var agentPresent = _tunnelRegistry.GetForSite(_siteSlug).Count > 0 || _siteAgentEnrolled;
@@ -1434,7 +1442,7 @@ public class MonitoringCollectionAgent : BackgroundService
         // log its own anycast RTT as the site's ISP latency. The site's agent probes its enabled
         // targets from inside once deployed (AgentProbeResultSink). The default site keeps probing
         // locally unless it too is covered by its agent, which is the off-site-server case.
-        if (!_isDefault || AgentCoversCollection()) return;
+        if (!_isDefault || AgentOwnsProbing()) return;
 
         await using var db = await CreateSiteDbAsync(ct);
         var targets = await db.MonitoringTargets

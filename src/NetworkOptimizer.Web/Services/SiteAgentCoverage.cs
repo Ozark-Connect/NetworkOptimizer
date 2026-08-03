@@ -118,6 +118,25 @@ public class SiteAgentCoverage : ISiteScopedRegistry
     public bool AgentCovers(string slug, bool agentPresent)
         => agentPresent && (slug != SiteManagementService.DefaultSiteSlug || Covers(slug));
 
+    /// <summary>
+    /// Whether the site's agent owns PATH measurement for this site - latency and loss probes, and
+    /// upstream traceroutes. Configuration alone, deliberately without asking whether the agent is
+    /// connected right now.
+    ///
+    /// A probe measures the path FROM whoever runs it. If this server runs one for a site its agent
+    /// covers, the result describes this server's route rather than the site's, and it is stored
+    /// under the site's name either way. On an off-site server that is a different network
+    /// entirely. A probe that does not run leaves a gap; a probe run from the wrong place leaves a
+    /// wrong number that looks exactly like data - so this stands down on the configuration and
+    /// lets the probe fail while the agent is away.
+    ///
+    /// Contrast <see cref="AgentCovers"/>, which is the right question for reading device counters:
+    /// SNMP returns the device's own numbers whoever asks, so the server continuing while the agent
+    /// is down is a genuine fallback rather than a different measurement.
+    /// </summary>
+    public bool AgentOwnsPathMeasurement(string slug)
+        => slug != SiteManagementService.DefaultSiteSlug || Covers(slug);
+
     /// <inheritdoc cref="AgentCovers"/>
     public async Task<bool> AgentCoversAsync(string slug, bool agentPresent)
         => agentPresent && (slug != SiteManagementService.DefaultSiteSlug || await CoversAsync(slug));
