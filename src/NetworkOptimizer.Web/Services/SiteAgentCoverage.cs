@@ -68,6 +68,19 @@ public class SiteAgentCoverage : ISiteScopedRegistry
     public void Invalidate(string slug) => _flags.TryRemove(slug, out _);
 
     /// <summary>
+    /// Records a value the caller already knows, for a writer that has just stored it.
+    ///
+    /// Use this rather than <see cref="Invalidate"/> whenever the new value is in hand. Invalidate
+    /// leaves a hole, and the synchronous reader answers "not covered" while it refills - so
+    /// switching coverage on and immediately reconnecting the console read false and connected on
+    /// the wrong path, with no banner to say so. There is no window here at all.
+    /// </summary>
+    public void Set(string slug, bool enabled)
+    {
+        if (!string.IsNullOrEmpty(slug)) _flags[slug] = enabled;
+    }
+
+    /// <summary>
     /// Swept with the per-site registries when a site is removed or created. The cached answer now
     /// outlives the site that set it - there is no expiry to heal it - so a slug deleted and
     /// re-created would otherwise inherit the previous site's coverage until the next restart.
