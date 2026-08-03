@@ -231,6 +231,13 @@ public class AgentProbeResultSink
             // restart, since the console comes up on its own as soon as the tunnel does - so the
             // push was skipped exactly when it was wanted and SNMP lagged probes by a full refresh
             // cycle on every reconnect.
+            // ReconnectAsync returns once the console is ROUTED through the tunnel, not once it has
+            // authenticated - so IsConnected is still false for a moment afterwards and an
+            // immediate push defers for exactly the reason it was retried. Give it a short while to
+            // finish coming up; if it takes longer than this, the periodic refresh has it.
+            for (var i = 0; i < 10 && !siteConnection.IsConnected; i++)
+                await Task.Delay(TimeSpan.FromSeconds(1), CancellationToken.None);
+
             if (siteConnection.IsConnected)
                 await PushSnmpConfigAsync(connection, CancellationToken.None);
         }
