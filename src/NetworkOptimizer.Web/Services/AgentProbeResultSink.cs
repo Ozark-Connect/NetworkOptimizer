@@ -134,8 +134,13 @@ public class AgentProbeResultSink
     private readonly AgentOnGatewayDetector _onGatewayDetector;
     private readonly IAgentEnrollmentService _enrollment;
 
-    /// <summary>Called once per connection after the hello exchange, and by the periodic refresh.</summary>
-    public async Task OnAgentConnectedAsync(AgentTunnelConnection connection, CancellationToken ct)
+    /// <summary>
+    /// Called once per connection after the hello exchange, and again by the periodic refresh.
+    /// <paramref name="initialConnect"/> separates the two: the console reconnect below belongs to a
+    /// genuine connect and must not run on every refresh, or each cycle re-pushes a config that is
+    /// already current.
+    /// </summary>
+    public async Task OnAgentConnectedAsync(AgentTunnelConnection connection, CancellationToken ct, bool initialConnect = false)
     {
         await PushProbeConfigAsync(connection, ct);
         await PushSnmpConfigAsync(connection, ct);
@@ -146,7 +151,8 @@ public class AgentProbeResultSink
         // before the tunnel is up, exhaust its short retry window, and stay
         // disconnected until a manual reconnect. Now that the tunnel is up,
         // reconnect it - fire-and-forget so we never block the tunnel read loop.
-        _ = ReconnectConsoleIfViaAgentAsync(connection);
+        if (initialConnect)
+            _ = ReconnectConsoleIfViaAgentAsync(connection);
     }
 
     /// <summary>
@@ -214,15 +220,7 @@ public class AgentProbeResultSink
                 return;
 
             var siteConnection = _siteConnections.GetFor(connection.SiteSlug);
-            // Whether the console was down when this call began decides everything below. This
-            // method also runs on the 60s config refresh, so a console that is already up means
-            // there is nothing to reconnect and nothing deferred to catch up - the periodic push
-            // has it. Acting anyway sent a second, identical SNMP config every minute.
-            var consoleWasDown = !siteConnection.IsConnected;
-            if (!consoleWasDown)
-                return;
-
-            if (await siteConnection.IsConsoleViaAgentAsync())
+            if (!siteConnection.IsConnected && await siteConnection.IsConsoleViaAgentAsync())
             {
                 _logger.LogInformation(
                     "Agent tunnel up for site {Slug}; reconnecting its console via the tunnel", connection.SiteSlug);

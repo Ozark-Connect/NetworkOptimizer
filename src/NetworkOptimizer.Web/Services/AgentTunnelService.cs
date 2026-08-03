@@ -131,7 +131,7 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
             refreshTask = RefreshProbeConfigLoopAsync(connection, streamCts.Token);
             livenessTask = WatchLivenessAsync(connection, streamCts.Token);
 
-            await _probeResultSink.OnAgentConnectedAsync(connection, ct);
+            await _probeResultSink.OnAgentConnectedAsync(connection, ct, initialConnect: true);
 
             while (await requestStream.MoveNext(ct))
             {
