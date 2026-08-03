@@ -32,6 +32,7 @@ DATA_DIR="$HOME/Library/Application Support/NetworkOptimizer"
 LAUNCH_AGENT_DIR="$HOME/Library/LaunchAgents"
 LAUNCH_AGENT_FILE="net.ozarkconnect.networkoptimizer.plist"
 OLD_LAUNCH_AGENT_FILE="com.networkoptimizer.app.plist"  # For migration from older installs
+APP_BUNDLE_ID="${NETWORK_OPTIMIZER_BUNDLE_ID:-net.ozarkconnect.networkoptimizer}"
 
 # Detect architecture
 ARCH=$(uname -m)
@@ -324,7 +325,7 @@ echo ""
 echo "[4/9] Signing binaries..."
 cd "$INSTALL_DIR"
 find . -name '*.dylib' -exec codesign --force --sign - {} \;
-codesign --force --sign - NetworkOptimizer.Web
+codesign --force --sign - --identifier "$APP_BUNDLE_ID" NetworkOptimizer.Web
 echo "Verifying signature..."
 codesign -v NetworkOptimizer.Web
 
