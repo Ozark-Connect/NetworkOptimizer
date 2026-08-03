@@ -276,16 +276,20 @@ if command -v go &> /dev/null; then
         GO_ARCH="arm64"
     fi
 
-    CFSPEEDTEST_SRC="$REPO_ROOT/src/cfspeedtest"
-    if [ -d "$CFSPEEDTEST_SRC" ]; then
-        cd "$CFSPEEDTEST_SRC"
-        CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -a -trimpath \
-            -ldflags "-s -w -X main.version=$GO_VERSION" \
-            -o "$INSTALL_DIR/tools/cfspeedtest-linux-arm64" .
-        echo "Built cfspeedtest for linux/arm64"
-    else
-        echo "Warning: cfspeedtest source not found at $CFSPEEDTEST_SRC"
-    fi
+    # cfspeedtest is no longer deployed: nothing in the app invokes the standalone
+    # binary any more, uwnspeedtest below superseded it for gateway WAN tests. The
+    # src/cfspeedtest module itself stays, since uwnspeedtest imports its speedtest
+    # package. Left commented rather than deleted in case the binary is wanted again.
+    # CFSPEEDTEST_SRC="$REPO_ROOT/src/cfspeedtest"
+    # if [ -d "$CFSPEEDTEST_SRC" ]; then
+    #     cd "$CFSPEEDTEST_SRC"
+    #     CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -a -trimpath \
+    #         -ldflags "-s -w -X main.version=$GO_VERSION" \
+    #         -o "$INSTALL_DIR/tools/cfspeedtest-linux-arm64" .
+    #     echo "Built cfspeedtest for linux/arm64"
+    # else
+    #     echo "Warning: cfspeedtest source not found at $CFSPEEDTEST_SRC"
+    # fi
 
     UWNSPEEDTEST_SRC="$REPO_ROOT/src/uwnspeedtest"
     if [ -d "$UWNSPEEDTEST_SRC" ]; then
