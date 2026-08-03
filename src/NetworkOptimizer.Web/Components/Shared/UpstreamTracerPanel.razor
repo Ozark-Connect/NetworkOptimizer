@@ -612,8 +612,13 @@
     [Parameter] public EventCallback OnSaved { get; set; }
 
     // Discovery must trace from inside the site's network. On an external (non-default) site
-    // that requires a connected on-site agent - without one the trace would run from the central
-    // server and mis-attribute its path as this site's. The default site always traces locally.
+    // that requires the site's agent to own path measurement - otherwise the trace would run from
+    // the central server and mis-attribute its path as this site's. That is now decided by
+    // configuration rather than by an agent being connected this second.
+    //
+    // So a secondary site offers Discover even with no agent enrolled yet, and the run fails with
+    // "No on-site agent is online to run the probe". Deliberate (TJ, 2026-08-03): a button that
+    // says why beats a button that is missing. Do not re-gate this on the agent being live.
     private bool CanDiscover => SiteCtx.IsDefault || ExecutorFactory.ServerVantageIsAgent;
 
     private UpstreamTracerState _state = new();
