@@ -26,12 +26,16 @@ public class SiteAgentCoverage
     /// <summary>Per-site setting key: this site's agent collects, this server stands down.</summary>
     public const string AgentCoversSiteKey = "site.agent_covers_collection";
 
-    // Consulted on collection paths that run every few seconds, so cache it briefly rather than
-    // hitting SQLite each time - same treatment as the via-agent routing flag.
-    private static readonly TimeSpan FlagCacheExpiry = TimeSpan.FromMinutes(1);
-
+    // Consulted on collection paths that run every few seconds, so it is cached rather than hitting
+    // SQLite each time. Deliberately WITHOUT an expiry: every writer calls Invalidate, so a timed
+    // expiry bought nothing and cost a cold-miss window in which the synchronous reader below
+    // answers "not covered" for a site that is. On an off-site server that window means probes run
+    // from the wrong network and device dials go to RFC1918 addresses on the hosting provider's
+    // network instead of through the tunnel. The cache is warmed at startup for the same reason.
+    // The one thing this gives up is noticing a value changed in the database behind the app's
+    // back, which only an operator editing SQLite directly can do, and a restart settles that.
     private readonly IServiceProvider _serviceProvider;
-    private readonly ConcurrentDictionary<string, (bool Enabled, DateTime At)> _flags = new();
+    private readonly ConcurrentDictionary<string, bool> _flags = new();
 
     public SiteAgentCoverage(IServiceProvider serviceProvider)
     {
@@ -42,27 +46,53 @@ public class SiteAgentCoverage
     public async Task<bool> CoversAsync(string slug)
     {
         if (string.IsNullOrEmpty(slug)) return false;
-        if (_flags.TryGetValue(slug, out var cached) && DateTime.UtcNow - cached.At < FlagCacheExpiry)
-            return cached.Enabled;
+        if (_flags.TryGetValue(slug, out var cached)) return cached;
         return await ReadAsync(slug);
     }
 
     /// <summary>
-    /// The cached answer, for the callers that cannot await - the probe executor factory resolves
-    /// a vantage from a synchronous property. A cache miss reads false and refreshes in the
-    /// background, so the worst case is one pass of today's behavior before the flag takes hold.
+    /// The cached answer, for the callers that cannot await - the probe executor factory resolves a
+    /// vantage from a synchronous property. The cache is warmed at startup and never expires, so a
+    /// miss here means a site created since startup, which has no flag set anyway. It still kicks a
+    /// read so the answer is right from the next pass.
     /// </summary>
     public bool Covers(string slug)
     {
         if (string.IsNullOrEmpty(slug)) return false;
-        if (_flags.TryGetValue(slug, out var cached) && DateTime.UtcNow - cached.At < FlagCacheExpiry)
-            return cached.Enabled;
+        if (_flags.TryGetValue(slug, out var cached)) return cached;
         _ = Task.Run(() => ReadAsync(slug));
         return false;
     }
 
     /// <summary>Drops the cached answer for a site, so the next read sees a change immediately.</summary>
     public void Invalidate(string slug) => _flags.TryRemove(slug, out _);
+
+    /// <summary>
+    /// Reads every site's flag once at startup. Without this the first pass of any synchronous
+    /// caller answers "not covered" while the cache fills, and on an off-site server that pass
+    /// probes from the wrong network and dials site addresses directly.
+    /// </summary>
+    public async Task WarmAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            List<string> slugs;
+            using (var scope = _serviceProvider.CreateScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<NetworkOptimizerDbContext>();
+                slugs = db.Sites.Select(x => x.Slug).ToList();
+            }
+            foreach (var slug in slugs)
+            {
+                if (ct.IsCancellationRequested) return;
+                await ReadAsync(slug);
+            }
+        }
+        catch
+        {
+            // Best effort: a failure here leaves the old lazy behavior, not a broken start.
+        }
+    }
 
     /// <summary>
     /// The question every gate actually asks: does the agent do this site's work rather than this
@@ -89,7 +119,7 @@ public class SiteAgentCoverage
             var db = scope.ServiceProvider.GetRequiredService<NetworkOptimizerDbContext>();
             var setting = await db.SystemSettings.FindAsync(AgentCoversSiteKey);
             var enabled = bool.TryParse(setting?.Value, out var value) && value;
-            _flags[slug] = (enabled, DateTime.UtcNow);
+            _flags[slug] = enabled;
             return enabled;
         }
         catch

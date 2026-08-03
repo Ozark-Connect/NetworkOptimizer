@@ -1237,6 +1237,10 @@ if (!string.Equals(Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAIN
 var ieeeOuiDb = app.Services.GetRequiredService<IeeeOuiDatabase>();
 await ieeeOuiDb.InitializeAsync();
 
+// Warm the agent-coverage flags before collection starts, so no synchronous gate answers
+// "not covered" for a site that is while the cache fills.
+await app.Services.GetRequiredService<SiteAgentCoverage>().WarmAsync();
+
 // Log admin auth startup configuration
 using (var startupScope = app.Services.CreateScope())
 {
