@@ -48,8 +48,11 @@
                 </button>
             }
             <div class="audit-filter-actions">
-                <a class="btn btn-secondary btn-sm" href="@ExportUrl("csv")" target="_blank" rel="noopener">Export CSV</a>
-                <a class="btn btn-secondary btn-sm" href="@ExportUrl("json")" target="_blank" rel="noopener">Export JSON</a>
+                @* Both endpoints answer with Content-Disposition: attachment, so the browser downloads
+                   without navigating and the page is undisturbed. Opening them in a new tab left an
+                   empty one behind every time, since nothing ever rendered there. *@
+                <a class="btn btn-secondary btn-sm" href="@ExportUrl("csv")" download>Export CSV</a>
+                <a class="btn btn-secondary btn-sm" href="@ExportUrl("json")" download>Export JSON</a>
             </div>
         </div>
 
