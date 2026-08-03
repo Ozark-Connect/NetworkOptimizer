@@ -5,7 +5,7 @@ using Xunit;
 
 namespace NetworkOptimizer.Web.Tests;
 
-public class CanonicalHostRedirectPolicyTests
+public class CanonicalBaseUrlProviderTests
 {
     [Theory]
     [InlineData("/api/health")]
@@ -15,7 +15,7 @@ public class CanonicalHostRedirectPolicyTests
         var context = new DefaultHttpContext();
         context.Request.Path = path;
 
-        CanonicalHostRedirectPolicy.ShouldBypass(context.Request).Should().BeTrue();
+        CanonicalBaseUrlProvider.ShouldBypassRedirect(context.Request).Should().BeTrue();
     }
 
     [Fact]
@@ -25,7 +25,7 @@ public class CanonicalHostRedirectPolicyTests
         context.Request.Path = "/networkoptimizer.AgentService/Connect";
         context.Request.ContentType = "application/grpc+proto";
 
-        CanonicalHostRedirectPolicy.ShouldBypass(context.Request).Should().BeTrue();
+        CanonicalBaseUrlProvider.ShouldBypassRedirect(context.Request).Should().BeTrue();
     }
 
     [Fact]
@@ -34,6 +34,6 @@ public class CanonicalHostRedirectPolicyTests
         var context = new DefaultHttpContext();
         context.Request.Path = "/dashboard";
 
-        CanonicalHostRedirectPolicy.ShouldBypass(context.Request).Should().BeFalse();
+        CanonicalBaseUrlProvider.ShouldBypassRedirect(context.Request).Should().BeFalse();
     }
 }

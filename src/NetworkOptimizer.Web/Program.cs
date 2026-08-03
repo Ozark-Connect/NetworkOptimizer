@@ -1201,16 +1201,9 @@ if (!string.IsNullOrEmpty(canonicalHost))
 {
     app.Use(async (context, next) =>
     {
-        // The health endpoint is consumed by local service supervisors, and the agent tunnel is
-        // gRPC, which cannot follow an HTTP redirect: a 302
-        // here silently breaks the tunnel whenever a reverse proxy forwards the
-        // gRPC path without presenting the canonical Host (e.g. Caddy proxying to
-        // the https://localhost tunnel upstream sends Host: localhost, so the app
-        // sees a non-canonical host and redirects the Connect stream to death -
-        // while REST heartbeats still land and keep the agent showing online).
-        // These machine-to-machine endpoints have no canonical-host concern, so never redirect
-        // them; let them through regardless of Host.
-        if (CanonicalHostRedirectPolicy.ShouldBypass(context.Request))
+        // Machine-to-machine requests that cannot or must not be redirected. Which ones, and why
+        // each earns it, is documented on the predicate.
+        if (CanonicalBaseUrlProvider.ShouldBypassRedirect(context.Request))
         {
             await next();
             return;
