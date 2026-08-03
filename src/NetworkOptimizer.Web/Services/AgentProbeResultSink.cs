@@ -1239,6 +1239,15 @@ public class AgentProbeResultSink
         if (batch.Results.Count == 0) return;
 
         var isDefault = connection.SiteSlug == SiteManagementService.DefaultSiteSlug;
+
+        // The push path already refuses to send targets to a main-site agent that is not covering
+        // the site; results are refused for the same reason. Switching coverage off stops the
+        // config going out but does not stop an agent that already has targets, so it keeps
+        // probing and pushing while the server resumes probing the same targets itself. Both write
+        // the same series at different cadences, which reads as a sawtooth on the charts rather
+        // than as duplicate points.
+        if (isDefault && !await _agentCoverage.CoversAsync(connection.SiteSlug)) return;
+
         await using var db = _siteDbFactory.CreateForSite(connection.SiteSlug, isDefault);
         var ids = batch.Results.Select(r => r.TargetId).Distinct().ToList();
         var targets = await db.MonitoringTargets
