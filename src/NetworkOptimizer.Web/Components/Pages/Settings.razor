@@ -13,6 +13,7 @@
 @using Microsoft.EntityFrameworkCore
 @inject UniFiConnectionService ConnectionService
 @inject SiteContextService SiteContext
+@inject SiteTunnelRouting TunnelRouting
 @inject IGatewaySshService GatewaySshService
 @inject ISshKeyService SshKeyService
 @inject ISshSettingsAdminService SshSettingsAdmin
@@ -4896,11 +4897,10 @@
         hasControllerPassword = !string.IsNullOrEmpty(connectionSettings.Password);
         hasControllerApiKey = connectionSettings.HasApiKey;
         _currentSiteConsoleViaAgent = await ConnectionService.IsConsoleViaAgentAsync();
-        await using (var sshAgentDb = SiteDb.CreateForSite(SiteContext.Slug, SiteContext.IsDefault))
-        {
-            var sshAgentSetting = await sshAgentDb.SystemSettings.FindAsync(SiteTunnelRouting.DevicesViaAgentKey);
-            _currentSiteSshViaAgent = bool.TryParse(sshAgentSetting?.Value, out var sshViaAgent) && sshViaAgent;
-        }
+        // Through the same gated reader the routing itself uses, rather than the stored flag. Read
+        // raw, the SSH hints claimed tunnel routing on a main site whose agent no longer collects
+        // for it - the console hints beside them, which ask the gated question, said otherwise.
+        _currentSiteSshViaAgent = await TunnelRouting.IsViaAgentAsync(SiteContext.Slug);
 
         UpdateControllerStatus();
         await LoadSshKey();

@@ -57,11 +57,16 @@ public sealed class SiteConfigurationService : ISiteConfigurationService
 {
     private readonly SiteDbContextFactory _siteDb;
     private readonly SiteAgentCoverage _agentCoverage;
+    private readonly SiteConnectionRegistry _siteConnections;
+    private readonly ILogger<SiteConfigurationService> _logger;
 
-    public SiteConfigurationService(SiteDbContextFactory siteDb, SiteAgentCoverage agentCoverage)
+    public SiteConfigurationService(SiteDbContextFactory siteDb, SiteAgentCoverage agentCoverage,
+        SiteConnectionRegistry siteConnections, ILogger<SiteConfigurationService> logger)
     {
         _siteDb = siteDb;
         _agentCoverage = agentCoverage;
+        _siteConnections = siteConnections;
+        _logger = logger;
     }
 
     /// <inheritdoc />
@@ -97,6 +102,25 @@ public sealed class SiteConfigurationService : ISiteConfigurationService
         // The collection paths read this through a one-minute cache; a setting that decides whether
         // the server collects at all should not wait that long to take effect.
         _agentCoverage.Invalidate(siteSlug);
+
+        // The console is reached by whichever path was chosen when its client was built, so the
+        // existing one is now on the wrong side of this switch. Nothing else re-establishes it:
+        // every automatic reconnect is gated on the console being disconnected, and a console
+        // parked in awaiting-agent stays parked. Not awaited - a reconnect can take seconds and
+        // this runs from a checkbox.
+        var connection = _siteConnections.GetFor(siteSlug);
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await connection.ReconnectAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "Could not reconnect the console for site {Slug} after its agent coverage changed", siteSlug);
+            }
+        });
     }
 
     /// <inheritdoc />
