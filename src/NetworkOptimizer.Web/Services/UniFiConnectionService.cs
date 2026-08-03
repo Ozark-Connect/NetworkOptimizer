@@ -214,6 +214,14 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     /// <summary>Per-site setting key: reach this site's console through its agent tunnel.</summary>
     public const string ConsoleViaAgentKey = "console.via_agent";
 
+    // How the CURRENT client was built, not how the site is configured now. The teardown hooks
+    // below used to re-read the setting, which answers a different question: whether the console is
+    // meant to route through the agent from here on. Those diverge the moment coverage is switched
+    // off with a tunnel-routed console still connected - the hooks then declined to tear anything
+    // down, and the client sat "connected" against a loopback proxy whose tunnel had died, with no
+    // path back (every automatic reconnect is gated on !IsConnected).
+    private bool _clientViaAgent;
+
     /// <summary>Shown while a site's agent-tunneled console waits for the agent to come online.</summary>
     private const string AwaitingAgentMessage =
         "This site's console connects through its on-site agent, which isn't online yet. It'll connect automatically as soon as the agent comes online.";
@@ -339,7 +347,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
         try
         {
             if (!_isConnected && _client == null) return;
-            if (!await IsConsoleViaAgentAsync()) return;
+            if (!_clientViaAgent) return;
 
             // Re-check after the await: a fast agent bounce can reconnect (and the
             // connected hook re-establish the console) while the DB read above was in
@@ -385,7 +393,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
         try
         {
             if (!_isConnected && _client == null) return; // already down / awaiting - idempotent
-            if (!await IsConsoleViaAgentAsync()) return;   // only agent-routed consoles ride the tunnel
+            if (!_clientViaAgent) return;                 // only agent-routed consoles ride the tunnel
             _logger.LogInformation(
                 "Site {Slug}'s agent tunnel is unreachable; flipping its console to awaiting-agent ahead of the watchdog", SiteSlug);
             _client?.Dispose();
@@ -417,7 +425,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     {
         try
         {
-            if (!await IsConsoleViaAgentAsync()) return;
+            if (!_clientViaAgent) return;
             var proxy = _serviceProvider.GetService<AgentTunnelProxyService>();
             if (proxy == null || !proxy.IsTunnelSuspect(SiteSlug)) return;
             _awaitingAgent = true;
@@ -711,6 +719,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
             }
             var consoleEndpoint = ResolveControllerEndpoint(config.ControllerUrl, viaAgent);
             var clientLogger = _loggerFactory.CreateLogger<UniFiApiClient>();
+            _clientViaAgent = viaAgent;
             _client = new UniFiApiClient(
                 clientLogger,
                 consoleEndpoint.Url,
@@ -852,6 +861,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
             }
             var consoleEndpoint = ResolveControllerEndpoint(config.ControllerUrl, viaAgent);
             var clientLogger = _loggerFactory.CreateLogger<UniFiApiClient>();
+            _clientViaAgent = viaAgent;
             _client = new UniFiApiClient(
                 clientLogger,
                 consoleEndpoint.Url,
