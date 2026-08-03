@@ -214,7 +214,15 @@ public class AgentProbeResultSink
                 return;
 
             var siteConnection = _siteConnections.GetFor(connection.SiteSlug);
-            if (!siteConnection.IsConnected && await siteConnection.IsConsoleViaAgentAsync())
+            // Whether the console was down when this call began decides everything below. This
+            // method also runs on the 60s config refresh, so a console that is already up means
+            // there is nothing to reconnect and nothing deferred to catch up - the periodic push
+            // has it. Acting anyway sent a second, identical SNMP config every minute.
+            var consoleWasDown = !siteConnection.IsConnected;
+            if (!consoleWasDown)
+                return;
+
+            if (await siteConnection.IsConsoleViaAgentAsync())
             {
                 _logger.LogInformation(
                     "Agent tunnel up for site {Slug}; reconnecting its console via the tunnel", connection.SiteSlug);
