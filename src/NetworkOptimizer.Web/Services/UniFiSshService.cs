@@ -140,6 +140,22 @@ public class UniFiSshService : IUniFiSshService
     /// <summary>
     /// Test SSH connection to a specific host using shared credentials
     /// </summary>
+    /// <summary>
+    /// Shown when this site's devices are reached through its on-site agent and that agent isn't
+    /// online. Dialing the loopback tunnel proxy now gets a closed socket, which SSH.NET reports as
+    /// a raw "no identification string" protocol error - true of the socket, useless to the reader.
+    /// Mirrors the gateway's message.
+    /// </summary>
+    public const string AwaitingAgentMessage =
+        "Waiting for the on-site agent to connect. This site's devices are reached through its agent, and will connect automatically once the agent is online.";
+
+    private async Task<bool> IsAwaitingAgentAsync()
+    {
+        var routing = _serviceProvider.GetService<SiteTunnelRouting>();
+        if (routing == null) return false;
+        return await routing.IsViaAgentAsync(_siteSlug) && !routing.IsAgentOnline(_siteSlug);
+    }
+
     public async Task<(bool success, string message)> TestConnectionAsync(string host)
     {
         var settings = await GetSettingsAsync();
@@ -147,6 +163,11 @@ public class UniFiSshService : IUniFiSshService
         if (!settings.HasCredentials)
         {
             return (false, "SSH credentials not configured");
+        }
+
+        if (await IsAwaitingAgentAsync())
+        {
+            return (false, AwaitingAgentMessage);
         }
 
         try
@@ -192,6 +213,11 @@ public class UniFiSshService : IUniFiSshService
         string? privateKeyPathOverride,
         CancellationToken cancellationToken = default)
     {
+        if (await IsAwaitingAgentAsync())
+        {
+            return (false, AwaitingAgentMessage);
+        }
+
         var settings = await GetSettingsAsync();
 
         // Determine effective credentials (per-device overrides take precedence)
