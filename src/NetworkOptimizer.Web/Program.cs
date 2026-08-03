@@ -318,7 +318,7 @@ builder.Services.AddSingleton<SshClientService>();
 builder.Services.AddSingleton<SiteTunnelRouting>();
 // Whether a site's agent collects instead of this server. Singleton: consulted by the
 // per-site collection loops and the probe executor factory, and it caches per slug.
-builder.Services.AddSingleton<SiteAgentCoverage>();
+builder.Services.AddSiteScopedRegistry<SiteAgentCoverage>();
 builder.Services.AddSiteScopedRegistry<GatewaySshRegistry>();
 builder.Services.AddScoped<IGatewaySshService>(sp => sp.GetRequiredService<GatewaySshRegistry>()
     .GetFor(sp.GetRequiredService<SiteContextService>().Slug));

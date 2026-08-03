@@ -21,7 +21,7 @@ namespace NetworkOptimizer.Web.Services;
 /// enrolled (<see cref="AgentProbeService.HasAgentForSite"/>), so a flag set on a site with no
 /// agent changes nothing.
 /// </summary>
-public class SiteAgentCoverage
+public class SiteAgentCoverage : ISiteScopedRegistry
 {
     /// <summary>Per-site setting key: this site's agent collects, this server stands down.</summary>
     public const string AgentCoversSiteKey = "site.agent_covers_collection";
@@ -66,6 +66,18 @@ public class SiteAgentCoverage
 
     /// <summary>Drops the cached answer for a site, so the next read sees a change immediately.</summary>
     public void Invalidate(string slug) => _flags.TryRemove(slug, out _);
+
+    /// <summary>
+    /// Swept with the per-site registries when a site is removed or created. The cached answer now
+    /// outlives the site that set it - there is no expiry to heal it - so a slug deleted and
+    /// re-created would otherwise inherit the previous site's coverage until the next restart.
+    /// Nothing to tear down: the entry is a bool.
+    /// </summary>
+    public Func<ValueTask>? EvictSite(string slug)
+    {
+        Invalidate(slug);
+        return null;
+    }
 
     /// <summary>
     /// Reads every site's flag once at startup. Without this the first pass of any synchronous
