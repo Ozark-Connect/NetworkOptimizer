@@ -262,8 +262,13 @@
     public EventCallback OnTargetsChanged { get; set; }
 
     // A manually added target is probed from the "server" vantage, which on an external
-    // (non-default) site is the on-site agent. Without a connected agent there's nothing to probe
-    // from inside the site, so adding is gated. The default site always probes locally.
+    // (non-default) site is the on-site agent, which is now a question of configuration rather
+    // than of an agent being connected this second.
+    //
+    // So a secondary site offers this even with no agent enrolled yet, and the probe fails with
+    // "No on-site agent is online to run the probe". That is deliberate (TJ, 2026-08-03): a control
+    // that explains itself beats one that silently is not there, and targets added now are seeded
+    // ready for the agent that arrives later. Do not re-gate this on the agent being live.
     private bool CanAddTargets => SiteCtx.IsDefault || ExecutorFactory.ServerVantageIsAgent;
 
     private bool _collapsed = true;
