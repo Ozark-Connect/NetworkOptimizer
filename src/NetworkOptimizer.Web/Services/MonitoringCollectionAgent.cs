@@ -225,14 +225,7 @@ public class MonitoringCollectionAgent : BackgroundService
 
     private async Task RefreshAgentCoverageAsync(CancellationToken ct)
     {
-        // The default site is refreshed too. It used to be skipped, which left its enrolled flag
-        // permanently false, so only a LIVE tunnel counted as an agent being present there. A main
-        // site handed to its agent then kept collecting whenever that agent was merely offline -
-        // and with its devices routed through the tunnel, every one of those polls dialed a
-        // loopback proxy with nothing behind it. A secondary site counts an enrolled agent whether
-        // or not it is connected, and stands down; this makes the main site behave the same once
-        // it has been handed over. With coverage off the answer is false either way, so an install
-        // that has not opted in is unaffected.
+        if (_isDefault) return;
         if (DateTime.UtcNow - _agentCoverageCheckedAt < AgentCoverageTtl) return;
         try
         {
@@ -246,9 +239,7 @@ public class MonitoringCollectionAgent : BackgroundService
             // The moment an external site first gains an agent, activate the default internet
             // targets that were seeded disabled while it had none - the agent can now probe them
             // from inside the site (AgentProbeResultSink only pushes enabled targets).
-            // Secondary sites only: the main site's targets are never seeded disabled, because it
-            // has always had a collector.
-            if (!_isDefault && !wasEnrolled && _siteAgentEnrolled)
+            if (!wasEnrolled && _siteAgentEnrolled)
                 await EnableSeededDefaultTargetsAsync(ct);
         }
         catch (Exception ex)
