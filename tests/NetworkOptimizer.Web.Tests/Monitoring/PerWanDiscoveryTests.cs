@@ -113,10 +113,12 @@ public class PerWanDiscoveryTests
     }
 
     [Fact]
-    public async Task ContextRun_DoesNotTakeATargetThatAlreadyBelongsToAnotherWan()
+    public async Task ContextRun_CreatesItsOwnTwinForAHostAnotherWanAlreadyClaimed()
     {
-        // TargetId is unique, so a path-end both WANs reach is ONE row. Re-homing it every run
-        // would have the two WANs trading it back and forth, and each pausing the other's target.
+        // A host both WANs reach - a core resolver, a shared ISP hop - is probed from BOTH:
+        // the claiming WAN keeps the base row untouched (never re-homed, never re-enabled by
+        // the other run), and the second WAN gets its own WAN-qualified row so the two series
+        // stay separable and comparable by Address.
         await using var db = NewDb();
         db.MonitoringTargets.Add(new MonitoringTarget
         {
@@ -132,10 +134,69 @@ public class PerWanDiscoveryTests
         await UpstreamTracerService.UpsertTargetAsync(db, Hop("198.51.100.1"), "wan2", wanContextId: 4, default);
         await db.SaveChangesAsync();
 
-        var target = await db.MonitoringTargets.SingleAsync();
-        target.WanInterface.Should().Be("wan");
-        target.WanContextId.Should().BeNull();
-        target.Enabled.Should().BeFalse();
+        var original = await db.MonitoringTargets.SingleAsync(t => t.TargetId == "access-198.51.100.1");
+        original.WanInterface.Should().Be("wan");
+        original.WanContextId.Should().BeNull();
+        original.Enabled.Should().BeFalse();
+
+        var twin = await db.MonitoringTargets.SingleAsync(t => t.TargetId == "access-198.51.100.1@wan2");
+        twin.WanInterface.Should().Be("wan2");
+        twin.WanContextId.Should().Be(4);
+        twin.Enabled.Should().BeTrue();
+        twin.Address.Should().Be(original.Address);
+    }
+
+    [Fact]
+    public async Task ContextRun_RevalidatesItsTwinInsteadOfStackingAnother()
+    {
+        await using var db = NewDb();
+        db.MonitoringTargets.Add(new MonitoringTarget
+        {
+            TargetId = "access-198.51.100.1",
+            Name = "First hop",
+            Address = "198.51.100.1",
+            TargetType = MonitoringTargetType.AccessIsp,
+            WanInterface = "wan",
+        });
+        await db.SaveChangesAsync();
+
+        await UpstreamTracerService.UpsertTargetAsync(db, Hop("198.51.100.1"), "wan2", wanContextId: 4, default);
+        await db.SaveChangesAsync();
+        await UpstreamTracerService.UpsertTargetAsync(db, Hop("198.51.100.1"), "wan2", wanContextId: 4, default);
+        await db.SaveChangesAsync();
+
+        (await db.MonitoringTargets.CountAsync()).Should().Be(2);
+        (await db.MonitoringTargets.CountAsync(t => t.WanInterface == "wan2")).Should().Be(1);
+    }
+
+    [Fact]
+    public async Task ContextRun_CreatesATransitTwinTheSameWay()
+    {
+        await using var db = NewDb();
+        db.MonitoringTargets.Add(new MonitoringTarget
+        {
+            TargetId = "transit-as64501-203.0.113.9",
+            Name = "Example Transit",
+            Address = "203.0.113.9",
+            TargetType = MonitoringTargetType.Transit,
+            WanInterface = "wan",
+        });
+        await db.SaveChangesAsync();
+
+        await UpstreamTracerService.UpsertTransitTargetAsync(db, Transit("203.0.113.9"), "wan2", wanContextId: 4, default);
+        await db.SaveChangesAsync();
+
+        var twin = await db.MonitoringTargets.SingleAsync(t => t.TargetId == "transit-as64501-203.0.113.9@wan2");
+        twin.WanInterface.Should().Be("wan2");
+        (await db.MonitoringTargets.SingleAsync(t => t.TargetId == "transit-as64501-203.0.113.9"))
+            .WanInterface.Should().Be("wan");
+    }
+
+    [Fact]
+    public void WanQualifiedTargetId_SuffixesTheWanKeyStably()
+    {
+        UpstreamTracerService.WanQualifiedTargetId("access-198.51.100.1", "WAN2")
+            .Should().Be("access-198.51.100.1@wan2");
     }
 
     [Fact]
