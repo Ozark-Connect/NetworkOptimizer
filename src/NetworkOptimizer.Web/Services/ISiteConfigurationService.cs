@@ -58,15 +58,42 @@ public sealed class SiteConfigurationService : ISiteConfigurationService
     private readonly SiteDbContextFactory _siteDb;
     private readonly SiteAgentCoverage _agentCoverage;
     private readonly SiteConnectionRegistry _siteConnections;
+    private readonly SiteTunnelRouting _tunnelRouting;
     private readonly ILogger<SiteConfigurationService> _logger;
 
     public SiteConfigurationService(SiteDbContextFactory siteDb, SiteAgentCoverage agentCoverage,
-        SiteConnectionRegistry siteConnections, ILogger<SiteConfigurationService> logger)
+        SiteConnectionRegistry siteConnections, SiteTunnelRouting tunnelRouting,
+        ILogger<SiteConfigurationService> logger)
     {
         _siteDb = siteDb;
         _agentCoverage = agentCoverage;
         _siteConnections = siteConnections;
+        _tunnelRouting = tunnelRouting;
         _logger = logger;
+    }
+
+    /// <summary>
+    /// Rebuilds the site's console on whichever path it should now take. The client records how it
+    /// was built, so a setting that changes the path leaves the existing connection on the old one
+    /// until something reconnects it - and nothing else does, because every automatic reconnect is
+    /// gated on the console being disconnected. Not awaited: a reconnect takes seconds and every
+    /// caller here is a checkbox.
+    /// </summary>
+    private void ReconnectConsole(string siteSlug, string because)
+    {
+        var connection = _siteConnections.GetFor(siteSlug);
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await connection.ReconnectAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Could not reconnect the console for site {Slug} after {Because}",
+                    siteSlug, because);
+            }
+        });
     }
 
     /// <inheritdoc />
@@ -88,12 +115,23 @@ public sealed class SiteConfigurationService : ISiteConfigurationService
     }
 
     /// <inheritdoc />
-    public Task SetConsoleViaAgentAsync(string siteSlug, bool enabled)
-        => WriteAsync(siteSlug, UniFiConnectionService.ConsoleViaAgentKey, enabled.ToString());
+    public async Task SetConsoleViaAgentAsync(string siteSlug, bool enabled)
+    {
+        await WriteAsync(siteSlug, UniFiConnectionService.ConsoleViaAgentKey, enabled.ToString());
+        // This checkbox only appears once coverage is on, so coverage is necessarily switched
+        // first: reconnecting there alone always ran against the console's OLD routing and left
+        // this choice unapplied until something else happened to reconnect.
+        ReconnectConsole(siteSlug, "its console routing changed");
+    }
 
     /// <inheritdoc />
-    public Task SetDevicesViaAgentAsync(string siteSlug, bool enabled)
-        => WriteAsync(siteSlug, SiteTunnelRouting.DevicesViaAgentKey, enabled.ToString());
+    public async Task SetDevicesViaAgentAsync(string siteSlug, bool enabled)
+    {
+        await WriteAsync(siteSlug, SiteTunnelRouting.DevicesViaAgentKey, enabled.ToString());
+        // Consulted per SSH command and per modem poll through a one-minute cache, so without this
+        // the switch appears to do nothing for up to a minute.
+        _tunnelRouting.Invalidate(siteSlug);
+    }
 
     /// <inheritdoc />
     public async Task SetAgentCoversSiteAsync(string siteSlug, bool enabled)
@@ -102,25 +140,10 @@ public sealed class SiteConfigurationService : ISiteConfigurationService
         // The collection paths read this through a one-minute cache; a setting that decides whether
         // the server collects at all should not wait that long to take effect.
         _agentCoverage.Invalidate(siteSlug);
-
-        // The console is reached by whichever path was chosen when its client was built, so the
-        // existing one is now on the wrong side of this switch. Nothing else re-establishes it:
-        // every automatic reconnect is gated on the console being disconnected, and a console
-        // parked in awaiting-agent stays parked. Not awaited - a reconnect can take seconds and
-        // this runs from a checkbox.
-        var connection = _siteConnections.GetFor(siteSlug);
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                await connection.ReconnectAsync();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex,
-                    "Could not reconnect the console for site {Slug} after its agent coverage changed", siteSlug);
-            }
-        });
+        // Also drops the devices cache: that flag is gated on coverage for the default site, so
+        // coverage changing changes the answer without the flag itself being touched.
+        _tunnelRouting.Invalidate(siteSlug);
+        ReconnectConsole(siteSlug, "its agent coverage changed");
     }
 
     /// <inheritdoc />
