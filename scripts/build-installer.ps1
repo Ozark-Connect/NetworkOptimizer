@@ -37,6 +37,20 @@ Write-Host ""
 
 # Step 1: Publish self-contained single-file application
 Write-Host "[1/5] Publishing self-contained single-file application for win-x64..." -ForegroundColor Yellow
+
+# Always start from an empty publish folder. Publishing incrementally over a warm
+# tree - no compilable change since the last build, e.g. a docs-only release or a
+# rebuild after a failed upload - recreates package content folders such as
+# LatoFont EMPTY. WiX then harvests the empty folder and packages an MSI that is
+# missing files, with no warning and a successful build. That silently cost the
+# v2.5.3 MSI its 19 Lato font files. Removing the folder forces the publish target
+# to repopulate it; the build output is untouched, so this costs a file copy
+# rather than a recompile.
+if (Test-Path $PublishDir) {
+    Write-Host "  Cleaning previous publish output..." -ForegroundColor DarkGray
+    Remove-Item -Recurse -Force $PublishDir
+}
+
 dotnet publish $WebProject `
     -c $Configuration `
     -r win-x64 `
