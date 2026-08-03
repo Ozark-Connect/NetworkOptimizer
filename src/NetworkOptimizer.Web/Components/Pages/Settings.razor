@@ -4416,8 +4416,7 @@
 
     private string NativeUpgradeCommand() =>
         "curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/agent/install-native.sh"
-        + $" | sudo bash -s -- --server \"{AgentServerBase()}\""
-        + "\n# add --lan-speed-test if this agent hosts the LAN speed test page";
+        + $" | sudo bash -s -- --server \"{AgentServerBase()}\"";
 
     // Monitoring-only gateway installer: no --lan-speed-test (the router must not
     // host a speed-test server) and no sudo (UniFi gateways SSH in as root).
