@@ -440,6 +440,26 @@ Everything rides that one TLS session: heartbeats, probe and SNMP traffic
 (including SNMP credentials pushed to the agent), and proxied UniFi Console
 connections - which are additionally HTTPS end-to-end inside the tunnel.
 
+### After the proxy is up: tell the app its address
+
+Set **`REVERSE_PROXIED_HOST_NAME`** on the central server to the proxy's
+hostname (plus `REVERSE_PROXIED_PORT` if the proxy's front end is not on 443),
+then restart it. This is what the agent's server URL is derived from, so until
+it is set, **Settings > Multi-Site > (site) > Agents** has no address to put in
+the install command and shows a placeholder instead. Substituting the app's own
+LAN address there does not work: the agent would dial that host on 443, where
+the app does not listen and the proxy is not running.
+
+Verify before enrolling an agent - from the site, or anywhere outside the
+server's own box:
+
+```bash
+curl -sSf https://optimizer.example.com/api/health
+```
+
+That has to succeed over HTTPS on the hostname you configured. If it does not,
+fix the proxy first; the agent has no fallback to plain HTTP by design.
+
 ## Security and hardening
 
 The agent dials out only, so the site never exposes an inbound port - a real
