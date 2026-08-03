@@ -36,6 +36,13 @@ public class SiteTunnelRouting
         _logger = logger;
     }
 
+    /// <summary>
+    /// Forget the cached flag for a site. Called when the flag is cleared out from under the cache
+    /// - removing a site's last agent - so routing stops within the request rather than after the
+    /// cache expires.
+    /// </summary>
+    public void Invalidate(string slug) => _flags.TryRemove(slug, out _);
+
     /// <summary>Whether the site's devices are configured to be reached through its agent tunnel.</summary>
     public async Task<bool> IsViaAgentAsync(string slug)
     {
