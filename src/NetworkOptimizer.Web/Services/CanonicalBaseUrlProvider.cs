@@ -59,6 +59,36 @@ public sealed class CanonicalBaseUrlProvider
             : UrlForCallbacks + (path.StartsWith('/') ? path : "/" + path);
     }
 
+    /// <summary>
+    /// Requests that must reach the local listener as addressed, instead of being redirected to the
+    /// canonical host.
+    ///
+    /// The agent tunnel is gRPC, which cannot follow an HTTP redirect: a 302 here silently breaks the
+    /// tunnel whenever a reverse proxy forwards the gRPC path without presenting the canonical Host
+    /// (e.g. Caddy proxying to the https://localhost tunnel upstream sends Host: localhost, so the app
+    /// sees a non-canonical host and redirects the Connect stream to death - while REST heartbeats
+    /// still land and keep the agent showing online). gRPC is machine-to-machine and has no
+    /// canonical-host concern.
+    ///
+    /// The health endpoint is polled on the loopback listener by installers and process supervisors
+    /// running on this box. Redirecting those to the canonical host makes a purely local readiness
+    /// check depend on public DNS, the proxy's certificate and the proxy being reachable from inside
+    /// the host, so a healthy install can report as failed.
+    ///
+    /// Deliberately narrow. Everything else stays subject to enforcement, the anonymous /api/public
+    /// endpoints included: something posting to the raw origin rather than the canonical URL is
+    /// misconfigured, and the redirect is how it gets told.
+    /// </summary>
+    public static bool ShouldBypassRedirect(HttpRequest request)
+    {
+        if (request.Path.Equals("/api/health", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        return request.ContentType?.StartsWith(
+            "application/grpc",
+            StringComparison.OrdinalIgnoreCase) == true;
+    }
+
     /// <summary>The settings are bare hosts; tolerate an operator who included the scheme anyway.</summary>
     private static string? Normalize(string? value, string scheme, string? port)
     {
