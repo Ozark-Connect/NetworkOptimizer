@@ -139,7 +139,9 @@ public sealed class SiteConfigurationService : ISiteConfigurationService
         await WriteAsync(siteSlug, SiteAgentCoverage.AgentCoversSiteKey, enabled.ToString());
         // The collection paths read this through a one-minute cache; a setting that decides whether
         // the server collects at all should not wait that long to take effect.
-        _agentCoverage.Invalidate(siteSlug);
+        // Recorded rather than invalidated: the reconnect below reads this immediately, and the
+        // synchronous reader answers false while an invalidated entry refills.
+        _agentCoverage.Set(siteSlug, enabled);
         // Also drops the devices cache: that flag is gated on coverage for the default site, so
         // coverage changing changes the answer without the flag itself being touched.
         _tunnelRouting.Invalidate(siteSlug);
