@@ -200,11 +200,21 @@ public class AgentEnrollmentService : IAgentEnrollmentService
         DropLiveTunnel(agent.Id, agent.Name, "removed");
         _logger.LogInformation("Removed agent {Name} (id {Id}) for site {SiteId}", agent.Name, agent.Id, agent.SiteId);
 
-        // Removing the last agent leaves nothing to route through, so the console and device
-        // routing flags are cleared with it. They outlived the agent otherwise, and every console
-        // read and SSH command went on addressing a tunnel that could never come up again.
-        if (!await db.SiteAgents.AnyAsync(a => a.SiteId == agent.SiteId))
+        // Removing the last agent leaves the main site nothing to route through, so its console and
+        // device routing flags are cleared with it. They outlived the agent otherwise, and every
+        // console read and SSH command went on addressing a tunnel that could never come up again.
+        //
+        // The main site only. A secondary site is reached ONLY through an agent, so those flags
+        // describe its sole access path rather than an option it took: clearing them strands the
+        // site on direct routing it cannot use, and the replacement agent does not restore them -
+        // the setup wizard writes them only when its proxy checkbox is ticked, and that defaults
+        // off. It would also silence the waiting-for-the-agent messages, which need the flags set
+        // to fire, leaving an operator mid-swap with generic connection failures instead.
+        if (siteSlug == SiteManagementService.DefaultSiteSlug
+            && !await db.SiteAgents.AnyAsync(a => a.SiteId == agent.SiteId))
+        {
             await ClearAgentRoutingAsync(siteSlug);
+        }
     }
 
     /// <summary>
