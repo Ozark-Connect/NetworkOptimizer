@@ -32,6 +32,8 @@ export TZ="America/Chicago"
 Additional environment variables can be added to `start.sh` - see [docker/.env.example](../docker/.env.example) for all available options including:
 - `HOST_NAME` - Hostname for canonical URL enforcement
 - `REVERSE_PROXIED_HOST_NAME` - Hostname when behind a reverse proxy (enables HTTPS)
+- `OPENSPEEDTEST_SAVE_DATA_URL` - Optional absolute HTTP(S) URL or root-relative path for submitting browser speed-test results
+- `OPENSPEEDTEST_CLIENT_RESULTS_URL` - Optional absolute HTTP(S) URL or root-relative path for viewing client results
 - `OPENSPEEDTEST_HTTPS` - Enable HTTPS for speed tests (required for geolocation)
 - `Logging__LogLevel__NetworkOptimizer` / `Logging__LogLevel__Default` - Logging verbosity (see [Enable Debug Logging](#enable-debug-logging))
 

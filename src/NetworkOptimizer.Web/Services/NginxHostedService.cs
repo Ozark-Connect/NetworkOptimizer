@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text.Json;
 using NetworkOptimizer.Core.Helpers;
 
 namespace NetworkOptimizer.Web.Services;
@@ -89,13 +90,15 @@ public class NginxHostedService : IHostedService, IDisposable
         // Construct the save URL based on configuration
         const string apiPath = "/api/public/speedtest/results";
         var saveDataUrl = ConstructSaveDataUrl(config, apiPath);
+        var clientResultsUrl = ConstructClientResultsUrl(config);
 
         // Read template and replace placeholders (matches OpenSpeedTest format)
         var template = await File.ReadAllTextAsync(templatePath);
 
         var configJs = template
             .Replace("{{SAVE_DATA}}", "true")
-            .Replace("{{SAVE_DATA_URL}}", saveDataUrl)
+            .Replace("{{SAVE_DATA_URL}}", JsonSerializer.Serialize(saveDataUrl))
+            .Replace("{{CLIENT_RESULTS_URL}}", JsonSerializer.Serialize(clientResultsUrl))
             .Replace("{{API_PATH}}", apiPath);
 
         // Ensure output directory exists
@@ -106,7 +109,10 @@ public class NginxHostedService : IHostedService, IDisposable
         }
 
         await File.WriteAllTextAsync(outputPath, configJs);
-        _logger.LogInformation("Generated config.js with save URL: {SaveUrl}", saveDataUrl);
+        _logger.LogInformation(
+            "Generated config.js with save URL {SaveUrl} and client results URL {ClientResultsUrl}",
+            saveDataUrl,
+            clientResultsUrl);
     }
 
     private Task<Dictionary<string, string>> LoadConfigurationAsync()
@@ -126,6 +132,8 @@ public class NginxHostedService : IHostedService, IDisposable
                     LoadRegistryValue(config, key, "REVERSE_PROXIED_HOST_NAME");
                     LoadRegistryValue(config, key, "REVERSE_PROXIED_PORT");
                     LoadRegistryValue(config, key, "OPENSPEEDTEST_PORT");
+                    LoadRegistryValue(config, key, "OPENSPEEDTEST_SAVE_DATA_URL");
+                    LoadRegistryValue(config, key, "OPENSPEEDTEST_CLIENT_RESULTS_URL");
                 }
             }
             catch (Exception ex)
@@ -140,6 +148,8 @@ public class NginxHostedService : IHostedService, IDisposable
         OverrideFromConfiguration(config, "REVERSE_PROXIED_HOST_NAME");
         OverrideFromConfiguration(config, "REVERSE_PROXIED_PORT");
         OverrideFromConfiguration(config, "OPENSPEEDTEST_PORT");
+        OverrideFromConfiguration(config, "OPENSPEEDTEST_SAVE_DATA_URL");
+        OverrideFromConfiguration(config, "OPENSPEEDTEST_CLIENT_RESULTS_URL");
 
         return Task.FromResult(config);
     }
@@ -165,8 +175,14 @@ public class NginxHostedService : IHostedService, IDisposable
         }
     }
 
-    private string ConstructSaveDataUrl(Dictionary<string, string> config, string apiPath)
+    internal static string ConstructSaveDataUrl(IReadOnlyDictionary<string, string> config, string apiPath)
     {
+        if (config.TryGetValue("OPENSPEEDTEST_SAVE_DATA_URL", out var configuredUrl)
+            && !string.IsNullOrWhiteSpace(configuredUrl))
+        {
+            return ValidateConfiguredUrl(configuredUrl, "OPENSPEEDTEST_SAVE_DATA_URL");
+        }
+
         // Priority: REVERSE_PROXIED_HOST_NAME (https) > HOST_NAME (http) > HOST_IP (http) > __DYNAMIC__
         // IMPORTANT: Keep this logic in sync with docker/openspeedtest/entrypoint.sh (Docker deployment)
         config.TryGetValue("REVERSE_PROXIED_HOST_NAME", out var reverseProxy);
@@ -194,6 +210,33 @@ public class NginxHostedService : IHostedService, IDisposable
             // No explicit host configured - use dynamic URL (constructed client-side from browser location)
             return "__DYNAMIC__";
         }
+    }
+
+    internal static string ConstructClientResultsUrl(IReadOnlyDictionary<string, string> config)
+    {
+        if (config.TryGetValue("OPENSPEEDTEST_CLIENT_RESULTS_URL", out var configuredUrl)
+            && !string.IsNullOrWhiteSpace(configuredUrl))
+        {
+            return ValidateConfiguredUrl(configuredUrl, "OPENSPEEDTEST_CLIENT_RESULTS_URL");
+        }
+
+        return "__FROM_SAVE_DATA_URL__";
+    }
+
+    private static string ValidateConfiguredUrl(string value, string key)
+    {
+        var url = value.Trim();
+        if (url.StartsWith('/') && !url.StartsWith("//", StringComparison.Ordinal))
+            return url;
+
+        if (Uri.TryCreate(url, UriKind.Absolute, out var parsed)
+            && (parsed.Scheme == Uri.UriSchemeHttp || parsed.Scheme == Uri.UriSchemeHttps))
+        {
+            return url;
+        }
+
+        throw new InvalidOperationException(
+            $"{key} must be an absolute HTTP(S) URL or a root-relative path");
     }
 
     /// <summary>
