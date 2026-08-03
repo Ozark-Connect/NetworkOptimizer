@@ -214,16 +214,23 @@ public class AgentProbeResultSink
                 return;
 
             var siteConnection = _siteConnections.GetFor(connection.SiteSlug);
-            if (siteConnection.IsConnected || !await siteConnection.IsConsoleViaAgentAsync())
-                return;
-            _logger.LogInformation(
-                "Agent tunnel up for site {Slug}; reconnecting its console via the tunnel", connection.SiteSlug);
-            await siteConnection.ReconnectAsync();
+            if (!siteConnection.IsConnected && await siteConnection.IsConsoleViaAgentAsync())
+            {
+                _logger.LogInformation(
+                    "Agent tunnel up for site {Slug}; reconnecting its console via the tunnel", connection.SiteSlug);
+                await siteConnection.ReconnectAsync();
+            }
 
-            // The initial SNMP push in OnAgentConnectedAsync was deferred because the
-            // console wasn't connected yet (it reaches the console through this same
-            // tunnel). Now that it's up, re-push so the agent gets the full device list
-            // immediately instead of waiting for the next periodic refresh.
+            // The initial SNMP push in OnAgentConnectedAsync was deferred because the console
+            // wasn't connected yet (it reaches the console through this same tunnel). Now that it
+            // is, re-push so the agent gets the full device list immediately instead of waiting for
+            // the next periodic refresh.
+            //
+            // Reached whether or not the console needed reconnecting here. It used to sit behind an
+            // early return that also covered "already connected" - the ordinary case after a server
+            // restart, since the console comes up on its own as soon as the tunnel does - so the
+            // push was skipped exactly when it was wanted and SNMP lagged probes by a full refresh
+            // cycle on every reconnect.
             if (siteConnection.IsConnected)
                 await PushSnmpConfigAsync(connection, CancellationToken.None);
         }
