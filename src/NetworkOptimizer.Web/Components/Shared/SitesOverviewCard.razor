@@ -59,8 +59,11 @@
     private List<Site> _sites = new();
     private List<SiteAgent> _agents = new();
 
-    private int EnrolledAgents => _agents.Count(a => a.EnrolledAt != null);
-    private int OnlineAgents => _agents.Count(a => TunnelRegistry.IsAgentLive(a));
+    // Both tiles skip disabled agents, for the same reason the per-site count does: a disabled
+    // agent inflates Agents while it can never appear in Agents Online, so the pair reads as an
+    // outage rather than as a deliberate choice.
+    private int EnrolledAgents => _agents.Count(a => a.Enabled && a.EnrolledAt != null);
+    private int OnlineAgents => _agents.Count(a => a.Enabled && TunnelRegistry.IsAgentLive(a));
 
     private void HandleCardClick()
     {
