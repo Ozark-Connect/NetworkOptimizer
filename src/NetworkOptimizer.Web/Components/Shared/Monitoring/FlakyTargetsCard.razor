@@ -11,7 +11,7 @@
 {
     <div class="card flaky-card">
         <div class="card-header card-header-collapsible" @onclick="ToggleCollapse">
-            <h2 class="card-title"><span class="flaky-warn">&#9888;</span> Flaky monitoring targets (@_flaky.Count)</h2>
+            <h2 class="card-title"><span class="flaky-warn">&#9888;</span> Flaky Monitoring Targets (@_flaky.Count)</h2>
             <span class="issue-type-chevron">@(_collapsed ? "▼" : "▲")</span>
         </div>
         <div class="expand-wrapper @(!_collapsed ? "expanded" : "")">

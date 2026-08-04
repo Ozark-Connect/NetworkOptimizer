@@ -53,7 +53,7 @@
 
 <div class="card">
     <div class="card-header">
-        <h2 class="card-title">Run a probe</h2>
+        <h2 class="card-title">Run a Probe</h2>
     </div>
     <div class="card-body">
         <div class="form-group">
@@ -195,7 +195,7 @@
 {
     <div class="card" style="margin-top: 1.5rem;">
         <div class="card-header">
-            <h2 class="card-title">Ping result</h2>
+            <h2 class="card-title">Ping Result</h2>
             <span class="status-badge @(_pingResult.Success ? "status-connected" : "status-error")">
                 @($"{_pingResult.Received}/{_pingResult.Sent}")
                 · @($"{_pingResult.LossPercent:0.#}% loss")
@@ -233,7 +233,7 @@
 {
     <div class="card" style="margin-top: 1.5rem;">
         <div class="card-header">
-            <h2 class="card-title">Traceroute result</h2>
+            <h2 class="card-title">Traceroute Result</h2>
             <span class="status-badge @(_traceResult.Reached ? "status-connected" : "status-error")">
                 @(_traceResult.Reached ? "Target reached" : "Did not reach target")
                 · @_traceResult.ModeUsed.ToString().ToUpperInvariant()
@@ -291,7 +291,7 @@
 {
     <div class="card" style="margin-top: 1.5rem;" data-tour="gateway-interface">
         <div class="card-header">
-            <h2 class="card-title">Inspect a gateway interface</h2>
+            <h2 class="card-title">Inspect a Gateway Interface</h2>
         </div>
         <div class="card-body">
             <p class="page-description" style="margin-bottom: 0.75rem;">
@@ -364,7 +364,7 @@
     var iface = _diagResult.InterfaceInfo;
     <div class="card" style="margin-top: 1.5rem;">
         <div class="card-header">
-            <h2 class="card-title">Addresses and DHCP lease</h2>
+            <h2 class="card-title">Addresses and DHCP Lease</h2>
             <span class="status-badge @(string.Equals(iface.State, "UP", StringComparison.OrdinalIgnoreCase) ? "status-connected" : "status-error")">
                 @iface.Name · @(iface.State ?? "unknown")
             </span>
@@ -432,7 +432,7 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
 {
     <div class="card" style="margin-top: 1.5rem;">
         <div class="card-header">
-            <h2 class="card-title">SFP module</h2>
+            <h2 class="card-title">SFP Module</h2>
             @if (!string.IsNullOrEmpty(_diagResult.SfpInterface) && _diagResult.SfpInterface != _diagResult.Interface)
             {
                 <span class="status-badge status-active">read from @_diagResult.SfpInterface</span>

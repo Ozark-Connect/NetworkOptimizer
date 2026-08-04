@@ -8,7 +8,7 @@
 
 <div class="card">
     <div class="card-header card-header-collapsible" @onclick="ToggleCollapse">
-        <h2 class="card-title">Latency targets</h2>
+        <h2 class="card-title">Latency Targets</h2>
         <div style="display: flex; align-items: center; gap: 0.5rem;">
             <span class="status-badge status-active" @onclick:stopPropagation="true">@Targets.Count(t => t.Enabled) active</span>
             <span class="issue-type-chevron">@(_collapsed ? "▼" : "▲")</span>
