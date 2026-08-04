@@ -303,7 +303,9 @@
             @{ var ispHealth = IspHealthService.GetCachedScore(); }
             <div class="monitoring-stat-card clickable-stat-card isp-health-tile @ispHealth.TileCssClass" data-tooltip="@ispHealth.TileTooltip" data-tooltip-hover-only @onclick="@(() => NavigateFromIspHealthTile(ispHealth.Status))">
                 <div class="stat-value isp-tile-score">@ispHealth.TileText</div>
-                <div class="stat-label">ISP Health</div>
+                @* The cached score is the primary WAN's. Say so when the tiles beside it are
+                   showing a different WAN, rather than letting the two read as one WAN's row. *@
+                <div class="stat-label">@(SelectedLiveWan is { IsPrimary: false } ? "ISP Health (primary WAN)" : "ISP Health")</div>
                 @if (ispHealth.Status == IspHealthStatus.Ready && ispHealth.Score.HasValue)
                 {
                     <div class="isp-tile-bar"><div class="isp-tile-bar-fill" style="width: @(ispHealth.Score)%"></div></div>
@@ -3575,25 +3577,27 @@
     private bool HasUpstreamTargets(MonitoringTargetType type) =>
         _targets.Any(t => t.TargetType == type && t.Enabled);
 
-    private (double download, double upload) GetWanRates()
+    // Null means "no answer for this WAN", which the tiles render as a dash. Zero would claim
+    // the link is idle, and an idle link and an unmeasured one are not the same thing.
+    private (double? download, double? upload) GetWanRates()
     {
         // Historic playback recorded the PRIMARY WAN's series; showing it under a non-primary
-        // live scope would present another WAN's history as this one's, so it reads zero there.
+        // live scope would present another WAN's history as this one's.
         if (_historicSnapshot != null)
             return SelectedLiveWan is { IsPrimary: false }
-                ? (0, 0)
+                ? (null, null)
                 : (_historicSnapshot.WanDownloadBps, _historicSnapshot.WanUploadBps);
         // Non-primary live scope: exactly that WAN's counter interface. When its counters are
         // not in the polled live data (down WAN, context-only WAN the console omits) the tile
-        // shows zero rather than borrowing another WAN's rate.
+        // dashes rather than borrowing another WAN's rate.
         var liveWan = SelectedLiveWan;
         if (liveWan is { IsPrimary: false })
         {
-            if (_gatewayMac == null || string.IsNullOrEmpty(liveWan.CounterIfName)) return (0, 0);
+            if (_gatewayMac == null || string.IsNullOrEmpty(liveWan.CounterIfName)) return (null, null);
             var scoped = LiveStats.GetPortRate(_gatewayMac, liveWan.CounterIfName!);
-            return scoped == null ? (0, 0) : (scoped.UpBps, scoped.DownBps);
+            return scoped == null ? (null, null) : (scoped.UpBps, scoped.DownBps);
         }
-        if (_gatewayMac == null || _gatewayWanIfNames.Count == 0) return (0, 0);
+        if (_gatewayMac == null || _gatewayWanIfNames.Count == 0) return (null, null);
         double totalDown = 0, totalUp = 0;
         // _gatewayWanIfNames holds the PRIMARY WAN's counter interface: this live tile sits
         // beside ISP/transit latency measured over that connection, so its rate must be that
