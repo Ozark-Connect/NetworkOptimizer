@@ -41,8 +41,8 @@
         else if (_siteLoadBalances == false && !string.IsNullOrEmpty(_primaryWanLabel))
         {
             <p class="section-description">
-                Probes leave by @_primaryWanLabel unless a context sends them elsewhere. During a
-                failover they follow the backup, and those minutes read as @_primaryWanLabel.
+                Probes leave by @_primaryWanLabel unless a context sends them elsewhere. If it
+                fails over they follow the backup, still recorded as @_primaryWanLabel.
             </p>
         }
 
@@ -348,14 +348,21 @@
         // nothing at all under load balancing. Prefer the live answer; fall back to what the last
         // connected compute recorded, and say nothing when neither can answer.
         var live = _wans.FirstOrDefault(w => w.IsPrimary);
-        _primaryWanLabel = live != null ? WanLabelFor(live.WanInterface) : null;
+        _primaryWanLabel = live != null
+            ? GatewayWanHelper.FormatWanLabelInProse(
+                WanLabelFor(live.WanInterface), GatewayWanHelper.WanIndexFromKey(live.WanInterface))
+            : null;
         try
         {
             await using var db = SiteDb.CreateForSite(SiteCtx.Slug, SiteCtx.IsDefault);
             var primary = await db.WanProfiles.AsNoTracking().FirstOrDefaultAsync(w => w.IsPrimary == true);
             _siteLoadBalances = primary?.SiteLoadBalances;
             if (_primaryWanLabel == null && primary != null)
-                _primaryWanLabel = WanLabelFor(GatewayWanHelper.WanInterfaceKeyFromKey(primary.WanNetworkgroup));
+            {
+                var key = GatewayWanHelper.WanInterfaceKeyFromKey(primary.WanNetworkgroup);
+                _primaryWanLabel = GatewayWanHelper.FormatWanLabelInProse(
+                    WanLabelFor(key), GatewayWanHelper.WanIndexFromKey(key));
+            }
         }
         catch { _siteLoadBalances = null; }
     }

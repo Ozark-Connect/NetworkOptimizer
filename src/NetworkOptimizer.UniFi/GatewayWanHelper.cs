@@ -56,6 +56,19 @@ public static class GatewayWanHelper
     }
 
     /// <summary>
+    /// A WAN label for running prose, with the WAN token in parentheses after the connection's
+    /// name ("Acme Fiber (WAN2)"). The pill form runs them together because the pill is a label;
+    /// a sentence needs the qualifier set apart or it reads as part of the name. Falls back to
+    /// whatever there is when a label carries no name or no token.
+    /// </summary>
+    public static string FormatWanLabelInProse(string? label, int wanIndex)
+    {
+        var (name, token) = SplitWanLabel(label, wanIndex);
+        if (string.IsNullOrEmpty(name)) return token ?? label ?? "";
+        return string.IsNullOrEmpty(token) ? name! : $"{name} ({token})";
+    }
+
+    /// <summary>
     /// UniFi network-group convention for a 1-based WAN index: wan1 → "WAN",
     /// wanN → "WANn".
     /// </summary>

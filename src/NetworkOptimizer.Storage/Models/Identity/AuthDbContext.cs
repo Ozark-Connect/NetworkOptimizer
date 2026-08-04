@@ -46,6 +46,9 @@ public class AuthDbContext : IdentityDbContext<ApplicationUser, ApplicationRole,
     /// <summary>WebAuthn passkey credentials (.NET 10 Identity passkey store; design doc 02).</summary>
     public DbSet<IdentityUserPasskey<string>> Passkeys { get; set; }
 
+    /// <summary>Per-user counts of teaching hints shown, so a hint can retire once it is learned.</summary>
+    public DbSet<UserUiHint> UserUiHints { get; set; }
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
@@ -59,6 +62,13 @@ public class AuthDbContext : IdentityDbContext<ApplicationUser, ApplicationRole,
             entity.HasIndex(p => p.UserId);
             // The credential's binary + metadata payload is stored as a JSON column.
             entity.OwnsOne(p => p.Data, d => d.ToJson());
+        });
+
+        // One row per user per hint - the upsert relies on it, and a duplicate would let a hint
+        // count twice as slowly and outstay its welcome.
+        modelBuilder.Entity<UserUiHint>(entity =>
+        {
+            entity.HasIndex(h => new { h.UserId, h.HintKey }).IsUnique();
         });
 
         modelBuilder.Entity<ApplicationUser>(entity =>

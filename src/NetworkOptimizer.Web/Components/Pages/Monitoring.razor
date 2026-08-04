@@ -51,6 +51,7 @@
 @inject NetworkOptimizer.Web.Services.Monitoring.FlakyTargetService FlakyTargets
 @inject NetworkOptimizer.Web.Services.LanFlowMap.LanFlowMapCache LanFlowMapCache
 @inject ILogger<Monitoring> Logger
+@inject NetworkOptimizer.Web.Services.UiHintService UiHints
 
 <NavigationLock OnBeforeInternalNavigation="OnBeforeInternalNavigation"
                 ConfirmExternalNavigation="_upstreamDiscoveryPendingSave" />
@@ -281,12 +282,12 @@
             {
                 @* Live WAN scope, own per-site key (liveWanScope) so watching a WAN here never
                    moves the analysis selectors. Hidden on single-WAN sites. *@
-                <div class="time-range-selector wan-selector wan-selector-standalone wan-selector-on-page @(LiveWan.Options.Count > 3 ? "wan-selector-many" : "")" style="margin-bottom: 0.5rem;">
+                <div class="time-range-selector wan-selector wan-selector-standalone wan-selector-on-page @(LiveWan.Options.Count > 3 ? "wan-selector-many" : "")"
+                     data-tooltip="@(_showWanCompareHint ? _wanCompareHint : null)" data-tooltip-hover-only style="margin-bottom: 0.5rem;">
                     @foreach (var w in LiveWan.Options)
                     {
                         <button class="time-btn @(LiveWan.IsSelected(w.Key) ? "active" : "")"
-                                @onclick="e => LiveWan.SelectAsync(w.Key, toggle: e.CtrlKey || e.MetaKey)"
-                                data-tooltip="@_wanCompareHint" data-tooltip-hover-only>@{
+                                @onclick="e => LiveWan.SelectAsync(w.Key, toggle: e.CtrlKey || e.MetaKey)">@{
                                     var wp = NetworkOptimizer.UniFi.GatewayWanHelper.SplitWanLabel(
                                         w.Label, NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey(w.Key));
                                 }@(wp.Name ?? w.Label)@if (wp.WanToken != null && wp.Name != null)
@@ -509,12 +510,12 @@
                         @* WAN filter: solo on click, Ctrl-click toggles into a comparison set.
                            Rendered only under the multi-WAN gate - single-WAN sites see exactly
                            the header they always have. *@
-                        <div class="time-range-selector wan-selector @(_wanOptions.Count > 3 ? "wan-selector-many" : "")">
+                        <div class="time-range-selector wan-selector @(_wanOptions.Count > 3 ? "wan-selector-many" : "")"
+                             data-tooltip="@(_showWanCompareHint ? _wanCompareHint : null)" data-tooltip-hover-only>
                             @foreach (var w in _wanOptions)
                             {
                                 <button class="time-btn @(_selectedWanKeys.Contains(w.Key) ? "active" : "")"
-                                        @onclick="e => OnWanPillClickAsync(w.Key, e)"
-                                        data-tooltip="@_wanCompareHint" data-tooltip-hover-only>@{
+                                        @onclick="e => OnWanPillClickAsync(w.Key, e)">@{
                                     var wp = NetworkOptimizer.UniFi.GatewayWanHelper.SplitWanLabel(
                                         w.Label, NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey(w.Key));
                                 }@(wp.Name ?? w.Label)@if (wp.WanToken != null && wp.Name != null)
@@ -1868,6 +1869,7 @@
     // The modifier that adds a WAN to the comparison set, named the way the reader's own keyboard
     // names it - telling a Mac user to Ctrl-click is telling them to open a context menu. Ctrl
     // until the browser says otherwise, so the hint is never blank on the first paint.
+    private bool _showWanCompareHint;
     private string _wanCompareHint = "Ctrl-click to compare side by side";
     private string NpWanSetKey => SiteCtx.ScopeStorageKey("npWanSelection");
     private string SharedWanScopeKey => SiteCtx.ScopeStorageKey("monitoringWanScope");
@@ -1995,19 +1997,22 @@
 
     /// <summary>Restores the persisted WAN selection once localStorage is reachable.</summary>
     /// <summary>
-    /// Names the multi-select modifier for the platform in front of us. Asked once per page: it
-    /// cannot change under a live circuit, and the hint reads wrong rather than merely stale if it
-    /// guesses. Any failure leaves the Ctrl default, which is right for most readers.
+    /// Whether the compare gesture still needs saying, and the platform's word for its modifier.
+    /// Asked once per visit: the count is an allowance of occasions the user could have read it,
+    /// not of renders.
     /// </summary>
     private async Task ResolveWanCompareHintAsync()
     {
         try
         {
-            var isApple = await JS.InvokeAsync<bool>("eval",
-                "/Mac|iPhone|iPad|iPod/.test(navigator.userAgent)");
-            if (isApple) _wanCompareHint = "⌘-click to compare side by side";
+            if (await JS.InvokeAsync<bool>("eval", "/Mac|iPhone|iPad|iPod/.test(navigator.userAgent)"))
+                _wanCompareHint = "⌘-click to compare side by side";
         }
         catch { /* keep the default */ }
+
+        _showWanCompareHint = await UiHints.ShouldShowAsync(UiHintKeys.WanFilterCompare);
+        if (_showWanCompareHint)
+            await UiHints.RecordShownAsync(UiHintKeys.WanFilterCompare);
     }
 
     private async Task RestoreWanSelectionAsync()
