@@ -340,10 +340,11 @@
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         // After the render that created it, not before - there is no element to scroll to until
-        // the form is actually in the DOM.
+        // the form is actually in the DOM. Scroll only, no ring: the user pressed the button that
+        // opened this, so nothing needs pointing out to them.
         if (!_revealForm) return;
         _revealForm = false;
-        await JS.InvokeVoidAsync("noHighlightTarget", "wan-vantage-form", "center", "var(--border-radius-lg)");
+        await JS.InvokeVoidAsync("noScrollTo", "wan-vantage-form", "center");
     }
 
     private async Task EditContextAsync(WanContext context)

@@ -208,3 +208,13 @@ window.noHighlightTarget = function (id, block, radius) { noHighlight(id, block,
 
 // A table row: tinted, because an offset ring around a row collides with the rows either side.
 window.noHighlightRow = function (id, block) { noHighlight(id, block || 'center', 'nav-highlight-row'); };
+
+// Scroll with no ring, for something the user just caused to appear. The ring answers "which of
+// these is the one you were sent to" - a question that only exists when a link brought you from
+// somewhere else. A form that opened under the button you pressed needs no such answer, and
+// flagging it would say something arrived that the user already knows they asked for.
+window.noScrollTo = function (id, block) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: block || 'start' });
+};

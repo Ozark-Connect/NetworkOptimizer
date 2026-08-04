@@ -11,22 +11,27 @@
         <h2 class="card-title">Latency targets</h2>
         <div style="display: flex; align-items: center; gap: 0.5rem;">
             <span class="status-badge status-active" @onclick:stopPropagation="true">@Targets.Count(t => t.Enabled) active</span>
-            <a href="/network-tools" class="tooltip-icon settings-link" data-tooltip="Run an ad-hoc probe" @onclick:stopPropagation="true">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" width="16" height="16">
-                    <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM5.5 8.5a.5.5 0 010-1h2.793L7.146 6.354a.5.5 0 11.708-.708l2 2a.5.5 0 010 .708l-2 2a.5.5 0 11-.708-.708L8.293 8.5H5.5zm6.354-1.146a.5.5 0 010 .708L10.707 9.207H13.5a.5.5 0 010 1h-2.793l1.147 1.147a.5.5 0 11-.708.708l-2-2a.5.5 0 010-.708l2-2a.5.5 0 01.708 0z" clip-rule="evenodd" />
-                </svg>
-            </a>
             <span class="issue-type-chevron">@(_collapsed ? "▼" : "▲")</span>
         </div>
     </div>
     <div class="expand-wrapper @(!_collapsed ? "expanded" : "")">
         <div class="expand-content">
     <div class="card-body">
-        <p class="section-description">
-            Default WAN targets and one fabric target per discovered device. The agent probes
-            each target at its own interval and writes results to the <code>latency</code>
-            measurement in InfluxDB.
-        </p>
+        <div class="lt-intro">
+            <p class="section-description">
+                Default WAN targets and one fabric target per discovered device. The agent probes
+                each target at its own interval and writes results to the <code>latency</code>
+                measurement in InfluxDB.
+            </p>
+            <div class="lt-actions">
+                <a href="/network-tools" class="btn btn-sm btn-secondary">Run Probe</a>
+                <SiteOperatorOnly>
+                    <button class="btn btn-sm btn-secondary" @onclick="ShowAddTargetFromTop">
+                        + Add target
+                    </button>
+                </SiteOperatorOnly>
+            </div>
+        </div>
 
         @if (Targets.Count == 0)
         {
@@ -254,11 +259,14 @@
                expensive to rebuild - it accumulates over time and nothing recreates it - so the
                asymmetry is deliberate: measuring one more thing is cheap and reversible, losing one
                that someone established months ago is not. *@
-            <SiteOperatorOnly>
-                <button class="btn btn-sm btn-secondary" style="margin-top: 0.75rem;" @onclick="ShowAddTarget">
-                    + Add target
-                </button>
-            </SiteOperatorOnly>
+            <div class="lt-actions lt-actions-bottom">
+                <a href="/network-tools" class="btn btn-sm btn-secondary">Run Probe</a>
+                <SiteOperatorOnly>
+                    <button class="btn btn-sm btn-secondary" @onclick="ShowAddTarget">
+                        + Add target
+                    </button>
+                </SiteOperatorOnly>
+            </div>
         }
     </div>
         </div>
@@ -266,6 +274,35 @@
 </div>
 
 <style>
+    /* The description and its action share a line: the button is the thing you came to the card
+       to press, and putting it up here means it is reachable without scrolling the whole target
+       table first. It does not shrink - a wrapped "+ Add target" reads as two controls. */
+    .lt-intro {
+        display: flex;
+        align-items: flex-start;
+        gap: 1rem;
+    }
+
+    .lt-intro .section-description {
+        flex: 1;
+    }
+
+    /* Run Probe sits left of Add target in both places, so Add target stays the control nearest
+       the form it opens. */
+    .lt-actions {
+        display: flex;
+        gap: 0.5rem;
+        flex: 0 0 auto;
+    }
+
+    .lt-actions .btn {
+        white-space: nowrap;
+    }
+
+    .lt-actions-bottom {
+        margin-top: 0.75rem;
+    }
+
     .lt-add-form {
         margin-top: 1rem;
         padding: 1rem 1.25rem 1.25rem;
@@ -304,6 +341,11 @@
     }
 
     @@media (max-width: 768px) {
+        .lt-intro {
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
         .lt-form-grid {
             grid-template-columns: 1fr;
         }
@@ -353,6 +395,7 @@
     private int _newTargetInterval = 10;
     private string _newTargetWanContextId = "";
     private bool _revealAddForm;
+    private bool _ringAddForm;
     private string? _addTargetError;
     private string? _targetError;
 
@@ -426,13 +469,35 @@
         _revealAddForm = true;
     }
 
+    /// <summary>
+    /// Same, from the button beside the description. This one rings the form as well: it acts at
+    /// a distance - the whole target table can sit between the button and what it opened - and
+    /// after that scroll the user needs telling which thing on screen is the one they asked for.
+    /// The button under the table does not, because the form opens exactly where it was.
+    /// </summary>
+    private void ShowAddTargetFromTop()
+    {
+        _showAddTarget = true;
+        _revealAddForm = true;
+        _ringAddForm = true;
+    }
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         // After the render that created it, not before - there is no element to scroll to until
-        // the form is actually in the DOM.
+        // the form is actually in the DOM. Scroll only, no ring: the user pressed the button that
+        // opened this, so nothing needs pointing out to them.
         if (!_revealAddForm) return;
         _revealAddForm = false;
-        await JS.InvokeVoidAsync("noHighlightTarget", "add-target-form", "center", "var(--border-radius-lg)");
+        if (_ringAddForm)
+        {
+            _ringAddForm = false;
+            await JS.InvokeVoidAsync("noHighlightTarget", "add-target-form", "center", "var(--border-radius-lg)");
+        }
+        else
+        {
+            await JS.InvokeVoidAsync("noScrollTo", "add-target-form", "center");
+        }
     }
 
     private async Task AddTargetAsync()
