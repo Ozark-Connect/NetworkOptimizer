@@ -24,6 +24,7 @@ public class DiagnosticsService
     private readonly ILoggerFactory _loggerFactory;
     private readonly SiteContextService _siteContext;
     private readonly Licensing.LicenseStateService _licenseState;
+    private readonly Ssh.GatewayShaperProbeService _shaperProbe;
 
     public DiagnosticsService(
         ILogger<DiagnosticsService> logger,
@@ -33,7 +34,8 @@ public class DiagnosticsService
         IMemoryCache cache,
         ILoggerFactory loggerFactory,
         SiteContextService siteContext,
-        Licensing.LicenseStateService licenseState)
+        Licensing.LicenseStateService licenseState,
+        Ssh.GatewayShaperProbeService shaperProbe)
     {
         _siteContext = siteContext;
         _licenseState = licenseState;
@@ -43,6 +45,7 @@ public class DiagnosticsService
         _ieeeOuiDb = ieeeOuiDb;
         _cache = cache;
         _loggerFactory = loggerFactory;
+        _shaperProbe = shaperProbe;
     }
 
     /// <summary>
@@ -108,8 +111,15 @@ public class DiagnosticsService
             var qosRulesTask = _connectionService.Client.GetQosRulesRawAsync();
             var wanEnrichedTask = _connectionService.Client.GetWanEnrichedConfigRawAsync();
 
+            // The gateway's traffic control, for WANs with Smart Queues enabled. Rides along with
+            // the controller fetches rather than after them, and returns nothing at all when the
+            // gateway can't be read over SSH.
+            var shaperTask = (options?.RunPerformanceAnalyzer ?? true)
+                ? _shaperProbe.RunAsync()
+                : Task.FromResult(new List<Diagnostics.Models.WanShaperState>());
+
             await Task.WhenAll(devicesTask, clientsTask, networksTask, portProfilesTask, clientHistoryTask,
-                settingsTask, qosRulesTask, wanEnrichedTask);
+                settingsTask, qosRulesTask, wanEnrichedTask, shaperTask);
 
             var devices = await devicesTask;
             var clients = await clientsTask;
@@ -119,6 +129,7 @@ public class DiagnosticsService
             using var settingsDoc = await settingsTask;
             using var qosRulesDoc = await qosRulesTask;
             using var wanEnrichedDoc = await wanEnrichedTask;
+            var wanShaperStates = await shaperTask;
 
             _logger.LogInformation(
                 "Fetched data for diagnostics: {DeviceCount} devices, {ClientCount} clients, " +
@@ -145,7 +156,7 @@ public class DiagnosticsService
                 performanceLogger: _loggerFactory.CreateLogger<Diagnostics.Analyzers.PerformanceAnalyzer>());
 
             var result = engine.RunDiagnostics(clients, devices, portProfiles, networks, options, clientHistory,
-                settingsDoc, qosRulesDoc, wanEnrichedDoc);
+                settingsDoc, qosRulesDoc, wanEnrichedDoc, wanShaperStates);
 
             // Cache the result
             _cache.Set(CacheKeyLastResult, result);
