@@ -1922,20 +1922,19 @@
         }
         else
         {
-            // The series-filter grammar the chart's own badges use, so the two rows behave alike:
-            // a plain click solos, clicking the current solo returns to the ground state, and a
-            // click while comparing toggles that WAN rather than throwing the comparison away.
-            // Ground here is the primary alone, not everything - one WAN is the view you want
-            // back, and "all WANs" is a comparison you asked for.
+            // A plain click always solos, including out of a comparison - only the modifier ever
+            // adds. Toggling on a plain click while comparing turned the first modifier click into
+            // a mode: every click after it kept adding, so there was no way back to one WAN without
+            // knowing to hold the key again. Clicking the WAN that is already solo returns to the
+            // ground state, which is the primary alone - one WAN is the view you want back, and
+            // "all WANs" is a comparison you asked for.
             var isOnlySelection = _selectedWanKeys.Count == 1 && _selectedWanKeys.Contains(key);
             var isGround = _selectedWanKeys.Count == 1 && _selectedWanKeys.Contains(_primaryWanKey);
 
-            if (isOnlySelection && !isGround)
-                _selectedWanKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { _primaryWanKey };
-            else if (isGround || _selectedWanKeys.Count <= 1)
-                _selectedWanKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { key };
-            else if (!_selectedWanKeys.Add(key) && _selectedWanKeys.Count > 1)
-                _selectedWanKeys.Remove(key);
+            _selectedWanKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                isOnlySelection && !isGround ? _primaryWanKey : key
+            };
         }
         await ApplyWanSelectionAsync(persist: true);
     }
@@ -3890,10 +3889,15 @@
         _targets.Any(t => t.TargetType == type && t.Enabled);
 
     /// <summary>
-    /// Whether the WANs currently on screen have any target of this type, for deciding which
-    /// category the chart opens on. Site-wide is the wrong question there: LAN targets belong to
-    /// the site rather than to a WAN, so a secondary WAN has none of them, and asking site-wide
-    /// opens that WAN on the LAN category and draws an empty chart.
+    /// Whether EVERY WAN currently on screen has a target of this type, for deciding which category
+    /// the chart shows. Site-wide is the wrong question: LAN targets belong to the site rather than
+    /// to a WAN, so a secondary WAN has none, and asking site-wide opens that WAN on the LAN
+    /// category and draws an empty chart.
+    /// <para>
+    /// Every rather than any, because the answer decides a category for the whole view. One WAN in
+    /// a comparison having no LAN targets makes LAN a chart that silently shows half the comparison
+    /// asked for - worse than an empty one, which at least reads as empty.
+    /// </para>
     /// <para>
     /// Falls back to the site-wide answer when no WAN is resolved - a single-WAN site, or one whose
     /// console could not be read - so the selection those sites have always had is unchanged.
@@ -3904,7 +3908,7 @@
         var scoped = _wanOptions.Where(w => _selectedWanKeys.Contains(w.Key)).ToList();
         return scoped.Count == 0
             ? HasUpstreamTargets(type)
-            : scoped.Any(w => TargetsForWan(type, w.Key, w.IsPrimary).Count > 0);
+            : scoped.All(w => TargetsForWan(type, w.Key, w.IsPrimary).Count > 0);
     }
 
     /// <summary>
