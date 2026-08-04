@@ -219,8 +219,13 @@ public sealed class LiveWanScope
     }
 
     /// <summary>
-    /// Shows the WAN a link named, and takes the selection out of stored state's hands for this
-    /// visit. Returns false when no WAN answers to the key, leaving the selection untouched.
+    /// Shows the WAN a link named, for this visit only. Returns false when no WAN answers to the
+    /// key, leaving the selection untouched.
+    /// <para>
+    /// Deliberately not persisted: following a link is not the same as choosing a filter, and a
+    /// comparison set someone built by hand should still be there when they come back on their
+    /// own. Arriving by the link again re-applies it, so nothing flips back mid-visit either.
+    /// </para>
     /// <para>
     /// The pin is what makes it stick. Blazor starts a render pass without waiting for the last
     /// OnAfterRenderAsync to finish, so <see cref="RestoreAsync"/> can still be waiting on its
@@ -233,7 +238,7 @@ public sealed class LiveWanScope
         if (ResolveOptionKey(wanKey) is not { } key) return false;
         _pinned = true;
         _restored = true;
-        await SelectAsync(key);
+        await SelectAsync(key, persist: false);
         return true;
     }
 
