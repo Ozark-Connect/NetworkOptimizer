@@ -9,10 +9,11 @@
 @inject AgentTunnelRegistry TunnelRegistry
 @inject AgentOnGatewayDetector OnGatewayDetector
 @inject AgentProbeResultSink ProbeSink
+@inject Microsoft.JSInterop.IJSRuntime JS
 
 <div class="card">
     <div class="card-header card-header-collapsible" @onclick="ToggleCollapse">
-        <h2 class="card-title">Multi-WAN contexts</h2>
+        <h2 class="card-title">Multi-WAN vantages</h2>
         <div style="display: flex; align-items: center; gap: 0.5rem;">
             @if (WanContexts.Count > 0)
             {
@@ -25,7 +26,7 @@
         <div class="expand-content">
     <div class="card-body">
         <p class="section-description">
-            Monitor another WAN by giving its targets their own context. A context names the WAN
+            Monitor another WAN by giving its targets their own vantage. A vantage names the WAN
             and what probes it: an agent on the gateway reaches any WAN directly, or a separate
             agent can be routed out that WAN in UniFi Network.
         </p>
@@ -34,14 +35,14 @@
         {
             <p class="section-description">
                 This site load balances across WANs, so probes spread across them instead of
-                measuring one. Give each WAN a context - an agent on the gateway, or a separate
+                measuring one. Give each WAN a vantage - an agent on the gateway, or a separate
                 agent routed out that WAN.
             </p>
         }
         else if (_siteLoadBalances == false && !string.IsNullOrEmpty(_primaryWanLabel))
         {
             <p class="section-description">
-                Probes leave by @_primaryWanLabel unless a context sends them elsewhere. If the WAN
+                Probes leave by @_primaryWanLabel unless a vantage sends them elsewhere. If the WAN
                 fails over they follow the backup, and the latency and loss are still recorded
                 under @_primaryWanLabel.
             </p>
@@ -50,7 +51,7 @@
         @if (WanContexts.Count == 0)
         {
             <div class="empty-state">
-                <p>No contexts yet. Every target belongs to the primary WAN.</p>
+                <p>No vantages yet. Every target belongs to the primary WAN.</p>
             </div>
         }
         else
@@ -85,12 +86,12 @@
                                 <SiteAdminOnly>
                                     <button class="btn btn-sm btn-secondary"
                                         @onclick="() => EditContextAsync(wc)"
-                                        data-tooltip="Change this context's WAN, probe source, or agent">
+                                        data-tooltip="Change this vantage's WAN, probe source, or agent">
                                     Edit
                                 </button>
                                     <button class="btn btn-sm btn-danger"
                                         @onclick="() => DeleteContextAsync(wc.Id)"
-                                        data-tooltip="Remove this context (its targets move back to the primary WAN)"
+                                        data-tooltip="Remove this vantage (its targets move back to the primary WAN)"
                                         style="margin-left: 0.25rem;">
                                     Remove
                                 </button>
@@ -105,7 +106,7 @@
 
         @if (_showForm)
         {
-            <div class="wc-add-form">
+            <div class="wc-add-form" id="wan-vantage-form">
                 <div class="wc-form-grid">
                     <div class="form-group">
                         <label class="form-label">Name</label>
@@ -201,7 +202,7 @@
         {
             <SiteAdminOnly>
                 <button class="btn btn-sm btn-secondary" style="margin-top: 0.75rem;" @onclick="ShowAddAsync">
-                + Add WAN context
+                + Add WAN vantage
             </button>
             </SiteAdminOnly>
         }
@@ -267,6 +268,7 @@
 
     private bool _collapsed = true;
     private bool _showForm;
+    private bool _revealForm;
     private bool _saving;
     private int? _editingId;
     private string _newName = "";
@@ -323,11 +325,25 @@
         catch { _targetCounts = new(); }
     }
 
+    /// <summary>
+    /// Opens the add form and scrolls it into view. The card sits at the bottom of the page, so
+    /// the form can otherwise open entirely below the fold and the button look like it did nothing.
+    /// </summary>
     private async Task ShowAddAsync()
     {
         ResetForm();
         await LoadPickerDataAsync();
         _showForm = true;
+        _revealForm = true;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // After the render that created it, not before - there is no element to scroll to until
+        // the form is actually in the DOM.
+        if (!_revealForm) return;
+        _revealForm = false;
+        await JS.InvokeVoidAsync("noHighlightTarget", "wan-vantage-form", "center", "var(--border-radius-lg)");
     }
 
     private async Task EditContextAsync(WanContext context)
@@ -568,16 +584,16 @@
         if (string.IsNullOrEmpty(name) || name.Length > 100)
             return "A name up to 100 characters is required.";
         if (otherNames.Any(n => string.Equals(n, name, StringComparison.OrdinalIgnoreCase)))
-            return "A context with that name already exists.";
+            return "A vantage with that name already exists.";
         if (string.IsNullOrWhiteSpace(wanInterface))
-            return "Choose the WAN this context measures.";
+            return "Choose the WAN this vantage measures.";
         // The context name is written as the Influx wan tag alongside the stable wan key, so a
         // name that IS a wan key ("wan2") would file this context's points under another WAN.
         // Allowed only when it names the context's own WAN.
         if (System.Text.RegularExpressions.Regex.IsMatch(name, @"^wan\d*$", System.Text.RegularExpressions.RegexOptions.IgnoreCase)
             && !string.Equals(NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(name),
                 NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(wanInterface!), StringComparison.OrdinalIgnoreCase))
-            return "A name that looks like a WAN key must match the context's own WAN.";
+            return "A name that looks like a WAN key must match the vantage's own WAN.";
         if (!string.IsNullOrEmpty(sourceIp) && !System.Net.IPAddress.TryParse(sourceIp, out _))
             return "Probe source IP must be a valid IP address.";
         if (agentId != null && !string.IsNullOrEmpty(sourceIp))
@@ -618,7 +634,7 @@
                 var row = await db.WanContexts.FindAsync(editingId);
                 if (row == null)
                 {
-                    _addError = "That context no longer exists.";
+                    _addError = "That vantage no longer exists.";
                     return;
                 }
                 var wanChanged = !string.Equals(row.WanInterface, wanInterface, StringComparison.OrdinalIgnoreCase);
@@ -657,7 +673,7 @@
         }
         catch (Exception ex)
         {
-            _addError = $"Failed to save context: {ex.Message}";
+            _addError = $"Failed to save vantage: {ex.Message}";
         }
         finally
         {

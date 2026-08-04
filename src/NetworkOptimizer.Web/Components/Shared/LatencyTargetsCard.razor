@@ -172,7 +172,7 @@
         }
         else if (_showAddTarget)
         {
-            <div class="lt-add-form">
+            <div class="lt-add-form" id="add-target-form">
                 <div class="lt-form-grid">
                     <div class="form-group lt-form-wide">
                         <label class="form-label">Name</label>
@@ -255,7 +255,7 @@
                asymmetry is deliberate: measuring one more thing is cheap and reversible, losing one
                that someone established months ago is not. *@
             <SiteOperatorOnly>
-                <button class="btn btn-sm btn-secondary" style="margin-top: 0.75rem;" @onclick="() => _showAddTarget = true">
+                <button class="btn btn-sm btn-secondary" style="margin-top: 0.75rem;" @onclick="ShowAddTarget">
                     + Add target
                 </button>
             </SiteOperatorOnly>
@@ -352,6 +352,7 @@
     private int _newTargetPort = 443;
     private int _newTargetInterval = 10;
     private string _newTargetWanContextId = "";
+    private bool _revealAddForm;
     private string? _addTargetError;
     private string? _targetError;
 
@@ -413,6 +414,25 @@
                 ? "You do not have permission to change monitoring targets."
                 : $"Could not update the target: {ex.Message}";
         }
+    }
+
+    /// <summary>
+    /// Opens the add form and scrolls it into view. The card sits low on the page, so the form
+    /// can otherwise open entirely below the fold and the button look like it did nothing.
+    /// </summary>
+    private void ShowAddTarget()
+    {
+        _showAddTarget = true;
+        _revealAddForm = true;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // After the render that created it, not before - there is no element to scroll to until
+        // the form is actually in the DOM.
+        if (!_revealAddForm) return;
+        _revealAddForm = false;
+        await JS.InvokeVoidAsync("noHighlightTarget", "add-target-form", "center", "var(--border-radius-lg)");
     }
 
     private async Task AddTargetAsync()

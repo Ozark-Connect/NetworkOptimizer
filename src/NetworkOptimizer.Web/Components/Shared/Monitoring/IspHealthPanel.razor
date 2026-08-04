@@ -142,7 +142,7 @@ else if (_report == null)
                 <div class="banner-text" style="flex: 1;">
                     @if (NeedsContextFirst)
                     {
-                        <text>@SelectedWanLabel has no context yet, so nothing probes it. Give it one, then discovery can trace its path.</text>
+                        <text>@SelectedWanLabel has no vantage yet, so nothing probes it. Give it one, then discovery can trace its path.</text>
                     }
                     else
                     {
@@ -152,7 +152,7 @@ else if (_report == null)
                 <div class="banner-actions">
                     @if (NeedsContextFirst)
                     {
-                        <button class="btn btn-sm btn-primary" @onclick="@(() => NavigationManager.NavigateTo("/monitoring?tab=performance&contexts=1"))">Add a WAN context</button>
+                        <button class="btn btn-sm btn-primary" @onclick="@(() => NavigationManager.NavigateTo("/monitoring?tab=performance&contexts=1"))">Add a WAN vantage</button>
                     }
                     else
                     {
