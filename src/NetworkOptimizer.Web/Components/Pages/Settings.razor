@@ -44,6 +44,7 @@
 @inject IAgentEnrollmentService AgentEnrollment
 @inject AgentServerUrlProvider AgentServerUrl
 @inject AgentTunnelRegistry TunnelRegistry
+@inject AgentProbeResultSink ProbeSink
 @inject AgentOnGatewayDetector OnGatewayDetector
 @inject NetworkOptimizer.Storage.Services.SiteDbContextFactory SiteDb
 @inject ISiteConfigurationService SiteConfig
@@ -3518,6 +3519,13 @@
                                                                 <div class="site-agent-row">
                                                                     <span class="status-dot @(TunnelRegistry.IsAgentLive(agent) ? "online" : "offline")"></span>
                                                                     <span>@agent.Name</span>
+                                                                    @* Which agent is doing the site's collection is derived, not configured, so
+                                                                       show it rather than leaving operators to infer it from behavior. *@
+                                                                    @if (_collectorAgentIds.TryGetValue(site.Slug, out var collectorId) && collectorId == agent.Id)
+                                                                    {
+                                                                        <span class="status-badge status-active"
+                                                                              data-tooltip="Polls this site's SNMP and probes its LAN and primary-WAN targets. Chosen automatically; another agent takes over if this one drops.">Collecting</span>
+                                                                    }
                                                                     <span class="site-agent-status">
                                                                         @if (!agent.Enabled)
                                                                         {
@@ -4325,6 +4333,7 @@
                 await LoadClientSpeedTestTargetAsync(site);
                 _agentOnGateway[site.Id] = !site.IsDefault
                     && await OnGatewayDetector.IsAgentOnGatewayAsync(site.Slug);
+                _collectorAgentIds[site.Slug] = await ProbeSink.GetCollectorAgentIdAsync(site.Slug);
             }
         }
 
@@ -4453,6 +4462,10 @@
     // The site's agent runs on the UniFi gateway itself (per AgentOnGatewayDetector),
     // loaded when the site's agent panel expands.
     private readonly Dictionary<int, bool> _agentOnGateway = new();
+
+    // Which agent currently collects for each site, keyed by slug. Derived rather than configured,
+    // and asked of the same code the push path acts on so the page cannot claim otherwise.
+    private readonly Dictionary<string, int?> _collectorAgentIds = new();
 
     private bool AgentOnGateway(int siteId) =>
         _agentOnGateway.TryGetValue(siteId, out var onGateway) && onGateway;

@@ -318,12 +318,9 @@ public class AgentProbeResultSink
             // does not move the pool around, and self-healing, because the next agent takes it over
             // on the following push if the owner drops. Steered agents are never eligible - their
             // probes leave by the wrong WAN.
-            var unassignedOwnerId = _tunnelRegistry.GetForSite(connection.SiteSlug)
-                .Select(c => c.AgentId)
-                .Where(id => !contextsById.Values.Any(
-                    c => c.AgentId == id && string.IsNullOrEmpty(c.InterfaceName)))
-                .DefaultIfEmpty(connection.AgentId)
-                .Min();
+            var unassignedOwnerId = SelectCollectorAgentId(
+                _tunnelRegistry.GetForSite(connection.SiteSlug).Select(c => c.AgentId),
+                contextsById.Values, primaryWanKey, connection.AgentId);
 
             // An agent running ON the gateway cannot usefully probe it: the target is the box the
             // probe runs on, so every reply is loopback - 0 ms and no loss - which reads as a
@@ -390,6 +387,57 @@ public class AgentProbeResultSink
         {
             _logger.LogWarning(ex, "Failed to push probe config to agent {Id} (site {Slug})",
                 connection.AgentId, connection.SiteSlug);
+        }
+    }
+
+    /// <summary>
+    /// The one agent that collects for a site: its SNMP, its fabric targets, and the primary WAN's
+    /// targets. The lowest-id CONNECTED agent that is not steered behind a secondary WAN.
+    /// <para>
+    /// Lowest-id makes it deterministic, so a refresh does not move the workload around; taking it
+    /// from the connected set makes it self-healing, because the next agent picks the work up on
+    /// the following push if the holder drops. Steered agents are never eligible - everything they
+    /// send leaves by the wrong WAN. <paramref name="fallbackAgentId"/> is returned when nothing is
+    /// eligible, which keeps a lone steered agent collecting rather than leaving a site dark.
+    /// </para>
+    /// </summary>
+    internal static int SelectCollectorAgentId(
+        IEnumerable<int> connectedAgentIds,
+        IEnumerable<WanContext> contexts,
+        string? primaryWanKey,
+        int fallbackAgentId)
+    {
+        var contextList = contexts as IReadOnlyCollection<WanContext> ?? contexts.ToList();
+        return connectedAgentIds
+            .Where(id => !contextList.Any(c =>
+                c.AgentId == id
+                && string.IsNullOrEmpty(c.InterfaceName)
+                && !IsPrimaryWanContext(c, primaryWanKey)))
+            .DefaultIfEmpty(fallbackAgentId)
+            .Min();
+    }
+
+    /// <summary>
+    /// Which agent currently collects for a site, for display. Same answer the push path acts on,
+    /// asked from one place so the page cannot disagree with what is actually happening. Null when
+    /// no agent is connected.
+    /// </summary>
+    public async Task<int?> GetCollectorAgentIdAsync(string siteSlug, CancellationToken ct = default)
+    {
+        var connected = _tunnelRegistry.GetForSite(siteSlug).Select(c => c.AgentId).ToList();
+        if (connected.Count == 0) return null;
+        try
+        {
+            var isDefault = siteSlug == SiteManagementService.DefaultSiteSlug;
+            await using var db = _siteDbFactory.CreateForSite(siteSlug, isDefault);
+            var contexts = await db.WanContexts.AsNoTracking().ToListAsync(ct);
+            var primaryWanKey = await ResolvePersistedPrimaryWanKeyAsync(db, ct);
+            return SelectCollectorAgentId(connected, contexts, primaryWanKey, connected.Min());
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not resolve the collector agent for site {Slug}", siteSlug);
+            return connected.Min();
         }
     }
 

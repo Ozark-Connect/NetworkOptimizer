@@ -352,4 +352,65 @@ public class WanContextRoutingTests
 
         AgentProbeResultSink.IsPrimaryWanContext(context, primaryWanKey: "wan").Should().BeTrue();
     }
+
+    // ---- Which agent collects for the site --------------------------------
+
+    [Fact]
+    public void TheCollectorIsTheLowestIdConnectedAgent()
+    {
+        AgentProbeResultSink.SelectCollectorAgentId(
+            new[] { GatewayAgent, PrimaryAgent }, Array.Empty<WanContext>(),
+            primaryWanKey: "wan", fallbackAgentId: 0).Should().Be(PrimaryAgent);
+    }
+
+    [Fact]
+    public void ASteeredAgentIsNeverTheCollector()
+    {
+        // Even as the lowest id: everything it sends leaves by its own WAN.
+        var contexts = new[] { new WanContext { AgentId = PrimaryAgent, WanInterface = "wan2" } };
+
+        AgentProbeResultSink.SelectCollectorAgentId(
+            new[] { PrimaryAgent, GatewayAgent }, contexts,
+            primaryWanKey: "wan", fallbackAgentId: 0).Should().Be(GatewayAgent);
+    }
+
+    [Fact]
+    public void AGatewayAgentServingWansCanStillCollect()
+    {
+        // Its context names an interface, so it binds per probe and routes normally.
+        var contexts = new[] { new WanContext { AgentId = GatewayAgent, WanInterface = "wan2", InterfaceName = "eth8" } };
+
+        AgentProbeResultSink.SelectCollectorAgentId(
+            new[] { GatewayAgent }, contexts,
+            primaryWanKey: "wan", fallbackAgentId: 0).Should().Be(GatewayAgent);
+    }
+
+    [Fact]
+    public void AnAgentOnThePrimarysContextCanStillCollect()
+    {
+        var contexts = new[] { new WanContext { AgentId = PrimaryAgent, WanInterface = "wan2" } };
+
+        AgentProbeResultSink.SelectCollectorAgentId(
+            new[] { PrimaryAgent }, contexts,
+            primaryWanKey: "wan2", fallbackAgentId: 0).Should().Be(PrimaryAgent);
+    }
+
+    [Fact]
+    public void ALoneSteeredAgentStillCollects_RatherThanLeavingTheSiteDark()
+    {
+        var contexts = new[] { new WanContext { AgentId = ContextAgent, WanInterface = "wan2" } };
+
+        AgentProbeResultSink.SelectCollectorAgentId(
+            new[] { ContextAgent }, contexts,
+            primaryWanKey: "wan", fallbackAgentId: ContextAgent).Should().Be(ContextAgent);
+    }
+
+    [Fact]
+    public void TheCollectorMovesOnWhenItsAgentDrops()
+    {
+        // Taken from the CONNECTED set, so the next push hands the work to whoever is left.
+        AgentProbeResultSink.SelectCollectorAgentId(
+            new[] { GatewayAgent }, Array.Empty<WanContext>(),
+            primaryWanKey: "wan", fallbackAgentId: 0).Should().Be(GatewayAgent);
+    }
 }
