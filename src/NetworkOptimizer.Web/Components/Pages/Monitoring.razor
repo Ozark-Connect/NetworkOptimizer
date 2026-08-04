@@ -3408,7 +3408,18 @@
         public double? GatewayTempC { get; init; }
         public double FabricIngressBps { get; init; }
         public double FabricEgressBps { get; init; }
+
+        /// <summary>
+        /// Per-WAN latency at the same instant, keyed by WAN key, for the stacked rows shown while
+        /// comparing. The single figures above describe one focused WAN and cannot answer for a
+        /// row per WAN, which is why those rows had nothing to read and fell back to live values.
+        /// </summary>
+        public IReadOnlyDictionary<string, WanLatencySnapshot> PerWan { get; init; }
+            = new Dictionary<string, WanLatencySnapshot>();
     }
+
+    private record WanLatencySnapshot(double? IspRttMs, double IspLossPercent,
+        double? TransitRttMs, double TransitLossPercent);
 
     /// <summary>
     /// From a WAN globe on the map, which knows which WAN it is. A globe with no context yet is
@@ -3894,8 +3905,13 @@
         try { await Task.WhenAll(tasks); }
         catch { }
 
+        var perWan = LiveWan.IsComparing
+            ? await BuildPerWanLatencyAsync(from, to, at)
+            : new Dictionary<string, WanLatencySnapshot>();
+
         _historicSnapshot = new HistoricStatSnapshot
         {
+            PerWan = perWan,
             WanDownloadBps = wanDown,
             WanUploadBps = wanUp,
             GatewayRttMs = gwRtt,
@@ -3917,6 +3933,52 @@
     /// Null while comparing - the tiles show one figure, and no single scope describes several
     /// WANs at once, so they fall back to the whole site rather than to one of them.
     /// </summary>
+    /// <summary>
+    /// Each compared WAN's ISP and Transit latency at the playback instant, scoped to that WAN
+    /// alone. One query pair per WAN because a scope names one WAN - the whole reason the focused
+    /// figures cannot serve the stacked rows.
+    /// </summary>
+    private async Task<Dictionary<string, WanLatencySnapshot>> BuildPerWanLatencyAsync(
+        DateTime from, DateTime to, DateTime at)
+    {
+        var byWan = new Dictionary<string, WanLatencySnapshot>(StringComparer.OrdinalIgnoreCase);
+        foreach (var wan in LiveWan.SelectedOptions)
+        {
+            try
+            {
+                var key = NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(wan.Key);
+                var scope = Services.Monitoring.IspHealth.IspHealthService
+                    .BuildWanScope(_wanContexts, key, wan.IsPrimary);
+                var isp = await ClosestLatencyAsync(MonitoringTargetType.AccessIsp, from, to, at, scope);
+                var transit = await ClosestLatencyAsync(MonitoringTargetType.Transit, from, to, at, scope);
+                byWan[wan.Key] = new WanLatencySnapshot(isp.Rtt, isp.Loss, transit.Rtt, transit.Loss);
+            }
+            catch
+            {
+                // One WAN failing leaves its row on live values rather than emptying the stack.
+            }
+        }
+        return byWan;
+    }
+
+    /// <summary>Mean RTT and loss across a type's targets at the instant nearest the playhead.</summary>
+    private async Task<(double? Rtt, double Loss)> ClosestLatencyAsync(
+        MonitoringTargetType type, DateTime from, DateTime to, DateTime at,
+        MonitoringInfluxClient.LatencyWanScope? scope)
+    {
+        var data = await InfluxClient.QueryLatencyByTargetTypeAsync(type, from, to, wanScope: scope);
+        var rtts = new List<double>();
+        var losses = new List<double>();
+        foreach (var (_, pts) in data)
+        {
+            var closest = pts.OrderBy(p => Math.Abs((p.Time - at).TotalMilliseconds)).FirstOrDefault();
+            if (closest == null) continue;
+            if (closest.RttAvgMs.HasValue) rtts.Add(closest.RttAvgMs.Value);
+            if (closest.LossPercent.HasValue) losses.Add(closest.LossPercent.Value);
+        }
+        return (rtts.Count > 0 ? rtts.Average() : null, losses.Count > 0 ? losses.Average() : 0);
+    }
+
     private MonitoringInfluxClient.LatencyWanScope? BuildSnapshotWanScope()
     {
         if (!_multiWanUiVisible || LiveWan.IsComparing) return null;
@@ -4249,11 +4311,26 @@
         return (row.Rtt, row.Loss);
     }
 
+    /// <summary>The WAN's short token for a stacked row, falling back to its full label.</summary>
+    private static string WanRowLabel(Services.Monitoring.LiveWanScope.Option wan) =>
+        NetworkOptimizer.UniFi.GatewayWanHelper.SplitWanLabel(
+            wan.Label, NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey(wan.Key)).WanToken ?? wan.Label;
+
     private List<(string Label, double? Rtt, double Loss)> PerWanTargetStats(MonitoringTargetType type, bool meanAcrossTargets)
     {
         var rows = new List<(string, double?, double)>();
         foreach (var wan in LiveWan.SelectedOptions)
         {
+            // Playback: this WAN's own figures at the playhead. Without them the stack showed live
+            // values while the chart beside it showed history.
+            if (_historicSnapshot is not null
+                && _historicSnapshot.PerWan.TryGetValue(wan.Key, out var historic))
+            {
+                rows.Add((WanRowLabel(wan),
+                    type == MonitoringTargetType.AccessIsp ? historic.IspRttMs : historic.TransitRttMs,
+                    type == MonitoringTargetType.AccessIsp ? historic.IspLossPercent : historic.TransitLossPercent));
+                continue;
+            }
             var targets = TargetsForWan(type, wan.Key, wan.IsPrimary);
             double? rtt = null;
             double loss = 0;
@@ -4281,9 +4358,7 @@
                 rtt = meanAcrossTargets ? (rtts.Count > 0 ? rtts.Average() : null) : best;
                 loss = meanAcrossTargets ? (losses.Count > 0 ? losses.Average() : 0) : bestLoss;
             }
-            var label = NetworkOptimizer.UniFi.GatewayWanHelper.SplitWanLabel(
-                wan.Label, NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey(wan.Key)).WanToken ?? wan.Label;
-            rows.Add((label, rtt, loss));
+            rows.Add((WanRowLabel(wan), rtt, loss));
         }
         return rows;
     }
