@@ -9417,6 +9417,53 @@ a.path-hop.hop-clickable:hover {
     }
 }
 
+/* The connection's name rides along with the WAN token but is not what identifies the pill, so
+   it sits back until the pill is the one selected. */
+/* Comparison mode puts one row per WAN inside a stat card. Smaller than a single figure so
+   several fit the card's height, and each row names its WAN - averaging them instead would let a
+   healthy link and a failing one read as one middling number. */
+.stat-value-stacked {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+    font-size: 0.95rem;
+    line-height: 1.35;
+}
+
+.stat-stack-row {
+    display: flex;
+    align-items: baseline;
+    gap: 0.35rem;
+    justify-content: center;
+}
+
+.stat-stack-wan {
+    color: var(--text-muted);
+    font-size: 0.7rem;
+}
+
+.wan-pill-name {
+    color: var(--text-muted);
+    margin-right: 0.3rem;
+}
+
+.time-btn.active .wan-pill-name {
+    color: var(--text-secondary);
+}
+
+.wan-selector-standalone {
+    width: max-content;
+    max-width: 100%;
+}
+
+/* On the Monitoring Live View tab the bar sits directly on the page background, which is the
+   same colour it uses itself - so it reads as no control at all. The dashboard panel sits on a
+   lighter surface and already has the contrast, which is why this is scoped rather than applied
+   to every standalone bar. */
+.wan-selector-on-page {
+    background: var(--bg-tertiary);
+}
+
 .time-range-selector {
     display: flex;
     gap: 0.25rem;

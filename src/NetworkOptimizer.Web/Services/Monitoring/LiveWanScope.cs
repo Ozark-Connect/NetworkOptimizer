@@ -59,10 +59,33 @@ public sealed class LiveWanScope
 
     public IReadOnlyList<Option> Options { get; private set; } = Array.Empty<Option>();
 
-    public string SelectedKey { get; private set; } = "";
+    private readonly HashSet<string> _selected = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Every WAN currently shown. One is the ordinary case; several is comparison mode.</summary>
+    public IReadOnlyCollection<string> SelectedKeys => _selected;
+
+    /// <summary>
+    /// The WAN in focus: the only selected one, or - while comparing - the primary of the
+    /// selection. Everything that can only answer for ONE WAN reads this: the ISP Health score,
+    /// the deep link, the throughput reference. Never null once options have loaded.
+    /// </summary>
+    public string SelectedKey =>
+        _selected.Count == 1 ? _selected.First()
+        : SelectedOptions.FirstOrDefault(o => o.IsPrimary)?.Key
+            ?? SelectedOptions.FirstOrDefault()?.Key
+            ?? "";
 
     public Option? Selected =>
         Options.FirstOrDefault(w => string.Equals(w.Key, SelectedKey, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>The selected WANs as options, in the order the site enumerates them.</summary>
+    public IReadOnlyList<Option> SelectedOptions =>
+        Options.Where(o => _selected.Contains(o.Key)).ToList();
+
+    /// <summary>True while more than one WAN is shown - the tiles aggregate and the chart splits.</summary>
+    public bool IsComparing => _selected.Count > 1;
+
+    public bool IsSelected(string key) => _selected.Contains(key);
 
     /// <summary>
     /// True once there is more than one WAN to choose between - the gate for rendering the
@@ -126,8 +149,8 @@ public sealed class LiveWanScope
         catch { /* site DB unavailable - the live WANs above stand on their own */ }
 
         Options = options;
-        if (string.IsNullOrEmpty(SelectedKey))
-            SelectedKey = ResolveDefaultKey(options);
+        if (_selected.Count == 0 && options.Count > 0)
+            _selected.Add(ResolveDefaultKey(options));
     }
 
     /// <summary>
@@ -138,14 +161,34 @@ public sealed class LiveWanScope
     internal static string ResolveDefaultKey(IReadOnlyList<Option> options)
         => options.FirstOrDefault(o => o.IsPrimary)?.Key ?? options.FirstOrDefault()?.Key ?? "";
 
-    /// <summary>Selects a WAN, persisting it unless this is the restore of a stored value.</summary>
-    public async Task SelectAsync(string key, bool persist = true)
+    /// <summary>
+    /// Shows exactly this WAN, or - with <paramref name="toggle"/> - adds and removes it from the
+    /// comparison set. The same grammar the Network Performance filter uses, so the two rows do
+    /// not behave differently for the same gesture: a plain click solos, a modifier click builds
+    /// a set, and the set never empties.
+    /// </summary>
+    public async Task SelectAsync(string key, bool persist = true, bool toggle = false)
     {
-        if (!Options.Any(o => string.Equals(o.Key, key, StringComparison.OrdinalIgnoreCase))) return;
-        SelectedKey = key;
+        var option = Options.FirstOrDefault(o => string.Equals(o.Key, key, StringComparison.OrdinalIgnoreCase));
+        if (option == null) return;
+
+        if (toggle)
+        {
+            if (!_selected.Add(option.Key) && _selected.Count > 1) _selected.Remove(option.Key);
+        }
+        else
+        {
+            _selected.Clear();
+            _selected.Add(option.Key);
+        }
+        await PersistAndNotifyAsync(persist);
+    }
+
+    private async Task PersistAndNotifyAsync(bool persist)
+    {
         if (persist)
         {
-            try { await _js.InvokeVoidAsync("localStorage.setItem", StorageKey, key); }
+            try { await _js.InvokeVoidAsync("localStorage.setItem", StorageKey, string.Join(",", _selected)); }
             catch { /* circuit going away - the selection still holds for this render */ }
         }
         if (OnChanged != null) await OnChanged.Invoke();
@@ -161,11 +204,19 @@ public sealed class LiveWanScope
         _restored = true;
         try
         {
+            // Stored as a comma list since the selection became a set. A single key is still a
+            // valid list of one, so a value written before comparison mode existed restores fine.
             var stored = await _js.InvokeAsync<string?>("localStorage.getItem", StorageKey);
-            if (!string.IsNullOrEmpty(stored)
-                && Options.Any(o => string.Equals(o.Key, stored, StringComparison.OrdinalIgnoreCase)))
+            var keys = (stored ?? "")
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Where(k => Options.Any(o => string.Equals(o.Key, k, StringComparison.OrdinalIgnoreCase)))
+                .ToList();
+            // Every stored WAN gone (renamed, removed) leaves the default rather than nothing.
+            if (keys.Count > 0)
             {
-                await SelectAsync(stored, persist: false);
+                _selected.Clear();
+                foreach (var k in keys) _selected.Add(k);
+                await PersistAndNotifyAsync(persist: false);
             }
         }
         catch { /* no interop yet - the default selection stands */ }

@@ -36,6 +36,26 @@ public static class GatewayWanHelper
     public const string DefaultWanKey = "wan";
 
     /// <summary>
+    /// Splits a label produced by <see cref="FormatWanLabel"/> back into the connection's name and
+    /// its WAN token ("Acme Fiber WAN2" -> "Acme Fiber", "WAN2"), so a caller can style the two
+    /// differently. Name is null when the label carries no name to separate.
+    /// <para>
+    /// Exact rather than heuristic for the labels this codebase builds for WAN pickers, which pass
+    /// no interface or port and therefore have no suffix. A label with a suffix, or one that does
+    /// not end in its own WAN token, comes back whole as the name so nothing is silently trimmed.
+    /// </para>
+    /// </summary>
+    public static (string? Name, string? WanToken) SplitWanLabel(string? label, int wanIndex)
+    {
+        if (string.IsNullOrWhiteSpace(label)) return (null, null);
+        var token = wanIndex >= 1 ? $"WAN{wanIndex}" : null;
+        if (token == null || !label.EndsWith(token, StringComparison.OrdinalIgnoreCase))
+            return (label.Trim(), null);
+        var name = label[..^token.Length].Trim();
+        return (string.IsNullOrEmpty(name) ? null : name, token);
+    }
+
+    /// <summary>
     /// UniFi network-group convention for a 1-based WAN index: wan1 → "WAN",
     /// wanN → "WANn".
     /// </summary>

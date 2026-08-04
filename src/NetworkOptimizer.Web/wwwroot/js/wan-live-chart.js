@@ -33,6 +33,12 @@ let pollTimer = null;
 let scrollTimer = null;
 let backfillTimer = null;
 let buffer = [];
+// Comparison mode: [{ key, label }] for the WANs on screen, and one buffer per WAN keyed the same
+// way. Empty for the ordinary single-WAN case, which never reads either.
+let compareWans = [];
+let compareBuffers = new Map();
+// Dash patterns by position, so a WAN keeps its pattern for as long as the selection holds.
+const WAN_DASH = [0, 6, 2, 10, 4, 8];
 let elId = null;
 let visHandler = null;
 let mountGen = 0;
@@ -184,6 +190,9 @@ function removeMouseTracking() {
     lastMouse = null;
 }
 
+/** True while several WANs are on screen together. */
+function comparing() { return compareWans.length > 1; }
+
 function buildOpts() {
     return {
         chart: {
@@ -219,28 +228,47 @@ function buildOpts() {
                 },
             },
         },
-        series: [
-            { name: 'Download', type: 'area', data: [] },
-            { name: 'Upload',   type: 'area', data: [] },
-            { name: 'Loss',     type: 'area', data: [] },
-            { name: 'RTT',      type: 'line', data: [] },
-        ],
-        colors: [COLOR_DL, COLOR_UL, COLOR_LOSS, COLOR_RTT],
+        series: comparing()
+            ? compareWans.flatMap(w => ([
+                { name: `${w.label} down`, type: 'area', data: [] },
+                { name: `${w.label} up`,   type: 'area', data: [] },
+            ]))
+            : [
+                { name: 'Download', type: 'area', data: [] },
+                { name: 'Upload',   type: 'area', data: [] },
+                { name: 'Loss',     type: 'area', data: [] },
+                { name: 'RTT',      type: 'line', data: [] },
+            ],
+        // Comparing: the COLOUR still says which direction a line is, because that is what the eye
+        // is sorting for, and the dash pattern says which WAN. Loss and RTT drop out of the chart
+        // in this mode - they are per-WAN figures in the stat cards above, and four lines per WAN
+        // is not a comparison anyone can read.
+        colors: comparing()
+            ? compareWans.flatMap(() => [COLOR_DL, COLOR_UL])
+            : [COLOR_DL, COLOR_UL, COLOR_LOSS, COLOR_RTT],
         stroke: {
             curve: 'smooth',
-            width: [2, 2, 1, 1],
-            dashArray: [0, 0, 0, 6],
+            width: comparing() ? compareWans.flatMap(() => [2, 2]) : [2, 2, 1, 1],
+            dashArray: comparing()
+                ? compareWans.flatMap((_, i) => { const d = WAN_DASH[i % WAN_DASH.length]; return [d, d]; })
+                : [0, 0, 0, 6],
         },
-        fill: {
-            type: ['gradient', 'gradient', 'gradient', 'solid'],
-            opacity: [1, 1, 1, 0],
-            gradient: {
-                shadeIntensity: 0.4,
-                opacityFrom: [0.55, 0.45, 0.5, 0],
-                opacityTo:   [0.1,  0.08, 0.05, 0],
-                stops: [0, 95],
+        fill: comparing()
+            ? {
+                // Flat translucent fills: several overlapping gradients turn the plot into mud.
+                type: compareWans.flatMap(() => ['solid', 'solid']),
+                opacity: compareWans.flatMap(() => [0.12, 0.10]),
+            }
+            : {
+                type: ['gradient', 'gradient', 'gradient', 'solid'],
+                opacity: [1, 1, 1, 0],
+                gradient: {
+                    shadeIntensity: 0.4,
+                    opacityFrom: [0.55, 0.45, 0.5, 0],
+                    opacityTo:   [0.1,  0.08, 0.05, 0],
+                    stops: [0, 95],
+                },
             },
-        },
         markers: { size: 0 },
         dataLabels: { enabled: false },
         xaxis: {
@@ -256,7 +284,20 @@ function buildOpts() {
             axisBorder: { show: false },
             axisTicks: { show: false },
         },
-        yaxis: [
+        yaxis: comparing()
+            ? compareWans.flatMap((w, i) => {
+                const owner = `${compareWans[0].label} down`;
+                const axis = { seriesName: owner, min: 0 };
+                // Every throughput series shares the first axis, so the WANs are read against one
+                // scale - separate axes would make a slow link look as busy as a fast one.
+                return i === 0
+                    ? [{ ...axis, labels: { style: { colors: '#9ca3af', fontSize: '10px' },
+                            formatter: v => formatBps(v), offsetX: -10 },
+                          axisBorder: { show: false }, axisTicks: { show: false } },
+                       { ...axis, show: false }]
+                    : [{ ...axis, show: false }, { ...axis, show: false }];
+            })
+            : [
             {
                 seriesName: 'Download',
                 min: 0,
@@ -388,7 +429,8 @@ function buildSeriesData() {
 }
 
 function updateChart() {
-    if (!chart || buffer.length === 0) return;
+    if (!chart) return;
+    if (!comparing() && buffer.length === 0) return;
     if (Date.now() > clickRenderUntil && tooltipShowing()) return;
     const now = Date.now();
     const pts = buildSeriesData();
@@ -397,6 +439,16 @@ function updateChart() {
         yaxis: [chart.opts.yaxis[0], chart.opts.yaxis[1], chart.opts.yaxis[2], { ...chart.opts.yaxis[3], max: rttYMax() }],
         annotations: { xaxis: buildTimeTicks(now - HISTORY_MINUTES * 60000, now) },
     }, false, false, false);
+    if (comparing()) {
+        chart.updateSeries(compareWans.flatMap(w => {
+            const b = compareBuffers.get(w.key) || [];
+            return [
+                { name: `${w.label} down`, data: b.map(p => ({ x: p.time, y: p.download })) },
+                { name: `${w.label} up`,   data: b.map(p => ({ x: p.time, y: p.upload })) },
+            ];
+        }), false);
+        return;
+    }
     chart.updateSeries([
         { name: 'Download', data: pts.map(p => ({ x: p.time, y: p.download })) },
         { name: 'Upload',   data: pts.map(p => ({ x: p.time, y: p.upload })) },
@@ -441,7 +493,53 @@ async function loadHistory() {
     } catch { }
 }
 
+/** Pulls each compared WAN's history into its own buffer. */
+async function loadCompareHistory() {
+    const to = new Date();
+    const from = new Date(to.getTime() - HISTORY_MINUTES * 60000);
+    for (const w of compareWans) {
+        try {
+            const resp = await fetch(
+                `/api/monitoring/wan-live-chart-data?from=${from.toISOString()}&to=${to.toISOString()}&wan=${encodeURIComponent(w.key)}`,
+                { credentials: 'same-origin' });
+            if (!resp.ok) { compareBuffers.set(w.key, compareBuffers.get(w.key) || []); continue; }
+            const data = await resp.json();
+            applySampleInterval(data);
+            compareBuffers.set(w.key, (data.points || []).map(p => ({
+                time: new Date(p.time).getTime(),
+                download: p.downloadBps,
+                upload: p.uploadBps,
+            })));
+        } catch { compareBuffers.set(w.key, compareBuffers.get(w.key) || []); }
+    }
+}
+
+/** One live tick per compared WAN, appended to that WAN's own buffer. */
+async function pollLiveCompare() {
+    const cutoff = Date.now() - HISTORY_MINUTES * 60000;
+    let newest = 0;
+    for (const w of compareWans) {
+        try {
+            const resp = await fetch(`/api/monitoring/live-stats?wan=${encodeURIComponent(w.key)}`,
+                { credentials: 'same-origin' });
+            if (!resp.ok) continue;
+            const d = await resp.json();
+            const t = d.sampleTime ? new Date(d.sampleTime).getTime() : Date.now();
+            const b = compareBuffers.get(w.key) || [];
+            // Same dedupe as the single-WAN path: two unsynchronised clocks otherwise plot a
+            // sample twice and drop the next one.
+            if (b.length && t <= b[b.length - 1].time) { compareBuffers.set(w.key, b); continue; }
+            b.push({ time: t, download: d.downloadBps, upload: d.uploadBps });
+            compareBuffers.set(w.key, b.filter(p => p.time >= cutoff));
+            newest = Math.max(newest, t);
+        } catch { }
+    }
+    if (newest > lastSampleTime) lastSampleTime = newest;
+    updateChart();
+}
+
 async function pollLive() {
+    if (comparing()) return await pollLiveCompare();
     try {
         const resp = await fetch(
             wanScope ? `/api/monitoring/live-stats?wan=${encodeURIComponent(wanScope)}` : '/api/monitoring/live-stats',
@@ -649,11 +747,19 @@ export async function mount(containerId, opts) {
     // Ride in with the mount rather than in a call behind it: this module is imported
     // asynchronously, so a scope pushed separately can land before the import resolves.
     if (opts && 'wan' in opts) wanScope = opts.wan || null;
+    // A selection of several arrives as wans: [{key,label}] and starts the chart in comparison
+    // mode, so the first paint is already right rather than flipping a moment later.
+    if (opts && Array.isArray(opts.wans)) {
+        const list = opts.wans.filter(w => w && w.key);
+        compareWans = list.length > 1 ? list : [];
+        if (list.length >= 1) wanScope = list[0].key;
+    }
     if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
     if (scrollTimer) { clearInterval(scrollTimer); scrollTimer = null; }
     if (chart) { chart.destroy(); chart = null; }
     removeMouseTracking();
     buffer = [];
+    compareBuffers.clear();
     lastSampleTime = 0;
     seenLiveSample = false;
     lastLiveAt = 0;
@@ -685,7 +791,8 @@ export async function mount(containerId, opts) {
     // appended before it is wiped.
     ensureModeUi(el);
 
-    await loadHistory();
+    if (comparing()) await loadCompareHistory();
+    else await loadHistory();
     if (gen !== mountGen) return;
     await pollLive();
     if (gen !== mountGen) return;
@@ -727,6 +834,39 @@ export async function mount(containerId, opts) {
  * and a scrubbed position is still a valid position on the new WAN's series. The seek path shares
  * historyUrl(), so scrubbing after a WAN change reads that WAN too.
  */
+/**
+ * Shows several WANs together, or falls back to the single-WAN path for one. Rebuilds the chart:
+ * the series count, their axes and their fills all differ between the two modes, so updating in
+ * place would leave ApexCharts holding a config for the shape it no longer has.
+ */
+export async function setWans(wans) {
+    const list = (Array.isArray(wans) ? wans : []).filter(w => w && w.key);
+    if (list.length <= 1) {
+        const wasComparing = comparing();
+        compareWans = [];
+        compareBuffers.clear();
+        if (wasComparing) await remountChart();
+        return await setWan(list[0]?.key ?? null);
+    }
+    if (list.map(w => w.key).join(",") === compareWans.map(w => w.key).join(",")) return;
+    compareWans = list;
+    compareBuffers.clear();
+    wanScope = list[0].key;
+    await remountChart();
+    await loadCompareHistory();
+    updateChart();
+}
+
+/** Rebuilds the chart in place with the current mode's options, keeping the mount and listeners. */
+async function remountChart() {
+    if (!chart || !elId) return;
+    const el = document.getElementById(elId);
+    if (!el) return;
+    chart.destroy();
+    chart = new ApexCharts(el, buildOpts());
+    await chart.render();
+}
+
 export async function setWan(wanKey) {
     const next = wanKey || null;
     if (next === wanScope) return;
@@ -890,6 +1030,8 @@ export async function seekTime(isoTimestamp) {
 }
 
 export function unmount() {
+    compareWans = [];
+    compareBuffers.clear();
     mountGen++;
     stopHistInterpolation();
     if (unsubFlow) { unsubFlow(); unsubFlow = null; }
