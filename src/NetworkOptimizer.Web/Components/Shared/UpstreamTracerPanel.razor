@@ -528,13 +528,24 @@
                 // AT THE END: land on the TOP, not wherever the follow had got to. Following the
                 // edge is right while sections are still arriving; at the end it parks you past all
                 // the detail you came for, so the last move is to the start of the card.
-                // The card's top, held at the top of the pane, for the whole run. Following the
-                // bottom edge instead - which this used to do once the card outgrew the pane - ends
-                // the run parked at the end of a long review the user has not read yet, and the
-                // final step is the largest render of all, so it read as being thrown to the
-                // bottom. The header carries the state and the controls, so keeping it in place
-                // leaves the user somewhere they can act from. Manual scrolling releases the pin.
-                return Math.abs(drift) > 2 ? drift : 0;
+                if (goTop) return Math.abs(drift) > 2 ? drift : 0;
+
+                // WHILE RUNNING: show the newest work. If the card still fits the pane, holding its
+                // top does that already; once it is taller, follow the bottom edge so each section
+                // appears as it lands.
+                //
+                // No spacer either way. Adding one below this card pushed the Latency targets panel
+                // off screen, and adding it to the pane wrote to layout every page shares; the
+                // write is simply allowed to clamp when there is nowhere further to go.
+                if (r.height <= sc.clientHeight) return Math.abs(drift) > 2 ? drift : 0;
+                var paneBottom = isDoc ? window.innerHeight : sc.getBoundingClientRect().bottom;
+                // Both directions. A section that measures tall while it is building and settles
+                // shorter a frame later leaves the view parked past the end of the card, and a
+                // downward-only follow has no way back - it reads as scrolling below the results and
+                // staying there until the run ends. Correcting upward too means an overshoot is
+                // undone as soon as the layout settles, which is the frame after it happens.
+                var below = r.bottom - paneBottom;
+                return Math.abs(below) > 2 ? below : 0;
             };
 
             var raf = 0;
@@ -597,11 +608,20 @@
         // carries the terminal state is the one that adds the review UI, so stopping on it leaves
         // that last, largest addition unfollowed. Give the layout a moment, follow once more, then
         // let go. A scroll of the reader's own still stops immediately via stop().
+        // Stop following, without deciding anything else yet. Called the moment the terminal state
+        // is OBSERVED - before Blazor renders it - because the render that carries the review UI is
+        // the largest of the run, and the follow loop only needs one frame with it to drag the view
+        // to the bottom of results nobody has read. Freezing from OnAfterRender was always a frame
+        // too late for exactly that reason.
+        function freeze() {
+            if (!release) return;
+            frozen = true;
+        }
+
         function finish() {
             if (!release) return;
-            // Stop following FIRST. The run finishing is not the same as the card having finished
-            // growing: the render carrying the terminal state is the one that adds the review UI,
-            // and chasing it is what put the view below the results in the first place.
+            // Belt and braces: freeze() has normally run already, but a run that reached its
+            // terminal state without passing through the poll still has to stop following here.
             frozen = true;
             setTimeout(function () {
                 // Layout has settled. Switch the loop's target to the card's top and let it ease
@@ -612,7 +632,7 @@
             }, 400);
         }
 
-        return { start: start, stop: stop, finish: finish };
+        return { start: start, stop: stop, freeze: freeze, finish: finish };
     })();
 </script>
 
@@ -658,6 +678,11 @@
     private bool _collapsed;
     private DateTime _lastReviewCheck = DateTime.MinValue;
     private bool _justSaved;
+    /// <summary>Whether this run has already told the pin to stop following. Once per run.</summary>
+    private bool _pinFrozen;
+
+    private static bool IsTerminalStep(TracerStep step) =>
+        step is TracerStep.Done or TracerStep.ReviewingResults or TracerStep.Failed;
 
     protected override async Task OnParametersSetAsync()
     {
@@ -824,7 +849,16 @@
             {
                 _ = InvokeAsync(async () =>
                 {
+                    var wasRunning = !IsTerminalStep(_state.Step);
                     _state = Svc.State;
+                    // Before StateHasChanged, so the follow loop is already stopped when the render
+                    // carrying the review UI lands.
+                    if (wasRunning && IsTerminalStep(_state.Step) && !_pinFrozen)
+                    {
+                        _pinFrozen = true;
+                        try { await JS.InvokeVoidAsync("noUpstreamPin.freeze"); }
+                        catch (Exception ex) { Logger.LogDebug(ex, "Could not freeze the discovery card pin"); }
+                    }
                     if (DateTime.UtcNow - _lastReviewCheck > TimeSpan.FromMinutes(1))
                         await RefreshReviewFlagAsync();
                     StateHasChanged();
@@ -877,6 +911,7 @@
         // scroll for themselves.
         try
         {
+            _pinFrozen = false;
             await JS.InvokeVoidAsync("noUpstreamPin.start", "upstream-discovery");
         }
         catch (Exception ex)

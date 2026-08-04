@@ -1302,8 +1302,12 @@ public class UpstreamTracerService
             Label = "",
             Address = h.Address,
             PtrHostname = h.Hostname,
-            AsnNumber = h.Asn?.Asn,
-            AsnName = h.Asn?.Name,
+            // A hop with no BGP attribution of its own is here BECAUSE it sits below the ISP's
+            // announced border - private first-mile gear, or CGNAT. It is the ISP's, so it is
+            // stored as the ISP's: left unattributed it reads as an unknown network on the path,
+            // and nothing downstream would grade it against the access ISP.
+            AsnNumber = h.Asn?.Asn ?? accessAsn,
+            AsnName = h.Asn?.Name ?? (h.Asn == null ? accessAsnRawName : null),
             Role = borderIps.Contains(h.Address)
                 ? UpstreamRole.Border
                 : InferAccessRole(h, State.AccessTechnology, State.WanNeighborOuiVendor),
