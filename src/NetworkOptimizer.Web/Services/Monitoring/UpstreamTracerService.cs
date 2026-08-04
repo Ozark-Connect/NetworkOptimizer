@@ -591,6 +591,25 @@ public class UpstreamTracerService
                 _logger.LogWarning(ex, "Post-run off-path evaluation failed; absence counters not advanced this run");
             }
 
+            // Metered WANs arrive with fewer candidates ticked. Done here rather than at commit so
+            // the review shows what will actually be probed, with the count the operator can change.
+            try
+            {
+                await using var planDb = await CreateDbAsync(ct);
+                var reviewPlan = await ResolveProbePlanAsync(
+                    planDb, _binding?.WanInterface ?? State.WanInterface ?? "wan", ct);
+                ApplyAutoEnableBudget(State, reviewPlan.MaxAutoEnabled);
+                if (reviewPlan.Rung > 0)
+                    _logger.LogInformation(
+                        "Metered WAN {Wan} (rung {Rung}): {Max} target(s) pre-selected at {Interval}s",
+                        State.WanInterface, reviewPlan.Rung, reviewPlan.MaxAutoEnabled, reviewPlan.PollIntervalSeconds);
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Could not apply the metered probe budget; leaving candidates as discovered");
+            }
+
             State.Step = TracerStep.ReviewingResults;
             State.CurrentActivity = "Review the discovered upstream path. Confirm to commit.";
             State.CompletedAt = DateTime.UtcNow;
@@ -2322,6 +2341,51 @@ public class UpstreamTracerService
     /// After the user reviews and edits labels, commit the proposed targets into
     /// the MonitoringTargets table. Becomes the live source the latency tier probes.
     /// </summary>
+    /// <summary>
+    /// What this WAN's traffic costs, from its access technology and whether Data Usage has a cap
+    /// configured for it. Any cap above zero counts: setting one is the operator saying the link is
+    /// metered, whatever the toggle beside it is doing.
+    /// </summary>
+    private async Task<MeteredProbePolicy.Plan> ResolveProbePlanAsync(
+        NetworkOptimizerDbContext db, string wanInterface, CancellationToken ct)
+    {
+        var metered = false;
+        try
+        {
+            var key = GatewayWanHelper.WanInterfaceKeyFromKey(wanInterface);
+            var configs = await db.WanDataUsageConfigs.AsNoTracking()
+                .Where(c => c.DataCapGb > 0)
+                .Select(c => c.WanKey)
+                .ToListAsync(ct);
+            metered = configs.Any(k => string.Equals(
+                GatewayWanHelper.WanInterfaceKeyFromKey(k), key, StringComparison.OrdinalIgnoreCase));
+        }
+        catch (Exception ex)
+        {
+            // Unreadable config is not evidence of a cap: probe as normal rather than quietly
+            // throttling a link that may have none.
+            _logger.LogDebug(ex, "Could not read Data Usage config for {Wan}; probing unmetered", wanInterface);
+        }
+        return MeteredProbePolicy.For(State.AccessTechnology, metered);
+    }
+
+    /// <summary>
+    /// Leaves only a metered WAN's budget of candidates ticked, nearest first. Access hops before
+    /// transit: they are the ISP's own first mile, the fewest, and the ones whose loss is the ISP's
+    /// to answer for. Nothing is removed and nothing is disabled that the operator ticked - this
+    /// only decides what arrives ticked, and the review is still theirs to change.
+    /// </summary>
+    internal static void ApplyAutoEnableBudget(UpstreamTracerState state, int? budget)
+    {
+        if (budget is not int max) return;
+        var remaining = max;
+        foreach (var hop in state.AccessHops.OrderBy(h => h.HopNumber))
+            hop.Enabled = remaining-- > 0;
+        // One per ASN is already the shape of the transit list, so order is by discovery.
+        foreach (var transit in state.TransitAsns)
+            transit.Enabled = remaining-- > 0;
+    }
+
     public async Task CommitResultsAsync(CancellationToken ct = default)
     {
         if (State.Step != TracerStep.ReviewingResults) return;
@@ -2336,6 +2400,11 @@ public class UpstreamTracerService
         // context says who probes them. Setting them together is what closes the gap where a
         // context's targets had a context but no WAN, so no per-WAN reader could find them.
         var wanContextId = _binding?.WanContextId;
+
+        // What this WAN's probing costs. Targets are created at the plan's cadence, and on a
+        // metered WAN the ones already here are slowed to match - a link that has just been
+        // declared metered is exactly the one whose existing targets are the problem.
+        var probePlan = await ResolveProbePlanAsync(db, wanInterface, ct);
 
         // A confirmed provider change resets the connection's upstream monitoring wholesale:
         // pause every enabled access/transit/path target - auto-discovered and hand-added alike
@@ -2359,7 +2428,7 @@ public class UpstreamTracerService
         foreach (var hop in State.AccessHops.Where(h => h.Enabled))
         {
             _logger.LogDebug("Commit access hop: id={TargetId} label='{Label}' addr={Address}", hop.TargetId, hop.Label, hop.Address);
-            await UpsertTargetAsync(db, hop, wanInterface, wanContextId, ct);
+            await UpsertTargetAsync(db, hop, wanInterface, wanContextId, ct, probePlan.PollIntervalSeconds);
         }
         foreach (var hop in State.AccessHops.Where(h => !h.Enabled))
         {
@@ -2378,7 +2447,8 @@ public class UpstreamTracerService
         {
             _logger.LogDebug("Commit transit: id={TargetId} label='{Label}' addr={Address} method={Method}",
                 transit.TargetId, transit.Label, transit.HopAddress ?? transit.PathProxyTarget, transit.Method);
-            await UpsertTransitTargetAsync(db, transit, wanInterface, wanContextId, ct);
+            await UpsertTransitTargetAsync(db, transit, wanInterface, wanContextId, ct,
+                pollIntervalSeconds: probePlan.PollIntervalSeconds);
         }
         foreach (var transit in State.TransitAsns.Where(t => !t.Enabled))
         {
@@ -2388,7 +2458,8 @@ public class UpstreamTracerService
             // later. Transit ASNs stay on their off-path / miss-counter mechanism (update-only).
             if (transit.Method == DiscoveryMethod.PathProxy)
             {
-                await UpsertTransitTargetAsync(db, transit, wanInterface, wanContextId, ct, enabled: false);
+                await UpsertTransitTargetAsync(db, transit, wanInterface, wanContextId, ct, enabled: false,
+                    pollIntervalSeconds: probePlan.PollIntervalSeconds);
                 continue;
             }
             var addr = transit.HopAddress ?? transit.PathProxyTarget;
@@ -2462,6 +2533,25 @@ public class UpstreamTracerService
             settings.LastUpstreamDiscoveryAt = DateTime.UtcNow;
             settings.UpstreamDiscoveryNeedsReview = false;
             settings.UpdatedAt = DateTime.UtcNow;
+        }
+
+
+        // Slow what is already here to match. A WAN only reaches a rung by being declared metered
+        // or by its technology, and in both cases the targets already probing it are the cost -
+        // creating new ones at the right cadence while the old ones keep running at 10s would fix
+        // nothing. Fabric targets never leave the WAN, so they are left alone; so is anything
+        // already slower than the plan, which is a deliberate choice of the operator's.
+        if (probePlan.Rung > 0)
+        {
+            var repaced = await db.MonitoringTargets
+                .Where(t => t.TargetType != MonitoringTargetType.Fabric
+                    && t.PollIntervalSeconds < probePlan.PollIntervalSeconds)
+                .ToListAsync(ct);
+            repaced = repaced.Where(t => OwnsTargetRow(t.WanInterface, wanInterface)).ToList();
+            foreach (var target in repaced) target.PollIntervalSeconds = probePlan.PollIntervalSeconds;
+            if (repaced.Count > 0)
+                _logger.LogInformation("Metered WAN {Wan}: slowed {Count} existing target(s) to {Interval}s",
+                    wanInterface, repaced.Count, probePlan.PollIntervalSeconds);
         }
 
         await db.SaveChangesAsync(ct);
@@ -2660,7 +2750,7 @@ public class UpstreamTracerService
     /// <param name="wanInterface">WAN this discovery ran against.</param>
     /// <param name="wanContextId">Context this run belongs to, or null for the primary run.</param>
     /// <param name="ct">Cancellation.</param>
-    internal static async Task UpsertTargetAsync(NetworkOptimizerDbContext db, AccessHopCandidate hop, string wanInterface, int? wanContextId, CancellationToken ct)
+    internal static async Task UpsertTargetAsync(NetworkOptimizerDbContext db, AccessHopCandidate hop, string wanInterface, int? wanContextId, CancellationToken ct, int pollIntervalSeconds = MeteredProbePolicy.DefaultIntervalSeconds)
     {
         // UniFi's WAN SLA probe targets (1.1.1.1 / 8.8.8.8) are public DNS resolvers, not
         // ISP first-mile infrastructure. They never belong as an Access ISP target; drop any
@@ -2699,7 +2789,7 @@ public class UpstreamTracerService
                 AsnNumber = hop.AsnNumber,
                 AsnName = CleanAsnName(hop.AsnName),
                 VantagePoint = "server",
-                PollIntervalSeconds = 10,
+                PollIntervalSeconds = pollIntervalSeconds,
                 PingCount = 5,
                 Enabled = true,
                 AutoDiscovered = true,
@@ -2744,7 +2834,7 @@ public class UpstreamTracerService
     /// <param name="wanContextId">Context this run belongs to, or null for the primary run.</param>
     /// <param name="ct">Cancellation.</param>
     /// <param name="enabled">Whether the target is committed enabled (a declined path-end is saved paused).</param>
-    internal static async Task UpsertTransitTargetAsync(NetworkOptimizerDbContext db, TransitAsnCandidate transit, string wanInterface, int? wanContextId, CancellationToken ct, bool enabled = true)
+    internal static async Task UpsertTransitTargetAsync(NetworkOptimizerDbContext db, TransitAsnCandidate transit, string wanInterface, int? wanContextId, CancellationToken ct, bool enabled = true, int pollIntervalSeconds = MeteredProbePolicy.DefaultIntervalSeconds)
     {
         if (transit.Method == DiscoveryMethod.Unresolved || string.IsNullOrEmpty(transit.TargetId)) return;
 
@@ -2777,7 +2867,7 @@ public class UpstreamTracerService
                 AsnNumber = transit.AsnNumber,
                 AsnName = transit.AsnName,
                 VantagePoint = "server",
-                PollIntervalSeconds = 15,
+                PollIntervalSeconds = pollIntervalSeconds,
                 PingCount = 5,
                 Enabled = enabled,
                 PtrHostname = transit.HopHostname,
