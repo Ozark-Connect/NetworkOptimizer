@@ -81,6 +81,18 @@ public class MonitoringTargetService : IMonitoringTargetService
             AsnName = asnName
         };
 
+        // Same stamping the reassign path uses, so a target created against a WAN context carries
+        // both keys from its first poll: the context that routes the probe and the WAN the readings
+        // are filed under.
+        if (spec.WanContextId is int newContextId)
+        {
+            await using var contextDb = CreateDb();
+            var context = await contextDb.WanContexts.FindAsync(new object?[] { newContextId }, ct);
+            if (context == null)
+                throw new MonitoringTargetValidationException("That WAN context no longer exists.");
+            Monitoring.WanContextTargetStamping.ApplyAssignment(entity, newContextId, context.WanInterface);
+        }
+
         await using (var db = CreateDb())
         {
             db.MonitoringTargets.Add(entity);
@@ -95,7 +107,8 @@ public class MonitoringTargetService : IMonitoringTargetService
             probeMode = entity.ProbeMode.ToString(),
             entity.Port,
             entity.PollIntervalSeconds,
-            entity.AsnNumber
+            entity.AsnNumber,
+            entity.WanContextId
         });
 
         // Trace-on-save: an Internet/Custom target only absolves the ISP/transit hops it crosses

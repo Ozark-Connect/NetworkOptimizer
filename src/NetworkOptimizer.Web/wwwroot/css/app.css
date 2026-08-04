@@ -9436,24 +9436,33 @@ a.path-hop.hop-clickable:hover {
 /* Comparison mode puts one row per WAN inside a stat card. Smaller than a single figure so
    several fit the card's height, and each row names its WAN - averaging them instead would let a
    healthy link and a failing one read as one middling number. */
+/* One grid for the whole stack, not one flex row per WAN, so the tokens share a column and the
+   figures share a column - centering each row on its own leaves the numbers ragged and makes two
+   WANs harder to compare than they should be. The rows are display: contents so their cells join
+   the outer grid while the row still carries the danger color down by inheritance. */
 .stat-value-stacked {
-    display: flex;
-    flex-direction: column;
-    gap: 0.1rem;
+    display: grid;
+    grid-template-columns: auto auto;
+    justify-content: center;
+    align-items: baseline;
+    column-gap: 0.35rem;
+    row-gap: 0.1rem;
     font-size: 0.95rem;
     line-height: 1.35;
 }
 
 .stat-stack-row {
-    display: flex;
-    align-items: baseline;
-    gap: 0.35rem;
-    justify-content: center;
+    display: contents;
 }
 
 .stat-stack-wan {
     color: var(--text-muted);
     font-size: 0.7rem;
+    text-align: right;
+}
+
+.stat-stack-value {
+    text-align: left;
 }
 
 .wan-pill-token {
@@ -19319,59 +19328,10 @@ body.kiosk-mode .status-indicators {
     overflow-x: auto;
 }
 
-.inline-add-form {
-    margin-top: 1rem;
-    padding: 1rem;
-    background: var(--bg-tertiary);
-    border-radius: 8px;
-}
-
-.inline-add-form-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.75rem;
-    align-items: flex-end;
-}
-
-.inline-add-form-field {
-    flex: 1 1 150px;
-    min-width: 0;
-}
-
-.inline-add-form-field label {
-    display: block;
-    margin-bottom: 0.25rem;
-    font-size: 0.8rem;
-}
-
-.inline-add-form-field input,
-.inline-add-form-field select {
-    width: 100%;
-}
-
-.inline-add-form-actions {
-    display: flex;
-    gap: 0.5rem;
-}
-
 .form-error {
     color: var(--danger-color);
     margin-top: 0.5rem;
     font-size: 0.85rem;
-}
-
-@media (max-width: 768px) {
-    .inline-add-form-field {
-        flex-basis: 100%;
-    }
-
-    .inline-add-form-actions {
-        flex-basis: 100%;
-    }
-
-    .inline-add-form-actions .btn {
-        flex: 1;
-    }
 }
 
 .site-card-agents {

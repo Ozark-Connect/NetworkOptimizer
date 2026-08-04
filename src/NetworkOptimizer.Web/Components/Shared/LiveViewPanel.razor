@@ -99,7 +99,7 @@ else
                     <div class="stat-value stat-value-stacked">
                         @foreach (var r in PerWanTargetStats(MonitoringTargetType.AccessIsp, meanAcrossTargets: false))
                         {
-                            <div class="stat-stack-row"><span class="stat-stack-wan">@r.Label</span>@FormatRtt(r.Rtt)</div>
+                            <div class="stat-stack-row"><span class="stat-stack-wan">@r.Label</span><span class="stat-stack-value">@FormatRtt(r.Rtt)</span></div>
                         }
                     </div>
                 }
@@ -115,7 +115,7 @@ else
                     <div class="stat-value stat-value-stacked">
                         @foreach (var r in PerWanTargetStats(MonitoringTargetType.AccessIsp, meanAcrossTargets: false))
                         {
-                            <div class="stat-stack-row @(r.Loss > 0 ? "stat-danger" : "")"><span class="stat-stack-wan">@r.Label</span>@FormatLoss(r.Loss)</div>
+                            <div class="stat-stack-row @(r.Loss > 0 ? "stat-danger" : "")"><span class="stat-stack-wan">@r.Label</span><span class="stat-stack-value">@FormatLoss(r.Loss)</span></div>
                         }
                     </div>
                 }
@@ -132,7 +132,7 @@ else
                     <div class="stat-value stat-value-stacked">
                         @foreach (var r in PerWanTargetStats(MonitoringTargetType.Transit, meanAcrossTargets: true))
                         {
-                            <div class="stat-stack-row"><span class="stat-stack-wan">@r.Label</span>@FormatRtt(r.Rtt)</div>
+                            <div class="stat-stack-row"><span class="stat-stack-wan">@r.Label</span><span class="stat-stack-value">@FormatRtt(r.Rtt)</span></div>
                         }
                     </div>
                 }
@@ -148,7 +148,7 @@ else
                     <div class="stat-value stat-value-stacked">
                         @foreach (var r in PerWanTargetStats(MonitoringTargetType.Transit, meanAcrossTargets: true))
                         {
-                            <div class="stat-stack-row @(r.Loss > 0 ? "stat-danger" : "")"><span class="stat-stack-wan">@r.Label</span>@FormatLoss(r.Loss)</div>
+                            <div class="stat-stack-row @(r.Loss > 0 ? "stat-danger" : "")"><span class="stat-stack-wan">@r.Label</span><span class="stat-stack-value">@FormatLoss(r.Loss)</span></div>
                         }
                     </div>
                 }

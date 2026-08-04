@@ -600,7 +600,7 @@ public class IspHealthService
         // behavior exactly. A scoped instance owns only rows stamped with its own wan key.
         var primaryScope = _scopedWanKey == null;
         // The wan-tag scope the latency reads filter on (see MonitoringInfluxClient.LatencyWanScope).
-        MonitoringInfluxClient.LatencyWanScope wanScope;
+        MonitoringInfluxClient.LatencyWanScope? wanScope;
         await using (var db = await CreateSiteDbAsync(ct))
         {
             var settings = await db.MonitoringSettings.AsNoTracking().FirstOrDefaultAsync(ct);

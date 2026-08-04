@@ -205,6 +205,22 @@
                             <input type="number" class="custom-range-input" @bind="_newTargetPort" placeholder="443" style="width: 70px;" />
                         </div>
                     }
+                    @* Only where there is a choice to make: with no contexts defined every target is
+                       probed over the primary WAN, and a select with one option is a question the
+                       user should never be asked. Same rule the WAN column above follows. *@
+                    @if (WanContexts.Count > 0)
+                    {
+                        <div>
+                            <label class="form-label" style="margin-bottom: 0.25rem; font-size: 0.8rem;">WAN</label>
+                            <select class="cadence-select" style="width: 130px;" @bind="_newTargetWanContextId">
+                                <option value="">Primary</option>
+                                @foreach (var wc in WanContexts)
+                                {
+                                    <option value="@wc.Id">@wc.Name</option>
+                                }
+                            </select>
+                        </div>
+                    }
                     <div>
                         <label class="form-label" style="margin-bottom: 0.25rem; font-size: 0.8rem;">Interval</label>
                         <select class="cadence-select" style="width: 80px;" @bind="_newTargetInterval">
@@ -280,6 +296,7 @@
     private string _newTargetProbeMode = "Icmp";
     private int _newTargetPort = 443;
     private int _newTargetInterval = 10;
+    private string _newTargetWanContextId = "";
     private string? _addTargetError;
     private string? _targetError;
 
@@ -359,7 +376,8 @@
                     ? NetworkOptimizer.Core.Enums.ProbeMode.Tcp
                     : NetworkOptimizer.Core.Enums.ProbeMode.Icmp,
                 Port = _newTargetPort,
-                PollIntervalSeconds = _newTargetInterval
+                PollIntervalSeconds = _newTargetInterval,
+                WanContextId = int.TryParse(_newTargetWanContextId, out var wcId) ? wcId : null
             });
 
             _showAddTarget = false;
@@ -369,6 +387,7 @@
             _newTargetProbeMode = "Icmp";
             _newTargetPort = 443;
             _newTargetInterval = 10;
+            _newTargetWanContextId = "";
             await OnTargetsChanged.InvokeAsync();
         }
         catch (NetworkOptimizer.Web.Services.MonitoringTargetValidationException ex)

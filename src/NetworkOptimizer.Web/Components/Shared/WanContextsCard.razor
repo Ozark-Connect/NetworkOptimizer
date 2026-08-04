@@ -105,19 +105,15 @@
 
         @if (_showForm)
         {
-            <div class="inline-add-form">
-                <div class="inline-add-form-row">
-                    <div class="inline-add-form-field">
+            <div class="wc-add-form">
+                <div class="wc-form-grid">
+                    <div class="form-group">
                         <label class="form-label">Name</label>
-                        <input type="text" class="custom-range-input" @bind="_newName" placeholder="backup-wan" />
+                        <input type="text" class="form-control" @bind="_newName" placeholder="backup-wan" />
                     </div>
-                    <div class="inline-add-form-field">
-                        <label class="form-label">Description</label>
-                        <input type="text" class="custom-range-input" @bind="_newDescription" placeholder="optional" />
-                    </div>
-                    <div class="inline-add-form-field">
+                    <div class="form-group">
                         <label class="form-label">WAN</label>
-                        <select class="cadence-select" value="@_newWanInterface" @onchange="OnWanSelected">
+                        <select class="form-control" value="@_newWanInterface" @onchange="OnWanSelected">
                             <option value="">Select a WAN</option>
                             @foreach (var wan in _wans)
                             {
@@ -129,16 +125,9 @@
                             }
                         </select>
                     </div>
-                    @if (string.IsNullOrEmpty(_newAgentId))
-                    {
-                        <div class="inline-add-form-field">
-                            <label class="form-label">Probe source IP</label>
-                            <input type="text" class="custom-range-input" @bind="_newSourceIp" placeholder="optional" />
-                        </div>
-                    }
-                    <div class="inline-add-form-field">
+                    <div class="form-group">
                         <label class="form-label">Assigned agent</label>
-                        <select class="cadence-select" value="@_newAgentId" @onchange="OnAgentSelected">
+                        <select class="form-control" value="@_newAgentId" @onchange="OnAgentSelected">
                             <option value="">None (probe locally)</option>
                             @foreach (var agent in _agents)
                             {
@@ -146,25 +135,38 @@
                             }
                         </select>
                     </div>
-                    @if (SelectedAgentCanBindInterface)
+                    @if (string.IsNullOrEmpty(_newAgentId))
                     {
-                        <div class="inline-add-form-field">
-                            <label class="form-label">Interface</label>
-                            <input type="text" class="custom-range-input" @bind="_newInterfaceName" placeholder="eth8" />
+                        <div class="form-group">
+                            <label class="form-label">Probe source IP</label>
+                            <input type="text" class="form-control" @bind="_newSourceIp" placeholder="optional" />
                         </div>
                     }
-                    <div class="inline-add-form-actions">
-                        <SiteAdminOnly>
-                            <button class="btn btn-sm btn-primary" @onclick="SaveContextAsync" disabled="@_saving">
+                    @if (SelectedAgentCanBindInterface)
+                    {
+                        <div class="form-group">
+                            <label class="form-label">Interface</label>
+                            <input type="text" class="form-control" @bind="_newInterfaceName" placeholder="eth8" />
+                        </div>
+                    }
+                    <div class="form-group wc-form-span">
+                        <label class="form-label">Description</label>
+                        <input type="text" class="form-control" @bind="_newDescription" placeholder="optional" />
+                    </div>
+                </div>
+                <div class="wc-form-actions">
+                    <SiteAdminOnly>
+                        <button class="btn btn-sm btn-primary" @onclick="SaveContextAsync" disabled="@_saving">
                             @if (_saving) { <span class="spinner-sm"></span> }
                             else if (_editingId != null) { <span>Save</span> }
                             else { <span>Add</span> }
                         </button>
-                        </SiteAdminOnly>
-                        <button class="btn btn-sm btn-secondary" @onclick="CancelForm">Cancel</button>
-                    </div>
+                    </SiteAdminOnly>
+                    @* Tertiary, not secondary: the panel is already on --bg-tertiary, so a secondary
+                       button is the same color as what it sits on and reads as a flat label. *@
+                    <button class="btn btn-sm btn-tertiary" @onclick="CancelForm">Cancel</button>
                 </div>
-                <p class="form-hint" style="margin-top: 0.5rem;">
+                <p class="form-hint">
                     Give a source IP for local probing (the gateway must policy-route it out this
                     WAN), or assign a probe-only agent bound behind the WAN - not both. Assigned
                     targets are probed only by that agent.
@@ -207,6 +209,46 @@
         </div>
     </div>
 </div>
+
+<style>
+    .wc-add-form {
+        margin-top: 1rem;
+        padding: 1rem 1.25rem 1.25rem;
+        background: var(--bg-tertiary);
+        border: 1px solid var(--border-color);
+        border-radius: var(--border-radius-lg);
+    }
+
+    .wc-form-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1rem;
+    }
+
+    .wc-form-grid .form-group {
+        margin-bottom: 0;
+    }
+
+    .wc-form-span {
+        grid-column: 1 / -1;
+    }
+
+    .wc-form-actions {
+        display: flex;
+        gap: 0.5rem;
+        margin-top: 1rem;
+    }
+
+    @@media (max-width: 768px) {
+        .wc-form-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .wc-form-actions .btn {
+            flex: 1;
+        }
+    }
+</style>
 
 @code {
     [Parameter, EditorRequired]
