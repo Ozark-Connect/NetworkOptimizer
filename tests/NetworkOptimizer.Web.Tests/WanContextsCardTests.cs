@@ -58,6 +58,30 @@ public class WanContextsCardTests
     }
 
     [Fact]
+    public void Validate_SourceIpAndAgentTogether_IsAllowed_WhenTheAgentBindsTheAddress()
+    {
+        // A multi-homed agent, one interface per WAN: the address is not a competing answer to
+        // "where does the probe leave from", it IS the agent's binding.
+        var error = WanContextsCard.ValidateContext(
+            name: "backup", wanInterface: "wan2", sourceIp: "192.0.2.10",
+            agentId: 2, interfaceName: "", otherNames: NoOtherContexts,
+            agentCanBindSource: true);
+
+        error.Should().BeNull();
+    }
+
+    [Fact]
+    public void Validate_AgentBindingAnAddress_SatisfiesASiteTheServerCannotProbe()
+    {
+        var error = WanContextsCard.ValidateContext(
+            name: "backup", wanInterface: "wan2", sourceIp: "192.0.2.10",
+            agentId: 2, interfaceName: "", otherNames: NoOtherContexts,
+            serverProbesThisSite: false, agentCanBindSource: true);
+
+        error.Should().BeNull();
+    }
+
+    [Fact]
     public void Validate_InterfaceWithoutAgent_IsRejected()
     {
         // Nothing on this server can bind a name only the gateway resolves.
@@ -123,7 +147,7 @@ public class WanContextsCardTests
             name: name, wanInterface: "wan3", sourceIp: "192.0.2.10",
             agentId: null, interfaceName: "", otherNames: NoOtherContexts);
 
-        error.Should().Be("A name that looks like a WAN key must match the context's own WAN.");
+        error.Should().Be("A name that looks like a WAN key must match the vantage's own WAN.");
     }
 
     [Theory]

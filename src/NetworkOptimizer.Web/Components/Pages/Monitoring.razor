@@ -632,7 +632,7 @@
         </div>
 
         <div style="margin-top: 1.5rem;">
-            <LatencyTargetsCard @ref="_latencyTargetsCard" Targets="_targets" WanContexts="_wanContexts" OnTargetsChanged="OnTargetsChanged" />
+            <LatencyTargetsCard @ref="_latencyTargetsCard" Targets="_targets" WanContexts="_wanContexts" PrimaryWanLabel="@PrimaryWanProseLabel()" OnTargetsChanged="OnTargetsChanged" />
         </div>
 
         @if (_multiWanUiVisible)
@@ -1975,6 +1975,20 @@
     /// Builds the WAN filter options: every live WAN, plus any WAN a context is bound to that
     /// the console currently omits (down/failed WANs still have history worth reading).
     /// </summary>
+    /// <summary>
+    /// The primary WAN named the way every other WAN is named, for pickers that would otherwise
+    /// call it "Primary" - a word that says which ROLE it holds and not which connection it is, so
+    /// it reads as a different kind of thing from the vantages beside it. Falls back to the role
+    /// word only when the console has not told us the WANs, where there is nothing else to say.
+    /// </summary>
+    private string PrimaryWanProseLabel()
+    {
+        var primary = _wanOptions.FirstOrDefault(o => o.Key == _primaryWanKey);
+        if (primary == null) return "Primary";
+        return NetworkOptimizer.UniFi.GatewayWanHelper.FormatWanLabelInProse(
+            primary.Label, NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey(primary.Key));
+    }
+
     private async Task LoadWanOptionsAsync()
     {
         var options = new List<WanOption>();

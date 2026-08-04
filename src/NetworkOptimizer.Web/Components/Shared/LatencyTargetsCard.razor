@@ -27,7 +27,7 @@
                 <a href="/network-tools" class="btn btn-sm btn-secondary">Run Probe</a>
                 <SiteOperatorOnly>
                     <button class="btn btn-sm btn-primary" @onclick="ShowAddTargetFromTop">
-                        + Add target
+                        + Add Target
                     </button>
                 </SiteOperatorOnly>
             </div>
@@ -76,7 +76,7 @@
                                     <SiteOperatorOnly>
                                         <select class="cadence-select"
                                             @onchange="(e) => UpdateWanContextAsync(t.Id, e)">
-                                        <option value="" selected="@(t.WanContextId == null)">Primary</option>
+                                        <option value="" selected="@(t.WanContextId == null)">@PrimaryWanLabel</option>
                                         @foreach (var wc in WanContexts)
                                         {
                                             <option value="@wc.Id" selected="@(t.WanContextId == wc.Id)">@wc.Name</option>
@@ -218,7 +218,7 @@
                         <div class="form-group">
                             <label class="form-label">WAN</label>
                             <select class="form-control" @bind="_newTargetWanContextId">
-                                <option value="">Primary</option>
+                                <option value="">@PrimaryWanLabel</option>
                                 @foreach (var wc in WanContexts)
                                 {
                                     <option value="@wc.Id">@wc.Name</option>
@@ -263,7 +263,7 @@
                 <a href="/network-tools" class="btn btn-sm btn-secondary">Run Probe</a>
                 <SiteOperatorOnly>
                     <button class="btn btn-sm btn-primary" @onclick="ShowAddTarget">
-                        + Add target
+                        + Add Target
                     </button>
                 </SiteOperatorOnly>
             </div>
@@ -276,7 +276,7 @@
 <style>
     /* The description and its action share a line: the button is the thing you came to the card
        to press, and putting it up here means it is reachable without scrolling the whole target
-       table first. It does not shrink - a wrapped "+ Add target" reads as two controls. */
+       table first. It does not shrink - a wrapped "+ Add Target" reads as two controls. */
     .lt-intro {
         display: flex;
         align-items: flex-start;
@@ -370,6 +370,15 @@
     /// </summary>
     [Parameter]
     public List<WanContext> WanContexts { get; set; } = new();
+
+    /// <summary>
+    /// What to call the primary WAN in the WAN pickers. A target with no vantage is probed over
+    /// the primary WAN, and naming that WAN the way the vantages beside it are named keeps the
+    /// list one kind of thing; "Primary" states a role and leaves the reader to work out which
+    /// connection holds it.
+    /// </summary>
+    [Parameter]
+    public string PrimaryWanLabel { get; set; } = "Primary";
 
     [Parameter]
     public EventCallback OnTargetsChanged { get; set; }

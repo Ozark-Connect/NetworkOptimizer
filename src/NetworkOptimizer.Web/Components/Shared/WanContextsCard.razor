@@ -129,7 +129,13 @@
                     <div class="form-group">
                         <label class="form-label">
                             Assigned agent
-                            <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Agents enroll under <a href='/settings?tab=multisite#multi-site'>Settings - Multi-Site</a>; the ones connected to this site appear here.">?</span>
+                            @* The icon IS the link, so it must not also open on click - hover-only,
+                               or the click navigates out from under a popper that is left parented
+                               to the body with nothing to position against. *@
+                            <a href="/settings?tab=multisite#multi-site"
+                               class="tooltip-icon tooltip-icon-sm tooltip-icon-contrast"
+                               data-tooltip="Agents enroll under Settings - Multi-Site; the ones connected to this site appear here."
+                               data-tooltip-hover-only>?</a>
                         </label>
                         <select class="form-control" value="@_newAgentId" @onchange="OnAgentSelected">
                             <option value="">None (probe locally)</option>
@@ -139,7 +145,10 @@
                             }
                         </select>
                     </div>
-                    @if (string.IsNullOrEmpty(_newAgentId))
+                    @* No agent: the server binds it. An agent that can bind but is not on the
+                       gateway: the AGENT binds it, which is how one multi-homed agent box covers
+                       several WANs instead of needing one box per WAN. *@
+                    @if (string.IsNullOrEmpty(_newAgentId) || SelectedAgentCanBindSource)
                     {
                         <div class="form-group">
                             <label class="form-label">Probe source IP</label>
@@ -170,11 +179,22 @@
                        button is the same color as what it sits on and reads as a flat label. *@
                     <button class="btn btn-sm btn-tertiary" @onclick="CancelForm">Cancel</button>
                 </div>
-                <p class="form-hint">
-                    Give a source IP for local probing (the gateway must policy-route it out this
-                    WAN), or assign a probe-only agent bound behind the WAN - not both. Assigned
-                    targets are probed only by that agent.
-                </p>
+                @if (!SelectedAgentCanBindSource)
+                {
+                    <p class="form-hint">
+                        Give a source IP for local probing (the gateway must policy-route it out this
+                        WAN), or assign a probe-only agent bound behind the WAN - not both. Assigned
+                        targets are probed only by that agent.
+                    </p>
+                }
+                else
+                {
+                    <p class="form-hint">
+                        This agent binds this address for the WAN's probes. The address needs its own
+                        interface and MAC - UniFi matches the policy-based route by Client Device - so
+                        a second address on an existing NIC won't route differently.
+                    </p>
+                }
                 @if (SelectedAgentCanBindInterface)
                 {
                     <p class="form-hint">
@@ -183,7 +203,7 @@
                         default route instead.
                     </p>
                 }
-                @if (!string.IsNullOrWhiteSpace(_newSourceIp))
+                @if (!string.IsNullOrWhiteSpace(_newSourceIp) && !SelectedAgentCanBindSource)
                 {
                     <p class="form-hint">
                         This agent reaches @WanLabelFor(_newWanInterface) only if the gateway routes it there. In UniFi
@@ -291,10 +311,19 @@
     // binding is only offered for those: an agent elsewhere on the network has no WAN interface to
     // bind, and one that cannot bind at all would fail every probe in the context.
     private HashSet<int> _bindCapableAgents = new();
+    private HashSet<int> _sourceBindAgents = new();
     private Dictionary<int, int> _targetCounts = new();
 
     private bool SelectedAgentCanBindInterface =>
         int.TryParse(_newAgentId, out var agentId) && _bindCapableAgents.Contains(agentId);
+
+    /// <summary>
+    /// Whether the selected agent binds probes to an ADDRESS rather than an interface: it reports
+    /// the capability but does not run on the gateway, so it has no WAN interface of its own to
+    /// leave by. One such agent with an interface per WAN covers several WANs on its own.
+    /// </summary>
+    private bool SelectedAgentCanBindSource =>
+        int.TryParse(_newAgentId, out var agentId) && _sourceBindAgents.Contains(agentId);
 
     // WAN contexts are per-site data: route through the current site's database.
     private NetworkOptimizerDbContext CreateDb() => SiteDb.CreateForSite(SiteCtx.Slug, SiteCtx.IsDefault);
@@ -444,34 +473,45 @@
     }
 
     /// <summary>
-    /// Which connected agents can be offered an interface bind: on the gateway (asked per agent
-    /// address, since a site can have several) and saying in their hello that they can bind a probe
-    /// source at all. An agent too old to say counts as no.
+    /// Sorts the connected agents into the two ways of binding a probe. Both need the agent to say
+    /// in its hello that it can bind at all - an agent too old to say counts as no - and what
+    /// separates them is where it runs. On the gateway it has the WAN's own interface to leave by
+    /// (asked per agent address, since a site can have several agents). Anywhere else it has no WAN
+    /// interface, so it binds one of its own addresses instead and the gateway policy-routes that
+    /// address out the WAN.
     /// </summary>
     private async Task LoadBindCapableAgentsAsync()
     {
-        var capable = new HashSet<int>();
+        var byInterface = new HashSet<int>();
+        var byAddress = new HashSet<int>();
         try
         {
             foreach (var connection in TunnelRegistry.GetForSite(SiteCtx.Slug))
             {
                 if (connection.SupportsSourceBind != true) continue;
                 if (await OnGatewayDetector.IsIpOnGatewayAsync(SiteCtx.Slug, connection.LanIp))
-                    capable.Add(connection.AgentId);
+                    byInterface.Add(connection.AgentId);
+                else
+                    byAddress.Add(connection.AgentId);
             }
         }
         catch { }
-        _bindCapableAgents = capable;
+        _bindCapableAgents = byInterface;
+        _sourceBindAgents = byAddress;
     }
 
     /// <summary>
-    /// Assigning an agent settles where the probe leaves from, so the source IP field goes away
-    /// rather than sitting there as a second answer the save would reject.
+    /// Assigning an agent that cannot bind an address settles where the probe leaves from, so the
+    /// source IP field goes away rather than sitting there as a second answer the save would
+    /// reject. For an agent that CAN bind one, the address is the agent's own binding and stays.
     /// </summary>
     private void OnAgentSelected(ChangeEventArgs e)
     {
         _newAgentId = e.Value?.ToString() ?? "";
-        if (!string.IsNullOrEmpty(_newAgentId))
+        // Clearing the address is right only where the agent cannot bind one - there it is the
+        // server's mechanism and the agent has just replaced it. An agent that binds addresses
+        // keeps what was typed, since that is now the agent's own binding.
+        if (!string.IsNullOrEmpty(_newAgentId) && !SelectedAgentCanBindSource)
             _newSourceIp = "";
         if (!SelectedAgentCanBindInterface)
             _newInterfaceName = "";
@@ -574,8 +614,9 @@
     /// A context needs a WAN: without one there is nothing to say which WAN its measurements
     /// describe, which is what the tag on its points and the report they belong to are keyed on. It
     /// needs at most one bind mechanism, since a source IP and an agent are two different answers to
-    /// "where does the probe leave from". And an interface bind needs the agent: this server does
-    /// not sit on the gateway, so a name only it could resolve binds nothing here.
+    /// "where does the probe leave from" - UNLESS the agent is the thing doing the binding, which
+    /// is the multi-homed agent case. And an interface bind needs the agent: this server does not
+    /// sit on the gateway, so a name only it could resolve binds nothing here.
     /// </summary>
     /// <param name="name">Context name as typed.</param>
     /// <param name="wanInterface">Selected UniFi WAN key, empty when none was chosen.</param>
@@ -583,6 +624,12 @@
     /// <param name="agentId">Selected agent, null for none.</param>
     /// <param name="interfaceName">Bind interface as typed, empty when none.</param>
     /// <param name="otherNames">Names of the site's OTHER contexts (excluding the one being edited).</param>
+    /// <param name="serverProbesThisSite">Whether this server probes this site itself (the main site).</param>
+    /// <param name="agentCanBindSource">
+    /// Whether the selected agent binds probes to one of its own addresses. When it does, an
+    /// address alongside the agent is not two competing answers - it IS the agent's binding, and
+    /// it is what lets one multi-homed agent cover several WANs.
+    /// </param>
     internal static string? ValidateContext(
         string name,
         string? wanInterface,
@@ -590,7 +637,8 @@
         int? agentId,
         string? interfaceName,
         IEnumerable<string> otherNames,
-        bool serverProbesThisSite = true)
+        bool serverProbesThisSite = true,
+        bool agentCanBindSource = false)
     {
         if (string.IsNullOrEmpty(name) || name.Length > 100)
             return "A name up to 100 characters is required.";
@@ -607,7 +655,7 @@
             return "A name that looks like a WAN key must match the vantage's own WAN.";
         if (!string.IsNullOrEmpty(sourceIp) && !System.Net.IPAddress.TryParse(sourceIp, out _))
             return "Probe source IP must be a valid IP address.";
-        if (agentId != null && !string.IsNullOrEmpty(sourceIp))
+        if (agentId != null && !string.IsNullOrEmpty(sourceIp) && !agentCanBindSource)
             return "Use either a probe source IP or an assigned agent, not both.";
         if (!string.IsNullOrWhiteSpace(interfaceName) && agentId == null)
             return "Interface binding runs on an agent - assign one first.";
@@ -633,7 +681,8 @@
 
         _addError = ValidateContext(name, wanInterface, sourceIp, agentId, interfaceName,
             WanContexts.Where(c => c.Id != _editingId).Select(c => c.Name),
-            serverProbesThisSite: SiteCtx.IsDefault);
+            serverProbesThisSite: SiteCtx.IsDefault,
+            agentCanBindSource: SelectedAgentCanBindSource);
         if (_addError != null) return;
 
         _saving = true;
