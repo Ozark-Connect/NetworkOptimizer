@@ -1080,6 +1080,8 @@ public class UpstreamTracerService
     /// </summary>
     private record AttributedHop(int HopNumber, string Address, string? Hostname, ProbeMode RespondedTo, AsnLookup? Asn);
     private List<AttributedHop> _mergedHops = new();
+    /// <summary>Best (lowest) RTT seen for a hop address across every trace, in ms.</summary>
+    private readonly Dictionary<string, double> _minRttByIp = new(StringComparer.OrdinalIgnoreCase);
     private List<AttributedHop> _accessHopsResolved = new();
 
     // The detected access ISP ASN from the last TraceAccessIspAsync. Kept as a field so
@@ -1162,12 +1164,17 @@ public class UpstreamTracerService
         // Merge hops across all traces by (hop IP -> first mode that saw it). We don't
         // care which CDN trace surfaced the hop, only that we saw it; ASN attribution
         // is per-IP and dedupes naturally on its way out.
+        _minRttByIp.Clear();
         var byIp = new Dictionary<string, AttributedHop>(StringComparer.OrdinalIgnoreCase);
         foreach (var (_, result) in results)
         {
             foreach (var hop in result.Hops)
             {
                 if (!hop.Responded || string.IsNullOrEmpty(hop.Address)) continue;
+                var rtt = hop.RttMinMs ?? hop.RttAvgMs;
+                if (rtt is double seen
+                    && (!_minRttByIp.TryGetValue(hop.Address, out var best) || seen < best))
+                    _minRttByIp[hop.Address] = seen;
                 if (byIp.ContainsKey(hop.Address)) continue;
                 // Resolve ASN; ResolveAsync returns null for private/CGNAT/unparseable.
                 var asn = await _asnResolution.ResolveAsync(hop.Address, ct);
@@ -1246,7 +1253,8 @@ public class UpstreamTracerService
         {
             var alreadyIncluded = new HashSet<string>(
                 _accessHopsResolved.Select(h => h.Address), StringComparer.OrdinalIgnoreCase);
-            var unannounced = CollectUnannouncedAccessAddresses(traceSequences, asnByIp, accessAsn.Value, _gatewayIps)
+            var unannounced = CollectUnannouncedAccessAddresses(
+                    traceSequences, asnByIp, accessAsn.Value, _gatewayIps, _minRttByIp)
                 .Where(a => !alreadyIncluded.Contains(a) && !_gatewayIps.Contains(a) && byIp.ContainsKey(a))
                 .Select(a => byIp[a])
                 .OrderBy(h => h.HopNumber)
@@ -2897,32 +2905,41 @@ public class UpstreamTracerService
     /// attribution but sit in public or shared/CGNAT (RFC 6598) space - Bell's 142.124.x
     /// aggregation hops (#984). Being upstream of us and downstream of the ISP's announced
     /// border makes them the ISP's access infrastructure even though no ASN maps to them.
-    /// RFC1918 hops count too, EXCEPT the first one past our own gateway - that one is a bridged
-    /// CPE's LAN side or a double-NAT middlebox often enough not to claim. Beyond it, an ISP whose
-    /// access network is numbered out of private space (a CMTS or BNG on 10/8) leaves no other
-    /// trace of its first mile, and dropping those hops is what left such sites with no access
-    /// targets at all. A wrong one here is proposed, not applied: discovery review is where the
-    /// operator unticks it. Traces whose first attributed hop is NOT the access ASN (e.g. a trace
+    /// RFC1918 hops count too: an ISP whose access network is numbered out of private space (a CMTS
+    /// or BNG on 10/8) leaves no other trace of its first mile, and dropping those hops is what left
+    /// such sites with no access targets at all. Our own gateway is excluded by address; nothing
+    /// else is, because there is no reliable way to tell a bridged CPE from the ISP's first device
+    /// here - the sequences carry only hops that RESPONDED, so position is not TTL distance, and a
+    /// probe running ON the gateway has no gateway hop to count from at all. A wrong one is
+    /// proposed, not applied: discovery review is where the operator unticks it.
+    /// Traces whose first attributed hop is NOT the access ASN (e.g. a trace
     /// that only ever surfaces the destination's edge) contribute nothing - we can't prove
     /// their prefix hops sit below the access border. Dedupes across traces, preserves
     /// first-seen order.
     /// </summary>
+    /// <summary>
+    /// A private hop this close is on our own side of the WAN - the gateway itself, a bridged CPE,
+    /// a middlebox. The ISP's first-mile gear is a WAN crossing away and answers in milliseconds,
+    /// not fractions of one, so distance separates the two where position cannot: non-responding
+    /// hops make position unreliable, and a probe running on the gateway has no gateway hop at all.
+    /// </summary>
+    internal const double LocalHopRttMs = 1.2;
+
     internal static List<string> CollectUnannouncedAccessAddresses(
         IEnumerable<IReadOnlyList<string>> traceAddressSequences,
         IReadOnlyDictionary<string, int> asnByIp,
         int accessAsn,
-        IReadOnlyCollection<string>? gatewayIps = null)
+        IReadOnlyCollection<string>? gatewayIps = null,
+        IReadOnlyDictionary<string, double>? minRttByIp = null)
     {
         var result = new List<string>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var trace in traceAddressSequences)
         {
             var prefix = new List<string>();
-            var hopsPastGateway = 0;
             foreach (var address in trace)
             {
                 if (gatewayIps != null && gatewayIps.Contains(address)) continue;
-                hopsPastGateway++;
                 if (asnByIp.TryGetValue(address, out var asn))
                 {
                     if (asn == accessAsn)
@@ -2930,11 +2947,14 @@ public class UpstreamTracerService
                             if (seen.Add(p)) result.Add(p);
                     break;
                 }
-                var cls = NetworkUtilities.ClassifyPublicAddress(address);
-                var isCarrierSpace = cls is PublicAddressClass.PublicIPv4 or PublicAddressClass.Cgnat;
-                // The first hop past our gateway is the one place a private address is more likely
-                // the customer's own equipment than the ISP's.
-                if (!isCarrierSpace && hopsPastGateway == 1) continue;
+                // Only private space is judged on distance: public and CGNAT hops are carrier space
+                // whatever they measure. An address with no timing is kept - silence is not evidence.
+                if (minRttByIp != null
+                    && NetworkUtilities.ClassifyPublicAddress(address)
+                        is not (PublicAddressClass.PublicIPv4 or PublicAddressClass.Cgnat)
+                    && minRttByIp.TryGetValue(address, out var hopRtt)
+                    && hopRtt < LocalHopRttMs)
+                    continue;
                 prefix.Add(address);
             }
         }
