@@ -230,7 +230,7 @@ public static class MonitoringChartEndpoints
                 .Where(t => t.TargetType == targetType && t.Enabled
                     && (t.AsnNumber == null || !WellKnownAsns.NonTransitInfrastructure.Contains(t.AsnNumber.Value)))
                 .OrderBy(t => t.Name)
-                .Select(t => new { t.TargetId, t.Name, t.AutoLabel })
+                .Select(t => new { t.TargetId, t.Name, t.AutoLabel, t.WanInterface, t.Address })
                 .ToListAsync(ct);
 
             if (targets.Count == 0)
@@ -249,6 +249,10 @@ public static class MonitoringChartEndpoints
                     // Role label ("gateway"/"switch"/"ap"/...) so the LAN flaky detector can
                     // identify the gateway target and mask out gateway-outage windows.
                     autoLabel = t.AutoLabel,
+                    // WAN ownership (null = unstamped = primary) and address, so the chart's WAN
+                    // filter can scope series client-side and pair the same host's per-WAN twins.
+                    wanInterface = t.WanInterface,
+                    address = t.Address,
                     rtt = pts.Select(p => new { time = p.Time.ToString("o"), value = p.RttAvgMs }),
                     loss = pts.Select(p => new { time = p.Time.ToString("o"), value = p.LossPercent }),
                 };
@@ -260,9 +264,12 @@ public static class MonitoringChartEndpoints
         group.MapGet("/api/monitoring/wan-rate-chart", async (
             MonitoringInfluxClient influx,
             UniFiConnectionService connectionService,
+            SiteDbContextFactory siteDbFactory,
+            SiteContextService siteContext,
             int? rangeHours,
             DateTime? from,
             DateTime? to,
+            string? wan,
             CancellationToken ct) =>
         {
             DateTime queryFrom, queryTo;
@@ -290,6 +297,36 @@ public static class MonitoringChartEndpoints
                 wanIfNames = gw?.WanInterfaceNames;
             }
             catch { }
+
+            // Explicit WAN (a UniFi wan key like "wan2", from the chart's WAN filter): that WAN's
+            // own counter interface - live, then its remembered profile row - replaces the default
+            // primary/active-uplink resolution above. Never a cross-WAN fallback: an unresolvable
+            // WAN returns an empty series rather than another WAN's throughput.
+            if (!string.IsNullOrWhiteSpace(wan))
+            {
+                var wanGroup = NetworkOptimizer.UniFi.GatewayWanHelper.WanNetworkGroupFromKey(wan.Trim());
+                string? counter = null;
+                try
+                {
+                    counter = (await connectionService.GetWanInterfacesForGroupAsync(wanGroup, ct))?.CounterIfName;
+                }
+                catch { }
+                if (string.IsNullOrEmpty(counter) || string.IsNullOrEmpty(gatewayMac))
+                {
+                    try
+                    {
+                        await using var wdb = siteDbFactory.CreateForSite(siteContext.Slug, siteContext.IsDefault);
+                        var profile = await wdb.WanProfiles.AsNoTracking()
+                            .Where(w => w.WanNetworkgroup == wanGroup)
+                            .OrderByDescending(w => w.UpdatedAt)
+                            .FirstOrDefaultAsync(ct);
+                        counter ??= profile?.CounterInterface;
+                        gatewayMac = string.IsNullOrEmpty(gatewayMac) ? profile?.GatewayMac : gatewayMac;
+                    }
+                    catch { }
+                }
+                wanIfNames = string.IsNullOrEmpty(counter) ? null : new List<string> { counter! };
+            }
 
             if (string.IsNullOrEmpty(gatewayMac) || wanIfNames == null || wanIfNames.Count == 0)
                 return Results.Ok(new { download = Array.Empty<object>(), upload = Array.Empty<object>() });

@@ -183,7 +183,12 @@ async function loadAndUpdate() {
     fetchController = new AbortController();
     try {
         let url = '/api/monitoring/isp-health/asn-series';
-        if (win) url += `?from=${encodeURIComponent(win.from)}&to=${encodeURIComponent(win.to)}`;
+        const params = [];
+        if (win) params.push(`from=${encodeURIComponent(win.from)}`, `to=${encodeURIComponent(win.to)}`);
+        // Selected WAN (null = primary): the panel's WAN selector routes the chart to the
+        // matching per-WAN report so lines and event annotations always agree with the score.
+        if (wanKey) params.push(`wan=${encodeURIComponent(wanKey)}`);
+        if (params.length) url += `?${params.join('&')}`;
         const resp = await fetch(url, { credentials: 'same-origin', signal: fetchController.signal });
         if (!resp.ok) return;
         const json = await resp.json();
@@ -325,6 +330,13 @@ export async function setWindow(fromISO, toISO) {
     setZoomed(false);
     notifyZoom(null, null);
     await loadAndUpdate();
+}
+
+let wanKey = null;
+
+export function setWan(w) {
+    wanKey = w || null;
+    loadAndUpdate();
 }
 
 export function setDotNetRef(ref) {

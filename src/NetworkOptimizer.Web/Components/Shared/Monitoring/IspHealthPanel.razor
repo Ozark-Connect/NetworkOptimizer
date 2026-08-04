@@ -5,6 +5,9 @@
 @using System.Globalization
 @implements IDisposable
 @inject IspHealthService IspHealth
+@inject IspHealthRegistry IspHealthRegistry
+@inject NetworkOptimizer.Web.Services.Monitoring.MonitoringPathView PathView
+@inject NetworkOptimizer.Storage.Services.SiteDbContextFactory SiteDb
 @inject NavigationManager NavigationManager
 @inject IJSRuntime JS
 @inject Microsoft.AspNetCore.Mvc.ViewFeatures.IFileVersionProvider FileVersionProvider
@@ -27,8 +30,8 @@
             <div class="isp-popover-backdrop" @onclick="() => _showCustomPopover = false"></div>
         }
         @{
-            var effWin = IspHealth.EffectiveWindowHours;
-            var cfgWin = IspHealth.ConfiguredWindowHours;
+            var effWin = Svc.EffectiveWindowHours;
+            var cfgWin = Svc.ConfiguredWindowHours;
             var windowReduced = effWin > 0 && cfgWin > 0 && effWin < cfgWin;
         }
         @if (windowReduced)
@@ -38,6 +41,19 @@
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
                 <span>@(effWin)h</span>
             </button>
+        }
+        @if (_wanOptions.Count > 1)
+        {
+            @* Per-WAN report selector, shown only under the multi-WAN gate; single-WAN sites
+               keep today's toolbar untouched. *@
+            <div class="time-range-selector">
+                @foreach (var w in _wanOptions)
+                {
+                    <button class="time-btn @(string.Equals(w.Key, _selectedWanKey, StringComparison.OrdinalIgnoreCase) ? "active" : "")"
+                            @onclick="() => SelectWanAsync(w.Key)" disabled="@(_refreshing || _windowComputing)"
+                            data-tooltip="Show this WAN's ISP Health report" data-tooltip-hover-only>@w.Label</button>
+                }
+            </div>
         }
         <div class="time-range-selector @(_showCustomPopover ? "isp-filter-raised" : "")" style="position: relative;">
             @foreach (var p in FilterPresets)
@@ -108,7 +124,7 @@
 }
 else if (_report == null)
 {
-    @if (IspHealth.Status == IspHealthStatus.NeedsDiscovery)
+    @if (Svc.Status == IspHealthStatus.NeedsDiscovery)
     {
         <div class="alert alert-info" style="margin-bottom: 1rem;">
             <div class="banner-content">
@@ -122,7 +138,7 @@ else if (_report == null)
             </div>
         </div>
     }
-    else if (IspHealth.Status == IspHealthStatus.NeedsTechnology)
+    else if (Svc.Status == IspHealthStatus.NeedsTechnology)
     {
         <div class="alert alert-info" style="margin-bottom: 1rem;">
             <div class="banner-content">
@@ -142,7 +158,7 @@ else if (_report == null)
             </div>
         </div>
     }
-    else if (IspHealth.Status == IspHealthStatus.InsufficientData)
+    else if (Svc.Status == IspHealthStatus.InsufficientData)
     {
         <div class="alert alert-info" style="margin-bottom: 1rem;">
             <div class="banner-content">
@@ -153,7 +169,7 @@ else if (_report == null)
             </div>
         </div>
     }
-    else if (IspHealth.Status == IspHealthStatus.AwaitingConnection)
+    else if (Svc.Status == IspHealthStatus.AwaitingConnection)
     {
         <div class="alert alert-info" style="margin-bottom: 1rem;">
             <div class="banner-content">
@@ -432,8 +448,8 @@ else
                                     <span class="isp-target-stat"><span class="isp-target-stat-label">Loss</span>@FormatLossPct(target.LossPct)</span>
                                     @{
                                         var hopLimit = LimitingAspect(target.LatencyStabilityScore, target.CongestionScore,
-                                            target.CongestionEventCount, IspHealth.Options.AsnLatencyStabilityWeight,
-                                            IspHealth.Options.AsnCongestionWeight);
+                                            target.CongestionEventCount, Svc.Options.AsnLatencyStabilityWeight,
+                                            Svc.Options.AsnCongestionWeight);
                                     }
                                     @if (hopLimit is not null)
                                     {
@@ -608,8 +624,8 @@ else
                                 <div class="isp-asn-stat"><span class="detail-label">Loss</span><span class="detail-value">@FormatLossPct(asn.LossPct)</span></div>
                                 @{
                                     var asnLimit = LimitingAspect(asn.LatencyStabilityScore, asn.CongestionScore,
-                                        asn.CongestionEventCount, IspHealth.Options.AsnLatencyStabilityWeight,
-                                        IspHealth.Options.AsnCongestionWeight);
+                                        asn.CongestionEventCount, Svc.Options.AsnLatencyStabilityWeight,
+                                        Svc.Options.AsnCongestionWeight);
                                 }
                                 @if (asnLimit is not null)
                                 {
@@ -910,9 +926,9 @@ else
 
     // The live/cached window in hours: the effective auto-computed window (reduced by auto-fallback
     // when the box can't finish the configured target in time), else the configured target, else 48.
-    private int LiveWindowHours => IspHealth.EffectiveWindowHours > 0
-        ? IspHealth.EffectiveWindowHours
-        : (IspHealth.ConfiguredWindowHours > 0 ? IspHealth.ConfiguredWindowHours : DefaultPresetHours);
+    private int LiveWindowHours => Svc.EffectiveWindowHours > 0
+        ? Svc.EffectiveWindowHours
+        : (Svc.ConfiguredWindowHours > 0 ? Svc.ConfiguredWindowHours : DefaultPresetHours);
 
     // Presets shown in the selector: the base set plus the live window when auto-fallback landed on a
     // value that isn't already a preset (e.g. the 16 h rung), so the active default always has a button.
@@ -959,12 +975,12 @@ else
     private async Task RetryFullWindowAsync()
     {
         if (_refreshing || _windowComputing) return;
-        IspHealth.RetryConfiguredWindow();
+        Svc.RetryConfiguredWindow();
         _refreshing = true;
         StateHasChanged();
         try
         {
-            var report = await IspHealth.GetReportAsync(forceRefresh: true);
+            var report = await Svc.GetReportAsync(forceRefresh: true);
             if (IsLiveWindow)
             {
                 _report = report;
@@ -991,6 +1007,95 @@ else
     /// </summary>
     private bool _canOperate;
 
+    // Per-WAN report selection: the panel talks to the selected WAN's own IspHealthService
+    // instance; the injected (primary) service is the default and the only one a single-WAN
+    // site ever uses.
+    private IspHealthService? _wanSvc;
+    private IspHealthService Svc => _wanSvc ?? IspHealth;
+    private sealed record WanChoice(string Key, string Label, bool IsPrimary);
+    private List<WanChoice> _wanOptions = new();
+    private string _selectedWanKey = "";
+    private string SharedWanScopeKey => SiteContext.ScopeStorageKey("monitoringWanScope");
+
+    /// <summary>
+    /// WAN choices for the selector: the live WAN list, plus any context-bound WAN the console
+    /// currently omits (a down WAN's history is still worth reading). One entry = gate closed.
+    /// </summary>
+    private async Task LoadWanChoicesAsync()
+    {
+        var options = new List<WanChoice>();
+        try
+        {
+            foreach (var wan in await PathView.GetWansAsync())
+                options.Add(new WanChoice(wan.WanInterface.ToLowerInvariant(),
+                    NetworkOptimizer.UniFi.GatewayWanHelper.FormatWanLabel(
+                        wan.FriendlyName, NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey(wan.WanInterface), null, null),
+                    wan.IsPrimary));
+        }
+        catch { }
+        try
+        {
+            await using var db = SiteDb.CreateForSite(SiteContext.Slug, SiteContext.IsDefault);
+            var contexts = await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.ToListAsync(
+                Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.AsNoTracking(db.WanContexts));
+            foreach (var ctx in contexts)
+            {
+                if (string.IsNullOrEmpty(ctx.WanInterface)) continue;
+                var key = ctx.WanInterface!.ToLowerInvariant();
+                if (!options.Any(o => o.Key == key))
+                    options.Add(new WanChoice(key,
+                        NetworkOptimizer.UniFi.GatewayWanHelper.FormatWanLabel(
+                            ctx.Name, NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey(key), null, null),
+                        IsPrimary: false));
+            }
+        }
+        catch { }
+        _wanOptions = options;
+        _selectedWanKey = options.FirstOrDefault(o => o.IsPrimary)?.Key ?? options.FirstOrDefault()?.Key ?? "";
+    }
+
+    private async Task SelectWanAsync(string key, bool persist = true)
+    {
+        if (string.Equals(key, _selectedWanKey, StringComparison.OrdinalIgnoreCase)) return;
+        var choice = _wanOptions.FirstOrDefault(w => string.Equals(w.Key, key, StringComparison.OrdinalIgnoreCase));
+        if (choice == null) return;
+        _selectedWanKey = choice.Key;
+        _wanSvc = choice.IsPrimary ? null : IspHealthRegistry.GetFor(SiteContext.Slug, choice.Key);
+        if (persist)
+        {
+            try { await JS.InvokeVoidAsync("localStorage.setItem", SharedWanScopeKey, choice.IsPrimary ? "" : choice.Key); }
+            catch { }
+        }
+        try
+        {
+            _report = _windowStart.HasValue && _windowEnd.HasValue
+                ? await Svc.GetReportForWindowAsync(_windowStart.Value, _windowEnd.Value)
+                : await Svc.GetReportAsync();
+        }
+        catch { _report = null; }
+        var wanArg = choice.IsPrimary ? "null" : "'" + choice.Key + "'";
+        try { await JS.InvokeVoidAsync("eval", "window.__ispHealthCharts?.setWan?.(" + wanArg + ");"); }
+        catch { }
+        StateHasChanged();
+    }
+
+    /// <summary>Applies the WAN remembered for this site once localStorage is reachable.</summary>
+    private async Task RestoreWanSelectionAsync()
+    {
+        if (_wanOptions.Count <= 1) return;
+        try
+        {
+            var stored = await JS.InvokeAsync<string?>("localStorage.getItem", SharedWanScopeKey);
+            if (!string.IsNullOrEmpty(stored)
+                && !string.Equals(stored, _selectedWanKey, StringComparison.OrdinalIgnoreCase)
+                && _wanOptions.Any(w => string.Equals(w.Key, stored, StringComparison.OrdinalIgnoreCase)))
+            {
+                await SelectWanAsync(stored, persist: false);
+            }
+        }
+        catch { }
+    }
+
     protected override async Task OnInitializedAsync()
     {
         _canOperate = AuthState is null
@@ -1001,9 +1106,11 @@ else
         PtrState.RefreshCallback = RefreshAsync;
         PtrState.NotifyStateChanged = StateHasChanged;
 
+        await LoadWanChoicesAsync();
+
         try
         {
-            _report = await IspHealth.GetReportAsync();
+            _report = await Svc.GetReportAsync();
         }
         catch
         {
@@ -1045,7 +1152,7 @@ else
             _autoReloading = true;
             try
             {
-                var latest = await IspHealth.GetReportAsync();
+                var latest = await Svc.GetReportAsync();
                 if (latest != null && (_report == null || latest.ComputedAt != _report.ComputedAt))
                 {
                     _report = latest;
@@ -1099,6 +1206,8 @@ else
             // cached report, which is what the tab is showing.
             if (_windowStart.HasValue && _windowEnd.HasValue)
                 url += $"?from={Uri.EscapeDataString(_windowStart.Value.ToString("o"))}&to={Uri.EscapeDataString(_windowEnd.Value.ToString("o"))}";
+            if (_wanSvc != null && !string.IsNullOrEmpty(_selectedWanKey))
+                url += (url.Contains('?') ? "&" : "?") + $"wan={Uri.EscapeDataString(_selectedWanKey)}";
             if (!SiteContext.IsDefault)
                 url = SiteContextService.WithSiteParam(url, SiteContext.Slug);
 
@@ -1147,7 +1256,7 @@ else
         {
             if (IsLiveWindow)
             {
-                _report = await IspHealth.GetReportAsync(forceRefresh: true);
+                _report = await Svc.GetReportAsync(forceRefresh: true);
                 // The chart fetches its own series from the freshly cached report.
                 try { await JS.InvokeVoidAsync("eval", "window.__ispHealthCharts?.reload?.();"); }
                 catch { /* chart not mounted yet */ }
@@ -1156,7 +1265,7 @@ else
             {
                 // Recompute the current window, bypassing the custom-window cache; the chart's
                 // follow-up fetch then hits the freshly recomputed result for the same window.
-                _report = await IspHealth.GetReportForWindowAsync(_windowStart.Value, _windowEnd.Value, forceRefresh: true);
+                _report = await Svc.GetReportForWindowAsync(_windowStart.Value, _windowEnd.Value, forceRefresh: true);
                 await ChartSetWindowAsync(_windowStart, _windowEnd);
             }
         }
@@ -1174,11 +1283,11 @@ else
     private async Task OnPhysicalLinkSourceChanged(ChangeEventArgs e)
     {
         var key = e.Value?.ToString();
-        await IspHealth.SetPhysicalLinkSourceAsync(string.IsNullOrEmpty(key) ? null : key);
+        await Svc.SetPhysicalLinkSourceAsync(string.IsNullOrEmpty(key) ? null : key);
         if (IsLiveWindow)
-            _report = await IspHealth.GetReportAsync();
+            _report = await Svc.GetReportAsync();
         else if (_windowStart.HasValue && _windowEnd.HasValue)
-            _report = await IspHealth.GetReportForWindowAsync(_windowStart.Value, _windowEnd.Value, forceRefresh: true);
+            _report = await Svc.GetReportForWindowAsync(_windowStart.Value, _windowEnd.Value, forceRefresh: true);
         StateHasChanged();
     }
 
@@ -1222,9 +1331,9 @@ else
         try
         {
             if (acknowledged)
-                await IspHealth.AcknowledgeOutageAsync(outageStartUtc);
+                await Svc.AcknowledgeOutageAsync(outageStartUtc);
             else
-                await IspHealth.UnacknowledgeOutageAsync(outageStartUtc);
+                await Svc.UnacknowledgeOutageAsync(outageStartUtc);
             await ReloadAfterOutageAckAsync();
         }
         finally
@@ -1238,9 +1347,9 @@ else
     private async Task ReloadAfterOutageAckAsync()
     {
         if (IsLiveWindow)
-            _report = await IspHealth.GetReportAsync();
+            _report = await Svc.GetReportAsync();
         else if (_windowStart.HasValue && _windowEnd.HasValue)
-            _report = await IspHealth.GetReportForWindowAsync(_windowStart.Value, _windowEnd.Value, forceRefresh: true);
+            _report = await Svc.GetReportForWindowAsync(_windowStart.Value, _windowEnd.Value, forceRefresh: true);
         StateHasChanged();
     }
 
@@ -1264,11 +1373,11 @@ else
         StateHasChanged();
         try
         {
-            await IspHealth.SetAccessTechnologyAsync((AccessTechnology)techValue);
+            await Svc.SetAccessTechnologyAsync((AccessTechnology)techValue);
             if (IsLiveWindow)
-                _report = await IspHealth.GetReportAsync();
+                _report = await Svc.GetReportAsync();
             else if (_windowStart.HasValue && _windowEnd.HasValue)
-                _report = await IspHealth.GetReportForWindowAsync(_windowStart.Value, _windowEnd.Value, forceRefresh: true);
+                _report = await Svc.GetReportForWindowAsync(_windowStart.Value, _windowEnd.Value, forceRefresh: true);
         }
         finally
         {
@@ -1316,6 +1425,10 @@ else
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        // Interop is unavailable during prerender, so the remembered WAN applies here; until
+        // then the panel shows the primary, exactly as a site with nothing stored expects.
+        if (firstRender)
+            await RestoreWanSelectionAsync();
         if (_scrollChartAfterRender)
         {
             _scrollChartAfterRender = false;
@@ -1422,8 +1535,8 @@ else
             // Default (null window) serves the cached 48 h report; an explicit window computes
             // off-cache and never disturbs it. Stale report stays on screen until the swap.
             _report = fromUtc.HasValue && toUtc.HasValue
-                ? await IspHealth.GetReportForWindowAsync(fromUtc.Value, toUtc.Value)
-                : await IspHealth.GetReportAsync();
+                ? await Svc.GetReportForWindowAsync(fromUtc.Value, toUtc.Value)
+                : await Svc.GetReportAsync();
         }
         catch { _report = null; }
         finally { _windowComputing = false; }

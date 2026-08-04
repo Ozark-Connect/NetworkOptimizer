@@ -384,9 +384,13 @@ else
     {
         if (_gatewayMac == null || _gatewayWanIfNames.Count == 0) return (0, 0);
         double totalDown = 0, totalUp = 0;
-        // _gatewayWanIfNames holds the PRIMARY WAN only, by design - these stats
-        // sit beside ISP/transit latency measured for that one connection. Do not
-        // widen it to other WANs (see DiscoveredDevice.WanInterfaceNames).
+        // _gatewayWanIfNames holds the PRIMARY WAN's counter interface: this live tile sits
+        // beside ISP/transit latency measured over that connection, so its rate must be that
+        // one link's. Per-WAN throughput lives behind the multi-WAN gate on the Monitoring
+        // surfaces (Network Performance WAN filter, per-WAN ISP Health), each resolving its
+        // OWN counter interface. A future WAN selector here swaps in one WAN's counter
+        // interface under that gate; never sum WANs (see
+        // MonitoringInfluxClient.QueryGatewayWanRatesAsync's contract).
         foreach (var ifName in _gatewayWanIfNames)
         {
             var rate = LiveStats.GetPortRate(_gatewayMac, ifName);

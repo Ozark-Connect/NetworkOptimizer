@@ -48,6 +48,41 @@ let visibilityObserver = null;
 let isInViewport = true;
 let lastFetchData = null;
 let savedState = null;
+// Per-WAN scope, set by Blazor (which owns the WAN pill bar and its visibility gate).
+// null = no scoping at all: single-WAN sites never reach this code path and render
+// exactly as before. Shape: { primaryKey, selected: [wanKey...], labels: {key: label} };
+// selecting every key is comparison mode (per-host color kept, per-WAN dash pattern).
+let wanScope = null;
+// Dash patterns by WAN order: primary solid, then visibly distinct patterns per extra WAN.
+const WAN_DASH_PATTERNS = [0, 6, 2, 9];
+
+function effectiveWanKey(t) {
+    // Unstamped targets are primary-path measurements (same rule as the server side).
+    return (t.wanInterface || wanScope?.primaryKey || 'wan').toLowerCase();
+}
+
+function wanComparisonActive() {
+    return !!wanScope && wanScope.selected.length > 1;
+}
+
+function filterTargetsToWanScope(targets) {
+    if (!wanScope) return targets;
+    const sel = new Set(wanScope.selected.map(k => k.toLowerCase()));
+    return targets.filter(t => sel.has(effectiveWanKey(t)));
+}
+
+function wanDisplayName(t) {
+    if (!wanComparisonActive()) return t.name;
+    const key = effectiveWanKey(t);
+    const label = wanScope.labels?.[key] || key.toUpperCase();
+    return `${t.name} (${label})`;
+}
+
+function wanDashFor(t) {
+    if (!wanComparisonActive()) return 0;
+    const idx = wanScope.selected.map(k => k.toLowerCase()).indexOf(effectiveWanKey(t));
+    return WAN_DASH_PATTERNS[Math.max(0, idx) % WAN_DASH_PATTERNS.length];
+}
 let investigateMarker = null;  // { startMs, endMs, label, loaded } while investigating a loss event
 
 // Highlight the investigated loss event on the RTT and loss charts, mirroring the
@@ -340,31 +375,38 @@ async function loadAndUpdate() {
     const data = await fetchData();
     if (!data || !data.targets) return;
 
-    targetMeta = data.targets.map(t => ({
+    // WAN scoping is client-side over the full per-type payload: the fetch stays shared
+    // across WAN selections, and comparison mode simply keeps every WAN's rows. Twin rows
+    // of one host share a name (and therefore a color); the WAN suffix + dash pattern
+    // are what tells them apart in comparison mode.
+    const scopedTargets = filterTargetsToWanScope(data.targets);
+
+    targetMeta = scopedTargets.map(t => ({
         id: t.targetId,
-        name: t.name,
+        name: wanDisplayName(t),
         color: hashColor(t.name),
     }));
 
-    const rttSeries = data.targets.map(t => ({
-        name: t.name,
+    const rttSeries = scopedTargets.map(t => ({
+        name: wanDisplayName(t),
         color: hashColor(t.name),
         data: (t.rtt || []).map(p => ({ x: new Date(p.time).getTime(), y: p.value })),
     }));
 
-    const lossSeries = data.targets.map(t => ({
-        name: t.name,
+    const lossSeries = scopedTargets.map(t => ({
+        name: wanDisplayName(t),
         color: hashColor(t.name),
         data: (t.loss || []).map(p => ({ x: new Date(p.time).getTime(), y: p.value })),
     }));
 
-    lastFetchData = data;
+    lastFetchData = { ...data, targets: scopedTargets };
 
+    const dashArray = scopedTargets.map(wanDashFor);
     if (rttChart) rttChart.updateSeries(rttSeries, false);
     if (lossChart) lossChart.updateSeries(lossSeries, false);
 
     const annotations = buildInvestigateAnnotations();
-    if (rttChart) rttChart.updateOptions({ annotations }, false, false);
+    if (rttChart) rttChart.updateOptions({ annotations, stroke: { curve: 'smooth', width: 2, dashArray } }, false, false);
     if (lossChart) lossChart.updateOptions({ annotations }, false, false);
 
     updateChartVisibility();
@@ -383,7 +425,13 @@ async function loadAndUpdate() {
     if (wanCard) wanCard.style.display = showWanRate ? '' : 'none';
 
     if (showWanRate && wanRateChart) {
-        const timeParams = buildQueryParams().replace(/category=[^&]*&?/, '');
+        let timeParams = buildQueryParams().replace(/category=[^&]*&?/, '');
+        // The throughput reference follows the WAN filter: the solo-selected WAN, or the
+        // primary while comparing (never a sum - Blazor labels the card accordingly).
+        if (wanScope) {
+            const focused = wanScope.selected.length === 1 ? wanScope.selected[0] : wanScope.primaryKey;
+            if (focused) timeParams += `${timeParams ? '&' : ''}wan=${encodeURIComponent(focused)}`;
+        }
         try {
             const resp = await fetch(`/api/monitoring/wan-rate-chart?${timeParams}`, { credentials: 'same-origin' });
             if (resp.ok) {
@@ -425,7 +473,7 @@ function renderStatsTable(container, showAll) {
         const rtt = computeStats(rttVals);
         const loss = computeStats(lossVals);
         const meta = targetMeta.find(m => m.id === t.targetId);
-        return { id: t.targetId, label: t.name, color: meta?.color || '#9ca3af',
+        return { id: t.targetId, label: meta?.name || t.name, color: meta?.color || '#9ca3af',
             visible: meta && visibility[meta.id] !== false,
             values: [rtt?.mean, rtt?.min, rtt?.max, rtt?.p95, rtt?.p99, loss?.mean, loss?.max] };
     });
@@ -762,6 +810,14 @@ export function restoreState() {
     startPoll();
 }
 
+// Blazor pushes the WAN pill bar's state here. Passing null clears scoping entirely
+// (the gate is closed - single WAN, no contexts).
+export function setWanScope(scope) {
+    wanScope = scope && Array.isArray(scope.selected) && scope.selected.length > 0 ? scope : null;
+    visibility = {};
+    loadAndUpdate();
+}
+
 export function setCategory(cat) {
     currentCategory = cat;
     const container = document.getElementById(containerId);
@@ -808,4 +864,5 @@ export function unmount() {
     savedState = null;
     investigateMarker = null;
     isInViewport = true;
+    wanScope = null;
 }
