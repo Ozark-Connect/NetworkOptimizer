@@ -207,43 +207,41 @@
                     </SiteAdminOnly>
                     <button class="btn btn-sm btn-tertiary" @onclick="CancelForm">Cancel</button>
                 </div>
-                <div class="wc-help">
-                @if (SelectedAgentOutdated)
-                {
-                    <div class="alert alert-warning">
-                        This agent is on an older release. Update it from Settings - Multi-Site -
-                        some of the options here only appear once it has.
-                    </div>
-                }
-                @if (!SelectedAgentCanBindSource)
-                {
-                    <p class="form-hint">
-                        Give a source IP for local probing (the gateway must policy-route it out this
-                        WAN), or assign a probe-only agent bound behind the WAN - not both. Assigned
-                        targets are probed only by that agent.
-                    </p>
-                }
-                else
-                {
-                    <div class="info-box">
+                <div class="info-box wc-help">
+                    <p class="wc-help-title">Help</p>
+                    @if (SelectedAgentOutdated)
+                    {
+                        <p class="wc-help-warn">
+                            This agent is on an older release. Update it from Settings - Multi-Site -
+                            some of the options here only appear once it has.
+                        </p>
+                    }
+                    @if (!SelectedAgentCanBindSource)
+                    {
+                        <p>
+                            Give a source IP for local probing (the gateway must policy-route it out this
+                            WAN), or assign a probe-only agent bound behind the WAN - not both. Assigned
+                            targets are probed only by that agent.
+                        </p>
+                    }
+                    else
+                    {
                         <p>
                             This agent binds this address for the WAN's probes. The address needs its own
                             interface and MAC - UniFi matches the policy-based route by Client Device - so
                             a second address on an existing NIC won't route differently.
                         </p>
-                    </div>
-                }
-                @if (SelectedAgentCanBindInterface)
-                {
-                    <p class="form-hint">
-                        This agent runs on the gateway, so its probes can go out the WAN's own
-                        interface. Selecting a WAN fills this in; clear it to use the agent's
-                        default route instead.
-                    </p>
-                }
-                @if ((!string.IsNullOrWhiteSpace(_newSourceIp) && !SelectedAgentCanBindSource) || SelectedAgentNeedsPolicyRoute)
-                {
-                    <div class="info-box">
+                    }
+                    @if (SelectedAgentCanBindInterface)
+                    {
+                        <p>
+                            This agent runs on the gateway, so its probes can go out the WAN's own
+                            interface. Selecting a WAN fills this in; clear it to use the agent's
+                            default route instead.
+                        </p>
+                    }
+                    @if ((!string.IsNullOrWhiteSpace(_newSourceIp) && !SelectedAgentCanBindSource) || SelectedAgentNeedsPolicyRoute)
+                    {
                         <p>
                             This agent reaches @WanLabelFor(_newWanInterface) only if the gateway routes it there. In UniFi
                             Network, go to Settings - Policy Table and add a Policy-Based Route with
@@ -253,8 +251,7 @@
                             container can be given one - not a second address on a host that's already
                             on the network.
                         </p>
-                    </div>
-                }
+                    }
                 </div>
                 @if (!string.IsNullOrEmpty(_addError))
                 {
@@ -304,8 +301,23 @@
         margin-top: 1rem;
     }
 
-    .wc-help {
-        margin-top: 0.25rem;
+    .wc-help p {
+        font-size: 0.8125rem;
+        line-height: 1.5;
+    }
+
+    .wc-help p + p {
+        margin-top: 0.6rem;
+    }
+
+    .wc-help-title {
+        font-weight: 600;
+        color: var(--primary-color);
+        margin-bottom: 0.6rem;
+    }
+
+    .wc-help-warn {
+        color: var(--warning-color);
     }
 
     .wc-agent-dot {
