@@ -668,7 +668,13 @@ public class IspHealthService
             // Latency reads filter the Influx `wan` tag to this WAN's series: untagged points
             // for the primary, a WAN's context tag values for a scoped WAN (see BuildWanScope).
             var bindingContexts = await db.WanContexts.AsNoTracking().ToListAsync(ct);
-            wanScope = BuildWanScope(bindingContexts, scoredWanKey, primaryScope);
+            // No contexts means nothing has ever written a wan tag here, so there is nothing to
+            // filter apart: the primary instance reads exactly the unfiltered query it always
+            // has. That keeps every single-WAN install on the query shape that is already proven
+            // in the field rather than on a tag-absence predicate for no gain.
+            wanScope = primaryScope && bindingContexts.Count == 0
+                ? null
+                : BuildWanScope(bindingContexts, scoredWanKey, primaryScope);
             // TargetId -> ancestor hop IPs. Join discovery rows to the loaded targets by PK.
             var targetIdById = targets.ToDictionary(t => t.Id, t => t.TargetId);
             ancestorIpsByTargetId = discoveries
