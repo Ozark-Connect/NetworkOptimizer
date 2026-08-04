@@ -9464,7 +9464,7 @@ a.path-hop.hop-clickable:hover {
     grid-template-columns: 2.6rem 5.2rem;
     justify-content: center;
     align-items: center;
-    column-gap: 0.35rem;
+    column-gap: 0.6rem;
     row-gap: 0.1rem;
     font-size: 0.95rem;
     line-height: 1.35;
