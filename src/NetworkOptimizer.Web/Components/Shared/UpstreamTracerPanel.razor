@@ -852,7 +852,9 @@
         // when it finishes, so releasing in a finally killed the pin about a tick after it started -
         // one correction, then nothing, with no scroll from the reader to explain it. The pin ends
         // when the run reaches a terminal step (below), or the moment they scroll for themselves.
-        await Discovery.StartAsync();
+        // Through the audited service, onto the SELECTED WAN's tracer - the reads above
+        // already follow Svc, and a run that silently hit the primary would trace the wrong WAN.
+        await Discovery.StartAsync(_wanTracer);
         _state = Svc.State;
         StateHasChanged();
     }
@@ -860,7 +862,7 @@
     private async Task CommitAsync()
     {
         if (!_canOperate) return;
-        await Discovery.CommitAsync();
+        await Discovery.CommitAsync(_wanTracer);
         _state = Svc.State;
         _justSaved = true;
         await OnSaved.InvokeAsync();

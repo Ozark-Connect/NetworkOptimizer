@@ -325,13 +325,15 @@ public class AgentProbeResultSink
                     skippedSelf++;
                     continue;
                 }
-                // Targets in an agent-assigned WAN context go only to that agent
-                // (typically a probe-only instance bound behind the right WAN);
-                // unassigned targets go to every agent as extra vantage points -
-                // except to an agent that owns a context, which measures only that.
+                // Context targets are that context's alone: its assigned agent, or no agent when
+                // the context is server-probed (the server's own prober binds the source IP).
+                // Only UNASSIGNED targets fan out to every ordinary agent as extra vantage
+                // points - except to an agent that owns a context, which measures only that. A
+                // WanContextId whose row is gone counts as a context with no agent (pushed
+                // nowhere) rather than as unassigned - conservative until the row is cleaned up.
                 var context = target.WanContextId is int contextId
                     && contextsById.TryGetValue(contextId, out var found) ? found : null;
-                if (!ShouldPushTargetToAgent(context?.AgentId, connection.AgentId, agentIsContextAssigned))
+                if (!ShouldPushTargetToAgent(target.WanContextId != null, context?.AgentId, connection.AgentId, agentIsContextAssigned))
                     continue;
                 config.Targets.Add(new ProbeTargetSpec
                 {
@@ -370,11 +372,16 @@ public class AgentProbeResultSink
     /// keeps the shipped arrangement - unassigned targets as an extra vantage point, another
     /// agent's context targets never.
     /// </summary>
-    /// <param name="contextAgentId">Agent assigned to the target's WAN context; null when the target has no context, or a context nobody is assigned to.</param>
+    /// <param name="targetHasContext">Whether the target belongs to ANY WAN context. A context
+    /// target is that context's alone: its assigned agent when it has one, or - for a source-IP
+    /// (server-probed) context - NO agent at all, because an ordinary agent would probe it over
+    /// its own primary route while the result gets tagged with the secondary WAN's key,
+    /// corrupting that WAN's score now that the tag is read.</param>
+    /// <param name="contextAgentId">Agent assigned to the target's WAN context; null when the target has no context, or its context has no agent (server-probed).</param>
     /// <param name="agentId">The agent being pushed to.</param>
     /// <param name="agentIsContextAssigned">Whether any of the site's contexts names this agent.</param>
-    internal static bool ShouldPushTargetToAgent(int? contextAgentId, int agentId, bool agentIsContextAssigned)
-        => agentIsContextAssigned ? contextAgentId == agentId : contextAgentId is null;
+    internal static bool ShouldPushTargetToAgent(bool targetHasContext, int? contextAgentId, int agentId, bool agentIsContextAssigned)
+        => targetHasContext ? contextAgentId == agentId : !agentIsContextAssigned;
 
     /// <summary>
     /// The source an agent binds this target's probes to: the context's interface when it has one,

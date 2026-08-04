@@ -77,7 +77,8 @@ public class IspHealthService
     {
         _siteSlug = string.IsNullOrEmpty(siteSlug) ? SiteManagementService.DefaultSiteSlug : siteSlug;
         _isDefault = _siteSlug == SiteManagementService.DefaultSiteSlug;
-        _scopedWanKey = string.IsNullOrWhiteSpace(wanInterface) ? null : wanInterface.Trim().ToLowerInvariant();
+        _scopedWanKey = string.IsNullOrWhiteSpace(wanInterface)
+            ? null : GatewayWanHelper.WanInterfaceKeyFromKey(wanInterface.Trim());
         _influx = influxRegistry.GetFor(_siteSlug);
         _dbFactory = dbFactory;
         _siteDbFactory = siteDbFactory;
@@ -165,16 +166,19 @@ public class IspHealthService
         {
             var rows = await db.WanDiscoveryContexts.ToListAsync(ct);
             // The SCORED WAN's context row - a scoped instance writes its own WAN's technology,
-            // never the primary's. Primary keeps the wan-first pick - and NOT filtered to
-            // non-Unknown: setting it when it is currently unset is the whole point. Create it if
-            // missing, matching Upstream Discovery's create-if-missing on commit.
-            var ctxRow = _scopedWanKey == null
-                ? rows.OrderBy(c => string.Equals(c.WanInterface, "wan", StringComparison.OrdinalIgnoreCase) ? 0 : 1)
-                    .FirstOrDefault()
-                : rows.FirstOrDefault(c => string.Equals(c.WanInterface, _scopedWanKey, StringComparison.OrdinalIgnoreCase));
+            // never the primary's. The primary resolves its key like the compute does (configured
+            // role first, "wan"-first guess offline) - and is NOT filtered to non-Unknown:
+            // setting it when it is currently unset is the whole point. Create it if missing,
+            // matching Upstream Discovery's create-if-missing on commit.
+            var writeKey = _scopedWanKey
+                ?? await ResolveConfiguredPrimaryWanKeyAsync(ct)
+                ?? ResolvePrimaryWanKey(rows);
+            var ctxRow = rows.FirstOrDefault(c => string.Equals(
+                GatewayWanHelper.WanInterfaceKeyFromKey(c.WanInterface ?? ""),
+                GatewayWanHelper.WanInterfaceKeyFromKey(writeKey), StringComparison.OrdinalIgnoreCase));
             if (ctxRow == null)
             {
-                ctxRow = new WanDiscoveryContext { WanInterface = _scopedWanKey ?? "wan" };
+                ctxRow = new WanDiscoveryContext { WanInterface = writeKey };
                 db.WanDiscoveryContexts.Add(ctxRow);
             }
             ctxRow.AccessTechnology = technology;
@@ -609,7 +613,9 @@ public class IspHealthService
             // filter: a WAN whose technology was never set still owns its targets. Falls back to
             // "wan" so a site with no discovery context yet still scopes to the conventional primary.
             var wanContexts = await db.WanDiscoveryContexts.AsNoTracking().ToListAsync(ct);
-            primaryWanKey = ResolvePrimaryWanKey(wanContexts);
+            // Primary is a ROLE: ask the console which group holds it (any wanN can); the
+            // name-ordered context guess is the offline fallback only.
+            primaryWanKey = await ResolveConfiguredPrimaryWanKeyAsync(ct) ?? ResolvePrimaryWanKey(wanContexts);
             scoredWanKey = _scopedWanKey ?? primaryWanKey;
 
             // The scored WAN's OWN discovery context decides its technology; the legacy global
@@ -618,7 +624,8 @@ public class IspHealthService
             // below rather than borrowing the primary's - grading LTE against fiber thresholds
             // is exactly the mispairing per-WAN scoring exists to kill.
             var scoredContext = wanContexts.FirstOrDefault(c =>
-                string.Equals(c.WanInterface, scoredWanKey, StringComparison.OrdinalIgnoreCase));
+                string.Equals(GatewayWanHelper.WanInterfaceKeyFromKey(c.WanInterface ?? ""),
+                    GatewayWanHelper.WanInterfaceKeyFromKey(scoredWanKey), StringComparison.OrdinalIgnoreCase));
             technology = scoredContext?.AccessTechnology is { } t && t != AccessTechnology.Unknown
                 ? t
                 : primaryScope ? settings.AccessTechnology : AccessTechnology.Unknown;
@@ -654,7 +661,8 @@ public class IspHealthService
                 .ToListAsync(ct))
                 .Where(d => string.IsNullOrEmpty(d.WanInterface)
                     ? primaryScope
-                    : string.Equals(d.WanInterface, scoredWanKey, StringComparison.OrdinalIgnoreCase))
+                    : string.Equals(GatewayWanHelper.WanInterfaceKeyFromKey(d.WanInterface),
+                        GatewayWanHelper.WanInterfaceKeyFromKey(scoredWanKey), StringComparison.OrdinalIgnoreCase))
                 .ToList();
 
             // Latency reads filter the Influx `wan` tag to this WAN's series: untagged points
@@ -1398,20 +1406,52 @@ public class IspHealthService
     /// </remarks>
     internal static List<MonitoringTarget> ScopeTargetsToWan(
         List<MonitoringTarget> targets, string wanKey, bool includeUnassigned) =>
+        // Keys normalized ("wan1" == "wan"): legacy installs stamped rows with the wan1 alias,
+        // and an unnormalized comparison would silently drop them from their own report.
         targets.Where(t => string.IsNullOrEmpty(t.WanInterface)
                 ? includeUnassigned
-                : string.Equals(t.WanInterface, wanKey, StringComparison.OrdinalIgnoreCase))
+                : string.Equals(GatewayWanHelper.WanInterfaceKeyFromKey(t.WanInterface),
+                    GatewayWanHelper.WanInterfaceKeyFromKey(wanKey), StringComparison.OrdinalIgnoreCase))
             .ToList();
 
     /// <summary>
-    /// The primary instance's wan key from the discovery contexts: wan-first ordering, first row
-    /// with an interface name, falling back to the conventional "wan" when no context exists yet.
+    /// The configured primary WAN's key from a resolved networkconf row ("WAN2" -> "wan2"), or
+    /// null when there is none to read. Primary is a ROLE, not a name: any wanN group can be the
+    /// configured primary (failover priority / load-balance weight decide), so this - never a
+    /// name-ordered guess - is the authoritative answer while the console can be asked.
+    /// </summary>
+    internal static string? ConfiguredPrimaryWanKey(NetworkInfo? primary) =>
+        string.IsNullOrEmpty(primary?.WanNetworkgroup)
+            ? null : GatewayWanHelper.WanInterfaceKeyFromKey(primary!.WanNetworkgroup!);
+
+    /// <summary>Configured primary key from the console; null when it cannot be asked.</summary>
+    private async Task<string?> ResolveConfiguredPrimaryWanKeyAsync(CancellationToken ct)
+    {
+        try
+        {
+            return ConfiguredPrimaryWanKey(await _connectionService.GetPrimaryWanNetworkAsync(ct));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "ISP Health could not resolve the configured primary WAN from the console");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// LAST-RESORT GUESS at the primary's wan key, for when the console cannot say which WAN
+    /// holds the primary role: the conventional "wan"-group discovery row first, then any row,
+    /// defaulting to "wan" with no rows at all. This is wrong exactly on an offline multi-WAN
+    /// site whose configured primary is another group (WAN2-primary with a WAN1 failover) -
+    /// there is nothing better to ask offline, and the next connected compute corrects it.
+    /// Callers must prefer <see cref="ConfiguredPrimaryWanKey"/> whenever the console answers.
     /// </summary>
     internal static string ResolvePrimaryWanKey(IEnumerable<WanDiscoveryContext> contexts) =>
-        contexts
-            .OrderBy(c => string.Equals(c.WanInterface, "wan", StringComparison.OrdinalIgnoreCase) ? 0 : 1)
+        GatewayWanHelper.WanInterfaceKeyFromKey(contexts
+            .OrderBy(c => string.Equals(
+                GatewayWanHelper.WanInterfaceKeyFromKey(c.WanInterface ?? ""), "wan", StringComparison.OrdinalIgnoreCase) ? 0 : 1)
             .Select(c => c.WanInterface)
-            .FirstOrDefault(w => !string.IsNullOrEmpty(w)) ?? "wan";
+            .FirstOrDefault(w => !string.IsNullOrEmpty(w)) ?? "wan");
 
     /// <summary>
     /// The Influx wan-tag scope for the WAN being scored. Primary: untagged points (every point
@@ -1424,16 +1464,23 @@ public class IspHealthService
     internal static MonitoringInfluxClient.LatencyWanScope BuildWanScope(
         IEnumerable<WanContext> contexts, string wanKey, bool primaryScope)
     {
+        // Context match is key-normalized ("wan1" == "wan"), but the TAG VALUES stay raw: points
+        // were written with each context's literal InfluxWanTag, so a legacy wan1-keyed context
+        // contributes the "wan1" tag its points actually carry. The scoped WAN's own normalized
+        // key is added for points the writers tag going forward. Note the wanKey parameter is
+        // whatever key the caller RESOLVED (configured primary or scoped key) - never a literal.
+        var normalizedKey = GatewayWanHelper.WanInterfaceKeyFromKey(wanKey);
         var tags = contexts
-            .Where(c => string.Equals(c.WanInterface, wanKey, StringComparison.OrdinalIgnoreCase))
+            .Where(c => !string.IsNullOrEmpty(c.WanInterface) && string.Equals(
+                GatewayWanHelper.WanInterfaceKeyFromKey(c.WanInterface!), normalizedKey, StringComparison.OrdinalIgnoreCase))
             .SelectMany(c => new[] { c.InfluxWanTag, c.Name })
             .Where(v => !string.IsNullOrEmpty(v))
             .Distinct(StringComparer.Ordinal)
             .ToList();
         if (primaryScope)
             return MonitoringInfluxClient.LatencyWanScope.Primary(tags);
-        if (!tags.Contains(wanKey, StringComparer.Ordinal))
-            tags.Insert(0, wanKey);
+        if (!tags.Contains(normalizedKey, StringComparer.Ordinal))
+            tags.Insert(0, normalizedKey);
         return MonitoringInfluxClient.LatencyWanScope.ForWan(tags);
     }
 
@@ -1601,9 +1648,16 @@ public class IspHealthService
         {
             try
             {
+                // Prefer the CONFIGURED primary group's remembered row when the console can
+                // still say which group holds the primary role; the first-by-group-name pick is
+                // the last resort and is a documented GUESS - on a WAN2-primary site with a WAN1
+                // failover row it returns the failover's counter. Nothing better exists offline
+                // (WanProfile carries no primary marker); the next connected read corrects it.
+                var cfgGroup = await ResolveConfiguredPrimaryWanKeyAsync(ct) is { } cfgKey
+                    ? GatewayWanHelper.WanNetworkGroupFromKey(cfgKey) : null;
                 await using var db = await CreateSiteDbAsync(ct);
                 var remembered = await db.WanProfiles.AsNoTracking()
-                    .Where(w => w.CounterInterface != null)
+                    .Where(w => w.CounterInterface != null && (cfgGroup == null || w.WanNetworkgroup == cfgGroup))
                     .OrderBy(w => w.WanNetworkgroup)
                     .ThenByDescending(w => w.UpdatedAt)
                     .Select(w => w.CounterInterface)
@@ -1776,8 +1830,11 @@ public class IspHealthService
                 || t.TargetType == MonitoringTargetType.InternetService))
             .ToListAsync(ct);
         // Same WAN scope as the compute (ScopeTargetsToWan there), so the Investigate highlight
-        // averages exactly the pool this instance's score is graded on.
-        var scoredKey = _scopedWanKey ?? ResolvePrimaryWanKey(await db.WanDiscoveryContexts.AsNoTracking().ToListAsync(ct));
+        // averages exactly the pool this instance's score is graded on - configured primary
+        // first, name-ordered guess only offline, like the compute.
+        var scoredKey = _scopedWanKey
+            ?? await ResolveConfiguredPrimaryWanKeyAsync(ct)
+            ?? ResolvePrimaryWanKey(await db.WanDiscoveryContexts.AsNoTracking().ToListAsync(ct));
         targets = ScopeTargetsToWan(targets, scoredKey, includeUnassigned: _scopedWanKey == null);
         // Flat-lined targets the last computed report dropped come out here too. Subtracting from the
         // report rather than re-deriving it keeps this the single definition: the exclusion is a
@@ -1849,9 +1906,11 @@ public class IspHealthService
             // where the SQM value is a shaping target someone typed in - what to rate-limit to,
             // not what the ISP confirmed the line does.
             //
-            // Primary with no console: we cannot ask which WAN is primary, so prefer the first
-            // WAN group and fall back to the most recently confirmed row (unchanged). A scoped
-            // instance reads exactly its own WAN's row - another WAN's row is never an answer.
+            // Primary with no console: we cannot ask which WAN holds the primary ROLE (WanProfile
+            // carries no primary marker), so the first-by-group-name row is a documented GUESS -
+            // on a WAN2-primary site whose WAN1 failover also has a remembered row, it grades
+            // against the failover's plan until the console comes back. A scoped instance reads
+            // exactly its own WAN's row - another WAN's row is never an answer.
             var remembered = await db.WanProfiles.AsNoTracking()
                 .Where(w => scopedGroup == null || w.WanNetworkgroup == scopedGroup)
                 .OrderBy(w => w.WanNetworkgroup)
@@ -1948,8 +2007,10 @@ public class IspHealthService
     /// offline site still resolves it - the interface is what the throughput series are keyed on,
     /// so without it a site with plenty of stored history reads as having none.
     ///
-    /// Multi-WAN planned: this returns the primary only, and picks the first WAN group when there
-    /// is no console to ask. Per-WAN scoring resolves its own WAN's interface from its own row.
+    /// The offline pick is first-by-group-name, a documented GUESS: primary is a role, so on an
+    /// offline WAN2-primary site with a WAN1 failover row this returns the failover's data path
+    /// (WanProfile carries no primary marker to prefer). Per-WAN scoring resolves its own WAN's
+    /// interface from its own row and never lands here.
     /// </summary>
     private async Task<string?> GetPrimaryWanInterfaceAsync(CancellationToken ct)
     {

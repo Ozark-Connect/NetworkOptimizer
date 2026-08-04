@@ -2751,7 +2751,7 @@ from(bucket: ""{_longtermBucket}"")
         $"{Math.Max(1, (long)Math.Round(window.TotalSeconds))}s";
 
     private static string SanitizeFluxString(string value) =>
-        value.Replace("\"", "").Replace("\\", "").Replace(")", "").Replace("|>", "");
+        value.Replace("\"", "").Replace("\\", "").Replace(")", "").Replace("|>", "").Replace("${", "");
 
     private static DateTime ToUtc(DateTime t) =>
         t.Kind == DateTimeKind.Utc ? t : DateTime.SpecifyKind(t, DateTimeKind.Utc);

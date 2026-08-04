@@ -27,7 +27,11 @@ public class IspHealthRegistry : ISiteScopedRegistry
     // nothing about the primary path changes), "{slug}|{wanKey}" for a scoped WAN. The slug
     // alphabet has no '|', so keys cannot collide, and EvictSite can sweep by prefix.
     private static string Key(string slug, string? wanInterface) =>
-        string.IsNullOrWhiteSpace(wanInterface) ? slug : $"{slug}|{wanInterface.Trim().ToLowerInvariant()}";
+        string.IsNullOrWhiteSpace(wanInterface)
+            ? slug
+            // Normalized ("wan1" == "wan") so a legacy alias can never mint a second instance
+            // grading the same WAN.
+            : $"{slug}|{NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(wanInterface.Trim())}";
 
     /// <summary>The site's primary-WAN ISP Health service, created on first use.</summary>
     public IspHealthService GetFor(string slug) => GetFor(slug, null);
@@ -44,7 +48,7 @@ public class IspHealthRegistry : ISiteScopedRegistry
             return string.IsNullOrWhiteSpace(wanInterface)
                 ? ActivatorUtilities.CreateInstance<IspHealthService>(_serviceProvider, slug, resolver)
                 : ActivatorUtilities.CreateInstance<IspHealthService>(_serviceProvider, slug, resolver,
-                    wanInterface.Trim().ToLowerInvariant());
+                    NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(wanInterface.Trim()));
         });
 
     /// <summary>The default site's primary-WAN ISP Health service.</summary>

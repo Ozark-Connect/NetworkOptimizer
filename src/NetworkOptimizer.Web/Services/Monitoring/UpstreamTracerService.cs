@@ -375,17 +375,24 @@ public class UpstreamTracerService
         {
             await using var db = await CreateDbAsync(ct);
             // The tracer rehydrates ITS OWN WAN's committed state. A context-bound tracer reads
-            // exactly its WAN's row; the primary tracer prefers the conventional "wan" row and
-            // only then falls back to recency - the old newest-first pick alone would hand the
+            // exactly its WAN's row; the primary tracer asks the console which WAN is the
+            // configured primary (primary is a ROLE - it can be any wanN group) and only guesses
+            // when the console cannot answer. The old newest-first pick alone would hand the
             // primary panel whichever WAN discovered LAST (a context's nightly run), showing a
             // secondary's hops as the primary's. Single-WAN sites have one row either way.
+            string? configuredPrimaryKey = null;
+            if (_binding == null)
+            {
+                try
+                {
+                    var primaryNet = await _connectionService.GetPrimaryWanNetworkAsync(ct);
+                    if (!string.IsNullOrEmpty(primaryNet?.WanNetworkgroup))
+                        configuredPrimaryKey = NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(primaryNet!.WanNetworkgroup!);
+                }
+                catch { /* console unreachable - fall through to the documented guess */ }
+            }
             var contexts = await db.WanDiscoveryContexts.ToListAsync(ct);
-            var ctx = _binding != null
-                ? contexts.FirstOrDefault(c => string.Equals(c.WanInterface, _binding.WanInterface, StringComparison.OrdinalIgnoreCase))
-                : contexts
-                    .OrderBy(c => string.Equals(c.WanInterface, "wan", StringComparison.OrdinalIgnoreCase) ? 0 : 1)
-                    .ThenByDescending(c => c.LastDiscoveryAt ?? c.UpdatedAt)
-                    .FirstOrDefault();
+            var ctx = PickRehydrateContext(contexts, _binding?.WanInterface, configuredPrimaryKey);
             if (ctx == null) return;
 
             var targets = await db.MonitoringTargets.AsNoTracking()
@@ -2554,9 +2561,43 @@ public class UpstreamTracerService
     /// </summary>
     /// <param name="rowWanInterface">The WAN currently stamped on the row, if any.</param>
     /// <param name="wanInterface">The WAN this discovery run is committing.</param>
+    /// <summary>
+    /// The discovery-context row a tracer rehydrates from. A bound (context) tracer takes
+    /// exactly its own WAN's row. The primary tracer takes the CONFIGURED primary's row when
+    /// the console answered (primary is a role - any wanN group can hold it); with no console
+    /// answer it falls back to a documented GUESS: the conventional "wan" row first, then the
+    /// most recently discovered. That guess is wrong exactly on an offline site whose
+    /// configured primary is not the "wan" group - acceptable only because there is nothing
+    /// better to ask, and the next connected rehydrate corrects it. Keys normalized
+    /// ("wan1" == "wan").
+    /// </summary>
+    internal static WanDiscoveryContext? PickRehydrateContext(
+        IReadOnlyList<WanDiscoveryContext> contexts, string? boundWanInterface, string? configuredPrimaryKey)
+    {
+        static string Norm(string? k) => string.IsNullOrEmpty(k)
+            ? "" : NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(k);
+        if (!string.IsNullOrEmpty(boundWanInterface))
+            return contexts.FirstOrDefault(c => Norm(c.WanInterface) == Norm(boundWanInterface));
+        if (!string.IsNullOrEmpty(configuredPrimaryKey))
+        {
+            var configured = contexts.FirstOrDefault(c => Norm(c.WanInterface) == Norm(configuredPrimaryKey));
+            if (configured != null) return configured;
+        }
+        return contexts
+            .OrderBy(c => Norm(c.WanInterface) == "wan" ? 0 : 1)
+            .ThenByDescending(c => c.LastDiscoveryAt ?? c.UpdatedAt)
+            .FirstOrDefault();
+    }
+
     internal static bool OwnsTargetRow(string? rowWanInterface, string wanInterface)
         => string.IsNullOrEmpty(rowWanInterface)
-           || string.Equals(rowWanInterface, wanInterface, StringComparison.OrdinalIgnoreCase);
+           // Normalized ("wan1" == "wan"): legacy rows stamped with the wan1 alias are the SAME
+           // WAN as a "wan" run, not a rival - unnormalized, every re-run on such an install
+           // would twin its own targets.
+           || string.Equals(
+               NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(rowWanInterface),
+               NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(wanInterface),
+               StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// The WAN-qualified target id for this WAN's twin of a host another WAN's discovery already
@@ -2568,7 +2609,7 @@ public class UpstreamTracerService
     /// views is by <see cref="MonitoringTarget.Address"/> (twins share it).
     /// </summary>
     internal static string WanQualifiedTargetId(string baseTargetId, string wanInterface)
-        => $"{baseTargetId}@{wanInterface.ToLowerInvariant()}";
+        => $"{baseTargetId}@{NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(wanInterface)}";
 
     /// <summary>
     /// Creates or re-validates the monitoring target for a discovered access hop, stamped with

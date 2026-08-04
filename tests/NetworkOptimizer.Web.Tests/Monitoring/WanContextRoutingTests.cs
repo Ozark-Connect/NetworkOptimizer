@@ -27,9 +27,9 @@ public class WanContextRoutingTests
     [Fact]
     public void Push_NoContexts_UnassignedTargetsStillGoToEveryAgent()
     {
-        AgentProbeResultSink.ShouldPushTargetToAgent(null, PrimaryAgent, agentIsContextAssigned: false)
+        AgentProbeResultSink.ShouldPushTargetToAgent(false, null, PrimaryAgent, agentIsContextAssigned: false)
             .Should().BeTrue();
-        AgentProbeResultSink.ShouldPushTargetToAgent(null, ContextAgent, agentIsContextAssigned: false)
+        AgentProbeResultSink.ShouldPushTargetToAgent(false, null, ContextAgent, agentIsContextAssigned: false)
             .Should().BeTrue();
     }
 
@@ -38,29 +38,42 @@ public class WanContextRoutingTests
     {
         // Shapes A, B and C alike: everything this agent probes leaves by its WAN, so the site's
         // ordinary targets would be measured on the wrong path and filed under the primary.
-        AgentProbeResultSink.ShouldPushTargetToAgent(ContextAgent, ContextAgent, agentIsContextAssigned: true)
+        AgentProbeResultSink.ShouldPushTargetToAgent(true, ContextAgent, ContextAgent, agentIsContextAssigned: true)
             .Should().BeTrue();
-        AgentProbeResultSink.ShouldPushTargetToAgent(null, ContextAgent, agentIsContextAssigned: true)
+        AgentProbeResultSink.ShouldPushTargetToAgent(false, null, ContextAgent, agentIsContextAssigned: true)
             .Should().BeFalse();
     }
 
     [Fact]
     public void Push_PrimaryAgent_KeepsUnassignedTargetsAndNeverAnotherContexts()
     {
-        AgentProbeResultSink.ShouldPushTargetToAgent(null, PrimaryAgent, agentIsContextAssigned: false)
+        AgentProbeResultSink.ShouldPushTargetToAgent(false, null, PrimaryAgent, agentIsContextAssigned: false)
             .Should().BeTrue();
-        AgentProbeResultSink.ShouldPushTargetToAgent(ContextAgent, PrimaryAgent, agentIsContextAssigned: false)
+        AgentProbeResultSink.ShouldPushTargetToAgent(true, ContextAgent, PrimaryAgent, agentIsContextAssigned: false)
             .Should().BeFalse();
     }
 
     [Fact]
     public void Push_ServerBoundContextTargets_GoToNoAgent()
     {
-        // A source-IP context is probed by the server itself. Its targets carry a context with no
-        // agent, which reads as unassigned - so they reach agents as extra vantage points exactly
-        // as any other unassigned target does, and never as that context's measurement.
-        AgentProbeResultSink.ShouldPushTargetToAgent(null, PrimaryAgent, agentIsContextAssigned: false)
-            .Should().BeTrue();
+        // A source-IP context is probed by the server itself, whose prober binds the source IP
+        // the gateway policy-routes. An ordinary agent would probe the same target over its OWN
+        // primary route while the result gets tagged with the secondary WAN's key - corrupting
+        // that WAN's score now that the tag is read - so a context target with no assigned agent
+        // reaches NO agent at all, on any shape.
+        AgentProbeResultSink.ShouldPushTargetToAgent(true, null, PrimaryAgent, agentIsContextAssigned: false)
+            .Should().BeFalse();
+        AgentProbeResultSink.ShouldPushTargetToAgent(true, null, ContextAgent, agentIsContextAssigned: true)
+            .Should().BeFalse();
+    }
+
+    [Fact]
+    public void Push_ContextWhoseRowIsGone_ReachesNoAgentRatherThanFanningOut()
+    {
+        // A stale WanContextId (row deleted out from under it) is conservative: pushed nowhere
+        // until the assignment is cleaned up, never broadcast as if unassigned.
+        AgentProbeResultSink.ShouldPushTargetToAgent(true, null, PrimaryAgent, agentIsContextAssigned: false)
+            .Should().BeFalse();
     }
 
     // ---- Source binding on the wire ---------------------------------------

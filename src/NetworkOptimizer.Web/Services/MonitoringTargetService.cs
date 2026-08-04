@@ -159,14 +159,26 @@ public class MonitoringTargetService : IMonitoringTargetService
         });
 
     /// <inheritdoc />
-    public Task<bool> SetWanContextAsync(int id, int? wanContextId, CancellationToken ct = default) =>
-        UpdateAsync(id, ct, row =>
+    public async Task<bool> SetWanContextAsync(int id, int? wanContextId, CancellationToken ct = default)
+    {
+        // The context's WAN rides along with the assignment: WanContextId routes the probes and
+        // WanInterface says which WAN the data describes, and every per-WAN reader scopes on the
+        // latter - an assignment that moved only the routing would keep grading the data under
+        // the old WAN. Moving back to the primary clears both (see WanContextTargetStamping).
+        string? contextWanInterface = null;
+        if (wanContextId is int contextId)
+        {
+            await using var db = CreateDb();
+            contextWanInterface = (await db.WanContexts.FindAsync(new object?[] { contextId }, ct))?.WanInterface;
+        }
+        return await UpdateAsync(id, ct, row =>
         {
             if (row.WanContextId == wanContextId) return null;
             var before = row.WanContextId;
-            row.WanContextId = wanContextId;
+            Monitoring.WanContextTargetStamping.ApplyAssignment(row, wanContextId, contextWanInterface);
             return new { field = "WanContextId", from = before, to = wanContextId };
         });
+    }
 
     /// <summary>
     /// Applies a single-field edit and records what actually changed. A mutate that returns null

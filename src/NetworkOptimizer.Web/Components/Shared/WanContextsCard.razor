@@ -448,6 +448,13 @@
             return "A context with that name already exists.";
         if (string.IsNullOrWhiteSpace(wanInterface))
             return "Choose the WAN this context measures.";
+        // The context name is written as the Influx wan tag alongside the stable wan key, so a
+        // name that IS a wan key ("wan2") would file this context's points under another WAN.
+        // Allowed only when it names the context's own WAN.
+        if (System.Text.RegularExpressions.Regex.IsMatch(name, @"^wan\d*$", System.Text.RegularExpressions.RegexOptions.IgnoreCase)
+            && !string.Equals(NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(name),
+                NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(wanInterface!), StringComparison.OrdinalIgnoreCase))
+            return "A name that looks like a WAN key must match the context's own WAN.";
         if (!string.IsNullOrEmpty(sourceIp) && !System.Net.IPAddress.TryParse(sourceIp, out _))
             return "Probe source IP must be a valid IP address.";
         if (agentId != null && !string.IsNullOrEmpty(sourceIp))
@@ -482,12 +489,19 @@
                     _addError = "That context no longer exists.";
                     return;
                 }
+                var wanChanged = !string.Equals(row.WanInterface, wanInterface, StringComparison.OrdinalIgnoreCase);
                 row.Name = name;
                 row.Description = string.IsNullOrWhiteSpace(_newDescription) ? null : _newDescription.Trim();
                 row.ProbeSourceIp = string.IsNullOrEmpty(sourceIp) ? null : sourceIp;
                 row.AgentId = agentId;
                 row.WanInterface = wanInterface;
                 row.InterfaceName = string.IsNullOrEmpty(interfaceName) ? null : interfaceName;
+                // The context's targets say which WAN their data describes; a context re-pointed
+                // at another WAN takes its targets' stamp with it, or the per-WAN readers would
+                // keep attributing their data to the old WAN.
+                if (wanChanged)
+                    await NetworkOptimizer.Web.Services.Monitoring.WanContextTargetStamping
+                        .RestampContextTargetsAsync(db, editingId, wanInterface);
             }
             else
             {
@@ -526,13 +540,11 @@
             await using var db = CreateDb();
             var row = await db.WanContexts.FindAsync(contextId);
             if (row == null) return;
-            // The reference is loose (no FK): move the context's targets back to
-            // the primary WAN before removing it.
-            var assigned = await db.MonitoringTargets
-                .Where(t => t.WanContextId == contextId)
-                .ToListAsync();
-            foreach (var target in assigned)
-                target.WanContextId = null;
+            // The reference is loose (no FK): move the context's targets back to the primary
+            // WAN before removing it - BOTH keys, so no row stays stamped with a WAN nothing
+            // probes for it any more (see WanContextTargetStamping).
+            await NetworkOptimizer.Web.Services.Monitoring.WanContextTargetStamping
+                .ReleaseContextTargetsAsync(db, contextId);
             db.WanContexts.Remove(row);
             await db.SaveChangesAsync();
             await RepushProbeConfigAsync();
