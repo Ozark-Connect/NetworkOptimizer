@@ -647,7 +647,7 @@ public class PerformanceAnalyzer
             {
                 Title = "Streaming Video Not Rate-Limited",
                 Description = streamingGap,
-                Recommendation = "Create a QoS Rule under Policy Engine > Policy Table > QoS Rules to limit " +
+                Recommendation = "Create a QoS Rule under Settings > Policy Engine > Policy Table > QoS Rules to limit " +
                     "streaming video apps when on cellular. " +
                     "<br><a href=\"https://ozarkconnect.net/blog/unifi-5g-backup-qos\" target=\"_blank\">How-To Guide</a>",
                 Severity = severity,
@@ -664,7 +664,7 @@ public class PerformanceAnalyzer
             {
                 Title = "Cloud Sync Not Rate-Limited",
                 Description = cloudGap,
-                Recommendation = "Create a QoS Rule under Policy Engine > Policy Table > QoS Rules to limit cloud storage sync speed when on cellular. " +
+                Recommendation = "Create a QoS Rule under Settings > Policy Engine > Policy Table > QoS Rules to limit cloud storage sync speed when on cellular. " +
                     "This prevents large uploads/downloads from burning through your data plan. " +
                     "<br><a href=\"https://ozarkconnect.net/blog/unifi-5g-backup-qos\" target=\"_blank\">How-To Guide</a>",
                 Severity = severity,
@@ -681,7 +681,7 @@ public class PerformanceAnalyzer
             {
                 Title = "Game/App Downloads Not Rate-Limited",
                 Description = downloadGap,
-                Recommendation = "Create a QoS Rule under Policy Engine > Policy Table > QoS Rules to limit or block game/app downloads when on cellular. " +
+                Recommendation = "Create a QoS Rule under Settings > Policy Engine > Policy Table > QoS Rules to limit or block game/app downloads when on cellular. " +
                     "Game updates alone can exceed monthly data caps in a single download. " +
                     "<br><a href=\"https://ozarkconnect.net/blog/unifi-5g-backup-qos\" target=\"_blank\">How-To Guide</a>",
                 Severity = severity,

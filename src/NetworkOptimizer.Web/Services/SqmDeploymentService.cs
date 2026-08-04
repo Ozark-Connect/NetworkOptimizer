@@ -372,7 +372,7 @@ public class SqmDeploymentService : ISqmDeploymentService
                 result.Success = false;
                 result.Error = $"IFB device {ifbDevice} does not exist. " +
                     "Smart Queues is enabled but UniFi didn't actually create the traffic control classes - this is a known UniFi bug. " +
-                    "To fix it, add any QoS rule in UniFi Network (Settings > Policy Table > QoS Rules). " +
+                    "To fix it, add any QoS rule in UniFi Network (Settings > Policy Engine > Policy Table > QoS Rules). " +
                     "It doesn't matter what the rule targets. Wait 45 seconds, then deploy again.";
                 result.Steps = steps;
                 _logger.LogWarning("SQM deployment blocked: IFB device {Device} not found on gateway", ifbDevice);
