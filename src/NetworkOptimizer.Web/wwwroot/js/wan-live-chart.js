@@ -437,8 +437,25 @@ function compareSeries() {
     const times = [...new Set(compareWans.flatMap(w =>
         (compareBuffers.get(w.key) || []).map(p => p.time)))].sort((a, b) => a - b);
     return compareWans.flatMap(w => {
-        const byTime = new Map((compareBuffers.get(w.key) || []).map(p => [p.time, p]));
-        const on = key => times.map(t => ({ x: t, y: byTime.get(t)?.[key] ?? null }));
+        const pts = (compareBuffers.get(w.key) || []).slice().sort((a, b) => a.time - b.time);
+        // As-of, not exact. Live, one tick stamps every WAN with the same timestamp, so exact
+        // matching lined up; a historic window is fetched per WAN and each comes back on its own
+        // timestamps, so exact matching left every series null at the other WANs' instants. The
+        // tooltip still read correctly - it skips nulls - but each line became isolated points,
+        // and with markers.size 0 an isolated point draws nothing. Hence values without lines.
+        //
+        // Each grid instant takes that WAN's newest reading at or before it, within a tolerance
+        // scaled to the WAN's own cadence, so a genuine outage still breaks the line rather than
+        // carrying a stale value across it.
+        const gaps = pts.slice(1).map((p, i) => p.time - pts[i].time).sort((a, b) => a - b);
+        const median = gaps.length ? gaps[Math.floor(gaps.length / 2)] : 0;
+        const tolerance = Math.max(median * 2.5, 15000);
+        let i = 0, last = null;
+        const rows = times.map(t => {
+            while (i < pts.length && pts[i].time <= t) last = pts[i++];
+            return last && t - last.time <= tolerance ? last : null;
+        });
+        const on = key => rows.map((p, idx) => ({ x: times[idx], y: p?.[key] ?? null }));
         return [
             { name: `${w.label} down`, data: on('download') },
             { name: `${w.label} up`,   data: on('upload') },
