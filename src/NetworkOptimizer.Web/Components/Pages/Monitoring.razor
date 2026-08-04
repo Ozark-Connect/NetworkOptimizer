@@ -4806,24 +4806,33 @@
             _wanLiveChartMounted = true;
             try
             {
+                // The WAN scope rides in as an ARGUMENT rather than baked into the body, for the
+                // same reason the map's initialAt does: interop resolves the identifier to a
+                // function reference once and keeps invoking that closure, so a re-eval'd
+                // definition carrying a different scope would be silently ignored.
                 await JS.InvokeVoidAsync("eval",
-                    "window.__mountWanLiveChart = async function(elId) {" +
+                    "window.__mountWanLiveChart = async function(elId, wansJson) {" +
                     $"  const m = await import('{VersionedJs("/js/wan-live-chart.js")}');" +
                     "  window.__wanLiveChart = m;" +
-                    $"  await m.mount(elId, {{ seekOnClick: true, wans: {LiveWanJsLiteral()} }});" +
+                    "  await m.mount(elId, { seekOnClick: true, wans: JSON.parse(wansJson) });" +
                     "}");
-                // Fire-and-forget so a slow import cannot stall the rest of the pass, but the scope
-                // is pushed again once the module is up, read fresh at that moment. This pass can
+                var scopeAtMount = LiveWanJsLiteral();
+                // Fire-and-forget so a slow import cannot stall the rest of the pass. This pass can
                 // run before the WAN list has resolved - _monitoringReady is settings-only, while
-                // _multiWanUiVisible waits on a console call - so arriving by in-app nav (settings
-                // already cached, WANs not yet) mounted the chart on the primary, and the selection
-                // restoring behind it lost the race against the mount that was still in flight.
-                // The pills read the restored multi-WAN set while the chart drew one WAN.
+                // _multiWanUiVisible waits on a console call - so the chart could mount on the
+                // primary while the selection restoring behind it lost the race against a mount
+                // still in flight, leaving the pills reading multi-WAN over a single-WAN chart.
+                //
+                // Mounting again is what corrects it, NOT switching the mounted chart: only the
+                // mount path loads the history window for a comparison, so a switch after the fact
+                // left the chart tick-filling from empty instead of arriving backfilled.
                 _ = InvokeAsync(async () =>
                 {
-                    await JS.InvokeVoidAsync("__mountWanLiveChart", "monitoring-wan-live-chart");
-                    try { await JS.InvokeVoidAsync("eval", $"window.__wanLiveChart?.setWans({LiveWanJsLiteral()});"); }
-                    catch (Exception ex) { Logger.LogDebug(ex, "WAN live chart scope push after mount failed"); }
+                    await JS.InvokeVoidAsync("__mountWanLiveChart", "monitoring-wan-live-chart", scopeAtMount);
+                    var settledScope = LiveWanJsLiteral();
+                    if (settledScope == scopeAtMount) return;
+                    try { await JS.InvokeVoidAsync("__mountWanLiveChart", "monitoring-wan-live-chart", settledScope); }
+                    catch (Exception ex) { Logger.LogDebug(ex, "WAN live chart remount for settled scope failed"); }
                 });
             }
             catch (Exception ex) { _wanLiveChartMounted = false; Logger.LogDebug(ex, "WAN live chart mount failed; will retry on next render"); }
