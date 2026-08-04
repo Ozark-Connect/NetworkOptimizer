@@ -79,13 +79,35 @@ public class DeviceRebootTracker
     public record DeviceBootRecord(DateTime BootedAt, DeviceRebootReason? Reason, string? FirmwareVersion = null);
 
     /// <summary>
-    /// The reason a device is running its current boot, or null when nothing is known yet.
-    /// Served from memory so the dashboard costs nothing.
+    /// The reason behind the boot a device is reporting right now, or null while that boot has no
+    /// reason yet. Served from memory so the dashboard costs nothing.
+    ///
+    /// It takes the reported uptime rather than answering from the MAC alone, deliberately. A
+    /// record is only as fresh as the last uptime sample the tracker was fed, while a caller
+    /// showing live uptime is reading the console directly - so a device that restarted since that
+    /// sample would be handed the reason for its PREVIOUS run, which is how an AP that had been
+    /// power cycled came to be labeled with a firmware upgrade from days earlier. Holding the
+    /// reason back until the boot instants line up leaves the tooltip empty for as long as the new
+    /// reason takes to resolve, which is the honest answer.
     /// </summary>
-    public DeviceRebootReason? GetReason(string deviceMac)
+    /// <param name="deviceMac">Device MAC.</param>
+    /// <param name="uptimeSeconds">Uptime the caller is displaying for the device.</param>
+    /// <param name="observedAt">When that uptime was read.</param>
+    public DeviceRebootReason? GetReasonForReportedUptime(string deviceMac, long? uptimeSeconds, DateTime observedAt)
     {
         if (string.IsNullOrWhiteSpace(deviceMac)) return null;
-        return _records.TryGetValue(Normalize(deviceMac), out var record) ? record.Reason : null;
+        if (!_records.TryGetValue(Normalize(deviceMac), out var record) || record.Reason == null) return null;
+
+        // Nothing to check against - an offline device reports no uptime - so the record stands.
+        // That is an absence of evidence, not evidence of a restart we missed.
+        if (uptimeSeconds is null or <= 0) return record.Reason;
+
+        // Only a boot LATER than the record's is a restart the tracker has yet to account for. An
+        // earlier one means the two uptime sources disagree (the monitoring tiers read
+        // system-stats.uptime, the console the device's own field), which is not news and must not
+        // silence a perfectly good reason.
+        var reportedBootAt = observedAt.ToUniversalTime().AddSeconds(-uptimeSeconds.Value);
+        return reportedBootAt - record.BootedAt > BootMatchTolerance ? null : record.Reason;
     }
 
     /// <summary>When the device's current boot started, as last observed.</summary>
