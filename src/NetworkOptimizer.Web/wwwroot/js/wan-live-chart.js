@@ -1099,7 +1099,11 @@ export async function seekTime(isoTimestamp) {
         if (pollTimer) return; // already live
         const liveGen = seekGen;
         buffer = [];
-        await loadHistory();
+        // Comparison mode draws from the per-WAN buffers, so refilling the single-WAN one leaves
+        // the chart on the window it was parked at - the live 5 minutes never arrived and the
+        // series only crept back as fresh ticks came in one at a time.
+        if (comparing()) await loadCompareHistory();
+        else await loadHistory();
         if (liveGen !== seekGen) return; // seeked again while loading
         updateChart();
         pollTimer = setInterval(pollLive, pollMsOverride || pollMs);
