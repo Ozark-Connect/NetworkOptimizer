@@ -9,7 +9,7 @@
 @inject SiteContextService SiteCtx
 @inject MonitoringInfluxClient InfluxClient
 @inject UniFiConnectionService ConnectionService
-@inject NetworkOptimizer.Web.Services.Monitoring.MonitoringPathView PathView
+@inject NetworkOptimizer.Web.Services.Monitoring.LiveWanScope LiveWan
 @inject IspHealthService IspHealthService
 @inject IJSRuntime JS
 @inject NavigationManager NavigationManager
@@ -52,15 +52,15 @@ else
                 </div>
             </div>
         }
-            @if (_liveWanOptions.Count > 1)
+            @if (LiveWan.HasChoice)
             {
                 @* Live WAN scope, own per-site key (liveWanScope) so watching a WAN here never
                    moves the analysis selectors. Hidden on single-WAN sites. *@
                 <div class="time-range-selector" style="margin-bottom: 0.5rem;">
-                    @foreach (var w in _liveWanOptions)
+                    @foreach (var w in LiveWan.Options)
                     {
-                        <button class="time-btn @(string.Equals(w.Key, _liveSelectedWanKey, StringComparison.OrdinalIgnoreCase) ? "active" : "")"
-                                @onclick="() => SelectLiveWanAsync(w.Key)"
+                        <button class="time-btn @(string.Equals(w.Key, LiveWan.SelectedKey, StringComparison.OrdinalIgnoreCase) ? "active" : "")"
+                                @onclick="() => LiveWan.SelectAsync(w.Key)"
                                 data-tooltip="Show this WAN's live throughput" data-tooltip-hover-only>@w.Label</button>
                     }
                 </div>
@@ -80,7 +80,7 @@ else
                 <div class="stat-value isp-tile-score">@ispHealth.TileText</div>
                 @* The cached score is the primary WAN's. Say so when the tiles beside it are
                    showing a different WAN, rather than letting the two read as one WAN's row. *@
-                <div class="stat-label">@(SelectedLiveWan is { IsPrimary: false } ? "ISP Health (primary WAN)" : "ISP Health")</div>
+                <div class="stat-label">@(LiveWan.Selected is { IsPrimary: false } ? "ISP Health (primary WAN)" : "ISP Health")</div>
                 @if (ispHealth.Status == IspHealthStatus.Ready && ispHealth.Score.HasValue)
                 {
                     <div class="isp-tile-bar"><div class="isp-tile-bar-fill" style="width: @(ispHealth.Score)%"></div></div>
@@ -222,92 +222,6 @@ else
     private string? _gatewayMac;
     private List<string> _gatewayWanIfNames = new();
 
-    // Live WAN tile scope (separate from the analysis selectors by design: liveWanScope has
-    // its own per-site key, so watching another WAN's live rate never yanks the Network
-    // Performance / ISP Health focus). Options are the live WANs plus context-bound WANs the
-    // console omits; a WAN whose counter interface is not in the polled live data shows zero
-    // rates honestly - it NEVER falls back to another WAN's counters.
-    private sealed record LiveWanOption(string Key, string Label, bool IsPrimary, string? CounterIfName);
-    private List<LiveWanOption> _liveWanOptions = new();
-    private string _liveSelectedWanKey = "";
-    private bool _liveWanRestored;
-    private bool _liveWanOptionsLoaded;
-    private string LiveWanScopeKey => SiteCtx.ScopeStorageKey("liveWanScope");
-    private LiveWanOption? SelectedLiveWan =>
-        _liveWanOptions.FirstOrDefault(w => string.Equals(w.Key, _liveSelectedWanKey, StringComparison.OrdinalIgnoreCase));
-
-    private async Task LoadLiveWanOptionsAsync()
-    {
-        // The console poll runs this on every refresh, but a site's WAN list and its contexts do
-        // not change on that cadence - and on a single-WAN site the answer is one option and no
-        // selector, so re-asking bought nothing but a console call and a query per tick.
-        if (_liveWanOptionsLoaded) return;
-        _liveWanOptionsLoaded = true;
-
-        var options = new List<LiveWanOption>();
-        try
-        {
-            foreach (var wan in await PathView.GetWansAsync())
-                options.Add(new LiveWanOption(wan.WanInterface.ToLowerInvariant(),
-                    NetworkOptimizer.UniFi.GatewayWanHelper.FormatWanLabel(
-                        wan.FriendlyName, NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey(wan.WanInterface), null, null),
-                    wan.IsPrimary,
-                    NetworkOptimizer.Core.Helpers.NetworkUtilities.PreferredWanCounterInterface(wan.PhysicalIfName, wan.UplinkIfName)));
-        }
-        catch { }
-        try
-        {
-            await using var db = SiteDb.CreateForSite(SiteCtx.Slug, SiteCtx.IsDefault);
-            var contexts = await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.ToListAsync(
-                Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.AsNoTracking(db.WanContexts));
-            foreach (var ctx in contexts)
-            {
-                if (string.IsNullOrEmpty(ctx.WanInterface)) continue;
-                var key = ctx.WanInterface!.ToLowerInvariant();
-                if (options.Any(o => o.Key == key)) continue;
-                var group = NetworkOptimizer.UniFi.GatewayWanHelper.WanNetworkGroupFromKey(key);
-                var counter = (await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.FirstOrDefaultAsync(
-                        db.WanProfiles.Where(w => w.WanNetworkgroup == group)))?.CounterInterface;
-                options.Add(new LiveWanOption(key,
-                    NetworkOptimizer.UniFi.GatewayWanHelper.FormatWanLabel(
-                        ctx.Name, NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey(key), null, null),
-                    IsPrimary: false, counter));
-            }
-        }
-        catch { }
-        _liveWanOptions = options;
-        if (string.IsNullOrEmpty(_liveSelectedWanKey))
-            _liveSelectedWanKey = options.FirstOrDefault(o => o.IsPrimary)?.Key ?? options.FirstOrDefault()?.Key ?? "";
-    }
-
-    private async Task SelectLiveWanAsync(string key, bool persist = true)
-    {
-        if (!_liveWanOptions.Any(o => string.Equals(o.Key, key, StringComparison.OrdinalIgnoreCase))) return;
-        _liveSelectedWanKey = key;
-        if (persist)
-        {
-            try { await JS.InvokeVoidAsync("localStorage.setItem", LiveWanScopeKey, key); }
-            catch { }
-        }
-        StateHasChanged();
-    }
-
-    private async Task RestoreLiveWanSelectionAsync()
-    {
-        if (_liveWanRestored || _liveWanOptions.Count <= 1) return;
-        _liveWanRestored = true;
-        try
-        {
-            var stored = await JS.InvokeAsync<string?>("localStorage.getItem", LiveWanScopeKey);
-            if (!string.IsNullOrEmpty(stored)
-                && _liveWanOptions.Any(o => string.Equals(o.Key, stored, StringComparison.OrdinalIgnoreCase)))
-            {
-                await SelectLiveWanAsync(stored, persist: false);
-            }
-        }
-        catch { }
-    }
-
     private List<MonitoringTarget> _targets = new();
     private System.Threading.Timer? _refreshTimer;
     private bool _mapMounted;
@@ -341,8 +255,8 @@ else
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         // Live WAN tile scope: separate per-site key, restored once interop is reachable.
-        if (_liveWanOptions.Count > 1)
-            await RestoreLiveWanSelectionAsync();
+        if (LiveWan.HasChoice)
+            await LiveWan.RestoreAsync();
         if (!_ready) return;
 
         if (MapMode != "off" && (!_mapMounted || _mountedMode != MapMode))
@@ -453,7 +367,7 @@ else
                         d.Type == DeviceType.Gateway || d.HardwareType == DeviceType.Gateway);
                     _gatewayMac = gw?.Mac?.Replace("-", ":").ToLowerInvariant();
                     _gatewayWanIfNames = gw?.WanInterfaceNames ?? new();
-                    await LoadLiveWanOptionsAsync();
+                    await LiveWan.LoadAsync();
                 }
                 _consoleUnreachable = false;
             }
@@ -494,7 +408,7 @@ else
         // Non-primary live scope: exactly that WAN's counter interface. When its counters are
         // not in the polled live data (down WAN, context-only WAN the console omits) the tile
         // dashes rather than borrowing another WAN's rate.
-        var liveWan = SelectedLiveWan;
+        var liveWan = LiveWan.Selected;
         if (liveWan is { IsPrimary: false })
         {
             if (_gatewayMac == null || string.IsNullOrEmpty(liveWan.CounterIfName)) return (null, null);
