@@ -1246,7 +1246,7 @@ public class UpstreamTracerService
         {
             var alreadyIncluded = new HashSet<string>(
                 _accessHopsResolved.Select(h => h.Address), StringComparer.OrdinalIgnoreCase);
-            var unannounced = CollectUnannouncedAccessAddresses(traceSequences, asnByIp, accessAsn.Value)
+            var unannounced = CollectUnannouncedAccessAddresses(traceSequences, asnByIp, accessAsn.Value, _gatewayIps)
                 .Where(a => !alreadyIncluded.Contains(a) && !_gatewayIps.Contains(a) && byIp.ContainsKey(a))
                 .Select(a => byIp[a])
                 .OrderBy(h => h.HopNumber)
@@ -2897,8 +2897,12 @@ public class UpstreamTracerService
     /// attribution but sit in public or shared/CGNAT (RFC 6598) space - Bell's 142.124.x
     /// aggregation hops (#984). Being upstream of us and downstream of the ISP's announced
     /// border makes them the ISP's access infrastructure even though no ASN maps to them.
-    /// RFC1918 hops are excluded: those can be a bridged CPE's LAN side or a double-NAT
-    /// middlebox. Traces whose first attributed hop is NOT the access ASN (e.g. a trace
+    /// RFC1918 hops count too, EXCEPT the first one past our own gateway - that one is a bridged
+    /// CPE's LAN side or a double-NAT middlebox often enough not to claim. Beyond it, an ISP whose
+    /// access network is numbered out of private space (a CMTS or BNG on 10/8) leaves no other
+    /// trace of its first mile, and dropping those hops is what left such sites with no access
+    /// targets at all. A wrong one here is proposed, not applied: discovery review is where the
+    /// operator unticks it. Traces whose first attributed hop is NOT the access ASN (e.g. a trace
     /// that only ever surfaces the destination's edge) contribute nothing - we can't prove
     /// their prefix hops sit below the access border. Dedupes across traces, preserves
     /// first-seen order.
@@ -2906,15 +2910,19 @@ public class UpstreamTracerService
     internal static List<string> CollectUnannouncedAccessAddresses(
         IEnumerable<IReadOnlyList<string>> traceAddressSequences,
         IReadOnlyDictionary<string, int> asnByIp,
-        int accessAsn)
+        int accessAsn,
+        IReadOnlyCollection<string>? gatewayIps = null)
     {
         var result = new List<string>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var trace in traceAddressSequences)
         {
             var prefix = new List<string>();
+            var hopsPastGateway = 0;
             foreach (var address in trace)
             {
+                if (gatewayIps != null && gatewayIps.Contains(address)) continue;
+                hopsPastGateway++;
                 if (asnByIp.TryGetValue(address, out var asn))
                 {
                     if (asn == accessAsn)
@@ -2923,8 +2931,11 @@ public class UpstreamTracerService
                     break;
                 }
                 var cls = NetworkUtilities.ClassifyPublicAddress(address);
-                if (cls is PublicAddressClass.PublicIPv4 or PublicAddressClass.Cgnat)
-                    prefix.Add(address);
+                var isCarrierSpace = cls is PublicAddressClass.PublicIPv4 or PublicAddressClass.Cgnat;
+                // The first hop past our gateway is the one place a private address is more likely
+                // the customer's own equipment than the ISP's.
+                if (!isCarrierSpace && hopsPastGateway == 1) continue;
+                prefix.Add(address);
             }
         }
         return result;
