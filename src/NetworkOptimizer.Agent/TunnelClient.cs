@@ -116,7 +116,7 @@ public sealed class TunnelClient
     /// Connects and runs the tunnel until it drops or <paramref name="ct"/> is
     /// cancelled. Throws on connection failure so the caller can back off and retry.
     /// </summary>
-    public async Task RunAsync(string tunnelUrl, string agentKey, string version, string? lanIp, int speedTestPort, bool servesSpeedTest, bool supportsSourceBind, bool ignoreSslErrors, CancellationToken ct)
+    public async Task RunAsync(string tunnelUrl, string agentKey, string version, string? lanIp, IReadOnlyList<string> localIps, int speedTestPort, bool servesSpeedTest, bool supportsSourceBind, bool ignoreSslErrors, CancellationToken ct)
     {
         // Belt-and-braces with the startup config validation: the tunnel carries
         // SNMP credentials and proxied console traffic, so cleartext is never OK.
@@ -175,7 +175,8 @@ public sealed class TunnelClient
                     LanIp = lanIp ?? "",
                     SpeedTestPort = speedTestPort,
                     ServesSpeedTest = servesSpeedTest,
-                    SupportsSourceBind = supportsSourceBind
+                    SupportsSourceBind = supportsSourceBind,
+                    LocalIps = { localIps }
                 }
             }, helloCts.Token);
 

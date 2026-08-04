@@ -103,6 +103,10 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
         connection.ServesSpeedTest = hello.HasServesSpeedTest ? hello.ServesSpeedTest : null;
         connection.SupportsSourceBind = hello.HasSupportsSourceBind ? hello.SupportsSourceBind : null;
         connection.LanIp = string.IsNullOrWhiteSpace(hello.LanIp) ? null : hello.LanIp.Trim();
+        connection.LocalIps = hello.LocalIps
+            .Where(ip => !string.IsNullOrWhiteSpace(ip))
+            .Select(ip => ip.Trim())
+            .ToList();
         _logger.LogInformation("Agent {Name} (id {Id}) opened tunnel for site {Slug}", agent.Name, agent.Id, siteSlug);
 
         // The pump and refresh loops must stop when the read loop ends for any

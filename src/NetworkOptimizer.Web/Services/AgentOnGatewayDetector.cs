@@ -158,6 +158,32 @@ public class AgentOnGatewayDetector
         return hasCached && cached.Ips.Contains(ip!.Trim(), StringComparer.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// The first of <paramref name="candidates"/> that is one of this site's gateway addresses, or
+    /// null when none is.
+    /// <para>
+    /// The gateway address set is unchanged - this only asks the same question of more candidates.
+    /// An agent picks ONE address to report itself by, and on a gateway that choice is whichever
+    /// Ethernet interface the kernel enumerates first, which can easily be an uplink the console
+    /// never lists as the gateway's own. Comparing every address the host holds answers "is this
+    /// that machine" instead of "did it happen to name the address we know".
+    /// </para>
+    /// <para>
+    /// Returns the MATCHING address rather than a bool because callers that skip the gateway's own
+    /// target need the address the site knows it by, not the one the agent named itself with.
+    /// </para>
+    /// </summary>
+    public async Task<string?> MatchGatewayAddressAsync(
+        string siteSlug, IEnumerable<string> candidates, CancellationToken ct = default)
+    {
+        foreach (var candidate in candidates)
+        {
+            if (string.IsNullOrWhiteSpace(candidate)) continue;
+            if (await IsIpOnGatewayAsync(siteSlug, candidate, ct)) return candidate.Trim();
+        }
+        return null;
+    }
+
     /// <summary>One in-flight gateway-address resolution per site; the result lands in the cache.</summary>
     private Task StartOrJoinGatewayIpRefresh(string siteSlug) =>
         _gatewayIpRefreshing.GetOrAdd(siteSlug, slug => Task.Run(async () =>

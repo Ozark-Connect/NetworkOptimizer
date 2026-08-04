@@ -159,6 +159,22 @@ public sealed class AgentTunnelConnection
     public bool? SupportsSourceBind { get; internal set; }
 
     /// <summary>
+    /// Every address this agent's host holds, as the agent reported it. Empty from an agent that
+    /// predates the field, where <see cref="LanIp"/> alone is all there is.
+    /// </summary>
+    public IReadOnlyList<string> LocalIps { get; internal set; } = Array.Empty<string>();
+
+    /// <summary>
+    /// Addresses to recognise this agent's host by: everything it reported, or the single address
+    /// it chose when it reported nothing. Never empty of meaning - a caller can compare all of
+    /// these without caring which agent version answered.
+    /// </summary>
+    public IReadOnlyList<string> HostAddresses =>
+        LocalIps.Count > 0
+            ? LocalIps
+            : string.IsNullOrWhiteSpace(LanIp) ? Array.Empty<string>() : new[] { LanIp! };
+
+    /// <summary>
     /// The LAN address this agent announced in its hello. Per connection rather than per site,
     /// which is what a multi-agent site needs: the enrollment registry answers with one agent's
     /// address for the whole site, so anything deciding about THIS agent - where its probes leave

@@ -640,7 +640,7 @@
             foreach (var connection in TunnelRegistry.GetForSite(SiteCtx.Slug))
             {
                 if (connection.SupportsSourceBind != true) continue;
-                if (await OnGatewayDetector.IsIpOnGatewayAsync(SiteCtx.Slug, connection.LanIp))
+                if (await OnGatewayDetector.MatchGatewayAddressAsync(SiteCtx.Slug, connection.HostAddresses) != null)
                     byInterface.Add(connection.AgentId);
                 else
                     byAddress.Add(connection.AgentId);

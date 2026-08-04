@@ -40,6 +40,51 @@ public static class NetworkUtilities
     }
 
     /// <summary>
+    /// Every IPv4 unicast address this host holds, across all interfaces that are up.
+    /// <para>
+    /// Distinct from <see cref="DetectLocalIpFromInterfaces"/>, which picks the ONE address that
+    /// best represents the host. That choice is arbitrary when something else has to recognise the
+    /// host by an address it already knows: on a UniFi gateway the best-looking address can be an
+    /// uplink the console never lists as the gateway's own, so a single-address comparison answers
+    /// "is this that machine" with a false no.
+    /// </para>
+    /// <para>
+    /// Bridges and virtual interfaces are INCLUDED here, unlike the single-address detection that
+    /// skips them: a gateway's LAN address lives on a bridge, and it is one of the addresses a
+    /// console does report. Loopback and link-local (169.254/16) are excluded - neither identifies
+    /// a host, and both would be held by every machine, so comparing them could only produce a
+    /// false match.
+    /// </para>
+    /// </summary>
+    public static IReadOnlyList<string> LocalUnicastAddresses()
+    {
+        var addresses = new List<string>();
+        try
+        {
+            foreach (var ni in NetworkInterface.GetAllNetworkInterfaces())
+            {
+                if (ni.OperationalStatus != OperationalStatus.Up) continue;
+                if (ni.NetworkInterfaceType == NetworkInterfaceType.Loopback) continue;
+                foreach (var unicast in ni.GetIPProperties().UnicastAddresses)
+                {
+                    var address = unicast.Address;
+                    if (address.AddressFamily != AddressFamily.InterNetwork) continue;
+                    if (IPAddress.IsLoopback(address)) continue;
+                    var text = address.ToString();
+                    if (text.StartsWith("169.254.", StringComparison.Ordinal)) continue;
+                    if (!addresses.Contains(text, StringComparer.OrdinalIgnoreCase))
+                        addresses.Add(text);
+                }
+            }
+        }
+        catch
+        {
+            // Enumeration is best effort: the caller still has its single detected address.
+        }
+        return addresses;
+    }
+
+    /// <summary>
     /// Detect local IP address from network interfaces (ignores HOST_IP env var).
     /// Prioritizes: Physical Ethernet > WiFi > Other.
     /// Skips virtual/container interfaces.

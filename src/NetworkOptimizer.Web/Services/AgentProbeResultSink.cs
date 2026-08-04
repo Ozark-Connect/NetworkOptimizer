@@ -341,9 +341,11 @@ public class AgentProbeResultSink
             // correlates against whichever one the registry answers with, so it would skip the
             // gateway target for an agent that is not on the gateway - and miss it for the one that
             // is.
-            var selfAddress = await _onGatewayDetector.IsIpOnGatewayAsync(connection.SiteSlug, connection.LanIp, ct)
-                ? connection.LanIp
-                : null;
+            // The MATCHED address, not the agent's own reported one: the site's target for the
+            // gateway carries the address the console knows it by, which is not necessarily the
+            // address the agent named itself with.
+            var selfAddress = await _onGatewayDetector.MatchGatewayAddressAsync(
+                connection.SiteSlug, connection.HostAddresses, ct);
             var skippedSelf = 0;
 
             var config = new ProbeConfig();
@@ -482,7 +484,8 @@ public class AgentProbeResultSink
         if (unbound.Count == 0) return false;
 
         // Asked only when there is something to heal: it can await a console round trip.
-        if (!await _onGatewayDetector.IsIpOnGatewayAsync(connection.SiteSlug, connection.LanIp, ct))
+        if (await _onGatewayDetector.MatchGatewayAddressAsync(
+                connection.SiteSlug, connection.HostAddresses, ct) == null)
             return false;
 
         var profiles = await db.WanProfiles.AsNoTracking().ToListAsync(ct);

@@ -148,6 +148,15 @@ message AgentHello {
   // reads "did not say" as "do not offer interface binding" rather than guessing
   // a capability whose absence fails every probe that relies on it.
   optional bool supports_source_bind = 6;
+  // Every unicast address this agent's host holds. lan_ip is one address chosen
+  // out of these, and on a gateway the choice is arbitrary: an agent on a UniFi
+  // gateway may report an uplink address the console never lists as the gateway's
+  // own, so matching that single address against the addresses the console knows
+  // answers "is this the gateway" with a false no. Sending all of them lets the
+  // server ask whether ANY of them is one it recognises, without widening what it
+  // treats as a gateway address. Empty from an agent that predates this, which
+  // leaves the server on the single-address comparison it has always done.
+  repeated string local_ips = 7;
 }
 
 message ServerHello {
