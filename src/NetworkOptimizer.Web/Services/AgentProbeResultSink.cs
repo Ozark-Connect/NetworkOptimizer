@@ -323,9 +323,17 @@ public class AgentProbeResultSink
             // does not move the pool around, and self-healing, because the next agent takes it over
             // on the following push if the owner drops. Steered agents are never eligible - their
             // probes leave by the wrong WAN.
-            var unassignedOwnerId = SelectCollectorAgentId(
-                _tunnelRegistry.GetForSite(connection.SiteSlug).Select(c => c.AgentId),
-                contextsById.Values, primaryWanKey, connection.AgentId);
+            // Only when an agent collects for this site at all. On the main site with collection
+            // left to the server, the server probes the unassigned pool itself, and the results of
+            // an agent probing it too are discarded on arrival by ShouldRecordResult - so pushing
+            // them means the agent runs a set of probes for nothing. The push has to ask the same
+            // question the record does, or the two disagree about whose numbers count.
+            var agentCoversPrimary = !isDefault || await _agentCoverage.CoversAsync(connection.SiteSlug);
+            var unassignedOwnerId = agentCoversPrimary
+                ? SelectCollectorAgentId(
+                    _tunnelRegistry.GetForSite(connection.SiteSlug).Select(c => c.AgentId),
+                    contextsById.Values, primaryWanKey, connection.AgentId)
+                : NoCollectorAgentId;
 
             // An agent running ON the gateway cannot usefully probe it: the target is the box the
             // probe runs on, so every reply is loopback - 0 ms and no loss - which reads as a
@@ -408,6 +416,12 @@ public class AgentProbeResultSink
     /// eligible, which keeps a lone steered agent collecting rather than leaving a site dark.
     /// </para>
     /// </summary>
+    /// <summary>
+    /// Stands in for "no agent collects here", where the server does it. Never a real agent id, so
+    /// every ownership comparison simply fails.
+    /// </summary>
+    internal const int NoCollectorAgentId = -1;
+
     internal static int SelectCollectorAgentId(
         IEnumerable<int> connectedAgentIds,
         IEnumerable<WanContext> contexts,
@@ -627,6 +641,27 @@ public class AgentProbeResultSink
                     && (c.InterfaceName == null || c.InterfaceName == ""))
                 .ToListAsync(ct);
             return contexts.Any(c => !IsPrimaryWanContext(c, primaryWanKey));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not read WAN contexts for agent {Id} (site {Slug})",
+                connection.AgentId, connection.SiteSlug);
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Whether this agent owns any WAN context on its site, however that context binds. The test for
+    /// "is there anything worth reading this agent's results for" - the per-result check below then
+    /// decides which of them to keep.
+    /// </summary>
+    private async Task<bool> AgentOwnsAnyContextAsync(AgentTunnelConnection connection, CancellationToken ct)
+    {
+        try
+        {
+            await using var db = _siteDbFactory.CreateForSite(
+                connection.SiteSlug, connection.SiteSlug == SiteManagementService.DefaultSiteSlug);
+            return await db.WanContexts.AsNoTracking().AnyAsync(c => c.AgentId == connection.AgentId, ct);
         }
         catch (Exception ex)
         {
@@ -1577,7 +1612,14 @@ public class AgentProbeResultSink
         // Nothing this agent sends can be kept, so drop the batch without loading the site's
         // targets for it - which is what happened before contexts existed, and still happens on
         // every site that has none.
-        if (!agentCoversPrimary && !await IsSteeredToWanAgentAsync(connection, ct)) return;
+        //
+        // The question is whether the agent owns ANY context, not whether it is steered. Those are
+        // the same for an agent whose whole box is routed out a WAN, and different for one on the
+        // gateway that binds each probe: binding leaves its own route alone, so it is not steered,
+        // yet its context's results are still the only measurement that WAN has. Asking the steering
+        // question here threw away every result from a gateway vantage the moment it was given an
+        // interface to bind.
+        if (!agentCoversPrimary && !await AgentOwnsAnyContextAsync(connection, ct)) return;
 
         await using var db = _siteDbFactory.CreateForSite(connection.SiteSlug, isDefault);
         var ids = batch.Results.Select(r => r.TargetId).Distinct().ToList();
