@@ -2314,6 +2314,7 @@
     private bool _mapMounted = false;
     private bool _map2dMounted = false;
     private bool _initialAtApplied = false;
+    private bool _initialWanApplied = false;
     private bool _wanLiveChartMounted = false;
     private bool _portStatsMounted = false;
     private bool _latencyChartsMounted;
@@ -4631,6 +4632,17 @@
         if (_multiWanUiVisible)
             await LiveWan.RestoreAsync();
 
+        // A deep link naming a WAN (?wan=, from a speed test result) solos it, AFTER the restore
+        // above so it beats the stored selection rather than being overwritten by it. Once only:
+        // the link chooses where the user arrives, not where they have to stay. A key no option
+        // matches - a single-WAN site being sent one - is a no-op inside SelectAsync.
+        if (_multiWanUiVisible && !_initialWanApplied && _activeTab == "live"
+            && LiveWan.HasChoice && !string.IsNullOrWhiteSpace(WanParam))
+        {
+            _initialWanApplied = true;
+            await LiveWan.SelectAsync(WanParam.Trim().ToLowerInvariant());
+        }
+
         // After render, so the tab and the WAN options have settled and the check reflects what
         // is actually on screen.
         await EnsureWanCompareHintAsync();
@@ -4800,7 +4812,19 @@
                     "  window.__wanLiveChart = m;" +
                     $"  await m.mount(elId, {{ seekOnClick: true, wans: {LiveWanJsLiteral()} }});" +
                     "}");
-                _ = JS.InvokeVoidAsync("__mountWanLiveChart", "monitoring-wan-live-chart");
+                // Fire-and-forget so a slow import cannot stall the rest of the pass, but the scope
+                // is pushed again once the module is up, read fresh at that moment. This pass can
+                // run before the WAN list has resolved - _monitoringReady is settings-only, while
+                // _multiWanUiVisible waits on a console call - so arriving by in-app nav (settings
+                // already cached, WANs not yet) mounted the chart on the primary, and the selection
+                // restoring behind it lost the race against the mount that was still in flight.
+                // The pills read the restored multi-WAN set while the chart drew one WAN.
+                _ = InvokeAsync(async () =>
+                {
+                    await JS.InvokeVoidAsync("__mountWanLiveChart", "monitoring-wan-live-chart");
+                    try { await JS.InvokeVoidAsync("eval", $"window.__wanLiveChart?.setWans({LiveWanJsLiteral()});"); }
+                    catch (Exception ex) { Logger.LogDebug(ex, "WAN live chart scope push after mount failed"); }
+                });
             }
             catch (Exception ex) { _wanLiveChartMounted = false; Logger.LogDebug(ex, "WAN live chart mount failed; will retry on next render"); }
         }
