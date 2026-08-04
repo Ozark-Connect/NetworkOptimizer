@@ -4828,9 +4828,19 @@
                 // left the chart tick-filling from empty instead of arriving backfilled.
                 _ = InvokeAsync(async () =>
                 {
-                    await JS.InvokeVoidAsync("__mountWanLiveChart", "monitoring-wan-live-chart", scopeAtMount);
+                    // The settled-scope check below is the recovery path, so a first mount that
+                    // faulted (transient interop failure, a render torn down mid-flight) must not
+                    // take it down with it - unprotected, the fault silently killed this task and
+                    // the chart stayed on the stale scope with no history load ever arriving.
+                    var mountFaulted = false;
+                    try { await JS.InvokeVoidAsync("__mountWanLiveChart", "monitoring-wan-live-chart", scopeAtMount); }
+                    catch (Exception ex)
+                    {
+                        mountFaulted = true;
+                        Logger.LogDebug(ex, "WAN live chart mount failed; retrying with the settled scope");
+                    }
                     var settledScope = LiveWanJsLiteral();
-                    if (settledScope == scopeAtMount) return;
+                    if (!mountFaulted && settledScope == scopeAtMount) return;
                     try { await JS.InvokeVoidAsync("__mountWanLiveChart", "monitoring-wan-live-chart", settledScope); }
                     catch (Exception ex) { Logger.LogDebug(ex, "WAN live chart remount for settled scope failed"); }
                 });

@@ -857,7 +857,7 @@ function syncModeUi() {
     playBtn.setAttribute('aria-label', paused ? 'Play' : 'Pause');
 }
 
-export async function mount(containerId, opts) {
+async function doMount(containerId, opts) {
     // Ride in with the mount rather than in a call behind it: this module is imported
     // asynchronously, so a scope pushed separately can land before the import resolves.
     if (opts && 'wan' in opts) wanScope = opts.wan || null;
@@ -948,6 +948,35 @@ export async function mount(containerId, opts) {
     }
 }
 
+// mount and setWans both rebuild the chart and reload its history, and they arrive from
+// independent Blazor tasks: the mount chain (initial mount, then the settled-scope remount in
+// Monitoring.razor) and the LiveWanScope restore's setWans push interleave arbitrarily. Left to
+// overlap, a setWans landing mid-mount had its compareWans wiped by the mount's own opts reset,
+// and each side destroys the ApexCharts instance the other is awaiting render() on - which
+// strands that render promise and takes the caller's interop await (and the settled-scope
+// remount behind it) down with it, leaving a comparison chart whose history load never ran.
+// Serializing the two entry points makes every arrival order equivalent to a clean sequence,
+// and every terminal order ends loaded: a mount running last loads its own window, a setWans
+// running last either loads or finds the same WAN list already mounted and stands pat.
+let scopeOpChain = Promise.resolve();
+
+function queueScopeOp(fn) {
+    const run = scopeOpChain.then(fn, fn);
+    // Keep the chain alive past a failed op; the caller still sees its own rejection via run.
+    scopeOpChain = run.then(() => {}, () => {});
+    return run;
+}
+
+/** Queued front door for doMount, so a mount can never interleave with a setWans. */
+export function mount(containerId, opts) {
+    return queueScopeOp(() => doMount(containerId, opts));
+}
+
+/** Queued front door for doSetWans, so a scope push can never interleave with a mount. */
+export function setWans(wans) {
+    return queueScopeOp(() => doSetWans(wans));
+}
+
 /**
  * Points the chart at another WAN and reloads its history. Deliberately does NOT touch the
  * paused/scrubbed state: changing which WAN you are looking at should not drag you back to live,
@@ -959,7 +988,7 @@ export async function mount(containerId, opts) {
  * the series count, their axes and their fills all differ between the two modes, so updating in
  * place would leave ApexCharts holding a config for the shape it no longer has.
  */
-export async function setWans(wans) {
+async function doSetWans(wans) {
     const list = (Array.isArray(wans) ? wans : []).filter(w => w && w.key);
     if (list.length <= 1) {
         const wasComparing = comparing();
@@ -1024,11 +1053,52 @@ export function pause() {
     if (backfillTimer) { clearInterval(backfillTimer); backfillTimer = null; }
 }
 
-export function resume() {
-    if (!chart || pollTimer) return;
-    pollTimer = setInterval(pollLive, pollMsOverride || pollMs);
-    scrollTimer = setInterval(updateChart, SCROLL_MS);
-    startBackfillCatchUp();
+// Entering live mode is one indivisible job - reload the 5-minute window, THEN start the
+// timers - but it has two independent doors: the map's time sync sends seekTime(null) and its
+// playstate sync sends resume(), each a fire-and-forget interop call, so they arrive in
+// whichever order the circuit delivers them. When resume() won that race it used to start
+// pollTimer without loading anything, and seekTime(null) then bailed on "already live" before
+// reaching its history load - in comparison mode nothing else ever refills compareBuffers
+// (backfill feeds only the single-WAN buffer), so the window never came back and the chart
+// crept forward one live tick at a time. One shared entry makes the order irrelevant:
+// whichever door opens first does the whole job, and the other finds it done - or in flight,
+// which the flag below turns into a no-op instead of a second set of timers polling forever.
+let liveEntryInFlight = false;
+
+async function enterLive() {
+    if (!chart || pollTimer || liveEntryInFlight) return;
+    // Still parked on a historic instant: while returning to live the playstate sync (resume)
+    // can arrive before the time sync (seekTime(null)), and entering here would clobber the
+    // parked window with the live one. seekTime(null) clears histAt first, then comes back in.
+    if (histAt > 0) return;
+    liveEntryInFlight = true;
+    try {
+        const gen = mountGen;
+        buffer = [];
+        // Comparison mode draws from the per-WAN buffers, so refilling the single-WAN one leaves
+        // the chart on the window it was parked at - the live 5 minutes never arrived and the
+        // series only crept back as fresh ticks came in one at a time.
+        if (comparing()) await loadCompareHistory();
+        else await loadHistory();
+        // A remount, a historic seek, or a path that already started polling superseded this
+        // entry while it was fetching. Deliberately NOT keyed on seekGen: a second return-to-live
+        // during the fetch bumps that too, and this entry completing is exactly what the second
+        // return wants - bailing on it left the chart live with no timers running.
+        if (gen !== mountGen || histAt > 0 || pollTimer) return;
+        updateChart();
+        pollTimer = setInterval(pollLive, pollMsOverride || pollMs);
+        scrollTimer = setInterval(updateChart, SCROLL_MS);
+        startBackfillCatchUp();
+    } finally {
+        liveEntryInFlight = false;
+    }
+}
+
+export async function resume() {
+    // The same door as returning from historic: any pause leaves a hole the live ticks alone
+    // cannot fill (and in comparison mode nothing else fills it, since backfill only feeds the
+    // single-WAN buffer), so resuming reloads history rather than just restarting the timers.
+    await enterLive();
 }
 
 // Render the historic view at a given playhead time from the current buffer.
@@ -1122,19 +1192,10 @@ export async function seekTime(isoTimestamp) {
         // filter change seeking back into history, stopping the live poll on the way, and left the
         // chart empty on a window with no data and nothing running to refill it.
         histAt = 0;
-        if (pollTimer) return; // already live
-        const liveGen = seekGen;
-        buffer = [];
-        // Comparison mode draws from the per-WAN buffers, so refilling the single-WAN one leaves
-        // the chart on the window it was parked at - the live 5 minutes never arrived and the
-        // series only crept back as fresh ticks came in one at a time.
-        if (comparing()) await loadCompareHistory();
-        else await loadHistory();
-        if (liveGen !== seekGen) return; // seeked again while loading
-        updateChart();
-        pollTimer = setInterval(pollLive, pollMsOverride || pollMs);
-        scrollTimer = setInterval(updateChart, SCROLL_MS);
-        startBackfillCatchUp();
+        // enterLive owns the "already live" bail, the history reload (per-WAN buffers while
+        // comparing), and the timer start - shared with resume(), so the two return-to-live
+        // callbacks can no longer race each other into skipping the load.
+        await enterLive();
         return;
     }
     // Historic mode: stop polling, fetch window centered on timestamp
