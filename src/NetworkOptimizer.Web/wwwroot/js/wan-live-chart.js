@@ -420,6 +420,32 @@ function buildOpts() {
 // the viewport, so half-view panels and mobile - which constrain the chart
 // below full width while the viewport stays wide - step out to a sparser
 // grid instead of colliding. Full width keeps the dense 20s grid.
+// Comparison series on ONE time grid, the union of every WAN's timestamps, with a null wherever a
+// WAN has no reading for an instant.
+//
+// Each WAN's history is fetched separately and comes back on its own timestamps, so series built
+// straight from those buffers share no x values. ApexCharts addresses series by data-point INDEX,
+// so a shared tooltip then has nothing to print for the WANs that lack a point at the hovered
+// instant - the reading you want appears only when the pointer happens to find that WAN's own line,
+// which is hunting rather than reading. A common grid gives every series the same indices.
+//
+// Nulls rather than dropped points, for the reason alignedPoints exists in chart-tooltip.js: a
+// missing point makes its neighbours adjacent and the stroke spans a gap that is really there,
+// while a null ends one segment and starts another. valueSortedTooltip skips nulls, so a WAN with
+// no reading costs no row.
+function compareSeries() {
+    const times = [...new Set(compareWans.flatMap(w =>
+        (compareBuffers.get(w.key) || []).map(p => p.time)))].sort((a, b) => a - b);
+    return compareWans.flatMap(w => {
+        const byTime = new Map((compareBuffers.get(w.key) || []).map(p => [p.time, p]));
+        const on = key => times.map(t => ({ x: t, y: byTime.get(t)?.[key] ?? null }));
+        return [
+            { name: `${w.label} down`, data: on('download') },
+            { name: `${w.label} up`,   data: on('upload') },
+        ];
+    });
+}
+
 function buildTimeTicks(minMs, maxMs) {
     const width = document.getElementById(elId)?.clientWidth || 800;
     // An HH:mm:ss label is ~46px at 10px; budget 64px per slot for breathing
@@ -493,13 +519,7 @@ function updateChart() {
             annotations: { xaxis: buildTimeTicks(now - HISTORY_MINUTES * 60000, now) },
         }, false, false, false);
     if (comparing()) {
-        chart.updateSeries(compareWans.flatMap(w => {
-            const b = compareBuffers.get(w.key) || [];
-            return [
-                { name: `${w.label} down`, data: b.map(p => ({ x: p.time, y: p.download })) },
-                { name: `${w.label} up`,   data: b.map(p => ({ x: p.time, y: p.upload })) },
-            ];
-        }), false);
+        chart.updateSeries(compareSeries(), false);
         return;
     }
     chart.updateSeries([
@@ -910,7 +930,10 @@ export async function setWans(wans) {
         compareWans = [];
         compareBuffers.clear();
         if (wasComparing) await remountChart();
-        return await setWan(list[0]?.key ?? null);
+        await setWan(list[0]?.key ?? null);
+        // A swap made while parked has to be drawn at the parked instant too.
+        if (histAt > 0) await seekTime(new Date(histAt).toISOString());
+        return;
     }
     if (list.map(w => w.key).join(",") === compareWans.map(w => w.key).join(",")) return;
     compareWans = list;
@@ -918,6 +941,23 @@ export async function setWans(wans) {
     wanScope = list[0].key;
     await remountChart();
     await loadCompareHistory();
+    await redrawForCurrentTime();
+}
+
+/**
+ * Draws the newly loaded scope at whatever instant the chart is showing.
+ *
+ * Live, that is now, and updateChart is the whole job. Parked or playing back it is the instant on
+ * the playhead, and updateChart draws the live edge instead - which is why changing WANs during
+ * playback appeared to do nothing: the series were replaced correctly, then painted for a time the
+ * user was not looking at. A full seek rather than a redraw, because the new scope holds no data
+ * for that instant until it is fetched, which is what seekTime does.
+ */
+async function redrawForCurrentTime() {
+    if (histAt > 0) {
+        await seekTime(new Date(histAt).toISOString());
+        return;
+    }
     updateChart();
 }
 
@@ -999,13 +1039,7 @@ function renderHistoric(at, force = false) {
     // Scrubbing while comparing draws every WAN at the parked instant - the point of comparing is
     // to read them against each other, and freezing the time only makes that easier.
     if (comparing()) {
-        chart.updateSeries(compareWans.flatMap(w => {
-            const b = compareBuffers.get(w.key) || [];
-            return [
-                { name: `${w.label} down`, data: b.map(p => ({ x: p.time, y: p.download })) },
-                { name: `${w.label} up`,   data: b.map(p => ({ x: p.time, y: p.upload })) },
-            ];
-        }), false);
+        chart.updateSeries(compareSeries(), false);
         return;
     }
     chart.updateSeries([
