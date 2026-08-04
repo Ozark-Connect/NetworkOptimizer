@@ -85,16 +85,23 @@ export function valueSortedTooltip({ series, dataPointIndex, w }, options = {}) 
     // The axis formatter by default, since it is already right for the chart. An explicit one
     // is for charts whose axis deliberately omits a unit that the tooltip should still carry -
     // ISP Health's axis reads "12.4" under an "ms" title, but its tooltip says "12.4 ms".
-    const fmt = options.format ?? w.config.yaxis?.[0]?.labels?.formatter ?? (v => v);
+    // An ARRAY of formatters addresses series by index, for a chart whose series do not share a
+    // unit - throughput beside loss beside latency, where one formatter cannot be right for all.
+    const fmtOpt = options.format ?? w.config.yaxis?.[0]?.labels?.formatter ?? (v => v);
+    const fmtFor = i => Array.isArray(fmtOpt) ? (fmtOpt[i] ?? (v => v)) : fmtOpt;
     const rows = [];
     let ts = null;
     for (let i = 0; i < series.length; i++) {
         const v = series[i]?.[dataPointIndex];
         if (v == null) continue;
         ts ??= w.globals.seriesX[i]?.[dataPointIndex];
-        rows.push({ name: w.globals.seriesNames[i], color: w.globals.colors[i % w.globals.colors.length], v });
+        rows.push({ name: w.globals.seriesNames[i], color: w.globals.colors[i % w.globals.colors.length], v, i });
     }
-    rows.sort((a, b) => b.v - a.v);
+    // Sorted by value where the rows are the same measurement on different subjects, which is what
+    // ranks them - several WANs' throughput, several targets' latency. Pass sort: false where the
+    // rows are DIFFERENT measurements of one subject: ordering download, loss and RTT by magnitude
+    // shuffles unrelated quantities and the reader loses the fixed place each one sits in.
+    if (options.sort !== false) rows.sort((a, b) => b.v - a.v);
     // Seconds by default, because the Monitoring charts poll fast enough for them to mean
     // something. A chart on a slower cadence can drop them - ISP Health polls once a minute over a
     // 24 hour window, where a seconds field is noise and was never shown before this was shared.
@@ -108,7 +115,7 @@ export function valueSortedTooltip({ series, dataPointIndex, w }, options = {}) 
             + '<span class="apexcharts-tooltip-marker" style="background-color:' + r.color + ';border-radius:50%;width:12px;height:12px"></span>'
             + '<div class="apexcharts-tooltip-text" style="font-family:Helvetica, Arial, sans-serif;font-size:12px"><div class="apexcharts-tooltip-y-group">'
             + '<span class="apexcharts-tooltip-text-y-label">' + esc(r.name) + ': </span>'
-            + '<span class="apexcharts-tooltip-text-y-value">' + esc(fmt(r.v)) + '</span>'
+            + '<span class="apexcharts-tooltip-text-y-value">' + esc(fmtFor(r.i)(r.v)) + '</span>'
             + '</div></div></div>').join('');
 }
 

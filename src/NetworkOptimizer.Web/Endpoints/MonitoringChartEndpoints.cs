@@ -85,7 +85,13 @@ public static class MonitoringChartEndpoints
                 }
             }
 
-            var (meanRtt, meanLoss) = await liveStats.GetMeanIspTransitLiveAsync(ct);
+            // Scoped to the same WAN as the rates above, or the chart's RTT and loss lines would
+            // be the site's while its throughput was one WAN's - and a WAN with no targets of its
+            // own would show the primary's latency as if it were its own.
+            var isPrimaryWan = string.IsNullOrEmpty(wan)
+                || string.Equals(NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(wan!),
+                    NetworkOptimizer.UniFi.GatewayWanHelper.DefaultWanKey, StringComparison.OrdinalIgnoreCase);
+            var (meanRtt, meanLoss) = await liveStats.GetMeanIspTransitLiveAsync(ct, wan, isPrimaryWan);
 
             return Results.Ok(new
             {

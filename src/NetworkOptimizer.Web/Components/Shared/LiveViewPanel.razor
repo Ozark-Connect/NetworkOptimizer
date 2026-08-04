@@ -90,7 +90,7 @@ else
                     <div class="isp-tile-bar"><div class="isp-tile-bar-fill" style="width: @(ispHealth.Score)%"></div></div>
                 }
             </div>
-            @{ var ispTarget = GetBestTargetStats(MonitoringTargetType.AccessIsp); }
+            @{ var ispTarget = ScopedTargetStats(MonitoringTargetType.AccessIsp, meanAcrossTargets: false); }
             <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => NavigationManager.NavigateTo("/monitoring?tab=performance&category=AccessIsp"))">
                 @if (LiveWan.IsComparing)
                 {
@@ -123,7 +123,7 @@ else
                 }
                 <div class="stat-label">ISP Loss</div>
             </div>
-            @{ var transitTarget = GetMeanTargetStats(MonitoringTargetType.Transit); }
+            @{ var transitTarget = ScopedTargetStats(MonitoringTargetType.Transit, meanAcrossTargets: true); }
             <div class="monitoring-stat-card clickable-stat-card stat-card-no-minheight" @onclick="@(() => NavigationManager.NavigateTo("/monitoring?tab=performance&category=Transit"))">
                 @if (LiveWan.IsComparing)
                 {
@@ -656,6 +656,27 @@ else
     /// the operator most needs not to be given. A WAN with no live samples yet is listed with no
     /// value rather than dropped, so the stack always says which WANs are on screen.
     /// </summary>
+
+    /// <summary>
+    /// The selected WAN's own ISP/Transit live figures. The site-wide helpers below answer for
+    /// every target regardless of WAN, so selecting a secondary WAN used to show the primary's
+    /// latency beside that WAN's throughput - a number that belongs to another connection,
+    /// presented as this one's. A WAN with no targets of its own reads as no data.
+    /// </summary>
+    private (double? rtt, double loss) ScopedTargetStats(MonitoringTargetType type, bool meanAcrossTargets)
+    {
+        var wan = LiveWan.Selected;
+        if (wan == null) return meanAcrossTargets ? GetMeanTargetStats(type) : GetBestTargetStats(type);
+
+        var rows = PerWanTargetStats(type, meanAcrossTargets);
+        var row = rows.FirstOrDefault(r => string.Equals(
+            r.Label,
+            NetworkOptimizer.UniFi.GatewayWanHelper.SplitWanLabel(
+                wan.Label, NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey(wan.Key)).WanToken ?? wan.Label,
+            StringComparison.OrdinalIgnoreCase));
+        return (row.Rtt, row.Loss);
+    }
+
     private List<(string Label, double? Rtt, double Loss)> PerWanTargetStats(MonitoringTargetType type, bool meanAcrossTargets)
     {
         var rows = new List<(string, double?, double)>();

@@ -4,6 +4,7 @@
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 import * as flowData from './lan-flow-data.js?v=7';
+import { valueSortedTooltip } from './chart-tooltip.js?v=7';
 
 const HISTORY_MINUTES = 5;
 // Poll at twice the site's SNMP sample rate so no sample is missed when the two
@@ -343,7 +344,7 @@ function buildOpts() {
             // annotation time labels render. Comparing has no opposite RTT axis holding the right
             // edge open, so it pads its own or the newest sample sits on the container's edge.
             padding: comparing()
-                ? { left: 3, right: 12, top: -8, bottom: 12 }
+                ? { left: 3, right: 26, top: -8, bottom: 12 }
                 : { left: 3, right: 0, top: -8, bottom: 12 },
             xaxis: { lines: { show: false } },
         },
@@ -372,6 +373,14 @@ function buildOpts() {
             // legend and the series names carry the WAN.
             shared: true,
             x: { format: 'HH:mm:ss', formatter: (val) => new Date(val).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) },
+            // Comparing uses the same custom tooltip as the rest of the Monitoring charts: it
+            // stacks every series at the hovered instant sorted by value, and paints its own
+            // hover dots (the library's markers are the flaky ones, and any non-zero size puts a
+            // permanent dot on every sample). An explicit formatter because the throughput axis
+            // is an object here, not the array the helper reads by default.
+            custom: comparing()
+                ? (ctx) => valueSortedTooltip(ctx, { format: v => formatBps(v) })
+                : undefined,
             // Positional, one per series: a short array leaves the rest of the series with no
             // formatter at all, which renders raw bits per second.
             y: comparing()
