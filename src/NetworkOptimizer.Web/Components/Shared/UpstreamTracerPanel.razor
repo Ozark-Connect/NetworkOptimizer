@@ -34,7 +34,7 @@
                             var wp = NetworkOptimizer.UniFi.GatewayWanHelper.SplitWanLabel(
                                 w.Label, NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey(w.Key));
                         }@(wp.Name ?? w.Label)@if (wp.WanToken != null && wp.Name != null)
-                        {<span class="wan-pill-name">@wp.WanToken</span>}@if (w.IsPrimary && _needsReview)
+                        {<span class="wan-pill-token">@wp.WanToken</span>}@if (w.IsPrimary && _needsReview)
                         {<span style="color: var(--warning-color);">&#9679;</span>}
                     </button>
                 }

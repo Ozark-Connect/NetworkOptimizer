@@ -291,7 +291,7 @@
                                     var wp = NetworkOptimizer.UniFi.GatewayWanHelper.SplitWanLabel(
                                         w.Label, NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey(w.Key));
                                 }@(wp.Name ?? w.Label)@if (wp.WanToken != null && wp.Name != null)
-                                {<span class="wan-pill-name">@wp.WanToken</span>}</button>
+                                {<span class="wan-pill-token">@wp.WanToken</span>}</button>
                     }
                 </div>
             }
@@ -519,7 +519,7 @@
                                     var wp = NetworkOptimizer.UniFi.GatewayWanHelper.SplitWanLabel(
                                         w.Label, NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey(w.Key));
                                 }@(wp.Name ?? w.Label)@if (wp.WanToken != null && wp.Name != null)
-                                {<span class="wan-pill-name">@wp.WanToken</span>}</button>
+                                {<span class="wan-pill-token">@wp.WanToken</span>}</button>
                             }
                         </div>
                     }
@@ -3259,7 +3259,15 @@
     private void NavigateFromIspHealthTile(IspHealthStatus status)
     {
         if (status is IspHealthStatus.NotConfigured or IspHealthStatus.NeedsDiscovery)
-            NavigateToUpstreamDiscovery();
+        {
+            // Discovery traces a secondary WAN THROUGH its context, so a WAN without one cannot be
+            // discovered however many times it is run - the context is the step that actually
+            // comes first, and that is where the tile has to point.
+            if (LiveWan.Selected is { IsPrimary: false, HasContext: false })
+                NavigationManager.NavigateTo("/monitoring?tab=setup&contexts=1");
+            else
+                NavigateToUpstreamDiscovery();
+        }
         else
             NavigationManager.NavigateTo($"/monitoring?tab=isp-health{IspHealthWanQuery()}");
     }

@@ -48,7 +48,10 @@ public sealed class LiveWanScope
     /// counters carry that WAN's throughput; null when nothing has ever recorded one, which the
     /// tiles read as "no answer" rather than substituting another WAN's.
     /// </summary>
-    public sealed record Option(string Key, string Label, bool IsPrimary, string? CounterIfName);
+    /// <param name="HasContext">Whether a WAN context names this WAN. A secondary WAN without one
+    /// is not probed at all, so anything offering to fix its monitoring has to send the user to
+    /// make the context first - discovery cannot help until there is one.</param>
+    public sealed record Option(string Key, string Label, bool IsPrimary, string? CounterIfName, bool HasContext);
 
     /// <summary>
     /// Raised after the selection changes. The surface owning this instance sets it: the scope
@@ -111,16 +114,33 @@ public sealed class LiveWanScope
         _loaded = true;
 
         var options = new List<Option>();
+
+        // Read first: a live WAN needs to know whether a context names it, and the answer decides
+        // where a "fix my monitoring" link can usefully send someone.
+        List<Storage.Models.WanContext> contexts = new();
+        try
+        {
+            await using var ctxDb = _siteDb.CreateForSite(_siteContext.Slug, _siteContext.IsDefault);
+            contexts = await ctxDb.WanContexts.AsNoTracking().ToListAsync();
+        }
+        catch { /* site DB unavailable - treat every WAN as context-less, the conservative read */ }
+        var keysWithContext = contexts
+            .Where(c => !string.IsNullOrEmpty(c.WanInterface))
+            .Select(c => c.WanInterface!.ToLowerInvariant())
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
         try
         {
             foreach (var wan in await _pathView.GetWansAsync())
             {
+                var key = wan.WanInterface.ToLowerInvariant();
                 options.Add(new Option(
-                    wan.WanInterface.ToLowerInvariant(),
+                    key,
                     GatewayWanHelper.FormatWanLabel(
                         wan.FriendlyName, GatewayWanHelper.WanIndexFromKey(wan.WanInterface), null, null),
                     wan.IsPrimary,
-                    NetworkUtilities.PreferredWanCounterInterface(wan.PhysicalIfName, wan.UplinkIfName)));
+                    NetworkUtilities.PreferredWanCounterInterface(wan.PhysicalIfName, wan.UplinkIfName),
+                    keysWithContext.Contains(key)));
             }
         }
         catch { /* console unreachable - contexts below still describe the WANs we know of */ }
@@ -128,7 +148,6 @@ public sealed class LiveWanScope
         try
         {
             await using var db = _siteDb.CreateForSite(_siteContext.Slug, _siteContext.IsDefault);
-            var contexts = await db.WanContexts.AsNoTracking().ToListAsync();
             foreach (var ctx in contexts)
             {
                 if (string.IsNullOrEmpty(ctx.WanInterface)) continue;
@@ -143,7 +162,8 @@ public sealed class LiveWanScope
                     key,
                     GatewayWanHelper.FormatWanLabel(ctx.Name, GatewayWanHelper.WanIndexFromKey(key), null, null),
                     IsPrimary: false,
-                    counter));
+                    counter,
+                    HasContext: true));
             }
         }
         catch { /* site DB unavailable - the live WANs above stand on their own */ }

@@ -67,7 +67,7 @@ else
                                     var wp = NetworkOptimizer.UniFi.GatewayWanHelper.SplitWanLabel(
                                         w.Label, NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey(w.Key));
                                 }@(wp.Name ?? w.Label)@if (wp.WanToken != null && wp.Name != null)
-                                {<span class="wan-pill-name">@wp.WanToken</span>}</button>
+                                {<span class="wan-pill-token">@wp.WanToken</span>}</button>
                     }
                 </div>
             }
@@ -82,7 +82,7 @@ else
                 <div class="stat-label">@WanRateLabel("Upload")</div>
             </div>
             @{ var ispHealth = CurrentIspHealth(); }
-            <div class="monitoring-stat-card clickable-stat-card isp-health-tile @ispHealth.TileCssClass" data-tooltip="@ispHealth.TileTooltip" data-tooltip-hover-only @onclick="@(() => NavigationManager.NavigateTo($"/monitoring?tab=isp-health{IspHealthWanQuery()}"))">
+            <div class="monitoring-stat-card clickable-stat-card isp-health-tile @ispHealth.TileCssClass" data-tooltip="@ispHealth.TileTooltip" data-tooltip-hover-only @onclick="@(() => NavigationManager.NavigateTo(IspHealthTileHref(ispHealth.Status)))">
                 <div class="stat-value isp-tile-score">@ispHealth.TileText</div>
                 <div class="stat-label">ISP Health</div>
                 @if (ispHealth.Status == IspHealthStatus.Ready && ispHealth.Score.HasValue)
@@ -419,6 +419,20 @@ else
     /// WAN's report rather than whichever one the analysis pages were last left on. Empty for the
     /// primary, whose report is the default.
     /// </summary>
+    /// <summary>
+    /// Where the score tile goes. Pre-setup it goes where setup happens rather than to a report
+    /// that can only say "go set this up" - and for a WAN with no context that is the contexts
+    /// card, since discovery traces a secondary WAN through its context and cannot run without one.
+    /// </summary>
+    private string IspHealthTileHref(IspHealthStatus status)
+    {
+        if (status is IspHealthStatus.NotConfigured or IspHealthStatus.NeedsDiscovery)
+            return LiveWan.Selected is { IsPrimary: false, HasContext: false }
+                ? "/monitoring?tab=setup&contexts=1"
+                : $"/monitoring?tab=performance&discover=1{IspHealthWanQuery()}";
+        return $"/monitoring?tab=isp-health{IspHealthWanQuery()}";
+    }
+
     private string IspHealthWanQuery() =>
         LiveWan.Selected is { IsPrimary: false } w ? $"&wan={Uri.EscapeDataString(w.Key)}" : "";
 

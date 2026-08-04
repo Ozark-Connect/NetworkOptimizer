@@ -55,7 +55,7 @@
                                     var wp = NetworkOptimizer.UniFi.GatewayWanHelper.SplitWanLabel(
                                         w.Label, NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey(w.Key));
                                 }@(wp.Name ?? w.Label)@if (wp.WanToken != null && wp.Name != null)
-                                {<span class="wan-pill-name">@wp.WanToken</span>}</button>
+                                {<span class="wan-pill-token">@wp.WanToken</span>}</button>
                 }
             </div>
         }
@@ -1079,6 +1079,23 @@ else
         _selectedWanKey = options.FirstOrDefault(o => o.IsPrimary)?.Key ?? options.FirstOrDefault()?.Key ?? "";
     }
 
+    /// <summary>Loads the selected WAN's report, leaving it null on a transient query failure.</summary>
+    private async Task LoadReportAsync()
+    {
+        try
+        {
+            _report = _windowStart.HasValue && _windowEnd.HasValue
+                ? await Svc.GetReportForWindowAsync(_windowStart.Value, _windowEnd.Value)
+                : await Svc.GetReportAsync();
+        }
+        catch
+        {
+            // A transient InfluxDB/query failure must not fault the circuit; leave the report null
+            // and let the status funnels render the fallback message.
+            _report = null;
+        }
+    }
+
     private async Task SelectWanAsync(string key, bool persist = true)
     {
         if (string.Equals(key, _selectedWanKey, StringComparison.OrdinalIgnoreCase)) return;
@@ -1156,9 +1173,10 @@ else
         string.IsNullOrEmpty(_selectedWanKey) || _wanOptions.Count <= 1
             ? "" : $"&wan={Uri.EscapeDataString(_selectedWanKey)}";
 
-    private async Task RestoreWanSelectionAsync()
+    /// <returns>True when the selection moved, in which case the report has been loaded with it.</returns>
+    private async Task<bool> RestoreWanSelectionAsync()
     {
-        if (_wanOptions.Count <= 1) return;
+        if (_wanOptions.Count <= 1) return false;
 
         // An explicit ?wan= beats the stored selection and replaces it: arriving by a link that
         // names a WAN is a statement about which report you want, where the stored value is only
@@ -1169,7 +1187,7 @@ else
             && _wanOptions.Any(w => string.Equals(w.Key, linked, StringComparison.OrdinalIgnoreCase)))
         {
             await SelectWanAsync(linked!, persist: true);
-            return;
+            return true;
         }
 
         try
@@ -1180,9 +1198,11 @@ else
                 && _wanOptions.Any(w => string.Equals(w.Key, stored, StringComparison.OrdinalIgnoreCase)))
             {
                 await SelectWanAsync(stored, persist: false);
+                return true;
             }
         }
         catch { }
+        return false;
     }
 
     protected override async Task OnInitializedAsync()
@@ -1197,20 +1217,11 @@ else
 
         await LoadWanChoicesAsync();
 
-        try
-        {
-            _report = await Svc.GetReportAsync();
-        }
-        catch
-        {
-            // A transient InfluxDB/query failure must not fault the circuit; leave the
-            // report null and let the status funnels render the fallback message.
-            _report = null;
-        }
-        finally
-        {
-            _loading = false;
-        }
+        // The report is NOT loaded here. Which WAN it should be for lives in localStorage, which
+        // needs interop, which is unavailable until after the first render - so loading now would
+        // compute the primary in the foreground, and on a site where the primary is due a
+        // recompute that is a long wait for a report the user did not ask for, followed by a
+        // switch to the one they did. It loads in OnAfterRenderAsync once the WAN is known.
 
         // Highlight the button for the effective (possibly auto-reduced) live window.
         if (_followLive) _selectedPreset = LiveWindowHours;
@@ -1514,10 +1525,17 @@ else
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        // Interop is unavailable during prerender, so the remembered WAN applies here; until
-        // then the panel shows the primary, exactly as a site with nothing stored expects.
+        // Interop is unavailable during prerender, so the remembered WAN can only be applied here -
+        // and the report waits for it. Restoring first means one compute, for the WAN the user
+        // actually left the tab on, and the toolbar stays hidden behind _loading until the right
+        // pill is the lit one, so the selection never visibly jumps.
         if (firstRender)
-            await RestoreWanSelectionAsync();
+        {
+            var switched = await RestoreWanSelectionAsync();
+            if (!switched) await LoadReportAsync();
+            _loading = false;
+            StateHasChanged();
+        }
         if (_scrollChartAfterRender)
         {
             _scrollChartAfterRender = false;

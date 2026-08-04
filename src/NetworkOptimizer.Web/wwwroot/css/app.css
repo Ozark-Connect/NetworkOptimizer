@@ -9450,12 +9450,12 @@ a.path-hop.hop-clickable:hover {
     font-size: 0.7rem;
 }
 
-.wan-pill-name {
+.wan-pill-token {
     color: var(--text-muted);
-    margin-right: 0.3rem;
+    margin-left: 0.3rem;
 }
 
-.time-btn.active .wan-pill-name {
+.time-btn.active .wan-pill-token {
     color: var(--text-secondary);
 }
 
