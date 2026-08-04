@@ -374,9 +374,18 @@ public class UpstreamTracerService
         try
         {
             await using var db = await CreateDbAsync(ct);
-            var ctx = await db.WanDiscoveryContexts
-                .OrderByDescending(c => c.LastDiscoveryAt ?? c.UpdatedAt)
-                .FirstOrDefaultAsync(ct);
+            // The tracer rehydrates ITS OWN WAN's committed state. A context-bound tracer reads
+            // exactly its WAN's row; the primary tracer prefers the conventional "wan" row and
+            // only then falls back to recency - the old newest-first pick alone would hand the
+            // primary panel whichever WAN discovered LAST (a context's nightly run), showing a
+            // secondary's hops as the primary's. Single-WAN sites have one row either way.
+            var contexts = await db.WanDiscoveryContexts.ToListAsync(ct);
+            var ctx = _binding != null
+                ? contexts.FirstOrDefault(c => string.Equals(c.WanInterface, _binding.WanInterface, StringComparison.OrdinalIgnoreCase))
+                : contexts
+                    .OrderBy(c => string.Equals(c.WanInterface, "wan", StringComparison.OrdinalIgnoreCase) ? 0 : 1)
+                    .ThenByDescending(c => c.LastDiscoveryAt ?? c.UpdatedAt)
+                    .FirstOrDefault();
             if (ctx == null) return;
 
             var targets = await db.MonitoringTargets.AsNoTracking()

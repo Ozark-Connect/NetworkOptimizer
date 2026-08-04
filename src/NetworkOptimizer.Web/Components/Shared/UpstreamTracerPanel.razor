@@ -3,6 +3,8 @@
 @using NetworkOptimizer.Web.Services.Monitoring
 @implements IDisposable
 @inject UpstreamTracerService Tracer
+@inject NetworkOptimizer.Web.Services.Monitoring.UpstreamTracerRegistry TracerRegistry
+@inject NetworkOptimizer.Web.Services.Monitoring.MonitoringPathView PathView
 @inject NetworkOptimizer.Web.Services.IUpstreamDiscoveryService Discovery
 @inject ILogger<UpstreamTracerPanel> Logger
 @inject NetworkOptimizer.Storage.Services.SiteDbContextFactory SiteDb
@@ -17,6 +19,23 @@
 <div class="card">
     <div class="card-header card-header-collapsible" @onclick="ToggleCollapse">
         <h2 class="card-title">Upstream path discovery</h2>
+        @if (_wanChoices.Count > 1)
+        {
+            @* Per-WAN discovery view under the multi-WAN gate: the primary plus every
+               context-bound WAN, each opening that WAN's own discovery state. The primary's
+               pending-review marker stays visible whichever WAN is open. *@
+            <div class="time-range-selector" @onclick:stopPropagation>
+                @foreach (var w in _wanChoices)
+                {
+                    <button class="time-btn @(string.Equals(w.Key, _selectedTracerWanKey, StringComparison.OrdinalIgnoreCase) ? "active" : "")"
+                            @onclick="() => SelectTracerWanAsync(w.Key)" @onclick:stopPropagation
+                            data-tooltip="@(w.IsPrimary && _needsReview ? "Discovery review pending" : "Show this WAN's upstream discovery")" data-tooltip-hover-only>
+                        @w.Label@if (w.IsPrimary && _needsReview)
+                        {<span style="color: var(--warning-color);">&#9679;</span>}
+                    </button>
+                }
+            </div>
+        }
         <div style="display: flex; align-items: center; gap: 0.5rem;">
             <span class="status-badge @StateBadgeClass(_state.Step)" @onclick:stopPropagation="true">@StateLabel(_state.Step)</span>
             <span class="issue-type-chevron">@(_collapsed ? "▼" : "▲")</span>
@@ -655,15 +674,111 @@
     /// </summary>
     private bool _canOperate;
 
+    // Per-WAN discovery view: the injected tracer is the site's primary; a context-bound WAN
+    // opens its own tracer instance (cached for the panel's lifetime so run state survives
+    // switching pills). Review remains an affordance, not a gate: unreviewed context runs
+    // keep auto-committing exactly as Phase 2 shipped - this only lets the user OPEN a
+    // context WAN's discovery, inspect it, and re-run/edit it like the primary's.
+    private UpstreamTracerService? _wanTracer;
+    private UpstreamTracerService Svc => _wanTracer ?? Tracer;
+    private sealed record TracerWanChoice(string Key, string Label, bool IsPrimary, WanContext? Context);
+    private List<TracerWanChoice> _wanChoices = new();
+    private string _selectedTracerWanKey = "";
+    private bool _tracerWanRestored;
+    private readonly Dictionary<string, UpstreamTracerService> _contextTracers = new(StringComparer.OrdinalIgnoreCase);
+    private string SharedWanScopeKey => SiteCtx.ScopeStorageKey("monitoringWanScope");
+
+    /// <summary>
+    /// Choices: the primary plus every context-bound WAN (per-WAN discovery exists only via a
+    /// context). Labels come from the live WAN list when the console offers one.
+    /// </summary>
+    private async Task LoadTracerWanChoicesAsync()
+    {
+        var choices = new List<TracerWanChoice>();
+        var liveWans = new List<NetworkOptimizer.Web.Services.Monitoring.WanSummary>();
+        try { liveWans = (await PathView.GetWansAsync()).ToList(); }
+        catch { }
+        List<WanContext> contexts = new();
+        try
+        {
+            await using var db = SiteDb.CreateForSite(SiteCtx.Slug, SiteCtx.IsDefault);
+            contexts = await db.WanContexts.AsNoTracking()
+                .Where(c => c.WanInterface != null && c.WanInterface != "")
+                .OrderBy(c => c.Name).ToListAsync();
+        }
+        catch { }
+        string LabelFor(string key, string? fallbackName)
+        {
+            var live = liveWans.FirstOrDefault(w => string.Equals(w.WanInterface, key, StringComparison.OrdinalIgnoreCase));
+            return NetworkOptimizer.UniFi.GatewayWanHelper.FormatWanLabel(
+                live?.FriendlyName ?? fallbackName,
+                NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey(key), null, null);
+        }
+        var primaryKey = (liveWans.FirstOrDefault(w => w.IsPrimary)?.WanInterface ?? "wan").ToLowerInvariant();
+        choices.Add(new TracerWanChoice(primaryKey, LabelFor(primaryKey, null), IsPrimary: true, Context: null));
+        foreach (var ctx in contexts)
+        {
+            var key = ctx.WanInterface!.ToLowerInvariant();
+            if (choices.Any(c => c.Key == key)) continue;
+            choices.Add(new TracerWanChoice(key, LabelFor(key, ctx.Name), IsPrimary: false, Context: ctx));
+        }
+        _wanChoices = choices.Count > 1 ? choices : new List<TracerWanChoice>();
+        _selectedTracerWanKey = primaryKey;
+    }
+
+    private async Task SelectTracerWanAsync(string key)
+    {
+        var choice = _wanChoices.FirstOrDefault(c => string.Equals(c.Key, key, StringComparison.OrdinalIgnoreCase));
+        if (choice == null || string.Equals(key, _selectedTracerWanKey, StringComparison.OrdinalIgnoreCase)) return;
+        _selectedTracerWanKey = choice.Key;
+        if (choice.IsPrimary)
+        {
+            _wanTracer = null;
+        }
+        else
+        {
+            if (!_contextTracers.TryGetValue(choice.Key, out var tracer))
+            {
+                tracer = TracerRegistry.GetForContext(SiteCtx.Slug, choice.Context!);
+                _contextTracers[choice.Key] = tracer;
+            }
+            _wanTracer = tracer;
+        }
+        await Svc.RehydrateFromDbAsync();
+        _state = Svc.State;
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// Opens the panel on the focused WAN from the shared analysis scope (view default only -
+    /// this panel never writes that key), once interop is reachable.
+    /// </summary>
+    private async Task RestoreTracerWanSelectionAsync()
+    {
+        if (_tracerWanRestored || _wanChoices.Count <= 1) return;
+        _tracerWanRestored = true;
+        try
+        {
+            var stored = await JS.InvokeAsync<string?>("localStorage.getItem", SharedWanScopeKey);
+            if (!string.IsNullOrEmpty(stored)
+                && _wanChoices.Any(c => !c.IsPrimary && string.Equals(c.Key, stored, StringComparison.OrdinalIgnoreCase)))
+            {
+                await SelectTracerWanAsync(stored);
+            }
+        }
+        catch { }
+    }
+
     protected override async Task OnInitializedAsync()
     {
         _canOperate = AuthState is null
             || (await Authz.AuthorizeAsync((await AuthState).User, SiteCtx.Slug, Policies.SiteOperator)).Succeeded;
 
-        await Tracer.RehydrateFromDbAsync();
-        _state = Tracer.State;
+        await Svc.RehydrateFromDbAsync();
+        _state = Svc.State;
         _collapsed = !ForceExpand && _state.Step == TracerStep.Done;
         await RefreshReviewFlagAsync();
+        await LoadTracerWanChoicesAsync();
         // Poll the tracer state every 1.5s while a run is active; the state machine
         // runs in the background and the UI just observes. Re-check the rediscovery
         // review flag less often (every minute) since it only changes from the
@@ -674,7 +789,7 @@
             {
                 _ = InvokeAsync(async () =>
                 {
-                    _state = Tracer.State;
+                    _state = Svc.State;
                     if (DateTime.UtcNow - _lastReviewCheck > TimeSpan.FromMinutes(1))
                         await RefreshReviewFlagAsync();
                     StateHasChanged();
@@ -703,6 +818,8 @@
     /// </summary>
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (firstRender)
+            await RestoreTracerWanSelectionAsync();
         if (_state.Step is TracerStep.Done or TracerStep.ReviewingResults or TracerStep.Failed)
         {
             try
@@ -736,7 +853,7 @@
         // one correction, then nothing, with no scroll from the reader to explain it. The pin ends
         // when the run reaches a terminal step (below), or the moment they scroll for themselves.
         await Discovery.StartAsync();
-        _state = Tracer.State;
+        _state = Svc.State;
         StateHasChanged();
     }
 
@@ -744,7 +861,7 @@
     {
         if (!_canOperate) return;
         await Discovery.CommitAsync();
-        _state = Tracer.State;
+        _state = Svc.State;
         _justSaved = true;
         await OnSaved.InvokeAsync();
         StateHasChanged();
@@ -804,7 +921,7 @@
         // Touching the field is the confirmation the highlight was asking for, whether they
         // changed the value or re-picked the same one.
         _state.AccessTechnologyInferred = false;
-        Tracer.RecomputeL2NeighborLabel();
+        Svc.RecomputeL2NeighborLabel();
     }
 
     private void ToggleCollapse() => _collapsed = !_collapsed;
