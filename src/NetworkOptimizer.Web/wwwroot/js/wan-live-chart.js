@@ -951,7 +951,7 @@ export async function setWans(wans) {
         if (wasComparing) await remountChart();
         await setWan(list[0]?.key ?? null);
         // A swap made while parked has to be drawn at the parked instant too.
-        if (histAt > 0) await seekTime(new Date(histAt).toISOString());
+        if (!pollTimer && histAt > 0) await seekTime(new Date(histAt).toISOString());
         return;
     }
     if (list.map(w => w.key).join(",") === compareWans.map(w => w.key).join(",")) return;
@@ -973,7 +973,9 @@ export async function setWans(wans) {
  * for that instant until it is fetched, which is what seekTime does.
  */
 async function redrawForCurrentTime() {
-    if (histAt > 0) {
+    // Historic means no live poller AND a parked instant - either alone is a half-state seen while
+    // switching modes, and seeking on one of those is what stopped the chart.
+    if (!pollTimer && histAt > 0) {
         await seekTime(new Date(histAt).toISOString());
         return;
     }
@@ -1096,6 +1098,11 @@ export async function seekTime(isoTimestamp) {
         // plain time grid, dropping the playhead. (Mode cluster visibility is
         // driven by the store's playstate events, not by seeks.)
         stopHistInterpolation();
+        // Forget the parked instant. Left set, anything that later asks "what time is the chart
+        // showing" is told a timestamp from a playback session that has ended - which sent a WAN
+        // filter change seeking back into history, stopping the live poll on the way, and left the
+        // chart empty on a window with no data and nothing running to refill it.
+        histAt = 0;
         if (pollTimer) return; // already live
         const liveGen = seekGen;
         buffer = [];
