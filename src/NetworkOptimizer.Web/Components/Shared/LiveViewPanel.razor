@@ -84,7 +84,9 @@ else
             @{ var ispHealth = CurrentIspHealth(); }
             <div class="monitoring-stat-card clickable-stat-card isp-health-tile @ispHealth.TileCssClass" data-tooltip="@ispHealth.TileTooltip" data-tooltip-hover-only @onclick="@(() => NavigationManager.NavigateTo(IspHealthTileHref(ispHealth.Status)))">
                 <div class="stat-value isp-tile-score">@ispHealth.TileText</div>
-                <div class="stat-label">ISP Health</div>
+                @* Comparing shows several WANs' throughput, but a score belongs to ONE WAN -
+                   so it says which, or it reads as a score for everything on screen. *@
+                <div class="stat-label">@IspHealthTileLabel()</div>
                 @if (ispHealth.Status == IspHealthStatus.Ready && ispHealth.Score.HasValue)
                 {
                     <div class="isp-tile-bar"><div class="isp-tile-bar-fill" style="width: @(ispHealth.Score)%"></div></div>
@@ -468,6 +470,20 @@ else
         if (_showWanCompareHint)
             await UiHints.RecordShownAsync(UiHintKeys.WanFilterCompare);
         StateHasChanged();
+    }
+
+
+    /// <summary>
+    /// The score tile's label. While comparing, the throughput beside it is several WANs added up
+    /// but the score is one WAN's, so it names that WAN. A single selection needs no qualifier -
+    /// the whole row is that WAN.
+    /// </summary>
+    private string IspHealthTileLabel()
+    {
+        if (!LiveWan.IsComparing || LiveWan.Selected is not { } wan) return "ISP Health";
+        var token = NetworkOptimizer.UniFi.GatewayWanHelper.SplitWanLabel(
+            wan.Label, NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey(wan.Key)).WanToken;
+        return string.IsNullOrEmpty(token) ? "ISP Health" : $"ISP Health ({token})";
     }
 
     private IspHealthSnapshot CurrentIspHealth()

@@ -309,7 +309,9 @@
             @{ var ispHealth = CurrentIspHealth(); }
             <div class="monitoring-stat-card clickable-stat-card isp-health-tile @ispHealth.TileCssClass" data-tooltip="@ispHealth.TileTooltip" data-tooltip-hover-only @onclick="@(() => NavigateFromIspHealthTile(ispHealth.Status))">
                 <div class="stat-value isp-tile-score">@ispHealth.TileText</div>
-                <div class="stat-label">ISP Health</div>
+                @* Comparing shows several WANs' throughput, but a score belongs to ONE WAN -
+                   so it says which, or it reads as a score for everything on screen. *@
+                <div class="stat-label">@IspHealthTileLabel()</div>
                 @if (ispHealth.Status == IspHealthStatus.Ready && ispHealth.Score.HasValue)
                 {
                     <div class="isp-tile-bar"><div class="isp-tile-bar-fill" style="width: @(ispHealth.Score)%"></div></div>
@@ -3113,6 +3115,20 @@
     /// GetCachedScore kicks the compute off - so the tile settles on its own without a fallback to
     /// another WAN's score, which is the one thing it must never show.
     /// </summary>
+
+    /// <summary>
+    /// The score tile's label. While comparing, the throughput beside it is several WANs added up
+    /// but the score is one WAN's, so it names that WAN. A single selection needs no qualifier -
+    /// the whole row is that WAN.
+    /// </summary>
+    private string IspHealthTileLabel()
+    {
+        if (!LiveWan.IsComparing || LiveWan.Selected is not { } wan) return "ISP Health";
+        var token = NetworkOptimizer.UniFi.GatewayWanHelper.SplitWanLabel(
+            wan.Label, NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey(wan.Key)).WanToken;
+        return string.IsNullOrEmpty(token) ? "ISP Health" : $"ISP Health ({token})";
+    }
+
     private IspHealthSnapshot CurrentIspHealth()
     {
         var wan = LiveWan.Selected;
@@ -3697,13 +3713,28 @@
             .Where(t => t.TargetType == MonitoringTargetType.Fabric && !string.IsNullOrEmpty(t.DeviceMac))
             .Select(t => t.DeviceMac!)
             .Distinct(StringComparer.OrdinalIgnoreCase)
+            // Three ways to answer, in order of how much the site can currently tell us:
+            //   types known      - the console answered, so filter to the types that count
+            //   live stats exist - the site is up but the status list has not loaded yet
+            //   neither          - the site is OFFLINE, which is when playback matters most
+            // The last case is the one that read "-" forever: both other sources need a console,
+            // so an offline site failed every test and no device was ever queried. Its fabric
+            // targets are in the site's own database and Influx still holds their history, so
+            // they are used as they stand. Where the console has never named the types, an AP
+            // among them can inflate the total - a number with a caveat beats a dash.
             .Where(mac => fabricTypes.Count > 0
-                // No status list yet (it loads with the page): fall back to the old live-stats
-                // test rather than querying every fabric target including the APs.
                 ? fabricTypes.Contains(mac)
                 : LiveStats.GetForDevice(mac) is { } st
                     && (st.FabricIngressBps != null || st.FabricEgressBps != null))
             .ToList();
+        if (fabricMacs.Count == 0 && fabricTypes.Count == 0)
+        {
+            fabricMacs = _targets
+                .Where(t => t.TargetType == MonitoringTargetType.Fabric && !string.IsNullOrEmpty(t.DeviceMac))
+                .Select(t => t.DeviceMac!)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
         if (fabricMacs.Count > 0)
         {
             tasks.Add(Task.Run(async () =>

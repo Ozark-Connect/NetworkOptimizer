@@ -944,6 +944,12 @@ a.stat-card-link:active {
     flex: 1 1 120px;
     min-width: 100px;
     text-align: center;
+    /* Cards stretch to the tallest in their row, and a row can now contain a card carrying a
+       value per WAN. Centering each card's own stack keeps the single-value ones reading level
+       with their taller neighbours instead of hanging from the top of an over-sized box. */
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
 }
 .monitoring-stat-pair {
     display: flex;
