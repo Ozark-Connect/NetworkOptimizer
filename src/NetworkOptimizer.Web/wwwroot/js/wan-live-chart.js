@@ -287,7 +287,7 @@ function buildOpts() {
         yaxis: comparing()
             ? compareWans.flatMap((w, i) => {
                 const owner = `${compareWans[0].label} down`;
-                const axis = { seriesName: owner, min: 0 };
+                const axis = { seriesName: owner, min: 0, max: v => v * 1.1 };
                 // Every throughput series shares the first axis, so the WANs are read against one
                 // scale - separate axes would make a slow link look as busy as a fast one.
                 return i === 0
@@ -344,26 +344,44 @@ function buildOpts() {
         responsive: [{
             breakpoint: 1024,
             options: {
-                yaxis: [
-                    { seriesName: 'Download', show: false, min: 0, max: v => v * 1.1 },
-                    { seriesName: 'Download', show: false, min: 0, max: v => v * 1.1 },
-                    { seriesName: 'Loss', opposite: true, show: false, min: 0, max: v => Math.max(v * 1.2, 10) },
-                    { seriesName: 'RTT', opposite: true, show: false, min: 0 },
-                ],
+                // One entry per series in BOTH modes: a mismatched length leaves ApexCharts
+                // holding axes for series that do not exist, and the plot escapes its container.
+                yaxis: comparing()
+                    ? compareWans.flatMap(() => {
+                        const owner = `${compareWans[0].label} down`;
+                        return [
+                            { seriesName: owner, show: false, min: 0, max: v => v * 1.1 },
+                            { seriesName: owner, show: false, min: 0, max: v => v * 1.1 },
+                        ];
+                    })
+                    : [
+                        { seriesName: 'Download', show: false, min: 0, max: v => v * 1.1 },
+                        { seriesName: 'Download', show: false, min: 0, max: v => v * 1.1 },
+                        { seriesName: 'Loss', opposite: true, show: false, min: 0, max: v => Math.max(v * 1.2, 10) },
+                        { seriesName: 'RTT', opposite: true, show: false, min: 0 },
+                    ],
                 grid: { padding: { left: -5, right: -5, top: -8, bottom: 12 } },
             },
         }],
         legend: { show: false },
         tooltip: {
             theme: 'dark',
+            // Shared, so every line's value is stacked at the cursor's instant. There is no way to
+            // hover one line out of 2N overlapping ones, so a per-series tooltip would be unusable
+            // here - and the stack is how a WAN is told from its neighbour, since the chart has no
+            // legend and the series names carry the WAN.
             shared: true,
             x: { format: 'HH:mm:ss', formatter: (val) => new Date(val).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) },
-            y: [
-                { formatter: v => formatBps(v) },
-                { formatter: v => formatBps(v) },
-                { formatter: v => v != null ? v.toFixed(2) + '%' : '-' },
-                { formatter: v => v != null ? v.toFixed(1) + ' ms' : '-' },
-            ],
+            // Positional, one per series: a short array leaves the rest of the series with no
+            // formatter at all, which renders raw bits per second.
+            y: comparing()
+                ? compareWans.flatMap(() => [{ formatter: v => formatBps(v) }, { formatter: v => formatBps(v) }])
+                : [
+                    { formatter: v => formatBps(v) },
+                    { formatter: v => formatBps(v) },
+                    { formatter: v => v != null ? v.toFixed(2) + '%' : '-' },
+                    { formatter: v => v != null ? v.toFixed(1) + ' ms' : '-' },
+                ],
         },
         noData: { text: 'Loading...', style: { color: '#64748b', fontSize: '13px' } },
     };
@@ -434,11 +452,20 @@ function updateChart() {
     if (Date.now() > clickRenderUntil && tooltipShowing()) return;
     const now = Date.now();
     const pts = buildSeriesData();
-    chart.updateOptions({
-        xaxis: { min: now - HISTORY_MINUTES * 60000, max: now },
-        yaxis: [chart.opts.yaxis[0], chart.opts.yaxis[1], chart.opts.yaxis[2], { ...chart.opts.yaxis[3], max: rttYMax() }],
-        annotations: { xaxis: buildTimeTicks(now - HISTORY_MINUTES * 60000, now) },
-    }, false, false, false);
+    // Rescaling the RTT axis is a single-WAN concern: there IS no fourth axis while comparing,
+    // and rebuilding the array to a fixed length of four truncated the axes for three or more
+    // WANs and stamped an RTT-sized ceiling (~10) onto a throughput axis for two - which is what
+    // clipped the taller WAN's line. Comparison axes are set at mount and left alone.
+    chart.updateOptions(comparing()
+        ? {
+            xaxis: { min: now - HISTORY_MINUTES * 60000, max: now },
+            annotations: { xaxis: buildTimeTicks(now - HISTORY_MINUTES * 60000, now) },
+        }
+        : {
+            xaxis: { min: now - HISTORY_MINUTES * 60000, max: now },
+            yaxis: [chart.opts.yaxis[0], chart.opts.yaxis[1], chart.opts.yaxis[2], { ...chart.opts.yaxis[3], max: rttYMax() }],
+            annotations: { xaxis: buildTimeTicks(now - HISTORY_MINUTES * 60000, now) },
+        }, false, false, false);
     if (comparing()) {
         chart.updateSeries(compareWans.flatMap(w => {
             const b = compareBuffers.get(w.key) || [];
@@ -919,11 +946,31 @@ function renderHistoric(at, force = false) {
             offsetY: -5,
         }
     };
-    chart.updateOptions({
+    // Same window and playhead either way; only the RTT axis rescale is single-WAN, since there is
+    // no RTT axis to rescale while comparing.
+    const histWindow = {
         xaxis: { min: maxTime - HISTORY_MINUTES * 60000, max: maxTime },
-        yaxis: [chart.opts.yaxis[0], chart.opts.yaxis[1], chart.opts.yaxis[2], { ...chart.opts.yaxis[3], max: rttYMax() }],
         annotations: { xaxis: [...buildTimeTicks(maxTime - HISTORY_MINUTES * 60000, maxTime), playhead] },
-    }, false, false, false);
+    };
+    chart.updateOptions(comparing()
+        ? histWindow
+        : {
+            ...histWindow,
+            yaxis: [chart.opts.yaxis[0], chart.opts.yaxis[1], chart.opts.yaxis[2], { ...chart.opts.yaxis[3], max: rttYMax() }],
+        }, false, false, false);
+
+    // Scrubbing while comparing draws every WAN at the parked instant - the point of comparing is
+    // to read them against each other, and freezing the time only makes that easier.
+    if (comparing()) {
+        chart.updateSeries(compareWans.flatMap(w => {
+            const b = compareBuffers.get(w.key) || [];
+            return [
+                { name: `${w.label} down`, data: b.map(p => ({ x: p.time, y: p.download })) },
+                { name: `${w.label} up`,   data: b.map(p => ({ x: p.time, y: p.upload })) },
+            ];
+        }), false);
+        return;
+    }
     chart.updateSeries([
         { name: 'Download', data: buffer.map(p => ({ x: p.time, y: p.download })) },
         { name: 'Upload',   data: buffer.map(p => ({ x: p.time, y: p.upload })) },
