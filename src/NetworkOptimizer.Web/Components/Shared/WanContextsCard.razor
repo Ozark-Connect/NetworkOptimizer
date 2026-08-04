@@ -207,15 +207,15 @@
                     </SiteAdminOnly>
                     <button class="btn btn-sm btn-tertiary" @onclick="CancelForm">Cancel</button>
                 </div>
+                @if (SelectedAgentOutdated)
+                {
+                    <div class="alert alert-warning wc-agent-stale">
+                        This agent is on an older release. Update it from Settings - Multi-Site -
+                        some of the options here only appear once it has.
+                    </div>
+                }
                 <div class="info-box wc-help">
                     <p class="wc-help-title">Help</p>
-                    @if (SelectedAgentOutdated)
-                    {
-                        <p class="wc-help-warn">
-                            This agent is on an older release. Update it from Settings - Multi-Site -
-                            some of the options here only appear once it has.
-                        </p>
-                    }
                     @if (!SelectedAgentCanBindSource)
                     {
                         <p>
@@ -316,8 +316,9 @@
         margin-bottom: 0.6rem;
     }
 
-    .wc-help-warn {
-        color: var(--warning-color);
+    .wc-agent-stale {
+        margin-top: 1rem;
+        font-size: 0.8125rem;
     }
 
     .wc-agent-dot {
