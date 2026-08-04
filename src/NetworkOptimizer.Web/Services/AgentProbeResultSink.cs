@@ -304,6 +304,20 @@ public class AgentProbeResultSink
             var agentIsSteeredToWan = contextsById.Values.Any(
                 c => c.AgentId == connection.AgentId && string.IsNullOrEmpty(c.InterfaceName));
 
+            // Exactly one agent probes the unassigned (primary-WAN) targets. Several agents on a
+            // site used to each get the whole set as extra vantage points, which on a site running
+            // an agent per WAN means every primary target probed N times for one number. The owner
+            // is the lowest-id agent that is CONNECTED and not steered: deterministic, so a refresh
+            // does not move the pool around, and self-healing, because the next agent takes it over
+            // on the following push if the owner drops. Steered agents are never eligible - their
+            // probes leave by the wrong WAN.
+            var unassignedOwnerId = _tunnelRegistry.GetForSite(connection.SiteSlug)
+                .Select(c => c.AgentId)
+                .Where(id => !contextsById.Values.Any(
+                    c => c.AgentId == id && string.IsNullOrEmpty(c.InterfaceName)))
+                .DefaultIfEmpty(connection.AgentId)
+                .Min();
+
             // An agent running ON the gateway cannot usefully probe it: the target is the box the
             // probe runs on, so every reply is loopback - 0 ms and no loss - which reads as a
             // perfectly healthy gateway precisely when it might not be. Skipped for this agent at
@@ -340,7 +354,7 @@ public class AgentProbeResultSink
                 // nowhere) rather than as unassigned - conservative until the row is cleaned up.
                 var context = target.WanContextId is int contextId
                     && contextsById.TryGetValue(contextId, out var found) ? found : null;
-                if (!ShouldPushTargetToAgent(target.WanContextId != null, context?.AgentId, connection.AgentId, agentIsSteeredToWan))
+                if (!ShouldPushTargetToAgent(target.WanContextId != null, context?.AgentId, connection.AgentId, agentIsSteeredToWan, unassignedOwnerId))
                     continue;
                 config.Targets.Add(new ProbeTargetSpec
                 {
@@ -374,13 +388,16 @@ public class AgentProbeResultSink
     /// <summary>
     /// Whether a target belongs in one agent's pushed set.
     ///
-    /// A STEERED agent is probe-only for its context: it takes its own context's targets and
-    /// nothing else, because everything it sends leaves by that WAN, so a primary target probed
-    /// from it would measure the wrong path and be recorded as the primary's. Every other agent
-    /// keeps the shipped arrangement - unassigned targets as an extra vantage point, another
-    /// agent's context targets never. An interface-bound (gateway) agent is in that second group:
-    /// it binds each context probe to that WAN's interface while its own route stays the primary,
-    /// so it can serve contexts AND collect for the site.
+    /// Every target has exactly one prober. A context's targets go to that context's agent. The
+    /// unassigned (primary-WAN) targets go to ONE agent - <paramref name="unassignedOwnerId"/> -
+    /// rather than to all of them, so a site running an agent per WAN does not probe every primary
+    /// target once per agent for a single number.
+    ///
+    /// A STEERED agent is probe-only for its context: everything it sends leaves by that WAN, so a
+    /// primary target probed from it would measure the wrong path and be recorded as the primary's.
+    /// An interface-bound (gateway) agent is not steered - it binds each context probe to that
+    /// WAN's interface while its own route stays the primary - so it can serve contexts AND be the
+    /// site's collector, which on a gateway-only site it has to be.
     /// </summary>
     /// <param name="targetHasContext">Whether the target belongs to ANY WAN context. A context
     /// target is that context's alone: its assigned agent when it has one, or - for a source-IP
@@ -391,8 +408,12 @@ public class AgentProbeResultSink
     /// <param name="agentId">The agent being pushed to.</param>
     /// <param name="agentIsSteeredToWan">Whether a context names this agent WITHOUT an interface
     /// to bind - i.e. the whole box sits behind one WAN.</param>
-    internal static bool ShouldPushTargetToAgent(bool targetHasContext, int? contextAgentId, int agentId, bool agentIsSteeredToWan)
-        => targetHasContext ? contextAgentId == agentId : !agentIsSteeredToWan;
+    /// <param name="unassignedOwnerId">The one agent that probes the unassigned targets.</param>
+    internal static bool ShouldPushTargetToAgent(
+        bool targetHasContext, int? contextAgentId, int agentId, bool agentIsSteeredToWan, int unassignedOwnerId)
+        => targetHasContext
+            ? contextAgentId == agentId
+            : !agentIsSteeredToWan && unassignedOwnerId == agentId;
 
     /// <summary>
     /// The source an agent binds this target's probes to: the context's interface when it has one,

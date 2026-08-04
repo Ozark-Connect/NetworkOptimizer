@@ -27,9 +27,9 @@ public class WanContextRoutingTests
     [Fact]
     public void Push_NoContexts_UnassignedTargetsStillGoToEveryAgent()
     {
-        AgentProbeResultSink.ShouldPushTargetToAgent(false, null, PrimaryAgent, agentIsSteeredToWan: false)
+        AgentProbeResultSink.ShouldPushTargetToAgent(false, null, PrimaryAgent, agentIsSteeredToWan: false, unassignedOwnerId: PrimaryAgent)
             .Should().BeTrue();
-        AgentProbeResultSink.ShouldPushTargetToAgent(false, null, ContextAgent, agentIsSteeredToWan: false)
+        AgentProbeResultSink.ShouldPushTargetToAgent(false, null, ContextAgent, agentIsSteeredToWan: false, unassignedOwnerId: ContextAgent)
             .Should().BeTrue();
     }
 
@@ -38,18 +38,18 @@ public class WanContextRoutingTests
     {
         // Shapes A, B and C alike: everything this agent probes leaves by its WAN, so the site's
         // ordinary targets would be measured on the wrong path and filed under the primary.
-        AgentProbeResultSink.ShouldPushTargetToAgent(true, ContextAgent, ContextAgent, agentIsSteeredToWan: true)
+        AgentProbeResultSink.ShouldPushTargetToAgent(true, ContextAgent, ContextAgent, agentIsSteeredToWan: true, unassignedOwnerId: ContextAgent)
             .Should().BeTrue();
-        AgentProbeResultSink.ShouldPushTargetToAgent(false, null, ContextAgent, agentIsSteeredToWan: true)
+        AgentProbeResultSink.ShouldPushTargetToAgent(false, null, ContextAgent, agentIsSteeredToWan: true, unassignedOwnerId: ContextAgent)
             .Should().BeFalse();
     }
 
     [Fact]
     public void Push_PrimaryAgent_KeepsUnassignedTargetsAndNeverAnotherContexts()
     {
-        AgentProbeResultSink.ShouldPushTargetToAgent(false, null, PrimaryAgent, agentIsSteeredToWan: false)
+        AgentProbeResultSink.ShouldPushTargetToAgent(false, null, PrimaryAgent, agentIsSteeredToWan: false, unassignedOwnerId: PrimaryAgent)
             .Should().BeTrue();
-        AgentProbeResultSink.ShouldPushTargetToAgent(true, ContextAgent, PrimaryAgent, agentIsSteeredToWan: false)
+        AgentProbeResultSink.ShouldPushTargetToAgent(true, ContextAgent, PrimaryAgent, agentIsSteeredToWan: false, unassignedOwnerId: PrimaryAgent)
             .Should().BeFalse();
     }
 
@@ -61,9 +61,9 @@ public class WanContextRoutingTests
         // primary route while the result gets tagged with the secondary WAN's key - corrupting
         // that WAN's score now that the tag is read - so a context target with no assigned agent
         // reaches NO agent at all, on any shape.
-        AgentProbeResultSink.ShouldPushTargetToAgent(true, null, PrimaryAgent, agentIsSteeredToWan: false)
+        AgentProbeResultSink.ShouldPushTargetToAgent(true, null, PrimaryAgent, agentIsSteeredToWan: false, unassignedOwnerId: PrimaryAgent)
             .Should().BeFalse();
-        AgentProbeResultSink.ShouldPushTargetToAgent(true, null, ContextAgent, agentIsSteeredToWan: true)
+        AgentProbeResultSink.ShouldPushTargetToAgent(true, null, ContextAgent, agentIsSteeredToWan: true, unassignedOwnerId: ContextAgent)
             .Should().BeFalse();
     }
 
@@ -72,7 +72,7 @@ public class WanContextRoutingTests
     {
         // A stale WanContextId (row deleted out from under it) is conservative: pushed nowhere
         // until the assignment is cleaned up, never broadcast as if unassigned.
-        AgentProbeResultSink.ShouldPushTargetToAgent(true, null, PrimaryAgent, agentIsSteeredToWan: false)
+        AgentProbeResultSink.ShouldPushTargetToAgent(true, null, PrimaryAgent, agentIsSteeredToWan: false, unassignedOwnerId: PrimaryAgent)
             .Should().BeFalse();
     }
 
@@ -218,7 +218,7 @@ public class WanContextRoutingTests
         // Its contexts name an interface, so each probe binds to that WAN while the box itself
         // still routes out the primary. It is the site's collector as well - on a site whose only
         // agent is the one on the gateway, nothing else can be.
-        AgentProbeResultSink.ShouldPushTargetToAgent(false, null, GatewayAgent, agentIsSteeredToWan: false)
+        AgentProbeResultSink.ShouldPushTargetToAgent(false, null, GatewayAgent, agentIsSteeredToWan: false, unassignedOwnerId: GatewayAgent)
             .Should().BeTrue();
         AgentProbeResultSink.ShouldPushSiteCollectionConfig(agentIsSteeredToWan: false).Should().BeTrue();
     }
@@ -226,9 +226,9 @@ public class WanContextRoutingTests
     [Fact]
     public void GatewayAgent_StillTakesEveryContextItOwnsAndNoOtherAgents()
     {
-        AgentProbeResultSink.ShouldPushTargetToAgent(true, GatewayAgent, GatewayAgent, agentIsSteeredToWan: false)
+        AgentProbeResultSink.ShouldPushTargetToAgent(true, GatewayAgent, GatewayAgent, agentIsSteeredToWan: false, unassignedOwnerId: GatewayAgent)
             .Should().BeTrue();
-        AgentProbeResultSink.ShouldPushTargetToAgent(true, ContextAgent, GatewayAgent, agentIsSteeredToWan: false)
+        AgentProbeResultSink.ShouldPushTargetToAgent(true, ContextAgent, GatewayAgent, agentIsSteeredToWan: false, unassignedOwnerId: GatewayAgent)
             .Should().BeFalse();
     }
 
@@ -237,7 +237,7 @@ public class WanContextRoutingTests
     {
         // No interface to bind, so the gateway policy-routes the whole box: a primary target
         // probed from here would leave by the secondary WAN and be recorded as the primary's.
-        AgentProbeResultSink.ShouldPushTargetToAgent(false, null, ContextAgent, agentIsSteeredToWan: true)
+        AgentProbeResultSink.ShouldPushTargetToAgent(false, null, ContextAgent, agentIsSteeredToWan: true, unassignedOwnerId: ContextAgent)
             .Should().BeFalse();
         AgentProbeResultSink.ShouldPushSiteCollectionConfig(agentIsSteeredToWan: true).Should().BeFalse();
     }
@@ -253,5 +253,30 @@ public class WanContextRoutingTests
         var steered = contexts.Any(c => c.AgentId == ContextAgent && string.IsNullOrEmpty(c.InterfaceName));
 
         steered.Should().Be(expectedSteered);
+    }
+
+    // ---- One prober per target -------------------------------------------
+
+    [Fact]
+    public void UnassignedTargets_GoToOneAgentOnly()
+    {
+        // Two collectors on a site: the primary-WAN targets belong to whichever one owns the
+        // pool, not to both. Probing them twice produces two series for one number and doubles
+        // the load on every target the site monitors.
+        AgentProbeResultSink.ShouldPushTargetToAgent(
+            false, null, PrimaryAgent, agentIsSteeredToWan: false, unassignedOwnerId: PrimaryAgent)
+            .Should().BeTrue();
+        AgentProbeResultSink.ShouldPushTargetToAgent(
+            false, null, GatewayAgent, agentIsSteeredToWan: false, unassignedOwnerId: PrimaryAgent)
+            .Should().BeFalse();
+    }
+
+    [Fact]
+    public void AGatewayAgentOwningTheWansStillTakesThemWhenAnotherAgentHoldsThePool()
+    {
+        // Losing the unassigned pool costs it nothing of its own: its contexts are still its.
+        AgentProbeResultSink.ShouldPushTargetToAgent(
+            true, GatewayAgent, GatewayAgent, agentIsSteeredToWan: false, unassignedOwnerId: PrimaryAgent)
+            .Should().BeTrue();
     }
 }
