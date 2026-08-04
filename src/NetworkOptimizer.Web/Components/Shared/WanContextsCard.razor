@@ -207,6 +207,14 @@
                     </SiteAdminOnly>
                     <button class="btn btn-sm btn-tertiary" @onclick="CancelForm">Cancel</button>
                 </div>
+                <div class="wc-help">
+                @if (SelectedAgentOutdated)
+                {
+                    <div class="alert alert-warning">
+                        This agent is on an older release. Update it from Settings - Multi-Site -
+                        some of the options here only appear once it has.
+                    </div>
+                }
                 @if (!SelectedAgentCanBindSource)
                 {
                     <p class="form-hint">
@@ -233,16 +241,19 @@
                 }
                 @if ((!string.IsNullOrWhiteSpace(_newSourceIp) && !SelectedAgentCanBindSource) || SelectedAgentNeedsPolicyRoute)
                 {
-                    <p class="form-hint">
-                        This agent reaches @WanLabelFor(_newWanInterface) only if the gateway routes it there. In UniFi
-                        Network, go to Settings - Policy Table and add a Policy-Based Route with
-                        this WAN as the interface, this agent's Client Device as the source, and
-                        Any as the destination. The source is matched by MAC, so the agent needs an
-                        interface and MAC of its own - an LXC has one already, a VM or Docker
-                        container can be given one - not a second address on a host that's already
-                        on the network.
-                    </p>
+                    <div class="info-box">
+                        <p>
+                            This agent reaches @WanLabelFor(_newWanInterface) only if the gateway routes it there. In UniFi
+                            Network, go to Settings - Policy Table and add a Policy-Based Route with
+                            this WAN as the interface, this agent's Client Device as the source, and
+                            Any as the destination. The source is matched by MAC, so the agent needs an
+                            interface and MAC of its own - an LXC has one already, a VM or Docker
+                            container can be given one - not a second address on a host that's already
+                            on the network.
+                        </p>
+                    </div>
                 }
+                </div>
                 @if (!string.IsNullOrEmpty(_addError))
                 {
                     <p class="form-error">@_addError</p>
@@ -289,6 +300,10 @@
         display: flex;
         gap: 0.5rem;
         margin-top: 1rem;
+    }
+
+    .wc-help {
+        margin-top: 0.25rem;
     }
 
     .wc-agent-dot {
@@ -394,6 +409,18 @@
     /// WAN that is simply quiet.
     /// </summary>
     private bool IsOrphaned(WanContext context) => context.AgentId == null && !ServerProbesThisSite;
+
+    /// <summary>
+    /// Whether the selected agent reports a version older than the release currently expected of
+    /// agents. Separate from what it can BIND - an agent can be current and still not bind on a
+    /// platform that cannot - so this says only what it is: out of date, and worth updating before
+    /// concluding an option is missing.
+    /// </summary>
+    private bool SelectedAgentOutdated =>
+        int.TryParse(_newAgentId, out var outdatedAgentId)
+        && _agents.FirstOrDefault(a => a.Id == outdatedAgentId) is SiteAgent selected
+        && NetworkOptimizer.Core.Helpers.VersionUtilities.IsOlderThan(
+            selected.LastVersion, NetworkOptimizer.Web.Services.AppVersionInfo.LatestAgentVersion);
 
     private bool SelectedAgentNeedsPolicyRoute =>
         !string.IsNullOrEmpty(_newAgentId) && !SelectedAgentCanBindInterface && !SelectedAgentCanBindSource;
