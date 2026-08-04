@@ -474,7 +474,7 @@
                             {
                                 <button class="time-btn @(_selectedWanKeys.Contains(w.Key) ? "active" : "")"
                                         @onclick="e => OnWanPillClickAsync(w.Key, e)"
-                                        data-tooltip="Show this WAN's targets; Ctrl-click to compare WANs" data-tooltip-hover-only>@w.Label</button>
+                                        data-tooltip="@_wanCompareHint" data-tooltip-hover-only>@w.Label</button>
                             }
                         </div>
                     }
@@ -1820,6 +1820,11 @@
     // never what a user acts on.
     private string _primaryWanKey = NetworkOptimizer.UniFi.GatewayWanHelper.DefaultWanKey;
     private bool _wanSelectionRestored;
+
+    // The modifier that adds a WAN to the comparison set, named the way the reader's own keyboard
+    // names it - telling a Mac user to Ctrl-click is telling them to open a context menu. Ctrl
+    // until the browser says otherwise, so the hint is never blank on the first paint.
+    private string _wanCompareHint = "Ctrl-click to compare side by side";
     private string NpWanSetKey => SiteCtx.ScopeStorageKey("npWanSelection");
     private string SharedWanScopeKey => SiteCtx.ScopeStorageKey("monitoringWanScope");
 
@@ -1945,6 +1950,22 @@
     }
 
     /// <summary>Restores the persisted WAN selection once localStorage is reachable.</summary>
+    /// <summary>
+    /// Names the multi-select modifier for the platform in front of us. Asked once per page: it
+    /// cannot change under a live circuit, and the hint reads wrong rather than merely stale if it
+    /// guesses. Any failure leaves the Ctrl default, which is right for most readers.
+    /// </summary>
+    private async Task ResolveWanCompareHintAsync()
+    {
+        try
+        {
+            var isApple = await JS.InvokeAsync<bool>("eval",
+                "/Mac|iPhone|iPad|iPod/.test(navigator.userAgent)");
+            if (isApple) _wanCompareHint = "⌘-click to compare side by side";
+        }
+        catch { /* keep the default */ }
+    }
+
     private async Task RestoreWanSelectionAsync()
     {
         if (_wanSelectionRestored || !_multiWanUiVisible || _wanOptions.Count <= 1) return;
@@ -4264,6 +4285,7 @@
                 // call: pushing it afterwards races the module import, and a remount would
                 // otherwise come back unfiltered. A single-WAN site passes null and the module
                 // renders exactly as it always has.
+                await ResolveWanCompareHintAsync();
                 await RestoreWanSelectionAsync();
                 await JS.InvokeVoidAsync("eval",
                     $"(async () => {{ const m = await import('{chartsUrl}'); window.__latencyCharts = m; await m.mount('latency-charts-container', {WanScopeJson()}); {postMount} }})();");
