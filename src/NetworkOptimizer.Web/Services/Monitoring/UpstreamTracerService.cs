@@ -1296,8 +1296,23 @@ public class UpstreamTracerService
                                ?? (accessAsn.HasValue && accessAsn.Value == wanIpAsn?.Asn ? wanIpAsn.Name : null);
         var orgName = CleanAsnName(accessAsnRawName);
         _accessAsnName = string.IsNullOrEmpty(orgName) ? null : orgName;
-        // The nearest hop we resolved - what the WAN-side vendor evidence can speak for.
-        var firstMileHopNumber = _accessHopsResolved.Count > 0 ? _accessHopsResolved.Min(h => h.HopNumber) : -1;
+        // Which hop the WAN-side vendor evidence can speak for: the box on the other end of the
+        // WAN, and nothing behind it.
+        //
+        // The L2 neighbor IS that box whenever we have one - it is read from the WAN's own neighbor
+        // table, not inferred from distance - so when it is going to be injected below, no traced
+        // hop is first mile. Only when the trace already surfaced it does a traced hop hold the
+        // slot; failing both, the nearest traced hop is the best we can say.
+        var l2FirstMile = !string.IsNullOrEmpty(State.WanNeighborIp)
+                          && IsInjectableAccessHopAddress(State.WanNeighborIp);
+        var l2Traced = l2FirstMile && _accessHopsResolved.Any(h =>
+            string.Equals(h.Address, State.WanNeighborIp, StringComparison.OrdinalIgnoreCase));
+        var firstMileHopNumber =
+            l2Traced ? _accessHopsResolved.First(h =>
+                    string.Equals(h.Address, State.WanNeighborIp, StringComparison.OrdinalIgnoreCase)).HopNumber
+            : l2FirstMile ? -1
+            : _accessHopsResolved.Count > 0 ? _accessHopsResolved.Min(h => h.HopNumber)
+            : -1;
         State.AccessHops = _accessHopsResolved.Select(h => new AccessHopCandidate
         {
             TargetId = $"access-{NormalizeMacForId(h.Address)}",
