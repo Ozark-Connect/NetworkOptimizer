@@ -3,8 +3,8 @@ using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Services;
 using NetworkOptimizer.Web.Services;
-using NetworkOptimizer.Web.Services.Monitoring;
 using NetworkOptimizer.Web.Services.Authorization;
+using NetworkOptimizer.Web.Services.Monitoring;
 
 namespace NetworkOptimizer.Web.Endpoints;
 
@@ -20,6 +20,9 @@ public static class MonitoringChartEndpoints
         group.MapGet("/api/monitoring/live-stats", async (
             MonitoringLiveStats liveStats,
             UniFiConnectionService connectionService,
+            NetworkOptimizer.Storage.Services.SiteDbContextFactory siteDb,
+            SiteContextService siteContext,
+            string? wan,
             CancellationToken ct) =>
         {
             string? gatewayMac = null;
@@ -33,6 +36,39 @@ public static class MonitoringChartEndpoints
                 wanIfNames = gw?.WanInterfaceNames;
             }
             catch { }
+
+            // The live tick has to answer for the same WAN the caller is charting. Without this it
+            // served the primary's counters to every caller, so a chart backfilled with one WAN's
+            // history then grew a live edge of the primary's traffic - the two halves of the same
+            // line describing different connections. Absent means the primary, exactly as before.
+            if (!string.IsNullOrEmpty(wan))
+            {
+                var group2 = NetworkOptimizer.UniFi.GatewayWanHelper.WanNetworkGroupFromKey(wan);
+                string? scopedCounter = null;
+                try
+                {
+                    scopedCounter = (await connectionService.GetWanInterfacesForGroupAsync(group2, ct))?.CounterIfName;
+                }
+                catch { }
+                if (string.IsNullOrEmpty(scopedCounter))
+                {
+                    try
+                    {
+                        await using var db = siteDb.CreateForSite(siteContext.Slug, siteContext.IsDefault);
+                        var profile = await db.WanProfiles.AsNoTracking()
+                            .FirstOrDefaultAsync(w => w.WanNetworkgroup == group2, ct);
+                        scopedCounter = profile?.CounterInterface;
+                        if (string.IsNullOrEmpty(gatewayMac) && profile?.GatewayMac != null)
+                            gatewayMac = profile.GatewayMac.Replace("-", ":").ToLowerInvariant();
+                    }
+                    catch { }
+                }
+                // Empty rather than the primary's: a WAN with no recorded counter has no live
+                // answer, and borrowing one would draw another WAN's traffic under its name.
+                wanIfNames = string.IsNullOrEmpty(scopedCounter)
+                    ? new List<string>()
+                    : new List<string> { scopedCounter! };
+            }
 
             double wanDown = 0, wanUp = 0;
             DateTime? sampleTime = null;

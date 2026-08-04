@@ -443,7 +443,9 @@ async function loadHistory() {
 
 async function pollLive() {
     try {
-        const resp = await fetch('/api/monitoring/live-stats', { credentials: 'same-origin' });
+        const resp = await fetch(
+            wanScope ? `/api/monitoring/live-stats?wan=${encodeURIComponent(wanScope)}` : '/api/monitoring/live-stats',
+            { credentials: 'same-origin' });
         if (!resp.ok) return;
         const d = await resp.json();
         // Stamp the point with the server-side SNMP sample time and skip polls
