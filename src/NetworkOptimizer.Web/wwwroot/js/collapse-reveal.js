@@ -64,12 +64,16 @@
     document.addEventListener('click', function (e) {
         var header = e.target.closest && e.target.closest('.card-header-collapsible');
         if (!header) return;
-        // A control living in the header - a filter pill, a link, a badge - does its own thing and
-        // expands nothing, so there is no newly revealed content to follow. Checked here because
-        // this listener runs in the CAPTURE phase: a component calling stopPropagation on its own
-        // handler cannot reach us, so opting out has to be decided from the target.
+        // A control living in the header - a filter pill, a link, a badge - does its own thing, so
+        // on an already-open card there is nothing newly revealed to follow. On a CLOSED one the
+        // same click may well open it, and then following is the whole point: filtering a card you
+        // cannot see is the one case where the view should move. Decided from the target because
+        // this listener runs in the CAPTURE phase, where a component's own stopPropagation cannot
+        // reach it.
         var control = e.target.closest('button, a, select, input, label');
-        if (control && header.contains(control)) return;
+        var opened = header.nextElementSibling;
+        var wasOpen = !!opened && opened.classList.contains('expanded');
+        if (control && header.contains(control) && wasOpen) return;
         // Blazor re-renders before the transition starts, so begin on the next frame and run for a
         // little longer than the 0.25s expand to catch the final pixels.
         var until = performance.now() + FOLLOW_MS;

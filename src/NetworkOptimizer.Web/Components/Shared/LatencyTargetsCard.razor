@@ -412,6 +412,8 @@
 
     private async Task PickWanAsync(string key)
     {
+        // Filtering a list that is closed changes something the user cannot see, so open it.
+        _collapsed = false;
         if (OnWanSelected.HasDelegate) await OnWanSelected.InvokeAsync(key);
     }
 

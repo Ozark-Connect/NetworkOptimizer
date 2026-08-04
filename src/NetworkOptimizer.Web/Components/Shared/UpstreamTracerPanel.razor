@@ -762,6 +762,8 @@
     /// </summary>
     private async Task PickTracerWanAsync(string key)
     {
+        // Same as the targets list: picking a WAN on a closed panel should show what was picked.
+        _collapsed = false;
         await SelectTracerWanAsync(key);
         _appliedSelectWanKey = key;
         if (OnWanSelected.HasDelegate) await OnWanSelected.InvokeAsync(key);
