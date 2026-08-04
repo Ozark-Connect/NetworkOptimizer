@@ -639,10 +639,15 @@ function getEffectiveTo() {
     return null;
 }
 
-export async function mount(elId) {
+// initialWanScope arrives with the mount rather than in a call behind it: this module is imported
+// asynchronously, so a separate push can land before the import resolves and be dropped silently.
+// Taking it here also survives the unmount/remount of leaving the tab and returning.
+export async function mount(elId, initialWanScope) {
     containerId = elId;
     const container = document.getElementById(elId);
     if (!container) return;
+
+    setWanScope(initialWanScope);
 
     // Seed the category from whichever filter button the server rendered active (LAN by
     // default, ISP when the site has no LAN targets), so the initial load matches the UI.

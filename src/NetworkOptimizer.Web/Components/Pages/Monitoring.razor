@@ -1850,7 +1850,20 @@
         }
         else
         {
-            _selectedWanKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { key };
+            // The series-filter grammar the chart's own badges use, so the two rows behave alike:
+            // a plain click solos, clicking the current solo returns to the ground state, and a
+            // click while comparing toggles that WAN rather than throwing the comparison away.
+            // Ground here is the primary alone, not everything - one WAN is the view you want
+            // back, and "all WANs" is a comparison you asked for.
+            var isOnlySelection = _selectedWanKeys.Count == 1 && _selectedWanKeys.Contains(key);
+            var isGround = _selectedWanKeys.Count == 1 && _selectedWanKeys.Contains(_primaryWanKey);
+
+            if (isOnlySelection && !isGround)
+                _selectedWanKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { _primaryWanKey };
+            else if (isGround || _selectedWanKeys.Count <= 1)
+                _selectedWanKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { key };
+            else if (!_selectedWanKeys.Add(key) && _selectedWanKeys.Count > 1)
+                _selectedWanKeys.Remove(key);
         }
         await ApplyWanSelectionAsync(persist: true);
     }
@@ -1865,18 +1878,29 @@
                 await JS.InvokeVoidAsync("localStorage.setItem", NpWanSetKey, string.Join(",", _selectedWanKeys));
                 await JS.InvokeVoidAsync("localStorage.setItem", SharedWanScopeKey, FocusedWanKeyOrNull ?? "");
             }
-            var scope = !_multiWanUiVisible || _wanOptions.Count <= 1
-                ? null
-                : new
-                {
-                    primaryKey = _primaryWanKey,
-                    selected = _selectedWanKeys.ToArray(),
-                    labels = _wanOptions.ToDictionary(w => w.Key.ToLowerInvariant(), w => w.Label),
-                };
-            await JS.InvokeVoidAsync("eval", $"window.__latencyCharts?.setWanScope({System.Text.Json.JsonSerializer.Serialize(scope)});");
+            await JS.InvokeVoidAsync("eval", $"window.__latencyCharts?.setWanScope({WanScopeJson()});");
         }
         catch { /* circuit going away, or charts not mounted yet - the mount push covers it */ }
         StateHasChanged();
+    }
+
+    /// <summary>
+    /// The current WAN scope as JSON, or "null" on a single-WAN site. Handed to the chart module
+    /// at mount time as well as on every change: the module drops its scope when it unmounts, so
+    /// leaving the tab and coming back has to re-state it or the chart would quietly render every
+    /// WAN while the filter row still showed one selected.
+    /// </summary>
+    private string WanScopeJson()
+    {
+        var scope = !_multiWanUiVisible || _wanOptions.Count <= 1
+            ? null
+            : (object)new
+            {
+                primaryKey = _primaryWanKey,
+                selected = _selectedWanKeys.ToArray(),
+                labels = _wanOptions.ToDictionary(w => w.Key.ToLowerInvariant(), w => w.Label),
+            };
+        return System.Text.Json.JsonSerializer.Serialize(scope);
     }
 
     /// <summary>
@@ -4264,11 +4288,13 @@
                     _preSelectCategory = null;
                     _soloTargetId = null;
                 }
-                await JS.InvokeVoidAsync("eval",
-                    $"(async () => {{ const m = await import('{chartsUrl}'); window.__latencyCharts = m; await m.mount('latency-charts-container'); {postMount} }})();");
-                // Restore the per-site WAN selection and hand it to the freshly mounted module
-                // (a no-op scope on single-WAN sites - the module then renders exactly as before).
+                // Read the stored selection BEFORE mounting so the scope rides in with the mount
+                // call: pushing it afterwards races the module import, and a remount would
+                // otherwise come back unfiltered. A single-WAN site passes null and the module
+                // renders exactly as it always has.
                 await RestoreWanSelectionAsync();
+                await JS.InvokeVoidAsync("eval",
+                    $"(async () => {{ const m = await import('{chartsUrl}'); window.__latencyCharts = m; await m.mount('latency-charts-container', {WanScopeJson()}); {postMount} }})();");
             }
             catch (Exception ex) { _latencyChartsMounted = false; Logger.LogDebug(ex, "Latency charts mount failed; will retry on next render"); }
         }
