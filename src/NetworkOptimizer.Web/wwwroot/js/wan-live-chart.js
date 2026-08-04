@@ -567,9 +567,16 @@ async function loadHistory() {
 }
 
 /** Pulls each compared WAN's history into its own buffer. */
-async function loadCompareHistory() {
-    const to = new Date();
-    const from = new Date(to.getTime() - HISTORY_MINUTES * 60000);
+/**
+ * Fills every compared WAN's buffer. `atMs` loads the window a seek is parked on instead of the
+ * live one - in comparison mode renderHistoric draws straight from these buffers, so without it a
+ * seek fetched only the single-WAN buffer and the chart kept showing the live window at a historic
+ * playhead. Same window arithmetic as seekTime, so both modes frame the instant identically.
+ */
+async function loadCompareHistory(atMs = null) {
+    const end = atMs ? Math.min(atMs + HISTORY_MINUTES * 60000 / 2, Date.now()) : Date.now();
+    const to = new Date(end);
+    const from = new Date(end - HISTORY_MINUTES * 60000);
     for (const w of compareWans) {
         try {
             const resp = await fetch(
@@ -1118,7 +1125,11 @@ export async function seekTime(isoTimestamp) {
             loss: p.lossPercent,
         }));
     } catch { return; }
-    if (buffer.length === 0) return;
+    if (comparing()) {
+        await loadCompareHistory(at);
+        if (gen !== seekGen) return;
+    }
+    else if (buffer.length === 0) return;
     // Force the reposition draw only for a discrete/paused seek (deep-link, manual
     // scrub): it must land even under the cursor or it's never retried while paused.
     // During active playback leave it unforced so a hover still holds the redraw for
