@@ -224,9 +224,27 @@ public static class MonitoringChartEndpoints
                 ? influx.QueryGatewayWanRatesAsync(gatewayMac, wanIfNames, queryFrom, queryTo,
                     sampleIntervalSeconds: sampleIntervalSeconds, ct: ct)
                 : Task.FromResult<IReadOnlyList<MonitoringInfluxClient.WanRatePoint>>(Array.Empty<MonitoringInfluxClient.WanRatePoint>());
+            // Scoped like the rates above: the backfilled RTT and loss have to belong to the WAN
+            // being charted, or a secondary WAN's history is drawn with the primary's latency -
+            // the same borrowing the live tick did, just arriving as history instead.
             var targets = await liveStats.GetIspTransitTargetsAsync(ct);
+            if (!string.IsNullOrEmpty(wan))
+            {
+                var wanKey = NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(wan!);
+                var wanIsPrimary = string.Equals(wanKey,
+                    NetworkOptimizer.UniFi.GatewayWanHelper.DefaultWanKey, StringComparison.OrdinalIgnoreCase);
+                targets = targets.Where(t => string.IsNullOrEmpty(t.WanInterface)
+                    ? wanIsPrimary
+                    : string.Equals(NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(t.WanInterface!),
+                        wanKey, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+            }
             var targetIds = targets.Select(t => t.TargetId).ToList();
-            var rttTask = influx.QueryMeanIspTransitLatencyAsync(queryFrom, queryTo, targetIds, ct: ct);
+            // No targets on this WAN means no latency history for it - an empty query would read
+            // as the site's, so it is skipped and the series stays empty.
+            var rttTask = targetIds.Count > 0
+                ? influx.QueryMeanIspTransitLatencyAsync(queryFrom, queryTo, targetIds, ct: ct)
+                : Task.FromResult<IReadOnlyList<MonitoringInfluxClient.LatencyPoint>>(Array.Empty<MonitoringInfluxClient.LatencyPoint>());
 
             await Task.WhenAll(wanTask, rttTask);
 

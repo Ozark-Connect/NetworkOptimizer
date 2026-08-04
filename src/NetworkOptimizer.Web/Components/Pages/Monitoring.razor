@@ -2038,6 +2038,33 @@
         StateHasChanged();
     }
 
+    /// <summary>
+    /// Takes the WAN that ISP Health and these charts share as their focus. They are one
+    /// investigation - that shared focus is what makes an ?investigate= jump land on the WAN you
+    /// were just reading about - so arriving here from a WAN2 report must not drop you back on
+    /// whatever set was last used here and quietly change the subject.
+    /// <para>
+    /// A comparison set that ALREADY contains the focused WAN is kept: you were comparing, and the
+    /// WAN you came from is in the picture. One that does not is replaced by the focused WAN
+    /// alone, because it does not show what you came to look at.
+    /// </para>
+    /// </summary>
+    private async Task AdoptSharedWanFocusAsync(bool apply = true)
+    {
+        if (!_multiWanUiVisible || _wanOptions.Count <= 1) return;
+        try
+        {
+            var shared = await JS.InvokeAsync<string?>("localStorage.getItem", SharedWanScopeKey);
+            var focus = string.IsNullOrEmpty(shared) ? _primaryWanKey : shared!.Trim().ToLowerInvariant();
+            if (!_wanOptions.Any(o => o.Key.Equals(focus, StringComparison.OrdinalIgnoreCase))
+                || _selectedWanKeys.Contains(focus))
+                return;
+            _selectedWanKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { focus };
+            if (apply) await ApplyWanSelectionAsync(persist: true);
+        }
+        catch { /* no interop yet - the stored set stands */ }
+    }
+
     private async Task RestoreWanSelectionAsync()
     {
         if (_wanSelectionRestored || !_multiWanUiVisible || _wanOptions.Count <= 1) return;
@@ -2054,21 +2081,7 @@
                     _selectedWanKeys = new HashSet<string>(keys, StringComparer.OrdinalIgnoreCase);
             }
 
-            // ISP Health and these charts are one investigation, so they share which WAN is in
-            // focus - that is what makes an ?investigate= jump land on the WAN you were reading
-            // about. This side was only ever WRITING that key, so arriving from a WAN2 report put
-            // you back on whatever set was last used here and quietly changed the subject.
-            //
-            // A comparison set that already contains the focused WAN is kept: you were comparing,
-            // and the WAN you came from is in the picture. One that does not is replaced by the
-            // focused WAN alone, because it does not show what you came to look at.
-            var shared = await JS.InvokeAsync<string?>("localStorage.getItem", SharedWanScopeKey);
-            var focus = string.IsNullOrEmpty(shared) ? _primaryWanKey : shared!.Trim().ToLowerInvariant();
-            if (_wanOptions.Any(o => o.Key.Equals(focus, StringComparison.OrdinalIgnoreCase))
-                && !_selectedWanKeys.Contains(focus))
-            {
-                _selectedWanKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { focus };
-            }
+            await AdoptSharedWanFocusAsync(apply: false);
         }
         catch { }
         await ApplyWanSelectionAsync(persist: false);
@@ -2270,8 +2283,10 @@
                 "Upstream Discovery results haven't been saved. If you leave now, you'll need to re-run discovery.\n\nLeave without saving?");
             if (!confirmed) return;
         }
+        var enteringPerformance = tab == "performance" && _activeTab != "performance";
         _activeTab = tab;
         ResetThresholdSavedFlags();
+        if (enteringPerformance) await AdoptSharedWanFocusAsync();
         var uri = "/monitoring?tab=" + tab;
         NavigationManager.NavigateTo(uri, forceLoad: false, replace: false);
         _lastTabParam = tab;
