@@ -2381,8 +2381,22 @@ public class UpstreamTracerService
         var remaining = max;
         foreach (var hop in state.AccessHops.OrderBy(h => h.HopNumber))
             hop.Enabled = remaining-- > 0;
-        // One per ASN is already the shape of the transit list, so order is by discovery.
-        foreach (var transit in state.TransitAsns)
+
+        // Transit ASNs and path endpoints (the anycast DNS and CDN set) alternate rather than
+        // running in discovery order, so a small budget keeps some of each. Taken in order, one
+        // category fills the allowance and the other is cut entirely - and the two answer
+        // different questions: a transit hop says which upstream is at fault, a path endpoint
+        // says whether anything the user actually reaches is affected. A budget that keeps only
+        // one of those measures half the path.
+        var upstream = state.TransitAsns.Where(t => t.Method != DiscoveryMethod.PathProxy).ToList();
+        var endpoints = state.TransitAsns.Where(t => t.Method == DiscoveryMethod.PathProxy).ToList();
+        var interleaved = new List<TransitAsnCandidate>(state.TransitAsns.Count);
+        for (var i = 0; i < Math.Max(upstream.Count, endpoints.Count); i++)
+        {
+            if (i < upstream.Count) interleaved.Add(upstream[i]);
+            if (i < endpoints.Count) interleaved.Add(endpoints[i]);
+        }
+        foreach (var transit in interleaved)
             transit.Enabled = remaining-- > 0;
     }
 

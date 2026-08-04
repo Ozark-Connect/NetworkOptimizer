@@ -846,8 +846,14 @@ export async function mount(containerId, opts) {
     if (opts && 'wan' in opts) wanScope = opts.wan || null;
     // A selection of several arrives as wans: [{key,label}] and starts the chart in comparison
     // mode, so the first paint is already right rather than flipping a moment later.
-    if (opts && Array.isArray(opts.wans)) {
-        const list = opts.wans.filter(w => w && w.key);
+    //
+    // Keyed on the property being PRESENT, not on it being an array. The primary alone is sent as
+    // null - it needs no scope - and testing for an array skipped the reset entirely, leaving
+    // compareWans from the previous mount: this module is imported once and survives leaving the
+    // tab, so the pills came back reading one WAN while the chart was still comparing every WAN
+    // it had last been given.
+    if (opts && 'wans' in opts) {
+        const list = Array.isArray(opts.wans) ? opts.wans.filter(w => w && w.key) : [];
         compareWans = list.length > 1 ? list : [];
         if (list.length >= 1) wanScope = list[0].key;
     }
