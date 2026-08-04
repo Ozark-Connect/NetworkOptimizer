@@ -225,11 +225,13 @@
                 }
                 else
                 {
-                    <p class="form-hint">
-                        This agent binds this address for the WAN's probes. The address needs its own
-                        interface and MAC - UniFi matches the policy-based route by Client Device - so
-                        a second address on an existing NIC won't route differently.
-                    </p>
+                    <div class="info-box">
+                        <p>
+                            This agent binds this address for the WAN's probes. The address needs its own
+                            interface and MAC - UniFi matches the policy-based route by Client Device - so
+                            a second address on an existing NIC won't route differently.
+                        </p>
+                    </div>
                 }
                 @if (SelectedAgentCanBindInterface)
                 {
