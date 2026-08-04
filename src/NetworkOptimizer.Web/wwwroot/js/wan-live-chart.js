@@ -4,7 +4,7 @@
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 import * as flowData from './lan-flow-data.js?v=7';
-import { valueSortedTooltip } from './chart-tooltip.js?v=7';
+import { valueSortedTooltip } from './chart-tooltip.js?v=8';
 
 const HISTORY_MINUTES = 5;
 // Poll at twice the site's SNMP sample rate so no sample is missed when the two
@@ -378,9 +378,26 @@ function buildOpts() {
             // hover dots (the library's markers are the flaky ones, and any non-zero size puts a
             // permanent dot on every sample). An explicit formatter because the throughput axis
             // is an object here, not the array the helper reads by default.
+            // The same custom tooltip either way - it stacks every series at the hovered instant
+            // and paints its own small hover dots. What differs is the ordering: comparing puts
+            // the WANs on ONE axis, so their values rank and the biggest belongs on top; the
+            // single-WAN chart spreads four series across four axes, where bits per second, a
+            // percentage and milliseconds cannot be ranked against each other, so they keep a
+            // fixed order instead.
             custom: comparing()
                 ? (ctx) => valueSortedTooltip(ctx, { format: v => formatBps(v) })
-                : undefined,
+                : (ctx) => valueSortedTooltip(ctx, {
+                    sort: false,
+                    // order is how they READ; format is indexed by SERIES position (Loss is
+                    // series 2, RTT series 3) - the two lists are deliberately not parallel.
+                    order: ['Download', 'Upload', 'RTT', 'Loss'],
+                    format: [
+                        v => formatBps(v),
+                        v => formatBps(v),
+                        v => v != null ? v.toFixed(2) + '%' : '-',
+                        v => v != null ? v.toFixed(1) + ' ms' : '-',
+                    ],
+                }),
             // Positional, one per series: a short array leaves the rest of the series with no
             // formatter at all, which renders raw bits per second.
             y: comparing()

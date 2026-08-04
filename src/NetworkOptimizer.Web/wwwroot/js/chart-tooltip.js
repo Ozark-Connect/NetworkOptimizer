@@ -97,11 +97,19 @@ export function valueSortedTooltip({ series, dataPointIndex, w }, options = {}) 
         ts ??= w.globals.seriesX[i]?.[dataPointIndex];
         rows.push({ name: w.globals.seriesNames[i], color: w.globals.colors[i % w.globals.colors.length], v, i });
     }
-    // Sorted by value where the rows are the same measurement on different subjects, which is what
-    // ranks them - several WANs' throughput, several targets' latency. Pass sort: false where the
-    // rows are DIFFERENT measurements of one subject: ordering download, loss and RTT by magnitude
-    // shuffles unrelated quantities and the reader loses the fixed place each one sits in.
+    // Sorted by value only where the series share a SCALE - several WANs' throughput on one axis,
+    // several targets' latency on one axis - because then the number and the height on the chart
+    // rank the same way. Series on different axes must not be sorted: bits per second, a
+    // percentage and milliseconds have no common order, so ranking them by raw magnitude puts
+    // throughput on top forever and tells the reader nothing. Those pass sort: false and keep
+    // their fixed places, which is also where the eye expects to find them.
     if (options.sort !== false) rows.sort((a, b) => b.v - a.v);
+    else if (Array.isArray(options.order)) {
+        // Reading order, not series order: the chart draws throughput first because it is the
+        // backdrop, but the pair a reader compares is RTT and loss, so those sit together.
+        const rank = new Map(options.order.map((n, i) => [n, i]));
+        rows.sort((a, b) => (rank.get(a.name) ?? 99) - (rank.get(b.name) ?? 99));
+    }
     // Seconds by default, because the Monitoring charts poll fast enough for them to mean
     // something. A chart on a slower cadence can drop them - ISP Health polls once a minute over a
     // 24 hour window, where a seconds field is noise and was never shown before this was shared.
