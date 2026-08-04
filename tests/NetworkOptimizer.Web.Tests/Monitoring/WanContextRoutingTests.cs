@@ -279,4 +279,77 @@ public class WanContextRoutingTests
             true, GatewayAgent, GatewayAgent, agentIsSteeredToWan: false, unassignedOwnerId: PrimaryAgent)
             .Should().BeTrue();
     }
+
+    // ---- Fabric targets follow the collector, not a WAN --------------------
+
+    [Fact]
+    public void FabricTargets_GoToTheCollector_WhicheverWansExist()
+    {
+        // Nothing inside the LAN crosses a WAN, so a context cannot own it: the agent that polls
+        // the site's SNMP probes it, and only that one.
+        AgentProbeResultSink.IsFabricTarget(MonitoringTargetType.Fabric).Should().BeTrue();
+        AgentProbeResultSink.ShouldPushTargetToAgent(
+            false, null, PrimaryAgent, agentIsSteeredToWan: false,
+            unassignedOwnerId: PrimaryAgent, targetIsFabric: true).Should().BeTrue();
+        AgentProbeResultSink.ShouldPushTargetToAgent(
+            false, null, GatewayAgent, agentIsSteeredToWan: false,
+            unassignedOwnerId: PrimaryAgent, targetIsFabric: true).Should().BeFalse();
+    }
+
+    [Fact]
+    public void FabricTarget_InAContext_StillGoesToTheCollector()
+    {
+        // A fabric target that somehow carries a context is still a LAN measurement: the context
+        // says nothing about it, so ownership does not move.
+        AgentProbeResultSink.ShouldPushTargetToAgent(
+            true, ContextAgent, ContextAgent, agentIsSteeredToWan: true,
+            unassignedOwnerId: PrimaryAgent, targetIsFabric: true).Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData(MonitoringTargetType.AccessIsp)]
+    [InlineData(MonitoringTargetType.Transit)]
+    [InlineData(MonitoringTargetType.InternetService)]
+    public void WanTargets_AreNotFabric(MonitoringTargetType type)
+    {
+        AgentProbeResultSink.IsFabricTarget(type).Should().BeFalse();
+    }
+
+    // ---- Steering is about the WAN, not the interface field ----------------
+
+    [Fact]
+    public void PrimaryWansContext_DoesNotMakeAnAgentSteered()
+    {
+        // Reaching the primary needs no steering: on a failover-only site every unpinned box
+        // already leaves by it. An agent named on the primary's context is still the collector.
+        var context = new WanContext { AgentId = PrimaryAgent, WanInterface = "wan2" };
+
+        AgentProbeResultSink.IsPrimaryWanContext(context, primaryWanKey: "wan2").Should().BeTrue();
+    }
+
+    [Fact]
+    public void SecondaryWansContext_MeansTheAgentIsSteered()
+    {
+        var context = new WanContext { AgentId = ContextAgent, WanInterface = "wan3" };
+
+        AgentProbeResultSink.IsPrimaryWanContext(context, primaryWanKey: "wan2").Should().BeFalse();
+    }
+
+    [Fact]
+    public void UnknownPrimary_LeavesTheConservativeReading()
+    {
+        // No connected compute has recorded the role yet. Guessing the agent is on the primary
+        // would hand it the site's targets; the safe reading is that it is not.
+        var context = new WanContext { AgentId = ContextAgent, WanInterface = "wan" };
+
+        AgentProbeResultSink.IsPrimaryWanContext(context, primaryWanKey: null).Should().BeFalse();
+    }
+
+    [Fact]
+    public void LegacyWan1Context_MatchesAPrimaryRecordedAsWan()
+    {
+        var context = new WanContext { AgentId = PrimaryAgent, WanInterface = "wan1" };
+
+        AgentProbeResultSink.IsPrimaryWanContext(context, primaryWanKey: "wan").Should().BeTrue();
+    }
 }

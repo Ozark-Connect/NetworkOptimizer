@@ -1998,6 +1998,26 @@ public class IspHealthService
             row.DownloadMbps = down;
             row.UploadMbps = up;
             row.UpdatedAt = DateTime.UtcNow;
+
+            // Record which WAN holds the primary role, and whether the site load balances, while
+            // a console is answering. Both are read where no console can be reached - the probe
+            // push path has none at all - and both are otherwise guessed from the WAN's NAME,
+            // which carries no role information. Exactly one row may claim primary, so the others
+            // are cleared in the same save rather than left to accumulate stale claims.
+            var networks = await _connectionService.GetNetworksAsync(ct);
+            var primaryGroup = UniFiConnectionService.ResolvePrimaryWanNetwork(networks)?.WanNetworkgroup;
+            if (!string.IsNullOrEmpty(primaryGroup))
+            {
+                var loadBalances = UniFiConnectionService.ResolveSiteLoadBalances(networks);
+                foreach (var profile in await db.WanProfiles.ToListAsync(ct))
+                {
+                    profile.IsPrimary = string.Equals(
+                        profile.WanNetworkgroup, primaryGroup, StringComparison.OrdinalIgnoreCase);
+                    profile.SiteLoadBalances = loadBalances;
+                }
+                row.IsPrimary = string.Equals(row.WanNetworkgroup, primaryGroup, StringComparison.OrdinalIgnoreCase);
+                row.SiteLoadBalances = loadBalances;
+            }
             await db.SaveChangesAsync(ct);
         }
         catch (Exception ex)

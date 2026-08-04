@@ -295,14 +295,21 @@ public class AgentProbeResultSink
             // measure the secondary WAN and file the result under the primary. Only true once a
             // context names this agent, so a site with no contexts pushes exactly what it always
             // has.
-            // Steered means the agent's OWN default route leaves by a secondary WAN - a probe box
-            // the gateway policy-routes by MAC, or one running with agent.json's probeSourceIp. It
-            // is a vantage behind one WAN and nothing else. An agent whose contexts name an
-            // interface is NOT steered: it binds per probe (a gateway agent does this) and its
-            // default route is still the site's primary, so it can go on being the site's collector
-            // as well - which is the whole point of putting one agent on the gateway.
-            var agentIsSteeredToWan = contextsById.Values.Any(
-                c => c.AgentId == connection.AgentId && string.IsNullOrEmpty(c.InterfaceName));
+            // Steered means the agent's OWN default route leaves by a WAN that is not the primary -
+            // a probe box the gateway policy-routes by MAC, or one running with agent.json's
+            // probeSourceIp. It is a vantage behind that WAN and nothing else, so it must not
+            // probe anything the primary owns.
+            //
+            // Two ways an agent is NOT steered even while serving a context. It binds per probe
+            // (its context names an interface - a gateway agent), so its own route is untouched.
+            // Or its context IS the primary's, which needs no steering to reach: on a failover-only
+            // site every unpinned box already leaves by the primary. Both keep the agent eligible
+            // as the site's collector, which on a gateway-only site it has to be.
+            var primaryWanKey = await ResolvePersistedPrimaryWanKeyAsync(db, ct);
+            var agentIsSteeredToWan = contextsById.Values.Any(c =>
+                c.AgentId == connection.AgentId
+                && string.IsNullOrEmpty(c.InterfaceName)
+                && !IsPrimaryWanContext(c, primaryWanKey));
 
             // Exactly one agent probes the unassigned (primary-WAN) targets. Several agents on a
             // site used to each get the whole set as extra vantage points, which on a site running
@@ -354,7 +361,8 @@ public class AgentProbeResultSink
                 // nowhere) rather than as unassigned - conservative until the row is cleaned up.
                 var context = target.WanContextId is int contextId
                     && contextsById.TryGetValue(contextId, out var found) ? found : null;
-                if (!ShouldPushTargetToAgent(target.WanContextId != null, context?.AgentId, connection.AgentId, agentIsSteeredToWan, unassignedOwnerId))
+                if (!ShouldPushTargetToAgent(target.WanContextId != null, context?.AgentId, connection.AgentId,
+                        agentIsSteeredToWan, unassignedOwnerId, IsFabricTarget(target.TargetType)))
                     continue;
                 config.Targets.Add(new ProbeTargetSpec
                 {
@@ -386,12 +394,42 @@ public class AgentProbeResultSink
     }
 
     /// <summary>
+    /// The primary WAN's key as the last connected compute recorded it, or null when none has.
+    /// Read from the site's WanProfiles because this path has no console to ask, and a WAN's name
+    /// says nothing about its role. Null means unknown: callers must not read it as "not primary".
+    /// </summary>
+    private static async Task<string?> ResolvePersistedPrimaryWanKeyAsync(
+        NetworkOptimizerDbContext db, CancellationToken ct)
+    {
+        var group = (await db.WanProfiles.AsNoTracking()
+            .FirstOrDefaultAsync(w => w.IsPrimary == true, ct))?.WanNetworkgroup;
+        return string.IsNullOrEmpty(group) ? null : GatewayWanHelper.WanInterfaceKeyFromKey(group);
+    }
+
+    /// <summary>
+    /// Whether a context measures the primary WAN. False when the primary is unknown: an agent is
+    /// only excused from being treated as steered on a positive answer, so an unresolved primary
+    /// leaves the conservative reading in place rather than handing it the site's targets.
+    /// </summary>
+    internal static bool IsPrimaryWanContext(WanContext context, string? primaryWanKey) =>
+        !string.IsNullOrEmpty(primaryWanKey)
+        && !string.IsNullOrEmpty(context.WanInterface)
+        && string.Equals(GatewayWanHelper.WanInterfaceKeyFromKey(context.WanInterface!),
+            primaryWanKey, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
     /// Whether a target belongs in one agent's pushed set.
     ///
-    /// Every target has exactly one prober. A context's targets go to that context's agent. The
-    /// unassigned (primary-WAN) targets go to ONE agent - <paramref name="unassignedOwnerId"/> -
-    /// rather than to all of them, so a site running an agent per WAN does not probe every primary
-    /// target once per agent for a single number.
+    /// Every target has exactly one prober, and which one depends on what the target measures.
+    ///
+    /// FABRIC targets - the gateway, switches, APs, anything inside the LAN - never cross a WAN, so
+    /// no WAN owns them and a context could not mean anything for one. They go to the site's
+    /// collector, the same agent that polls SNMP: it is the one inside the network, and pairing the
+    /// two keeps a device's counters and its reachability measured from the same place.
+    ///
+    /// WAN targets belong to the WAN they leave by: a context's targets to that context's agent,
+    /// and the unassigned ones - the primary's - to ONE agent rather than all of them, so a site
+    /// running an agent per WAN does not probe every primary target once per agent for one number.
     ///
     /// A STEERED agent is probe-only for its context: everything it sends leaves by that WAN, so a
     /// primary target probed from it would measure the wrong path and be recorded as the primary's.
@@ -408,12 +446,24 @@ public class AgentProbeResultSink
     /// <param name="agentId">The agent being pushed to.</param>
     /// <param name="agentIsSteeredToWan">Whether a context names this agent WITHOUT an interface
     /// to bind - i.e. the whole box sits behind one WAN.</param>
-    /// <param name="unassignedOwnerId">The one agent that probes the unassigned targets.</param>
+    /// <param name="unassignedOwnerId">The one agent that collects for the site: fabric targets
+    /// and the primary WAN's.</param>
+    /// <param name="targetIsFabric">Whether the target is inside the LAN, so no WAN owns it.</param>
     internal static bool ShouldPushTargetToAgent(
-        bool targetHasContext, int? contextAgentId, int agentId, bool agentIsSteeredToWan, int unassignedOwnerId)
-        => targetHasContext
-            ? contextAgentId == agentId
-            : !agentIsSteeredToWan && unassignedOwnerId == agentId;
+        bool targetHasContext, int? contextAgentId, int agentId, bool agentIsSteeredToWan,
+        int unassignedOwnerId, bool targetIsFabric = false)
+        => targetIsFabric
+            ? !agentIsSteeredToWan && unassignedOwnerId == agentId
+            : targetHasContext
+                ? contextAgentId == agentId
+                : !agentIsSteeredToWan && unassignedOwnerId == agentId;
+
+    /// <summary>
+    /// Whether a target sits inside the LAN, where no WAN is involved and a WAN context would mean
+    /// nothing. Fabric is the type the discovery tier gives the gateway, switches and APs.
+    /// </summary>
+    internal static bool IsFabricTarget(MonitoringTargetType targetType) =>
+        targetType == MonitoringTargetType.Fabric;
 
     /// <summary>
     /// The source an agent binds this target's probes to: the context's interface when it has one,
@@ -462,8 +512,12 @@ public class AgentProbeResultSink
         {
             var isDefault = connection.SiteSlug == SiteManagementService.DefaultSiteSlug;
             await using var db = _siteDbFactory.CreateForSite(connection.SiteSlug, isDefault);
-            return await db.WanContexts.AsNoTracking()
-                .AnyAsync(c => c.AgentId == connection.AgentId && (c.InterfaceName == null || c.InterfaceName == ""), ct);
+            var primaryWanKey = await ResolvePersistedPrimaryWanKeyAsync(db, ct);
+            var contexts = await db.WanContexts.AsNoTracking()
+                .Where(c => c.AgentId == connection.AgentId
+                    && (c.InterfaceName == null || c.InterfaceName == ""))
+                .ToListAsync(ct);
+            return contexts.Any(c => !IsPrimaryWanContext(c, primaryWanKey));
         }
         catch (Exception ex)
         {

@@ -32,6 +32,22 @@
             context carry a <code>wan</code> tag, so each WAN's results stay separate.
         </p>
 
+        @if (_siteLoadBalances == true)
+        {
+            <p class="section-description">
+                This site load balances across WANs, so an unpinned probe source mixes them. Give
+                each WAN a context - an agent on the gateway, or a probe host with a policy-based
+                route.
+            </p>
+        }
+        else if (_siteLoadBalances == false && !string.IsNullOrEmpty(_primaryWanLabel))
+        {
+            <p class="section-description">
+                Probes leave by @_primaryWanLabel unless a context sends them elsewhere. During a
+                failover they follow the backup, and those minutes read as @_primaryWanLabel.
+            </p>
+        }
+
         @if (WanContexts.Count == 0)
         {
             <div class="empty-state">
@@ -165,7 +181,7 @@
                 @if (!string.IsNullOrWhiteSpace(_newSourceIp))
                 {
                     <p class="form-hint">
-                        A source IP only reaches this WAN if the gateway routes it there. In UniFi
+                        This agent reaches @WanLabelFor(_newWanInterface) only if the gateway routes it there. In UniFi
                         Network, go to Settings - Policy Table and add a Policy-Based Route with
                         this WAN as the interface, the probe host's Client Device as the source,
                         and Any as the destination. The source is matched by MAC, so the probe host
@@ -212,6 +228,10 @@
     private string? _addError;
     private List<SiteAgent> _agents = new();
     private IReadOnlyList<WanSummary> _wans = Array.Empty<WanSummary>();
+    // Null until a connected compute has recorded the site's WAN roles: neither sentence below is
+    // shown on a guess, because they prescribe opposite things.
+    private bool? _siteLoadBalances;
+    private string? _primaryWanLabel;
     // Agents that both run on the gateway and told us they can bind a probe source. Interface
     // binding is only offered for those: an agent elsewhere on the network has no WAN interface to
     // bind, and one that cannot bind at all would fail every probe in the context.
@@ -323,6 +343,22 @@
     {
         try { _wans = await PathView.GetWansAsync(); }
         catch { _wans = Array.Empty<WanSummary>(); }
+
+        // Which WAN holds the primary role, and whether the site load balances, decide which
+        // guidance applies - unpinned probing measures the primary honestly under failover, and
+        // nothing at all under load balancing. Prefer the live answer; fall back to what the last
+        // connected compute recorded, and say nothing when neither can answer.
+        var live = _wans.FirstOrDefault(w => w.IsPrimary);
+        _primaryWanLabel = live != null ? WanLabelFor(live.WanInterface) : null;
+        try
+        {
+            await using var db = SiteDb.CreateForSite(SiteCtx.Slug, SiteCtx.IsDefault);
+            var primary = await db.WanProfiles.AsNoTracking().FirstOrDefaultAsync(w => w.IsPrimary == true);
+            _siteLoadBalances = primary?.SiteLoadBalances;
+            if (_primaryWanLabel == null && primary != null)
+                _primaryWanLabel = WanLabelFor(GatewayWanHelper.WanInterfaceKeyFromKey(primary.WanNetworkgroup));
+        }
+        catch { _siteLoadBalances = null; }
     }
 
     /// <summary>
@@ -440,7 +476,8 @@
         string? sourceIp,
         int? agentId,
         string? interfaceName,
-        IEnumerable<string> otherNames)
+        IEnumerable<string> otherNames,
+        bool serverProbesThisSite = true)
     {
         if (string.IsNullOrEmpty(name) || name.Length > 100)
             return "A name up to 100 characters is required.";
@@ -461,6 +498,11 @@
             return "Use either a probe source IP or an assigned agent, not both.";
         if (!string.IsNullOrWhiteSpace(interfaceName) && agentId == null)
             return "Interface binding runs on an agent - assign one first.";
+        // A source-IP context is probed by the SERVER binding that address, and the server only
+        // probes the main site. On any other site nothing would ever run these probes, so the
+        // context would sit there looking configured and collect nothing.
+        if (!serverProbesThisSite && agentId == null)
+            return "This site is probed by its agent, so assign one to this WAN.";
         return null;
     }
 
@@ -474,7 +516,8 @@
         int? agentId = int.TryParse(_newAgentId, out var parsedAgent) ? parsedAgent : null;
 
         _addError = ValidateContext(name, wanInterface, sourceIp, agentId, interfaceName,
-            WanContexts.Where(c => c.Id != _editingId).Select(c => c.Name));
+            WanContexts.Where(c => c.Id != _editingId).Select(c => c.Name),
+            serverProbesThisSite: SiteCtx.IsDefault);
         if (_addError != null) return;
 
         _saving = true;

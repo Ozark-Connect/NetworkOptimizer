@@ -1458,6 +1458,22 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     }
 
     /// <summary>
+    /// Whether the site spreads traffic across WANs rather than running one primary with the rest
+    /// on failover. True when two or more enabled WANs are NOT marked failover-only, which is
+    /// UniFi's way of saying they share the load.
+    /// <para>
+    /// It decides what an unpinned probe measures. Under failover-only, everything on the LAN
+    /// leaves by the primary, so an ordinary agent measures the primary honestly and needs no
+    /// policy route (during an actual failover it follows the backup - collateral we accept and
+    /// state). Under load balancing the same probe is spread across WANs and attributable to
+    /// none, so every probe source has to be pinned, the primary's included.
+    /// </para>
+    /// </summary>
+    public static bool ResolveSiteLoadBalances(IReadOnlyList<NetworkInfo> networks) =>
+        networks.Count(n => n.IsWan && n.Enabled
+            && !string.Equals(n.WanLoadBalanceType, "failover-only", StringComparison.OrdinalIgnoreCase)) > 1;
+
+    /// <summary>
     /// Convenience: fetches networks and resolves the primary WAN in one call.
     /// </summary>
     public async Task<NetworkInfo?> GetPrimaryWanNetworkAsync(CancellationToken ct = default)

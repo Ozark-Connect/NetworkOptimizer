@@ -180,4 +180,33 @@ public class WanContextsCardTests
         GatewayWanHelper.FormatWanLabel(null, GatewayWanHelper.WanIndexFromKey("wan2"), null, null)
             .Should().Be("WAN2");
     }
+
+    [Fact]
+    public void ASourceIpContextIsRejectedOnASiteTheServerDoesNotProbe()
+    {
+        // Source-IP contexts are probed by the server binding that address, and the server only
+        // probes the main site. On any other site this would look configured and collect nothing.
+        WanContextsCard.ValidateContext(
+            "backup", "wan2", "198.51.100.7", agentId: null, interfaceName: null,
+            otherNames: Array.Empty<string>(), serverProbesThisSite: false)
+            .Should().Be("This site is probed by its agent, so assign one to this WAN.");
+    }
+
+    [Fact]
+    public void ASourceIpContextIsFineOnTheMainSite()
+    {
+        WanContextsCard.ValidateContext(
+            "backup", "wan2", "198.51.100.7", agentId: null, interfaceName: null,
+            otherNames: Array.Empty<string>(), serverProbesThisSite: true)
+            .Should().BeNull();
+    }
+
+    [Fact]
+    public void AnAgentAssignedContextIsFineOnAnySite()
+    {
+        WanContextsCard.ValidateContext(
+            "backup", "wan2", sourceIp: null, agentId: 4, interfaceName: null,
+            otherNames: Array.Empty<string>(), serverProbesThisSite: false)
+            .Should().BeNull();
+    }
 }
