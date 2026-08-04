@@ -282,7 +282,7 @@
             {
                 @* Separate scope from the analysis selectors on purpose - watching a WAN here must not move them. *@
                 <div class="time-range-selector wan-selector wan-selector-standalone wan-selector-on-page @(LiveWan.Options.Count > 3 ? "wan-selector-many" : "")"
-                     data-tooltip="@(_showWanCompareHint ? _wanCompareHint : null)" data-tooltip-hover-only style="margin-bottom: 0.5rem;">
+                     data-tooltip="@(_showWanCompareHint ? _wanCompareHint : null)" data-tooltip-hover-only style="margin-bottom: 0.75rem;">
                     @foreach (var w in LiveWan.Options)
                     {
                         <button class="time-btn @(LiveWan.IsSelected(w.Key) ? "active" : "")"
@@ -291,6 +291,10 @@
                                         w.Label, NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey(w.Key));
                                 }@(wp.Name ?? w.Label)@if (wp.WanToken != null && wp.Name != null)
                                 {<span class="wan-pill-token">@wp.WanToken</span>}</button>
+                    }
+                    @if (LiveWanIsNarrowed)
+                    {
+                        <WanFilterResetButton OnReset="ResetLiveWanAsync" />
                     }
                 </div>
             }
@@ -499,26 +503,30 @@
         <div class="card" id="latency-charts-container" style="margin-top: 1.5rem;">
             <div class="card-header monitoring-chart-header">
                 <h2 class="card-title">Latency &amp; Packet Loss</h2>
-                <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; justify-content: flex-end;">
+                @if (_multiWanUiVisible && _wanOptions.Count > 1)
+                {
+                    <div class="time-range-selector wan-selector @(_wanOptions.Count > 3 ? "wan-selector-many" : "")"
+                         data-tooltip="@(_showWanCompareHint ? _wanCompareHint : null)" data-tooltip-hover-only>
+                        @foreach (var w in _wanOptions)
+                        {
+                            <button class="time-btn @(_selectedWanKeys.Contains(w.Key) ? "active" : "")"
+                                    @onclick="e => OnWanPillClickAsync(w.Key, e)">@{
+                                var wp = NetworkOptimizer.UniFi.GatewayWanHelper.SplitWanLabel(
+                                    w.Label, NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey(w.Key));
+                            }@(wp.Name ?? w.Label)@if (wp.WanToken != null && wp.Name != null)
+                            {<span class="wan-pill-token">@wp.WanToken</span>}</button>
+                        }
+                        @if (WanFilterIsNarrowed)
+                        {
+                            <WanFilterResetButton OnReset="ResetWanFilterAsync" />
+                        }
+                    </div>
+                }
+                <div class="chart-header-controls">
                     @* Default the category filter to ISP when there are no enabled LAN (Fabric)
                        targets, so a monitoring-only/agent site opens on a populated chart. mount()
                        in latency-charts.js seeds currentCategory from whichever button is active. *@
                     @{ var hasLanTargets = HasTargetsInWanScope(MonitoringTargetType.Fabric); }
-                    @if (_multiWanUiVisible && _wanOptions.Count > 1)
-                    {
-                        <div class="time-range-selector wan-selector @(_wanOptions.Count > 3 ? "wan-selector-many" : "")"
-                             data-tooltip="@(_showWanCompareHint ? _wanCompareHint : null)" data-tooltip-hover-only>
-                            @foreach (var w in _wanOptions)
-                            {
-                                <button class="time-btn @(_selectedWanKeys.Contains(w.Key) ? "active" : "")"
-                                        @onclick="e => OnWanPillClickAsync(w.Key, e)">@{
-                                    var wp = NetworkOptimizer.UniFi.GatewayWanHelper.SplitWanLabel(
-                                        w.Label, NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey(w.Key));
-                                }@(wp.Name ?? w.Label)@if (wp.WanToken != null && wp.Name != null)
-                                {<span class="wan-pill-token">@wp.WanToken</span>}</button>
-                            }
-                        </div>
-                    }
                     <div class="time-range-selector">
                         <button class="time-btn @(hasLanTargets ? "active" : "")" data-category="Fabric">LAN</button>
                         <button class="time-btn @(hasLanTargets ? "" : "active")" data-category="AccessIsp">ISP</button>
@@ -646,7 +654,7 @@
         <div class="card" id="device-health-charts-container">
             <div class="card-header monitoring-chart-header">
                 <h2 class="card-title">Device Health</h2>
-                <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; justify-content: flex-end;">
+                <div class="chart-header-controls">
                     <button class="time-btn" data-shift="back" data-tooltip="Shift window back">&#x25C0;</button>
                     <div class="time-range-selector" style="position: relative;">
                         <button class="time-btn" data-range="0">15m</button>
@@ -777,7 +785,7 @@
         <div class="card" style="margin-top: 1.5rem;" id="sfp-charts-container">
             <div class="card-header monitoring-chart-header">
                 <h2 class="card-title">SFP Diagnostics</h2>
-                <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; justify-content: flex-end;">
+                <div class="chart-header-controls">
                     <button class="time-btn" data-shift="back" data-tooltip="Shift window back">&#x25C0;</button>
                     <div class="time-range-selector" style="position: relative;">
                         <button class="time-btn" data-range="0">15m</button>
@@ -984,7 +992,7 @@
         <div class="card" id="cm-charts-container">
             <div class="card-header monitoring-chart-header">
                 <h2 class="card-title">Cable Modem Signal History</h2>
-                <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; justify-content: flex-end;">
+                <div class="chart-header-controls">
                     <button class="time-btn" data-shift="back" data-tooltip="Shift window back">&#x25C0;</button>
                     <div class="time-range-selector" style="position: relative;">
                         <button class="time-btn" data-range="0">15m</button>
@@ -1115,7 +1123,7 @@
         <div class="card" id="ont-charts-container">
             <div class="card-header monitoring-chart-header">
                 <h2 class="card-title">ONT Signal History</h2>
-                <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; justify-content: flex-end;">
+                <div class="chart-header-controls">
                     <button class="time-btn" data-shift="back" data-tooltip="Shift window back">&#x25C0;</button>
                     <div class="time-range-selector" style="position: relative;">
                         <button class="time-btn" data-range="0">15m</button>
@@ -1270,7 +1278,7 @@
         <div class="card" id="cellular-charts-container">
             <div class="card-header monitoring-chart-header">
                 <h2 class="card-title">Cellular Signal History</h2>
-                <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; justify-content: flex-end;">
+                <div class="chart-header-controls">
                     <button class="time-btn" data-shift="back" data-tooltip="Shift window back">&#x25C0;</button>
                     <div class="time-range-selector" style="position: relative;">
                         <button class="time-btn" data-range="0">15m</button>
@@ -1375,7 +1383,7 @@
         <div class="card" id="starlink-charts-container">
             <div class="card-header monitoring-chart-header">
                 <h2 class="card-title">Starlink Terminal History</h2>
-                <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; justify-content: flex-end;">
+                <div class="chart-header-controls">
                     <button class="time-btn" data-shift="back" data-tooltip="Shift window back">&#x25C0;</button>
                     <div class="time-range-selector" style="position: relative;">
                         <button class="time-btn" data-range="0">15m</button>
@@ -1955,6 +1963,35 @@
     /// bar's own order rather than the selection set's, so comparing two WANs hands the downstream
     /// panel the leftmost one every time instead of whichever the set happens to yield first.
     /// </summary>
+    /// <summary>
+    /// Whether the WAN filter is showing anything other than its ground state, which is the primary
+    /// alone. Only then is there something for a reset to undo.
+    /// </summary>
+    private bool WanFilterIsNarrowed =>
+        _multiWanUiVisible
+        && !(_selectedWanKeys.Count == 1 && _selectedWanKeys.Contains(_primaryWanKey));
+
+    private async Task ResetWanFilterAsync()
+    {
+        _selectedWanKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { _primaryWanKey };
+        await ApplyWanSelectionAsync(persist: true);
+    }
+
+
+    /// <summary>
+    /// Whether the live WAN filter has moved off its ground state - the primary alone - which is the
+    /// only time a reset has anything to undo.
+    /// </summary>
+    private bool LiveWanIsNarrowed =>
+        LiveWan.HasChoice
+        && !(LiveWan.SelectedKeys.Count == 1 && LiveWan.Selected?.IsPrimary == true);
+
+    private async Task ResetLiveWanAsync()
+    {
+        var primary = LiveWan.Options.FirstOrDefault(o => o.IsPrimary)?.Key;
+        if (primary != null) await LiveWan.SelectAsync(primary);
+    }
+
     private string? FirstSelectedWanKey() =>
         !_multiWanUiVisible ? null
         : _wanOptions.FirstOrDefault(w => _selectedWanKeys.Contains(w.Key))?.Key;

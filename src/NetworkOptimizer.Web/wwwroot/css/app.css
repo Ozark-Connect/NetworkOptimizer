@@ -520,6 +520,24 @@ h1:focus {
     gap: 0.75rem;
 }
 
+.monitoring-chart-header .chart-header-controls {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-left: auto;
+    justify-content: flex-end;
+}
+
+.isp-health-toolbar .wan-selector {
+    margin-right: auto;
+}
+
+.wan-selector .wan-filter-reset {
+    position: static;
+    margin-left: 0.15rem;
+}
+
 @media (max-width: 768px) {
     .monitoring-chart-header:has(.time-range-selector):has(.settings-link) {
         position: relative;
@@ -9466,7 +9484,7 @@ a.path-hop.hop-clickable:hover {
     max-width: 100%;
 }
 
-.wan-selector-on-page {
+.time-range-selector.wan-selector-on-page {
     background: var(--bg-tertiary);
 }
 

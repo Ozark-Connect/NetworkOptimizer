@@ -1,3 +1,4 @@
+@using NetworkOptimizer.Web.Components.Shared.Monitoring
 @using Microsoft.EntityFrameworkCore
 @using NetworkOptimizer.Storage.Models
 @using NetworkOptimizer.Web.Services
@@ -67,6 +68,10 @@ else
                                         w.Label, NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey(w.Key));
                                 }@(wp.Name ?? w.Label)@if (wp.WanToken != null && wp.Name != null)
                                 {<span class="wan-pill-token">@wp.WanToken</span>}</button>
+                    }
+                    @if (LiveWanIsNarrowed)
+                    {
+                        <WanFilterResetButton OnReset="ResetLiveWanAsync" />
                     }
                 </div>
             }
@@ -266,6 +271,21 @@ else
 </style>
 
 @code {
+
+    /// <summary>
+    /// Whether the live WAN filter has moved off its ground state - the primary alone - which is the
+    /// only time a reset has anything to undo.
+    /// </summary>
+    private bool LiveWanIsNarrowed =>
+        LiveWan.HasChoice
+        && !(LiveWan.SelectedKeys.Count == 1 && LiveWan.Selected?.IsPrimary == true);
+
+    private async Task ResetLiveWanAsync()
+    {
+        var primary = LiveWan.Options.FirstOrDefault(o => o.IsPrimary)?.Key;
+        if (primary != null) await LiveWan.SelectAsync(primary);
+    }
+
     [Parameter] public string MapMode { get; set; } = "2d";
 
     private bool _ready;
