@@ -2154,14 +2154,25 @@ public class IspHealthService
             // yields a recent capacity number. Bounded above by windowEnd for historical windows.
             var fallbackStart = windowEnd.AddDays(-_options.SpeedTestFallbackDays);
             var since = windowStart < fallbackStart ? windowStart : fallbackStart;
-            // Tests are attributed to the scored WAN by their recorded WAN group. The primary
-            // keeps its exact historical predicate (null group - older rows never stamped - or
-            // "wan"); a scoped WAN takes only tests stamped with its own group, never unstamped
-            // ones - an unstamped test ran over the default route, which is the primary's.
+            // Tests are attributed to the scored WAN by their recorded WAN group. A scoped WAN
+            // takes only tests stamped with its own group, never unstamped ones - an unstamped
+            // test ran over the default route, which is the primary's.
             var scopedGroupLower = _scopedWanKey == null
                 ? null
                 : GatewayWanHelper.WanNetworkGroupFromKey(_scopedWanKey).ToLowerInvariant();
             await using var db = await CreateSiteDbAsync(ct);
+
+            // The primary's own group, when a connected compute has recorded which WAN holds the
+            // role. Without it the predicate below falls back to the conventional first group,
+            // which is right on the sites that have one WAN or lead with WAN1 and wrong on a site
+            // whose primary is WAN2 - there it would miss every test stamped "WAN2" and count the
+            // FAILOVER link's tests as the primary's, grading a backup circuit against the fiber
+            // plan. Unstamped rows stay in either way: they predate stamping and ran over the
+            // default route, which is the primary's by definition.
+            var primaryGroupLower = scopedGroupLower != null
+                ? null
+                : (await db.WanProfiles.AsNoTracking()
+                    .FirstOrDefaultAsync(w => w.IsPrimary == true, ct))?.WanNetworkgroup?.ToLowerInvariant();
             var results = await db.Iperf3Results.AsNoTracking()
                 .Where(r => r.Success
                     && r.TestTime >= since
@@ -2171,7 +2182,8 @@ public class IspHealthService
                         || r.Direction == SpeedTestDirection.UwnWan
                         || r.Direction == SpeedTestDirection.UwnWanGateway)
                     && (scopedGroupLower == null
-                        ? (r.WanNetworkGroup == null || r.WanNetworkGroup.ToLower() == "wan")
+                        ? (r.WanNetworkGroup == null
+                            || r.WanNetworkGroup.ToLower() == (primaryGroupLower ?? "wan"))
                         : r.WanNetworkGroup != null && r.WanNetworkGroup.ToLower() == scopedGroupLower))
                 .OrderByDescending(r => r.TestTime)
                 .Select(r => new { r.TestTime, r.DownloadBitsPerSecond, r.UploadBitsPerSecond, r.PingMs, r.DownloadLatencyMs, r.UploadLatencyMs })

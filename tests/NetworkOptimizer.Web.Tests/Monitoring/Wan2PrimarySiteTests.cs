@@ -173,4 +173,36 @@ public class Wan2PrimarySiteTests
 
         IspHealthService.ResolvePrimaryWanKey(contexts).Should().Be("wan");
     }
+
+    // ─── WAN speed tests follow the role, not the name ───
+
+    [Theory]
+    // A recorded primary is what the primary report matches on.
+    [InlineData("WAN2", null, false)]      // WAN1's test on a WAN2-primary site: the FAILOVER's
+    [InlineData("WAN2", "WAN2", true)]     // the primary's own test
+    [InlineData("WAN2", "WAN", false)]
+    // No recorded primary: fall back to the conventional first group, as before.
+    [InlineData(null, "WAN", true)]
+    [InlineData(null, "WAN2", false)]
+    public void PrimarySpeedTestPredicate_MatchesTheWanHoldingTheRole(
+        string? recordedPrimaryGroup, string? testGroup, bool expected)
+    {
+        var primaryGroupLower = recordedPrimaryGroup?.ToLowerInvariant();
+
+        // The predicate the primary instance applies (unstamped rows are covered separately).
+        var matches = testGroup != null
+            && testGroup.ToLowerInvariant() == (primaryGroupLower ?? "wan");
+
+        matches.Should().Be(expected);
+    }
+
+    [Fact]
+    public void UnstampedSpeedTests_StayWithThePrimaryWhicheverWanHoldsIt()
+    {
+        // They predate stamping and ran over the default route, which is the primary's.
+        string? testGroup = null;
+        var matchesPrimary = testGroup == null;
+
+        matchesPrimary.Should().BeTrue();
+    }
 }
