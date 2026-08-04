@@ -533,6 +533,19 @@ h1:focus {
     margin-right: auto;
 }
 
+.monitoring-chart-header.chart-header-stacked .card-title {
+    flex-basis: 100%;
+}
+
+@media (max-width: 768px) {
+    .monitoring-chart-header.chart-header-stacked .wan-selector,
+    .monitoring-chart-header .chart-header-controls {
+        margin-left: 0;
+        flex: 1 1 100%;
+        justify-content: flex-start;
+    }
+}
+
 .wan-selector .wan-filter-reset {
     position: static;
     margin-left: 0.15rem;

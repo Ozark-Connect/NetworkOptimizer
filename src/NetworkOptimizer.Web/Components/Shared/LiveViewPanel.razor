@@ -273,12 +273,10 @@ else
 @code {
 
     /// <summary>
-    /// Whether the live WAN filter has moved off its ground state - the primary alone - which is the
-    /// only time a reset has anything to undo.
+    /// Whether the live WAN filter is holding a comparison - see the note on the Network Performance
+    /// bar: one WAN alone is a choice of view, not a filter to clear.
     /// </summary>
-    private bool LiveWanIsNarrowed =>
-        LiveWan.HasChoice
-        && !(LiveWan.SelectedKeys.Count == 1 && LiveWan.Selected?.IsPrimary == true);
+    private bool LiveWanIsNarrowed => LiveWan.HasChoice && LiveWan.SelectedKeys.Count > 1;
 
     private async Task ResetLiveWanAsync()
     {

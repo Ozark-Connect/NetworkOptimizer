@@ -501,7 +501,7 @@
 
         <!-- Latency time-series charts -->
         <div class="card" id="latency-charts-container" style="margin-top: 1.5rem;">
-            <div class="card-header monitoring-chart-header">
+            <div class="card-header monitoring-chart-header @(_multiWanUiVisible && _wanOptions.Count > 1 ? "chart-header-stacked" : "")">
                 <h2 class="card-title">Latency &amp; Packet Loss</h2>
                 @if (_multiWanUiVisible && _wanOptions.Count > 1)
                 {
@@ -1964,12 +1964,11 @@
     /// panel the leftmost one every time instead of whichever the set happens to yield first.
     /// </summary>
     /// <summary>
-    /// Whether the WAN filter is showing anything other than its ground state, which is the primary
-    /// alone. Only then is there something for a reset to undo.
+    /// Whether the WAN filter is holding a COMPARISON, which is the only state a clear undoes. One
+    /// WAN on its own is not filtered, whichever WAN it is - it is the view the user switched to,
+    /// and offering to clear it would read as offering to undo their choice of WAN.
     /// </summary>
-    private bool WanFilterIsNarrowed =>
-        _multiWanUiVisible
-        && !(_selectedWanKeys.Count == 1 && _selectedWanKeys.Contains(_primaryWanKey));
+    private bool WanFilterIsNarrowed => _multiWanUiVisible && _selectedWanKeys.Count > 1;
 
     private async Task ResetWanFilterAsync()
     {
@@ -1979,12 +1978,10 @@
 
 
     /// <summary>
-    /// Whether the live WAN filter has moved off its ground state - the primary alone - which is the
-    /// only time a reset has anything to undo.
+    /// Whether the live WAN filter is holding a comparison - see the note on the Network Performance
+    /// bar: one WAN alone is a choice of view, not a filter to clear.
     /// </summary>
-    private bool LiveWanIsNarrowed =>
-        LiveWan.HasChoice
-        && !(LiveWan.SelectedKeys.Count == 1 && LiveWan.Selected?.IsPrimary == true);
+    private bool LiveWanIsNarrowed => LiveWan.HasChoice && LiveWan.SelectedKeys.Count > 1;
 
     private async Task ResetLiveWanAsync()
     {
