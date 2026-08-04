@@ -481,11 +481,17 @@ function buildTimeTicks(minMs, maxMs) {
     return ticks;
 }
 
+// The RTT axis ceiling. Headroom over the p95 keeps an ordinary chart from filling its pane
+// edge to edge, but the p95 alone CLIPPED the thing most worth seeing: a spike is by definition
+// above the 95th percentile, so the scale was set from the calm band and the peak was drawn off
+// the top of the axis. Taking whichever is greater keeps the roomy scale when nothing is
+// happening and lets the axis grow when something is.
 function rttYMax() {
     const rtts = buffer.map(p => p.rtt).filter(v => v != null && v > 0).sort((a, b) => a - b);
     if (rtts.length === 0) return 10;
-    const p95 = rtts[Math.floor(rtts.length * 0.95)];
-    return Math.ceil((p95 * 1.5) / 10) * 10;
+    const p95 = rtts[Math.min(rtts.length - 1, Math.floor(rtts.length * 0.95))];
+    const peak = rtts[rtts.length - 1];
+    return Math.ceil(Math.max(p95 * 1.5, peak * 1.1) / 10) * 10;
 }
 
 function buildSeriesData() {
