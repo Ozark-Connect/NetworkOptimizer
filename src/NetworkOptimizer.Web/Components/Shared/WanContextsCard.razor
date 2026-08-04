@@ -84,6 +84,12 @@
                                           data-tooltip="This site is probed by its agent, so assign one to this WAN.">&#9888;</span>
                                 }
                                 @if (ProbeSourceOf(wc) is string source) { <code>@source</code> }
+                                else if (BindsNothing(wc))
+                                {
+                                    <span class="wc-orphan-warn"
+                                          data-tooltip="Nothing is bound, so probes leave by the default route - not this WAN. Edit to set the interface.">&#9888;</span>
+                                    <span class="text-muted">default route</span>
+                                }
                                 else { <span class="text-muted">default route</span> }
                             </td>
                             <td>
@@ -426,6 +432,18 @@
     private bool IsOrphaned(WanContext context) => context.AgentId == null && !ServerProbesThisSite;
 
     /// <summary>
+    /// A vantage whose agent CAN bind but which has nothing to bind to, so its probes leave by the
+    /// agent's default route and are filed under this WAN regardless. Reachable without anything
+    /// going wrong: save the vantage while the agent is too old to offer a binding, then update the
+    /// agent - the capability arrives, the empty configuration does not change, and nothing says so.
+    /// </summary>
+    private bool BindsNothing(WanContext context) =>
+        context.AgentId is int id
+        && (_bindCapableAgents.Contains(id) || _sourceBindAgents.Contains(id))
+        && string.IsNullOrEmpty(context.InterfaceName)
+        && string.IsNullOrEmpty(context.ProbeSourceIp);
+
+    /// <summary>
     /// Whether the selected agent reports a version older than the release currently expected of
     /// agents. Separate from what it can BIND - an agent can be current and still not bind on a
     /// platform that cannot - so this says only what it is: out of date, and worth updating before
@@ -457,6 +475,7 @@
         await LoadAgentsAsync();
         await LoadWansAsync();
         LoadConnectedAgents();
+        await LoadBindCapableAgentsAsync();
     }
 
     private void LoadConnectedAgents()
@@ -519,6 +538,10 @@
         _newWanInterface = context.WanInterface ?? "";
         _newInterfaceName = context.InterfaceName ?? "";
         await LoadPickerDataAsync();
+        // A vantage saved before its agent could bind has no interface, and the agent gaining the
+        // capability does not give it one - it would go on probing the default route forever. Offer
+        // the WAN's own interface; saving is still the user's move.
+        if (string.IsNullOrEmpty(_newInterfaceName)) FillInterfaceFromWan();
         _showForm = true;
     }
 
