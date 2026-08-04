@@ -822,6 +822,14 @@ export function restoreState() {
 export function setWanScope(scope) {
     wanScope = scope && Array.isArray(scope.selected) && scope.selected.length > 0 ? scope : null;
     visibility = {};
+    // LAN targets belong to the site, not to a WAN, so a secondary WAN has none - staying on the
+    // LAN category there draws an empty chart. Only ever leave a category that has nothing to show;
+    // coming back to a WAN that does have LAN targets leaves the choice alone, because by then it
+    // may be the one the user made.
+    if (wanScope && wanScope.hasLan === false && currentCategory === 'Fabric') {
+        setCategory('AccessIsp');
+        return;
+    }
     loadAndUpdate();
 }
 

@@ -503,7 +503,7 @@
                     @* Default the category filter to ISP when there are no enabled LAN (Fabric)
                        targets, so a monitoring-only/agent site opens on a populated chart. mount()
                        in latency-charts.js seeds currentCategory from whichever button is active. *@
-                    @{ var hasLanTargets = HasUpstreamTargets(MonitoringTargetType.Fabric); }
+                    @{ var hasLanTargets = HasTargetsInWanScope(MonitoringTargetType.Fabric); }
                     @if (_multiWanUiVisible && _wanOptions.Count > 1)
                     {
                         <div class="time-range-selector wan-selector @(_wanOptions.Count > 3 ? "wan-selector-many" : "")"
@@ -618,7 +618,8 @@
 
         <!-- Upstream tracer wizard -->
         <div id="upstream-discovery" style="margin-top: 1.5rem;">
-            <UpstreamTracerPanel ForceExpand="_forceExpandUpstream" SelectWanKey="@_discoveryWanKey" OnSaved="StateHasChanged" />
+            <UpstreamTracerPanel ForceExpand="_forceExpandUpstream" SelectWanKey="@_discoveryWanKey"
+                                 OnWanSelected="OnDiscoveryWanSelectedAsync" OnSaved="StateHasChanged" />
         </div>
 
         <div id="flaky-targets" style="margin-top: 1.5rem;">
@@ -626,7 +627,9 @@
         </div>
 
         <div id="latency-targets" style="margin-top: 1.5rem;">
-            <LatencyTargetsCard @ref="_latencyTargetsCard" Targets="_targets" WanContexts="_wanContexts" PrimaryWanLabel="@PrimaryWanProseLabel()" OnTargetsChanged="OnTargetsChanged" />
+            <LatencyTargetsCard @ref="_latencyTargetsCard" Targets="_targets" WanContexts="_wanContexts" PrimaryWanLabel="@PrimaryWanProseLabel()"
+                                 SelectedWanKeys="_selectedWanKeys" OnWanSelected="OnTargetsWanSelectedAsync"
+                                 OnTargetsChanged="OnTargetsChanged" />
         </div>
 
         @if (_multiWanUiVisible)
@@ -1943,7 +1946,44 @@
             await JS.InvokeVoidAsync("eval", $"window.__latencyCharts?.setWanScope({WanScopeJson()});");
         }
         catch { /* circuit going away, or charts not mounted yet - the mount push covers it */ }
+        _discoveryWanKey = FirstSelectedWanKey();
         StateHasChanged();
+    }
+
+    /// <summary>
+    /// The selection as a SINGLE WAN, for the panels that only ever show one. Taken in the pill
+    /// bar's own order rather than the selection set's, so comparing two WANs hands the downstream
+    /// panel the leftmost one every time instead of whichever the set happens to yield first.
+    /// </summary>
+    private string? FirstSelectedWanKey() =>
+        !_multiWanUiVisible ? null
+        : _wanOptions.FirstOrDefault(w => _selectedWanKeys.Contains(w.Key))?.Key;
+
+    /// <summary>
+    /// Discovery picked its own WAN. It writes back so the tab stays in lockstep, but a selection
+    /// that is ALREADY on screen is left exactly as it is: collapsing a two-WAN comparison down to
+    /// the one WAN the user just pointed discovery at would throw away a view they built, to tell
+    /// them something they can already see.
+    /// </summary>
+    /// <summary>
+    /// Latency Targets picked a WAN, or All. All means every WAN at once, which the pill bar already
+    /// expresses as the whole set selected - so it stays one selection shared by the tab rather than
+    /// a second mode only this card knows about.
+    /// </summary>
+    private async Task OnTargetsWanSelectedAsync(string key)
+    {
+        _selectedWanKeys = key == LatencyTargetsCard.AllWansKey
+            ? new HashSet<string>(_wanOptions.Select(w => w.Key), StringComparer.OrdinalIgnoreCase)
+            : new HashSet<string>(StringComparer.OrdinalIgnoreCase) { key };
+        await ApplyWanSelectionAsync(persist: true);
+    }
+
+    private async Task OnDiscoveryWanSelectedAsync(string key)
+    {
+        _discoveryWanKey = key;
+        if (_selectedWanKeys.Contains(key)) { StateHasChanged(); return; }
+        _selectedWanKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { key };
+        await ApplyWanSelectionAsync(persist: true);
     }
 
     /// <summary>
@@ -1961,6 +2001,9 @@
                 primaryKey = _primaryWanKey,
                 selected = _selectedWanKeys.ToArray(),
                 labels = _wanOptions.ToDictionary(w => w.Key.ToLowerInvariant(), w => w.Label),
+                // So the chart can leave the LAN category when the WANs now on screen have no LAN
+                // targets. Only the chart knows which category it is currently showing.
+                hasLan = HasTargetsInWanScope(MonitoringTargetType.Fabric),
             };
         return System.Text.Json.JsonSerializer.Serialize(scope);
     }
@@ -3798,6 +3841,24 @@
 
     private bool HasUpstreamTargets(MonitoringTargetType type) =>
         _targets.Any(t => t.TargetType == type && t.Enabled);
+
+    /// <summary>
+    /// Whether the WANs currently on screen have any target of this type, for deciding which
+    /// category the chart opens on. Site-wide is the wrong question there: LAN targets belong to
+    /// the site rather than to a WAN, so a secondary WAN has none of them, and asking site-wide
+    /// opens that WAN on the LAN category and draws an empty chart.
+    /// <para>
+    /// Falls back to the site-wide answer when no WAN is resolved - a single-WAN site, or one whose
+    /// console could not be read - so the selection those sites have always had is unchanged.
+    /// </para>
+    /// </summary>
+    private bool HasTargetsInWanScope(MonitoringTargetType type)
+    {
+        var scoped = _wanOptions.Where(w => _selectedWanKeys.Contains(w.Key)).ToList();
+        return scoped.Count == 0
+            ? HasUpstreamTargets(type)
+            : scoped.Any(w => TargetsForWan(type, w.Key, w.IsPrimary).Count > 0);
+    }
 
     /// <summary>
     /// Live throughput for the WANs on screen. One WAN reads its own counter; several are summed,

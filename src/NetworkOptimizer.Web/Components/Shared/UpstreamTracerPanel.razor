@@ -25,7 +25,7 @@
                 @foreach (var w in _wanChoices)
                 {
                     <button class="time-btn @(string.Equals(w.Key, _selectedTracerWanKey, StringComparison.OrdinalIgnoreCase) ? "active" : "")"
-                            @onclick="() => SelectTracerWanAsync(w.Key)" @onclick:stopPropagation
+                            @onclick="() => PickTracerWanAsync(w.Key)" @onclick:stopPropagation
                             data-tooltip="@(w.IsPrimary && _needsReview ? "Discovery review pending" : null)" data-tooltip-hover-only>
                         @{
                             var wp = NetworkOptimizer.UniFi.GatewayWanHelper.SplitWanLabel(
@@ -637,6 +637,9 @@
     /// </summary>
     [Parameter] public string? SelectWanKey { get; set; }
 
+    /// <summary>Raised when the user picks a WAN here, so the tab's other filters can follow.</summary>
+    [Parameter] public EventCallback<string> OnWanSelected { get; set; }
+
     private string? _appliedSelectWanKey;
     [Parameter] public EventCallback OnSaved { get; set; }
 
@@ -750,6 +753,18 @@
         }
         _wanChoices = choices.Count > 1 ? choices : new List<TracerWanChoice>();
         _selectedTracerWanKey = primaryKey;
+    }
+
+    /// <summary>
+    /// A pill click here: select it, then tell the tab so its other filters follow. Separate from
+    /// <see cref="SelectTracerWanAsync"/>, which is also how an inbound selection is applied - going
+    /// through this one there would echo it straight back out.
+    /// </summary>
+    private async Task PickTracerWanAsync(string key)
+    {
+        await SelectTracerWanAsync(key);
+        _appliedSelectWanKey = key;
+        if (OnWanSelected.HasDelegate) await OnWanSelected.InvokeAsync(key);
     }
 
     private async Task SelectTracerWanAsync(string key)

@@ -5,10 +5,29 @@
 @inject NetworkOptimizer.Web.Services.Monitoring.ProbeExecutorFactory ExecutorFactory
 @inject NetworkOptimizer.Web.Services.IMonitoringTargetService TargetService
 @inject Microsoft.JSInterop.IJSRuntime JS
+@inject NetworkOptimizer.Web.Services.Monitoring.MonitoringPathView PathView
 
 <div class="card">
     <div class="card-header card-header-collapsible" @onclick="ToggleCollapse">
         <h2 class="card-title">Latency Targets</h2>
+        @if (_wanChoices.Count > 1)
+        {
+            <div class="time-range-selector wan-selector @(_wanChoices.Count > 3 ? "wan-selector-many" : "")" @onclick:stopPropagation>
+                @foreach (var w in _wanChoices)
+                {
+                    <button class="time-btn @(!AllSelected && SelectedWanKeys.Contains(w.Key) ? "active" : "")"
+                            @onclick="() => PickWanAsync(w.Key)" @onclick:stopPropagation>
+                        @{
+                            var wp = NetworkOptimizer.UniFi.GatewayWanHelper.SplitWanLabel(
+                                w.Label, NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey(w.Key));
+                        }@(wp.Name ?? w.Label)@if (wp.WanToken != null && wp.Name != null)
+                        {<span class="wan-pill-token">@wp.WanToken</span>}
+                    </button>
+                }
+                <button class="time-btn @(AllSelected ? "active" : "")"
+                        @onclick="() => PickWanAsync(AllWansKey)" @onclick:stopPropagation>All</button>
+            </div>
+        }
         <div style="display: flex; align-items: center; gap: 0.5rem;">
             <span class="status-badge status-active" @onclick:stopPropagation="true">@Targets.Count(t => t.Enabled) active</span>
             <span class="issue-type-chevron">@(_collapsed ? "▼" : "▲")</span>
@@ -59,7 +78,7 @@
                     </tr>
                 </thead>
                 <tbody>
-                    @foreach (var t in Targets.OrderBy(t => t.TargetType).ThenBy(t => t.Name))
+                    @foreach (var t in VisibleTargets())
                     {
                         var latest = LiveStats.GetTargetStats(t.TargetId);
                         <tr id="latency-target-@t.Id" class="@(t.Enabled ? "" : "latency-target-paused")">
@@ -367,6 +386,89 @@
     [Parameter]
     public string PrimaryWanLabel { get; set; } = "Primary";
 
+    /// <summary>The tab's WAN selection, so this list shows the same WANs the charts above do.</summary>
+    [Parameter]
+    public IReadOnlyCollection<string> SelectedWanKeys { get; set; } = Array.Empty<string>();
+
+    /// <summary>
+    /// Raised with the key the user picked, or <see cref="AllWansKey"/> for All, so the tab can move
+    /// its own filters with this one.
+    /// </summary>
+    [Parameter]
+    public EventCallback<string> OnWanSelected { get; set; }
+
+    /// <summary>Sentinel for the All pill, which is not a WAN and can never collide with a key.</summary>
+    public const string AllWansKey = "*";
+
+    private sealed record WanChoice(string Key, string Label, bool IsPrimary);
+    private List<WanChoice> _wanChoices = new();
+
+    /// <summary>
+    /// All is every WAN at once rather than a mode of its own, so it lives in the same selection the
+    /// rest of the tab reads and needs nothing else to remember it.
+    /// </summary>
+    private bool AllSelected =>
+        _wanChoices.Count > 1 && _wanChoices.All(w => SelectedWanKeys.Contains(w.Key));
+
+    private async Task PickWanAsync(string key)
+    {
+        if (OnWanSelected.HasDelegate) await OnWanSelected.InvokeAsync(key);
+    }
+
+    /// <summary>
+    /// The rows for the WANs on screen. A target with no WAN of its own belongs to the primary, the
+    /// same rule every other per-WAN reader uses.
+    /// </summary>
+    private IEnumerable<MonitoringTarget> VisibleTargets()
+    {
+        var ordered = Targets.OrderBy(t => t.TargetType).ThenBy(t => t.Name);
+        if (_wanChoices.Count <= 1 || AllSelected || SelectedWanKeys.Count == 0) return ordered;
+        var primaryKey = _wanChoices.FirstOrDefault(w => w.IsPrimary)?.Key;
+        return ordered.Where(t => string.IsNullOrEmpty(t.WanInterface)
+            ? primaryKey != null && SelectedWanKeys.Contains(primaryKey)
+            : SelectedWanKeys.Any(k => string.Equals(
+                NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(k),
+                NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(t.WanInterface!),
+                StringComparison.OrdinalIgnoreCase)));
+    }
+
+    /// <summary>
+    /// The primary plus every context-bound WAN - the same set Upstream Path Discovery offers, since
+    /// those are the only WANs a target can be filed under.
+    /// </summary>
+    private async Task LoadWanChoicesAsync()
+    {
+        var choices = new List<WanChoice>();
+        var liveWans = new List<NetworkOptimizer.Web.Services.Monitoring.WanSummary>();
+        try { liveWans = (await PathView.GetWansAsync()).ToList(); }
+        catch { }
+
+        var primaryKey = NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(
+            liveWans.FirstOrDefault(w => w.IsPrimary)?.WanInterface
+            ?? liveWans.FirstOrDefault()?.WanInterface
+            ?? NetworkOptimizer.UniFi.GatewayWanHelper.DefaultWanKey);
+        choices.Add(new WanChoice(primaryKey, WanLabelFor(liveWans, primaryKey, null), IsPrimary: true));
+
+        foreach (var ctx in WanContexts.Where(c => !string.IsNullOrEmpty(c.WanInterface)))
+        {
+            var key = NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(ctx.WanInterface!);
+            if (choices.Any(c => string.Equals(c.Key, key, StringComparison.OrdinalIgnoreCase))) continue;
+            choices.Add(new WanChoice(key, WanLabelFor(liveWans, key, ctx.Name), IsPrimary: false));
+        }
+        _wanChoices = choices.Count > 1 ? choices : new List<WanChoice>();
+    }
+
+    private static string WanLabelFor(
+        List<NetworkOptimizer.Web.Services.Monitoring.WanSummary> liveWans, string key, string? fallbackName)
+    {
+        var live = liveWans.FirstOrDefault(w => string.Equals(
+            NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(w.WanInterface), key,
+            StringComparison.OrdinalIgnoreCase));
+        return NetworkOptimizer.UniFi.GatewayWanHelper.FormatWanLabel(
+            live?.FriendlyName ?? fallbackName,
+            NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey(key), null, null);
+    }
+
     [Parameter]
     public EventCallback OnTargetsChanged { get; set; }
 
@@ -477,6 +579,8 @@
         _revealAddForm = true;
         _ringAddForm = true;
     }
+
+    protected override async Task OnParametersSetAsync() => await LoadWanChoicesAsync();
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
