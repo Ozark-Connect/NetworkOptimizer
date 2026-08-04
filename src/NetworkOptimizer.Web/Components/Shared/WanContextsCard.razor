@@ -127,7 +127,10 @@
                         </select>
                     </div>
                     <div class="form-group">
-                        <label class="form-label">Assigned agent</label>
+                        <label class="form-label">
+                            Assigned agent
+                            <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Agents enroll under <a href='/settings?tab=multisite#multi-site'>Settings - Multi-Site</a>; the ones connected to this site appear here.">?</span>
+                        </label>
                         <select class="form-control" value="@_newAgentId" @onchange="OnAgentSelected">
                             <option value="">None (probe locally)</option>
                             @foreach (var agent in _agents)
@@ -515,14 +518,18 @@
         return agent?.Name ?? $"agent {agentId}";
     }
 
-    /// <summary>WAN option label in UniFi's own convention: friendly name plus WAN group ("My ISP WAN2").</summary>
-    private static string WanOptionLabel(WanSummary wan)
-        => GatewayWanHelper.FormatWanLabel(wan.FriendlyName, GatewayWanHelper.WanIndexFromKey(wan.WanInterface), null, null);
-
     /// <summary>
-    /// Label for a stored WAN key, preferring the live WAN's friendly name and falling back to the
-    /// group alone so a context whose WAN is down (or predates the column) still reads sensibly.
+    /// WAN label with the group set apart from the name ("My ISP (WAN2)") rather than run together
+    /// as the pill form does. Everything in this card is plain text in a list or a cell, where the
+    /// qualifier reads as part of the name unless it is bracketed off.
     /// </summary>
+    private static string WanOptionLabel(WanSummary wan)
+        => WanProseLabel(wan.FriendlyName, GatewayWanHelper.WanIndexFromKey(wan.WanInterface));
+
+    private static string WanProseLabel(string? friendlyName, int wanIndex)
+        => GatewayWanHelper.FormatWanLabelInProse(
+            GatewayWanHelper.FormatWanLabel(friendlyName, wanIndex, null, null), wanIndex);
+
     /// <summary>
     /// The name to use when the user leaves the field empty: the WAN itself, in the parenthetical
     /// form used everywhere else ("Acme Fiber (WAN2)"), or the bare token for a WAN with no name of
@@ -537,8 +544,7 @@
     private string SuggestedName()
     {
         if (string.IsNullOrWhiteSpace(_newWanInterface)) return "";
-        return GatewayWanHelper.FormatWanLabelInProse(
-            WanLabelFor(_newWanInterface), GatewayWanHelper.WanIndexFromKey(_newWanInterface));
+        return WanLabelFor(_newWanInterface);
     }
 
     private string NamePlaceholder()
@@ -547,6 +553,10 @@
         return string.IsNullOrEmpty(suggested) ? "backup-wan" : suggested;
     }
 
+    /// <summary>
+    /// Label for a stored WAN key, preferring the live WAN's friendly name and falling back to the
+    /// group alone so a vantage whose WAN is down (or predates the column) still reads sensibly.
+    /// </summary>
     private string WanLabelFor(string? wanInterface)
     {
         if (string.IsNullOrEmpty(wanInterface)) return "-";
@@ -554,7 +564,7 @@
             string.Equals(w.WanInterface, wanInterface, StringComparison.OrdinalIgnoreCase));
         return wan != null
             ? WanOptionLabel(wan)
-            : GatewayWanHelper.FormatWanLabel(null, GatewayWanHelper.WanIndexFromKey(wanInterface), null, null);
+            : WanProseLabel(null, GatewayWanHelper.WanIndexFromKey(wanInterface));
     }
 
     /// <summary>

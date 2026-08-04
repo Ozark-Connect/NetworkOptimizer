@@ -3379,6 +3379,13 @@
 
             @if (!_multiSiteEnabled)
             {
+                @* Outside AdminOnly: someone who cannot flip this still needs to know what to ask
+                   for. A single-site install has no reason to read a multi-site switch as theirs,
+                   and agent enrollment - including the main site's own agent - lives behind it. *@
+                <p class="section-description">
+                    Multi-WAN monitoring needs this on as well: the agent that probes a second WAN
+                    enrolls through here, including on the main site.
+                </p>
                 <AdminOnly>
                     <div class="form-group">
                         <label class="checkbox-label">
@@ -3592,7 +3599,7 @@
                                                                     </button>
                                                                 }
                                                                 <button type="button" class="btn btn-secondary btn-sm" @onclick="() => CreateAgent(site)" disabled="@_creatingAgent">
-                                                                    New Agent Token
+                                                                    Add Agent / New Token
                                                                 </button>
                                                             </div>
                                                         }
@@ -3613,7 +3620,7 @@
                                                                 else
                                                                 {
                                                                     <button type="button" class="btn btn-secondary btn-sm" @onclick="() => CreateAgent(site)" disabled="@_creatingAgent">
-                                                                        New Agent Token
+                                                                        Add Agent / New Token
                                                                     </button>
                                                                 }
                                                             </div>
