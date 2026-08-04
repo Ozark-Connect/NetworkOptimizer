@@ -571,9 +571,31 @@ else
     {
         if (_gatewayMac == null) return (null, null);
 
-        double? down = null, up = null;
-        foreach (var wan in LiveWan.SelectedOptions)
+        // No WAN options is the ordinary state, not an empty selection: they come from the
+        // console's WAN list, which a site without a reachable console never produces - and every
+        // such site was reading its rate from the discovered interface names long before there
+        // was a WAN picker. Falling through to the per-option loop returned nothing at all and
+        // blanked the tiles on exactly those sites.
+        var selected = LiveWan.SelectedOptions;
+        if (selected.Count == 0)
         {
+            if (_gatewayWanIfNames.Count == 0) return (null, null);
+            double? legacyDown = null, legacyUp = null;
+            foreach (var ifName in _gatewayWanIfNames)
+            {
+                var r = LiveStats.GetPortRate(_gatewayMac, ifName);
+                if (r == null) continue;
+                legacyDown = (legacyDown ?? 0) + r.UpBps;
+                legacyUp = (legacyUp ?? 0) + r.DownBps;
+            }
+            return (legacyDown, legacyUp);
+        }
+
+        double? down = null, up = null;
+        foreach (var wan in selected)
+        {
+            // A WAN the console names but has no counter for falls back to the discovered
+            // interface, which is the same name the tiles used before any of this existed.
             var ifName = wan.IsPrimary && string.IsNullOrEmpty(wan.CounterIfName)
                 ? _gatewayWanIfNames.FirstOrDefault()
                 : wan.CounterIfName;

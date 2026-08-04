@@ -127,7 +127,14 @@
 }
 else if (_report == null)
 {
-    @if (Svc.Status == IspHealthStatus.NeedsDiscovery)
+    @if (Svc.Status == IspHealthStatus.Computing)
+    {
+        <div class="isp-health-loading card">
+            <div class="isp-health-loading-spinner"></div>
+            <p class="isp-health-loading-text">Analyzing recent ISP and transit data...</p>
+        </div>
+    }
+    else if (Svc.Status == IspHealthStatus.NeedsDiscovery)
     {
         <div class="alert alert-info" style="margin-bottom: 1rem;">
             <div class="banner-content">
@@ -1079,6 +1086,30 @@ else
     }
 
     /// <summary>Loads the selected WAN's report, leaving it null on a transient query failure.</summary>
+    /// <summary>
+    /// Waits out the first compute for a WAN the user just switched to, then shows it. Bounded and
+    /// abandoned if the selection moves on - a compute that outlives the user's interest in it
+    /// should not redraw the panel underneath whatever they are looking at now.
+    /// </summary>
+    private async Task PollForFirstReportAsync(string forWanKey)
+    {
+        for (var attempt = 0; attempt < 20; attempt++)
+        {
+            await Task.Delay(TimeSpan.FromSeconds(3));
+            if (!string.Equals(_selectedWanKey, forWanKey, StringComparison.OrdinalIgnoreCase)) return;
+            try
+            {
+                var report = await Svc.GetReportAsync();
+                if (report == null) continue;
+                if (!string.Equals(_selectedWanKey, forWanKey, StringComparison.OrdinalIgnoreCase)) return;
+                _report = report;
+                await InvokeAsync(StateHasChanged);
+                return;
+            }
+            catch { return; }
+        }
+    }
+
     private async Task LoadReportAsync()
     {
         try
@@ -1102,6 +1133,11 @@ else
         if (choice == null) return;
         _selectedWanKey = choice.Key;
         _wanSvc = choice.IsPrimary ? null : IspHealthRegistry.GetFor(SiteContext.Slug, choice.Key);
+        // Held across the fetch: the moment Svc points at the new WAN, every status funnel below
+        // is answering for a WAN whose report has not been read yet, and the catch-all among them
+        // says the site's monitoring is broken.
+        _loading = true;
+        StateHasChanged();
         if (persist)
         {
             try { await JS.InvokeVoidAsync("localStorage.setItem", SharedWanScopeKey, choice.IsPrimary ? "" : choice.Key); }
@@ -1114,6 +1150,12 @@ else
                 : await Svc.GetReportAsync();
         }
         catch { _report = null; }
+        _loading = false;
+        // A WAN that has never been scored comes back null with a compute now running behind it.
+        // Waiting for the 30 s age tick to notice leaves the user on a spinner-less funnel for
+        // most of a minute, so poll briefly for the result the switch just asked for.
+        if (_report == null && Svc.Status == IspHealthStatus.Computing)
+            _ = PollForFirstReportAsync(choice.Key);
         var wanArg = choice.IsPrimary ? "null" : "'" + choice.Key + "'";
         try { await JS.InvokeVoidAsync("eval", "window.__ispHealthCharts?.setWan?.(" + wanArg + ");"); }
         catch { }
