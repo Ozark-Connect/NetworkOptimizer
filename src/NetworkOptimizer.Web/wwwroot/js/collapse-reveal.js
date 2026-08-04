@@ -64,6 +64,12 @@
     document.addEventListener('click', function (e) {
         var header = e.target.closest && e.target.closest('.card-header-collapsible');
         if (!header) return;
+        // A control living in the header - a filter pill, a link, a badge - does its own thing and
+        // expands nothing, so there is no newly revealed content to follow. Checked here because
+        // this listener runs in the CAPTURE phase: a component calling stopPropagation on its own
+        // handler cannot reach us, so opting out has to be decided from the target.
+        var control = e.target.closest('button, a, select, input, label');
+        if (control && header.contains(control)) return;
         // Blazor re-renders before the transition starts, so begin on the next frame and run for a
         // little longer than the 0.25s expand to catch the final pixels.
         var until = performance.now() + FOLLOW_MS;
