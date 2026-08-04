@@ -9461,7 +9461,7 @@ a.path-hop.hop-clickable:hover {
 
 .stat-value-stacked {
     display: grid;
-    grid-template-columns: 2.6rem 4.6rem;
+    grid-template-columns: 2.6rem 5.2rem;
     justify-content: center;
     align-items: baseline;
     column-gap: 0.35rem;
@@ -9483,6 +9483,7 @@ a.path-hop.hop-clickable:hover {
 
 .stat-stack-value {
     text-align: left;
+    font-size: 1rem;
 }
 
 .wan-pill-token {
