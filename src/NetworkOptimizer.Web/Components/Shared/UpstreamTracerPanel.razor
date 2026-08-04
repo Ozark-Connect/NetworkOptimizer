@@ -528,24 +528,13 @@
                 // AT THE END: land on the TOP, not wherever the follow had got to. Following the
                 // edge is right while sections are still arriving; at the end it parks you past all
                 // the detail you came for, so the last move is to the start of the card.
-                if (goTop) return Math.abs(drift) > 2 ? drift : 0;
-
-                // WHILE RUNNING: show the newest work. If the card still fits the pane, holding its
-                // top does that already; once it is taller, follow the bottom edge so each section
-                // appears as it lands.
-                //
-                // No spacer either way. Adding one below this card pushed the Latency targets panel
-                // off screen, and adding it to the pane wrote to layout every page shares; the
-                // write is simply allowed to clamp when there is nowhere further to go.
-                if (r.height <= sc.clientHeight) return Math.abs(drift) > 2 ? drift : 0;
-                var paneBottom = isDoc ? window.innerHeight : sc.getBoundingClientRect().bottom;
-                // Both directions. A section that measures tall while it is building and settles
-                // shorter a frame later leaves the view parked past the end of the card, and a
-                // downward-only follow has no way back - it reads as scrolling below the results and
-                // staying there until the run ends. Correcting upward too means an overshoot is
-                // undone as soon as the layout settles, which is the frame after it happens.
-                var below = r.bottom - paneBottom;
-                return Math.abs(below) > 2 ? below : 0;
+                // The card's top, held at the top of the pane, for the whole run. Following the
+                // bottom edge instead - which this used to do once the card outgrew the pane - ends
+                // the run parked at the end of a long review the user has not read yet, and the
+                // final step is the largest render of all, so it read as being thrown to the
+                // bottom. The header carries the state and the controls, so keeping it in place
+                // leaves the user somewhere they can act from. Manual scrolling releases the pin.
+                return Math.abs(drift) > 2 ? drift : 0;
             };
 
             var raf = 0;
