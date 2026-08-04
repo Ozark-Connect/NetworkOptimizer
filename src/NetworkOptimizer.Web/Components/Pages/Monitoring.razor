@@ -301,12 +301,10 @@
                 <div class="stat-value" style="color: #10b981;">@FormatRate(wanRates.upload)</div>
                 <div class="stat-label">WAN Upload</div>
             </div>
-            @{ var ispHealth = IspHealthService.GetCachedScore(); }
+            @{ var ispHealth = CurrentIspHealth(); }
             <div class="monitoring-stat-card clickable-stat-card isp-health-tile @ispHealth.TileCssClass" data-tooltip="@ispHealth.TileTooltip" data-tooltip-hover-only @onclick="@(() => NavigateFromIspHealthTile(ispHealth.Status))">
                 <div class="stat-value isp-tile-score">@ispHealth.TileText</div>
-                @* The cached score is the primary WAN's. Say so when the tiles beside it are
-                   showing a different WAN, rather than letting the two read as one WAN's row. *@
-                <div class="stat-label">@(LiveWan.Selected is { IsPrimary: false } ? "ISP Health (primary WAN)" : "ISP Health")</div>
+                <div class="stat-label">ISP Health</div>
                 @if (ispHealth.Status == IspHealthStatus.Ready && ispHealth.Score.HasValue)
                 {
                     <div class="isp-tile-bar"><div class="isp-tile-bar-fill" style="width: @(ispHealth.Score)%"></div></div>
@@ -2957,6 +2955,21 @@
     /// Re-render the tiles and point the live chart at the newly selected WAN. The scope service
     /// holds the selection but cannot re-render or reach interop itself.
     /// </summary>
+
+    /// <summary>
+    /// The ISP Health score for the WAN the live tiles are showing. Each WAN grades itself, so the
+    /// tile follows the selection rather than captioning the primary's number as someone else's.
+    /// A WAN whose report has never been computed comes back as Computing and populates itself -
+    /// GetCachedScore kicks the compute off - so the tile settles on its own without a fallback to
+    /// another WAN's score, which is the one thing it must never show.
+    /// </summary>
+    private IspHealthSnapshot CurrentIspHealth()
+    {
+        var wan = LiveWan.Selected;
+        if (wan is null || wan.IsPrimary) return IspHealthService.GetCachedScore();
+        return IspHealthRegistry.GetFor(SiteCtx.Slug, wan.Key).GetCachedScore();
+    }
+
     private async Task OnLiveWanChangedAsync()
     {
         await InvokeAsync(StateHasChanged);
