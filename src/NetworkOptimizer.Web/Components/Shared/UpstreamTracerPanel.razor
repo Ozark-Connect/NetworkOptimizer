@@ -773,6 +773,9 @@
     {
         var choice = _wanChoices.FirstOrDefault(c => string.Equals(c.Key, key, StringComparison.OrdinalIgnoreCase));
         if (choice == null || string.Equals(key, _selectedTracerWanKey, StringComparison.OrdinalIgnoreCase)) return;
+        // The save notice belongs to the WAN it was saved for; carrying it onto another one says
+        // something happened here that did not.
+        _justSaved = false;
         _selectedTracerWanKey = choice.Key;
         if (choice.IsPrimary)
         {
