@@ -281,7 +281,7 @@
             {
                 @* Live WAN scope, own per-site key (liveWanScope) so watching a WAN here never
                    moves the analysis selectors. Hidden on single-WAN sites. *@
-                <div class="time-range-selector" style="margin-bottom: 0.5rem;">
+                <div class="time-range-selector wan-selector @(LiveWan.Options.Count > 3 ? "wan-selector-many" : "")" style="margin-bottom: 0.5rem;">
                     @foreach (var w in LiveWan.Options)
                     {
                         <button class="time-btn @(string.Equals(w.Key, LiveWan.SelectedKey, StringComparison.OrdinalIgnoreCase) ? "active" : "")"
@@ -471,7 +471,7 @@
                         @* WAN filter: solo on click, Ctrl-click toggles into a comparison set.
                            Rendered only under the multi-WAN gate - single-WAN sites see exactly
                            the header they always have. *@
-                        <div class="time-range-selector">
+                        <div class="time-range-selector wan-selector @(_wanOptions.Count > 3 ? "wan-selector-many" : "")">
                             @foreach (var w in _wanOptions)
                             {
                                 <button class="time-btn @(_selectedWanKeys.Contains(w.Key) ? "active" : "")"
@@ -2279,6 +2279,7 @@
 
     protected override async Task OnInitializedAsync()
     {
+        LiveWan.OnChanged = OnLiveWanChangedAsync;
         _canConfigure = AuthState is null
             || (await Authz.AuthorizeAsync((await AuthState).User, SiteCtx.Slug, Policies.SiteAdmin)).Succeeded;
 
@@ -2940,6 +2941,27 @@
         _wanCountChecked = true;
         try { _multiWanUiVisible = (await PathView.GetWansAsync()).Count > 1; }
         catch { _multiWanUiVisible = false; }
+    }
+
+    /// <summary>
+    /// The selected live WAN as a JS literal for the chart: null for the primary, which is the
+    /// request the chart made before it could be pointed anywhere.
+    /// </summary>
+    private string LiveWanJsLiteral()
+    {
+        var wan = LiveWan.Selected is { IsPrimary: false } w ? w.Key : null;
+        return wan == null ? "null" : System.Text.Json.JsonSerializer.Serialize(wan);
+    }
+
+    /// <summary>
+    /// Re-render the tiles and point the live chart at the newly selected WAN. The scope service
+    /// holds the selection but cannot re-render or reach interop itself.
+    /// </summary>
+    private async Task OnLiveWanChangedAsync()
+    {
+        await InvokeAsync(StateHasChanged);
+        try { await JS.InvokeVoidAsync("eval", $"window.__wanLiveChart?.setWan({LiveWanJsLiteral()});"); }
+        catch { /* chart not mounted yet - it takes the scope at mount instead */ }
     }
 
     private async Task LoadTargetsAsync()
@@ -4158,7 +4180,7 @@
                     "window.__mountWanLiveChart = async function(elId) {" +
                     $"  const m = await import('{VersionedJs("/js/wan-live-chart.js")}');" +
                     "  window.__wanLiveChart = m;" +
-                    "  await m.mount(elId, { seekOnClick: true });" +
+                    $"  await m.mount(elId, {{ seekOnClick: true, wan: {LiveWanJsLiteral()} }});" +
                     "}");
                 _ = JS.InvokeVoidAsync("__mountWanLiveChart", "monitoring-wan-live-chart");
             }

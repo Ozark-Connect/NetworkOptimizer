@@ -24,7 +24,7 @@
             @* Per-WAN discovery view under the multi-WAN gate: the primary plus every
                context-bound WAN, each opening that WAN's own discovery state. The primary's
                pending-review marker stays visible whichever WAN is open. *@
-            <div class="time-range-selector" @onclick:stopPropagation>
+            <div class="time-range-selector wan-selector @(_wanChoices.Count > 3 ? "wan-selector-many" : "")" @onclick:stopPropagation>
                 @foreach (var w in _wanChoices)
                 {
                     <button class="time-btn @(string.Equals(w.Key, _selectedTracerWanKey, StringComparison.OrdinalIgnoreCase) ? "active" : "")"

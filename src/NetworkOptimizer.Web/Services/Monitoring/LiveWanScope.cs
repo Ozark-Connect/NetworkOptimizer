@@ -50,8 +50,12 @@ public sealed class LiveWanScope
     /// </summary>
     public sealed record Option(string Key, string Label, bool IsPrimary, string? CounterIfName);
 
-    /// <summary>Raised after the selection changes so the component can re-render.</summary>
-    public Action? OnChanged { get; set; }
+    /// <summary>
+    /// Raised after the selection changes. The surface owning this instance sets it: the scope
+    /// holds the selection but cannot re-render or reach JS interop, so re-rendering the tiles and
+    /// pointing the chart at the new WAN both happen here. Async because both of those are.
+    /// </summary>
+    public Func<Task>? OnChanged { get; set; }
 
     public IReadOnlyList<Option> Options { get; private set; } = Array.Empty<Option>();
 
@@ -144,7 +148,7 @@ public sealed class LiveWanScope
             try { await _js.InvokeVoidAsync("localStorage.setItem", StorageKey, key); }
             catch { /* circuit going away - the selection still holds for this render */ }
         }
-        OnChanged?.Invoke();
+        if (OnChanged != null) await OnChanged.Invoke();
     }
 
     /// <summary>

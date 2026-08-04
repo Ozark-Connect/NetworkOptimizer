@@ -405,13 +405,21 @@ function updateChart() {
     ], false);
 }
 
+// Which WAN's counters this chart is showing. Null is the primary, which is what every caller
+// meant before the chart could be pointed at another WAN - so an absent scope has to keep
+// producing the exact request it always did.
+let wanScope = null;
+
+function historyUrl(from, to) {
+    const base = `/api/monitoring/wan-live-chart-data?from=${from.toISOString()}&to=${to.toISOString()}`;
+    return wanScope ? `${base}&wan=${encodeURIComponent(wanScope)}` : base;
+}
+
 async function loadHistory() {
     const to = new Date();
     const from = new Date(to.getTime() - HISTORY_MINUTES * 60000);
     try {
-        const resp = await fetch(
-            `/api/monitoring/wan-live-chart-data?from=${from.toISOString()}&to=${to.toISOString()}`,
-            { credentials: 'same-origin' });
+        const resp = await fetch(historyUrl(from, to), { credentials: 'same-origin' });
         if (!resp.ok) return 0;
         const data = await resp.json();
         applySampleInterval(data);
@@ -542,9 +550,7 @@ async function backfillHistory() {
     const from = new Date(to.getTime() - HISTORY_MINUTES * 60000);
     let points;
     try {
-        const resp = await fetch(
-            `/api/monitoring/wan-live-chart-data?from=${from.toISOString()}&to=${to.toISOString()}`,
-            { credentials: 'same-origin' });
+        const resp = await fetch(historyUrl(from, to), { credentials: 'same-origin' });
         if (!resp.ok) return;
         const data = await resp.json();
         applySampleInterval(data);
@@ -638,6 +644,9 @@ function syncModeUi() {
 }
 
 export async function mount(containerId, opts) {
+    // Ride in with the mount rather than in a call behind it: this module is imported
+    // asynchronously, so a scope pushed separately can land before the import resolves.
+    if (opts && 'wan' in opts) wanScope = opts.wan || null;
     if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
     if (scrollTimer) { clearInterval(scrollTimer); scrollTimer = null; }
     if (chart) { chart.destroy(); chart = null; }
@@ -708,6 +717,20 @@ export async function mount(containerId, opts) {
     } else if (mapInst && mapInst._paused) {
         pause();
     }
+}
+
+/**
+ * Points the chart at another WAN and reloads its history. Deliberately does NOT touch the
+ * paused/scrubbed state: changing which WAN you are looking at should not drag you back to live,
+ * and a scrubbed position is still a valid position on the new WAN's series. The seek path shares
+ * historyUrl(), so scrubbing after a WAN change reads that WAN too.
+ */
+export async function setWan(wanKey) {
+    const next = wanKey || null;
+    if (next === wanScope) return;
+    wanScope = next;
+    await loadHistory();
+    render();
 }
 
 export function pause() {
@@ -822,9 +845,7 @@ export async function seekTime(isoTimestamp) {
     const from = new Date(maxTime - HISTORY_MINUTES * 60000);
     const to = new Date(maxTime);
     try {
-        const resp = await fetch(
-            `/api/monitoring/wan-live-chart-data?from=${from.toISOString()}&to=${to.toISOString()}`,
-            { credentials: 'same-origin' });
+        const resp = await fetch(historyUrl(from, to), { credentials: 'same-origin' });
         if (!resp.ok) return;
         const data = await resp.json();
         if (gen !== seekGen) return; // a newer seek (or return to live) superseded this one

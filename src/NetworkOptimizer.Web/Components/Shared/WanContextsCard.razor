@@ -13,7 +13,7 @@
 <div class="card">
     <div class="card-header card-header-collapsible" @onclick="ToggleCollapse">
         <h2 class="card-title">Multi-WAN contexts</h2>
-        <div class="card-header-right">
+        <div style="display: flex; align-items: center; gap: 0.5rem;">
             @if (WanContexts.Count > 0)
             {
                 <span class="status-badge status-active" @onclick:stopPropagation="true">@WanContexts.Count configured</span>

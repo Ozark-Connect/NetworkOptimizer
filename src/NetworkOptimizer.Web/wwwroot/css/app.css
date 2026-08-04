@@ -9815,6 +9815,11 @@ a.path-hop.hop-clickable:hover {
         padding: 0.5rem 0.25rem;
     }
 
+    .wan-selector.wan-selector-many .time-btn {
+        font-size: 0.7rem;
+        padding: 0.5rem 0.15rem;
+    }
+
     .filter-group {
         flex-wrap: wrap;
     }
@@ -17036,6 +17041,19 @@ tr.stats-row-filtered {
     .isp-health-toolbar .btn {
         min-width: 0;
         padding: 0 12px;
+    }
+
+    /* The toolbar gained a WAN selector on multi-WAN sites. The controls that were here before
+       fit one row on a phone and still do - it is the WAN bar that does not, so it takes a row of
+       its own rather than making everything wrap around it. Single-WAN sites never render it and
+       see the toolbar exactly as before. */
+    .isp-health-toolbar {
+        flex-wrap: wrap;
+        row-gap: 0.5rem;
+    }
+
+    .isp-health-toolbar .wan-selector {
+        flex-basis: 100%;
     }
 }
 

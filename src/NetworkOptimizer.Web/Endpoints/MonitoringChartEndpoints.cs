@@ -72,6 +72,7 @@ public static class MonitoringChartEndpoints
             ILoggerFactory loggerFactory,
             DateTime? from,
             DateTime? to,
+            string? wan,
             CancellationToken ct) =>
         {
             DateTime queryFrom, queryTo;
@@ -107,7 +108,35 @@ public static class MonitoringChartEndpoints
             // console that returns no gateway still yields an empty series as before, and eth0,
             // eth6.100 and ppp0 keep resolving live. CounterInterface, not the data path - a VLAN
             // sub-interface's counters double, which is why the two are stored apart.
-            if ((string.IsNullOrEmpty(gatewayMac) || wanIfNames is not { Count: > 0 })
+            // A named WAN replaces the primary-only list with THAT WAN's counter interface: live
+            // from the console, else the WAN's own remembered profile. Never a fallback to another
+            // WAN - an empty series is the honest answer for a WAN nothing has recorded, where
+            // borrowing the primary's would draw someone else's traffic under this WAN's name.
+            if (!string.IsNullOrEmpty(wan))
+            {
+                var group = NetworkOptimizer.UniFi.GatewayWanHelper.WanNetworkGroupFromKey(wan);
+                string? scopedCounter = null;
+                try
+                {
+                    var ifaces = await connectionService.GetWanInterfacesForGroupAsync(group, ct);
+                    scopedCounter = ifaces?.CounterIfName;
+                }
+                catch { }
+                try
+                {
+                    await using var db = siteDb.CreateForSite(siteContext.Slug, siteContext.IsDefault);
+                    var profile = await db.WanProfiles.AsNoTracking()
+                        .FirstOrDefaultAsync(w => w.WanNetworkgroup == group, ct);
+                    scopedCounter ??= profile?.CounterInterface;
+                    if (string.IsNullOrEmpty(gatewayMac) && profile?.GatewayMac != null)
+                        gatewayMac = profile.GatewayMac.Replace("-", ":").ToLowerInvariant();
+                }
+                catch { }
+                wanIfNames = string.IsNullOrEmpty(scopedCounter)
+                    ? new List<string>()
+                    : new List<string> { scopedCounter! };
+            }
+            else if ((string.IsNullOrEmpty(gatewayMac) || wanIfNames is not { Count: > 0 })
                 && !connectionService.IsConnected)
             {
                 try

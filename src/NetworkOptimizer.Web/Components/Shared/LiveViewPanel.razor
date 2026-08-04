@@ -56,7 +56,7 @@ else
             {
                 @* Live WAN scope, own per-site key (liveWanScope) so watching a WAN here never
                    moves the analysis selectors. Hidden on single-WAN sites. *@
-                <div class="time-range-selector" style="margin-bottom: 0.5rem;">
+                <div class="time-range-selector wan-selector @(LiveWan.Options.Count > 3 ? "wan-selector-many" : "")" style="margin-bottom: 0.5rem;">
                     @foreach (var w in LiveWan.Options)
                     {
                         <button class="time-btn @(string.Equals(w.Key, LiveWan.SelectedKey, StringComparison.OrdinalIgnoreCase) ? "active" : "")"
@@ -230,6 +230,7 @@ else
 
     protected override async Task OnInitializedAsync()
     {
+        LiveWan.OnChanged = OnLiveWanChangedAsync;
         await LoadDataAsync();
         _refreshTimer = new System.Threading.Timer(async _ =>
         {
@@ -304,7 +305,8 @@ else
             {
                 await JS.InvokeVoidAsync("eval",
                     $"(async () => {{ const m = await import('{VersionedJs("/js/wan-live-chart.js")}'); " +
-                    "window.__dashWanLiveChart = m; await m.mount('dashboard-wan-live-chart'); })();");
+                    "window.__dashWanLiveChart = m; await m.mount('dashboard-wan-live-chart', " +
+                    $"{{ wan: {LiveWanJsLiteral()} }}); }})();");
             }
             catch { _chartMounted = false; }
         }
@@ -323,6 +325,27 @@ else
         catch { }
         _mapMounted = false;
         _mountedMode = null;
+    }
+
+    /// <summary>
+    /// The selected WAN as a JS literal for the chart: null for the primary, which is the request
+    /// the chart made before it could be pointed anywhere.
+    /// </summary>
+    private string LiveWanJsLiteral()
+    {
+        var wan = LiveWan.Selected is { IsPrimary: false } w ? w.Key : null;
+        return wan == null ? "null" : System.Text.Json.JsonSerializer.Serialize(wan);
+    }
+
+    /// <summary>
+    /// Re-render the tiles and point the chart at the newly selected WAN. The scope service holds
+    /// the selection but cannot re-render or reach interop on its own, so each surface wires this.
+    /// </summary>
+    private async Task OnLiveWanChangedAsync()
+    {
+        await InvokeAsync(StateHasChanged);
+        try { await JS.InvokeVoidAsync("eval", $"window.__dashWanLiveChart?.setWan({LiveWanJsLiteral()});"); }
+        catch { /* chart not mounted yet - it takes the scope at mount instead */ }
     }
 
     private async Task LoadDataAsync()
