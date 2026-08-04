@@ -209,6 +209,14 @@ a:hover {
     color: var(--text-primary);
 }
 
+/* A limitation worth reading before the command, not after it. */
+.agent-install .agent-flavor-note {
+    margin-left: 0.4rem;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--text-muted);
+}
+
 .nav-link.active {
     background: var(--bg-tertiary);
     color: var(--accent-color);

@@ -32,6 +32,13 @@
     <p class="form-hint">Pulls the agent image and compose template, writes the config, and starts it.</p>
     <CopyableCommand Text="@DockerOneLiner()" Tooltip="Copy the Docker install command" />
 
+    <h4 class="agent-flavor-title">Proxmox LXC</h4>
+    <p class="form-hint">
+        Run on the Proxmox host: builds a small container and installs the agent inside it. Every prompt is
+        also a flag, so a site needing one agent per WAN is one command each.
+    </p>
+    <CopyableCommand Text="@ProxmoxOneLiner()" Tooltip="Copy the Proxmox LXC install command" />
+
     <h4 class="agent-flavor-title">Bare metal (systemd)</h4>
     <p class="form-hint">
         No Docker required - downloads a self-contained binary and installs a <code>netopt-agent</code>
@@ -39,18 +46,19 @@
     </p>
     <CopyableCommand Text="@NativeOneLiner()" Tooltip="Copy the native install command" />
 
-    <h4 class="agent-flavor-title">On a UniFi gateway</h4>
+    <h4 class="agent-flavor-title">On a UniFi gateway <span class="agent-flavor-note">monitoring only</span></h4>
     <p class="form-hint">
-        Run the agent on the gateway itself (any current UniFi gateway - UCG, UXG, UDM, UDR, EFG) instead of a separate box.
-        Monitoring-only - it installs to <code>/data</code> with a memory-fenced service. UniFi gateways
-        SSH in as root, so run it there directly:
+        Run the agent on the gateway itself (any current UniFi gateway - UCG, UXG, UDM, UDR, EFG) instead of a
+        separate box. It does not host the LAN speed test - that needs one of the options above - and installs
+        to <code>/data</code> with a memory-fenced service. UniFi gateways SSH in as root, so run it there
+        directly:
     </p>
     <CopyableCommand Text="@GatewayOneLiner()" Tooltip="Copy the gateway install command" />
     @if (LanSpeedTest)
     {
         <p class="form-hint">
-            LAN speed testing isn't hosted on the gateway - use the Docker or bare-metal command above on a
-            separate box for that.
+            You asked for LAN speed testing, so this site still needs one of the options above on a separate
+            box to host it.
         </p>
     }
 
@@ -79,6 +87,20 @@
     private string ServerDisplay => string.IsNullOrWhiteSpace(ServerUrl) ? "this server" : ServerUrl!.TrimEnd('/');
 
     private string ServerValue => string.IsNullOrWhiteSpace(ServerUrl) ? "https://your-network-optimizer" : ServerUrl!.TrimEnd('/');
+
+    // Interactive by default, but seeded with the server and token so the two things
+    // that cannot be guessed are already filled in. Everything else the script asks for
+    // has a flag, listed in its --help.
+    private string ProxmoxOneLiner()
+    {
+        var sb = new StringBuilder();
+        sb.Append("bash -c \"$(wget -qLO - https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/proxmox/install-agent.sh)\" -- \\n");
+        sb.Append($"  --server \"{ServerValue}\" \\n");
+        sb.Append($"  --token \"{Token}\"");
+        if (LanSpeedTest)
+            sb.Append(" \\n  --lan-speed-test");
+        return sb.ToString();
+    }
 
     private string DockerOneLiner()
     {

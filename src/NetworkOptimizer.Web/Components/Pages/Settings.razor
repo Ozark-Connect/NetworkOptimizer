@@ -3577,6 +3577,9 @@
                                                                             <p class="form-help">Docker agents instead:</p>
                                                                             <CopyableCommand Text="cd /opt/network-optimizer-agent &amp;&amp; docker compose pull &amp;&amp; docker compose up -d"
                                                                                              Tooltip="Copy the Docker upgrade command" />
+                                                                            <p class="form-help">Proxmox LXC agents - run on the host, with the container's ID:</p>
+                                                                            <CopyableCommand Text="@ProxmoxUpgradeCommand()"
+                                                                                             Tooltip="Copy the Proxmox LXC upgrade command" />
                                                                         }
                                                                     </div>
                                                                 }
@@ -4427,6 +4430,12 @@
     private string NativeUpgradeCommand() =>
         "curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/agent/install-native.sh"
         + $" | sudo bash -s -- --server \"{AgentServerBase()}\"";
+
+    // An agent in an LXC is the bare-metal agent with a container around it, so it
+    // upgrades with the same script - run from the host, since that is where the
+    // operator already is. The CT ID cannot be known from here.
+    private string ProxmoxUpgradeCommand() =>
+        $"pct exec <CT_ID> -- bash -c '{NativeUpgradeCommand().Replace("sudo ", "")}'";
 
     // Monitoring-only gateway installer: no --lan-speed-test (the router must not
     // host a speed-test server) and no sudo (UniFi gateways SSH in as root).

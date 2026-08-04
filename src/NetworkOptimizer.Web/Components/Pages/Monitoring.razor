@@ -289,8 +289,8 @@
                                 data-tooltip="@_wanCompareHint" data-tooltip-hover-only>@{
                                     var wp = NetworkOptimizer.UniFi.GatewayWanHelper.SplitWanLabel(
                                         w.Label, NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey(w.Key));
-                                }@if (wp.Name != null)
-                                {<span class="wan-pill-name">@wp.Name</span>}@(wp.WanToken ?? w.Label)</button>
+                                }@(wp.Name ?? w.Label)@if (wp.WanToken != null && wp.Name != null)
+                                {<span class="wan-pill-name">@wp.WanToken</span>}</button>
                     }
                 </div>
             }
@@ -517,8 +517,8 @@
                                         data-tooltip="@_wanCompareHint" data-tooltip-hover-only>@{
                                     var wp = NetworkOptimizer.UniFi.GatewayWanHelper.SplitWanLabel(
                                         w.Label, NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey(w.Key));
-                                }@if (wp.Name != null)
-                                {<span class="wan-pill-name">@wp.Name</span>}@(wp.WanToken ?? w.Label)</button>
+                                }@(wp.Name ?? w.Label)@if (wp.WanToken != null && wp.Name != null)
+                                {<span class="wan-pill-name">@wp.WanToken</span>}</button>
                             }
                         </div>
                     }
