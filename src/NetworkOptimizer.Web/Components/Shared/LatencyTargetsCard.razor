@@ -407,8 +407,17 @@
     /// All is every WAN at once rather than a mode of its own, so it lives in the same selection the
     /// rest of the tab reads and needs nothing else to remember it.
     /// </summary>
+    /// <summary>
+    /// Whether the selection this card can act on is "everything". True when every WAN is selected,
+    /// and also when NONE of them is: the tab's WAN bar offers WANs this card has no pill for - one
+    /// with no context and so no targets of its own - and filtering a list to a WAN it cannot show
+    /// leaves an empty table with no lit pill to explain it. All is the honest reading of a
+    /// selection this list has nothing to say about.
+    /// </summary>
     private bool AllSelected =>
-        _wanChoices.Count > 1 && _wanChoices.All(w => SelectedWanKeys.Contains(w.Key));
+        _wanChoices.Count > 1
+        && (_wanChoices.All(w => SelectedWanKeys.Contains(w.Key))
+            || !_wanChoices.Any(w => SelectedWanKeys.Contains(w.Key)));
 
     private async Task PickWanAsync(string key)
     {
