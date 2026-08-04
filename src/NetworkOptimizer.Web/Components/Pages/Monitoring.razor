@@ -625,7 +625,7 @@
             <FlakyTargetsCard ForceExpand="_forceExpandFlaky" OnTargetsChanged="OnTargetsChanged" />
         </div>
 
-        <div style="margin-top: 1.5rem;">
+        <div id="latency-targets" style="margin-top: 1.5rem;">
             <LatencyTargetsCard @ref="_latencyTargetsCard" Targets="_targets" WanContexts="_wanContexts" PrimaryWanLabel="@PrimaryWanProseLabel()" OnTargetsChanged="OnTargetsChanged" />
         </div>
 

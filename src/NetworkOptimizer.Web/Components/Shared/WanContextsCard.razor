@@ -65,7 +65,7 @@
                         <th>WAN</th>
                         <th>Probe source</th>
                         <th>Assigned agent</th>
-                        <th class="hide-mobile">Targets</th>
+                        <th>Targets</th>
                         <th></th>
                     </tr>
                 </thead>
@@ -80,8 +80,28 @@
                                 @if (ProbeSourceOf(wc) is string source) { <code>@source</code> }
                                 else { <span class="text-muted">default route</span> }
                             </td>
-                            <td>@AgentLabel(wc.AgentId)</td>
-                            <td class="hide-mobile">@_targetCounts.GetValueOrDefault(wc.Id)</td>
+                            <td>
+                                @if (wc.AgentId is int rowAgentId)
+                                {
+                                    <span class="status-dot @(_connectedAgents.Contains(rowAgentId) ? "online" : "offline")"
+                                          data-tooltip="@(_connectedAgents.Contains(rowAgentId) ? "Connected" : "Not connected - this WAN is not being probed")"></span>
+                                }
+                                @AgentLabel(wc.AgentId)
+                            </td>
+                            <td>
+                                @{ var targetCount = _targetCounts.GetValueOrDefault(wc.Id); }
+                                @if (targetCount == 0)
+                                {
+                                    <span class="wc-targets-none">0</span>
+                                    <SiteOperatorOnly>
+                                        <button class="btn btn-link wc-targets-assign" @onclick="JumpToLatencyTargetsAsync">Assign targets</button>
+                                    </SiteOperatorOnly>
+                                }
+                                else
+                                {
+                                    @targetCount
+                                }
+                            </td>
                             <td style="white-space: nowrap;">
                                 <SiteAdminOnly>
                                     <button class="btn btn-sm btn-secondary"
@@ -89,6 +109,11 @@
                                         data-tooltip="Change this vantage's WAN, probe source, or agent">
                                     Edit
                                 </button>
+                                    <a class="btn btn-sm btn-secondary"
+                                       href="@VerifyUrl(wc)"
+                                       data-tooltip="Probe from this vantage and check the first hops are this WAN's"
+                                       data-tooltip-hover-only
+                                       style="margin-left: 0.25rem;">Verify</a>
                                     <button class="btn btn-sm btn-danger"
                                         @onclick="() => DeleteContextAsync(wc.Id)"
                                         data-tooltip="Remove this vantage (its targets move back to the primary WAN)"
@@ -200,7 +225,7 @@
                         default route instead.
                     </p>
                 }
-                @if (!string.IsNullOrWhiteSpace(_newSourceIp) && !SelectedAgentCanBindSource)
+                @if ((!string.IsNullOrWhiteSpace(_newSourceIp) && !SelectedAgentCanBindSource) || SelectedAgentNeedsPolicyRoute)
                 {
                     <p class="form-hint">
                         This agent reaches @WanLabelFor(_newWanInterface) only if the gateway routes it there. In UniFi
@@ -260,6 +285,16 @@
         margin-top: 1rem;
     }
 
+    .wc-targets-none {
+        color: var(--warning-color);
+        font-weight: 600;
+    }
+
+    .wc-targets-assign {
+        margin-left: 0.4rem;
+        font-size: 0.8rem;
+    }
+
     @@media (max-width: 768px) {
         .wc-form-grid {
             grid-template-columns: 1fr;
@@ -309,6 +344,7 @@
     // bind, and one that cannot bind at all would fail every probe in the context.
     private HashSet<int> _bindCapableAgents = new();
     private HashSet<int> _sourceBindAgents = new();
+    private HashSet<int> _connectedAgents = new();
     private Dictionary<int, int> _targetCounts = new();
 
     private bool SelectedAgentCanBindInterface =>
@@ -321,6 +357,15 @@
     /// </summary>
     private bool SelectedAgentCanBindSource =>
         int.TryParse(_newAgentId, out var agentId) && _sourceBindAgents.Contains(agentId);
+
+    /// <summary>
+    /// Whether the selected agent binds nothing of its own, so the WHOLE box has to be routed out
+    /// the WAN for its probes to go anywhere near it. True for an agent that cannot bind at all -
+    /// an older binary - which is the setup that silently measures the primary WAN and files the
+    /// results under another one if the route is never built.
+    /// </summary>
+    private bool SelectedAgentNeedsPolicyRoute =>
+        !string.IsNullOrEmpty(_newAgentId) && !SelectedAgentCanBindInterface && !SelectedAgentCanBindSource;
 
     // WAN contexts are per-site data: route through the current site's database.
     private NetworkOptimizerDbContext CreateDb() => SiteDb.CreateForSite(SiteCtx.Slug, SiteCtx.IsDefault);
@@ -338,6 +383,19 @@
         // front. Both are cached upstream, and the card only renders on a multi-WAN site at all.
         await LoadAgentsAsync();
         await LoadWansAsync();
+        LoadConnectedAgents();
+    }
+
+    private void LoadConnectedAgents()
+    {
+        try { _connectedAgents = TunnelRegistry.GetForSite(SiteCtx.Slug).Select(c => c.AgentId).ToHashSet(); }
+        catch { _connectedAgents = new(); }
+    }
+
+    private async Task JumpToLatencyTargetsAsync()
+    {
+        try { await JS.InvokeVoidAsync("noHighlightTarget", "latency-targets"); }
+        catch { }
     }
 
     protected override async Task OnParametersSetAsync()
@@ -352,6 +410,7 @@
                 .ToDictionaryAsync(g => g.Key, g => g.Count);
         }
         catch { _targetCounts = new(); }
+        LoadConnectedAgents();
     }
 
     /// <summary>
@@ -547,6 +606,16 @@
         => !string.IsNullOrEmpty(context.InterfaceName) ? context.InterfaceName
             : !string.IsNullOrEmpty(context.ProbeSourceIp) ? context.ProbeSourceIp
             : null;
+
+    /// <summary>
+    /// Network Tools, pointed at whatever probes this vantage - its agent, or this server when the
+    /// vantage is an address the server binds. The point of going there is the first-hop check:
+    /// probes that leave by the wrong WAN look identical here and only differ there.
+    /// </summary>
+    private static string VerifyUrl(WanContext context) =>
+        context.AgentId is int id
+            ? $"/network-tools?from=agent:{id}"
+            : $"/network-tools?from={NetworkOptimizer.Web.Services.Monitoring.ProbeVantages.ServerKey}";
 
     private string AgentLabel(int? agentId)
     {
