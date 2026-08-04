@@ -27,9 +27,9 @@ public class WanContextRoutingTests
     [Fact]
     public void Push_NoContexts_UnassignedTargetsStillGoToEveryAgent()
     {
-        AgentProbeResultSink.ShouldPushTargetToAgent(false, null, PrimaryAgent, agentIsContextAssigned: false)
+        AgentProbeResultSink.ShouldPushTargetToAgent(false, null, PrimaryAgent, agentIsSteeredToWan: false)
             .Should().BeTrue();
-        AgentProbeResultSink.ShouldPushTargetToAgent(false, null, ContextAgent, agentIsContextAssigned: false)
+        AgentProbeResultSink.ShouldPushTargetToAgent(false, null, ContextAgent, agentIsSteeredToWan: false)
             .Should().BeTrue();
     }
 
@@ -38,18 +38,18 @@ public class WanContextRoutingTests
     {
         // Shapes A, B and C alike: everything this agent probes leaves by its WAN, so the site's
         // ordinary targets would be measured on the wrong path and filed under the primary.
-        AgentProbeResultSink.ShouldPushTargetToAgent(true, ContextAgent, ContextAgent, agentIsContextAssigned: true)
+        AgentProbeResultSink.ShouldPushTargetToAgent(true, ContextAgent, ContextAgent, agentIsSteeredToWan: true)
             .Should().BeTrue();
-        AgentProbeResultSink.ShouldPushTargetToAgent(false, null, ContextAgent, agentIsContextAssigned: true)
+        AgentProbeResultSink.ShouldPushTargetToAgent(false, null, ContextAgent, agentIsSteeredToWan: true)
             .Should().BeFalse();
     }
 
     [Fact]
     public void Push_PrimaryAgent_KeepsUnassignedTargetsAndNeverAnotherContexts()
     {
-        AgentProbeResultSink.ShouldPushTargetToAgent(false, null, PrimaryAgent, agentIsContextAssigned: false)
+        AgentProbeResultSink.ShouldPushTargetToAgent(false, null, PrimaryAgent, agentIsSteeredToWan: false)
             .Should().BeTrue();
-        AgentProbeResultSink.ShouldPushTargetToAgent(true, ContextAgent, PrimaryAgent, agentIsContextAssigned: false)
+        AgentProbeResultSink.ShouldPushTargetToAgent(true, ContextAgent, PrimaryAgent, agentIsSteeredToWan: false)
             .Should().BeFalse();
     }
 
@@ -61,9 +61,9 @@ public class WanContextRoutingTests
         // primary route while the result gets tagged with the secondary WAN's key - corrupting
         // that WAN's score now that the tag is read - so a context target with no assigned agent
         // reaches NO agent at all, on any shape.
-        AgentProbeResultSink.ShouldPushTargetToAgent(true, null, PrimaryAgent, agentIsContextAssigned: false)
+        AgentProbeResultSink.ShouldPushTargetToAgent(true, null, PrimaryAgent, agentIsSteeredToWan: false)
             .Should().BeFalse();
-        AgentProbeResultSink.ShouldPushTargetToAgent(true, null, ContextAgent, agentIsContextAssigned: true)
+        AgentProbeResultSink.ShouldPushTargetToAgent(true, null, ContextAgent, agentIsSteeredToWan: true)
             .Should().BeFalse();
     }
 
@@ -72,7 +72,7 @@ public class WanContextRoutingTests
     {
         // A stale WanContextId (row deleted out from under it) is conservative: pushed nowhere
         // until the assignment is cleaned up, never broadcast as if unassigned.
-        AgentProbeResultSink.ShouldPushTargetToAgent(true, null, PrimaryAgent, agentIsContextAssigned: false)
+        AgentProbeResultSink.ShouldPushTargetToAgent(true, null, PrimaryAgent, agentIsSteeredToWan: false)
             .Should().BeFalse();
     }
 
@@ -180,14 +180,14 @@ public class WanContextRoutingTests
     [Fact]
     public void SiteCollectionConfig_NoContexts_EveryAgentStillGetsIt()
     {
-        AgentProbeResultSink.ShouldPushSiteCollectionConfig(agentIsContextAssigned: false).Should().BeTrue();
+        AgentProbeResultSink.ShouldPushSiteCollectionConfig(agentIsSteeredToWan: false).Should().BeTrue();
     }
 
     [Fact]
     public void SiteCollectionConfig_ContextAgent_IsExcluded()
     {
         // Otherwise a context agent polls every device a second time on a managed or covered site.
-        AgentProbeResultSink.ShouldPushSiteCollectionConfig(agentIsContextAssigned: true).Should().BeFalse();
+        AgentProbeResultSink.ShouldPushSiteCollectionConfig(agentIsSteeredToWan: true).Should().BeFalse();
     }
 
     // ---- Influx wan tag ---------------------------------------------------
@@ -206,5 +206,52 @@ public class WanContextRoutingTests
         var context = new WanContext { Id = 1, Name = "backup-wan" };
 
         context.InfluxWanTag.Should().Be("backup-wan");
+    }
+
+    private const int GatewayAgent = 77;
+
+    // ---- A gateway agent can serve contexts AND collect for the site -------
+
+    [Fact]
+    public void GatewayAgent_ServingEveryExtraWan_StillCollectsForTheSite()
+    {
+        // Its contexts name an interface, so each probe binds to that WAN while the box itself
+        // still routes out the primary. It is the site's collector as well - on a site whose only
+        // agent is the one on the gateway, nothing else can be.
+        AgentProbeResultSink.ShouldPushTargetToAgent(false, null, GatewayAgent, agentIsSteeredToWan: false)
+            .Should().BeTrue();
+        AgentProbeResultSink.ShouldPushSiteCollectionConfig(agentIsSteeredToWan: false).Should().BeTrue();
+    }
+
+    [Fact]
+    public void GatewayAgent_StillTakesEveryContextItOwnsAndNoOtherAgents()
+    {
+        AgentProbeResultSink.ShouldPushTargetToAgent(true, GatewayAgent, GatewayAgent, agentIsSteeredToWan: false)
+            .Should().BeTrue();
+        AgentProbeResultSink.ShouldPushTargetToAgent(true, ContextAgent, GatewayAgent, agentIsSteeredToWan: false)
+            .Should().BeFalse();
+    }
+
+    [Fact]
+    public void SteeredProbeBox_TakesItsOwnWanAndNothingElse()
+    {
+        // No interface to bind, so the gateway policy-routes the whole box: a primary target
+        // probed from here would leave by the secondary WAN and be recorded as the primary's.
+        AgentProbeResultSink.ShouldPushTargetToAgent(false, null, ContextAgent, agentIsSteeredToWan: true)
+            .Should().BeFalse();
+        AgentProbeResultSink.ShouldPushSiteCollectionConfig(agentIsSteeredToWan: true).Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("eth8", false)]   // gateway agent: binds per probe, routes normally
+    [InlineData(null, true)]      // probe box: the whole box sits behind the WAN
+    [InlineData("", true)]
+    public void SteeredIsDecidedByWhetherTheContextNamesAnInterface(string? interfaceName, bool expectedSteered)
+    {
+        var contexts = new[] { new WanContext { Id = 1, AgentId = ContextAgent, InterfaceName = interfaceName } };
+
+        var steered = contexts.Any(c => c.AgentId == ContextAgent && string.IsNullOrEmpty(c.InterfaceName));
+
+        steered.Should().Be(expectedSteered);
     }
 }

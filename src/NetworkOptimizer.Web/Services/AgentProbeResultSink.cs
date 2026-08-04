@@ -295,7 +295,14 @@ public class AgentProbeResultSink
             // measure the secondary WAN and file the result under the primary. Only true once a
             // context names this agent, so a site with no contexts pushes exactly what it always
             // has.
-            var agentIsContextAssigned = contextsById.Values.Any(c => c.AgentId == connection.AgentId);
+            // Steered means the agent's OWN default route leaves by a secondary WAN - a probe box
+            // the gateway policy-routes by MAC, or one running with agent.json's probeSourceIp. It
+            // is a vantage behind one WAN and nothing else. An agent whose contexts name an
+            // interface is NOT steered: it binds per probe (a gateway agent does this) and its
+            // default route is still the site's primary, so it can go on being the site's collector
+            // as well - which is the whole point of putting one agent on the gateway.
+            var agentIsSteeredToWan = contextsById.Values.Any(
+                c => c.AgentId == connection.AgentId && string.IsNullOrEmpty(c.InterfaceName));
 
             // An agent running ON the gateway cannot usefully probe it: the target is the box the
             // probe runs on, so every reply is loopback - 0 ms and no loss - which reads as a
@@ -333,7 +340,7 @@ public class AgentProbeResultSink
                 // nowhere) rather than as unassigned - conservative until the row is cleaned up.
                 var context = target.WanContextId is int contextId
                     && contextsById.TryGetValue(contextId, out var found) ? found : null;
-                if (!ShouldPushTargetToAgent(target.WanContextId != null, context?.AgentId, connection.AgentId, agentIsContextAssigned))
+                if (!ShouldPushTargetToAgent(target.WanContextId != null, context?.AgentId, connection.AgentId, agentIsSteeredToWan))
                     continue;
                 config.Targets.Add(new ProbeTargetSpec
                 {
@@ -367,10 +374,13 @@ public class AgentProbeResultSink
     /// <summary>
     /// Whether a target belongs in one agent's pushed set.
     ///
-    /// An agent that owns a WAN context is probe-only for that context: it takes its own context's
-    /// targets and nothing else, because everything it probes leaves by that WAN. Every other agent
+    /// A STEERED agent is probe-only for its context: it takes its own context's targets and
+    /// nothing else, because everything it sends leaves by that WAN, so a primary target probed
+    /// from it would measure the wrong path and be recorded as the primary's. Every other agent
     /// keeps the shipped arrangement - unassigned targets as an extra vantage point, another
-    /// agent's context targets never.
+    /// agent's context targets never. An interface-bound (gateway) agent is in that second group:
+    /// it binds each context probe to that WAN's interface while its own route stays the primary,
+    /// so it can serve contexts AND collect for the site.
     /// </summary>
     /// <param name="targetHasContext">Whether the target belongs to ANY WAN context. A context
     /// target is that context's alone: its assigned agent when it has one, or - for a source-IP
@@ -379,9 +389,10 @@ public class AgentProbeResultSink
     /// corrupting that WAN's score now that the tag is read.</param>
     /// <param name="contextAgentId">Agent assigned to the target's WAN context; null when the target has no context, or its context has no agent (server-probed).</param>
     /// <param name="agentId">The agent being pushed to.</param>
-    /// <param name="agentIsContextAssigned">Whether any of the site's contexts names this agent.</param>
-    internal static bool ShouldPushTargetToAgent(bool targetHasContext, int? contextAgentId, int agentId, bool agentIsContextAssigned)
-        => targetHasContext ? contextAgentId == agentId : !agentIsContextAssigned;
+    /// <param name="agentIsSteeredToWan">Whether a context names this agent WITHOUT an interface
+    /// to bind - i.e. the whole box sits behind one WAN.</param>
+    internal static bool ShouldPushTargetToAgent(bool targetHasContext, int? contextAgentId, int agentId, bool agentIsSteeredToWan)
+        => targetHasContext ? contextAgentId == agentId : !agentIsSteeredToWan;
 
     /// <summary>
     /// The source an agent binds this target's probes to: the context's interface when it has one,
@@ -409,24 +420,29 @@ public class AgentProbeResultSink
     /// <summary>
     /// Whether an agent should be sent the site's SNMP config and speed-test server list.
     ///
-    /// A context-assigned agent is a probe vantage behind one WAN, not a second collector: polling
-    /// SNMP from it would double every counter the site already collects, and it serves no speed
-    /// tests. False only once a context names it, so a site with no contexts is unaffected.
+    /// A STEERED agent is a probe vantage behind one WAN, not a second collector: polling SNMP
+    /// from it would double every counter the site already collects, and it serves no speed tests.
+    /// An interface-bound (gateway) agent is a collector that also serves contexts, so it keeps
+    /// both - a site whose only agent is on the gateway must still get its SNMP from somewhere.
+    /// False only once a steered context names it, so a site with no contexts is unaffected.
     /// </summary>
-    internal static bool ShouldPushSiteCollectionConfig(bool agentIsContextAssigned) => !agentIsContextAssigned;
+    internal static bool ShouldPushSiteCollectionConfig(bool agentIsSteeredToWan) => !agentIsSteeredToWan;
 
     /// <summary>
-    /// Whether any of the site's WAN contexts is assigned to this agent. Answers false when the
-    /// site database cannot be read, which leaves every gate on this at the behavior it has today
-    /// rather than standing an agent down on a hiccup.
+    /// Whether this agent sits ENTIRELY behind one WAN: a context names it and gives no interface
+    /// to bind, so the box itself is policy-routed out that WAN. An agent whose contexts all name
+    /// an interface binds per probe and still routes normally, so it is not steered. Answers false
+    /// when the site database cannot be read, which leaves every gate on this at the behavior it
+    /// has today rather than standing an agent down on a hiccup.
     /// </summary>
-    private async Task<bool> IsContextAssignedAgentAsync(AgentTunnelConnection connection, CancellationToken ct)
+    private async Task<bool> IsSteeredToWanAgentAsync(AgentTunnelConnection connection, CancellationToken ct)
     {
         try
         {
             var isDefault = connection.SiteSlug == SiteManagementService.DefaultSiteSlug;
             await using var db = _siteDbFactory.CreateForSite(connection.SiteSlug, isDefault);
-            return await db.WanContexts.AsNoTracking().AnyAsync(c => c.AgentId == connection.AgentId, ct);
+            return await db.WanContexts.AsNoTracking()
+                .AnyAsync(c => c.AgentId == connection.AgentId && (c.InterfaceName == null || c.InterfaceName == ""), ct);
         }
         catch (Exception ex)
         {
@@ -460,7 +476,7 @@ public class AgentProbeResultSink
     {
         // A context-assigned agent serves no speed test page, so it has no /wan/ redirect to
         // resolve and no reason to hold the server list.
-        if (!ShouldPushSiteCollectionConfig(await IsContextAssignedAgentAsync(connection, ct)))
+        if (!ShouldPushSiteCollectionConfig(await IsSteeredToWanAgentAsync(connection, ct)))
             return;
         try
         {
@@ -503,7 +519,7 @@ public class AgentProbeResultSink
     {
         var isDefault = connection.SiteSlug == SiteManagementService.DefaultSiteSlug;
         if (isDefault && !await _agentCoverage.CoversAsync(connection.SiteSlug)) return;
-        if (!ShouldPushSiteCollectionConfig(await IsContextAssignedAgentAsync(connection, ct)))
+        if (!ShouldPushSiteCollectionConfig(await IsSteeredToWanAgentAsync(connection, ct)))
         {
             // Disabled rather than absent: an agent that polled before being assigned a context
             // keeps polling on its last config until a new one tells it to stop.
@@ -1377,7 +1393,7 @@ public class AgentProbeResultSink
         // Nothing this agent sends can be kept, so drop the batch without loading the site's
         // targets for it - which is what happened before contexts existed, and still happens on
         // every site that has none.
-        if (!agentCoversPrimary && !await IsContextAssignedAgentAsync(connection, ct)) return;
+        if (!agentCoversPrimary && !await IsSteeredToWanAgentAsync(connection, ct)) return;
 
         await using var db = _siteDbFactory.CreateForSite(connection.SiteSlug, isDefault);
         var ids = batch.Results.Select(r => r.TargetId).Distinct().ToList();
