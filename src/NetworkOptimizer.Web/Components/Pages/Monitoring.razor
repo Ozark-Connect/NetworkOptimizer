@@ -3157,8 +3157,18 @@
         if (status is IspHealthStatus.NotConfigured or IspHealthStatus.NeedsDiscovery)
             NavigateToUpstreamDiscovery();
         else
-            NavigationManager.NavigateTo("/monitoring?tab=isp-health");
+            NavigationManager.NavigateTo($"/monitoring?tab=isp-health{IspHealthWanQuery()}");
     }
+
+    /// <summary>
+    /// Carries the live tiles' WAN into the ISP Health link, so clicking a WAN's score opens that
+    /// WAN's report. The two selections have their own storage on purpose - watching a WAN should
+    /// not move the analysis focus - but following a link IS the intent to move it, so the
+    /// parameter travels and the panel adopts it. Empty for the primary, whose report is the
+    /// default anyway.
+    /// </summary>
+    private string IspHealthWanQuery() =>
+        LiveWan.Selected is { IsPrimary: false } w ? $"&wan={Uri.EscapeDataString(w.Key)}" : "";
 
     private async Task ScrollToUpstreamDiscoveryAsync()
     {

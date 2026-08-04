@@ -1080,9 +1080,40 @@ else
     }
 
     /// <summary>Applies the WAN remembered for this site once localStorage is reachable.</summary>
+
+    /// <summary>
+    /// The WAN named by a <c>?wan=</c> query parameter, or null. Unknown values are ignored by the
+    /// caller rather than erroring: a stale link to a WAN the site no longer has should land on
+    /// the default report, not on nothing.
+    /// </summary>
+    private string? LinkedWanKey()
+    {
+        try
+        {
+            var query = new Uri(NavigationManager.Uri).Query;
+            var value = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(query)
+                .TryGetValue("wan", out var v) ? v.ToString() : null;
+            return string.IsNullOrWhiteSpace(value) ? null : value.Trim().ToLowerInvariant();
+        }
+        catch { return null; }
+    }
+
     private async Task RestoreWanSelectionAsync()
     {
         if (_wanOptions.Count <= 1) return;
+
+        // An explicit ?wan= beats the stored selection and replaces it: arriving by a link that
+        // names a WAN is a statement about which report you want, where the stored value is only
+        // where you happened to be last. Persisted so the rest of the session follows the link
+        // rather than snapping back on the next visit.
+        var linked = LinkedWanKey();
+        if (!string.IsNullOrEmpty(linked)
+            && _wanOptions.Any(w => string.Equals(w.Key, linked, StringComparison.OrdinalIgnoreCase)))
+        {
+            await SelectWanAsync(linked!, persist: true);
+            return;
+        }
+
         try
         {
             var stored = await JS.InvokeAsync<string?>("localStorage.getItem", SharedWanScopeKey);

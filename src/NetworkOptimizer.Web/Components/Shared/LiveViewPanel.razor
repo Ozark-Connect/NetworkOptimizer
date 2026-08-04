@@ -77,7 +77,7 @@ else
                 <div class="stat-label">WAN Upload</div>
             </div>
             @{ var ispHealth = CurrentIspHealth(); }
-            <div class="monitoring-stat-card clickable-stat-card isp-health-tile @ispHealth.TileCssClass" data-tooltip="@ispHealth.TileTooltip" data-tooltip-hover-only @onclick="@(() => NavigationManager.NavigateTo("/monitoring?tab=isp-health"))">
+            <div class="monitoring-stat-card clickable-stat-card isp-health-tile @ispHealth.TileCssClass" data-tooltip="@ispHealth.TileTooltip" data-tooltip-hover-only @onclick="@(() => NavigationManager.NavigateTo($"/monitoring?tab=isp-health{IspHealthWanQuery()}"))">
                 <div class="stat-value isp-tile-score">@ispHealth.TileText</div>
                 <div class="stat-label">ISP Health</div>
                 @if (ispHealth.Status == IspHealthStatus.Ready && ispHealth.Score.HasValue)
@@ -348,6 +348,14 @@ else
     /// GetCachedScore kicks the compute off - so the tile settles on its own without a fallback to
     /// another WAN's score, which is the one thing it must never show.
     /// </summary>
+    /// <summary>
+    /// Carries the live tiles' WAN into the ISP Health link, so clicking a WAN's score opens that
+    /// WAN's report rather than whichever one the analysis pages were last left on. Empty for the
+    /// primary, whose report is the default.
+    /// </summary>
+    private string IspHealthWanQuery() =>
+        LiveWan.Selected is { IsPrimary: false } w ? $"&wan={Uri.EscapeDataString(w.Key)}" : "";
+
     private IspHealthSnapshot CurrentIspHealth()
     {
         var wan = LiveWan.Selected;
