@@ -545,6 +545,14 @@
                 // staying there until the run ends. Correcting upward too means an overshoot is
                 // undone as soon as the layout settles, which is the frame after it happens.
                 var below = r.bottom - paneBottom;
+                // Never past the card's own top. Following the newest section is worth doing while
+                // the card grows a screen at a time; the terminal render arrives all at once and is
+                // the largest of the run, so an unbounded follow throws the view to the end of a
+                // review nobody has read. Freezing before that render is a race - this is not one:
+                // however big the jump, the header stays at the top of the pane, which is where the
+                // state and the controls are. Upward corrections are unbounded, since those only
+                // ever undo an overshoot.
+                if (below > 0) below = Math.min(below, Math.max(0, r.top - paneTop));
                 return Math.abs(below) > 2 ? below : 0;
             };
 
