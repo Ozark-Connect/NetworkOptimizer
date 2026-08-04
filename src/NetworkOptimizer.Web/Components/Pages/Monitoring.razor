@@ -3699,13 +3699,25 @@
 
         var tasks = new List<Task>();
 
+        // The counters of the WANs actually on screen. Falling back to the gateway's whole list
+        // read the primary's throughput under a secondary WAN's name; restricting it to the
+        // primary instead left a secondary WAN's tiles blank, which is where this started. The
+        // selection carries each WAN's own counter interface, so it can answer for any of them.
+        var snapshotWanIfNames = LiveWan.SelectedOptions
+            .Select(o => o.CounterIfName)
+            .Where(n => !string.IsNullOrEmpty(n))
+            .Select(n => n!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (snapshotWanIfNames.Count == 0) snapshotWanIfNames = _gatewayWanIfNames;
+
         // WAN rates
-        if (_gatewayMac != null && _gatewayWanIfNames.Count > 0)
+        if (_gatewayMac != null && snapshotWanIfNames.Count > 0)
         {
             tasks.Add(Task.Run(async () =>
             {
                 var points = await InfluxClient.QueryGatewayWanRatesAsync(
-                    _gatewayMac, _gatewayWanIfNames, from, to);
+                    _gatewayMac, snapshotWanIfNames, from, to);
                 var closest = points
                     .OrderBy(p => Math.Abs((p.Time - at).TotalMilliseconds))
                     .FirstOrDefault();
@@ -3759,10 +3771,13 @@
         }
 
         // ISP latency (mean across enabled ISP targets)
+        // Points are read for the WAN on screen. Unscoped, the tiles averaged every WAN's targets
+        // together, so a playback figure could not match the chart beside it.
+        var snapshotWanScope = BuildSnapshotWanScope();
         tasks.Add(Task.Run(async () =>
         {
             var data = await InfluxClient.QueryLatencyByTargetTypeAsync(
-                MonitoringTargetType.AccessIsp, from, to);
+                MonitoringTargetType.AccessIsp, from, to, wanScope: snapshotWanScope);
             var rtts = new List<double>();
             var losses = new List<double>();
             foreach (var (_, pts) in data)
@@ -3782,7 +3797,7 @@
         tasks.Add(Task.Run(async () =>
         {
             var data = await InfluxClient.QueryLatencyByTargetTypeAsync(
-                MonitoringTargetType.Transit, from, to);
+                MonitoringTargetType.Transit, from, to, wanScope: snapshotWanScope);
             var rtts = new List<double>();
             var losses = new List<double>();
             foreach (var (_, pts) in data)
@@ -3897,6 +3912,21 @@
         };
     }
 
+    /// <summary>
+    /// The playback tiles' WAN scope: the focused WAN's tags, or the primary's untagged points.
+    /// Null while comparing - the tiles show one figure, and no single scope describes several
+    /// WANs at once, so they fall back to the whole site rather than to one of them.
+    /// </summary>
+    private MonitoringInfluxClient.LatencyWanScope? BuildSnapshotWanScope()
+    {
+        if (!_multiWanUiVisible || LiveWan.IsComparing) return null;
+        var key = NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(
+            LiveWan.Selected?.Key ?? _primaryWanKey);
+        var isPrimary = LiveWan.Selected?.IsPrimary ?? true;
+        try { return Services.Monitoring.IspHealth.IspHealthService.BuildWanScope(_wanContexts, key, isPrimary); }
+        catch { return null; }
+    }
+
     // ─── Stat card helpers ───
 
     private bool HasUpstreamTargets(MonitoringTargetType type) =>
@@ -3937,10 +3967,10 @@
         // The snapshot recorded the primary's series, so it answers for the primary and for a site
         // with no WAN picker at all - where Selected is null and playback worked long before any
         // of this. Only a deliberate non-primary selection has nothing to show.
+        // The snapshot is built from the selection's own counters now, so it answers for whichever
+        // WAN is on screen rather than the primary alone.
         if (_historicSnapshot is not null)
-            return !LiveWan.IsComparing && LiveWan.Selected is null or { IsPrimary: true }
-                ? (_historicSnapshot.WanDownloadBps, _historicSnapshot.WanUploadBps)
-                : (null, null);
+            return (_historicSnapshot.WanDownloadBps, _historicSnapshot.WanUploadBps);
 
         if (_gatewayMac == null) return (null, null);
 

@@ -1781,11 +1781,13 @@ from(bucket: ""{_bucket}"")
     }
 
     /// <summary>Time-series of RTT and loss for multiple monitoring targets, keyed by target_id.</summary>
+    /// <param name="wanScope">Which WAN's points count; null reads every WAN, as it always did.</param>
     public async Task<Dictionary<string, List<LatencyPoint>>> QueryLatencyByTargetTypeAsync(
         MonitoringTargetType targetType,
         DateTime from,
         DateTime to,
         TimeSpan? aggregateWindow = null,
+        LatencyWanScope? wanScope = null,
         CancellationToken ct = default)
     {
         if (!IsConfigured) await ReconfigureAsync(ct);
@@ -1801,7 +1803,7 @@ from(bucket: ""{_bucket}"")
 from(bucket: ""{_bucket}"")
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""latency"")
-  |> filter(fn: (r) => {typeFilter})
+  |> filter(fn: (r) => {typeFilter}){BuildWanScopeFilter(wanScope)}
   |> filter(fn: (r) => r._field == ""rtt_avg_ms"" or r._field == ""loss_percent"")
   |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false)
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
