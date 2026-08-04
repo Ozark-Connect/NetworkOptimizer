@@ -41,6 +41,7 @@ public class UpstreamRediscoveryService : BackgroundService
     private readonly IDbContextFactory<NetworkOptimizerDbContext> _dbFactory;
     private readonly NetworkOptimizer.Storage.Services.SiteDbContextFactory _siteDbFactory;
     private readonly UpstreamTracerRegistry _tracerRegistry;
+    private readonly NetworkOptimizer.Web.Services.AgentTunnelRegistry _tunnelRegistry;
     private readonly ILogger<UpstreamRediscoveryService> _logger;
 
     private readonly NetworkOptimizer.Core.ISiteWorkGate _siteWorkGate;
@@ -50,8 +51,10 @@ public class UpstreamRediscoveryService : BackgroundService
         NetworkOptimizer.Storage.Services.SiteDbContextFactory siteDbFactory,
         UpstreamTracerRegistry tracerRegistry,
         NetworkOptimizer.Core.ISiteWorkGate siteWorkGate,
+        NetworkOptimizer.Web.Services.AgentTunnelRegistry tunnelRegistry,
         ILogger<UpstreamRediscoveryService> logger)
     {
+        _tunnelRegistry = tunnelRegistry;
         _dbFactory = dbFactory;
         _siteDbFactory = siteDbFactory;
         _tracerRegistry = tracerRegistry;
@@ -224,6 +227,15 @@ public class UpstreamRediscoveryService : BackgroundService
         foreach (var context in ContextsDueForDiscovery(contexts, lastByWan, DateTime.UtcNow, RediscoveryThreshold))
         {
             if (ct.IsCancellationRequested) return;
+            if (!CanBindForContext(context, slug))
+            {
+                _logger.LogWarning(
+                    "Skipping upstream discovery for WAN context '{Context}' ({Wan}) on site {Slug}: it binds to "
+                    + "interface {Interface}, and the assigned agent does not report source binding. Tracing anyway "
+                    + "would leave by the agent's own route and record another WAN's hops as this one's. Update the agent.",
+                    context.Name, context.WanInterface, slug, context.InterfaceName);
+                continue;
+            }
             try
             {
                 var tracer = _tracerRegistry.GetForContext(slug, context);
@@ -246,6 +258,32 @@ public class UpstreamRediscoveryService : BackgroundService
                     context.Name, context.WanInterface, slug);
             }
         }
+    }
+
+
+    /// <summary>
+    /// Whether this context's discovery can actually be bound to its WAN by the agent that would
+    /// run it.
+    /// <para>
+    /// Only contexts that bind PER PROBE need the capability - an interface name goes out as the
+    /// probe's source and the agent has to know what to do with it. A context whose agent sits
+    /// behind the WAN already (policy-routed by MAC, no interface named) needs no binding at all,
+    /// so any agent version traces it correctly.
+    /// </para>
+    /// <para>
+    /// The failure this prevents is silent: an agent too old to bind a traceroute runs it over its
+    /// own route and returns hops that look exactly like a successful bound trace, which then get
+    /// persisted as that WAN's upstream path. Skipping and saying so is the only honest option.
+    /// </para>
+    /// </summary>
+    private bool CanBindForContext(WanContext context, string slug)
+    {
+        if (string.IsNullOrEmpty(context.InterfaceName)) return true;
+        if (context.AgentId is not int agentId) return true;   // server-probed: the server binds
+        var connection = _tunnelRegistry.GetForSite(slug).FirstOrDefault(c => c.AgentId == agentId);
+        // Not connected: let the run start and fail on its own terms rather than blaming the agent
+        // version for an absence.
+        return connection == null || connection.SupportsSourceBind == true;
     }
 
     /// <summary>
