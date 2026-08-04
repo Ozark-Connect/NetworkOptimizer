@@ -287,6 +287,11 @@ public class AgentProbeResultSink
                 .AsNoTracking()
                 .Where(t => t.Enabled)
                 .ToListAsync(ct);
+            // Before anything reads a context's binding, give one back to any context that lost the
+            // chance to have one. Runs here because this is the push that follows an agent's hello,
+            // which is exactly when an upgraded agent first reports it can bind.
+            if (await HealUnboundGatewayContextsAsync(db, connection, ct))
+                _ = await db.SaveChangesAsync(ct);
             var contextsById = await db.WanContexts.AsNoTracking().ToDictionaryAsync(c => c.Id, ct);
 
             // An agent that owns a WAN context is there to measure that WAN and nothing else: it
@@ -446,6 +451,59 @@ public class AgentProbeResultSink
     /// Read from the site's WanProfiles because this path has no console to ask, and a WAN's name
     /// says nothing about its role. Null means unknown: callers must not read it as "not primary".
     /// </summary>
+    /// <summary>
+    /// Fills the bind interface for this agent's contexts that have none, when the agent runs on the
+    /// gateway and can bind.
+    /// <para>
+    /// The state is reachable without any mistake: save a vantage while the agent is too old to
+    /// offer a binding, then update the agent. The capability arrives, the empty configuration does
+    /// not change, and the probes go on leaving by the gateway's default route while their results
+    /// are filed under the context's WAN - a wrong number that looks exactly like a right one. A
+    /// policy-based route cannot rescue it either, because routing policy does not govern the
+    /// gateway's OWN egress; binding the interface is the only mechanism there is.
+    /// </para>
+    /// <para>
+    /// Only ever fills an empty binding, so it cannot overwrite a choice. The interface comes from
+    /// the WAN's persisted data path - the logical uplink, ppp0 on PPPoE rather than the physical
+    /// port - so it needs no console call and works while the console is unreachable.
+    /// </para>
+    /// </summary>
+    /// <returns>Whether anything changed and the caller should save.</returns>
+    private async Task<bool> HealUnboundGatewayContextsAsync(
+        NetworkOptimizerDbContext db, AgentTunnelConnection connection, CancellationToken ct)
+    {
+        if (connection.SupportsSourceBind != true) return false;
+        var unbound = await db.WanContexts
+            .Where(c => c.AgentId == connection.AgentId
+                && (c.InterfaceName == null || c.InterfaceName == "")
+                && (c.ProbeSourceIp == null || c.ProbeSourceIp == "")
+                && c.WanInterface != null && c.WanInterface != "")
+            .ToListAsync(ct);
+        if (unbound.Count == 0) return false;
+
+        // Asked only when there is something to heal: it can await a console round trip.
+        if (!await _onGatewayDetector.IsIpOnGatewayAsync(connection.SiteSlug, connection.LanIp, ct))
+            return false;
+
+        var profiles = await db.WanProfiles.AsNoTracking().ToListAsync(ct);
+        var healed = false;
+        foreach (var context in unbound)
+        {
+            var key = GatewayWanHelper.WanInterfaceKeyFromKey(context.WanInterface!);
+            var dataPath = profiles.FirstOrDefault(p =>
+                !string.IsNullOrEmpty(p.WanNetworkgroup)
+                && string.Equals(GatewayWanHelper.WanInterfaceKeyFromKey(p.WanNetworkgroup), key,
+                    StringComparison.OrdinalIgnoreCase))?.DataPathInterface;
+            if (string.IsNullOrEmpty(dataPath)) continue;
+            context.InterfaceName = dataPath;
+            healed = true;
+            _logger.LogInformation(
+                "WAN vantage '{Name}' had no binding; bound it to {Interface} for agent {Id} (site {Slug})",
+                context.Name, dataPath, connection.AgentId, connection.SiteSlug);
+        }
+        return healed;
+    }
+
     private static async Task<string?> ResolvePersistedPrimaryWanKeyAsync(
         NetworkOptimizerDbContext db, CancellationToken ct)
     {
