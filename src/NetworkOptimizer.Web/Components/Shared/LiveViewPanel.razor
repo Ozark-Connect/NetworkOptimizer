@@ -429,7 +429,7 @@ else
     {
         if (status is IspHealthStatus.NotConfigured or IspHealthStatus.NeedsDiscovery)
             return LiveWan.Selected is { IsPrimary: false, HasContext: false }
-                ? "/monitoring?tab=setup&contexts=1"
+                ? "/monitoring?tab=performance&contexts=1"
                 : $"/monitoring?tab=performance&discover=1{IspHealthWanQuery()}";
         return $"/monitoring?tab=isp-health{IspHealthWanQuery()}";
     }

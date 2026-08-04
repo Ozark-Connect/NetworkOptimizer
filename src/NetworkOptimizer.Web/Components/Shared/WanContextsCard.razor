@@ -41,8 +41,9 @@
         else if (_siteLoadBalances == false && !string.IsNullOrEmpty(_primaryWanLabel))
         {
             <p class="section-description">
-                Probes leave by @_primaryWanLabel unless a context sends them elsewhere. If it
-                fails over they follow the backup, still recorded as @_primaryWanLabel.
+                Probes leave by @_primaryWanLabel unless a context sends them elsewhere. If the WAN
+                fails over they follow the backup, and the latency and loss are still recorded
+                under @_primaryWanLabel.
             </p>
         }
 

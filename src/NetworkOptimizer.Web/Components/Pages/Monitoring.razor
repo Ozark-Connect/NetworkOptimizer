@@ -2301,7 +2301,7 @@
 
         // A WAN cannot be discovered before it has a context to be discovered through, so a link
         // can send the user there instead - same expand-and-highlight, different destination.
-        if (ContextsParam == "1" && _activeTab == "setup")
+        if (ContextsParam == "1" && _activeTab == "performance")
         {
             _forceExpandWanContexts = true;
             _scrollToWanContextsPending = true;
@@ -3252,6 +3252,37 @@
         public double FabricEgressBps { get; init; }
     }
 
+    /// <summary>
+    /// From a WAN globe on the map, which knows which WAN it is. A globe with no context yet is
+    /// sent to make one instead - discovery traces a secondary WAN through its context and cannot
+    /// run without it, the same rule the ISP Health tile follows.
+    /// </summary>
+    [JSInvokable]
+    public void NavigateToUpstreamDiscoveryForWan(string? wanInterface)
+    {
+        InvokeAsync(() =>
+        {
+            var key = string.IsNullOrWhiteSpace(wanInterface) ? null : wanInterface.Trim().ToLowerInvariant();
+            var wan = _wanContexts.FirstOrDefault(c => !string.IsNullOrEmpty(c.WanInterface)
+                && string.Equals(c.WanInterface, key, StringComparison.OrdinalIgnoreCase));
+            var isPrimary = key == null
+                || string.Equals(key, _primaryWanKey, StringComparison.OrdinalIgnoreCase);
+            if (!isPrimary && wan == null)
+            {
+                _activeTab = "performance";
+                _forceExpandWanContexts = true;
+                _scrollToWanContextsPending = true;
+                StateHasChanged();
+                return;
+            }
+            _activeTab = "performance";
+            _discoveryWanKey = isPrimary ? null : key;
+            _forceExpandUpstream = true;
+            _scrollToDiscoveryPending = true;
+            StateHasChanged();
+        });
+    }
+
     [JSInvokable]
     public void NavigateToUpstreamDiscovery()
     {
@@ -3279,7 +3310,7 @@
             // discovered however many times it is run - the context is the step that actually
             // comes first, and that is where the tile has to point.
             if (LiveWan.Selected is { IsPrimary: false, HasContext: false })
-                NavigationManager.NavigateTo("/monitoring?tab=setup&contexts=1");
+                NavigationManager.NavigateTo("/monitoring?tab=performance&contexts=1");
             else
                 NavigateToUpstreamDiscovery();
         }
@@ -4489,7 +4520,7 @@
             await ScrollToUpstreamDiscoveryAsync();
         }
 
-        if (_scrollToWanContextsPending && _activeTab == "setup")
+        if (_scrollToWanContextsPending && _activeTab == "performance")
         {
             _scrollToWanContextsPending = false;
             _forceExpandWanContexts = false;

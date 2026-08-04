@@ -29,7 +29,7 @@
                 {
                     <button class="time-btn @(string.Equals(w.Key, _selectedTracerWanKey, StringComparison.OrdinalIgnoreCase) ? "active" : "")"
                             @onclick="() => SelectTracerWanAsync(w.Key)" @onclick:stopPropagation
-                            data-tooltip="@(w.IsPrimary && _needsReview ? "Discovery review pending" : "Show this WAN's upstream discovery")" data-tooltip-hover-only>
+                            data-tooltip="@(w.IsPrimary && _needsReview ? "Discovery review pending" : null)" data-tooltip-hover-only>
                         @{
                             var wp = NetworkOptimizer.UniFi.GatewayWanHelper.SplitWanLabel(
                                 w.Label, NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey(w.Key));

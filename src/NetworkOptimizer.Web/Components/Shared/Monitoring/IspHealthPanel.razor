@@ -50,8 +50,7 @@
                 @foreach (var w in _wanOptions)
                 {
                     <button class="time-btn @(string.Equals(w.Key, _selectedWanKey, StringComparison.OrdinalIgnoreCase) ? "active" : "")"
-                            @onclick="() => SelectWanAsync(w.Key)" disabled="@(_refreshing || _windowComputing)"
-                            data-tooltip="Show this WAN's ISP Health report" data-tooltip-hover-only>@{
+                            @onclick="() => SelectWanAsync(w.Key)" disabled="@(_refreshing || _windowComputing)">@{
                                     var wp = NetworkOptimizer.UniFi.GatewayWanHelper.SplitWanLabel(
                                         w.Label, NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey(w.Key));
                                 }@(wp.Name ?? w.Label)@if (wp.WanToken != null && wp.Name != null)
@@ -146,7 +145,7 @@ else if (_report == null)
                 <div class="banner-actions">
                     @if (NeedsContextFirst)
                     {
-                        <button class="btn btn-sm btn-primary" @onclick="@(() => NavigationManager.NavigateTo("/monitoring?tab=setup&contexts=1"))">Add a WAN context</button>
+                        <button class="btn btn-sm btn-primary" @onclick="@(() => NavigationManager.NavigateTo("/monitoring?tab=performance&contexts=1"))">Add a WAN context</button>
                     }
                     else
                     {
