@@ -1813,7 +1813,11 @@
     private sealed record WanOption(string Key, string Label, bool IsPrimary);
     private List<WanOption> _wanOptions = new();
     private HashSet<string> _selectedWanKeys = new(StringComparer.OrdinalIgnoreCase);
-    private string _primaryWanKey = "wan";
+    // Seed only. WAN group names are arbitrary in UniFi Network and any of them can hold the
+    // primary role, so this is a guess that stands until LoadWanOptionsAsync asks which WAN
+    // actually holds it. The filter bar is hidden until those options load, so the guess is
+    // never what a user acts on.
+    private string _primaryWanKey = NetworkOptimizer.UniFi.GatewayWanHelper.DefaultWanKey;
     private bool _wanSelectionRestored;
     private string NpWanSetKey => SiteCtx.ScopeStorageKey("npWanSelection");
     private string SharedWanScopeKey => SiteCtx.ScopeStorageKey("monitoringWanScope");
@@ -1901,7 +1905,11 @@
                         ctx.Name, NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey(key), null, null),
                     IsPrimary: false));
         }
-        _primaryWanKey = options.FirstOrDefault(o => o.IsPrimary)?.Key ?? options.FirstOrDefault()?.Key ?? "wan";
+        // IsPrimary is the console's own answer about which WAN holds the role. The two fallbacks
+        // behind it are guesses for when it cannot say: the first enumerated WAN, then the
+        // conventional key. Both are wrong on a site whose primary is, say, WAN2 - they decide
+        // only which pill starts lit, and the next load with a reachable console corrects it.
+        _primaryWanKey = options.FirstOrDefault(o => o.IsPrimary)?.Key ?? options.FirstOrDefault()?.Key ?? NetworkOptimizer.UniFi.GatewayWanHelper.DefaultWanKey;
         _wanOptions = options;
         if (_selectedWanKeys.Count == 0)
             _selectedWanKeys.Add(_primaryWanKey);

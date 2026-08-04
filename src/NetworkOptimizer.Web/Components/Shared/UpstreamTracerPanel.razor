@@ -714,7 +714,11 @@
                 live?.FriendlyName ?? fallbackName,
                 NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey(key), null, null);
         }
-        var primaryKey = (liveWans.FirstOrDefault(w => w.IsPrimary)?.WanInterface ?? "wan").ToLowerInvariant();
+        // The console names the primary; the literal is the fallback for when it is unreachable.
+        // WAN group names carry no role information in UniFi Network, so that fallback is a guess
+        // and is wrong on a site whose primary is not the first group - it picks which WAN the
+        // panel opens on, and a reachable console corrects it on the next load.
+        var primaryKey = (liveWans.FirstOrDefault(w => w.IsPrimary)?.WanInterface ?? NetworkOptimizer.UniFi.GatewayWanHelper.DefaultWanKey).ToLowerInvariant();
         choices.Add(new TracerWanChoice(primaryKey, LabelFor(primaryKey, null), IsPrimary: true, Context: null));
         foreach (var ctx in contexts)
         {

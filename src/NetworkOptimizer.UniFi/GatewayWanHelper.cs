@@ -14,6 +14,28 @@ namespace NetworkOptimizer.UniFi;
 public static class GatewayWanHelper
 {
     /// <summary>
+    /// UniFi's interface key for the first WAN group, and the conventional stand-in for "the WAN"
+    /// on a site that has only ever had one.
+    /// <para>
+    /// This is UniFi's key space, not ours - it belongs here with the rest of the console's
+    /// conventions. Our own WAN-keyed columns (MonitoringTarget.WanInterface,
+    /// WanDiscoveryContext.WanInterface, WanContext.WanInterface) deliberately STORE that key
+    /// rather than inventing a parallel one, which is why storage-side fallbacks may reference
+    /// this constant. Normalize anything read from storage through
+    /// <see cref="WanInterfaceKeyFromKey"/> first: rows written before that normalization
+    /// existed can still say "wan1".
+    /// </para>
+    /// <para>
+    /// NOT a synonym for the primary WAN. Group names are arbitrary in UniFi Network and any
+    /// group can hold the primary role, so this is only ever a last-resort guess for when the
+    /// console cannot say which one does - it is wrong on a site whose primary is WAN2. Ask
+    /// UniFiConnectionService.ResolvePrimaryWanNetwork first, and where this value is used as a
+    /// fallback, say in a comment that it is a guess and what it costs when it misses.
+    /// </para>
+    /// </summary>
+    public const string DefaultWanKey = "wan";
+
+    /// <summary>
     /// UniFi network-group convention for a 1-based WAN index: wan1 → "WAN",
     /// wanN → "WANn".
     /// </summary>

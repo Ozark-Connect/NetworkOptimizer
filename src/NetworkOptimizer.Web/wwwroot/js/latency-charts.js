@@ -407,7 +407,9 @@ async function loadAndUpdate() {
 
     const annotations = buildInvestigateAnnotations();
     if (rttChart) rttChart.updateOptions({ annotations, stroke: { curve: 'smooth', width: 2, dashArray } }, false, false);
-    if (lossChart) lossChart.updateOptions({ annotations }, false, false);
+    // Same dashes as the RTT chart: twins of one host share its color, so the pattern is the only
+    // thing telling their WANs apart here too.
+    if (lossChart) lossChart.updateOptions({ annotations, stroke: { curve: 'smooth', width: 2, dashArray } }, false, false);
 
     updateChartVisibility();
 
