@@ -25,19 +25,17 @@
         <div class="expand-content">
     <div class="card-body">
         <p class="section-description">
-            Monitor a secondary WAN by giving its targets their own context. The primary WAN
-            needs no context - targets without one behave exactly as before. A context names the
-            WAN it measures and how its probes get there: bound to a source IP the gateway
-            policy-routes out that WAN, or run by an agent behind it. Latency points from a
-            context carry a <code>wan</code> tag, so each WAN's results stay separate.
+            Monitor another WAN by giving its targets their own context. A context names the WAN
+            and what probes it: an agent on the gateway reaches any WAN directly, or a separate
+            agent can be routed out that WAN in UniFi Network.
         </p>
 
         @if (_siteLoadBalances == true)
         {
             <p class="section-description">
-                This site load balances across WANs, so an unpinned probe source mixes them. Give
-                each WAN a context - an agent on the gateway, or a probe host with a policy-based
-                route.
+                This site load balances across WANs, so probes spread across them instead of
+                measuring one. Give each WAN a context - an agent on the gateway, or a separate
+                agent routed out that WAN.
             </p>
         }
         else if (_siteLoadBalances == false && !string.IsNullOrEmpty(_primaryWanLabel))
@@ -183,10 +181,11 @@
                     <p class="form-hint">
                         This agent reaches @WanLabelFor(_newWanInterface) only if the gateway routes it there. In UniFi
                         Network, go to Settings - Policy Table and add a Policy-Based Route with
-                        this WAN as the interface, the probe host's Client Device as the source,
-                        and Any as the destination. The source is matched by MAC, so the probe host
-                        has to be its own client device - a dedicated box, VM, or macvlan container,
-                        not a second IP on something already on the network.
+                        this WAN as the interface, this agent's Client Device as the source, and
+                        Any as the destination. The source is matched by MAC, so the agent needs an
+                        interface and MAC of its own - an LXC has one already, a VM or Docker
+                        container can be given one - not a second address on a host that's already
+                        on the network.
                     </p>
                 }
                 @if (!string.IsNullOrEmpty(_addError))
