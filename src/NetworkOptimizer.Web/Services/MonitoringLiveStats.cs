@@ -382,15 +382,20 @@ public class MonitoringLiveStats
         bool isPrimary = false)
     {
         var targets = await GetIspTransitTargetsAsync(ct);
-        if (!string.IsNullOrEmpty(wanInterface))
-        {
-            var key = GatewayWanHelper.WanInterfaceKeyFromKey(wanInterface!);
-            targets = targets.Where(t => string.IsNullOrEmpty(t.WanInterface)
-                ? isPrimary
-                : string.Equals(GatewayWanHelper.WanInterfaceKeyFromKey(t.WanInterface!), key,
-                    StringComparison.OrdinalIgnoreCase))
-                .ToList();
-        }
+        // No WAN named means the primary, not every WAN. A chart showing one WAN asks for it by
+        // omitting the parameter, and skipping the filter entirely averaged in the other WANs'
+        // targets - a speed test on a secondary WAN then appeared as a latency and loss spike on
+        // the primary's chart, from readings that were never on its path. Unchanged on a
+        // single-WAN site, where every target is the primary's already.
+        var key = string.IsNullOrEmpty(wanInterface)
+            ? GatewayWanHelper.DefaultWanKey
+            : GatewayWanHelper.WanInterfaceKeyFromKey(wanInterface!);
+        var primaryScope = isPrimary || string.IsNullOrEmpty(wanInterface);
+        targets = targets.Where(t => string.IsNullOrEmpty(t.WanInterface)
+            ? primaryScope
+            : string.Equals(GatewayWanHelper.WanInterfaceKeyFromKey(t.WanInterface!), key,
+                StringComparison.OrdinalIgnoreCase))
+            .ToList();
 
         var ispRtts = new List<double>();
         var ispLosses = new List<double>();

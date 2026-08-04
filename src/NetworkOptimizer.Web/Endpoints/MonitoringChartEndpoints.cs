@@ -228,9 +228,18 @@ public static class MonitoringChartEndpoints
             // being charted, or a secondary WAN's history is drawn with the primary's latency -
             // the same borrowing the live tick did, just arriving as history instead.
             var targets = await liveStats.GetIspTransitTargetsAsync(ct);
-            if (!string.IsNullOrEmpty(wan))
+            // Points are scoped as well as targets. Selecting the right target ids is not enough on
+            // its own: one host reachable from two WANs is probed under each, and a row that has
+            // moved between contexts keeps its older points under the tag they were written with -
+            // so a read by id alone returns another WAN's readings too, which is a speed test on one
+            // WAN showing up as a latency spike on another's chart. Same scope the ISP Health
+            // reports use, built by the same helper.
+            // Same rule as the live tick: no WAN named means the primary, never every WAN.
+            MonitoringInfluxClient.LatencyWanScope? latencyScope = null;
             {
-                var wanKey = NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(wan!);
+                var wanKey = string.IsNullOrEmpty(wan)
+                    ? NetworkOptimizer.UniFi.GatewayWanHelper.DefaultWanKey
+                    : NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(wan!);
                 var wanIsPrimary = string.Equals(wanKey,
                     NetworkOptimizer.UniFi.GatewayWanHelper.DefaultWanKey, StringComparison.OrdinalIgnoreCase);
                 targets = targets.Where(t => string.IsNullOrEmpty(t.WanInterface)
@@ -238,12 +247,23 @@ public static class MonitoringChartEndpoints
                     : string.Equals(NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(t.WanInterface!),
                         wanKey, StringComparison.OrdinalIgnoreCase))
                     .ToList();
+                try
+                {
+                    await using var scopeDb = siteDb.CreateForSite(siteContext.Slug, siteContext.IsDefault);
+                    var contexts = await scopeDb.WanContexts.AsNoTracking().ToListAsync(ct);
+                    latencyScope = NetworkOptimizer.Web.Services.Monitoring.IspHealth.IspHealthService
+                        .BuildWanScope(contexts, wanKey, wanIsPrimary);
+                }
+                catch
+                {
+                    // Unreadable contexts: fall back to the id-only read rather than an empty chart.
+                }
             }
             var targetIds = targets.Select(t => t.TargetId).ToList();
             // No targets on this WAN means no latency history for it - an empty query would read
             // as the site's, so it is skipped and the series stays empty.
             var rttTask = targetIds.Count > 0
-                ? influx.QueryMeanIspTransitLatencyAsync(queryFrom, queryTo, targetIds, ct: ct)
+                ? influx.QueryMeanIspTransitLatencyAsync(queryFrom, queryTo, targetIds, wanScope: latencyScope, ct: ct)
                 : Task.FromResult<IReadOnlyList<MonitoringInfluxClient.LatencyPoint>>(Array.Empty<MonitoringInfluxClient.LatencyPoint>());
 
             await Task.WhenAll(wanTask, rttTask);

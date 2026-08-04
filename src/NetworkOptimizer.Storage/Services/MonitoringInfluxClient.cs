@@ -1972,11 +1972,18 @@ from(bucket: ""{_bucket}"")
     /// intervals), then averages within each target_type, then averages the two category
     /// means - the same weighting as /api/monitoring/live-stats, so the WAN live chart
     /// doesn't jump when its buffer swaps between history and live samples.</summary>
+    /// <param name="wanScope">
+    /// Which WAN's points count. Filtering by target id alone is not enough: a host reachable from
+    /// two WANs is probed under each, and a row that has changed context keeps its older points
+    /// under the tag they were written with - so one id can hold more than one WAN's readings, and
+    /// an unscoped read draws another WAN's loss on this one's chart.
+    /// </param>
     public async Task<IReadOnlyList<LatencyPoint>> QueryMeanIspTransitLatencyAsync(
         DateTime from,
         DateTime to,
         IReadOnlyList<string>? enabledTargetIds = null,
         TimeSpan? aggregateWindow = null,
+        LatencyWanScope? wanScope = null,
         CancellationToken ct = default)
     {
         if (!IsConfigured) await ReconfigureAsync(ct);
@@ -2001,7 +2008,7 @@ from(bucket: ""{_bucket}"")
 base = from(bucket: ""{_bucket}"")
   |> range(start: {ToFluxInstant(queryFrom)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""latency"")
-  |> filter(fn: (r) => r.target_type == ""accessisp"" or r.target_type == ""transit""){targetFilter}
+  |> filter(fn: (r) => r.target_type == ""accessisp"" or r.target_type == ""transit""){targetFilter}{BuildWanScopeFilter(wanScope)}
 
 rtt = base
   |> filter(fn: (r) => r._field == ""rtt_avg_ms"")
