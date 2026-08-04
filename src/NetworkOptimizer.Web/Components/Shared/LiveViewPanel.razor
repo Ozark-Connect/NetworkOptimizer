@@ -283,7 +283,6 @@ else
     protected override async Task OnInitializedAsync()
     {
         LiveWan.OnChanged = OnLiveWanChangedAsync;
-        _ = ResolveWanCompareHintAsync();
         await LoadDataAsync();
         _refreshTimer = new System.Threading.Timer(async _ =>
         {
@@ -311,6 +310,8 @@ else
         // Live WAN tile scope: separate per-site key, restored once interop is reachable.
         if (LiveWan.HasChoice)
             await LiveWan.RestoreAsync();
+
+        await EnsureWanCompareHintAsync();
         if (!_ready) return;
 
         if (MapMode != "off" && (!_mapMounted || _mountedMode != MapMode))
@@ -438,15 +439,24 @@ else
 
     // The modifier that adds a WAN to the comparison set, named for the reader's own keyboard.
     private bool _showWanCompareHint;
+    private bool _wanCompareHintResolved;
     private string _wanCompareHint = "Ctrl-click to compare side by side";
 
     /// <summary>
-    /// Whether the compare gesture still needs saying, and the platform's word for its modifier.
-    /// Asked once per visit: the count is an allowance of occasions the user could have read it,
-    /// not of renders.
+    /// Settles the compare hint the first time a WAN bar is actually on screen: whether the user
+    /// is still owed it, and the platform's word for the modifier.
+    /// <para>
+    /// Gated on a bar being visible, not on the page loading. The allowance counts occasions the
+    /// user could have read the hint, so resolving it while no bar is rendered would spend a
+    /// showing on nothing - and it used to hang off the latency chart's mount, which meant it
+    /// never ran at all for someone sitting on Live View.
+    /// </para>
     /// </summary>
-    private async Task ResolveWanCompareHintAsync()
+    private async Task EnsureWanCompareHintAsync()
     {
+        if (_wanCompareHintResolved || !LiveWan.HasChoice) return;
+        _wanCompareHintResolved = true;
+
         try
         {
             if (await JS.InvokeAsync<bool>("eval", "/Mac|iPhone|iPad|iPod/.test(navigator.userAgent)"))
@@ -457,6 +467,7 @@ else
         _showWanCompareHint = await UiHints.ShouldShowAsync(UiHintKeys.WanFilterCompare);
         if (_showWanCompareHint)
             await UiHints.RecordShownAsync(UiHintKeys.WanFilterCompare);
+        StateHasChanged();
     }
 
     private IspHealthSnapshot CurrentIspHealth()

@@ -1878,6 +1878,12 @@
     // names it - telling a Mac user to Ctrl-click is telling them to open a context menu. Ctrl
     // until the browser says otherwise, so the hint is never blank on the first paint.
     private bool _showWanCompareHint;
+    private bool _wanCompareHintResolved;
+
+    /// <summary>A WAN bar is rendered on the tab in view - either the live one or the chart filter.</summary>
+    private bool WanBarOnScreen =>
+        (_activeTab == "live" && LiveWan.HasChoice)
+        || (_activeTab == "performance" && _multiWanUiVisible && _wanOptions.Count > 1);
     private string _wanCompareHint = "Ctrl-click to compare side by side";
     private string NpWanSetKey => SiteCtx.ScopeStorageKey("npWanSelection");
     private string SharedWanScopeKey => SiteCtx.ScopeStorageKey("monitoringWanScope");
@@ -2005,12 +2011,20 @@
 
     /// <summary>Restores the persisted WAN selection once localStorage is reachable.</summary>
     /// <summary>
-    /// Whether the compare gesture still needs saying, and the platform's word for its modifier.
-    /// Asked once per visit: the count is an allowance of occasions the user could have read it,
-    /// not of renders.
+    /// Settles the compare hint the first time a WAN bar is actually on screen: whether the user
+    /// is still owed it, and the platform's word for the modifier.
+    /// <para>
+    /// Gated on a bar being visible, not on the page loading. The allowance counts occasions the
+    /// user could have read the hint, so resolving it while no bar is rendered would spend a
+    /// showing on nothing - and it used to hang off the latency chart's mount, which meant it
+    /// never ran at all for someone sitting on Live View.
+    /// </para>
     /// </summary>
-    private async Task ResolveWanCompareHintAsync()
+    private async Task EnsureWanCompareHintAsync()
     {
+        if (_wanCompareHintResolved || !WanBarOnScreen) return;
+        _wanCompareHintResolved = true;
+
         try
         {
             if (await JS.InvokeAsync<bool>("eval", "/Mac|iPhone|iPad|iPod/.test(navigator.userAgent)"))
@@ -2021,6 +2035,7 @@
         _showWanCompareHint = await UiHints.ShouldShowAsync(UiHintKeys.WanFilterCompare);
         if (_showWanCompareHint)
             await UiHints.RecordShownAsync(UiHintKeys.WanFilterCompare);
+        StateHasChanged();
     }
 
     private async Task RestoreWanSelectionAsync()
@@ -4214,6 +4229,10 @@
         // Live WAN tile scope: separate per-site key, restored once interop is reachable.
         if (_multiWanUiVisible)
             await LiveWan.RestoreAsync();
+
+        // After render, so the tab and the WAN options have settled and the check reflects what
+        // is actually on screen.
+        await EnsureWanCompareHintAsync();
         // Pending jump from the ISP Health disable hint: once the Network Performance tab's Latency
         // targets card has mounted, expand + highlight the target, then clear so it fires once.
         if (_pendingLatencyJumpId is int jumpId && _latencyTargetsCard != null)
@@ -4439,7 +4458,6 @@
                 // call: pushing it afterwards races the module import, and a remount would
                 // otherwise come back unfiltered. A single-WAN site passes null and the module
                 // renders exactly as it always has.
-                await ResolveWanCompareHintAsync();
                 await RestoreWanSelectionAsync();
                 await JS.InvokeVoidAsync("eval",
                     $"(async () => {{ const m = await import('{chartsUrl}'); window.__latencyCharts = m; await m.mount('latency-charts-container', {WanScopeJson()}); {postMount} }})();");
