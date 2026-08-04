@@ -187,6 +187,18 @@ public sealed class LiveWanScope
     /// not behave differently for the same gesture: a plain click solos, a modifier click builds
     /// a set, and the set never empties.
     /// </summary>
+    /// <summary>Whether every WAN is on screen, which is what the All pill means.</summary>
+    public bool AllSelected => Options.Count > 1 && Options.All(o => _selected.Contains(o.Key));
+
+    /// <summary>Puts every WAN on screen at once - the All pill.</summary>
+    public async Task SelectAllAsync(bool persist = true)
+    {
+        if (Options.Count == 0) return;
+        _selected.Clear();
+        foreach (var option in Options) _selected.Add(option.Key);
+        await PersistAndNotifyAsync(persist);
+    }
+
     public async Task SelectAsync(string key, bool persist = true, bool toggle = false)
     {
         var option = Options.FirstOrDefault(o => string.Equals(o.Key, key, StringComparison.OrdinalIgnoreCase));

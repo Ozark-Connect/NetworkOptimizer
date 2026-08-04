@@ -292,6 +292,8 @@
                                 }@(wp.Name ?? w.Label)@if (wp.WanToken != null && wp.Name != null)
                                 {<span class="wan-pill-token">@wp.WanToken</span>}</button>
                     }
+                    <button class="time-btn @(LiveWan.AllSelected ? "active" : "")"
+                            @onclick="() => LiveWan.SelectAllAsync()">All</button>
                     @if (LiveWanIsNarrowed)
                     {
                         <WanFilterResetButton OnReset="ResetLiveWanAsync" />
@@ -516,6 +518,8 @@
                             }@(wp.Name ?? w.Label)@if (wp.WanToken != null && wp.Name != null)
                             {<span class="wan-pill-token">@wp.WanToken</span>}</button>
                         }
+                        <button class="time-btn @(AllWansSelected ? "active" : "")"
+                                @onclick="SelectAllWansAsync">All</button>
                         @if (WanFilterIsNarrowed)
                         {
                             <WanFilterResetButton OnReset="ResetWanFilterAsync" />
@@ -1967,6 +1971,16 @@
     /// and offering to clear it would read as offering to undo their choice of WAN.
     /// </summary>
     private bool WanFilterIsNarrowed => _multiWanUiVisible && _selectedWanKeys.Count > 1;
+
+    /// <summary>Whether every WAN is on screen, which is what the All pill means.</summary>
+    private bool AllWansSelected =>
+        _wanOptions.Count > 1 && _wanOptions.All(w => _selectedWanKeys.Contains(w.Key));
+
+    private async Task SelectAllWansAsync()
+    {
+        _selectedWanKeys = new HashSet<string>(_wanOptions.Select(w => w.Key), StringComparer.OrdinalIgnoreCase);
+        await ApplyWanSelectionAsync(persist: true);
+    }
 
     private async Task ResetWanFilterAsync()
     {

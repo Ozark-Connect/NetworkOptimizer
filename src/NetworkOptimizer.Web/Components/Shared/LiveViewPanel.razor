@@ -69,6 +69,8 @@ else
                                 }@(wp.Name ?? w.Label)@if (wp.WanToken != null && wp.Name != null)
                                 {<span class="wan-pill-token">@wp.WanToken</span>}</button>
                     }
+                    <button class="time-btn @(LiveWan.AllSelected ? "active" : "")"
+                            @onclick="() => LiveWan.SelectAllAsync()">All</button>
                     @if (LiveWanIsNarrowed)
                     {
                         <WanFilterResetButton OnReset="ResetLiveWanAsync" />
