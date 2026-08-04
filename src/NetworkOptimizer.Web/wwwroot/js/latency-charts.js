@@ -50,7 +50,7 @@ let lastFetchData = null;
 let savedState = null;
 // Per-WAN scope, set by Blazor (which owns the WAN pill bar and its visibility gate).
 // null = no scoping at all: single-WAN sites never reach this code path and render
-// exactly as before. Shape: { primaryKey, selected: [wanKey...], labels: {key: label} };
+// exactly as before. Shape: { primaryKey, selected: [wanKey...], tokens: {key: 'WAN1'} };
 // selecting every key is comparison mode (per-host color kept, per-WAN dash pattern).
 let wanScope = null;
 // Dash patterns by WAN order: primary solid, then visibly distinct patterns per extra WAN.
@@ -74,8 +74,8 @@ function filterTargetsToWanScope(targets) {
 function wanDisplayName(t) {
     if (!wanComparisonActive()) return t.name;
     const key = effectiveWanKey(t);
-    const label = wanScope.labels?.[key] || key.toUpperCase();
-    return `${t.name} (${label})`;
+    const token = wanScope.tokens?.[key] || key.toUpperCase();
+    return `${t.name} (${token})`;
 }
 
 function wanDashFor(t) {
@@ -642,17 +642,20 @@ function getEffectiveTo() {
 // initialWanScope arrives with the mount rather than in a call behind it: this module is imported
 // asynchronously, so a separate push can land before the import resolves and be dropped silently.
 // Taking it here also survives the unmount/remount of leaving the tab and returning.
-export async function mount(elId, initialWanScope) {
+export async function mount(elId, initialWanScope, initialCategory) {
     containerId = elId;
     const container = document.getElementById(elId);
     if (!container) return;
 
     setWanScope(initialWanScope);
 
-    // Seed the category from whichever filter button the server rendered active (LAN by
-    // default, ISP when the site has no LAN targets), so the initial load matches the UI.
-    const activeCategoryBtn = container.querySelector('[data-category].active');
-    if (activeCategoryBtn) currentCategory = activeCategoryBtn.dataset.category;
+    // The opening category comes from the server, which knows whether the WANs on screen have any
+    // LAN targets. From here the module owns it: the buttons carry no server-rendered active class,
+    // so a re-render of the header cannot put a stale one back while this still holds another.
+    if (initialCategory) currentCategory = initialCategory;
+    container.querySelectorAll('[data-category]').forEach(b => {
+        b.classList.toggle('active', b.dataset.category === currentCategory);
+    });
 
     const rttEl = container.querySelector('.latency-rtt-chart');
     const lossEl = container.querySelector('.latency-loss-chart');

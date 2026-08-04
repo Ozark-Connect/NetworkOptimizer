@@ -523,13 +523,12 @@
                     </div>
                 }
                 <div class="chart-header-controls">
-                    @* Default the category filter to ISP when there are no enabled LAN (Fabric)
-                       targets, so a monitoring-only/agent site opens on a populated chart. mount()
-                       in latency-charts.js seeds currentCategory from whichever button is active. *@
-                    @{ var hasLanTargets = HasTargetsInWanScope(MonitoringTargetType.Fabric); }
+                    @* No active class here: the chart module owns which category is current, and
+                       Blazor re-rendering this header for any other reason would otherwise assert a
+                       stale one over it. The opening choice is passed to mount() instead. *@
                     <div class="time-range-selector">
-                        <button class="time-btn @(hasLanTargets ? "active" : "")" data-category="Fabric">LAN</button>
-                        <button class="time-btn @(hasLanTargets ? "" : "active")" data-category="AccessIsp">ISP</button>
+                        <button class="time-btn" data-category="Fabric">LAN</button>
+                        <button class="time-btn" data-category="AccessIsp">ISP</button>
                         <button class="time-btn" data-category="Transit">Transit</button>
                         <button class="time-btn" data-category="InternetService">Internet</button>
                         <button class="time-btn" data-category="Custom">Custom</button>
@@ -2026,6 +2025,14 @@
     /// leaving the tab and coming back has to re-state it or the chart would quietly render every
     /// WAN while the filter row still showed one selected.
     /// </summary>
+    /// <summary>
+    /// The category the chart opens on: ISP when the WANs on screen have no LAN targets, so a
+    /// monitoring-only or secondary-WAN view opens on a populated chart rather than an empty one.
+    /// Read once at mount - after that the chart owns the category, including the user's own picks.
+    /// </summary>
+    private string DefaultChartCategory() =>
+        HasTargetsInWanScope(MonitoringTargetType.Fabric) ? "Fabric" : "AccessIsp";
+
     private string WanScopeJson()
     {
         var scope = !_multiWanUiVisible || _wanOptions.Count <= 1
@@ -2034,7 +2041,13 @@
             {
                 primaryKey = _primaryWanKey,
                 selected = _selectedWanKeys.ToArray(),
-                labels = _wanOptions.ToDictionary(w => w.Key.ToLowerInvariant(), w => w.Label),
+                // The bare WAN token, not the connection's name: a series is already named by its
+                // target, and appending the ISP's name to every one of them is length without
+                // information - the token is what tells the two apart.
+                tokens = _wanOptions.ToDictionary(
+                    w => w.Key.ToLowerInvariant(),
+                    w => NetworkOptimizer.UniFi.GatewayWanHelper.FormatWanLabel(
+                        null, NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey(w.Key), null, null)),
                 // So the chart can leave the LAN category when the WANs now on screen have no LAN
                 // targets. Only the chart knows which category it is currently showing.
                 hasLan = HasTargetsInWanScope(MonitoringTargetType.Fabric),
@@ -4721,7 +4734,7 @@
                 // renders exactly as it always has.
                 await RestoreWanSelectionAsync();
                 await JS.InvokeVoidAsync("eval",
-                    $"(async () => {{ const m = await import('{chartsUrl}'); window.__latencyCharts = m; await m.mount('latency-charts-container', {WanScopeJson()}); {postMount} }})();");
+                    $"(async () => {{ const m = await import('{chartsUrl}'); window.__latencyCharts = m; await m.mount('latency-charts-container', {WanScopeJson()}, '{DefaultChartCategory()}'); {postMount} }})();");
             }
             catch (Exception ex) { _latencyChartsMounted = false; Logger.LogDebug(ex, "Latency charts mount failed; will retry on next render"); }
         }
