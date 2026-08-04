@@ -802,17 +802,9 @@ else
         return $"{v:0} bps";
     }
 
-    private static string FormatRtt(double? ms)
-    {
-        if (!ms.HasValue) return "-";
-        return $"{ms.Value:0.##} ms";
-    }
+    private static string FormatRtt(double? ms) => NetworkOptimizer.Web.Services.Monitoring.MonitoringStatFormat.Rtt(ms);
 
-    private static string FormatLoss(double percent)
-    {
-        if (percent <= 0) return "0%";
-        return $"{percent:0.#}%";
-    }
+    private static string FormatLoss(double percent) => NetworkOptimizer.Web.Services.Monitoring.MonitoringStatFormat.Loss(percent);
 
     private static string FormatPercent(double? val)
     {

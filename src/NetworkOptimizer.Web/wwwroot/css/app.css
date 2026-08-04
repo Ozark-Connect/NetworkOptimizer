@@ -988,6 +988,7 @@ a.stat-card-link:active {
     min-width: 0;
 }
 .monitoring-stat-card .stat-value {
+    font-variant-numeric: tabular-nums;
     font-size: 1.3rem;
     font-weight: 600;
     color: var(--text-primary);
@@ -9460,13 +9461,14 @@ a.path-hop.hop-clickable:hover {
 
 .stat-value-stacked {
     display: grid;
-    grid-template-columns: auto auto;
+    grid-template-columns: 2.6rem 4.6rem;
     justify-content: center;
     align-items: baseline;
     column-gap: 0.35rem;
     row-gap: 0.1rem;
     font-size: 0.95rem;
     line-height: 1.35;
+    font-variant-numeric: tabular-nums;
 }
 
 .stat-stack-row {
