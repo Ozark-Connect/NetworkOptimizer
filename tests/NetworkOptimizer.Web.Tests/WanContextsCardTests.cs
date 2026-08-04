@@ -110,6 +110,53 @@ public class WanContextsCardTests
     }
 
     [Theory]
+    [InlineData("wan2")]
+    [InlineData("WAN2")]
+    [InlineData("wan")]
+    [InlineData("wan1")]
+    public void Validate_NameThatIsAnotherWansKey_IsRejected(string name)
+    {
+        // The context's name is written as an Influx wan tag alongside the stable wan key, so a
+        // context on wan3 named "wan2" would file its points under WAN2's report and swallow that
+        // WAN's measurements.
+        var error = WanContextsCard.ValidateContext(
+            name: name, wanInterface: "wan3", sourceIp: "192.0.2.10",
+            agentId: null, interfaceName: "", otherNames: NoOtherContexts);
+
+        error.Should().Be("A name that looks like a WAN key must match the context's own WAN.");
+    }
+
+    [Theory]
+    [InlineData("wan2", "wan2")]
+    [InlineData("WAN2", "wan2")]
+    [InlineData("wan", "wan")]
+    [InlineData("wan1", "wan")]   // the wan1 alias IS the primary's key, not a rival WAN
+    [InlineData("wan", "wan1")]
+    public void Validate_NameThatIsItsOwnWansKey_IsAccepted(string name, string wanInterface)
+    {
+        var error = WanContextsCard.ValidateContext(
+            name: name, wanInterface: wanInterface, sourceIp: "192.0.2.10",
+            agentId: null, interfaceName: "", otherNames: NoOtherContexts);
+
+        error.Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData("starlink")]
+    [InlineData("wan backup")]
+    [InlineData("wan2-backup")]
+    [InlineData("lte-wan2")]
+    public void Validate_NameThatMerelyMentionsAWan_IsAccepted(string name)
+    {
+        // Only a name that IS a bare wan key can be mistaken for one in the tag chain.
+        var error = WanContextsCard.ValidateContext(
+            name: name, wanInterface: "wan3", sourceIp: "192.0.2.10",
+            agentId: null, interfaceName: "", otherNames: NoOtherContexts);
+
+        error.Should().BeNull();
+    }
+
+    [Theory]
     [InlineData("wan", 1)]
     [InlineData("wan1", 1)]
     [InlineData("wan2", 2)]
