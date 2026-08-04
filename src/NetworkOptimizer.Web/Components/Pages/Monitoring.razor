@@ -4632,15 +4632,15 @@
         if (_multiWanUiVisible)
             await LiveWan.RestoreAsync();
 
-        // A deep link naming a WAN (?wan=, from a speed test result) solos it, AFTER the restore
-        // above so it beats the stored selection rather than being overwritten by it. Once only:
-        // the link chooses where the user arrives, not where they have to stay. A key no option
-        // matches - a single-WAN site being sent one - is a no-op inside SelectAsync.
-        if (_multiWanUiVisible && !_initialWanApplied && _activeTab == "live"
-            && LiveWan.HasChoice && !string.IsNullOrWhiteSpace(WanParam))
+        // A deep link naming a WAN (?wan=, from a speed test result or an ISP Health tile) solos
+        // it, AFTER the restore above so it beats the stored selection rather than being
+        // overwritten by it. Both tabs read this one selection, so both honor the link. Once only:
+        // the link chooses where the user arrives, not where they have to stay. A single-WAN site
+        // resolves nothing and keeps what it had.
+        if (_multiWanUiVisible && !_initialWanApplied && LiveWan.HasChoice
+            && (_activeTab == "live" || _activeTab == "isp-health"))
         {
-            _initialWanApplied = true;
-            await LiveWan.SelectAsync(WanParam.Trim().ToLowerInvariant());
+            _initialWanApplied = await LiveWan.SelectFromLinkAsync(WanParam);
         }
 
         // After render, so the tab and the WAN options have settled and the check reflects what

@@ -30,6 +30,7 @@ public sealed class LiveWanScope
 
     private bool _loaded;
     private bool _restored;
+    private bool _pinned;
 
     public LiveWanScope(
         MonitoringPathView pathView,
@@ -199,6 +200,43 @@ public sealed class LiveWanScope
         await PersistAndNotifyAsync(persist);
     }
 
+    /// <summary>
+    /// The option key a link's <c>?wan=</c> names, or null when no WAN answers to it.
+    /// <para>
+    /// Matched on the WAN index rather than the string, because the same WAN is written three ways
+    /// depending on who is writing: "wan" from port_table.network_name (which is where a primary's
+    /// key comes from), "wan1" as a gateway device JSON key, and "WAN" as a network group - the
+    /// form a speed test result stores. A link built from any of them means the one WAN, so the
+    /// primary arriving as "wan" against an option keyed "wan1" has to resolve, not silently miss.
+    /// </para>
+    /// </summary>
+    public string? ResolveOptionKey(string? wanKey)
+    {
+        var index = GatewayWanHelper.WanIndexFromKey(wanKey?.Trim());
+        return index <= 0
+            ? null
+            : Options.FirstOrDefault(o => GatewayWanHelper.WanIndexFromKey(o.Key) == index)?.Key;
+    }
+
+    /// <summary>
+    /// Shows the WAN a link named, and takes the selection out of stored state's hands for this
+    /// visit. Returns false when no WAN answers to the key, leaving the selection untouched.
+    /// <para>
+    /// The pin is what makes it stick. Blazor starts a render pass without waiting for the last
+    /// OnAfterRenderAsync to finish, so <see cref="RestoreAsync"/> can still be waiting on its
+    /// localStorage read when a later pass applies the link - and then complete and overwrite it.
+    /// That raced: the same link kept or dropped the WAN depending on which finished first.
+    /// </para>
+    /// </summary>
+    public async Task<bool> SelectFromLinkAsync(string? wanKey)
+    {
+        if (ResolveOptionKey(wanKey) is not { } key) return false;
+        _pinned = true;
+        _restored = true;
+        await SelectAsync(key);
+        return true;
+    }
+
     public async Task SelectAsync(string key, bool persist = true, bool toggle = false)
     {
         var option = Options.FirstOrDefault(o => string.Equals(o.Key, key, StringComparison.OrdinalIgnoreCase));
@@ -243,6 +281,8 @@ public sealed class LiveWanScope
                 .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
                 .Where(k => Options.Any(o => string.Equals(o.Key, k, StringComparison.OrdinalIgnoreCase)))
                 .ToList();
+            // A link chose while this read was in flight - it outranks what was stored.
+            if (_pinned) return;
             // Every stored WAN gone (renamed, removed) leaves the default rather than nothing.
             if (keys.Count > 0)
             {
