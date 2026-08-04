@@ -3675,15 +3675,34 @@
         // APs are excluded because their radio interfaces over-count beacons/retries.
         // The live path only calls RecordFabricSum for these device types, so APs
         // have FabricIngressBps == null and contribute 0 to the live total.)
+        // Which devices count is a question about their TYPE, and it used to be asked of the live
+        // stats instead - a device was included only if it had already reported a fabric sum. That
+        // reads correctly on a site whose data is flowing and fails in the two places it matters:
+        // an OFFLINE site has no live stats at all, so playback found no devices and the tiles read
+        // "-" forever; and after a server restart the in-memory stats start empty, so an agent site
+        // showed nothing until each device's next SNMP poll refilled them - the "eventually catches
+        // up" part. Device type is known from the SNMP status list either way.
+        //
+        // The types match what the live path records for exactly (MonitoringCollectionAgent's
+        // RecordFabricSum): switches, gateways and cellular modems. APs are excluded because their
+        // radio interfaces over-count beacons and retries.
+        var fabricTypes = _snmpDeviceStatuses
+            .Where(d => d.DeviceType == DeviceType.Switch
+                || d.DeviceType == DeviceType.Gateway
+                || d.DeviceType == DeviceType.CellularModem)
+            .Select(d => d.Mac)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
         var fabricMacs = _targets
             .Where(t => t.TargetType == MonitoringTargetType.Fabric && !string.IsNullOrEmpty(t.DeviceMac))
             .Select(t => t.DeviceMac!)
             .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Where(mac =>
-            {
-                var stats = LiveStats.GetForDevice(mac);
-                return stats?.FabricIngressBps != null || stats?.FabricEgressBps != null;
-            })
+            .Where(mac => fabricTypes.Count > 0
+                // No status list yet (it loads with the page): fall back to the old live-stats
+                // test rather than querying every fabric target including the APs.
+                ? fabricTypes.Contains(mac)
+                : LiveStats.GetForDevice(mac) is { } st
+                    && (st.FabricIngressBps != null || st.FabricEgressBps != null))
             .ToList();
         if (fabricMacs.Count > 0)
         {
@@ -3750,10 +3769,13 @@
     /// </summary>
     private (double? download, double? upload) GetWanRates()
     {
-        if (_historicSnapshot is not null && !LiveWan.IsComparing && LiveWan.Selected is { IsPrimary: true })
-            return (_historicSnapshot.WanDownloadBps, _historicSnapshot.WanUploadBps);
+        // The snapshot recorded the primary's series, so it answers for the primary and for a site
+        // with no WAN picker at all - where Selected is null and playback worked long before any
+        // of this. Only a deliberate non-primary selection has nothing to show.
         if (_historicSnapshot is not null)
-            return (null, null);   // the snapshot recorded the primary's series only
+            return !LiveWan.IsComparing && LiveWan.Selected is null or { IsPrimary: true }
+                ? (_historicSnapshot.WanDownloadBps, _historicSnapshot.WanUploadBps)
+                : (null, null);
 
         if (_gatewayMac == null) return (null, null);
 
