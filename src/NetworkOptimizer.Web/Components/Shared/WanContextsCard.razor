@@ -109,7 +109,7 @@
                 <div class="wc-form-grid">
                     <div class="form-group">
                         <label class="form-label">Name</label>
-                        <input type="text" class="form-control" @bind="_newName" placeholder="backup-wan" />
+                        <input type="text" class="form-control" @bind="_newName" placeholder="@NamePlaceholder()" />
                     </div>
                     <div class="form-group">
                         <label class="form-label">WAN</label>
@@ -506,6 +506,30 @@
     /// Label for a stored WAN key, preferring the live WAN's friendly name and falling back to the
     /// group alone so a context whose WAN is down (or predates the column) still reads sensibly.
     /// </summary>
+    /// <summary>
+    /// The name to use when the user leaves the field empty: the WAN itself, in the parenthetical
+    /// form used everywhere else ("Acme Fiber (WAN2)"), or the bare token for a WAN with no name of
+    /// its own. Naming a context is a chore with one sensible answer nearly every time - a WAN is
+    /// what a context is for - so the field asks rather than demands.
+    /// <para>
+    /// Empty until a WAN is chosen, so nothing is suggested before there is anything to suggest.
+    /// A suggestion that collides with an existing context fails the same duplicate-name check a
+    /// typed one would, which is the honest outcome: two contexts on one WAN need telling apart.
+    /// </para>
+    /// </summary>
+    private string SuggestedName()
+    {
+        if (string.IsNullOrWhiteSpace(_newWanInterface)) return "";
+        return GatewayWanHelper.FormatWanLabelInProse(
+            WanLabelFor(_newWanInterface), GatewayWanHelper.WanIndexFromKey(_newWanInterface));
+    }
+
+    private string NamePlaceholder()
+    {
+        var suggested = SuggestedName();
+        return string.IsNullOrEmpty(suggested) ? "backup-wan" : suggested;
+    }
+
     private string WanLabelFor(string? wanInterface)
     {
         if (string.IsNullOrEmpty(wanInterface)) return "-";
@@ -571,7 +595,10 @@
     private async Task SaveContextAsync()
     {
         _addError = null;
+        // An empty field takes the suggestion the placeholder was showing, so what the user saw
+        // before saving is what gets saved.
         var name = _newName.Trim();
+        if (name.Length == 0) name = SuggestedName();
         var sourceIp = _newSourceIp.Trim();
         var wanInterface = _newWanInterface.Trim();
         var interfaceName = _newInterfaceName.Trim();

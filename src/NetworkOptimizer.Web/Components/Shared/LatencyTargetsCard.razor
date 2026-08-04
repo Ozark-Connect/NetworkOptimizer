@@ -172,37 +172,37 @@
         }
         else if (_showAddTarget)
         {
-            <div class="add-target-form" style="margin-top: 1rem; padding: 1rem; background: var(--bg-tertiary); border-radius: 8px;">
-                <div style="display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: end;">
-                    <div>
-                        <label class="form-label" style="margin-bottom: 0.25rem; font-size: 0.8rem;">Name</label>
-                        <input type="text" class="custom-range-input" @bind="_newTargetName" placeholder="My ISP gateway" style="width: 160px;" />
+            <div class="lt-add-form">
+                <div class="lt-form-grid">
+                    <div class="form-group lt-form-wide">
+                        <label class="form-label">Name</label>
+                        <input type="text" class="form-control" @bind="_newTargetName" placeholder="My ISP gateway" />
                     </div>
-                    <div>
-                        <label class="form-label" style="margin-bottom: 0.25rem; font-size: 0.8rem;">Address</label>
-                        <input type="text" class="custom-range-input" @bind="_newTargetAddress" placeholder="192.168.1.1 or hostname" style="width: 180px;" />
+                    <div class="form-group lt-form-wide">
+                        <label class="form-label">Address</label>
+                        <input type="text" class="form-control" @bind="_newTargetAddress" placeholder="192.168.1.1 or hostname" />
                     </div>
-                    <div>
-                        <label class="form-label" style="margin-bottom: 0.25rem; font-size: 0.8rem;">Type</label>
-                        <select class="cadence-select" style="width: 130px;" @bind="_newTargetType">
+                    <div class="form-group">
+                        <label class="form-label">Type</label>
+                        <select class="form-control" @bind="_newTargetType">
                             <option value="Custom">Custom</option>
                             <option value="InternetService">Internet</option>
                             <option value="AccessIsp">ISP</option>
                             <option value="Transit">Transit</option>
                         </select>
                     </div>
-                    <div>
-                        <label class="form-label" style="margin-bottom: 0.25rem; font-size: 0.8rem;">Probe</label>
-                        <select class="cadence-select" style="width: 100px;" @bind="_newTargetProbeMode">
+                    <div class="form-group">
+                        <label class="form-label">Probe</label>
+                        <select class="form-control" @bind="_newTargetProbeMode">
                             <option value="Icmp">ICMP</option>
                             <option value="Tcp">TCP</option>
                         </select>
                     </div>
                     @if (_newTargetProbeMode == "Tcp")
                     {
-                        <div>
-                            <label class="form-label" style="margin-bottom: 0.25rem; font-size: 0.8rem;">Port</label>
-                            <input type="number" class="custom-range-input" @bind="_newTargetPort" placeholder="443" style="width: 70px;" />
+                        <div class="form-group">
+                            <label class="form-label">Port</label>
+                            <input type="number" class="form-control" @bind="_newTargetPort" placeholder="443" />
                         </div>
                     }
                     @* Only where there is a choice to make: with no contexts defined every target is
@@ -210,9 +210,9 @@
                        user should never be asked. Same rule the WAN column above follows. *@
                     @if (WanContexts.Count > 0)
                     {
-                        <div>
-                            <label class="form-label" style="margin-bottom: 0.25rem; font-size: 0.8rem;">WAN</label>
-                            <select class="cadence-select" style="width: 130px;" @bind="_newTargetWanContextId">
+                        <div class="form-group">
+                            <label class="form-label">WAN</label>
+                            <select class="form-control" @bind="_newTargetWanContextId">
                                 <option value="">Primary</option>
                                 @foreach (var wc in WanContexts)
                                 {
@@ -221,9 +221,9 @@
                             </select>
                         </div>
                     }
-                    <div>
-                        <label class="form-label" style="margin-bottom: 0.25rem; font-size: 0.8rem;">Interval</label>
-                        <select class="cadence-select" style="width: 80px;" @bind="_newTargetInterval">
+                    <div class="form-group">
+                        <label class="form-label">Interval</label>
+                        <select class="form-control" @bind="_newTargetInterval">
                             <option value="5">5 s</option>
                             <option value="10">10 s</option>
                             <option value="15">15 s</option>
@@ -231,18 +231,20 @@
                             <option value="60">60 s</option>
                         </select>
                     </div>
-                    <div style="display: flex; gap: 0.5rem;">
-                        <SiteOperatorOnly>
-                            <button class="btn btn-sm btn-primary" @onclick="AddTargetAsync" disabled="@_addingTarget">
+                </div>
+                <div class="lt-form-actions">
+                    <SiteOperatorOnly>
+                        <button class="btn btn-sm btn-primary" @onclick="AddTargetAsync" disabled="@_addingTarget">
                             @if (_addingTarget) { <span class="spinner-sm"></span> } else { <span>Add</span> }
                         </button>
-                        </SiteOperatorOnly>
-                        <button class="btn btn-sm btn-secondary" @onclick="() => _showAddTarget = false">Cancel</button>
-                    </div>
+                    </SiteOperatorOnly>
+                    @* Tertiary, not secondary: the panel is already on --bg-tertiary, so a secondary
+                       button is the same color as what it sits on and reads as a flat label. *@
+                    <button class="btn btn-sm btn-tertiary" @onclick="() => _showAddTarget = false">Cancel</button>
                 </div>
                 @if (!string.IsNullOrEmpty(_addTargetError))
                 {
-                    <p style="color: var(--danger-color); margin-top: 0.5rem; font-size: 0.85rem;">@_addTargetError</p>
+                    <p class="form-error">@_addTargetError</p>
                 }
             </div>
         }
@@ -262,6 +264,59 @@
         </div>
     </div>
 </div>
+
+<style>
+    .lt-add-form {
+        margin-top: 1rem;
+        padding: 1rem 1.25rem 1.25rem;
+        background: var(--bg-tertiary);
+        border: 1px solid var(--border-color);
+        border-radius: var(--border-radius-lg);
+    }
+
+    /* Four narrow columns rather than the two a shorter form would use: Type, Probe, Port, WAN and
+       Interval are all short pickers, and two-across would make a quick add three rows taller than
+       it needs to be. Name and Address take the full first row - they hold the longest values. */
+    .lt-form-grid {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 1rem;
+    }
+
+    .lt-form-grid .form-group {
+        margin-bottom: 0;
+    }
+
+    .lt-form-wide {
+        grid-column: span 2;
+    }
+
+    .lt-form-actions {
+        display: flex;
+        gap: 0.5rem;
+        margin-top: 1rem;
+    }
+
+    @@media (max-width: 1024px) {
+        .lt-form-grid {
+            grid-template-columns: repeat(2, 1fr);
+        }
+    }
+
+    @@media (max-width: 768px) {
+        .lt-form-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .lt-form-wide {
+            grid-column: span 1;
+        }
+
+        .lt-form-actions .btn {
+            flex: 1;
+        }
+    }
+</style>
 
 @code {
     [Parameter, EditorRequired]
