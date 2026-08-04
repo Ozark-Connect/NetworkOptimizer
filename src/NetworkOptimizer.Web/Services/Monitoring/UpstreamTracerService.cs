@@ -1296,6 +1296,8 @@ public class UpstreamTracerService
                                ?? (accessAsn.HasValue && accessAsn.Value == wanIpAsn?.Asn ? wanIpAsn.Name : null);
         var orgName = CleanAsnName(accessAsnRawName);
         _accessAsnName = string.IsNullOrEmpty(orgName) ? null : orgName;
+        // The nearest hop we resolved - what the WAN-side vendor evidence can speak for.
+        var firstMileHopNumber = _accessHopsResolved.Count > 0 ? _accessHopsResolved.Min(h => h.HopNumber) : -1;
         State.AccessHops = _accessHopsResolved.Select(h => new AccessHopCandidate
         {
             TargetId = $"access-{NormalizeMacForId(h.Address)}",
@@ -1310,7 +1312,8 @@ public class UpstreamTracerService
             AsnName = h.Asn?.Name ?? (h.Asn == null ? accessAsnRawName : null),
             Role = borderIps.Contains(h.Address)
                 ? UpstreamRole.Border
-                : InferAccessRole(h, State.AccessTechnology, State.WanNeighborOuiVendor),
+                : InferAccessRole(h, State.AccessTechnology, State.WanNeighborOuiVendor,
+                    h.HopNumber == firstMileHopNumber),
             HopNumber = h.HopNumber,
             RespondedTo = h.RespondedTo,
             Enabled = true
@@ -2181,7 +2184,14 @@ public class UpstreamTracerService
     /// the BNG label off that, and the user is left picking only the medium PPPoE rides - the
     /// two are independent facts and both are then available to score on.
     /// </summary>
-    private static UpstreamRole InferAccessRole(AttributedHop hop, AccessTechnology tech, string? ouiVendor)
+    /// <param name="isFirstMile">
+    /// Whether this is the nearest access hop we found. The vendor evidence describes the box on
+    /// the other end of the WAN and nothing beyond it, so it may only name that one. By nearest
+    /// rather than by TTL: the first-mile device is hop 1 from a gateway vantage and hop 2 or 3
+    /// from a LAN one, and the same box should not change role with the vantage.
+    /// </param>
+    private static UpstreamRole InferAccessRole(
+        AttributedHop hop, AccessTechnology tech, string? ouiVendor, bool isFirstMile)
     {
         var vendor = ouiVendor?.ToLowerInvariant() ?? string.Empty;
         // Known OLT/PON vendors. Adtran for tier-2/3 US telcos, Ubiquiti for UISP-Fiber
@@ -2192,11 +2202,12 @@ public class UpstreamTracerService
         var isCmtsVendor = vendor.Contains("arris") || vendor.Contains("commscope") || vendor.Contains("casa")
                            || vendor.Contains("cadant") || vendor.Contains("ubr");
 
-        if ((tech == AccessTechnology.Gpon || tech == AccessTechnology.XgsPon) && isOltVendor && hop.HopNumber == 1)
+        if (!isFirstMile) return UpstreamRole.Aggregation;
+        if ((tech == AccessTechnology.Gpon || tech == AccessTechnology.XgsPon) && isOltVendor)
             return UpstreamRole.Bng;
         if (tech == AccessTechnology.Docsis && (isCmtsVendor || hop.HopNumber == 1))
             return UpstreamRole.Cmts;
-        if (tech == AccessTechnology.PppoE && hop.HopNumber == 1)
+        if (tech == AccessTechnology.PppoE)
             return UpstreamRole.Bng;
         return UpstreamRole.Aggregation;
     }
