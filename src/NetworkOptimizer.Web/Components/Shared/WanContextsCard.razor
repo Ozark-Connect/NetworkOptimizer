@@ -214,6 +214,14 @@
     [Parameter]
     public EventCallback OnChanged { get; set; }
 
+    /// <summary>
+    /// Opens the card when a link sent the user here. A WAN with no context cannot be discovered
+    /// at all, so ISP Health points at this card - and arriving to find it collapsed would hide
+    /// the very thing the link was about.
+    /// </summary>
+    [Parameter]
+    public bool ForceExpand { get; set; }
+
     private bool _collapsed = true;
     private bool _showForm;
     private bool _saving;
@@ -244,6 +252,11 @@
     private NetworkOptimizerDbContext CreateDb() => SiteDb.CreateForSite(SiteCtx.Slug, SiteCtx.IsDefault);
 
     private void ToggleCollapse() => _collapsed = !_collapsed;
+
+    protected override void OnParametersSet()
+    {
+        if (ForceExpand) _collapsed = false;
+    }
 
     protected override async Task OnInitializedAsync()
     {

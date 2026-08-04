@@ -622,7 +622,7 @@
 
         <!-- Upstream tracer wizard -->
         <div id="upstream-discovery" style="margin-top: 1.5rem;">
-            <UpstreamTracerPanel ForceExpand="_forceExpandUpstream" OnSaved="StateHasChanged" />
+            <UpstreamTracerPanel ForceExpand="_forceExpandUpstream" SelectWanKey="@_discoveryWanKey" OnSaved="StateHasChanged" />
         </div>
 
         <div id="flaky-targets" style="margin-top: 1.5rem;">
@@ -635,8 +635,8 @@
 
         @if (_multiWanUiVisible)
         {
-            <div style="margin-top: 1.5rem;">
-                <WanContextsCard WanContexts="_wanContexts" OnChanged="OnTargetsChanged" />
+            <div id="wan-contexts" style="margin-top: 1.5rem;">
+                <WanContextsCard WanContexts="_wanContexts" ForceExpand="_forceExpandWanContexts" OnChanged="OnTargetsChanged" />
             </div>
         }
     }
@@ -1771,6 +1771,14 @@
     [SupplyParameterFromQuery(Name = "discover")]
     public string? DiscoverParam { get; set; }
 
+    /// <summary>Opens and highlights the Multi-WAN contexts card - what a WAN needs before it can be discovered.</summary>
+    [SupplyParameterFromQuery(Name = "contexts")]
+    public string? ContextsParam { get; set; }
+
+    /// <summary>A WAN named by a link, so a WAN-scoped destination opens on the WAN the link meant.</summary>
+    [SupplyParameterFromQuery(Name = "wan")]
+    public string? WanParam { get; set; }
+
     [SupplyParameterFromQuery(Name = "investigate")]
     public string? InvestigateParam { get; set; }
 
@@ -2125,6 +2133,11 @@
     private PersistingComponentStateSubscription _tabVisPersistSub;
     private const string TabVisStateKey = "monitoring-tab-visibility";
     private bool _forceExpandUpstream;
+    // The WAN a discovery link named, so the panel opens on that WAN's discovery rather than the
+    // primary's - a link from a WAN-scoped report already knows which one it meant.
+    private string? _discoveryWanKey;
+    private bool _forceExpandWanContexts;
+    private bool _scrollToWanContextsPending;
 
     // "Results ready" banner for the scheduled upstream re-discovery, surfaced on the
     // Live View and Network Performance tabs. Driven by MonitoringSettings.UpstreamDiscoveryNeedsReview;
@@ -2268,6 +2281,15 @@
         {
             _forceExpandUpstream = true;
             _scrollToDiscoveryPending = true;
+            _discoveryWanKey = string.IsNullOrWhiteSpace(WanParam) ? null : WanParam.Trim().ToLowerInvariant();
+        }
+
+        // A WAN cannot be discovered before it has a context to be discovered through, so a link
+        // can send the user there instead - same expand-and-highlight, different destination.
+        if (ContextsParam == "1" && _activeTab == "setup")
+        {
+            _forceExpandWanContexts = true;
+            _scrollToWanContextsPending = true;
         }
 
         // Deep link from the ISP Health loss factors straight into investigation
@@ -3251,6 +3273,13 @@
     /// </summary>
     private string IspHealthWanQuery() =>
         LiveWan.Selected is { IsPrimary: false } w ? $"&wan={Uri.EscapeDataString(w.Key)}" : "";
+
+    /// <summary>Same land-and-highlight as the discovery link, for the card a WAN needs first.</summary>
+    private async Task ScrollToWanContextsAsync()
+    {
+        await Task.Delay(500);
+        await JS.InvokeVoidAsync("noHighlightTarget", "wan-contexts");
+    }
 
     private async Task ScrollToUpstreamDiscoveryAsync()
     {
@@ -4432,6 +4461,13 @@
             _scrollToDiscoveryPending = false;
             _forceExpandUpstream = false;
             await ScrollToUpstreamDiscoveryAsync();
+        }
+
+        if (_scrollToWanContextsPending && _activeTab == "setup")
+        {
+            _scrollToWanContextsPending = false;
+            _forceExpandWanContexts = false;
+            await ScrollToWanContextsAsync();
         }
 
         if (_scrollToFlakyPending && _activeTab == "performance")
