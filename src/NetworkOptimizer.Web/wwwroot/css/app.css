@@ -209,7 +209,6 @@ a:hover {
     color: var(--text-primary);
 }
 
-/* A limitation worth reading before the command, not after it. */
 .agent-install .agent-flavor-note {
     margin-left: 0.4rem;
     font-size: 0.75rem;
@@ -944,9 +943,6 @@ a.stat-card-link:active {
     flex: 1 1 120px;
     min-width: 100px;
     text-align: center;
-    /* Cards stretch to the tallest in their row, and a row can now contain a card carrying a
-       value per WAN. Centering each card's own stack keeps the single-value ones reading level
-       with their taller neighbours instead of hanging from the top of an over-sized box. */
     display: flex;
     flex-direction: column;
     justify-content: center;
@@ -9431,15 +9427,6 @@ a.path-hop.hop-clickable:hover {
     }
 }
 
-/* The connection's name rides along with the WAN token but is not what identifies the pill, so
-   it sits back until the pill is the one selected. */
-/* Comparison mode puts one row per WAN inside a stat card. Smaller than a single figure so
-   several fit the card's height, and each row names its WAN - averaging them instead would let a
-   healthy link and a failing one read as one middling number. */
-/* One grid for the whole stack, not one flex row per WAN, so the tokens share a column and the
-   figures share a column - centering each row on its own leaves the numbers ragged and makes two
-   WANs harder to compare than they should be. The rows are display: contents so their cells join
-   the outer grid while the row still carries the danger color down by inheritance. */
 .stat-value-stacked {
     display: grid;
     grid-template-columns: auto auto;
@@ -9479,10 +9466,6 @@ a.path-hop.hop-clickable:hover {
     max-width: 100%;
 }
 
-/* On the Monitoring Live View tab the bar sits directly on the page background, which is the
-   same colour it uses itself - so it reads as no control at all. The dashboard panel sits on a
-   lighter surface and already has the contrast, which is why this is scoped rather than applied
-   to every standalone bar. */
 .wan-selector-on-page {
     background: var(--bg-tertiary);
 }
@@ -17113,10 +17096,6 @@ tr.stats-row-filtered {
         padding: 0 12px;
     }
 
-    /* The toolbar gained a WAN selector on multi-WAN sites. The controls that were here before
-       fit one row on a phone and still do - it is the WAN bar that does not, so it takes a row of
-       its own rather than making everything wrap around it. Single-WAN sites never render it and
-       see the toolbar exactly as before. */
     .isp-health-toolbar {
         flex-wrap: wrap;
         row-gap: 0.5rem;

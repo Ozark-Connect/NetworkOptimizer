@@ -56,8 +56,7 @@ else
         }
             @if (LiveWan.HasChoice)
             {
-                @* Live WAN scope, own per-site key (liveWanScope) so watching a WAN here never
-                   moves the analysis selectors. Hidden on single-WAN sites. *@
+                @* Separate scope from the analysis selectors on purpose - watching a WAN here must not move them. *@
                 <div class="time-range-selector wan-selector wan-selector-standalone @(LiveWan.Options.Count > 3 ? "wan-selector-many" : "")"
                      data-tooltip="@(_showWanCompareHint ? _wanCompareHint : null)" data-tooltip-hover-only style="margin-bottom: 0.5rem;">
                     @foreach (var w in LiveWan.Options)
@@ -84,8 +83,6 @@ else
             @{ var ispHealth = CurrentIspHealth(); }
             <div class="monitoring-stat-card clickable-stat-card isp-health-tile @ispHealth.TileCssClass" data-tooltip="@ispHealth.TileTooltip" data-tooltip-hover-only @onclick="@(() => NavigationManager.NavigateTo(IspHealthTileHref(ispHealth.Status)))">
                 <div class="stat-value isp-tile-score">@ispHealth.TileText</div>
-                @* Comparing shows several WANs' throughput, but a score belongs to ONE WAN -
-                   so it says which, or it reads as a score for everything on screen. *@
                 <div class="stat-label">@IspHealthTileLabel()</div>
                 @if (ispHealth.Status == IspHealthStatus.Ready && ispHealth.Score.HasValue)
                 {

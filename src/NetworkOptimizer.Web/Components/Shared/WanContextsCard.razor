@@ -129,13 +129,15 @@
                     <div class="form-group">
                         <label class="form-label">
                             Assigned agent
-                            @* The icon IS the link, so it must not also open on click - hover-only,
-                               or the click navigates out from under a popper that is left parented
-                               to the body with nothing to position against. *@
-                            <a href="/settings?tab=multisite#multi-site"
-                               class="tooltip-icon tooltip-icon-sm tooltip-icon-contrast"
-                               data-tooltip="Agents enroll under Settings - Multi-Site; the ones connected to this site appear here."
-                               data-tooltip-hover-only>?</a>
+                            @* Hover-only because the icon navigates - see App.razor's tooltip init. *@
+                            <span class="tooltip-wrapper">
+                                <a href="/settings?tab=multisite#multi-site"
+                                   class="tooltip-icon tooltip-icon-sm tooltip-icon-contrast"
+                                   data-tooltip-hover-only>?</a>
+                                <span class="tooltip-content">
+                                    Agents enroll under <a href="/settings?tab=multisite#multi-site">Settings - Multi-Site</a>; the ones connected to this site appear here.
+                                </span>
+                            </span>
                         </label>
                         <select class="form-control" value="@_newAgentId" @onchange="OnAgentSelected">
                             <option value="">None (probe locally)</option>
@@ -145,9 +147,6 @@
                             }
                         </select>
                     </div>
-                    @* No agent: the server binds it. An agent that can bind but is not on the
-                       gateway: the AGENT binds it, which is how one multi-homed agent box covers
-                       several WANs instead of needing one box per WAN. *@
                     @if (string.IsNullOrEmpty(_newAgentId) || SelectedAgentCanBindSource)
                     {
                         <div class="form-group">
@@ -175,8 +174,6 @@
                             else { <span>Add</span> }
                         </button>
                     </SiteAdminOnly>
-                    @* Tertiary, not secondary: the panel is already on --bg-tertiary, so a secondary
-                       button is the same color as what it sits on and reads as a flat label. *@
                     <button class="btn btn-sm btn-tertiary" @onclick="CancelForm">Cancel</button>
                 </div>
                 @if (!SelectedAgentCanBindSource)

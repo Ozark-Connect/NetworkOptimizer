@@ -210,9 +210,6 @@
                             <input type="number" class="form-control" @bind="_newTargetPort" placeholder="443" />
                         </div>
                     }
-                    @* Only where there is a choice to make: with no contexts defined every target is
-                       probed over the primary WAN, and a select with one option is a question the
-                       user should never be asked. Same rule the WAN column above follows. *@
                     @if (WanContexts.Count > 0)
                     {
                         <div class="form-group">
@@ -243,8 +240,6 @@
                             @if (_addingTarget) { <span class="spinner-sm"></span> } else { <span>Add</span> }
                         </button>
                     </SiteOperatorOnly>
-                    @* Tertiary, not secondary: the panel is already on --bg-tertiary, so a secondary
-                       button is the same color as what it sits on and reads as a flat label. *@
                     <button class="btn btn-sm btn-tertiary" @onclick="() => _showAddTarget = false">Cancel</button>
                 </div>
                 @if (!string.IsNullOrEmpty(_addTargetError))
@@ -274,9 +269,6 @@
 </div>
 
 <style>
-    /* The description and its action share a line: the button is the thing you came to the card
-       to press, and putting it up here means it is reachable without scrolling the whole target
-       table first. It does not shrink - a wrapped "+ Add Target" reads as two controls. */
     .lt-intro {
         display: flex;
         align-items: flex-start;
@@ -287,8 +279,6 @@
         flex: 1;
     }
 
-    /* Run Probe sits left of Add target in both places, so Add target stays the control nearest
-       the form it opens. */
     .lt-actions {
         display: flex;
         gap: 0.5rem;
@@ -311,9 +301,6 @@
         border-radius: var(--border-radius-lg);
     }
 
-    /* Four narrow columns rather than the two a shorter form would use: Type, Probe, Port, WAN and
-       Interval are all short pickers, and two-across would make a quick add three rows taller than
-       it needs to be. Name and Address take the full first row - they hold the longest values. */
     .lt-form-grid {
         display: grid;
         grid-template-columns: repeat(4, 1fr);

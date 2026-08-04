@@ -3379,9 +3379,6 @@
 
             @if (!_multiSiteEnabled)
             {
-                @* Outside AdminOnly: someone who cannot flip this still needs to know what to ask
-                   for. A single-site install has no reason to read a multi-site switch as theirs,
-                   and agent enrollment - including the main site's own agent - lives behind it. *@
                 <p class="section-description">
                     Multi-WAN monitoring needs this on as well: the agent that probes a second WAN
                     enrolls through here, including on the main site.
@@ -3526,8 +3523,6 @@
                                                                 <div class="site-agent-row">
                                                                     <span class="status-dot @(TunnelRegistry.IsAgentLive(agent) ? "online" : "offline")"></span>
                                                                     <span>@agent.Name</span>
-                                                                    @* Which agent is doing the site's collection is derived, not configured, so
-                                                                       show it rather than leaving operators to infer it from behavior. *@
                                                                     @if (_collectorAgentIds.TryGetValue(site.Slug, out var collectorId) && collectorId == agent.Id)
                                                                     {
                                                                         <span class="status-badge status-active"

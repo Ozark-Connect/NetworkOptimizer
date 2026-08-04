@@ -280,8 +280,7 @@
 
             @if (LiveWan.HasChoice)
             {
-                @* Live WAN scope, own per-site key (liveWanScope) so watching a WAN here never
-                   moves the analysis selectors. Hidden on single-WAN sites. *@
+                @* Separate scope from the analysis selectors on purpose - watching a WAN here must not move them. *@
                 <div class="time-range-selector wan-selector wan-selector-standalone wan-selector-on-page @(LiveWan.Options.Count > 3 ? "wan-selector-many" : "")"
                      data-tooltip="@(_showWanCompareHint ? _wanCompareHint : null)" data-tooltip-hover-only style="margin-bottom: 0.5rem;">
                     @foreach (var w in LiveWan.Options)
@@ -309,8 +308,6 @@
             @{ var ispHealth = CurrentIspHealth(); }
             <div class="monitoring-stat-card clickable-stat-card isp-health-tile @ispHealth.TileCssClass" data-tooltip="@ispHealth.TileTooltip" data-tooltip-hover-only @onclick="@(() => NavigateFromIspHealthTile(ispHealth.Status))">
                 <div class="stat-value isp-tile-score">@ispHealth.TileText</div>
-                @* Comparing shows several WANs' throughput, but a score belongs to ONE WAN -
-                   so it says which, or it reads as a score for everything on screen. *@
                 <div class="stat-label">@IspHealthTileLabel()</div>
                 @if (ispHealth.Status == IspHealthStatus.Ready && ispHealth.Score.HasValue)
                 {
@@ -509,9 +506,6 @@
                     @{ var hasLanTargets = HasUpstreamTargets(MonitoringTargetType.Fabric); }
                     @if (_multiWanUiVisible && _wanOptions.Count > 1)
                     {
-                        @* WAN filter: solo on click, Ctrl-click toggles into a comparison set.
-                           Rendered only under the multi-WAN gate - single-WAN sites see exactly
-                           the header they always have. *@
                         <div class="time-range-selector wan-selector @(_wanOptions.Count > 3 ? "wan-selector-many" : "")"
                              data-tooltip="@(_showWanCompareHint ? _wanCompareHint : null)" data-tooltip-hover-only>
                             @foreach (var w in _wanOptions)
