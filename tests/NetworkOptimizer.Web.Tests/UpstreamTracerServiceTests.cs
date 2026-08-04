@@ -1185,6 +1185,19 @@ public class CollectUnannouncedAccessAddressesTests
     }
 
     [Fact]
+    public void A_cgnat_first_hop_past_our_gateway_is_still_attributed()
+    {
+        // The hold-back is for RFC1918 only. On a CGNAT provider the first hop past the gateway is
+        // the carrier's own first-mile device, and it is usually the only one that answers at all.
+        var traces = new IReadOnlyList<string>[] { new[] { "192.168.1.1", "100.64.0.1", "192.0.2.60" } };
+        var map = Map(("192.0.2.60", Bell));
+        var gateways = new HashSet<string>(new[] { "192.168.1.1" }, StringComparer.OrdinalIgnoreCase);
+
+        UpstreamTracerService.CollectUnannouncedAccessAddresses(traces, map, Bell, gateways)
+            .Should().Equal("100.64.0.1");
+    }
+
+    [Fact]
     public void A_public_first_hop_past_our_gateway_is_still_attributed()
     {
         var traces = new IReadOnlyList<string>[] { new[] { "192.168.1.1", "198.51.100.9", "192.0.2.60" } };
