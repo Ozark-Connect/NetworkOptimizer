@@ -89,7 +89,7 @@
                             <td>
                                 @if (wc.AgentId is int rowAgentId)
                                 {
-                                    <span class="status-dot @(_connectedAgents.Contains(rowAgentId) ? "online" : "offline")"
+                                    <span class="status-dot wc-agent-dot @(_connectedAgents.Contains(rowAgentId) ? "online" : "offline")"
                                           data-tooltip="@(_connectedAgents.Contains(rowAgentId) ? "Connected" : "Not connected - this WAN is not being probed")"></span>
                                 }
                                 @AgentLabel(wc.AgentId)
@@ -289,6 +289,10 @@
         display: flex;
         gap: 0.5rem;
         margin-top: 1rem;
+    }
+
+    .wc-agent-dot {
+        margin-right: 0.4rem;
     }
 
     .wc-orphan-warn {
