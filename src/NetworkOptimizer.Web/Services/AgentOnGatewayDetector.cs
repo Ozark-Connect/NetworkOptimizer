@@ -50,6 +50,7 @@ public class AgentOnGatewayDetector
     // answer for an agent the site-level verdict never considered. Cached and refreshed on the same
     // TTL as the verdict itself; a site with 2+ agents has one gateway either way.
     private readonly ConcurrentDictionary<string, (IReadOnlyList<string> Ips, DateTime At)> _gatewayIps = new();
+    private readonly ConcurrentDictionary<string, (IReadOnlyList<string> Ips, DateTime At)> _gatewayHostIps = new();
     private readonly ConcurrentDictionary<string, Task> _gatewayIpRefreshing = new();
 
     public AgentOnGatewayDetector(
@@ -176,12 +177,16 @@ public class AgentOnGatewayDetector
     public async Task<string?> MatchGatewayAddressAsync(
         string siteSlug, IEnumerable<string> candidates, CancellationToken ct = default)
     {
-        foreach (var candidate in candidates)
-        {
-            if (string.IsNullOrWhiteSpace(candidate)) continue;
-            if (await IsIpOnGatewayAsync(siteSlug, candidate, ct)) return candidate.Trim();
-        }
-        return null;
+        var addresses = candidates.Where(c => !string.IsNullOrWhiteSpace(c)).Select(c => c.Trim()).ToList();
+        if (addresses.Count == 0) return null;
+
+        // Narrow set first, so a caller using the answer as an ADDRESS gets the one the site knows
+        // the gateway by rather than some other interface of the same box.
+        foreach (var candidate in addresses)
+            if (await IsIpOnGatewayAsync(siteSlug, candidate, ct)) return candidate;
+
+        if (!_gatewayHostIps.TryGetValue(siteSlug, out var host)) return null;
+        return addresses.FirstOrDefault(c => host.Ips.Contains(c, StringComparer.OrdinalIgnoreCase));
     }
 
     /// <summary>One in-flight gateway-address resolution per site; the result lands in the cache.</summary>
@@ -266,6 +271,21 @@ public class AgentOnGatewayDetector
             .Where(d => d.DeviceType == DeviceType.Gateway && !string.IsNullOrEmpty(d.Ip))
             .Select(d => d.Ip!)
             .ToList();
+
+        // Superset, cached alongside and never mixed into the set above: EVERY address the console
+        // reports the gateway holding, for the one question that needs it - is an agent running on
+        // this box. A gateway holds a dozen addresses and an agent that reports only one may name
+        // any of them, so the narrow set answers that question with a false no. Deliberately built
+        // from the gateway's own interfaces only; inform_ip and connect_request_ip are the console's
+        // loopback and would match every host alive, so they are not read at all.
+        var hostIps = new List<string>(gatewayIps);
+        foreach (var device in devices.Where(d => d.DeviceType == DeviceType.Gateway))
+        {
+            AddHostIp(hostIps, device.LanIp);
+            AddHostIp(hostIps, device.ConfigNetwork?.Ip);
+            foreach (var port in device.PortTable ?? new())
+                AddHostIp(hostIps, port.Ip);
+        }
         try
         {
             var lanIp = await Monitoring.SnmpDeviceRules.ResolveGatewayLanIpAsync(client, ct);
@@ -278,8 +298,27 @@ public class AgentOnGatewayDetector
         }
 
         if (gatewayIps.Count > 0)
+        {
             _gatewayIps[siteSlug] = (gatewayIps, DateTime.UtcNow);
+            foreach (var ip in gatewayIps) AddHostIp(hostIps, ip);
+            _gatewayHostIps[siteSlug] = (hostIps, DateTime.UtcNow);
+        }
         return gatewayIps;
+    }
+
+    /// <summary>
+    /// Adds an address to the host set when it can identify a host: not empty, not a duplicate, and
+    /// neither loopback nor link-local - the two an unrelated machine could hold as readily as this
+    /// one, where a match would mean nothing.
+    /// </summary>
+    private static void AddHostIp(List<string> hostIps, string? ip)
+    {
+        var value = ip?.Trim();
+        if (string.IsNullOrEmpty(value)) return;
+        if (!System.Net.IPAddress.TryParse(value, out var parsed)) return;
+        if (System.Net.IPAddress.IsLoopback(parsed)) return;
+        if (value.StartsWith("169.254.", StringComparison.Ordinal)) return;
+        if (!hostIps.Contains(value, StringComparer.OrdinalIgnoreCase)) hostIps.Add(value);
     }
 
     /// <summary>
