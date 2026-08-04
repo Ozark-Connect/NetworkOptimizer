@@ -4225,6 +4225,18 @@
     /// </summary>
     private (double? rtt, double loss) ScopedTargetStats(MonitoringTargetType type, bool meanAcrossTargets)
     {
+        // Playback answers from the snapshot, which is already scoped to the WAN in focus
+        // (BuildSnapshotWanScope). The per-WAN path below reads live stats only, so during
+        // playback it showed the live figures instead of the playhead's.
+        if (_historicSnapshot != null)
+        {
+            return type switch
+            {
+                MonitoringTargetType.AccessIsp => (_historicSnapshot.IspRttMs, _historicSnapshot.IspLossPercent),
+                MonitoringTargetType.Transit => (_historicSnapshot.TransitRttMs, _historicSnapshot.TransitLossPercent),
+                _ => (null, 0)
+            };
+        }
         var wan = LiveWan.Selected;
         if (wan == null) return meanAcrossTargets ? GetMeanTargetStats(type) : GetBestTargetStats(type);
 

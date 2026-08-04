@@ -997,7 +997,7 @@ export async function setWan(wanKey) {
     if (next === wanScope) return;
     wanScope = next;
     await loadHistory();
-    render();
+    updateChart();
 }
 
 export function pause() {
@@ -1026,7 +1026,9 @@ export function resume() {
 // hover, kicking the user out of tooltip inspection while the background timeline
 // advances - the exact behavior the hover-hold exists to preserve.
 function renderHistoric(at, force = false) {
-    if (!chart || buffer.length === 0) return;
+    // The empty-buffer hold is single-WAN only: comparison mode draws from compareBuffers
+    // and an empty single-WAN buffer must not abort its only paused draw.
+    if (!chart || (!comparing() && buffer.length === 0)) return;
     if (!force && Date.now() > clickRenderUntil && tooltipShowing()) return;
     const halfWindow = HISTORY_MINUTES * 60000 / 2;
     const maxTime = Math.min(at + halfWindow, Date.now());
@@ -1134,25 +1136,28 @@ export async function seekTime(isoTimestamp) {
     const maxTime = Math.min(at + halfWindow, Date.now());
     const from = new Date(maxTime - HISTORY_MINUTES * 60000);
     const to = new Date(maxTime);
-    try {
-        const resp = await fetch(historyUrl(from, to), { credentials: 'same-origin' });
-        if (!resp.ok) return;
-        const data = await resp.json();
-        if (gen !== seekGen) return; // a newer seek (or return to live) superseded this one
-        applySampleInterval(data);
-        buffer = (data.points || []).map(p => ({
-            time: new Date(p.time).getTime(),
-            download: p.downloadBps,
-            upload: p.uploadBps,
-            rtt: p.rttMs,
-            loss: p.lossPercent,
-        }));
-    } catch { return; }
+    // Comparison mode draws only from the per-WAN buffers, so the single-WAN fetch is
+    // skipped there - its failure returns were aborting the one draw a paused seek gets.
     if (comparing()) {
         await loadCompareHistory(at);
         if (gen !== seekGen) return;
+    } else {
+        try {
+            const resp = await fetch(historyUrl(from, to), { credentials: 'same-origin' });
+            if (!resp.ok) return;
+            const data = await resp.json();
+            if (gen !== seekGen) return; // a newer seek (or return to live) superseded this one
+            applySampleInterval(data);
+            buffer = (data.points || []).map(p => ({
+                time: new Date(p.time).getTime(),
+                download: p.downloadBps,
+                upload: p.uploadBps,
+                rtt: p.rttMs,
+                loss: p.lossPercent,
+            }));
+        } catch { return; }
+        if (buffer.length === 0) return;
     }
-    else if (buffer.length === 0) return;
     // Force the reposition draw only for a discrete/paused seek (deep-link, manual
     // scrub): it must land even under the cursor or it's never retried while paused.
     // During active playback leave it unforced so a hover still holds the redraw for
