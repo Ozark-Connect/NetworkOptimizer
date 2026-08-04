@@ -432,6 +432,15 @@ install_agent() {
     pct exec "$CT_ID" -- bash -c "apt-get update -qq && apt-get install -y -qq curl ca-certificates iputils-ping traceroute" >/dev/null
     msg_ok "Prerequisites installed"
 
+    # The agent's service runs as root, and root inside a container holds CAP_NET_RAW over its own
+    # user namespace, so ICMP already works. This is for the case where it does not: Debian 13
+    # dropped the CAP_NET_RAW file capability from ping entirely and relies on ICMP datagram
+    # sockets, which are gated by this sysctl - and systemd's stock value (0 2147483647) is
+    # REJECTED in an unprivileged container because the upper GID falls outside Proxmox's id map,
+    # leaving the kernel default of "no group may create these sockets". 65534 is the top of the
+    # mapped range. Costs nothing today and means a hardened or non-root agent still pings.
+    pct exec "$CT_ID" -- bash -c         "echo 'net.ipv4.ping_group_range = 0 65534' > /etc/sysctl.d/99-ping-group-range.conf &&          sysctl -q -w 'net.ipv4.ping_group_range=0 65534'" >/dev/null 2>&1 ||         msg_warn "Could not set ping_group_range - ICMP still works for the root-run agent"
+
     # The standard installer does the actual work, so a container agent and a
     # bare-metal agent are the same install with the same layout and the same
     # upgrade path.
