@@ -2053,6 +2053,22 @@
                 if (keys.Count > 0)
                     _selectedWanKeys = new HashSet<string>(keys, StringComparer.OrdinalIgnoreCase);
             }
+
+            // ISP Health and these charts are one investigation, so they share which WAN is in
+            // focus - that is what makes an ?investigate= jump land on the WAN you were reading
+            // about. This side was only ever WRITING that key, so arriving from a WAN2 report put
+            // you back on whatever set was last used here and quietly changed the subject.
+            //
+            // A comparison set that already contains the focused WAN is kept: you were comparing,
+            // and the WAN you came from is in the picture. One that does not is replaced by the
+            // focused WAN alone, because it does not show what you came to look at.
+            var shared = await JS.InvokeAsync<string?>("localStorage.getItem", SharedWanScopeKey);
+            var focus = string.IsNullOrEmpty(shared) ? _primaryWanKey : shared!.Trim().ToLowerInvariant();
+            if (_wanOptions.Any(o => o.Key.Equals(focus, StringComparison.OrdinalIgnoreCase))
+                && !_selectedWanKeys.Contains(focus))
+            {
+                _selectedWanKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { focus };
+            }
         }
         catch { }
         await ApplyWanSelectionAsync(persist: false);

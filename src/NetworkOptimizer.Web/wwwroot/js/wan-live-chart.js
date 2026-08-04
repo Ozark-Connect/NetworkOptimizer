@@ -284,19 +284,22 @@ function buildOpts() {
             axisBorder: { show: false },
             axisTicks: { show: false },
         },
+        // ONE axis for every throughput series while comparing - not one per series. A yaxis
+        // ARRAY is laid out entry by entry even where show is false, so 2N entries stole the plot
+        // width and pushed the chart past its container. A single object is also what lets the
+        // WANs be read against the same scale.
         yaxis: comparing()
-            ? compareWans.flatMap((w, i) => {
-                const owner = `${compareWans[0].label} down`;
-                const axis = { seriesName: owner, min: 0, max: v => v * 1.1 };
-                // Every throughput series shares the first axis, so the WANs are read against one
-                // scale - separate axes would make a slow link look as busy as a fast one.
-                return i === 0
-                    ? [{ ...axis, labels: { style: { colors: '#9ca3af', fontSize: '10px' },
-                            formatter: v => formatBps(v), offsetX: -10 },
-                          axisBorder: { show: false }, axisTicks: { show: false } },
-                       { ...axis, show: false }]
-                    : [{ ...axis, show: false }, { ...axis, show: false }];
-            })
+            ? {
+                min: 0,
+                max: v => v * 1.1,
+                labels: {
+                    style: { colors: '#9ca3af', fontSize: '10px' },
+                    formatter: v => formatBps(v),
+                    offsetX: -10,
+                },
+                axisBorder: { show: false },
+                axisTicks: { show: false },
+            }
             : [
             {
                 seriesName: 'Download',
@@ -337,8 +340,11 @@ function buildOpts() {
             borderColor: '#374151',
             strokeDashArray: 3,
             // Bottom padding holds the strip below the axis where the
-            // annotation time labels render.
-            padding: { left: 3, right: 0, top: -8, bottom: 12 },
+            // annotation time labels render. Comparing has no opposite RTT axis holding the right
+            // edge open, so it pads its own or the newest sample sits on the container's edge.
+            padding: comparing()
+                ? { left: 3, right: 12, top: -8, bottom: 12 }
+                : { left: 3, right: 0, top: -8, bottom: 12 },
             xaxis: { lines: { show: false } },
         },
         responsive: [{
@@ -347,13 +353,7 @@ function buildOpts() {
                 // One entry per series in BOTH modes: a mismatched length leaves ApexCharts
                 // holding axes for series that do not exist, and the plot escapes its container.
                 yaxis: comparing()
-                    ? compareWans.flatMap(() => {
-                        const owner = `${compareWans[0].label} down`;
-                        return [
-                            { seriesName: owner, show: false, min: 0, max: v => v * 1.1 },
-                            { seriesName: owner, show: false, min: 0, max: v => v * 1.1 },
-                        ];
-                    })
+                    ? { show: false, min: 0, max: v => v * 1.1 }
                     : [
                         { seriesName: 'Download', show: false, min: 0, max: v => v * 1.1 },
                         { seriesName: 'Download', show: false, min: 0, max: v => v * 1.1 },
@@ -544,24 +544,35 @@ async function loadCompareHistory() {
 /** One live tick per compared WAN, appended to that WAN's own buffer. */
 async function pollLiveCompare() {
     const cutoff = Date.now() - HISTORY_MINUTES * 60000;
-    let newest = 0;
-    for (const w of compareWans) {
+
+    // Every WAN is read for the same tick, then stamped with ONE timestamp. A shared tooltip
+    // stacks values that sit at the same x - and each WAN's own SNMP sample time is a few hundred
+    // milliseconds off its neighbour's, so stamping each with its own left every series on its own
+    // x and the stack showed one WAN at a time. The reading is still each WAN's own; only the
+    // instant they are filed under is common, which is what "at this moment" means on one chart.
+    const results = await Promise.all(compareWans.map(async w => {
         try {
             const resp = await fetch(`/api/monitoring/live-stats?wan=${encodeURIComponent(w.key)}`,
                 { credentials: 'same-origin' });
-            if (!resp.ok) continue;
+            if (!resp.ok) return null;
             const d = await resp.json();
-            const t = d.sampleTime ? new Date(d.sampleTime).getTime() : Date.now();
-            const b = compareBuffers.get(w.key) || [];
-            // Same dedupe as the single-WAN path: two unsynchronised clocks otherwise plot a
-            // sample twice and drop the next one.
-            if (b.length && t <= b[b.length - 1].time) { compareBuffers.set(w.key, b); continue; }
-            b.push({ time: t, download: d.downloadBps, upload: d.uploadBps });
-            compareBuffers.set(w.key, b.filter(p => p.time >= cutoff));
-            newest = Math.max(newest, t);
-        } catch { }
+            return { key: w.key, d, sampled: d.sampleTime ? new Date(d.sampleTime).getTime() : 0 };
+        } catch { return null; }
+    }));
+
+    const live = results.filter(Boolean);
+    if (live.length === 0) return;
+    // The newest real sample time across the WANs, so the x still tracks the data rather than the
+    // browser's clock; falls back to now when no WAN reported one.
+    const tick = Math.max(...live.map(r => r.sampled), 0) || Date.now();
+    if (tick <= lastSampleTime) return;   // same dedupe as the single-WAN path
+    lastSampleTime = tick;
+
+    for (const r of live) {
+        const b = compareBuffers.get(r.key) || [];
+        b.push({ time: tick, download: r.d.downloadBps, upload: r.d.uploadBps });
+        compareBuffers.set(r.key, b.filter(p => p.time >= cutoff));
     }
-    if (newest > lastSampleTime) lastSampleTime = newest;
     updateChart();
 }
 
