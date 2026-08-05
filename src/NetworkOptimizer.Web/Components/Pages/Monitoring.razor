@@ -2188,6 +2188,22 @@
     }
 
     /// <summary>
+    /// Lets go of a link's narrowing once the link is gone. The narrowing is something the link
+    /// did, not a preference the user set - it is never written to storage - so arriving at the
+    /// tab without one has to put the saved filter back rather than carry the narrowed set for
+    /// the rest of the page's life, which is what made a saved All look permanently replaced.
+    /// </summary>
+    private void ReleaseLinkWanSelection()
+    {
+        if (!_linkNarrowedWanSelection) return;
+        if (!string.IsNullOrWhiteSpace(WanParam) && !string.IsNullOrEmpty(CategoryParam)) return;
+
+        _linkNarrowedWanSelection = false;
+        // Lets the stored selection be read again; nothing else clears this one-shot.
+        _wanSelectionRestored = false;
+    }
+
+    /// <summary>
     /// Applies a WAN filter carried in from the Live tab, for this visit only. Runs BEFORE the
     /// stored selection is read and claims the restore, so the link decides what the analysis is
     /// scoped to without the saved filter being read over the top of it - or written to. Gated on
@@ -2203,16 +2219,10 @@
         var keys = ResolveLinkWanKeys(WanParam);
         if (keys.Count == 0) return;
 
-        // Already showing everything the link came to show - most often the saved filter is All -
-        // so leave it be. Narrowing All to the one WAN that was on screen in Live throws away a
-        // wider view the user chose, to arrive at a subset of what was already in front of them.
-        if (keys.All(k => _selectedWanKeys.Contains(k)))
-        {
-            _appliedLinkWanKey = LinkWanKey;
-            return;
-        }
-
         _appliedLinkWanKey = LinkWanKey;
+        // Narrowing for as long as the link does. Never persisted, and released on the way back
+        // in without one, so a saved All is what the tab has again next time.
+        _linkNarrowedWanSelection = true;
         // Claims the restore as well, so the stored selection cannot be read over the top of the
         // link on a first load - and is never written, so the saved filter survives the visit.
         _wanSelectionRestored = true;
@@ -2388,6 +2398,8 @@
     private string? _appliedLinkWanKey;
 
     private string LinkWanKey => $"{_activeTab}|{WanParam}|{AtParam}|{CategoryParam}";
+
+    private bool _linkNarrowedWanSelection;
     private bool _wanLiveChartMounted = false;
     private bool _portStatsMounted = false;
     private bool _latencyChartsMounted;
@@ -5067,6 +5079,7 @@
                 // renders exactly as it always has. The stored selection is read BEFORE the
                 // link's, because the link only narrows to a WAN the saved filter does not already
                 // show - and it cannot know that until the saved one is in hand.
+                ReleaseLinkWanSelection();
                 await RestoreWanSelectionAsync();
                 await ApplyLinkWanSelectionAsync();
                 var postMount = "";
