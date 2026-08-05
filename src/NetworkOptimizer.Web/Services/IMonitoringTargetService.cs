@@ -59,6 +59,14 @@ public sealed record NewMonitoringTarget
     public ProbeMode ProbeMode { get; init; } = ProbeMode.Icmp;
     public int Port { get; init; } = 443;
     public int PollIntervalSeconds { get; init; } = 10;
+
+    /// <summary>
+    /// Which WAN context probes this target, or null for the primary WAN. Set at creation so a
+    /// target added for a secondary WAN is never briefly probed from the primary - the alternative,
+    /// add-then-reassign, writes a burst of primary-WAN points that the WAN it was added for then
+    /// has to be read around.
+    /// </summary>
+    public int? WanContextId { get; init; }
 }
 
 /// <summary>Thrown when a new target fails validation, so the card can show the reason inline.</summary>

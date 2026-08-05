@@ -259,6 +259,13 @@ public class UniFiDeviceResponse
     public ConfigNetwork? ConfigNetwork { get; set; }
 
     /// <summary>
+    /// The gateway's address on its LAN side. Present on gateways; absent on everything else, and
+    /// not the same as <see cref="Ip"/>, which is the WAN address on a gateway.
+    /// </summary>
+    [JsonPropertyName("lan_ip")]
+    public string? LanIp { get; set; }
+
+    /// <summary>
     /// LAN network configuration - only present on devices acting as the network gateway.
     /// UDM-family devices (including UX Express) won't have this when operating as APs.
     /// </summary>

@@ -4,6 +4,7 @@
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 import * as flowData from './lan-flow-data.js?v=7';
+import { valueSortedTooltip } from './chart-tooltip.js?v=8';
 
 const HISTORY_MINUTES = 5;
 // Poll at twice the site's SNMP sample rate so no sample is missed when the two
@@ -33,6 +34,12 @@ let pollTimer = null;
 let scrollTimer = null;
 let backfillTimer = null;
 let buffer = [];
+// Comparison mode: [{ key, label }] for the WANs on screen, and one buffer per WAN keyed the same
+// way. Empty for the ordinary single-WAN case, which never reads either.
+let compareWans = [];
+let compareBuffers = new Map();
+// Dash patterns by position, so a WAN keeps its pattern for as long as the selection holds.
+const WAN_DASH = [0, 6, 2, 10, 4, 8];
 let elId = null;
 let visHandler = null;
 let mountGen = 0;
@@ -184,6 +191,9 @@ function removeMouseTracking() {
     lastMouse = null;
 }
 
+/** True while several WANs are on screen together. */
+function comparing() { return compareWans.length > 1; }
+
 function buildOpts() {
     return {
         chart: {
@@ -219,28 +229,47 @@ function buildOpts() {
                 },
             },
         },
-        series: [
-            { name: 'Download', type: 'area', data: [] },
-            { name: 'Upload',   type: 'area', data: [] },
-            { name: 'Loss',     type: 'area', data: [] },
-            { name: 'RTT',      type: 'line', data: [] },
-        ],
-        colors: [COLOR_DL, COLOR_UL, COLOR_LOSS, COLOR_RTT],
+        series: comparing()
+            ? compareWans.flatMap(w => ([
+                { name: `${w.label} down`, type: 'area', data: [] },
+                { name: `${w.label} up`,   type: 'area', data: [] },
+            ]))
+            : [
+                { name: 'Download', type: 'area', data: [] },
+                { name: 'Upload',   type: 'area', data: [] },
+                { name: 'Loss',     type: 'area', data: [] },
+                { name: 'RTT',      type: 'line', data: [] },
+            ],
+        // Comparing: the COLOUR still says which direction a line is, because that is what the eye
+        // is sorting for, and the dash pattern says which WAN. Loss and RTT drop out of the chart
+        // in this mode - they are per-WAN figures in the stat cards above, and four lines per WAN
+        // is not a comparison anyone can read.
+        colors: comparing()
+            ? compareWans.flatMap(() => [COLOR_DL, COLOR_UL])
+            : [COLOR_DL, COLOR_UL, COLOR_LOSS, COLOR_RTT],
         stroke: {
             curve: 'smooth',
-            width: [2, 2, 1, 1],
-            dashArray: [0, 0, 0, 6],
+            width: comparing() ? compareWans.flatMap(() => [2, 2]) : [2, 2, 1, 1],
+            dashArray: comparing()
+                ? compareWans.flatMap((_, i) => { const d = WAN_DASH[i % WAN_DASH.length]; return [d, d]; })
+                : [0, 0, 0, 6],
         },
-        fill: {
-            type: ['gradient', 'gradient', 'gradient', 'solid'],
-            opacity: [1, 1, 1, 0],
-            gradient: {
-                shadeIntensity: 0.4,
-                opacityFrom: [0.55, 0.45, 0.5, 0],
-                opacityTo:   [0.1,  0.08, 0.05, 0],
-                stops: [0, 95],
+        fill: comparing()
+            ? {
+                // Flat translucent fills: several overlapping gradients turn the plot into mud.
+                type: compareWans.flatMap(() => ['solid', 'solid']),
+                opacity: compareWans.flatMap(() => [0.12, 0.10]),
+            }
+            : {
+                type: ['gradient', 'gradient', 'gradient', 'solid'],
+                opacity: [1, 1, 1, 0],
+                gradient: {
+                    shadeIntensity: 0.4,
+                    opacityFrom: [0.55, 0.45, 0.5, 0],
+                    opacityTo:   [0.1,  0.08, 0.05, 0],
+                    stops: [0, 95],
+                },
             },
-        },
         markers: { size: 0 },
         dataLabels: { enabled: false },
         xaxis: {
@@ -256,7 +285,23 @@ function buildOpts() {
             axisBorder: { show: false },
             axisTicks: { show: false },
         },
-        yaxis: [
+        // ONE axis for every throughput series while comparing - not one per series. A yaxis
+        // ARRAY is laid out entry by entry even where show is false, so 2N entries stole the plot
+        // width and pushed the chart past its container. A single object is also what lets the
+        // WANs be read against the same scale.
+        yaxis: comparing()
+            ? {
+                min: 0,
+                max: v => v * 1.1,
+                labels: {
+                    style: { colors: '#9ca3af', fontSize: '10px' },
+                    formatter: v => formatBps(v),
+                    offsetX: -10,
+                },
+                axisBorder: { show: false },
+                axisTicks: { show: false },
+            }
+            : [
             {
                 seriesName: 'Download',
                 min: 0,
@@ -296,33 +341,73 @@ function buildOpts() {
             borderColor: '#374151',
             strokeDashArray: 3,
             // Bottom padding holds the strip below the axis where the
-            // annotation time labels render.
-            padding: { left: 3, right: 0, top: -8, bottom: 12 },
+            // annotation time labels render. Comparing has no opposite RTT axis holding the right
+            // edge open, so it pads its own or the newest sample sits on the container's edge.
+            padding: comparing()
+                ? { left: 3, right: 26, top: -8, bottom: 12 }
+                : { left: 3, right: 0, top: -8, bottom: 12 },
             xaxis: { lines: { show: false } },
         },
         responsive: [{
             breakpoint: 1024,
             options: {
-                yaxis: [
-                    { seriesName: 'Download', show: false, min: 0, max: v => v * 1.1 },
-                    { seriesName: 'Download', show: false, min: 0, max: v => v * 1.1 },
-                    { seriesName: 'Loss', opposite: true, show: false, min: 0, max: v => Math.max(v * 1.2, 10) },
-                    { seriesName: 'RTT', opposite: true, show: false, min: 0 },
-                ],
+                // One entry per series in BOTH modes: a mismatched length leaves ApexCharts
+                // holding axes for series that do not exist, and the plot escapes its container.
+                yaxis: comparing()
+                    ? { show: false, min: 0, max: v => v * 1.1 }
+                    : [
+                        { seriesName: 'Download', show: false, min: 0, max: v => v * 1.1 },
+                        { seriesName: 'Download', show: false, min: 0, max: v => v * 1.1 },
+                        { seriesName: 'Loss', opposite: true, show: false, min: 0, max: v => Math.max(v * 1.2, 10) },
+                        { seriesName: 'RTT', opposite: true, show: false, min: 0 },
+                    ],
                 grid: { padding: { left: -5, right: -5, top: -8, bottom: 12 } },
             },
         }],
         legend: { show: false },
         tooltip: {
             theme: 'dark',
+            // Shared, so every line's value is stacked at the cursor's instant. There is no way to
+            // hover one line out of 2N overlapping ones, so a per-series tooltip would be unusable
+            // here - and the stack is how a WAN is told from its neighbour, since the chart has no
+            // legend and the series names carry the WAN.
             shared: true,
             x: { format: 'HH:mm:ss', formatter: (val) => new Date(val).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) },
-            y: [
-                { formatter: v => formatBps(v) },
-                { formatter: v => formatBps(v) },
-                { formatter: v => v != null ? v.toFixed(2) + '%' : '-' },
-                { formatter: v => v != null ? v.toFixed(1) + ' ms' : '-' },
-            ],
+            // Comparing uses the same custom tooltip as the rest of the Monitoring charts: it
+            // stacks every series at the hovered instant sorted by value, and paints its own
+            // hover dots (the library's markers are the flaky ones, and any non-zero size puts a
+            // permanent dot on every sample). An explicit formatter because the throughput axis
+            // is an object here, not the array the helper reads by default.
+            // The same custom tooltip either way - it stacks every series at the hovered instant
+            // and paints its own small hover dots. What differs is the ordering: comparing puts
+            // the WANs on ONE axis, so their values rank and the biggest belongs on top; the
+            // single-WAN chart spreads four series across four axes, where bits per second, a
+            // percentage and milliseconds cannot be ranked against each other, so they keep a
+            // fixed order instead.
+            custom: comparing()
+                ? (ctx) => valueSortedTooltip(ctx, { format: v => formatBps(v) })
+                : (ctx) => valueSortedTooltip(ctx, {
+                    sort: false,
+                    // order is how they READ; format is indexed by SERIES position (Loss is
+                    // series 2, RTT series 3) - the two lists are deliberately not parallel.
+                    order: ['Download', 'Upload', 'RTT', 'Loss'],
+                    format: [
+                        v => formatBps(v),
+                        v => formatBps(v),
+                        v => v != null ? v.toFixed(2) + '%' : '-',
+                        v => v != null ? v.toFixed(1) + ' ms' : '-',
+                    ],
+                }),
+            // Positional, one per series: a short array leaves the rest of the series with no
+            // formatter at all, which renders raw bits per second.
+            y: comparing()
+                ? compareWans.flatMap(() => [{ formatter: v => formatBps(v) }, { formatter: v => formatBps(v) }])
+                : [
+                    { formatter: v => formatBps(v) },
+                    { formatter: v => formatBps(v) },
+                    { formatter: v => v != null ? v.toFixed(2) + '%' : '-' },
+                    { formatter: v => v != null ? v.toFixed(1) + ' ms' : '-' },
+                ],
         },
         noData: { text: 'Loading...', style: { color: '#64748b', fontSize: '13px' } },
     };
@@ -335,6 +420,49 @@ function buildOpts() {
 // the viewport, so half-view panels and mobile - which constrain the chart
 // below full width while the viewport stays wide - step out to a sparser
 // grid instead of colliding. Full width keeps the dense 20s grid.
+// Comparison series on ONE time grid, the union of every WAN's timestamps, with a null wherever a
+// WAN has no reading for an instant.
+//
+// Each WAN's history is fetched separately and comes back on its own timestamps, so series built
+// straight from those buffers share no x values. ApexCharts addresses series by data-point INDEX,
+// so a shared tooltip then has nothing to print for the WANs that lack a point at the hovered
+// instant - the reading you want appears only when the pointer happens to find that WAN's own line,
+// which is hunting rather than reading. A common grid gives every series the same indices.
+//
+// Nulls rather than dropped points, for the reason alignedPoints exists in chart-tooltip.js: a
+// missing point makes its neighbours adjacent and the stroke spans a gap that is really there,
+// while a null ends one segment and starts another. valueSortedTooltip skips nulls, so a WAN with
+// no reading costs no row.
+function compareSeries() {
+    const times = [...new Set(compareWans.flatMap(w =>
+        (compareBuffers.get(w.key) || []).map(p => p.time)))].sort((a, b) => a - b);
+    return compareWans.flatMap(w => {
+        const pts = (compareBuffers.get(w.key) || []).slice().sort((a, b) => a.time - b.time);
+        // As-of, not exact. Live, one tick stamps every WAN with the same timestamp, so exact
+        // matching lined up; a historic window is fetched per WAN and each comes back on its own
+        // timestamps, so exact matching left every series null at the other WANs' instants. The
+        // tooltip still read correctly - it skips nulls - but each line became isolated points,
+        // and with markers.size 0 an isolated point draws nothing. Hence values without lines.
+        //
+        // Each grid instant takes that WAN's newest reading at or before it, within a tolerance
+        // scaled to the WAN's own cadence, so a genuine outage still breaks the line rather than
+        // carrying a stale value across it.
+        const gaps = pts.slice(1).map((p, i) => p.time - pts[i].time).sort((a, b) => a - b);
+        const median = gaps.length ? gaps[Math.floor(gaps.length / 2)] : 0;
+        const tolerance = Math.max(median * 2.5, 15000);
+        let i = 0, last = null;
+        const rows = times.map(t => {
+            while (i < pts.length && pts[i].time <= t) last = pts[i++];
+            return last && t - last.time <= tolerance ? last : null;
+        });
+        const on = key => rows.map((p, idx) => ({ x: times[idx], y: p?.[key] ?? null }));
+        return [
+            { name: `${w.label} down`, data: on('download') },
+            { name: `${w.label} up`,   data: on('upload') },
+        ];
+    });
+}
+
 function buildTimeTicks(minMs, maxMs) {
     const width = document.getElementById(elId)?.clientWidth || 800;
     // An HH:mm:ss label is ~46px at 10px; budget 64px per slot for breathing
@@ -370,11 +498,17 @@ function buildTimeTicks(minMs, maxMs) {
     return ticks;
 }
 
+// The RTT axis ceiling. Headroom over the p95 keeps an ordinary chart from filling its pane
+// edge to edge, but the p95 alone CLIPPED the thing most worth seeing: a spike is by definition
+// above the 95th percentile, so the scale was set from the calm band and the peak was drawn off
+// the top of the axis. Taking whichever is greater keeps the roomy scale when nothing is
+// happening and lets the axis grow when something is.
 function rttYMax() {
     const rtts = buffer.map(p => p.rtt).filter(v => v != null && v > 0).sort((a, b) => a - b);
     if (rtts.length === 0) return 10;
-    const p95 = rtts[Math.floor(rtts.length * 0.95)];
-    return Math.ceil((p95 * 1.5) / 10) * 10;
+    const p95 = rtts[Math.min(rtts.length - 1, Math.floor(rtts.length * 0.95))];
+    const peak = rtts[rtts.length - 1];
+    return Math.ceil(Math.max(p95 * 1.5, peak * 1.1) / 10) * 10;
 }
 
 function buildSeriesData() {
@@ -388,15 +522,29 @@ function buildSeriesData() {
 }
 
 function updateChart() {
-    if (!chart || buffer.length === 0) return;
+    if (!chart) return;
+    if (!comparing() && buffer.length === 0) return;
     if (Date.now() > clickRenderUntil && tooltipShowing()) return;
     const now = Date.now();
     const pts = buildSeriesData();
-    chart.updateOptions({
-        xaxis: { min: now - HISTORY_MINUTES * 60000, max: now },
-        yaxis: [chart.opts.yaxis[0], chart.opts.yaxis[1], chart.opts.yaxis[2], { ...chart.opts.yaxis[3], max: rttYMax() }],
-        annotations: { xaxis: buildTimeTicks(now - HISTORY_MINUTES * 60000, now) },
-    }, false, false, false);
+    // Rescaling the RTT axis is a single-WAN concern: there IS no fourth axis while comparing,
+    // and rebuilding the array to a fixed length of four truncated the axes for three or more
+    // WANs and stamped an RTT-sized ceiling (~10) onto a throughput axis for two - which is what
+    // clipped the taller WAN's line. Comparison axes are set at mount and left alone.
+    chart.updateOptions(comparing()
+        ? {
+            xaxis: { min: now - HISTORY_MINUTES * 60000, max: now },
+            annotations: { xaxis: buildTimeTicks(now - HISTORY_MINUTES * 60000, now) },
+        }
+        : {
+            xaxis: { min: now - HISTORY_MINUTES * 60000, max: now },
+            yaxis: [chart.opts.yaxis[0], chart.opts.yaxis[1], chart.opts.yaxis[2], { ...chart.opts.yaxis[3], max: rttYMax() }],
+            annotations: { xaxis: buildTimeTicks(now - HISTORY_MINUTES * 60000, now) },
+        }, false, false, false);
+    if (comparing()) {
+        chart.updateSeries(compareSeries(), false);
+        return;
+    }
     chart.updateSeries([
         { name: 'Download', data: pts.map(p => ({ x: p.time, y: p.download })) },
         { name: 'Upload',   data: pts.map(p => ({ x: p.time, y: p.upload })) },
@@ -405,13 +553,21 @@ function updateChart() {
     ], false);
 }
 
+// Which WAN's counters this chart is showing. Null is the primary, which is what every caller
+// meant before the chart could be pointed at another WAN - so an absent scope has to keep
+// producing the exact request it always did.
+let wanScope = null;
+
+function historyUrl(from, to) {
+    const base = `/api/monitoring/wan-live-chart-data?from=${from.toISOString()}&to=${to.toISOString()}`;
+    return wanScope ? `${base}&wan=${encodeURIComponent(wanScope)}` : base;
+}
+
 async function loadHistory() {
     const to = new Date();
     const from = new Date(to.getTime() - HISTORY_MINUTES * 60000);
     try {
-        const resp = await fetch(
-            `/api/monitoring/wan-live-chart-data?from=${from.toISOString()}&to=${to.toISOString()}`,
-            { credentials: 'same-origin' });
+        const resp = await fetch(historyUrl(from, to), { credentials: 'same-origin' });
         if (!resp.ok) return 0;
         const data = await resp.json();
         applySampleInterval(data);
@@ -433,9 +589,75 @@ async function loadHistory() {
     } catch { }
 }
 
+/** Pulls each compared WAN's history into its own buffer. */
+/**
+ * Fills every compared WAN's buffer. `atMs` loads the window a seek is parked on instead of the
+ * live one - in comparison mode renderHistoric draws straight from these buffers, so without it a
+ * seek fetched only the single-WAN buffer and the chart kept showing the live window at a historic
+ * playhead. Same window arithmetic as seekTime, so both modes frame the instant identically.
+ */
+async function loadCompareHistory(atMs = null) {
+    const end = atMs ? Math.min(atMs + HISTORY_MINUTES * 60000 / 2, Date.now()) : Date.now();
+    const to = new Date(end);
+    const from = new Date(end - HISTORY_MINUTES * 60000);
+    for (const w of compareWans) {
+        try {
+            const resp = await fetch(
+                `/api/monitoring/wan-live-chart-data?from=${from.toISOString()}&to=${to.toISOString()}&wan=${encodeURIComponent(w.key)}`,
+                { credentials: 'same-origin' });
+            if (!resp.ok) { compareBuffers.set(w.key, compareBuffers.get(w.key) || []); continue; }
+            const data = await resp.json();
+            applySampleInterval(data);
+            compareBuffers.set(w.key, (data.points || []).map(p => ({
+                time: new Date(p.time).getTime(),
+                download: p.downloadBps,
+                upload: p.uploadBps,
+            })));
+        } catch { compareBuffers.set(w.key, compareBuffers.get(w.key) || []); }
+    }
+}
+
+/** One live tick per compared WAN, appended to that WAN's own buffer. */
+async function pollLiveCompare() {
+    const cutoff = Date.now() - HISTORY_MINUTES * 60000;
+
+    // Every WAN is read for the same tick, then stamped with ONE timestamp. A shared tooltip
+    // stacks values that sit at the same x - and each WAN's own SNMP sample time is a few hundred
+    // milliseconds off its neighbour's, so stamping each with its own left every series on its own
+    // x and the stack showed one WAN at a time. The reading is still each WAN's own; only the
+    // instant they are filed under is common, which is what "at this moment" means on one chart.
+    const results = await Promise.all(compareWans.map(async w => {
+        try {
+            const resp = await fetch(`/api/monitoring/live-stats?wan=${encodeURIComponent(w.key)}`,
+                { credentials: 'same-origin' });
+            if (!resp.ok) return null;
+            const d = await resp.json();
+            return { key: w.key, d, sampled: d.sampleTime ? new Date(d.sampleTime).getTime() : 0 };
+        } catch { return null; }
+    }));
+
+    const live = results.filter(Boolean);
+    if (live.length === 0) return;
+    // The newest real sample time across the WANs, so the x still tracks the data rather than the
+    // browser's clock; falls back to now when no WAN reported one.
+    const tick = Math.max(...live.map(r => r.sampled), 0) || Date.now();
+    if (tick <= lastSampleTime) return;   // same dedupe as the single-WAN path
+    lastSampleTime = tick;
+
+    for (const r of live) {
+        const b = compareBuffers.get(r.key) || [];
+        b.push({ time: tick, download: r.d.downloadBps, upload: r.d.uploadBps });
+        compareBuffers.set(r.key, b.filter(p => p.time >= cutoff));
+    }
+    updateChart();
+}
+
 async function pollLive() {
+    if (comparing()) return await pollLiveCompare();
     try {
-        const resp = await fetch('/api/monitoring/live-stats', { credentials: 'same-origin' });
+        const resp = await fetch(
+            wanScope ? `/api/monitoring/live-stats?wan=${encodeURIComponent(wanScope)}` : '/api/monitoring/live-stats',
+            { credentials: 'same-origin' });
         if (!resp.ok) return;
         const d = await resp.json();
         // Stamp the point with the server-side SNMP sample time and skip polls
@@ -542,9 +764,7 @@ async function backfillHistory() {
     const from = new Date(to.getTime() - HISTORY_MINUTES * 60000);
     let points;
     try {
-        const resp = await fetch(
-            `/api/monitoring/wan-live-chart-data?from=${from.toISOString()}&to=${to.toISOString()}`,
-            { credentials: 'same-origin' });
+        const resp = await fetch(historyUrl(from, to), { credentials: 'same-origin' });
         if (!resp.ok) return;
         const data = await resp.json();
         applySampleInterval(data);
@@ -637,12 +857,29 @@ function syncModeUi() {
     playBtn.setAttribute('aria-label', paused ? 'Play' : 'Pause');
 }
 
-export async function mount(containerId, opts) {
+async function doMount(containerId, opts) {
+    // Ride in with the mount rather than in a call behind it: this module is imported
+    // asynchronously, so a scope pushed separately can land before the import resolves.
+    if (opts && 'wan' in opts) wanScope = opts.wan || null;
+    // A selection of several arrives as wans: [{key,label}] and starts the chart in comparison
+    // mode, so the first paint is already right rather than flipping a moment later.
+    //
+    // Keyed on the property being PRESENT, not on it being an array. The primary alone is sent as
+    // null - it needs no scope - and testing for an array skipped the reset entirely, leaving
+    // compareWans from the previous mount: this module is imported once and survives leaving the
+    // tab, so the pills came back reading one WAN while the chart was still comparing every WAN
+    // it had last been given.
+    if (opts && 'wans' in opts) {
+        const list = Array.isArray(opts.wans) ? opts.wans.filter(w => w && w.key) : [];
+        compareWans = list.length > 1 ? list : [];
+        if (list.length >= 1) wanScope = list[0].key;
+    }
     if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
     if (scrollTimer) { clearInterval(scrollTimer); scrollTimer = null; }
     if (chart) { chart.destroy(); chart = null; }
     removeMouseTracking();
     buffer = [];
+    compareBuffers.clear();
     lastSampleTime = 0;
     seenLiveSample = false;
     lastLiveAt = 0;
@@ -674,7 +911,8 @@ export async function mount(containerId, opts) {
     // appended before it is wiped.
     ensureModeUi(el);
 
-    await loadHistory();
+    if (comparing()) await loadCompareHistory();
+    else await loadHistory();
     if (gen !== mountGen) return;
     await pollLive();
     if (gen !== mountGen) return;
@@ -710,6 +948,104 @@ export async function mount(containerId, opts) {
     }
 }
 
+// mount and setWans both rebuild the chart and reload its history, and they arrive from
+// independent Blazor tasks: the mount chain (initial mount, then the settled-scope remount in
+// Monitoring.razor) and the LiveWanScope restore's setWans push interleave arbitrarily. Left to
+// overlap, a setWans landing mid-mount had its compareWans wiped by the mount's own opts reset,
+// and each side destroys the ApexCharts instance the other is awaiting render() on - which
+// strands that render promise and takes the caller's interop await (and the settled-scope
+// remount behind it) down with it, leaving a comparison chart whose history load never ran.
+// Serializing the two entry points makes every arrival order equivalent to a clean sequence,
+// and every terminal order ends loaded: a mount running last loads its own window, a setWans
+// running last either loads or finds the same WAN list already mounted and stands pat.
+let scopeOpChain = Promise.resolve();
+
+function queueScopeOp(fn) {
+    const run = scopeOpChain.then(fn, fn);
+    // Keep the chain alive past a failed op; the caller still sees its own rejection via run.
+    scopeOpChain = run.then(() => {}, () => {});
+    return run;
+}
+
+/** Queued front door for doMount, so a mount can never interleave with a setWans. */
+export function mount(containerId, opts) {
+    return queueScopeOp(() => doMount(containerId, opts));
+}
+
+/** Queued front door for doSetWans, so a scope push can never interleave with a mount. */
+export function setWans(wans) {
+    return queueScopeOp(() => doSetWans(wans));
+}
+
+/**
+ * Points the chart at another WAN and reloads its history. Deliberately does NOT touch the
+ * paused/scrubbed state: changing which WAN you are looking at should not drag you back to live,
+ * and a scrubbed position is still a valid position on the new WAN's series. The seek path shares
+ * historyUrl(), so scrubbing after a WAN change reads that WAN too.
+ */
+/**
+ * Shows several WANs together, or falls back to the single-WAN path for one. Rebuilds the chart:
+ * the series count, their axes and their fills all differ between the two modes, so updating in
+ * place would leave ApexCharts holding a config for the shape it no longer has.
+ */
+async function doSetWans(wans) {
+    const list = (Array.isArray(wans) ? wans : []).filter(w => w && w.key);
+    if (list.length <= 1) {
+        const wasComparing = comparing();
+        compareWans = [];
+        compareBuffers.clear();
+        if (wasComparing) await remountChart();
+        await setWan(list[0]?.key ?? null);
+        // A swap made while parked has to be drawn at the parked instant too.
+        if (!pollTimer && histAt > 0) await seekTime(new Date(histAt).toISOString());
+        return;
+    }
+    if (list.map(w => w.key).join(",") === compareWans.map(w => w.key).join(",")) return;
+    compareWans = list;
+    compareBuffers.clear();
+    wanScope = list[0].key;
+    await remountChart();
+    await loadCompareHistory();
+    await redrawForCurrentTime();
+}
+
+/**
+ * Draws the newly loaded scope at whatever instant the chart is showing.
+ *
+ * Live, that is now, and updateChart is the whole job. Parked or playing back it is the instant on
+ * the playhead, and updateChart draws the live edge instead - which is why changing WANs during
+ * playback appeared to do nothing: the series were replaced correctly, then painted for a time the
+ * user was not looking at. A full seek rather than a redraw, because the new scope holds no data
+ * for that instant until it is fetched, which is what seekTime does.
+ */
+async function redrawForCurrentTime() {
+    // Historic means no live poller AND a parked instant - either alone is a half-state seen while
+    // switching modes, and seeking on one of those is what stopped the chart.
+    if (!pollTimer && histAt > 0) {
+        await seekTime(new Date(histAt).toISOString());
+        return;
+    }
+    updateChart();
+}
+
+/** Rebuilds the chart in place with the current mode's options, keeping the mount and listeners. */
+async function remountChart() {
+    if (!chart || !elId) return;
+    const el = document.getElementById(elId);
+    if (!el) return;
+    chart.destroy();
+    chart = new ApexCharts(el, buildOpts());
+    await chart.render();
+}
+
+export async function setWan(wanKey) {
+    const next = wanKey || null;
+    if (next === wanScope) return;
+    wanScope = next;
+    await loadHistory();
+    updateChart();
+}
+
 export function pause() {
     stopHistInterpolation();
     if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
@@ -717,11 +1053,52 @@ export function pause() {
     if (backfillTimer) { clearInterval(backfillTimer); backfillTimer = null; }
 }
 
-export function resume() {
-    if (!chart || pollTimer) return;
-    pollTimer = setInterval(pollLive, pollMsOverride || pollMs);
-    scrollTimer = setInterval(updateChart, SCROLL_MS);
-    startBackfillCatchUp();
+// Entering live mode is one indivisible job - reload the 5-minute window, THEN start the
+// timers - but it has two independent doors: the map's time sync sends seekTime(null) and its
+// playstate sync sends resume(), each a fire-and-forget interop call, so they arrive in
+// whichever order the circuit delivers them. When resume() won that race it used to start
+// pollTimer without loading anything, and seekTime(null) then bailed on "already live" before
+// reaching its history load - in comparison mode nothing else ever refills compareBuffers
+// (backfill feeds only the single-WAN buffer), so the window never came back and the chart
+// crept forward one live tick at a time. One shared entry makes the order irrelevant:
+// whichever door opens first does the whole job, and the other finds it done - or in flight,
+// which the flag below turns into a no-op instead of a second set of timers polling forever.
+let liveEntryInFlight = false;
+
+async function enterLive() {
+    if (!chart || pollTimer || liveEntryInFlight) return;
+    // Still parked on a historic instant: while returning to live the playstate sync (resume)
+    // can arrive before the time sync (seekTime(null)), and entering here would clobber the
+    // parked window with the live one. seekTime(null) clears histAt first, then comes back in.
+    if (histAt > 0) return;
+    liveEntryInFlight = true;
+    try {
+        const gen = mountGen;
+        buffer = [];
+        // Comparison mode draws from the per-WAN buffers, so refilling the single-WAN one leaves
+        // the chart on the window it was parked at - the live 5 minutes never arrived and the
+        // series only crept back as fresh ticks came in one at a time.
+        if (comparing()) await loadCompareHistory();
+        else await loadHistory();
+        // A remount, a historic seek, or a path that already started polling superseded this
+        // entry while it was fetching. Deliberately NOT keyed on seekGen: a second return-to-live
+        // during the fetch bumps that too, and this entry completing is exactly what the second
+        // return wants - bailing on it left the chart live with no timers running.
+        if (gen !== mountGen || histAt > 0 || pollTimer) return;
+        updateChart();
+        pollTimer = setInterval(pollLive, pollMsOverride || pollMs);
+        scrollTimer = setInterval(updateChart, SCROLL_MS);
+        startBackfillCatchUp();
+    } finally {
+        liveEntryInFlight = false;
+    }
+}
+
+export async function resume() {
+    // The same door as returning from historic: any pause leaves a hole the live ticks alone
+    // cannot fill (and in comparison mode nothing else fills it, since backfill only feeds the
+    // single-WAN buffer), so resuming reloads history rather than just restarting the timers.
+    await enterLive();
 }
 
 // Render the historic view at a given playhead time from the current buffer.
@@ -736,7 +1113,9 @@ export function resume() {
 // hover, kicking the user out of tooltip inspection while the background timeline
 // advances - the exact behavior the hover-hold exists to preserve.
 function renderHistoric(at, force = false) {
-    if (!chart || buffer.length === 0) return;
+    // The empty-buffer hold is single-WAN only: comparison mode draws from compareBuffers
+    // and an empty single-WAN buffer must not abort its only paused draw.
+    if (!chart || (!comparing() && buffer.length === 0)) return;
     if (!force && Date.now() > clickRenderUntil && tooltipShowing()) return;
     const halfWindow = HISTORY_MINUTES * 60000 / 2;
     const maxTime = Math.min(at + halfWindow, Date.now());
@@ -754,11 +1133,25 @@ function renderHistoric(at, force = false) {
             offsetY: -5,
         }
     };
-    chart.updateOptions({
+    // Same window and playhead either way; only the RTT axis rescale is single-WAN, since there is
+    // no RTT axis to rescale while comparing.
+    const histWindow = {
         xaxis: { min: maxTime - HISTORY_MINUTES * 60000, max: maxTime },
-        yaxis: [chart.opts.yaxis[0], chart.opts.yaxis[1], chart.opts.yaxis[2], { ...chart.opts.yaxis[3], max: rttYMax() }],
         annotations: { xaxis: [...buildTimeTicks(maxTime - HISTORY_MINUTES * 60000, maxTime), playhead] },
-    }, false, false, false);
+    };
+    chart.updateOptions(comparing()
+        ? histWindow
+        : {
+            ...histWindow,
+            yaxis: [chart.opts.yaxis[0], chart.opts.yaxis[1], chart.opts.yaxis[2], { ...chart.opts.yaxis[3], max: rttYMax() }],
+        }, false, false, false);
+
+    // Scrubbing while comparing draws every WAN at the parked instant - the point of comparing is
+    // to read them against each other, and freezing the time only makes that easier.
+    if (comparing()) {
+        chart.updateSeries(compareSeries(), false);
+        return;
+    }
     chart.updateSeries([
         { name: 'Download', data: buffer.map(p => ({ x: p.time, y: p.download })) },
         { name: 'Upload',   data: buffer.map(p => ({ x: p.time, y: p.upload })) },
@@ -794,15 +1187,15 @@ export async function seekTime(isoTimestamp) {
         // plain time grid, dropping the playhead. (Mode cluster visibility is
         // driven by the store's playstate events, not by seeks.)
         stopHistInterpolation();
-        if (pollTimer) return; // already live
-        const liveGen = seekGen;
-        buffer = [];
-        await loadHistory();
-        if (liveGen !== seekGen) return; // seeked again while loading
-        updateChart();
-        pollTimer = setInterval(pollLive, pollMsOverride || pollMs);
-        scrollTimer = setInterval(updateChart, SCROLL_MS);
-        startBackfillCatchUp();
+        // Forget the parked instant. Left set, anything that later asks "what time is the chart
+        // showing" is told a timestamp from a playback session that has ended - which sent a WAN
+        // filter change seeking back into history, stopping the live poll on the way, and left the
+        // chart empty on a window with no data and nothing running to refill it.
+        histAt = 0;
+        // enterLive owns the "already live" bail, the history reload (per-WAN buffers while
+        // comparing), and the timer start - shared with resume(), so the two return-to-live
+        // callbacks can no longer race each other into skipping the load.
+        await enterLive();
         return;
     }
     // Historic mode: stop polling, fetch window centered on timestamp
@@ -821,23 +1214,28 @@ export async function seekTime(isoTimestamp) {
     const maxTime = Math.min(at + halfWindow, Date.now());
     const from = new Date(maxTime - HISTORY_MINUTES * 60000);
     const to = new Date(maxTime);
-    try {
-        const resp = await fetch(
-            `/api/monitoring/wan-live-chart-data?from=${from.toISOString()}&to=${to.toISOString()}`,
-            { credentials: 'same-origin' });
-        if (!resp.ok) return;
-        const data = await resp.json();
-        if (gen !== seekGen) return; // a newer seek (or return to live) superseded this one
-        applySampleInterval(data);
-        buffer = (data.points || []).map(p => ({
-            time: new Date(p.time).getTime(),
-            download: p.downloadBps,
-            upload: p.uploadBps,
-            rtt: p.rttMs,
-            loss: p.lossPercent,
-        }));
-    } catch { return; }
-    if (buffer.length === 0) return;
+    // Comparison mode draws only from the per-WAN buffers, so the single-WAN fetch is
+    // skipped there - its failure returns were aborting the one draw a paused seek gets.
+    if (comparing()) {
+        await loadCompareHistory(at);
+        if (gen !== seekGen) return;
+    } else {
+        try {
+            const resp = await fetch(historyUrl(from, to), { credentials: 'same-origin' });
+            if (!resp.ok) return;
+            const data = await resp.json();
+            if (gen !== seekGen) return; // a newer seek (or return to live) superseded this one
+            applySampleInterval(data);
+            buffer = (data.points || []).map(p => ({
+                time: new Date(p.time).getTime(),
+                download: p.downloadBps,
+                upload: p.uploadBps,
+                rtt: p.rttMs,
+                loss: p.lossPercent,
+            }));
+        } catch { return; }
+        if (buffer.length === 0) return;
+    }
     // Force the reposition draw only for a discrete/paused seek (deep-link, manual
     // scrub): it must land even under the cursor or it's never retried while paused.
     // During active playback leave it unforced so a hover still holds the redraw for
@@ -867,6 +1265,8 @@ export async function seekTime(isoTimestamp) {
 }
 
 export function unmount() {
+    compareWans = [];
+    compareBuffers.clear();
     mountGen++;
     stopHistInterpolation();
     if (unsubFlow) { unsubFlow(); unsubFlow = null; }

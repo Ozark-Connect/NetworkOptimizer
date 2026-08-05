@@ -601,6 +601,10 @@ builder.Services.AddScoped(sp => sp.GetRequiredService<NetworkOptimizer.Web.Serv
 // Scoped - forwards to the current site's Influx client and database.
 builder.Services.AddScoped<NetworkOptimizer.Web.Services.Monitoring.FlakyTargetService>();
 builder.Services.AddScoped<NetworkOptimizer.Web.Services.Monitoring.MonitoringPathView>();
+// Transient: every live-tile surface keeps its own selection state and re-render callback.
+builder.Services.AddTransient<NetworkOptimizer.Web.Services.Monitoring.LiveWanScope>();
+// Per-user teaching hints that retire once seen (UiHintKeys).
+builder.Services.AddScoped<NetworkOptimizer.Web.Services.UiHintService>();
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.AsnResolutionService>();
 // Per-site monitoring alert evaluators (target offline / device health / SFP DDM):
 // in-memory state machines keyed by target id / MAC, which repeat across sites, so

@@ -33,11 +33,29 @@ public class AgentProbeService
     /// Asks the site's agent to run a probe and returns the response, or null if no
     /// agent is online. On tunnel/timeout failure the response carries Success=false.
     /// </summary>
-    public async Task<ProbeResponse?> RunAsync(string siteSlug, ProbeRequest request, TimeSpan timeout, CancellationToken ct)
+    /// <param name="siteSlug">Site whose agents may run the probe.</param>
+    /// <param name="request">The probe to run; its SourceIp carries any WAN context bind.</param>
+    /// <param name="timeout">How long to wait for the agent's response.</param>
+    /// <param name="ct">Cancellation.</param>
+    /// <param name="agentId">
+    /// Which of the site's agents should run it. Null keeps the original behavior - the site's
+    /// first connected agent - which is what every caller that has no reason to care wants. A
+    /// caller that does care is asking for one WAN's vantage, and another agent sits behind a
+    /// different WAN, so an unavailable one is reported rather than quietly substituted.
+    /// </param>
+    public async Task<ProbeResponse?> RunAsync(
+        string siteSlug, ProbeRequest request, TimeSpan timeout, CancellationToken ct, int? agentId = null)
     {
-        var agent = _registry.GetForSite(siteSlug).FirstOrDefault();
+        var agent = SelectAgent(_registry.GetForSite(siteSlug), agentId);
         if (agent == null)
+        {
+            // No agent at all is null, which callers word as "no on-site agent". A NAMED agent
+            // that is not connected is a different thing to say, and substituting another one
+            // would silently measure a different WAN.
+            if (agentId != null)
+                return new ProbeResponse { Success = false, Error = "The agent this probe was aimed at isn't connected right now" };
             return null;
+        }
 
         var id = Interlocked.Increment(ref _nextRequestId);
         request.RequestId = id;
@@ -65,6 +83,18 @@ public class AgentProbeService
             _pending.TryRemove(id, out _);
         }
     }
+
+    /// <summary>
+    /// Which connected agent runs a probe: the one asked for, or - when nothing asked - the
+    /// site's first, exactly as before. Never falls back from a named agent to another one:
+    /// the whole point of naming it is that it sits behind a particular WAN.
+    /// </summary>
+    /// <param name="connections">The site's live tunnel connections.</param>
+    /// <param name="agentId">Agent the caller wants, or null for "any".</param>
+    internal static AgentTunnelConnection? SelectAgent(IReadOnlyList<AgentTunnelConnection> connections, int? agentId)
+        => agentId is int wanted
+            ? connections.FirstOrDefault(c => c.AgentId == wanted)
+            : connections.FirstOrDefault();
 
     /// <summary>Completes the matching pending probe when an agent returns a response.</summary>
     public void OnResult(ProbeResponse response)

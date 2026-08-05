@@ -131,6 +131,14 @@ public class PhysicalLinkInput
     public double? DishDropRateMax { get; init; }
 
     /// <summary>Dish-logged outage seconds over the window, normalized per day via <see cref="WindowDays"/>.</summary>
+    /// <summary>
+    /// The dish reports its throughput capped by the PLAN rather than by the link - a
+    /// reduced-speed tier such as Standby. Ground truth for "this is slow on purpose", which
+    /// otherwise has to be inferred from expected speeds sitting at the lowest value UniFi
+    /// Network accepts.
+    /// </summary>
+    public bool? ReducedSpeedTier { get; init; }
+
     public double? OutageSecondsTotal { get; init; }
 
     /// <summary>Dish-logged outage count over the window.</summary>

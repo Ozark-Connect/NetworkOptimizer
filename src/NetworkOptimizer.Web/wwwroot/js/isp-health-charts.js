@@ -3,7 +3,7 @@
 // render as shaded x-axis ranges, path shifts as annotation lines.
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
-import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=7';
+import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=8';
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=4';
 
 const PALETTE = ['#2ba89a', '#3b82f6', '#a78bfa', '#ef5858', '#f59e0b', '#10b981'];
@@ -183,7 +183,12 @@ async function loadAndUpdate() {
     fetchController = new AbortController();
     try {
         let url = '/api/monitoring/isp-health/asn-series';
-        if (win) url += `?from=${encodeURIComponent(win.from)}&to=${encodeURIComponent(win.to)}`;
+        const params = [];
+        if (win) params.push(`from=${encodeURIComponent(win.from)}`, `to=${encodeURIComponent(win.to)}`);
+        // Selected WAN (null = primary): the panel's WAN selector routes the chart to the
+        // matching per-WAN report so lines and event annotations always agree with the score.
+        if (wanKey) params.push(`wan=${encodeURIComponent(wanKey)}`);
+        if (params.length) url += `?${params.join('&')}`;
         const resp = await fetch(url, { credentials: 'same-origin', signal: fetchController.signal });
         if (!resp.ok) return;
         const json = await resp.json();
@@ -284,9 +289,14 @@ function renderBadges() {
     }
 }
 
+// Returns whether it actually mounted. The panel renders the chart element only alongside a
+// loaded report, so during a WAN switch (spinner up, report body out of the DOM) there is
+// nothing to mount into - that case returns false, without throwing, so the caller can leave
+// its mounted flag down and retry on a later render instead of recording a chart that was
+// never built.
 export async function mount(elId, fromISO = null, toISO = null, hidden = null) {
     const el = document.getElementById(elId);
-    if (!el) return;
+    if (!el) return false;
     win = (fromISO && toISO) ? { from: fromISO, to: toISO } : null;
     hiddenTypes = new Set(hidden || []);
 
@@ -311,6 +321,7 @@ export async function mount(elId, fromISO = null, toISO = null, hidden = null) {
     await loadAndUpdate();
     // Guarded at the tick, not inside loadAndUpdate, so an explicit reload is never suppressed.
     pollTimer = setInterval(() => { if (!tooltipHeld(el)) loadAndUpdate(); }, POLL_MS);
+    return true;
 }
 
 export async function reload() {
@@ -325,6 +336,20 @@ export async function setWindow(fromISO, toISO) {
     setZoomed(false);
     notifyZoom(null, null);
     await loadAndUpdate();
+}
+
+// NOT reset by unmount, on purpose: the panel drops the chart while it switches WAN (the
+// element leaves the DOM with the report body) and pushes the new key before the re-mount,
+// so the fresh mount's first fetch reads it and loads the right WAN straight away.
+let wanKey = null;
+
+export function setWan(w) {
+    const next = w || null;
+    // Same key is a no-op rather than a reload: the post-mount push repeats the key the mount
+    // just fetched with, and refetching it would only abort-and-redo an identical request.
+    if (next === wanKey) return;
+    wanKey = next;
+    loadAndUpdate();
 }
 
 export function setDotNetRef(ref) {

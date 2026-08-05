@@ -5,6 +5,9 @@
 @using System.Globalization
 @implements IDisposable
 @inject IspHealthService IspHealth
+@inject IspHealthRegistry IspHealthRegistry
+@inject NetworkOptimizer.Web.Services.Monitoring.MonitoringPathView PathView
+@inject NetworkOptimizer.Storage.Services.SiteDbContextFactory SiteDb
 @inject NavigationManager NavigationManager
 @inject IJSRuntime JS
 @inject Microsoft.AspNetCore.Mvc.ViewFeatures.IFileVersionProvider FileVersionProvider
@@ -27,8 +30,8 @@
             <div class="isp-popover-backdrop" @onclick="() => _showCustomPopover = false"></div>
         }
         @{
-            var effWin = IspHealth.EffectiveWindowHours;
-            var cfgWin = IspHealth.ConfiguredWindowHours;
+            var effWin = Svc.EffectiveWindowHours;
+            var cfgWin = Svc.ConfiguredWindowHours;
             var windowReduced = effWin > 0 && cfgWin > 0 && effWin < cfgWin;
         }
         @if (windowReduced)
@@ -38,6 +41,20 @@
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
                 <span>@(effWin)h</span>
             </button>
+        }
+        @if (_wanOptions.Count > 1)
+        {
+            <div class="time-range-selector wan-selector @(_wanOptions.Count > 3 ? "wan-selector-many" : "")">
+                @foreach (var w in _wanOptions)
+                {
+                    <button class="time-btn @(string.Equals(w.Key, _selectedWanKey, StringComparison.OrdinalIgnoreCase) ? "active" : "")"
+                            @onclick="() => SelectWanAsync(w.Key)" disabled="@(_refreshing || _windowComputing)">@{
+                                    var wp = NetworkOptimizer.UniFi.GatewayWanHelper.SplitWanLabel(
+                                        w.Label, NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey(w.Key));
+                                }@(wp.Name ?? w.Label)@if (wp.WanToken != null && wp.Name != null)
+                                {<span class="wan-pill-token">@wp.WanToken</span>}</button>
+                }
+            </div>
         }
         <div class="time-range-selector @(_showCustomPopover ? "isp-filter-raised" : "")" style="position: relative;">
             @foreach (var p in FilterPresets)
@@ -108,27 +125,48 @@
 }
 else if (_report == null)
 {
-    @if (IspHealth.Status == IspHealthStatus.NeedsDiscovery)
+    @if (Svc.Status == IspHealthStatus.Computing)
+    {
+        <div class="isp-health-loading card">
+            <div class="isp-health-loading-spinner"></div>
+            <p class="isp-health-loading-text">Analyzing recent ISP and transit data...</p>
+        </div>
+    }
+    else if (Svc.Status == IspHealthStatus.NeedsDiscovery)
     {
         <div class="alert alert-info" style="margin-bottom: 1rem;">
             <div class="banner-content">
                 <span class="banner-icon banner-icon-info">i</span>
                 <div class="banner-text" style="flex: 1;">
-                    ISP Health needs your ISP and transit hops. Run Upstream Discovery on the Network Performance tab to identify them.
+                    @if (NeedsContextFirst)
+                    {
+                        <text>@SelectedWanLabel has no vantage yet, so nothing probes it. Give it one, then discovery can trace its path.</text>
+                    }
+                    else
+                    {
+                        <text>ISP Health needs your ISP and transit hops. Run Upstream Discovery on the Network Performance tab to identify them.</text>
+                    }
                 </div>
                 <div class="banner-actions">
-                    <button class="btn btn-sm btn-primary" @onclick="@(() => NavigationManager.NavigateTo("/monitoring?tab=performance&discover=1"))">Run Upstream Discovery</button>
+                    @if (NeedsContextFirst)
+                    {
+                        <button class="btn btn-sm btn-primary" @onclick="@(() => NavigationManager.NavigateTo("/monitoring?tab=performance&contexts=1"))">Add a WAN vantage</button>
+                    }
+                    else
+                    {
+                        <button class="btn btn-sm btn-primary" @onclick="@(() => NavigationManager.NavigateTo($"/monitoring?tab=performance&discover=1{DiscoveryWanQuery()}"))">Run Upstream Discovery</button>
+                    }
                 </div>
             </div>
         </div>
     }
-    else if (IspHealth.Status == IspHealthStatus.NeedsTechnology)
+    else if (Svc.Status == IspHealthStatus.NeedsTechnology)
     {
         <div class="alert alert-info" style="margin-bottom: 1rem;">
             <div class="banner-content">
                 <span class="banner-icon banner-icon-info">i</span>
                 <div class="banner-text" style="flex: 1;">
-                    <span>Pick your access network technology so ISP Health can grade against the right expectations. You can also set it during <a href="/monitoring?tab=performance&amp;discover=1">Upstream Discovery</a>.</span>
+                    <span>Pick your access network technology so ISP Health can grade against the right expectations. You can also set it during <a href="/monitoring?tab=performance&amp;discover=1@DiscoveryWanQuery()">Upstream Discovery</a>.</span>
                 </div>
                 <div class="banner-actions">
                     <select class="form-control" style="max-width: 240px;" aria-label="Access technology" disabled="@(!_canOperate)" @onchange="OnAccessTechnologyChanged">
@@ -142,7 +180,7 @@ else if (_report == null)
             </div>
         </div>
     }
-    else if (IspHealth.Status == IspHealthStatus.InsufficientData)
+    else if (Svc.Status == IspHealthStatus.InsufficientData)
     {
         <div class="alert alert-info" style="margin-bottom: 1rem;">
             <div class="banner-content">
@@ -153,7 +191,7 @@ else if (_report == null)
             </div>
         </div>
     }
-    else if (IspHealth.Status == IspHealthStatus.AwaitingConnection)
+    else if (Svc.Status == IspHealthStatus.AwaitingConnection)
     {
         <div class="alert alert-info" style="margin-bottom: 1rem;">
             <div class="banner-content">
@@ -164,7 +202,7 @@ else if (_report == null)
             </div>
         </div>
     }
-    else
+    else if (Svc.Status == IspHealthStatus.NotConfigured)
     {
         <div class="alert alert-warning" style="margin-bottom: 1rem;">
             <div class="banner-content">
@@ -174,6 +212,21 @@ else if (_report == null)
                 </div>
                 <div class="banner-actions">
                     <button class="btn btn-sm btn-primary" @onclick="@(() => NavigationManager.NavigateTo("/monitoring?tab=setup"))">Open Setup</button>
+                </div>
+            </div>
+        </div>
+    }
+    else
+    {
+        @* Every status above is handled, so this is a completed compute that produced no report
+           for the window asked for - a range predating collection, most often. It used to share
+           the NotConfigured banner, which sent someone to check an InfluxDB that was working
+           fine. *@
+        <div class="alert alert-info" style="margin-bottom: 1rem;">
+            <div class="banner-content">
+                <span class="banner-icon banner-icon-info">i</span>
+                <div class="banner-text" style="flex: 1;">
+                    No ISP Health data for the selected time range. Try a more recent window.
                 </div>
             </div>
         </div>
@@ -191,7 +244,7 @@ else
                     Re-run Upstream Discovery to map your trace path, so ISP Health can tell a genuinely congested hop from one that just deprioritizes ICMP.
                 </div>
                 <div class="banner-actions">
-                    <button class="btn btn-sm btn-primary" @onclick="@(() => NavigationManager.NavigateTo("/monitoring?tab=performance&discover=1"))">Re-run Upstream Discovery</button>
+                    <button class="btn btn-sm btn-primary" @onclick="@(() => NavigationManager.NavigateTo($"/monitoring?tab=performance&discover=1{DiscoveryWanQuery()}"))">Re-run Upstream Discovery</button>
                 </div>
             </div>
         </div>
@@ -231,7 +284,7 @@ else
                     </select>
                 </div>
             </div>
-            <a href="/wan-speedtest" class="isp-health-hero-speed">
+            <a href="@WanSpeedTestHref()" class="isp-health-hero-speed">
                 <div class="isp-speed-label">Speed vs Plan</div>
                 <div class="isp-speed-headline" data-tooltip="Best download and best upload from your recent WAN speed tests; each may come from a different test."
                      data-tooltip-click data-tooltip-wide>
@@ -407,7 +460,7 @@ else
                                             @if (target.SuggestDisable)
                                             {
                                                 <button type="button" class="isp-target-badge isp-target-disable-hint"
-                                                        data-tooltip="Not on your traced path but adding jitter - review in Latency targets to disable"
+                                                        data-tooltip="Not on your traced path but adding jitter - review in Latency Targets to disable"
                                                         @onclick="() => OnReviewTarget.InvokeAsync(target.TargetId)">Not on path &#9888;</button>
                                             }
                                         </div>
@@ -432,8 +485,8 @@ else
                                     <span class="isp-target-stat"><span class="isp-target-stat-label">Loss</span>@FormatLossPct(target.LossPct)</span>
                                     @{
                                         var hopLimit = LimitingAspect(target.LatencyStabilityScore, target.CongestionScore,
-                                            target.CongestionEventCount, IspHealth.Options.AsnLatencyStabilityWeight,
-                                            IspHealth.Options.AsnCongestionWeight);
+                                            target.CongestionEventCount, Svc.Options.AsnLatencyStabilityWeight,
+                                            Svc.Options.AsnCongestionWeight);
                                     }
                                     @if (hopLimit is not null)
                                     {
@@ -608,8 +661,8 @@ else
                                 <div class="isp-asn-stat"><span class="detail-label">Loss</span><span class="detail-value">@FormatLossPct(asn.LossPct)</span></div>
                                 @{
                                     var asnLimit = LimitingAspect(asn.LatencyStabilityScore, asn.CongestionScore,
-                                        asn.CongestionEventCount, IspHealth.Options.AsnLatencyStabilityWeight,
-                                        IspHealth.Options.AsnCongestionWeight);
+                                        asn.CongestionEventCount, Svc.Options.AsnLatencyStabilityWeight,
+                                        Svc.Options.AsnCongestionWeight);
                                 }
                                 @if (asnLimit is not null)
                                 {
@@ -910,9 +963,9 @@ else
 
     // The live/cached window in hours: the effective auto-computed window (reduced by auto-fallback
     // when the box can't finish the configured target in time), else the configured target, else 48.
-    private int LiveWindowHours => IspHealth.EffectiveWindowHours > 0
-        ? IspHealth.EffectiveWindowHours
-        : (IspHealth.ConfiguredWindowHours > 0 ? IspHealth.ConfiguredWindowHours : DefaultPresetHours);
+    private int LiveWindowHours => Svc.EffectiveWindowHours > 0
+        ? Svc.EffectiveWindowHours
+        : (Svc.ConfiguredWindowHours > 0 ? Svc.ConfiguredWindowHours : DefaultPresetHours);
 
     // Presets shown in the selector: the base set plus the live window when auto-fallback landed on a
     // value that isn't already a preset (e.g. the 16 h rung), so the active default always has a button.
@@ -959,12 +1012,12 @@ else
     private async Task RetryFullWindowAsync()
     {
         if (_refreshing || _windowComputing) return;
-        IspHealth.RetryConfiguredWindow();
+        Svc.RetryConfiguredWindow();
         _refreshing = true;
         StateHasChanged();
         try
         {
-            var report = await IspHealth.GetReportAsync(forceRefresh: true);
+            var report = await Svc.GetReportAsync(forceRefresh: true);
             if (IsLiveWindow)
             {
                 _report = report;
@@ -991,6 +1044,256 @@ else
     /// </summary>
     private bool _canOperate;
 
+    // Per-WAN report selection: the panel talks to the selected WAN's own IspHealthService
+    // instance; the injected (primary) service is the default and the only one a single-WAN
+    // site ever uses.
+    private IspHealthService? _wanSvc;
+    private IspHealthService Svc => _wanSvc ?? IspHealth;
+    private sealed record WanChoice(string Key, string Label, bool IsPrimary);
+    private List<WanChoice> _wanOptions = new();
+    // Which WANs a context names. A secondary WAN without one is not "not discovered yet" - it is
+    // not probed at all, and discovery cannot change that.
+    private HashSet<string> _wansWithContext = new(StringComparer.OrdinalIgnoreCase);
+    private string _selectedWanKey = "";
+    private string SharedWanScopeKey => SiteContext.ScopeStorageKey("monitoringWanScope");
+
+    /// <summary>
+    /// WAN choices for the selector: the live WAN list, plus any context-bound WAN the console
+    /// currently omits (a down WAN's history is still worth reading). One entry = gate closed.
+    /// </summary>
+    private async Task LoadWanChoicesAsync()
+    {
+        var options = new List<WanChoice>();
+        try
+        {
+            foreach (var wan in await PathView.GetWansAsync())
+                options.Add(new WanChoice(wan.WanInterface.ToLowerInvariant(),
+                    NetworkOptimizer.UniFi.GatewayWanHelper.FormatWanLabel(
+                        wan.FriendlyName, NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey(wan.WanInterface), null, null),
+                    wan.IsPrimary));
+        }
+        catch { }
+        try
+        {
+            await using var db = SiteDb.CreateForSite(SiteContext.Slug, SiteContext.IsDefault);
+            var contexts = await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.ToListAsync(
+                Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.AsNoTracking(db.WanContexts));
+            _wansWithContext = contexts
+                .Where(c => !string.IsNullOrEmpty(c.WanInterface))
+                .Select(c => c.WanInterface!.ToLowerInvariant())
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            foreach (var ctx in contexts)
+            {
+                if (string.IsNullOrEmpty(ctx.WanInterface)) continue;
+                var key = ctx.WanInterface!.ToLowerInvariant();
+                if (!options.Any(o => o.Key == key))
+                    options.Add(new WanChoice(key,
+                        NetworkOptimizer.UniFi.GatewayWanHelper.FormatWanLabel(
+                            ctx.Name, NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey(key), null, null),
+                        IsPrimary: false));
+            }
+        }
+        catch { }
+        _wanOptions = options;
+        _selectedWanKey = options.FirstOrDefault(o => o.IsPrimary)?.Key ?? options.FirstOrDefault()?.Key ?? "";
+    }
+
+    /// <summary>Loads the selected WAN's report, leaving it null on a transient query failure.</summary>
+    /// <summary>
+    /// Waits out the first compute for a WAN the user just switched to, then shows it. Bounded and
+    /// abandoned if the selection moves on - a compute that outlives the user's interest in it
+    /// should not redraw the panel underneath whatever they are looking at now.
+    /// </summary>
+    private async Task PollForFirstReportAsync(string forWanKey)
+    {
+        for (var attempt = 0; attempt < 20; attempt++)
+        {
+            await Task.Delay(TimeSpan.FromSeconds(3));
+            if (!string.Equals(_selectedWanKey, forWanKey, StringComparison.OrdinalIgnoreCase)) return;
+            try
+            {
+                var report = await Svc.GetReportAsync();
+                if (report == null) continue;
+                if (!string.Equals(_selectedWanKey, forWanKey, StringComparison.OrdinalIgnoreCase)) return;
+                _report = report;
+                await InvokeAsync(StateHasChanged);
+                return;
+            }
+            catch { return; }
+        }
+    }
+
+    private async Task LoadReportAsync()
+    {
+        try
+        {
+            _report = _windowStart.HasValue && _windowEnd.HasValue
+                ? await Svc.GetReportForWindowAsync(_windowStart.Value, _windowEnd.Value)
+                : await Svc.GetReportAsync();
+        }
+        catch
+        {
+            // A transient InfluxDB/query failure must not fault the circuit; leave the report null
+            // and let the status funnels render the fallback message.
+            _report = null;
+        }
+    }
+
+    private async Task SelectWanAsync(string key, bool persist = true)
+    {
+        // Same WAN AND a report already in hand is the no-op this guard is for. Without the
+        // second half it also swallowed the first selection of the WAN the panel opens on, which
+        // is the primary: _selectedWanKey is seeded with it, so ?wan=<primary> matched and
+        // returned before fetching anything. The render then found no report, read a status of
+        // Ready rather than Computing, and fell through to the catch-all telling the operator
+        // their monitoring was broken - repeatably, and only ever for the primary.
+        if (string.Equals(key, _selectedWanKey, StringComparison.OrdinalIgnoreCase) && _report != null) return;
+        var choice = _wanOptions.FirstOrDefault(w => string.Equals(w.Key, key, StringComparison.OrdinalIgnoreCase));
+        if (choice == null) return;
+        _selectedWanKey = choice.Key;
+        _wanSvc = choice.IsPrimary ? null : IspHealthRegistry.GetFor(SiteContext.Slug, choice.Key);
+        // Held across the fetch: the moment Svc points at the new WAN, every status funnel below
+        // is answering for a WAN whose report has not been read yet, and the catch-all among them
+        // says the site's monitoring is broken.
+        _loading = true;
+        // The whole report - the chart element with it - is behind @if (!_loading), so showing the
+        // spinner tears that div out of the DOM and leaves ApexCharts holding a detached node. The
+        // mount flag has to come off with it, or the after-render path sees "already mounted",
+        // skips the re-mount, and the WAN switch lands on an empty chart area. Pushing a new WAN
+        // to the old instance cannot help: the element it drew into is gone.
+        await DropChartMountAsync();
+        StateHasChanged();
+        if (persist)
+        {
+            try { await JS.InvokeVoidAsync("localStorage.setItem", SharedWanScopeKey, choice.IsPrimary ? "" : choice.Key); }
+            catch { }
+        }
+        try
+        {
+            _report = _windowStart.HasValue && _windowEnd.HasValue
+                ? await Svc.GetReportForWindowAsync(_windowStart.Value, _windowEnd.Value)
+                : await Svc.GetReportAsync();
+        }
+        catch { _report = null; }
+        // The chart fetches its own series and scopes them by WAN, so it has to be told. The
+        // chart itself is dropped right now (the content render below re-mounts it), but the WAN
+        // key is module-level JS state that survives the remount - pushing it here means the
+        // fresh mount's very first fetch is already scoped to the new WAN.
+        await PushChartWanAsync();
+        _loading = false;
+        // A WAN that has never been scored comes back null with a compute now running behind it.
+        // Waiting for the 30 s age tick to notice leaves the user on a spinner-less funnel for
+        // most of a minute, so poll briefly for the result the switch just asked for.
+        if (_report == null && Svc.Status == IspHealthStatus.Computing)
+            _ = PollForFirstReportAsync(choice.Key);
+        StateHasChanged();
+    }
+
+    /// <summary>Applies the WAN remembered for this site once localStorage is reachable.</summary>
+
+    /// <summary>
+    /// The WAN named by a <c>?wan=</c> query parameter, or null. Unknown values are ignored by the
+    /// caller rather than erroring: a stale link to a WAN the site no longer has should land on
+    /// the default report, not on nothing.
+    /// </summary>
+    /// <summary>
+    /// The WAN Speed Test link for the report on screen, filtered to the same WAN. The speeds in
+    /// this tile are that WAN's, so the history behind them should be too rather than every WAN's
+    /// results mixed together. Single-WAN sites get the plain page: the parameter resolves to the
+    /// one series there and the filter bar does not render at all.
+    /// </summary>
+    private string WanSpeedTestHref() =>
+        string.IsNullOrEmpty(_selectedWanKey)
+            ? "/wan-speedtest"
+            : $"/wan-speedtest?wan={Uri.EscapeDataString(_selectedWanKey)}";
+
+    private string? LinkedWanKey()
+    {
+        try
+        {
+            var query = new Uri(NavigationManager.Uri).Query;
+            var value = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(query)
+                .TryGetValue("wan", out var v) ? v.ToString() : null;
+            if (string.IsNullOrWhiteSpace(value)) return null;
+
+            var key = value.Trim().ToLowerInvariant();
+            // "primary" names the role rather than a WAN group, for links from somewhere that
+            // shows the primary's figures without knowing which WAN holds that role - it is a
+            // role in UniFi Network and any group can hold it, so those links cannot spell a key.
+            return string.Equals(key, Services.Monitoring.LiveWanScope.PrimaryWanToken, StringComparison.Ordinal)
+                ? _wanOptions.FirstOrDefault(w => w.IsPrimary)?.Key
+                : key;
+        }
+        catch { return null; }
+    }
+
+    /// <summary>
+    /// A secondary WAN is discovered THROUGH its context - that is what binds a probe to it - so a
+    /// WAN without one cannot be traced no matter how many times discovery is run. Saying "run
+    /// discovery" there would send the user somewhere that cannot help them.
+    /// </summary>
+    private bool NeedsContextFirst
+    {
+        get
+        {
+            var wan = _wanOptions.FirstOrDefault(
+                w => string.Equals(w.Key, _selectedWanKey, StringComparison.OrdinalIgnoreCase));
+            return wan is { IsPrimary: false } && !_wansWithContext.Contains(wan.Key);
+        }
+    }
+
+    /// <summary>The selected WAN in prose, for a sentence that names it.</summary>
+    private string SelectedWanLabel
+    {
+        get
+        {
+            var wan = _wanOptions.FirstOrDefault(w => string.Equals(w.Key, _selectedWanKey, StringComparison.OrdinalIgnoreCase));
+            return wan == null
+                ? "This WAN"
+                : NetworkOptimizer.UniFi.GatewayWanHelper.FormatWanLabelInProse(
+                    wan.Label, NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey(wan.Key));
+        }
+    }
+
+    /// <summary>Carries the report's WAN into a discovery link so it opens on that WAN's discovery.</summary>
+    private string DiscoveryWanQuery() =>
+        string.IsNullOrEmpty(_selectedWanKey) || _wanOptions.Count <= 1
+            ? "" : $"&wan={Uri.EscapeDataString(_selectedWanKey)}";
+
+    /// <returns>True when the selection moved, in which case the report has been loaded with it.</returns>
+    private async Task<bool> RestoreWanSelectionAsync()
+    {
+        if (_wanOptions.Count <= 1) return false;
+
+        // An explicit ?wan= beats the stored selection for this visit: arriving by a link that
+        // names a WAN is a statement about which report you want, where the stored value is only
+        // where you happened to be last. NOT persisted - following a link is not the same as
+        // choosing a filter, and writing it meant one click from a tile silently became the WAN
+        // this panel opened on from then on. Coming back without the link reads the stored one
+        // again, the same rule the Network Performance filter follows.
+        var linked = LinkedWanKey();
+        if (!string.IsNullOrEmpty(linked)
+            && _wanOptions.Any(w => string.Equals(w.Key, linked, StringComparison.OrdinalIgnoreCase)))
+        {
+            await SelectWanAsync(linked!, persist: false);
+            return true;
+        }
+
+        try
+        {
+            var stored = await JS.InvokeAsync<string?>("localStorage.getItem", SharedWanScopeKey);
+            if (!string.IsNullOrEmpty(stored)
+                && !string.Equals(stored, _selectedWanKey, StringComparison.OrdinalIgnoreCase)
+                && _wanOptions.Any(w => string.Equals(w.Key, stored, StringComparison.OrdinalIgnoreCase)))
+            {
+                await SelectWanAsync(stored, persist: false);
+                return true;
+            }
+        }
+        catch { }
+        return false;
+    }
+
     protected override async Task OnInitializedAsync()
     {
         _canOperate = AuthState is null
@@ -1001,20 +1304,13 @@ else
         PtrState.RefreshCallback = RefreshAsync;
         PtrState.NotifyStateChanged = StateHasChanged;
 
-        try
-        {
-            _report = await IspHealth.GetReportAsync();
-        }
-        catch
-        {
-            // A transient InfluxDB/query failure must not fault the circuit; leave the
-            // report null and let the status funnels render the fallback message.
-            _report = null;
-        }
-        finally
-        {
-            _loading = false;
-        }
+        await LoadWanChoicesAsync();
+
+        // The report is NOT loaded here. Which WAN it should be for lives in localStorage, which
+        // needs interop, which is unavailable until after the first render - so loading now would
+        // compute the primary in the foreground, and on a site where the primary is due a
+        // recompute that is a long wait for a report the user did not ask for, followed by a
+        // switch to the one they did. It loads in OnAfterRenderAsync once the WAN is known.
 
         // Highlight the button for the effective (possibly auto-reduced) live window.
         if (_followLive) _selectedPreset = LiveWindowHours;
@@ -1045,7 +1341,7 @@ else
             _autoReloading = true;
             try
             {
-                var latest = await IspHealth.GetReportAsync();
+                var latest = await Svc.GetReportAsync();
                 if (latest != null && (_report == null || latest.ComputedAt != _report.ComputedAt))
                 {
                     _report = latest;
@@ -1099,6 +1395,8 @@ else
             // cached report, which is what the tab is showing.
             if (_windowStart.HasValue && _windowEnd.HasValue)
                 url += $"?from={Uri.EscapeDataString(_windowStart.Value.ToString("o"))}&to={Uri.EscapeDataString(_windowEnd.Value.ToString("o"))}";
+            if (_wanSvc != null && !string.IsNullOrEmpty(_selectedWanKey))
+                url += (url.Contains('?') ? "&" : "?") + $"wan={Uri.EscapeDataString(_selectedWanKey)}";
             if (!SiteContext.IsDefault)
                 url = SiteContextService.WithSiteParam(url, SiteContext.Slug);
 
@@ -1147,7 +1445,7 @@ else
         {
             if (IsLiveWindow)
             {
-                _report = await IspHealth.GetReportAsync(forceRefresh: true);
+                _report = await Svc.GetReportAsync(forceRefresh: true);
                 // The chart fetches its own series from the freshly cached report.
                 try { await JS.InvokeVoidAsync("eval", "window.__ispHealthCharts?.reload?.();"); }
                 catch { /* chart not mounted yet */ }
@@ -1156,7 +1454,7 @@ else
             {
                 // Recompute the current window, bypassing the custom-window cache; the chart's
                 // follow-up fetch then hits the freshly recomputed result for the same window.
-                _report = await IspHealth.GetReportForWindowAsync(_windowStart.Value, _windowEnd.Value, forceRefresh: true);
+                _report = await Svc.GetReportForWindowAsync(_windowStart.Value, _windowEnd.Value, forceRefresh: true);
                 await ChartSetWindowAsync(_windowStart, _windowEnd);
             }
         }
@@ -1174,11 +1472,11 @@ else
     private async Task OnPhysicalLinkSourceChanged(ChangeEventArgs e)
     {
         var key = e.Value?.ToString();
-        await IspHealth.SetPhysicalLinkSourceAsync(string.IsNullOrEmpty(key) ? null : key);
+        await Svc.SetPhysicalLinkSourceAsync(string.IsNullOrEmpty(key) ? null : key);
         if (IsLiveWindow)
-            _report = await IspHealth.GetReportAsync();
+            _report = await Svc.GetReportAsync();
         else if (_windowStart.HasValue && _windowEnd.HasValue)
-            _report = await IspHealth.GetReportForWindowAsync(_windowStart.Value, _windowEnd.Value, forceRefresh: true);
+            _report = await Svc.GetReportForWindowAsync(_windowStart.Value, _windowEnd.Value, forceRefresh: true);
         StateHasChanged();
     }
 
@@ -1222,9 +1520,9 @@ else
         try
         {
             if (acknowledged)
-                await IspHealth.AcknowledgeOutageAsync(outageStartUtc);
+                await Svc.AcknowledgeOutageAsync(outageStartUtc);
             else
-                await IspHealth.UnacknowledgeOutageAsync(outageStartUtc);
+                await Svc.UnacknowledgeOutageAsync(outageStartUtc);
             await ReloadAfterOutageAckAsync();
         }
         finally
@@ -1238,9 +1536,9 @@ else
     private async Task ReloadAfterOutageAckAsync()
     {
         if (IsLiveWindow)
-            _report = await IspHealth.GetReportAsync();
+            _report = await Svc.GetReportAsync();
         else if (_windowStart.HasValue && _windowEnd.HasValue)
-            _report = await IspHealth.GetReportForWindowAsync(_windowStart.Value, _windowEnd.Value, forceRefresh: true);
+            _report = await Svc.GetReportForWindowAsync(_windowStart.Value, _windowEnd.Value, forceRefresh: true);
         StateHasChanged();
     }
 
@@ -1264,11 +1562,11 @@ else
         StateHasChanged();
         try
         {
-            await IspHealth.SetAccessTechnologyAsync((AccessTechnology)techValue);
+            await Svc.SetAccessTechnologyAsync((AccessTechnology)techValue);
             if (IsLiveWindow)
-                _report = await IspHealth.GetReportAsync();
+                _report = await Svc.GetReportAsync();
             else if (_windowStart.HasValue && _windowEnd.HasValue)
-                _report = await IspHealth.GetReportForWindowAsync(_windowStart.Value, _windowEnd.Value, forceRefresh: true);
+                _report = await Svc.GetReportForWindowAsync(_windowStart.Value, _windowEnd.Value, forceRefresh: true);
         }
         finally
         {
@@ -1316,6 +1614,17 @@ else
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        // Interop is unavailable during prerender, so the remembered WAN can only be applied here -
+        // and the report waits for it. Restoring first means one compute, for the WAN the user
+        // actually left the tab on, and the toolbar stays hidden behind _loading until the right
+        // pill is the lit one, so the selection never visibly jumps.
+        if (firstRender)
+        {
+            var switched = await RestoreWanSelectionAsync();
+            if (!switched) await LoadReportAsync();
+            _loading = false;
+            StateHasChanged();
+        }
         if (_scrollChartAfterRender)
         {
             _scrollChartAfterRender = false;
@@ -1351,20 +1660,64 @@ else
             }
             catch { /* tooltip refresh is best-effort */ }
         }
+        // A WAN switch renders the spinner state while the new report is fetched, and the report
+        // body - the chart's element with it - is behind @if (!_loading), so during that render
+        // there is nothing to mount into. This after-render still fires (the old report is still
+        // in hand, and DropChartMountAsync just lowered the flag), and mounting here is exactly
+        // what broke WAN switching: mount() found no element and returned WITHOUT throwing, the
+        // optimistic flag below stayed raised, and when the body came back the "already mounted"
+        // guard skipped the real mount - an empty chart area on every WAN switched to in-page,
+        // permanent because the unmount had also stopped the poll timer. The element only exists
+        // when !_loading, so leave the mount to that render's own after-render pass.
+        if (_loading) return;
         if (_chartMounted) return;
+        // Raised before the awaits, not after: renders interleave with them, and a second
+        // after-render must not start a second mount while this one is in flight.
         _chartMounted = true;
         var fromArg = _windowStart.HasValue ? $"'{_windowStart.Value:o}'" : "null";
         var toArg = _windowEnd.HasValue ? $"'{_windowEnd.Value:o}'" : "null";
         try
         {
             _selfRef ??= DotNetObjectReference.Create(this);
-            await JS.InvokeVoidAsync("eval",
+            // mount reports whether it found the element and built the chart. A miss returns
+            // false rather than throwing, so it cannot be left to the catch below: the flag must
+            // come back down on a miss or no later render will ever retry the mount.
+            var mounted = await JS.InvokeAsync<bool>("eval",
                 $"(async () => {{ const m = await import('{VersionedJs("/js/isp-health-charts.js")}'); " +
-                $"window.__ispHealthCharts = m; await m.mount('isp-health-asn-chart', {fromArg}, {toArg}, {HiddenChartTypesJson()}); }})();");
+                $"window.__ispHealthCharts = m; return await m.mount('isp-health-asn-chart', {fromArg}, {toArg}, {HiddenChartTypesJson()}); }})();");
+            if (!mounted) { _chartMounted = false; return; }
             // Hand the chart a callback so its drag-zoom can filter the events list to the visible window.
             await JS.InvokeVoidAsync("__ispHealthCharts.setDotNetRef", _selfRef);
+            await PushChartWanAsync();
         }
         catch { _chartMounted = false; }
+    }
+
+    /// <summary>
+    /// Tells the per-network chart which WAN to fetch. Null for the primary, matching how the
+    /// report itself is sourced - the primary's series are the unscoped ones.
+    /// </summary>
+    /// <summary>
+    /// Forgets the mounted chart so the next render builds a new one. Called whenever the report
+    /// content is about to be replaced, since the chart's element goes with it.
+    /// </summary>
+    private async Task DropChartMountAsync()
+    {
+        if (!_chartMounted) return;
+        _chartMounted = false;
+        try { await JS.InvokeVoidAsync("eval", "window.__ispHealthCharts?.unmount?.();"); }
+        catch { /* nothing mounted, or the circuit is going away */ }
+    }
+
+    private async Task PushChartWanAsync()
+    {
+        // Deliberately NOT gated on _chartMounted: the WAN key is module-level JS state that
+        // survives an unmount, so pushing it while the chart is dropped mid-switch is how the
+        // upcoming re-mount fetches the right WAN on its first load. setWan itself no-ops the
+        // fetch while unmounted.
+        var wan = _wanSvc == null ? "null" : $"'{System.Text.Encodings.Web.JavaScriptEncoder.Default.Encode(_selectedWanKey)}'";
+        try { await JS.InvokeVoidAsync("eval", $"window.__ispHealthCharts?.setWan({wan});"); }
+        catch { /* module not imported yet (first page load) - the post-mount push covers that */ }
     }
 
     private void ToggleCustomPopover()
@@ -1401,7 +1754,11 @@ else
         // datetime-local binds local wall-clock (Kind=Unspecified); treat it as local -> UTC.
         var startUtc = _customFrom.ToUniversalTime();
         var endUtc = _customTo.ToUniversalTime();
-        if (endUtc <= startUtc) return;
+        // A start after the end is a typo, not a request for nothing. Collapsing it onto the end
+        // lets the minimum-window rule below open it back up, so the user gets the shortest real
+        // window instead of a popover that closes and leaves the previous one on screen with no
+        // sign the input was rejected.
+        if (startUtc > endUtc) startUtc = endUtc;
         if (endUtc - startUtc < TimeSpan.FromHours(MinRangeHours))
             startUtc = endUtc.AddHours(-MinRangeHours);   // enforce the minimum window
         if (endUtc - startUtc > TimeSpan.FromHours(MaxRangeHours))
@@ -1422,8 +1779,8 @@ else
             // Default (null window) serves the cached 48 h report; an explicit window computes
             // off-cache and never disturbs it. Stale report stays on screen until the swap.
             _report = fromUtc.HasValue && toUtc.HasValue
-                ? await IspHealth.GetReportForWindowAsync(fromUtc.Value, toUtc.Value)
-                : await IspHealth.GetReportAsync();
+                ? await Svc.GetReportForWindowAsync(fromUtc.Value, toUtc.Value)
+                : await Svc.GetReportAsync();
         }
         catch { _report = null; }
         finally { _windowComputing = false; }

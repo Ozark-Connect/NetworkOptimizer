@@ -26,11 +26,15 @@ public static class IspHealthEndpoints
         group.MapGet("/api/monitoring/isp-health/pdf", async (
             DateTime? from,
             DateTime? to,
-            IspHealthService ispHealth,
+            string? wan,
+            IspHealthRegistry ispHealthRegistry,
             SiteContextService siteContext,
             SiteManagementService siteManagement,
             CancellationToken ct) =>
         {
+            // wan (a UniFi wan key) exports a non-primary WAN's report; absent = primary,
+            // exactly as before.
+            var ispHealth = ispHealthRegistry.GetFor(siteContext.Slug, wan);
             var report = from.HasValue && to.HasValue
                 ? await ispHealth.GetReportForWindowAsync(from.Value, to.Value, ct: ct)
                 : await ispHealth.GetReportAsync(ct: ct);
@@ -56,11 +60,15 @@ public static class IspHealthEndpoints
         group.MapGet("/api/monitoring/isp-health/asn-series", async (
             DateTime? from,
             DateTime? to,
-            IspHealthService ispHealth,
+            string? wan,
+            IspHealthRegistry ispHealthRegistry,
+            SiteContextService siteContext,
             CancellationToken ct) =>
         {
             // from/to (the tab's date/time filter) make the chart follow a custom window off
-            // the 48 h cache; absent, it serves the cached 48 h report.
+            // the 48 h cache; absent, it serves the cached 48 h report. wan (a UniFi wan key)
+            // serves a non-primary WAN's instance; absent = primary, exactly as before.
+            var ispHealth = ispHealthRegistry.GetFor(siteContext.Slug, wan);
             var (series, report) = await ispHealth.GetAsnChartDataAsync(from, to, ct);
 
             // Cap the chart payload only for long windows: bucket toward a target point count,

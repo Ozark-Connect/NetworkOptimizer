@@ -71,6 +71,7 @@ public class MonitoringCollectionAgent : BackgroundService
 
     // Counter delta cache for server-side rate computation. Key = "deviceMac/ifName".
     private readonly ConcurrentDictionary<string, InterfaceRateCalculator.State> _counterCache = new();
+    private bool _fabricSeeded;
     // Per-target last-probed time, for per-target poll intervals on a shared loop.
     private readonly ConcurrentDictionary<int, DateTime> _targetLastProbed = new();
 
@@ -458,6 +459,19 @@ public class MonitoringCollectionAgent : BackgroundService
         // port the AP is plugged into (spec 5.6).
         _fabric.UpdateUnifiPortRates(devices, DateTime.UtcNow);
 
+        // First cycle after a start: show the last figures we recorded rather than a dash.
+        // Rates are derived from consecutive SNMP counter reads, and that cache is in memory, so a
+        // restart cannot produce one until a device has been polled TWICE - and none of that
+        // begins until the console (on an agent site, the console THROUGH the tunnel) has named
+        // the devices. Until then the fabric tiles read "-" though the data is sitting in Influx.
+        // Seeding from it is the same trick the flow map already uses for per-port rates; the
+        // live path overwrites each device the moment its own second poll lands.
+        if (!_fabricSeeded)
+        {
+            _fabricSeeded = true;
+            await SeedFabricSumsAsync(devices, ct);
+        }
+
         // Resolve the gateway LAN IP once per cycle so the SNMP poll targets the
         // LAN-side address (which actually answers) instead of UniFi's reported WAN
         // public IP for the gateway (which never will).
@@ -747,6 +761,60 @@ public class MonitoringCollectionAgent : BackgroundService
     // is per-site, so one instance is correct.
     private readonly LanFabricAggregator _fabric = new();
 
+
+
+    /// <summary>
+    /// Fills the live fabric totals from the most recent readings in InfluxDB so a restart does
+    /// not blank them until two fresh SNMP polls have happened. Types match what the live path
+    /// records for - switches, gateways and cellular modems - so an AP cannot inflate the seeded
+    /// total any more than it can the live one.
+    /// </summary>
+    private async Task SeedFabricSumsAsync(IReadOnlyList<NetworkOptimizer.UniFi.Models.UniFiDeviceResponse> devices, CancellationToken ct)
+    {
+        if (!_influx.IsConfigured) return;
+        var until = DateTime.UtcNow;
+        var from = until - TimeSpan.FromMinutes(2);
+
+        foreach (var device in devices)
+        {
+            if (string.IsNullOrEmpty(device.Mac)) continue;
+            if (device.DeviceType != NetworkOptimizer.Core.Enums.DeviceType.Switch
+                && device.DeviceType != NetworkOptimizer.Core.Enums.DeviceType.Gateway
+                && device.DeviceType != NetworkOptimizer.Core.Enums.DeviceType.CellularModem)
+                continue;
+            try
+            {
+                using var queryCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                queryCts.CancelAfter(TimeSpan.FromSeconds(5));
+                var points = await _influx.QueryInterfaceRatesAsync(
+                    NormalizeMac(device.Mac), from, until, null, queryCts.Token);
+                if (points.Count == 0) continue;
+
+                // One reading per interface - the newest - then summed, which is how the live
+                // path builds the same figure from a single poll's interfaces.
+                double inBps = 0, outBps = 0;
+                DateTime stamp = default;
+                foreach (var per in points.GroupBy(p => p.IfName, StringComparer.OrdinalIgnoreCase))
+                {
+                    var latest = per.OrderByDescending(p => p.Time).First();
+                    inBps += latest.RateInBps ?? 0;
+                    outBps += latest.RateOutBps ?? 0;
+                    if (latest.Time > stamp) stamp = latest.Time;
+                }
+                if (stamp == default) continue;
+                _liveStats.RecordFabricSum(NormalizeMac(device.Mac), inBps, outBps, stamp);
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                // A slow Influx must not hold up the poll cycle that is about to replace this.
+                _logger.LogDebug("Fabric seed timed out for {Device}", device.Mac);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Fabric seed failed for {Device}", device.Mac);
+            }
+        }
+    }
 
     private async Task MediumTierCollectAsync(MonitoringSettings settings, CancellationToken ct)
     {
@@ -1518,7 +1586,7 @@ public class MonitoringCollectionAgent : BackgroundService
                 sent: ping.Sent,
                 received: ping.Received,
                 timestamp: ping.Timestamp,
-                wanContext: wanContext?.Name);
+                wanContext: wanContext?.InfluxWanTag);
 
             // Surface fabric probe results on the dashboard's device cards (5.6). Other
             // target types (WAN, transit) feed cloud nodes on the 3D map; the per-device

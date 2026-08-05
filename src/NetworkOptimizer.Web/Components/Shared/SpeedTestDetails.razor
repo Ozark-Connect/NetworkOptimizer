@@ -122,7 +122,7 @@
     <div class="test-details">
         @if (ShowLiveViewLink)
         {
-            <a href="/monitoring?tab=live&at=@LiveViewAtMs" class="settings-title-link speedtest-liveview-link"
+            <a href="@LiveViewHref" class="settings-title-link speedtest-liveview-link"
                @onclick:stopPropagation data-tooltip="Go to Live View at this time" data-tooltip-hover-only>
                 <span class="hide-mobile">@TestTime.ToLocalTime().ToString("g")</span>
                 <span class="show-mobile">@TimeFormatHelper.FormatRelativeTimeShort(TestTime)</span>
@@ -507,6 +507,25 @@
             return stampMs - 2 * DurationSeconds * 1000L;
         }
     }
+    /// <summary>Live View at the moment of this test, on the WAN that ran it.</summary>
+    private string LiveViewHref => $"/monitoring?tab=live&at={LiveViewAtMs}{LiveViewWanQuery}";
+
+    /// <summary>
+    /// The WAN the result was measured on, as the live filter's interface key ("&amp;wan=wan2").
+    /// A timestamp alone lands on whichever WAN the filter was left on, which for a multi-WAN site
+    /// is usually not the one the result is describing - the spike the link exists to show is on
+    /// the WAN that ran the test. Empty for a result with no WAN (LAN and client tests), and
+    /// harmless on a single-WAN site: the key matches no option there, so the filter stands.
+    /// </summary>
+    private string LiveViewWanQuery
+    {
+        get
+        {
+            var wanIndex = GatewayWanHelper.WanIndexFromKey(Result?.WanNetworkGroup);
+            return wanIndex > 0 ? $"&wan={GatewayWanHelper.WanInterfaceKey(wanIndex)}" : "";
+        }
+    }
+
     [Parameter] public double? PingMs { get; set; }
     [Parameter] public double? JitterMs { get; set; }
     [Parameter] public double? DownloadLatencyMs { get; set; }

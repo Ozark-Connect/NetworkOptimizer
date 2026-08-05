@@ -26,6 +26,7 @@ public class LocalProbeExecutor : IProbeExecutor
     private ProbeCapability? _capability;
     private readonly SemaphoreSlim _capabilityLock = new(1, 1);
     private bool _tracerouteBinaryAvailable;
+    private TracerouteBinaryTraits _tracerouteTraits = TracerouteBinaryTraits.FullyBindable;
 
     // Throttle native Process.Start. macOS ARM64 has a .NET 10 runtime bug
     // (dotnet/runtime#112167) where concurrent Process.Start with redirected
@@ -42,6 +43,15 @@ public class LocalProbeExecutor : IProbeExecutor
     }
 
     public ProbeVantage Vantage => ProbeVantage.Server;
+
+    /// <summary>
+    /// Whether probes on this host can be bound to a source address or interface.
+    /// Binding rides on the native ping binary's source options, so it is exactly
+    /// the platforms where <see cref="NativePingAsync"/> is the ping path: .NET's
+    /// managed Ping cannot bind at all. Agents announce this in their hello so the
+    /// server only offers a bind mechanism the agent can actually honor.
+    /// </summary>
+    public static bool SupportsSourceBinding => !OperatingSystem.IsWindows();
 
     public async Task<ProbeCapability> GetCapabilityAsync(CancellationToken ct = default)
     {
@@ -64,7 +74,7 @@ public class LocalProbeExecutor : IProbeExecutor
                 CanUdpTraceroute = _tracerouteBinaryAvailable, // only the native binary does UDP
                 CanTcpProbe = true,                          // .NET sockets
                 IsBusyBoxPing = false,
-                IsBusyBoxTraceroute = false
+                IsBusyBoxTraceroute = _tracerouteBinaryAvailable && _tracerouteTraits.IsBusyBox
             };
 
             _logger.LogInformation(
@@ -94,7 +104,17 @@ public class LocalProbeExecutor : IProbeExecutor
             if (probe == null) return false;
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             cts.CancelAfter(TimeSpan.FromSeconds(2));
+            // Both streams: GNU traceroute prints its version on stdout, while BusyBox and
+            // BSD answer an unknown -V with their usage on stderr. That usage text is the
+            // only evidence available for which source-bind options this build actually has.
+            // On the same 2s budget as the exit wait, so a binary that says nothing and never
+            // returns costs the same as it did when nothing read its output at all.
+            var stdoutTask = probe.StandardOutput.ReadToEndAsync(cts.Token);
+            var stderrTask = probe.StandardError.ReadToEndAsync(cts.Token);
             try { await probe.WaitForExitAsync(cts.Token); } catch { }
+            var banner = (await SafeReadAsync(stdoutTask) ?? string.Empty)
+                + "\n" + (await SafeReadAsync(stderrTask) ?? string.Empty);
+            _tracerouteTraits = InterpretTracerouteBanner(banner);
             return true;
         }
         catch (Exception ex)
@@ -102,6 +122,47 @@ public class LocalProbeExecutor : IProbeExecutor
             _logger.LogDebug(ex, "Local traceroute binary probe failed");
             return false;
         }
+    }
+
+    /// <summary>
+    /// What the installed traceroute can be told about where a probe leaves from. GNU
+    /// traceroute and BSD traceroute both take <c>-s</c> (source address) and <c>-i</c>
+    /// (source interface), so anything that isn't BusyBox is taken as fully bindable.
+    /// BusyBox's applet is compile-configurable and may carry neither, so its usage text -
+    /// which it prints in place of a version - is read for the two options before either is
+    /// offered. A probe that cannot bind must fail rather than leave by the default route:
+    /// that would record another WAN's latency under this one's name.
+    /// </summary>
+    internal readonly record struct TracerouteBinaryTraits(bool IsBusyBox, bool CanBindAddress, bool CanBindInterface)
+    {
+        /// <summary>A GNU/BSD traceroute: both bind options present. Also the assumption before detection runs.</summary>
+        public static TracerouteBinaryTraits FullyBindable => new(false, true, true);
+    }
+
+    /// <summary>Reads a traceroute binary's version/usage output into the bind options it advertises.</summary>
+    /// <param name="banner">Combined stdout+stderr from <c>traceroute -V</c>; empty when it could not be read.</param>
+    internal static TracerouteBinaryTraits InterpretTracerouteBanner(string? banner)
+    {
+        if (string.IsNullOrWhiteSpace(banner)) return TracerouteBinaryTraits.FullyBindable;
+        if (banner.IndexOf("busybox", StringComparison.OrdinalIgnoreCase) < 0)
+            return TracerouteBinaryTraits.FullyBindable;
+
+        return new TracerouteBinaryTraits(
+            IsBusyBox: true,
+            CanBindAddress: MentionsOption(banner, 's'),
+            CanBindInterface: MentionsOption(banner, 'i'));
+    }
+
+    /// <summary>Whether a usage line lists a single-letter option, either bare or inside a bundled flag group.</summary>
+    private static bool MentionsOption(string banner, char option)
+    {
+        for (var i = 0; i < banner.Length - 1; i++)
+        {
+            if (banner[i] != '-') continue;
+            for (var j = i + 1; j < banner.Length && char.IsAsciiLetterOrDigit(banner[j]); j++)
+                if (banner[j] == option) return true;
+        }
+        return false;
     }
 
     public async Task<PingProbeResult> PingAsync(
@@ -122,7 +183,7 @@ public class LocalProbeExecutor : IProbeExecutor
         // ("ping" says 0.2 ms, dashboard says 1.5 ms). Windows ping has different output
         // and gives less useful data, so the managed Ping + Stopwatch path is the
         // Windows MSI fallback.
-        if (!OperatingSystem.IsWindows())
+        if (SupportsSourceBinding)
         {
             return await NativePingAsync(target, count, perPingTimeout ?? TimeSpan.FromSeconds(2), ct);
         }
@@ -300,16 +361,19 @@ public class LocalProbeExecutor : IProbeExecutor
             using var tcp = new TcpClient();
             if (!string.IsNullOrEmpty(target.SourceInterface))
             {
-                // TCP source binding only works with an address (SO_BINDTODEVICE
-                // for interface names needs CAP_NET_RAW; not worth it here).
-                if (!System.Net.IPAddress.TryParse(target.SourceInterface, out var sourceIp))
+                // TCP source binding takes an address, not a device (SO_BINDTODEVICE
+                // for interface names needs CAP_NET_RAW), so an interface name is
+                // resolved to its current address here rather than at push time: a
+                // DHCP or PPPoE WAN moves, and a stale address binds nothing.
+                var (sourceIp, error) = ResolveTcpBindAddress(target.SourceInterface, LookupInterfaceIPv4);
+                if (sourceIp == null)
                 {
                     return new TcpProbeResult
                     {
                         Target = target,
                         Vantage = Vantage,
                         Connected = false,
-                        ErrorMessage = $"TCP probes need an IP address as the probe source, got '{target.SourceInterface}'",
+                        ErrorMessage = error,
                         Timestamp = DateTime.UtcNow
                     };
                 }
@@ -369,12 +433,20 @@ public class LocalProbeExecutor : IProbeExecutor
         var deadlineDuration = totalDeadline ?? TimeSpan.FromSeconds(10);
         if (!_tracerouteBinaryAvailable || OperatingSystem.IsWindows())
         {
+            // The managed Ping-with-TTL traceroute cannot bind a source, exactly as the
+            // managed ping path cannot. Tracing out the default route would attribute
+            // another WAN's path to this one, so say so instead of tracing anyway.
+            if (!string.IsNullOrEmpty(target.SourceInterface))
+                return FailTrace(target, "Source-bound traceroute needs the native traceroute binary (Linux/macOS)");
+
             using var managedCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             managedCts.CancelAfter(deadlineDuration);
             return await _managedTraceroute.RunAsync(target, Vantage, maxHops, perHopTimeout, 3, managedCts.Token);
         }
 
-        var (exe, args) = BuildTracerouteCommand(target, maxHops, perHopTimeout);
+        var (exe, args, buildError) = BuildTracerouteCommand(target, maxHops, perHopTimeout, _tracerouteTraits);
+        if (buildError != null)
+            return FailTrace(target, buildError);
         // Acquire the throttle FIRST, THEN start the per-trace deadline. The
         // deadline must bound process execution, not time spent queued behind
         // the semaphore - otherwise queued traces in a big sweep (18 in the
@@ -523,6 +595,52 @@ public class LocalProbeExecutor : IProbeExecutor
     /// The probe source goes into a process argument, so restrict it to the
     /// characters valid in IPv4/IPv6 addresses and interface names.
     /// </summary>
+    /// <summary>
+    /// Turns a probe source value into the address a TCP socket can bind to: an IP
+    /// literal is taken as-is, an interface name is resolved to that interface's
+    /// current IPv4 address through <paramref name="interfaceAddresses"/>.
+    ///
+    /// An interface with no IPv4 address returns an error rather than a null bind.
+    /// Probing unbound would leave by the default route and record another WAN's
+    /// latency under this one's name, which reads as data rather than as a failure.
+    /// </summary>
+    /// <param name="source">Source IP or interface name from the WAN context.</param>
+    /// <param name="interfaceAddresses">Looks up an interface's addresses by name; empty when it has none or does not exist.</param>
+    /// <returns>The address to bind, or null with the reason the probe cannot run.</returns>
+    internal static (System.Net.IPAddress? Address, string? Error) ResolveTcpBindAddress(
+        string source,
+        Func<string, IReadOnlyList<System.Net.IPAddress>> interfaceAddresses)
+    {
+        if (System.Net.IPAddress.TryParse(source, out var literal))
+            return (literal, null);
+
+        if (!IsSafeSourceValue(source))
+            return (null, $"Invalid probe source '{source}'");
+
+        var addresses = interfaceAddresses(source);
+        var ipv4 = addresses.FirstOrDefault(a => a.AddressFamily == AddressFamily.InterNetwork);
+        if (ipv4 != null)
+            return (ipv4, null);
+
+        return (null, $"Interface '{source}' has no IPv4 address to bind the TCP probe to");
+    }
+
+    /// <summary>Current unicast IPv4/IPv6 addresses of a local interface by name; empty when there is no such interface.</summary>
+    private static IReadOnlyList<System.Net.IPAddress> LookupInterfaceIPv4(string interfaceName)
+    {
+        try
+        {
+            var nic = NetworkInterface.GetAllNetworkInterfaces()
+                .FirstOrDefault(n => string.Equals(n.Name, interfaceName, StringComparison.OrdinalIgnoreCase));
+            if (nic == null) return Array.Empty<System.Net.IPAddress>();
+            return nic.GetIPProperties().UnicastAddresses.Select(a => a.Address).ToList();
+        }
+        catch (NetworkInformationException)
+        {
+            return Array.Empty<System.Net.IPAddress>();
+        }
+    }
+
     private static bool IsSafeSourceValue(string value) =>
         value.Length <= 64 && value.All(c => char.IsAsciiLetterOrDigit(c) || c is '.' or ':' or '-' or '_' or '%');
 
@@ -536,6 +654,17 @@ public class LocalProbeExecutor : IProbeExecutor
         Timestamp = DateTime.UtcNow
     };
 
+    private TracerouteResult FailTrace(ProbeTarget target, string error) => new()
+    {
+        Target = target,
+        Vantage = Vantage,
+        ModeUsed = target.Mode,
+        Hops = Array.Empty<TraceHop>(),
+        Reached = false,
+        ErrorMessage = error,
+        Timestamp = DateTime.UtcNow
+    };
+
     private static (string exe, string args) ChooseTracerouteBinary()
     {
         if (OperatingSystem.IsWindows())
@@ -545,13 +674,49 @@ public class LocalProbeExecutor : IProbeExecutor
         return ("traceroute", "-V");
     }
 
-    private static (string exe, string args) BuildTracerouteCommand(ProbeTarget target, int maxHops, TimeSpan? perHopTimeout)
+    /// <summary>
+    /// Builds the traceroute invocation for a target, including the source bind a WAN context
+    /// asks for: an IP literal becomes <c>-s</c>, an interface name becomes <c>-i</c>, mirroring
+    /// the ping path's <c>-I</c>/<c>-S</c>/<c>-b</c> handling. Returns an error instead of a
+    /// command whenever the bind cannot be honored - an unbound trace would map another WAN's
+    /// upstream onto this one, which reads as a discovery result rather than as a failure.
+    /// </summary>
+    /// <param name="target">Probe target; its SourceInterface carries the context's bind, if any.</param>
+    /// <param name="maxHops">TTL ceiling.</param>
+    /// <param name="perHopTimeout">Per-hop wait; floored at one second, which is the flag's unit.</param>
+    /// <param name="traits">What the installed binary can bind, from <see cref="InterpretTracerouteBanner"/>.</param>
+    /// <param name="isWindows">Which platform's traceroute to build for; defaults to this host's.</param>
+    /// <returns>The executable and arguments, or an error explaining why the probe cannot run.</returns>
+    internal static (string Exe, string Args, string? Error) BuildTracerouteCommand(
+        ProbeTarget target, int maxHops, TimeSpan? perHopTimeout, TracerouteBinaryTraits traits, bool? isWindows = null)
     {
         var wait = (int)Math.Max(1, (perHopTimeout ?? TimeSpan.FromSeconds(2)).TotalSeconds);
-        if (OperatingSystem.IsWindows())
+        if (isWindows ?? OperatingSystem.IsWindows())
         {
+            // tracert.exe has no source option at all, so a bound probe cannot run here.
+            if (!string.IsNullOrEmpty(target.SourceInterface))
+                return ("tracert.exe", string.Empty, "Source-bound traceroute needs the native traceroute binary (Linux/macOS)");
             // tracert: -h max hops, -w wait ms, -d no DNS resolution to speed up
-            return ("tracert.exe", $"-h {maxHops} -w {wait * 1000} {target.Address}");
+            return ("tracert.exe", $"-h {maxHops} -w {wait * 1000} {target.Address}", null);
+        }
+
+        var sourceArg = string.Empty;
+        if (!string.IsNullOrEmpty(target.SourceInterface))
+        {
+            if (!IsSafeSourceValue(target.SourceInterface))
+                return ("traceroute", string.Empty, $"Invalid probe source '{target.SourceInterface}'");
+
+            var isAddress = System.Net.IPAddress.TryParse(target.SourceInterface, out _);
+            if (isAddress && !traits.CanBindAddress)
+                return ("traceroute", string.Empty,
+                    "This host's traceroute takes no source address, so the probe would go out the default route");
+            if (!isAddress && !traits.CanBindInterface)
+                return ("traceroute", string.Empty,
+                    $"This host's traceroute takes no source interface, so the probe would not go out '{target.SourceInterface}'");
+
+            sourceArg = isAddress
+                ? $"-s {target.SourceInterface} "
+                : $"-i {target.SourceInterface} ";
         }
 
         var protoFlag = target.Mode switch
@@ -563,7 +728,7 @@ public class LocalProbeExecutor : IProbeExecutor
         // PTR resolution stays ON — hostnames like "cr1.stl1.example.net" are gold for the
         // wizard's hop-labelling logic (spec 5.5). Linux's resolver times out fast, so the
         // cost is bounded by the per-probe deadline anyway.
-        var args = $"-m {maxHops} -q 2 -w {wait} {protoFlag} {target.Address}".Trim();
-        return ("traceroute", args);
+        var args = $"-m {maxHops} -q 2 -w {wait} {protoFlag} {sourceArg}{target.Address}".Trim();
+        return ("traceroute", args, null);
     }
 }

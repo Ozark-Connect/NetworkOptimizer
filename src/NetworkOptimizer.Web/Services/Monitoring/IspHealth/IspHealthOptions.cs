@@ -63,6 +63,158 @@ public class IspHealthOptions
     /// <summary>Weight of loaded latency delta within the access dimension.</summary>
     public double LoadedLatencyWeight { get; set; } = 0.14875;
 
+    /// <summary>
+    /// Half-life, in hours, for how much a speed test still counts toward the loaded-latency
+    /// figure. A plain median over the window treats a test from an hour ago exactly like one from
+    /// six days ago, so a line fixed this afternoon went on reporting bufferbloat until the good
+    /// tests outnumbered the bad - which on a daily schedule takes a week. Two days of evidence
+    /// counts half, so three consecutive clean runs outweigh a week of bad ones.
+    /// <para>
+    /// Not shorter than that on purpose. On the daily schedule most sites run, a 24-hour half-life
+    /// gives the newest test more weight than every earlier test combined - which is not a median
+    /// any more, it is "latest test wins", and one bad run would raise a finding on its own.
+    /// </para>
+    /// <para>Zero disables the decay and restores the plain median.</para>
+    /// </summary>
+    public double LoadedLatencyRecencyHalfLifeHours { get; set; } = 48;
+
+    /// <summary>
+    /// Consecutive newest speed tests that, if all materially better than what came before, are
+    /// read as the line having been FIXED rather than as it varying - and the older tests are then
+    /// describing a connection that no longer exists.
+    /// <para>
+    /// Weighting by age alone cannot answer this. The window is short enough that a fix this
+    /// afternoon leaves three clean tests against four bad ones only hours older, where decay
+    /// barely separates them and the median still sits on the bad cluster. Three in a row is the
+    /// smallest run that is not a fluke; below that the weighted median decides as before.
+    /// </para>
+    /// </summary>
+    public int LoadedLatencyRegimeSamples { get; set; } = 3;
+
+    /// <summary>
+    /// The share of the plan a WAN speed test must have reached IN THAT DIRECTION before its
+    /// loaded latency may stand in for the measured delta. A test that never filled the pipe did
+    /// not load the buffers either, so its latency describes something other than this link at
+    /// saturation - and since the substitution only ever raises the figure, admitting those would
+    /// bias every matched episode upward with nothing able to correct it. Judged per direction: a
+    /// test that saturated the downstream and not the upstream still speaks for the downstream.
+    /// </summary>
+    /// <summary>
+    /// Plan speed at or below which the configured plan is treated as UNSET rather than as a real
+    /// plan. UniFi Network will not accept anything under 1 Mbps, so a link with no meaningful
+    /// figure to enter - a metered backup, a standby WAN - ends up pinned at the floor. Grading
+    /// against it turns an ordinary backup link into a failing one: 0.6 / 0.1 Mbps against a
+    /// "1 / 1 plan" scored 17.
+    /// </summary>
+    public double PlanFloorMbps { get; set; } = 1.0;
+
+    public double LoadedLatencySpeedTestMinPlanFraction { get; set; } = 0.7;
+
+    /// <summary>
+    /// How far from a load episode a WAN speed test may sit and still be taken as the measurement
+    /// OF that episode. Only wide enough to bridge the stored instant of a test and the span of
+    /// the load it caused - a test runs for tens of seconds, so anything past that is a different
+    /// event and must not speak for this one.
+    /// </summary>
+    public double LoadedLatencySpeedTestMatchSeconds { get; set; } = 30;
+
+    /// <summary>
+    /// How close in time two hops' samples must be to count as the same instant for the
+    /// cross-hop agreement check. One second: close enough that the same queue state is being
+    /// reported by both, loose enough to catch probes that do not fire in lockstep.
+    /// </summary>
+    public double LoadedLatencyAgreementToleranceSeconds { get; set; } = 1;
+
+    /// <summary>
+    /// How many distinct hops must report at one instant before their agreement is consulted.
+    /// Below this there is nothing to corroborate against and the samples pass through as they
+    /// are - see <see cref="SeriesStats.CommonModeByInstant"/>.
+    /// </summary>
+    public int LoadedLatencyAgreementMinCohort { get; set; } = 4;
+
+    /// <summary>
+    /// How far below the older tests the recent run has to sit to count as a fix: at 0.5, every one
+    /// of them must be under half the older median. A line that merely had a good afternoon does
+    /// not clear this, and a plausible measurement floor is allowed for besides, so a connection
+    /// whose delta is already small cannot trip it on noise.
+    /// </summary>
+    public double LoadedLatencyRegimeDropFraction { get; set; } = 0.5;
+
+    /// <summary>
+    /// Consecutive newest load episodes that must show no added delay before the elevation is
+    /// treated as OVER - the line was fixed, and the elevated episodes behind it describe a
+    /// connection that no longer exists.
+    /// <para>
+    /// Asked this way round because of what the noise floor does downstream. Most loaded samples on
+    /// a healthy line sit near zero, so the floor keeps only the elevated ones and the figure
+    /// reported is the median OF THE BAD ONES. Comparing medians cannot see a fix there - the
+    /// median over everything is ~0 both before and after. Whether elevation is still HAPPENING
+    /// can be seen, and that is the question.
+    /// </para>
+    /// <para>
+    /// Nothing changes for a line that was not fixed: a still-bad line has elevated episodes among
+    /// its newest and never qualifies, and a line that was always clean has no elevated episodes to
+    /// go stale, so it takes the path it always took.
+    /// </para>
+    /// </summary>
+    public int LoadedLatencyElevationStaleEpisodes { get; set; } = 3;
+
+    /// <summary>
+    /// Whether the clean run must also cover the hour of day when the elevation used to appear.
+    /// <para>
+    /// Without this a nightly problem clears itself: a line that bufferbloats every evening is
+    /// clean all night, so a run computed at 3 AM sees three clean episodes on top of elevated ones
+    /// and calls it fixed. Congestion is a time-of-day phenomenon, and "it has been fine since"
+    /// only means something if the "since" covers the hour it used to go wrong.
+    /// </para>
+    /// <para>
+    /// The cost is honest: a fix is confirmed once the line carries traffic during that hour again,
+    /// not the moment it stops misbehaving at 3 AM. Until then the figure keeps describing the
+    /// behavior actually observed at the hour in question, which is all that is known.
+    /// </para>
+    /// <para>
+    /// Only asked when the history shows hour-dependence at all. A line that was elevated in EVERY
+    /// episode before the clean run was not misbehaving at a time of day - it was misbehaving under
+    /// load, full stop - so any clean run disproves it. Requiring the same hour there would hold a
+    /// fix hostage to whenever the line is next busy, which on a WAN whose only regular load is a
+    /// scheduled speed test is the following day.
+    /// </para>
+    /// </summary>
+    public bool LoadedLatencyElevationStaleNeedsSameHour { get; set; } = true;
+
+    /// <summary>
+    /// Utilization band, as a fraction of plan speed, over which a load episode earns credibility:
+    /// weak at the bottom, full at the top.
+    /// <para>
+    /// It starts ABOVE <see cref="LoadedThresholdFraction"/> deliberately. Everything reaching this
+    /// code is already classified loaded at 50%, so a ramp from zero would score almost every
+    /// episode near the top and separate nothing. Queues do not really build until the pipe is
+    /// most of the way full, so 60% is where the evidence starts being worth something and 90% is
+    /// where it is worth all it can be.
+    /// </para>
+    /// </summary>
+    public double LoadedCredibilityUtilizationStart { get; set; } = 0.60;
+
+    /// <summary>Utilization at which an episode is fully credible. See the start of the band.</summary>
+    public double LoadedCredibilityUtilizationFull { get; set; } = 0.90;
+
+    /// <summary>
+    /// Least weight any load episode keeps, however light. Never zero: a lightly loaded episode is
+    /// weak evidence, not absent evidence, and a line whose only load is light would otherwise
+    /// have nothing to score at all.
+    /// </summary>
+    public double LoadedLatencyMinLoadWeight { get; set; } = 0.15;
+
+    /// <summary>
+    /// Sustained seconds of load after which an episode is fully credible. Duration is not just
+    /// more samples: a short burst is the case load CLASSIFICATION gets wrong most often, and it is
+    /// also too brief for buffers to fill, so its latency understates what the line does when the
+    /// pipe stays full. A long saturation is the best evidence there is - better than a speed test,
+    /// which is short and synthetic - so it carries full weight while a few seconds of traffic
+    /// carries a fraction.
+    /// </summary>
+    public int LoadedLatencyFullCredibilitySustainedSeconds { get; set; } = 60;
+
     /// <summary>Weight of loaded packet loss within the access dimension.</summary>
     public double LoadedLossWeight { get; set; } = 0.14875;
 
@@ -881,11 +1033,27 @@ public static class IspHealthProfiles
         // (Local Priority) ~4.3 ms MAD, degraded backup ~9.2 ms. The several-ms steady-state wander
         // is inherent LEO (handovers ~every 15 s); MAD is robust to the obstruction tail.
         AccessTechnology.Satellite => new AccessProfile("Satellite (LEO)",
-            IdleRttIdealMs: 23.0, IdleRttNormalLowMs: 30.0, IdleRttNormalHighMs: 45.0, IdleRttPoorMs: 80.0,
+            // Anchored on measured plans rather than estimates. 23 ms is the best the medium does
+            // at all - months of it on a tier above Local Priority - so it is full marks, and 42 ms
+            // is the floor of good, which is where a Backup dish sits when nothing is wrong with
+            // it. Those two points set the rest: with the ladder's 85 at normal-high and 25 at
+            // poor, 40 and 64 put 42 exactly on 80 and drop 45 to about 72.
+            //
+            // Deliberately not tier-aware. A cheaper plan really is worse latency, and hiding that
+            // behind per-tier bands would score every dish against its own plan and never tell
+            // anyone their tier is the reason.
+            IdleRttIdealMs: 23.0, IdleRttNormalLowMs: 30.0, IdleRttNormalHighMs: 40.0, IdleRttPoorMs: 64.0,
             IdleLossIdealPct: 0.2, IdleLossAcceptablePct: 0.5,
             LoadedLossDownLowPct: 0.5, LoadedLossDownHighPct: 1.0,
             LoadedLossUpLowPct: 0.25, LoadedLossUpHighPct: 0.5,
-            LoadedDeltaExcellentMs: 5.0, LoadedDeltaAcceptableMs: 25.0,
+            // Set from 403 real Starlink tests. The old 25 ms ceiling sat above the 95th
+            // percentile of measured delta (17.3 down, 21.6 up), so 97% of load events passed and
+            // nothing could ever fail it. 12 ms sits near p88 and flags the worst sixth; 3 ms is
+            // about the median, so "excellent" still means better than this link's usual.
+            // Not pushed lower on purpose: idle RTT itself swings 16 to 77 ms with obstructions
+            // and handovers, and a quarter of measured deltas come out negative, so a tighter
+            // ceiling would be reading that movement rather than queueing.
+            LoadedDeltaExcellentMs: 3.0, LoadedDeltaAcceptableMs: 12.0,
             JitterIdealMs: 5.0, JitterTypicalMs: 6.5, JitterPoorMs: 15.0,
             StabilityMadIdealMs: 5.0, StabilityMadTypicalMs: 9.0, StabilityMadPoorMs: 22.0),
 

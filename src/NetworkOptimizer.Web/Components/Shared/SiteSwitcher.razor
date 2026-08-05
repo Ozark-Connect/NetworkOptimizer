@@ -152,12 +152,18 @@
             || string.Equals(pathOnly, "denied", StringComparison.OrdinalIgnoreCase))
             return NavigationManager.BaseUri;
 
+        // A ?wan= names one site's WAN, and every reader of it matches by key or index - so
+        // carrying one across a switch either filters the new site to a WAN it does not have or,
+        // worse, quietly matches a different connection that happens to share the number. Dropped
+        // on every page; the rest of the query and the #fragment carry as before.
+        var target = SiteContextService.RemoveQueryParam(NavigationManager.Uri, "wan");
+
         // Client Performance pins a specific client via ?ip= - that address
         // belongs to the site being left, so a switch drops it and lands on the
         // new site's own client view (tab/range params and the #fragment carry).
         if (string.Equals(pathOnly, "client-dashboard", StringComparison.OrdinalIgnoreCase))
-            return SiteContextService.RemoveQueryParam(NavigationManager.Uri, "ip");
+            return SiteContextService.RemoveQueryParam(target, "ip");
 
-        return NavigationManager.Uri;
+        return target;
     }
 }

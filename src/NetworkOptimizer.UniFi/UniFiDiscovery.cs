@@ -819,11 +819,14 @@ public class DiscoveredDevice
     public int PortCount { get; set; }
 
     /// <summary>
-    /// Counter-bearing interface of the PRIMARY WAN only (single entry, by
-    /// design - do not add secondary/cellular WANs). Feeds the WAN Live View
-    /// and Monitoring overview throughput, which sit alongside ISP / transit
-    /// latency cards measured for that one connection; mixing other WANs into
-    /// the throughput would disagree with them. See
+    /// Counter-bearing interface of the PRIMARY WAN only (single entry, by design). Feeds the
+    /// live WAN throughput tiles, which sit alongside ISP / transit latency measured over that
+    /// one connection, and serves as ISP Health's last-resort counter fallback. Multi-WAN
+    /// surfaces do NOT widen this list: per-WAN throughput resolves each WAN's own counter
+    /// interface (UniFiConnectionService.GetWanInterfacesForGroupAsync / the remembered
+    /// WanProfile row) behind the multi-WAN UI gate, and summing WANs into one series is
+    /// reserved for the usage fingerprint alone (see
+    /// MonitoringInfluxClient.QueryGatewayWanRatesAsync's contract). See
     /// UniFiDiscovery.GetWanInterfaceNames for the selection rules.
     /// </summary>
     public List<string> WanInterfaceNames { get; set; } = new();

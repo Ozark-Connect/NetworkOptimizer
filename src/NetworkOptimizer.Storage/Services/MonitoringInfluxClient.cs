@@ -534,7 +534,9 @@ public class MonitoringInfluxClient : IAsyncDisposable
         if (rttMaxMs.HasValue) point = point.Field("rtt_max_ms", rttMaxMs.Value);
         if (jitterMs.HasValue) point = point.Field("jitter_ms", jitterMs.Value);
         // Multi-WAN context tag, emitted only for non-default contexts so the
-        // schema stays additive-only: single-WAN installs never see it.
+        // schema stays additive-only: single-WAN installs never see it. The value
+        // is the context's UniFi WAN key where it has one (WanContext.InfluxWanTag),
+        // so renaming a context does not orphan its own history under the old tag.
         if (!string.IsNullOrEmpty(wanContext)) point = point.Tag("wan", wanContext);
 
         Enqueue(point, longterm: false);
@@ -1522,6 +1524,21 @@ from(bucket: ""{_bucket}"")
             HashCode.Combine(obj.DeviceMac.ToLowerInvariant(), obj.IfName);
     }
 
+    /// <summary>
+    /// Gateway WAN throughput from the SNMP interface counters, for the interface(s) named.
+    ///
+    /// CONTRACT: passing more than one interface SUMS them into a single combined series
+    /// (grouped per (_time, _field)). That is correct for exactly ONE caller class - the
+    /// all-WAN usage fingerprint, which asks "was the user doing anything on any WAN" - and
+    /// wrong for every load/utilization computation, because a summed multi-WAN series divided
+    /// by one WAN's plan speeds silently understates or overstates load (and ISP Health's
+    /// packet-loss ceiling scales with load QUADRATICALLY, so the damage compounds). Per-WAN
+    /// load callers must resolve the one counter interface of the WAN they are pairing with
+    /// plan speeds and pass exactly that. Callers that intend the sum must say so via
+    /// <paramref name="sumAcrossInterfaces"/>; a multi-interface call without it asserts in
+    /// debug builds and logs a warning in release (behavior is unchanged so an existing
+    /// caller cannot break, but the mispairing is named at the choke point).
+    /// </summary>
     public async Task<IReadOnlyList<WanRatePoint>> QueryGatewayWanRatesAsync(
         string deviceMac,
         IReadOnlyList<string> wanIfNames,
@@ -1529,10 +1546,22 @@ from(bucket: ""{_bucket}"")
         DateTime to,
         TimeSpan? aggregateWindow = null,
         int sampleIntervalSeconds = 5,
+        bool sumAcrossInterfaces = false,
         CancellationToken ct = default)
     {
         if (!IsConfigured) await ReconfigureAsync(ct);
         if (!IsConfigured || wanIfNames.Count == 0) return Array.Empty<WanRatePoint>();
+        if (wanIfNames.Count > 1 && !sumAcrossInterfaces)
+        {
+            System.Diagnostics.Debug.Assert(false,
+                "QueryGatewayWanRatesAsync sums multiple interfaces into one series; that is only " +
+                "valid for the all-WAN usage fingerprint. Pass sumAcrossInterfaces: true if the sum " +
+                "is intended, or resolve the single counter interface of the WAN being measured.");
+            _logger.LogWarning(
+                "QueryGatewayWanRatesAsync called with {Count} interfaces without sumAcrossInterfaces; " +
+                "the result is a summed multi-interface series ({IfNames})",
+                wanIfNames.Count, string.Join(",", wanIfNames));
+        }
         var window = aggregateWindow ?? PickAggregateWindow(to - from, sampleIntervalSeconds);
         var mac = NormalizeMac(deviceMac);
         var ifFilter = string.Join(" or ", wanIfNames.Select(n =>
@@ -1752,11 +1781,13 @@ from(bucket: ""{_bucket}"")
     }
 
     /// <summary>Time-series of RTT and loss for multiple monitoring targets, keyed by target_id.</summary>
+    /// <param name="wanScope">Which WAN's points count; null reads every WAN, as it always did.</param>
     public async Task<Dictionary<string, List<LatencyPoint>>> QueryLatencyByTargetTypeAsync(
         MonitoringTargetType targetType,
         DateTime from,
         DateTime to,
         TimeSpan? aggregateWindow = null,
+        LatencyWanScope? wanScope = null,
         CancellationToken ct = default)
     {
         if (!IsConfigured) await ReconfigureAsync(ct);
@@ -1772,7 +1803,7 @@ from(bucket: ""{_bucket}"")
 from(bucket: ""{_bucket}"")
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""latency"")
-  |> filter(fn: (r) => {typeFilter})
+  |> filter(fn: (r) => {typeFilter}){BuildWanScopeFilter(wanScope)}
   |> filter(fn: (r) => r._field == ""rtt_avg_ms"" or r._field == ""loss_percent"")
   |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false)
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
@@ -1802,15 +1833,70 @@ from(bucket: ""{_bucket}"")
     }
 
     /// <summary>
+    /// Which WAN's latency series a group-level (target_type) read should return, expressed
+    /// against the Influx <c>wan</c> tag. The tag is ABSENT on every point the primary path
+    /// writes (single-WAN installs never emit it - additive-only schema), and carries
+    /// <c>WanContext.InfluxWanTag</c> (the UniFi wan key, e.g. "wan2") on points probed
+    /// through a WAN context. Null scope = no wan filter, today's behavior for every
+    /// non-ISP-Health caller.
+    /// </summary>
+    /// <param name="IncludeUntagged">Include points with NO wan tag (the primary path's points).</param>
+    /// <param name="WanTags">Tag values to include (a scoped WAN's key, plus any context display
+    /// names that tagged its points before the stable-key tagging landed).</param>
+    public sealed record LatencyWanScope(bool IncludeUntagged, IReadOnlyList<string> WanTags)
+    {
+        /// <summary>Scope for the primary WAN: untagged points, plus any contexts bound to it.</summary>
+        public static LatencyWanScope Primary(IReadOnlyList<string>? primaryContextTags = null) =>
+            new(true, primaryContextTags ?? Array.Empty<string>());
+
+        /// <summary>Scope for a non-primary WAN: only points tagged with its wan-key/context tags.</summary>
+        public static LatencyWanScope ForWan(IReadOnlyList<string> wanTags) => new(false, wanTags);
+    }
+
+    /// <summary>
+    /// The Flux filter stage for a <see cref="LatencyWanScope"/>, or "" for no filter.
+    ///
+    /// Filter shape is deliberate - keep it a plain predicate the storage engine can push down:
+    /// - Primary with no contexts: <c>not exists r.wan</c>. Tag ABSENCE, not empty-string - a
+    ///   series that never wrote the tag has no "wan" column at all, so <c>r.wan == ""</c> would
+    ///   match nothing (the comparison against the missing column is null and the row is dropped).
+    /// - Non-primary: plain <c>r.wan == "..."</c> equality chain (indexed tag equality; series
+    ///   without the tag simply never match). No regex, no client-side post-filtering.
+    /// - Primary with contexts bound to the primary WAN (rare): the OR of both shapes, so a
+    ///   primary probed both untagged (server default route) and through a primary context keeps
+    ///   all its points.
+    /// Do not "simplify" the absence check into an equality against "" - it changes matches, and
+    /// the mixed OR shape is only emitted when primary-WAN contexts actually exist.
+    /// </summary>
+    internal static string BuildWanScopeFilter(LatencyWanScope? scope)
+    {
+        if (scope == null) return string.Empty;
+        var clauses = new List<string>();
+        if (scope.IncludeUntagged) clauses.Add("not exists r.wan");
+        clauses.AddRange(scope.WanTags
+            .Where(t => !string.IsNullOrEmpty(t))
+            .Distinct(StringComparer.Ordinal)
+            .Select(t => $@"r.wan == ""{SanitizeFluxString(t)}"""));
+        if (clauses.Count == 0)
+            // A tags-only scope with no usable tag values can match nothing; emit an
+            // always-false predicate rather than silently returning every WAN's data.
+            return "\n  |> filter(fn: (r) => exists r.wan and not exists r.wan)";
+        return $"\n  |> filter(fn: (r) => {string.Join(" or ", clauses)})";
+    }
+
+    /// <summary>
     /// Like QueryLatencyByTargetTypeAsync but also pivots max RTT and jitter, which the
     /// ISP Health scorer and congestion/step detectors need. Kept separate so existing
-    /// chart callers keep the leaner LatencyPoint shape.
+    /// chart callers keep the leaner LatencyPoint shape. <paramref name="wanScope"/>
+    /// restricts the read to one WAN's series via the <c>wan</c> tag (see
+    /// <see cref="LatencyWanScope"/>); null keeps today's unscoped read.
     /// </summary>
     public async Task<Dictionary<string, List<LatencySeriesPoint>>> QueryLatencyDetailByTargetTypeAsync(
         MonitoringTargetType targetType,
         DateTime from,
         DateTime to,
         TimeSpan? aggregateWindow = null,
+        LatencyWanScope? wanScope = null,
         CancellationToken ct = default)
     {
         if (!IsConfigured) await ReconfigureAsync(ct);
@@ -1825,7 +1911,7 @@ from(bucket: ""{_bucket}"")
 from(bucket: ""{_bucket}"")
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""latency"")
-  |> filter(fn: (r) => {typeFilter})
+  |> filter(fn: (r) => {typeFilter}){BuildWanScopeFilter(wanScope)}
   |> filter(fn: (r) => r._field == ""rtt_avg_ms"" or r._field == ""rtt_max_ms"" or r._field == ""jitter_ms"" or r._field == ""loss_percent"")
   |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false)
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
@@ -1888,11 +1974,18 @@ from(bucket: ""{_bucket}"")
     /// intervals), then averages within each target_type, then averages the two category
     /// means - the same weighting as /api/monitoring/live-stats, so the WAN live chart
     /// doesn't jump when its buffer swaps between history and live samples.</summary>
+    /// <param name="wanScope">
+    /// Which WAN's points count. Filtering by target id alone is not enough: a host reachable from
+    /// two WANs is probed under each, and a row that has changed context keeps its older points
+    /// under the tag they were written with - so one id can hold more than one WAN's readings, and
+    /// an unscoped read draws another WAN's loss on this one's chart.
+    /// </param>
     public async Task<IReadOnlyList<LatencyPoint>> QueryMeanIspTransitLatencyAsync(
         DateTime from,
         DateTime to,
         IReadOnlyList<string>? enabledTargetIds = null,
         TimeSpan? aggregateWindow = null,
+        LatencyWanScope? wanScope = null,
         CancellationToken ct = default)
     {
         if (!IsConfigured) await ReconfigureAsync(ct);
@@ -1917,7 +2010,7 @@ from(bucket: ""{_bucket}"")
 base = from(bucket: ""{_bucket}"")
   |> range(start: {ToFluxInstant(queryFrom)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""latency"")
-  |> filter(fn: (r) => r.target_type == ""accessisp"" or r.target_type == ""transit""){targetFilter}
+  |> filter(fn: (r) => r.target_type == ""accessisp"" or r.target_type == ""transit""){targetFilter}{BuildWanScopeFilter(wanScope)}
 
 rtt = base
   |> filter(fn: (r) => r._field == ""rtt_avg_ms"")
@@ -2667,7 +2760,7 @@ from(bucket: ""{_longtermBucket}"")
         $"{Math.Max(1, (long)Math.Round(window.TotalSeconds))}s";
 
     private static string SanitizeFluxString(string value) =>
-        value.Replace("\"", "").Replace("\\", "").Replace(")", "").Replace("|>", "");
+        value.Replace("\"", "").Replace("\\", "").Replace(")", "").Replace("|>", "").Replace("${", "");
 
     private static DateTime ToUtc(DateTime t) =>
         t.Kind == DateTimeKind.Utc ? t : DateTime.SpecifyKind(t, DateTimeKind.Utc);

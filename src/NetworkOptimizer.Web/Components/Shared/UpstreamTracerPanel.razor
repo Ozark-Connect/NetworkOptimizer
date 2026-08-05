@@ -3,6 +3,8 @@
 @using NetworkOptimizer.Web.Services.Monitoring
 @implements IDisposable
 @inject UpstreamTracerService Tracer
+@inject NetworkOptimizer.Web.Services.Monitoring.UpstreamTracerRegistry TracerRegistry
+@inject NetworkOptimizer.Web.Services.Monitoring.MonitoringPathView PathView
 @inject NetworkOptimizer.Web.Services.IUpstreamDiscoveryService Discovery
 @inject ILogger<UpstreamTracerPanel> Logger
 @inject NetworkOptimizer.Storage.Services.SiteDbContextFactory SiteDb
@@ -16,7 +18,25 @@
 
 <div class="card">
     <div class="card-header card-header-collapsible" @onclick="ToggleCollapse">
-        <h2 class="card-title">Upstream path discovery</h2>
+        <h2 class="card-title">Upstream Path Discovery</h2>
+        @if (_wanChoices.Count > 1)
+        {
+            <div class="time-range-selector wan-selector @(_wanChoices.Count > 3 ? "wan-selector-many" : "")" @onclick:stopPropagation>
+                @foreach (var w in _wanChoices)
+                {
+                    <button class="time-btn @(string.Equals(w.Key, _selectedTracerWanKey, StringComparison.OrdinalIgnoreCase) ? "active" : "")"
+                            @onclick="() => PickTracerWanAsync(w.Key)" @onclick:stopPropagation
+                            data-tooltip="@(w.IsPrimary && _needsReview ? "Discovery review pending" : null)" data-tooltip-hover-only>
+                        @{
+                            var wp = NetworkOptimizer.UniFi.GatewayWanHelper.SplitWanLabel(
+                                w.Label, NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey(w.Key));
+                        }@(wp.Name ?? w.Label)@if (wp.WanToken != null && wp.Name != null)
+                        {<span class="wan-pill-token">@wp.WanToken</span>}@if (w.IsPrimary && _needsReview)
+                        {<span style="color: var(--warning-color);">&#9679;</span>}
+                    </button>
+                }
+            </div>
+        }
         <div style="display: flex; align-items: center; gap: 0.5rem;">
             <span class="status-badge @StateBadgeClass(_state.Step)" @onclick:stopPropagation="true">@StateLabel(_state.Step)</span>
             <span class="issue-type-chevron">@(_collapsed ? "▼" : "▲")</span>
@@ -154,7 +174,7 @@
                     <label class="form-label">Access network technology</label>
                     <select class="form-control upstream-tech-select @AccessTechAttentionClass"
                             value="@((int)_state.AccessTechnology)" disabled="@(!_canOperate)"
-                            @onchange="OnAccessTechChanged">
+                            @onchange="OnAccessTechChangedAsync">
                         @foreach (var tech in AccessTechOptions)
                         {
                             <option value="@((int)tech)">@FormatTechName(tech)</option>
@@ -525,6 +545,14 @@
                 // staying there until the run ends. Correcting upward too means an overshoot is
                 // undone as soon as the layout settles, which is the frame after it happens.
                 var below = r.bottom - paneBottom;
+                // Never past the card's own top. Following the newest section is worth doing while
+                // the card grows a screen at a time; the terminal render arrives all at once and is
+                // the largest of the run, so an unbounded follow throws the view to the end of a
+                // review nobody has read. Freezing before that render is a race - this is not one:
+                // however big the jump, the header stays at the top of the pane, which is where the
+                // state and the controls are. Upward corrections are unbounded, since those only
+                // ever undo an overshoot.
+                if (below > 0) below = Math.min(below, Math.max(0, r.top - paneTop));
                 return Math.abs(below) > 2 ? below : 0;
             };
 
@@ -588,11 +616,20 @@
         // carries the terminal state is the one that adds the review UI, so stopping on it leaves
         // that last, largest addition unfollowed. Give the layout a moment, follow once more, then
         // let go. A scroll of the reader's own still stops immediately via stop().
+        // Stop following, without deciding anything else yet. Called the moment the terminal state
+        // is OBSERVED - before Blazor renders it - because the render that carries the review UI is
+        // the largest of the run, and the follow loop only needs one frame with it to drag the view
+        // to the bottom of results nobody has read. Freezing from OnAfterRender was always a frame
+        // too late for exactly that reason.
+        function freeze() {
+            if (!release) return;
+            frozen = true;
+        }
+
         function finish() {
             if (!release) return;
-            // Stop following FIRST. The run finishing is not the same as the card having finished
-            // growing: the render carrying the terminal state is the one that adds the review UI,
-            // and chasing it is what put the view below the results in the first place.
+            // Belt and braces: freeze() has normally run already, but a run that reached its
+            // terminal state without passing through the poll still has to stop following here.
             frozen = true;
             setTimeout(function () {
                 // Layout has settled. Switch the loop's target to the card's top and let it ease
@@ -603,12 +640,24 @@
             }, 400);
         }
 
-        return { start: start, stop: stop, finish: finish };
+        return { start: start, stop: stop, freeze: freeze, finish: finish };
     })();
 </script>
 
 @code {
     [Parameter] public bool ForceExpand { get; set; }
+
+    /// <summary>
+    /// A WAN this panel should open on, from a link that named one. Anything arriving here already
+    /// knows which WAN it meant - a WAN-scoped ISP Health report, say - so honouring it saves the
+    /// user landing on the primary's discovery and having to find the pill themselves.
+    /// </summary>
+    [Parameter] public string? SelectWanKey { get; set; }
+
+    /// <summary>Raised when the user picks a WAN here, so the tab's other filters can follow.</summary>
+    [Parameter] public EventCallback<string> OnWanSelected { get; set; }
+
+    private string? _appliedSelectWanKey;
     [Parameter] public EventCallback OnSaved { get; set; }
 
     // Discovery must trace from inside the site's network. On an external (non-default) site
@@ -637,9 +686,26 @@
     private bool _collapsed;
     private DateTime _lastReviewCheck = DateTime.MinValue;
     private bool _justSaved;
+    /// <summary>Whether this run has already told the pin to stop following. Once per run.</summary>
+    private bool _pinFrozen;
 
-    protected override void OnParametersSet()
+    private static bool IsTerminalStep(TracerStep step) =>
+        step is TracerStep.Done or TracerStep.ReviewingResults or TracerStep.Failed;
+
+    protected override async Task OnParametersSetAsync()
     {
+        // Applied once per distinct value: re-selecting on every parameter set would fight the
+        // user's own pill clicks for as long as the link's parameter stayed in the URL. The
+        // choices may not be loaded on the first pass, so an unmatched key is left for a later
+        // one rather than discarded.
+        if (!string.IsNullOrEmpty(SelectWanKey)
+            && !string.Equals(SelectWanKey, _appliedSelectWanKey, StringComparison.OrdinalIgnoreCase)
+            && _wanChoices.Any(w => string.Equals(w.Key, SelectWanKey, StringComparison.OrdinalIgnoreCase)))
+        {
+            _appliedSelectWanKey = SelectWanKey;
+            await SelectTracerWanAsync(SelectWanKey!);
+        }
+
         if (ForceExpand && _collapsed)
             _collapsed = false;
     }
@@ -655,15 +721,151 @@
     /// </summary>
     private bool _canOperate;
 
+    // Per-WAN discovery view: the injected tracer is the site's primary; a context-bound WAN
+    // opens its own tracer instance (cached for the panel's lifetime so run state survives
+    // switching pills). Review remains an affordance, not a gate: unreviewed context runs
+    // keep auto-committing exactly as Phase 2 shipped - this only lets the user OPEN a
+    // context WAN's discovery, inspect it, and re-run/edit it like the primary's.
+    private UpstreamTracerService? _wanTracer;
+    private UpstreamTracerService Svc => _wanTracer ?? Tracer;
+    private sealed record TracerWanChoice(string Key, string Label, bool IsPrimary, WanContext? Context);
+    private List<TracerWanChoice> _wanChoices = new();
+    private string _selectedTracerWanKey = "";
+    private bool _tracerWanRestored;
+    private readonly Dictionary<string, UpstreamTracerService> _contextTracers = new(StringComparer.OrdinalIgnoreCase);
+    private string SharedWanScopeKey => SiteCtx.ScopeStorageKey("monitoringWanScope");
+
+    /// <summary>
+    /// Choices: the primary plus every context-bound WAN (per-WAN discovery exists only via a
+    /// context). Labels come from the live WAN list when the console offers one.
+    /// </summary>
+    private async Task LoadTracerWanChoicesAsync()
+    {
+        var choices = new List<TracerWanChoice>();
+        var liveWans = new List<NetworkOptimizer.Web.Services.Monitoring.WanSummary>();
+        try { liveWans = (await PathView.GetWansAsync()).ToList(); }
+        catch { }
+        List<WanContext> contexts = new();
+        try
+        {
+            await using var db = SiteDb.CreateForSite(SiteCtx.Slug, SiteCtx.IsDefault);
+            contexts = await db.WanContexts.AsNoTracking()
+                .Where(c => c.WanInterface != null && c.WanInterface != "")
+                .OrderBy(c => c.Name).ToListAsync();
+        }
+        catch { }
+        string LabelFor(string key, string? fallbackName)
+        {
+            var live = liveWans.FirstOrDefault(w => string.Equals(w.WanInterface, key, StringComparison.OrdinalIgnoreCase));
+            return NetworkOptimizer.UniFi.GatewayWanHelper.FormatWanLabel(
+                live?.FriendlyName ?? fallbackName,
+                NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey(key), null, null);
+        }
+        // The console names the primary; the literal is the fallback for when it is unreachable.
+        // WAN group names carry no role information in UniFi Network, so that fallback is a guess
+        // and is wrong on a site whose primary is not the first group - it picks which WAN the
+        // panel opens on, and a reachable console corrects it on the next load.
+        var primaryKey = (liveWans.FirstOrDefault(w => w.IsPrimary)?.WanInterface ?? NetworkOptimizer.UniFi.GatewayWanHelper.DefaultWanKey).ToLowerInvariant();
+        choices.Add(new TracerWanChoice(primaryKey, LabelFor(primaryKey, null), IsPrimary: true, Context: null));
+        foreach (var ctx in contexts)
+        {
+            var key = ctx.WanInterface!.ToLowerInvariant();
+            if (choices.Any(c => c.Key == key)) continue;
+            choices.Add(new TracerWanChoice(key, LabelFor(key, ctx.Name), IsPrimary: false, Context: ctx));
+        }
+        _wanChoices = choices.Count > 1 ? choices : new List<TracerWanChoice>();
+        _selectedTracerWanKey = primaryKey;
+    }
+
+    /// <summary>
+    /// Rebuilds the WAN choice bar. The choices are read once at init, so a WAN that gained a
+    /// vantage while the page was open had no pill to select and discovery could not be started
+    /// for it at all - on a site whose first vantage was just added, the bar did not exist yet.
+    /// </summary>
+    public async Task RefreshWanChoicesAsync()
+    {
+        var wasSelected = _selectedTracerWanKey;
+        await LoadTracerWanChoicesAsync();
+        // The reload lands on the primary, which is what init wants and not what this wants: a
+        // vantage being added elsewhere is no reason to move someone off the WAN they were on.
+        if (!string.IsNullOrEmpty(wasSelected)
+            && _wanChoices.Any(c => string.Equals(c.Key, wasSelected, StringComparison.OrdinalIgnoreCase)))
+        {
+            _selectedTracerWanKey = wasSelected;
+        }
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// A pill click here: select it, then tell the tab so its other filters follow. Separate from
+    /// <see cref="SelectTracerWanAsync"/>, which is also how an inbound selection is applied - going
+    /// through this one there would echo it straight back out.
+    /// </summary>
+    private async Task PickTracerWanAsync(string key)
+    {
+        // Same as the targets list: picking a WAN on a closed panel should show what was picked.
+        _collapsed = false;
+        await SelectTracerWanAsync(key);
+        _appliedSelectWanKey = key;
+        if (OnWanSelected.HasDelegate) await OnWanSelected.InvokeAsync(key);
+    }
+
+    private async Task SelectTracerWanAsync(string key)
+    {
+        var choice = _wanChoices.FirstOrDefault(c => string.Equals(c.Key, key, StringComparison.OrdinalIgnoreCase));
+        if (choice == null || string.Equals(key, _selectedTracerWanKey, StringComparison.OrdinalIgnoreCase)) return;
+        // The save notice belongs to the WAN it was saved for; carrying it onto another one says
+        // something happened here that did not.
+        _justSaved = false;
+        _selectedTracerWanKey = choice.Key;
+        if (choice.IsPrimary)
+        {
+            _wanTracer = null;
+        }
+        else
+        {
+            if (!_contextTracers.TryGetValue(choice.Key, out var tracer))
+            {
+                tracer = TracerRegistry.GetForContext(SiteCtx.Slug, choice.Context!);
+                _contextTracers[choice.Key] = tracer;
+            }
+            _wanTracer = tracer;
+        }
+        await Svc.RehydrateFromDbAsync();
+        _state = Svc.State;
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// Opens the panel on the focused WAN from the shared analysis scope (view default only -
+    /// this panel never writes that key), once interop is reachable.
+    /// </summary>
+    private async Task RestoreTracerWanSelectionAsync()
+    {
+        if (_tracerWanRestored || _wanChoices.Count <= 1) return;
+        _tracerWanRestored = true;
+        try
+        {
+            var stored = await JS.InvokeAsync<string?>("localStorage.getItem", SharedWanScopeKey);
+            if (!string.IsNullOrEmpty(stored)
+                && _wanChoices.Any(c => !c.IsPrimary && string.Equals(c.Key, stored, StringComparison.OrdinalIgnoreCase)))
+            {
+                await SelectTracerWanAsync(stored);
+            }
+        }
+        catch { }
+    }
+
     protected override async Task OnInitializedAsync()
     {
         _canOperate = AuthState is null
             || (await Authz.AuthorizeAsync((await AuthState).User, SiteCtx.Slug, Policies.SiteOperator)).Succeeded;
 
-        await Tracer.RehydrateFromDbAsync();
-        _state = Tracer.State;
+        await Svc.RehydrateFromDbAsync();
+        _state = Svc.State;
         _collapsed = !ForceExpand && _state.Step == TracerStep.Done;
         await RefreshReviewFlagAsync();
+        await LoadTracerWanChoicesAsync();
         // Poll the tracer state every 1.5s while a run is active; the state machine
         // runs in the background and the UI just observes. Re-check the rediscovery
         // review flag less often (every minute) since it only changes from the
@@ -674,7 +876,16 @@
             {
                 _ = InvokeAsync(async () =>
                 {
-                    _state = Tracer.State;
+                    var wasRunning = !IsTerminalStep(_state.Step);
+                    _state = Svc.State;
+                    // Before StateHasChanged, so the follow loop is already stopped when the render
+                    // carrying the review UI lands.
+                    if (wasRunning && IsTerminalStep(_state.Step) && !_pinFrozen)
+                    {
+                        _pinFrozen = true;
+                        try { await JS.InvokeVoidAsync("noUpstreamPin.freeze"); }
+                        catch (Exception ex) { Logger.LogDebug(ex, "Could not freeze the discovery card pin"); }
+                    }
                     if (DateTime.UtcNow - _lastReviewCheck > TimeSpan.FromMinutes(1))
                         await RefreshReviewFlagAsync();
                     StateHasChanged();
@@ -703,6 +914,8 @@
     /// </summary>
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (firstRender)
+            await RestoreTracerWanSelectionAsync();
         if (_state.Step is TracerStep.Done or TracerStep.ReviewingResults or TracerStep.Failed)
         {
             try
@@ -725,6 +938,7 @@
         // scroll for themselves.
         try
         {
+            _pinFrozen = false;
             await JS.InvokeVoidAsync("noUpstreamPin.start", "upstream-discovery");
         }
         catch (Exception ex)
@@ -735,16 +949,18 @@
         // when it finishes, so releasing in a finally killed the pin about a tick after it started -
         // one correction, then nothing, with no scroll from the reader to explain it. The pin ends
         // when the run reaches a terminal step (below), or the moment they scroll for themselves.
-        await Discovery.StartAsync();
-        _state = Tracer.State;
+        // Through the audited service, onto the SELECTED WAN's tracer - the reads above
+        // already follow Svc, and a run that silently hit the primary would trace the wrong WAN.
+        await Discovery.StartAsync(_wanTracer);
+        _state = Svc.State;
         StateHasChanged();
     }
 
     private async Task CommitAsync()
     {
         if (!_canOperate) return;
-        await Discovery.CommitAsync();
-        _state = Tracer.State;
+        await Discovery.CommitAsync(_wanTracer);
+        _state = Svc.State;
         _justSaved = true;
         await OnSaved.InvokeAsync();
         StateHasChanged();
@@ -797,14 +1013,18 @@
         : _state.AccessTechnology == AccessTechnology.Unknown ? "upstream-tech-unset"
         : "";
 
-    private void OnAccessTechChanged(ChangeEventArgs e)
+    private async Task OnAccessTechChangedAsync(ChangeEventArgs e)
     {
         if (!_canOperate) return;
         _state.AccessTechnology = (AccessTechnology)int.Parse((string)e.Value!);
         // Touching the field is the confirmation the highlight was asking for, whether they
         // changed the value or re-picked the same one.
         _state.AccessTechnologyInferred = false;
-        Tracer.RecomputeL2NeighborLabel();
+        Svc.RecomputeL2NeighborLabel();
+        // How many targets arrive ticked depends on this field, and the run that proposed them
+        // may have had it wrong - naming a metered medium here has to narrow the selection now,
+        // not on some later run.
+        await Svc.ReapplyProbeBudgetAsync();
     }
 
     private void ToggleCollapse() => _collapsed = !_collapsed;

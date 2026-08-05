@@ -64,6 +64,32 @@ public class WanProfile
     /// <summary>Expected upload in Mbps, null when the console reported none.</summary>
     public double? UploadMbps { get; set; }
 
+    /// <summary>
+    /// Whether this WAN held the primary role when the console last said so.
+    /// <para>
+    /// Primary is a ROLE - failover priority and load-balance weight decide it, and any group can
+    /// hold it - so it cannot be read off the name. Everything that needs the answer away from a
+    /// console reads it here: the probe-push path (which has no console call available at all) and
+    /// the offline fallbacks that would otherwise guess at the conventional first group and be
+    /// wrong on a WAN2-primary site. Exactly one row should carry true; the writer clears the
+    /// others as it sets one.
+    /// </para>
+    /// <para>
+    /// Null means no connected compute has ever resolved the role for this site - readers must
+    /// treat that as "unknown" and fall back to their documented guess, not as "not primary".
+    /// </para>
+    /// </summary>
+    public bool? IsPrimary { get; set; }
+
+    /// <summary>
+    /// Whether the site load balances across WANs rather than running one primary with failover.
+    /// Recorded per WAN because it is read per WAN, and because it changes what unpinned probing
+    /// means: on a failover-only site every unpinned probe leaves by the primary, so it measures
+    /// the primary honestly; under load balancing it is spread across WANs and attributable to
+    /// none of them. Null when no connected compute has said.
+    /// </summary>
+    public bool? SiteLoadBalances { get; set; }
+
     /// <summary>When the console last confirmed these figures.</summary>
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 }

@@ -81,6 +81,7 @@ public class UpstreamTracerRegistry : ISiteScopedRegistry
             _connections.GetFor(s),
             _gatewaySsh.GetFor(s),
             _ispHealth.GetFor(s),
+            _ispHealth,
             traceExecutor,
             _siteDbFactory,
             _dbFactory,
@@ -92,6 +93,55 @@ public class UpstreamTracerRegistry : ISiteScopedRegistry
 
     /// <summary>The default site's tracer.</summary>
     public UpstreamTracerService GetDefault() => GetFor(SiteManagementService.DefaultSiteSlug);
+
+    /// <summary>
+    /// A tracer that discovers ONE WAN context's upstream: it traces the WAN the context names
+    /// rather than the configured primary, binds every probe the way that context's targets are
+    /// probed, and stamps what it commits with both the WAN and the context.
+    ///
+    /// Deliberately not cached, unlike the per-site tracers above. A context's agent or bind can
+    /// be changed in the card at any moment, and a cached instance would keep tracing the old
+    /// one for the life of the process; nothing polls a context tracer's state either, since the
+    /// re-discovery service starts, awaits, and commits each run in turn.
+    /// </summary>
+    /// <param name="slug">Site the context belongs to.</param>
+    /// <param name="context">The context to discover for; it must already name a WAN.</param>
+    public UpstreamTracerService GetForContext(string slug, WanContext context)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        if (string.IsNullOrEmpty(context.WanInterface))
+            throw new ArgumentException("A WAN context can only be discovered once it names the WAN it measures.", nameof(context));
+
+        var isDefault = slug == SiteManagementService.DefaultSiteSlug;
+        // The context's own agent runs its probes when it has one - that agent is the thing
+        // sitting behind the WAN being measured. With no agent, the context is a source-IP one
+        // the gateway policy-routes, so it runs from the same vantage the site's primary uses.
+        var executor = context.AgentId is int agentId
+            ? new AgentProbeExecutor(_agentProbe, slug, _loggerFactory.CreateLogger<AgentProbeExecutor>(), agentId)
+            : new AgentProbeExecutor(_agentProbe, slug, _loggerFactory.CreateLogger<AgentProbeExecutor>());
+        Func<IProbeExecutor> traceExecutor = context.AgentId != null
+            ? () => executor
+            : () => !isDefault || _agentCoverage.AgentOwnsPathMeasurement(slug) ? executor : _localProbe;
+
+        return new UpstreamTracerService(
+            slug,
+            isDefault,
+            _connections.GetFor(slug),
+            _gatewaySsh.GetFor(slug),
+            _ispHealth.GetFor(slug),
+            _ispHealth,
+            traceExecutor,
+            _siteDbFactory,
+            _dbFactory,
+            _asnResolution,
+            _scopeFactory,
+            _ouiDb,
+            _loggerFactory.CreateLogger<UpstreamTracerService>(),
+            new UpstreamTracerService.WanProbeBinding(
+                context.Id,
+                context.WanInterface!,
+                context.InterfaceName ?? context.ProbeSourceIp));
+    }
 
     /// <inheritdoc />
     public Func<ValueTask>? EvictSite(string slug)

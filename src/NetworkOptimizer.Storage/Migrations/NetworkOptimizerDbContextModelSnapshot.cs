@@ -2497,7 +2497,7 @@ namespace NetworkOptimizer.Storage.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("SshKeys", (string)null);
+                    b.ToTable("SshKeys");
                 });
 
             modelBuilder.Entity("NetworkOptimizer.Storage.Models.StarlinkConfiguration", b =>
@@ -2820,6 +2820,10 @@ namespace NetworkOptimizer.Storage.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("InterfaceName")
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(100)
@@ -2829,53 +2833,13 @@ namespace NetworkOptimizer.Storage.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("WanInterface")
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
                     b.HasKey("Id");
 
                     b.ToTable("WanContexts");
-                });
-
-            modelBuilder.Entity("NetworkOptimizer.Storage.Models.WanProfile", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
-
-                    b.Property<double?>("DownloadMbps")
-                        .HasColumnType("REAL");
-
-                    b.Property<string>("CounterInterface")
-                        .HasMaxLength(100)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("DataPathInterface")
-                        .HasMaxLength(100)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("GatewayMac")
-                        .HasMaxLength(50)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Name")
-                        .HasMaxLength(200)
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("TEXT");
-
-                    b.Property<double?>("UploadMbps")
-                        .HasColumnType("REAL");
-
-                    b.Property<string>("WanNetworkgroup")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("TEXT");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("WanNetworkgroup")
-                        .IsUnique();
-
-                    b.ToTable("WanProfiles");
                 });
 
             modelBuilder.Entity("NetworkOptimizer.Storage.Models.WanDataUsageConfig", b =>
@@ -3040,6 +3004,56 @@ namespace NetworkOptimizer.Storage.Migrations
                     b.HasKey("WanInterface");
 
                     b.ToTable("WanDiscoveryContexts", (string)null);
+                });
+
+            modelBuilder.Entity("NetworkOptimizer.Storage.Models.WanProfile", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("CounterInterface")
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DataPathInterface")
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool?>("IsPrimary")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool?>("SiteLoadBalances")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<double?>("DownloadMbps")
+                        .HasColumnType("REAL");
+
+                    b.Property<string>("GatewayMac")
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Name")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<double?>("UploadMbps")
+                        .HasColumnType("REAL");
+
+                    b.Property<string>("WanNetworkgroup")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("WanNetworkgroup")
+                        .IsUnique();
+
+                    b.ToTable("WanProfiles");
                 });
 
             modelBuilder.Entity("NetworkOptimizer.Storage.Models.WanSteerTrafficClass", b =>

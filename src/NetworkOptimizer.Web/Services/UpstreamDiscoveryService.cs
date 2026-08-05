@@ -16,14 +16,17 @@ public class UpstreamDiscoveryService : IUpstreamDiscoveryService
     }
 
     /// <inheritdoc />
-    public async Task StartAsync(CancellationToken ct = default)
+    public async Task StartAsync(Monitoring.UpstreamTracerService? tracer = null, CancellationToken ct = default)
     {
-        await _tracer.StartDiscoveryAsync(ct);
+        // The audit gate wraps whichever tracer runs; a per-WAN run is the same operator action
+        // on another WAN's instance, not a different action.
+        var t = tracer ?? _tracer;
+        await t.StartDiscoveryAsync(ct);
 
         // Shape of the result, not its contents: how far it got and how much it found. The path
         // itself (WAN address, first-mile neighbor) is discovery output the panel already shows,
         // and is not what an audit trail is for.
-        var s = _tracer.State;
+        var s = t.State;
         _audit.SetDetails(new
         {
             step = s.Step.ToString(),
@@ -35,11 +38,12 @@ public class UpstreamDiscoveryService : IUpstreamDiscoveryService
     }
 
     /// <inheritdoc />
-    public async Task CommitAsync(CancellationToken ct = default)
+    public async Task CommitAsync(Monitoring.UpstreamTracerService? tracer = null, CancellationToken ct = default)
     {
+        var t = tracer ?? _tracer;
         // Counted before the commit: committing clears the review lists, so reading them
         // afterwards would report every run as having applied nothing.
-        var s = _tracer.State;
+        var s = t.State;
         var detail = new
         {
             accessHops = s.AccessHops.Count,
@@ -48,7 +52,7 @@ public class UpstreamDiscoveryService : IUpstreamDiscoveryService
             addedAsns = s.DiscoveryAddedAsns.Count
         };
 
-        await _tracer.CommitResultsAsync(ct);
+        await t.CommitResultsAsync(ct);
         _audit.SetDetails(detail);
     }
 }

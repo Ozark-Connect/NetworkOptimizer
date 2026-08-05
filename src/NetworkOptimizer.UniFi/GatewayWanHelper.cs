@@ -14,6 +14,61 @@ namespace NetworkOptimizer.UniFi;
 public static class GatewayWanHelper
 {
     /// <summary>
+    /// UniFi's interface key for the first WAN group, and the conventional stand-in for "the WAN"
+    /// on a site that has only ever had one.
+    /// <para>
+    /// This is UniFi's key space, not ours - it belongs here with the rest of the console's
+    /// conventions. Our own WAN-keyed columns (MonitoringTarget.WanInterface,
+    /// WanDiscoveryContext.WanInterface, WanContext.WanInterface) deliberately STORE that key
+    /// rather than inventing a parallel one, which is why storage-side fallbacks may reference
+    /// this constant. Normalize anything read from storage through
+    /// <see cref="WanInterfaceKeyFromKey"/> first: rows written before that normalization
+    /// existed can still say "wan1".
+    /// </para>
+    /// <para>
+    /// NOT a synonym for the primary WAN. Group names are arbitrary in UniFi Network and any
+    /// group can hold the primary role, so this is only ever a last-resort guess for when the
+    /// console cannot say which one does - it is wrong on a site whose primary is WAN2. Ask
+    /// UniFiConnectionService.ResolvePrimaryWanNetwork first, and where this value is used as a
+    /// fallback, say in a comment that it is a guess and what it costs when it misses.
+    /// </para>
+    /// </summary>
+    public const string DefaultWanKey = "wan";
+
+    /// <summary>
+    /// Splits a label produced by <see cref="FormatWanLabel"/> back into the connection's name and
+    /// its WAN token ("Acme Fiber WAN2" -> "Acme Fiber", "WAN2"), so a caller can style the two
+    /// differently. Name is null when the label carries no name to separate.
+    /// <para>
+    /// Exact rather than heuristic for the labels this codebase builds for WAN pickers, which pass
+    /// no interface or port and therefore have no suffix. A label with a suffix, or one that does
+    /// not end in its own WAN token, comes back whole as the name so nothing is silently trimmed.
+    /// </para>
+    /// </summary>
+    public static (string? Name, string? WanToken) SplitWanLabel(string? label, int wanIndex)
+    {
+        if (string.IsNullOrWhiteSpace(label)) return (null, null);
+        var token = wanIndex >= 1 ? $"WAN{wanIndex}" : null;
+        if (token == null || !label.EndsWith(token, StringComparison.OrdinalIgnoreCase))
+            return (label.Trim(), null);
+        var name = label[..^token.Length].Trim();
+        return (string.IsNullOrEmpty(name) ? null : name, token);
+    }
+
+    /// <summary>
+    /// A WAN label for running prose, with the WAN token in parentheses after the connection's
+    /// name ("Acme Fiber (WAN2)"). The pill form runs them together because the pill is a label;
+    /// a sentence needs the qualifier set apart or it reads as part of the name. Falls back to
+    /// whatever there is when a label carries no name or no token.
+    /// </summary>
+    public static string FormatWanLabelInProse(string? label, int wanIndex)
+    {
+        var (name, token) = SplitWanLabel(label, wanIndex);
+        if (string.IsNullOrEmpty(name)) return token ?? label ?? "";
+        return string.IsNullOrEmpty(token) ? name! : $"{name} ({token})";
+    }
+
+    /// <summary>
     /// UniFi network-group convention for a 1-based WAN index: wan1 → "WAN",
     /// wanN → "WANn".
     /// </summary>
@@ -35,6 +90,22 @@ public static class GatewayWanHelper
             || string.Equals(wanKey, "wan1", StringComparison.OrdinalIgnoreCase)
             ? "wan"
             : wanKey.ToLowerInvariant();
+
+    /// <summary>
+    /// 1-based WAN index from an interface key or wan object key ("wan" and "wan1" → 1,
+    /// "wan2" → 2). Zero for anything that is not a wan key, which
+    /// <see cref="FormatWanLabel"/> reads as "no WAN label".
+    /// </summary>
+    public static int WanIndexFromKey(string? wanKey)
+    {
+        if (string.IsNullOrWhiteSpace(wanKey)) return 0;
+        var trimmed = wanKey.Trim();
+        if (string.Equals(trimmed, "wan", StringComparison.OrdinalIgnoreCase)) return 1;
+        return trimmed.StartsWith("wan", StringComparison.OrdinalIgnoreCase)
+            && int.TryParse(trimmed[3..], out var index) && index >= 1
+            ? index
+            : 0;
+    }
 
     /// <summary>
     /// Enumerates a gateway's wan1..wan6 objects from raw device JSON as typed

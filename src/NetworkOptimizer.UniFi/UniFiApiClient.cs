@@ -1,6 +1,6 @@
 using System.Net;
-using System.Net.Sockets;
 using System.Net.Http.Json;
+using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
@@ -2182,6 +2182,19 @@ public class UniFiApiClient : IDisposable
 
             var body = await response.Content.ReadAsStringAsync(cancellationToken);
 
+            // A console mid-reboot or mid-firmware-upgrade serves its web UI - or a proxy's holding
+            // page - to every request, including API ones. Parsing that raised the JSON reader's
+            // own words at the user ("'<' is an invalid start of a value. LineNumber: 0"), which
+            // describes our parser rather than their console and reads like a bug in us. The
+            // condition is temporary and resolves with no action, so say that.
+            if (LooksLikeHtml(body))
+            {
+                _logger.LogInformation(
+                    "Site validation got a web page instead of API data - console likely restarting or upgrading");
+                return (false, "The UniFi Console returned a web page instead of API data, which usually "
+                    + "means it is restarting or upgrading. This clears on its own once it is back.");
+            }
+
             // Parse the response to check for API-level errors
             using var doc = JsonDocument.Parse(body);
             if (doc.RootElement.TryGetProperty("meta", out var meta))
@@ -2210,11 +2223,31 @@ public class UniFiApiClient : IDisposable
             _logger.LogDebug("Site '{Site}' validated successfully", _site);
             return (true, null);
         }
+        catch (JsonException ex)
+        {
+            // Same situation reached by a shape LooksLikeHtml does not catch - a redirect stub, a
+            // captive portal, a truncated body. The reader's message is never useful to a user.
+            _logger.LogInformation(ex, "Site validation could not parse the console's response as JSON");
+            return (false, "The UniFi Console did not return valid API data, which usually means it is "
+                + "restarting or upgrading. This clears on its own once it is back.");
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Exception during site validation");
             return (false, $"Failed to validate site: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Whether a response body is a web page rather than API data. A UniFi Console serves its UI
+    /// to every request while it reboots or applies a firmware update, so this is the ordinary
+    /// shape of "come back in a minute", not a malformed reply.
+    /// </summary>
+    private static bool LooksLikeHtml(string? body)
+    {
+        var trimmed = body?.TrimStart();
+        return !string.IsNullOrEmpty(trimmed)
+            && (trimmed[0] == '<' || trimmed.StartsWith("<!", StringComparison.Ordinal));
     }
 
     #region Wi-Fi Optimizer APIs

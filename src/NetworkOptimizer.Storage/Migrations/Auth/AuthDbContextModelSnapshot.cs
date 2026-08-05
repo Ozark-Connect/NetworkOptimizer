@@ -557,6 +557,36 @@ namespace NetworkOptimizer.Storage.Migrations.Auth
                     b.ToTable("SiteGroupMembers", (string)null);
                 });
 
+            modelBuilder.Entity("NetworkOptimizer.Storage.Models.Identity.UserUiHint", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("HintKey")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("TimesShown")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId", "HintKey")
+                        .IsUnique();
+
+                    b.ToTable("UserUiHints");
+                });
+
             modelBuilder.Entity("NetworkOptimizer.Storage.Models.Identity.SiteMembership", b =>
                 {
                     b.Property<int>("Id")

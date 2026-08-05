@@ -1,0 +1,14 @@
+@* The same clear-filter control the chart chip rows render from chart-filter.js, for the WAN pill
+   bars that are built in Razor. One component so the glyph cannot drift between them. *@
+<button type="button" class="wan-filter-reset" @onclick="OnReset" @onclick:stopPropagation
+        aria-label="Clear WAN filter" data-tooltip="Clear WAN filter">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M3 5h14l-5.25 6.2V17l-3.5 1.75v-7.55z" />
+        <path d="m16.5 16.5 4.5 4.5m0-4.5-4.5 4.5" />
+    </svg>
+</button>
+
+@code {
+    [Parameter] public EventCallback OnReset { get; set; }
+}

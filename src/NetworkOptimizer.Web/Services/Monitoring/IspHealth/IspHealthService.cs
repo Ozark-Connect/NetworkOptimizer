@@ -3,6 +3,7 @@ using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Services;
+using NetworkOptimizer.UniFi;
 
 namespace NetworkOptimizer.Web.Services.Monitoring.IspHealth;
 
@@ -30,6 +31,11 @@ public class IspHealthService
     private readonly ILogger<IspHealthService> _logger;
     private readonly string _siteSlug;
     private readonly bool _isDefault;
+    // The UniFi wan key ("wan2") this instance grades, or null for the configured-primary
+    // instance - which is every install's only instance until it has more than one WAN.
+    // The primary instance resolves its wan key per compute (today's behavior, unchanged);
+    // a scoped instance grades exactly the WAN it was created for.
+    private readonly string? _scopedWanKey;
     private readonly IspHealthOptions _options = new();
     private const int MaxCustomWindowHours = 720;  // 30-day cap on the date/time filter, matching the UI
     private readonly SemaphoreSlim _computeLock = new(1, 1);
@@ -66,10 +72,13 @@ public class IspHealthService
         SiteConnectionRegistry siteConnections,
         PhysicalLinkResolver physicalLinkResolver,
         ILogger<IspHealthService> logger,
-        string siteSlug = SiteManagementService.DefaultSiteSlug)
+        string siteSlug = SiteManagementService.DefaultSiteSlug,
+        string? wanInterface = null)
     {
         _siteSlug = string.IsNullOrEmpty(siteSlug) ? SiteManagementService.DefaultSiteSlug : siteSlug;
         _isDefault = _siteSlug == SiteManagementService.DefaultSiteSlug;
+        _scopedWanKey = string.IsNullOrWhiteSpace(wanInterface)
+            ? null : GatewayWanHelper.WanInterfaceKeyFromKey(wanInterface.Trim());
         _influx = influxRegistry.GetFor(_siteSlug);
         _dbFactory = dbFactory;
         _siteDbFactory = siteDbFactory;
@@ -77,6 +86,12 @@ public class IspHealthService
         _physicalLinkResolver = physicalLinkResolver;
         _logger = logger;
     }
+
+    /// <summary>
+    /// The UniFi wan key this instance grades, or null for the configured-primary instance
+    /// (which resolves its WAN per compute). Registry key, and what the UI selectors route on.
+    /// </summary>
+    public string? ScopedWanInterface => _scopedWanKey;
 
     /// <summary>
     /// Every site (the home site included) reads its expected ISP plan speeds from the UniFi
@@ -149,15 +164,21 @@ public class IspHealthService
     {
         await using (var db = await CreateSiteDbAsync(ct))
         {
-            // Primary WAN context, wan-first like the reader's ordering - but NOT filtered to
-            // non-Unknown: setting it when it is currently unset is the whole point. Create it if
-            // the table is empty, matching Upstream Discovery's create-if-missing on commit.
-            var ctxRow = (await db.WanDiscoveryContexts.ToListAsync(ct))
-                .OrderBy(c => string.Equals(c.WanInterface, "wan", StringComparison.OrdinalIgnoreCase) ? 0 : 1)
-                .FirstOrDefault();
+            var rows = await db.WanDiscoveryContexts.ToListAsync(ct);
+            // The SCORED WAN's context row - a scoped instance writes its own WAN's technology,
+            // never the primary's. The primary resolves its key like the compute does (configured
+            // role first, "wan"-first guess offline) - and is NOT filtered to non-Unknown:
+            // setting it when it is currently unset is the whole point. Create it if missing,
+            // matching Upstream Discovery's create-if-missing on commit.
+            var writeKey = _scopedWanKey
+                ?? await ResolveConfiguredPrimaryWanKeyAsync(ct)
+                ?? ResolvePrimaryWanKey(rows);
+            var ctxRow = rows.FirstOrDefault(c => string.Equals(
+                GatewayWanHelper.WanInterfaceKeyFromKey(c.WanInterface ?? ""),
+                GatewayWanHelper.WanInterfaceKeyFromKey(writeKey), StringComparison.OrdinalIgnoreCase));
             if (ctxRow == null)
             {
-                ctxRow = new WanDiscoveryContext { WanInterface = "wan" };
+                ctxRow = new WanDiscoveryContext { WanInterface = writeKey };
                 db.WanDiscoveryContexts.Add(ctxRow);
             }
             ctxRow.AccessTechnology = technology;
@@ -569,9 +590,17 @@ public class IspHealthService
         // below (tolerance-matched; a recompute can shift a boundary by a bucket).
         List<DateTime> ackedOutageStarts;
         // The WAN this report grades, in MonitoringTarget.WanInterface's namespace (the UniFi WAN
-        // name, "wan"/"wan2" - NOT the data-path ifname GetPrimaryWanInterfaceAsync returns). Used
-        // to keep another WAN's internet destinations out of the partial-loss breadth pool.
+        // name, "wan"/"wan2" - NOT the data-path ifname GetPrimaryWanInterfaceAsync returns).
+        // Every input below - targets, discoveries, latency series, counters, expected speeds -
+        // is scoped to this one WAN, so a second WAN's data can never leak into this report.
         string? primaryWanKey;
+        string scoredWanKey;
+        // True for the configured-primary instance (_scopedWanKey null): it additionally owns
+        // every row with no WAN stamped (hand-added and legacy targets), preserving single-WAN
+        // behavior exactly. A scoped instance owns only rows stamped with its own wan key.
+        var primaryScope = _scopedWanKey == null;
+        // The wan-tag scope the latency reads filter on (see MonitoringInfluxClient.LatencyWanScope).
+        MonitoringInfluxClient.LatencyWanScope? wanScope;
         await using (var db = await CreateSiteDbAsync(ct))
         {
             var settings = await db.MonitoringSettings.AsNoTracking().FirstOrDefaultAsync(ct);
@@ -579,20 +608,27 @@ public class IspHealthService
                 return new ComputeOutcome(IspHealthStatus.NotConfigured, null, new List<AsnSeries>());
 
             // Access technology lives per-WAN in WanDiscoveryContexts (the wizard's
-            // store, which replaced the global MonitoringSettings column); prefer the
-            // primary WAN's context and fall back to the legacy global value.
-            var wanContexts = await db.WanDiscoveryContexts.AsNoTracking().ToListAsync(ct);
-            var primaryContext = wanContexts
-                .OrderBy(c => string.Equals(c.WanInterface, "wan", StringComparison.OrdinalIgnoreCase) ? 0 : 1)
-                .FirstOrDefault(c => c.AccessTechnology != AccessTechnology.Unknown);
-            technology = primaryContext?.AccessTechnology ?? settings.AccessTechnology;
-            // Same wan-first ordering, but the interface NAME and without the access-technology
+            // store, which replaced the global MonitoringSettings column). Same wan-first
+            // ordering as before, but the interface NAME and without an access-technology
             // filter: a WAN whose technology was never set still owns its targets. Falls back to
             // "wan" so a site with no discovery context yet still scopes to the conventional primary.
-            primaryWanKey = wanContexts
-                .OrderBy(c => string.Equals(c.WanInterface, "wan", StringComparison.OrdinalIgnoreCase) ? 0 : 1)
-                .Select(c => c.WanInterface)
-                .FirstOrDefault(w => !string.IsNullOrEmpty(w)) ?? "wan";
+            var wanContexts = await db.WanDiscoveryContexts.AsNoTracking().ToListAsync(ct);
+            // Primary is a ROLE: ask the console which group holds it (any wanN can); the
+            // name-ordered context guess is the offline fallback only.
+            primaryWanKey = await ResolveConfiguredPrimaryWanKeyAsync(ct) ?? ResolvePrimaryWanKey(wanContexts);
+            scoredWanKey = _scopedWanKey ?? primaryWanKey;
+
+            // The scored WAN's OWN discovery context decides its technology; the legacy global
+            // MonitoringSettings value is the primary's fallback only (installs predating the
+            // per-WAN context). A scoped WAN with no technology set funnels to NeedsTechnology
+            // below rather than borrowing the primary's - grading LTE against fiber thresholds
+            // is exactly the mispairing per-WAN scoring exists to kill.
+            var scoredContext = wanContexts.FirstOrDefault(c =>
+                string.Equals(GatewayWanHelper.WanInterfaceKeyFromKey(c.WanInterface ?? ""),
+                    GatewayWanHelper.WanInterfaceKeyFromKey(scoredWanKey), StringComparison.OrdinalIgnoreCase));
+            technology = scoredContext?.AccessTechnology is { } t && t != AccessTechnology.Unknown
+                ? t
+                : primaryScope ? settings.AccessTechnology : AccessTechnology.Unknown;
 
             targets = await db.MonitoringTargets.AsNoTracking()
                 .Where(t => t.Enabled && (t.TargetType == MonitoringTargetType.AccessIsp
@@ -604,19 +640,41 @@ public class IspHealthService
                     // an Internet target. Not graded as an ISP/transit card themselves.
                     || t.TargetType == MonitoringTargetType.Custom))
                 .ToListAsync(ct);
+            // Scope to the WAN being graded. In memory (case-insensitive like every other
+            // WanInterface comparison), and null-WanInterface rows go to the primary only -
+            // hand-added and legacy targets were always primary-path measurements.
+            targets = ScopeTargetsToWan(targets, scoredWanKey, includeUnassigned: primaryScope);
 
+            // Fabric targets stay unscoped: the LAN gateway is shared by every WAN, and its
+            // series only scopes outages (gateway-unreachable => LAN outage, not WAN).
             fabricTargets = await db.MonitoringTargets.AsNoTracking()
                 .Where(t => t.Enabled && t.TargetType == MonitoringTargetType.Fabric && t.DeviceMac != null)
                 .ToListAsync(ct);
 
-            // TODO (multi-WAN): discoveries are read across ALL WANs, not scoped to the WAN
-            // being scored. UpstreamDiscovery rows carry WanInterface, but ISP Health scores
-            // a single (primary) WAN and ancestry/hopOrderKnown here is global, so a second
-            // WAN's discovery data could flip the absolve gate for a WAN that has none of its
-            // own. Scope by WanInterface once ISP Health grades per-WAN. See TODO.md.
-            var discoveries = await db.UpstreamDiscoveries.AsNoTracking()
+            // Discoveries scoped like the targets: this WAN's rows, plus unstamped legacy rows
+            // for the primary only. Ancestry, hopOrderKnown, and the hop-number map all follow,
+            // so another WAN's trace data can never flip this WAN's jitter-absolve gate or
+            // hop ordering - and a scoped WAN with no discovery of its own conservatively
+            // reads as "no trace map" (hopOrderKnown false) instead of borrowing one.
+            var discoveries = (await db.UpstreamDiscoveries.AsNoTracking()
                 .Where(d => d.IsActive && d.MonitoringTargetId != null)
-                .ToListAsync(ct);
+                .ToListAsync(ct))
+                .Where(d => string.IsNullOrEmpty(d.WanInterface)
+                    ? primaryScope
+                    : string.Equals(GatewayWanHelper.WanInterfaceKeyFromKey(d.WanInterface),
+                        GatewayWanHelper.WanInterfaceKeyFromKey(scoredWanKey), StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            // Latency reads filter the Influx `wan` tag to this WAN's series: untagged points
+            // for the primary, a WAN's context tag values for a scoped WAN (see BuildWanScope).
+            var bindingContexts = await db.WanContexts.AsNoTracking().ToListAsync(ct);
+            // No contexts means nothing has ever written a wan tag here, so there is nothing to
+            // filter apart: the primary instance reads exactly the unfiltered query it always
+            // has. That keeps every single-WAN install on the query shape that is already proven
+            // in the field rather than on a tag-absence predicate for no gain.
+            wanScope = primaryScope && bindingContexts.Count == 0
+                ? null
+                : BuildWanScope(bindingContexts, scoredWanKey, primaryScope);
             // TargetId -> ancestor hop IPs. Join discovery rows to the loaded targets by PK.
             var targetIdById = targets.ToDictionary(t => t.Id, t => t.TargetId);
             ancestorIpsByTargetId = discoveries
@@ -676,8 +734,8 @@ public class IspHealthService
         // A PPPoE session costs latency and loaded loss on top of whatever the medium does, so it
         // is overlaid on the medium's profile rather than replacing it. Read from the gateway, not
         // from the user: the encapsulation and the medium are independent facts, and only the
-        // medium needs asking for. Scoped to the primary WAN, matching what ISP Health grades
-        // (see the multi-WAN TODO above).
+        // medium needs asking for. Read off the SCORED WAN's own data-path interface - a PPPoE
+        // secondary behind a plain-DHCP primary gets its overlay, and vice versa.
         // Null (couldn't tell) scores like false - there is nothing else it can do - but it is
         // logged as the unknown it is rather than passed off as a settled answer.
         var pppoeSession = await IsPppoeWanAsync(ct);
@@ -719,10 +777,13 @@ public class IspHealthService
         // technology resolution, and console calls. The "fetch" figure lumped it in with the reads,
         // which measured the four latency queries at ~1s from the box while fetch showed ~6.8s.
         var setupMs = computeSw.ElapsedMilliseconds;
-        var ispSeriesTask = _influx.QueryLatencyDetailByTargetTypeAsync(MonitoringTargetType.AccessIsp, outageQueryStart, windowEnd, aggregate, ct);
-        var transitSeriesTask = _influx.QueryLatencyDetailByTargetTypeAsync(MonitoringTargetType.Transit, windowStart, windowEnd, aggregate, ct);
-        var internetSeriesTask = _influx.QueryLatencyDetailByTargetTypeAsync(MonitoringTargetType.InternetService, outageQueryStart, windowEnd, aggregate, ct);
-        var customSeriesTask = _influx.QueryLatencyDetailByTargetTypeAsync(MonitoringTargetType.Custom, windowStart, windowEnd, aggregate, ct);
+        // Every type-level read carries the wan-tag scope, so a second WAN's series never enter
+        // this report even where a target id joined both (reassignment history). The gateway
+        // (fabric) read below stays unscoped by design: the LAN gateway serves every WAN.
+        var ispSeriesTask = _influx.QueryLatencyDetailByTargetTypeAsync(MonitoringTargetType.AccessIsp, outageQueryStart, windowEnd, aggregate, wanScope, ct);
+        var transitSeriesTask = _influx.QueryLatencyDetailByTargetTypeAsync(MonitoringTargetType.Transit, windowStart, windowEnd, aggregate, wanScope, ct);
+        var internetSeriesTask = _influx.QueryLatencyDetailByTargetTypeAsync(MonitoringTargetType.InternetService, outageQueryStart, windowEnd, aggregate, wanScope, ct);
+        var customSeriesTask = _influx.QueryLatencyDetailByTargetTypeAsync(MonitoringTargetType.Custom, windowStart, windowEnd, aggregate, wanScope, ct);
         // Rates keep a fine interval whatever the window length. Thinning them with everything else
         // destroys the only property that separates sustained load from a spike - whether neighboring
         // samples are loaded too - because a minute-long transfer and a one-sample counter artifact
@@ -840,9 +901,29 @@ public class IspHealthService
                 .Concat(TransitUnreachableDetector.DetectMostlyDark(
                     t.TargetId, t.AsnNumber ?? 0, AsnNameCleanup.Clean(t.AsnName), transitSeries[t.TargetId], _options)))
             .ToList();
-        var darkByTargetId = transitDarkWindows
+        // The same rule for access-ISP hops. When a network withdraws a route its own hops go dark
+        // with it, and those are AccessIsp targets - so the carve-out that spared the transit
+        // targets left their siblings inside the very same ASN pouring 100% loss into the pool,
+        // while the timeline told the user the event was "excluded from the Packet Loss factor".
+        // It is routing either side of the boundary; which target type happens to sit on the dark
+        // hop does not change what caused it.
+        var ispDarkWindows = ispTargets
+            .Where(t => ispSeries.ContainsKey(t.TargetId))
+            .SelectMany(t => TransitUnreachableDetector.Detect(
+                    t.TargetId, t.AsnNumber ?? 0, AsnNameCleanup.Clean(t.AsnName), ispSeries[t.TargetId], _options)
+                .Concat(TransitUnreachableDetector.DetectMostlyDark(
+                    t.TargetId, t.AsnNumber ?? 0, AsnNameCleanup.Clean(t.AsnName), ispSeries[t.TargetId], _options)))
+            .ToList();
+        var darkWindows = transitDarkWindows.Concat(ispDarkWindows).ToList();
+        var darkByTargetId = darkWindows
             .GroupBy(w => w.TargetId)
             .ToDictionary(g => g.Key, g => g.ToList());
+
+        // Hops with a discovery row but HopNumber 0 answered pings yet never landed in a trace
+        // (OLT/CMTS ICMP-deprioritization); only meaningful once there is trace data at all.
+        var notTracedTargetIds = hopOrderKnown
+            ? hopNumberByTargetId.Where(kv => kv.Value == 0).Select(kv => kv.Key).ToHashSet(StringComparer.OrdinalIgnoreCase)
+            : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         // Loss pool: ALL enabled AccessIsp + Transit targets plus well-known anycast DNS.
         // Every probe crosses the access link before reaching its target, so loss on ANY
@@ -857,13 +938,44 @@ public class IspHealthService
         // the scorer's pool is anonymous (LatencySample carries no target), so this is the last point
         // where a target can be named.
         var identifiedPool = new List<LossPoolFilter.PoolEntry>();
-        identifiedPool.AddRange(ispTargets.Where(t => ispSeries.ContainsKey(t.TargetId))
-            .Select(t => new LossPoolFilter.PoolEntry(t.TargetId, ispSeries[t.TargetId])));
+        // Access hops that answer pings but sit on no traced path are excluded outright. Nothing
+        // of yours crosses them, so their loss is not loss you suffered - it is a box beside the
+        // road dropping the probes aimed at it. Their jitter was already discounted for exactly
+        // this reason; the same logic was never carried over to loss, and one ICMP-deprioritized
+        // OLT answering badly could hold the pooled figure up on its own.
+        // ...unless they are ALL that this site has. An off-path OLT is weak evidence, but it is
+        // the only access-layer member available on a network with nothing else pingable in front
+        // of transit, and dropping it would leave access-layer loss measured entirely by hops
+        // beyond the access network. Weak evidence in the right place beats none.
+        var ispWithSeries = ispTargets.Where(t => ispSeries.ContainsKey(t.TargetId)).ToList();
+        var onPathIsp = ispWithSeries.Where(t => !notTracedTargetIds.Contains(t.TargetId)).ToList();
+        var ispForPool = onPathIsp.Count > 0 ? onPathIsp : ispWithSeries;
+
+        var offPathIsp = ispWithSeries.Except(ispForPool).ToList();
+        if (offPathIsp.Count > 0)
+            _logger.LogDebug(
+                "ISP Health: excluding {Count} off-path access hop(s) from the loss pool: {Targets}",
+                offPathIsp.Count, string.Join(", ", offPathIsp.Select(t => t.Address)));
+        else if (onPathIsp.Count == 0 && ispWithSeries.Count > 0)
+            _logger.LogDebug(
+                "ISP Health: keeping {Count} off-path access hop(s) in the loss pool - the site has no on-path access hop",
+                ispWithSeries.Count);
+
+        identifiedPool.AddRange(ispForPool
+            .Select(t => new LossPoolFilter.PoolEntry(t.TargetId,
+                darkByTargetId.TryGetValue(t.TargetId, out var ispDark)
+                    ? ispSeries[t.TargetId].Where(s => !ispDark.Any(w => s.Time >= w.Start && s.Time <= w.End)).ToList()
+                    : ispSeries[t.TargetId])));
         identifiedPool.AddRange(transitTargets.Where(t => transitSeries.ContainsKey(t.TargetId)).Select(t =>
             new LossPoolFilter.PoolEntry(t.TargetId,
                 darkByTargetId.TryGetValue(t.TargetId, out var dark)
                     ? transitSeries[t.TargetId].Where(s => !dark.Any(w => s.Time >= w.Start && s.Time <= w.End)).ToList()
                     : transitSeries[t.TargetId])));
+        // Anycast DNS goes in RAW, deliberately - no unreachable carve-out. Those addresses are
+        // served from everywhere at once and effectively never have an outage of their own, so a
+        // resolver going dark is the ISP failing to reach it, which is exactly the loss this pool
+        // exists to catch. Carving it out for symmetry with the hops above would delete the
+        // clearest outage signal there is.
         identifiedPool.AddRange(targets
             .Where(t => t.TargetType == MonitoringTargetType.InternetService
                 && AnycastDnsIps.Contains(t.Address)
@@ -1049,17 +1161,13 @@ public class IspHealthService
             .Take(2)
             .ToList();
         // Every internet destination on the WAN being graded - the partial pass's breadth evidence.
-        // Null WanInterface is INCLUDED: the tracer stamps only what it discovers, so a hand-added
-        // destination has none, and dropping those would quietly shrink the pool on exactly the
-        // installs that curated it. Only a target explicitly bound to a DIFFERENT WAN is excluded,
-        // so a failover link's destinations can't manufacture breadth for the primary. (The rest of
-        // ISP Health is still primary-WAN-only by assumption rather than by filter - see TODO.md
-        // "Multi-WAN Support (ISP Health & NMS)".)
+        // The target list is already scoped to this WAN (ScopeTargetsToWan: this WAN's rows, plus
+        // null-WanInterface hand-added rows for the primary only), so no per-row WAN check remains -
+        // a failover link's destinations can't manufacture breadth here because they never enter
+        // `targets` at all.
         var breadthInternet = targets
             .Where(t => t.TargetType == MonitoringTargetType.InternetService
-                && internetSeriesExt.ContainsKey(t.TargetId)
-                && (string.IsNullOrEmpty(t.WanInterface)
-                    || string.Equals(t.WanInterface, primaryWanKey, StringComparison.OrdinalIgnoreCase)))
+                && internetSeriesExt.ContainsKey(t.TargetId))
             .Select(t => new AsnSeries
             {
                 AsnNumber = t.AsnNumber ?? 0,
@@ -1184,7 +1292,7 @@ public class IspHealthService
         var blackoutSpans = outages.Where(o => !o.IsPartial).Select(o => (o.Start, o.End)).ToList();
         double OverlapSeconds(DateTime s, DateTime e) => blackoutSpans.Sum(b =>
             Math.Max(0, (new DateTime(Math.Min(e.Ticks, b.End.Ticks)) - new DateTime(Math.Max(s.Ticks, b.Start.Ticks))).TotalSeconds));
-        var unreachableEvents = TransitUnreachableDetector.MergeByAsn(transitDarkWindows, _options)
+        var unreachableEvents = TransitUnreachableDetector.MergeByAsn(darkWindows, _options)
             .Where(e => OverlapSeconds(e.Start, e.End) < (e.End - e.Start).TotalSeconds * 0.5)
             .Select(e => new PathShiftEvent
             {
@@ -1228,9 +1336,11 @@ public class IspHealthService
         // chartClusters (one line per cluster) is the chart view computed from the same
         // snapshot the detectors ran on, so deeper-cluster "+N ms hop" labels still match
         // event labels. It is published together with the report (see Snapshot).
-        var primaryWanInterface = await GetPrimaryWanInterfaceAsync(ct);
-        var loadExclusions = await BuildSqmProbeExclusionsAsync(windowStart, windowEnd, primaryWanInterface, ct);
-        var adaptiveSqmEnabled = await IsAdaptiveSqmEnabledAsync(primaryWanInterface, ct);
+        // SQM probe exclusions and the Adaptive SQM flag key off the SCORED WAN's own
+        // data-path interface (SqmWanConfigurations rows are per interface).
+        var scoredDataPathInterface = await GetScoredWanDataPathInterfaceAsync(ct);
+        var loadExclusions = await BuildSqmProbeExclusionsAsync(windowStart, windowEnd, scoredDataPathInterface, ct);
+        var adaptiveSqmEnabled = await IsAdaptiveSqmEnabledAsync(scoredDataPathInterface, ct);
 
         // Match the WAN's access technology to one monitored physical device (ONT/SFP, cable
         // modem, or cellular modem) and aggregate its window metrics for the Physical Link factor.
@@ -1266,9 +1376,7 @@ public class IspHealthService
             HopOrderKnown = hopOrderKnown,
             // Hops with a discovery row but HopNumber 0 answered pings yet never landed in a trace
             // (OLT/CMTS ICMP-deprioritization); only meaningful once we have trace data at all.
-            NotTracedTargetIds = hopOrderKnown
-                ? hopNumberByTargetId.Where(kv => kv.Value == 0).Select(kv => kv.Key).ToHashSet(StringComparer.OrdinalIgnoreCase)
-                : new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+            NotTracedTargetIds = notTracedTargetIds,
             LoadExclusionWindows = loadExclusions,
             PhysicalLink = physical.Input
         };
@@ -1302,7 +1410,7 @@ public class IspHealthService
     }
 
     /// <summary>
-    /// Whether the primary WAN carries its traffic over a PPPoE session, read from the gateway's
+    /// Whether the scored WAN carries its traffic over a PPPoE session, read from that WAN's
     /// data-path interface name (uplink_ifname) - "ppp0" is a PPPoE session and nothing else.
     /// Cheap: the underlying device call is already cached.
     ///
@@ -1319,24 +1427,153 @@ public class IspHealthService
             // Through the resolver, not the console directly: PPPoE is read off the interface NAME,
             // and the remembered profile holds that name, so an offline site keeps its overlay
             // instead of silently grading a PPPoE line against its medium's raw thresholds.
-            var dataPath = await GetPrimaryWanInterfaceAsync(ct);
+            var dataPath = await GetScoredWanDataPathInterfaceAsync(ct);
             if (string.IsNullOrEmpty(dataPath))
             {
-                _logger.LogWarning("ISP Health could not resolve the primary WAN's data-path interface; " +
+                _logger.LogWarning("ISP Health could not resolve the scored WAN's data-path interface; " +
                     "scoring without the PPPoE overlay, so a PPPoE line will grade against its medium's " +
                     "unadjusted thresholds until the next recompute");
                 return null;
             }
 
             var isPppoe = NetworkUtilities.IsPppoeInterface(dataPath);
-            _logger.LogDebug("ISP Health: primary WAN data-path interface is {Interface}; PPPoE overlay {Applied}",
+            _logger.LogDebug("ISP Health: scored WAN data-path interface is {Interface}; PPPoE overlay {Applied}",
                 dataPath, isPppoe ? "applied" : "not applicable");
             return isPppoe;
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "ISP Health could not resolve the primary WAN's data-path interface; " +
+            _logger.LogWarning(ex, "ISP Health could not resolve the scored WAN's data-path interface; " +
                 "scoring without the PPPoE overlay until the next recompute");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Scoping helpers, static and internal so the single-WAN equivalence tests exercise the
+    /// exact predicates the compute uses.
+    /// </summary>
+    /// <remarks>
+    /// Rows with no WAN stamped (hand-added targets, rows predating per-WAN discovery) belong to
+    /// the primary: they were always primary-path measurements, and dropping them would shrink
+    /// the pool on exactly the installs that curated it. A scoped WAN owns only rows stamped
+    /// with its own key.
+    /// </remarks>
+    internal static List<MonitoringTarget> ScopeTargetsToWan(
+        List<MonitoringTarget> targets, string wanKey, bool includeUnassigned) =>
+        // Keys normalized ("wan1" == "wan"): legacy installs stamped rows with the wan1 alias,
+        // and an unnormalized comparison would silently drop them from their own report.
+        targets.Where(t => string.IsNullOrEmpty(t.WanInterface)
+                ? includeUnassigned
+                : string.Equals(GatewayWanHelper.WanInterfaceKeyFromKey(t.WanInterface),
+                    GatewayWanHelper.WanInterfaceKeyFromKey(wanKey), StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+    /// <summary>
+    /// The configured primary WAN's key from a resolved networkconf row ("WAN2" -> "wan2"), or
+    /// null when there is none to read. Primary is a ROLE, not a name: any wanN group can be the
+    /// configured primary (failover priority / load-balance weight decide), so this - never a
+    /// name-ordered guess - is the authoritative answer while the console can be asked.
+    /// </summary>
+    internal static string? ConfiguredPrimaryWanKey(NetworkInfo? primary) =>
+        string.IsNullOrEmpty(primary?.WanNetworkgroup)
+            ? null : GatewayWanHelper.WanInterfaceKeyFromKey(primary!.WanNetworkgroup!);
+
+    /// <summary>Configured primary key from the console; null when it cannot be asked.</summary>
+    private async Task<string?> ResolveConfiguredPrimaryWanKeyAsync(CancellationToken ct)
+    {
+        try
+        {
+            return ConfiguredPrimaryWanKey(await _connectionService.GetPrimaryWanNetworkAsync(ct));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "ISP Health could not resolve the configured primary WAN from the console");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// LAST-RESORT GUESS at the primary's wan key, for when the console cannot say which WAN
+    /// holds the primary role: the conventional "wan"-group discovery row first, then any row,
+    /// defaulting to "wan" with no rows at all. This is wrong exactly on an offline multi-WAN
+    /// site whose configured primary is another group (WAN2-primary with a WAN1 failover) -
+    /// there is nothing better to ask offline, and the next connected compute corrects it.
+    /// Callers must prefer <see cref="ConfiguredPrimaryWanKey"/> whenever the console answers.
+    /// </summary>
+    internal static string ResolvePrimaryWanKey(IEnumerable<WanDiscoveryContext> contexts) =>
+        GatewayWanHelper.WanInterfaceKeyFromKey(contexts
+            .OrderBy(c => string.Equals(
+                GatewayWanHelper.WanInterfaceKeyFromKey(c.WanInterface ?? ""), "wan", StringComparison.OrdinalIgnoreCase) ? 0 : 1)
+            .Select(c => c.WanInterface)
+            .FirstOrDefault(w => !string.IsNullOrEmpty(w)) ?? "wan");
+
+    /// <summary>
+    /// The Influx wan-tag scope for the WAN being scored. Primary: untagged points (every point
+    /// the primary path has ever written), plus the tag values of any context bound to the
+    /// primary WAN - so a primary probed through an explicit context keeps those points too.
+    /// Scoped WAN: its stable wan key (what the writers tag new points with,
+    /// WanContext.InfluxWanTag) plus its contexts' display names, which tagged the points
+    /// written before the stable-key tagging landed. Never untagged - untagged is the primary's.
+    /// </summary>
+    internal static MonitoringInfluxClient.LatencyWanScope BuildWanScope(
+        IEnumerable<WanContext> contexts, string wanKey, bool primaryScope)
+    {
+        // Context match is key-normalized ("wan1" == "wan"), but the TAG VALUES stay raw: points
+        // were written with each context's literal InfluxWanTag, so a legacy wan1-keyed context
+        // contributes the "wan1" tag its points actually carry. The scoped WAN's own normalized
+        // key is added for points the writers tag going forward. Note the wanKey parameter is
+        // whatever key the caller RESOLVED (configured primary or scoped key) - never a literal.
+        var normalizedKey = GatewayWanHelper.WanInterfaceKeyFromKey(wanKey);
+        var tags = contexts
+            .Where(c => !string.IsNullOrEmpty(c.WanInterface) && string.Equals(
+                GatewayWanHelper.WanInterfaceKeyFromKey(c.WanInterface!), normalizedKey, StringComparison.OrdinalIgnoreCase))
+            .SelectMany(c => new[] { c.InfluxWanTag, c.Name })
+            .Where(v => !string.IsNullOrEmpty(v))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        if (primaryScope)
+            return MonitoringInfluxClient.LatencyWanScope.Primary(tags);
+        if (!tags.Contains(normalizedKey, StringComparer.Ordinal))
+            tags.Insert(0, normalizedKey);
+        return MonitoringInfluxClient.LatencyWanScope.ForWan(tags);
+    }
+
+    /// <summary>
+    /// The scored WAN's data-path interface: the primary resolver for the primary instance
+    /// (unchanged, incl. its remembered-profile offline fallback), the WAN's own uplink for a
+    /// scoped instance - live from the console when connected, from the WAN's remembered
+    /// profile row when not.
+    /// </summary>
+    private async Task<string?> GetScoredWanDataPathInterfaceAsync(CancellationToken ct)
+    {
+        if (_scopedWanKey == null)
+            return await GetPrimaryWanInterfaceAsync(ct);
+
+        var group = GatewayWanHelper.WanNetworkGroupFromKey(_scopedWanKey);
+        try
+        {
+            var ifaces = await _connectionService.GetWanInterfacesForGroupAsync(group, ct);
+            var live = ifaces?.UplinkIfName ?? ifaces?.PhysicalIfName;
+            if (!string.IsNullOrEmpty(live)) return live;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not read WAN {Group}'s data-path interface from the console", group);
+        }
+        if (_connectionService.IsConnected) return null;
+        try
+        {
+            await using var db = await CreateSiteDbAsync(ct);
+            return await db.WanProfiles.AsNoTracking()
+                .Where(w => w.WanNetworkgroup == group && w.DataPathInterface != null)
+                .OrderByDescending(w => w.UpdatedAt)
+                .Select(w => w.DataPathInterface)
+                .FirstOrDefaultAsync(ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not read WAN {Group}'s remembered data-path interface", group);
             return null;
         }
     }
@@ -1393,30 +1630,134 @@ public class IspHealthService
     }
 
     /// <summary>
-    /// Resolves the gateway MAC and the CONFIGURED primary WAN's SNMP counter interface(s) - the same
-    /// WAN as the expected speeds and SQM exclusion (e.g. "eth6" for a VLAN-tagged primary), not the
-    /// live active uplink. Falls back to the active uplink only if the config-primary can't be
-    /// resolved, so analysis still runs. Returns (null, null) when no gateway is discovered.
+    /// Resolves the gateway MAC and the SCORED WAN's SNMP counter interface(s) - the same WAN as
+    /// the expected speeds and SQM exclusion (e.g. "eth6" for a VLAN-tagged WAN). The pairing is
+    /// the point: these counters are divided by this WAN's plan speeds, and that load figure sets
+    /// the Packet Loss ceiling quadratically (ScorePacketLoss), splits loaded from idle samples
+    /// (LoadClassifier), and drives congestion load-coincidence (CongestionTopology.Load) - so
+    /// another WAN's counters here mis-grade all three at once.
+    ///
+    /// Primary instance: configured primary live, then the primary's remembered profile row
+    /// (same WAN, cached), then the live active uplink as the last resort so analysis still
+    /// runs - that last step is the one place bytes can come from a different WAN than the
+    /// plan speeds, and it is logged as such. Scoped instance: that WAN's own counter interface
+    /// (live, then its profile row) and NOTHING cross-WAN - no active-uplink, no WAN1 fallback.
     /// </summary>
     private async Task<(string? Mac, List<string>? IfNames)> ResolveWanCounterAsync(CancellationToken ct)
     {
         var devices = await _connectionService.GetDiscoveredDevicesAsync(ct);
         var gw = devices?.FirstOrDefault(d => d.Type == DeviceType.Gateway || d.HardwareType == DeviceType.Gateway);
+
+        if (_scopedWanKey != null)
+        {
+            var group = GatewayWanHelper.WanNetworkGroupFromKey(_scopedWanKey);
+            string? counter = null;
+            try
+            {
+                var ifaces = await _connectionService.GetWanInterfacesForGroupAsync(group, ct);
+                counter = ifaces?.CounterIfName;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "ISP Health: could not resolve WAN {Group}'s counter interface from the console", group);
+            }
+            var mac = gw?.Mac;
+            if (string.IsNullOrEmpty(counter) || string.IsNullOrEmpty(mac))
+            {
+                try
+                {
+                    await using var db = await CreateSiteDbAsync(ct);
+                    var profile = await db.WanProfiles.AsNoTracking()
+                        .Where(w => w.WanNetworkgroup == group)
+                        .OrderByDescending(w => w.UpdatedAt)
+                        .FirstOrDefaultAsync(ct);
+                    counter = string.IsNullOrEmpty(counter) ? profile?.CounterInterface : counter;
+                    mac = string.IsNullOrEmpty(mac) ? profile?.GatewayMac : mac;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "ISP Health: could not read WAN {Group}'s remembered counter interface", group);
+                }
+            }
+            if (string.IsNullOrEmpty(mac) || string.IsNullOrEmpty(counter))
+            {
+                _logger.LogDebug("ISP Health: no counter interface resolved for WAN {Group}; load context is empty for this report", group);
+                return (mac, null);
+            }
+            return (mac, new List<string> { counter! });
+        }
+
         if (gw?.Mac == null)
             return (null, null);
 
         var primaryIfaces = await _connectionService.GetPrimaryWanInterfacesAsync(ct);
         var wanCounterNames = !string.IsNullOrEmpty(primaryIfaces?.CounterIfName)
             ? new List<string> { primaryIfaces!.CounterIfName! }
-            : gw.WanInterfaceNames;
+            : null;
+        // Config-primary unresolved: prefer the primary's own remembered counter interface (same
+        // WAN, merely cached) before the live active uplink - during a failover the active uplink
+        // is ANOTHER WAN, and its bytes against the primary's plan speeds understate load, which
+        // relaxes into the strictest idle loss ceiling. The active uplink stays as the very last
+        // resort so a site that never resolved a primary still gets load context.
+        if (wanCounterNames == null)
+        {
+            try
+            {
+                // Prefer the CONFIGURED primary group's remembered row when the console can
+                // still say which group holds the primary role; the first-by-group-name pick is
+                // the last resort and is a documented GUESS - on a WAN2-primary site with a WAN1
+                // failover row it returns the failover's counter. Nothing better exists offline
+                // (WanProfile carries no primary marker); the next connected read corrects it.
+                var cfgGroup = await ResolveConfiguredPrimaryWanKeyAsync(ct) is { } cfgKey
+                    ? GatewayWanHelper.WanNetworkGroupFromKey(cfgKey) : null;
+                await using var db = await CreateSiteDbAsync(ct);
+                var remembered = await db.WanProfiles.AsNoTracking()
+                    .Where(w => w.CounterInterface != null && (cfgGroup == null || w.WanNetworkgroup == cfgGroup))
+                    .OrderBy(w => w.WanNetworkgroup)
+                    .ThenByDescending(w => w.UpdatedAt)
+                    .Select(w => w.CounterInterface)
+                    .FirstOrDefaultAsync(ct);
+                if (!string.IsNullOrEmpty(remembered))
+                {
+                    _logger.LogDebug("ISP Health: primary WAN unresolved, using its remembered counter interface {Iface}", remembered);
+                    wanCounterNames = new List<string> { remembered! };
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "ISP Health: could not read the remembered primary counter interface");
+            }
+        }
+        wanCounterNames ??= gw.WanInterfaceNames;
         if (wanCounterNames == null || wanCounterNames.Count == 0)
         {
             _logger.LogDebug("ISP Health: no WAN counter interface resolved");
             return (gw.Mac, null);
         }
-        if (primaryIfaces?.CounterIfName == null)
-            _logger.LogDebug("ISP Health: primary WAN unresolved, falling back to active uplink {Ifaces}", string.Join(",", wanCounterNames));
+        if (primaryIfaces?.CounterIfName == null && ReferenceEquals(wanCounterNames, gw.WanInterfaceNames))
+            _logger.LogDebug("ISP Health: primary WAN unresolved, falling back to active uplink {Ifaces} - " +
+                "during a failover these are another WAN's counters paired with the primary's plan speeds",
+                string.Join(",", wanCounterNames));
         return (gw.Mac, wanCounterNames);
+    }
+
+    /// <summary>
+    /// The scored WAN's counter pairing (gateway MAC + counter interface names) for callers
+    /// outside the scoring pipeline - the Investigate loaded-loss lookup and the WAN traffic
+    /// reference - so they classify loaded-vs-idle against the same WAN whose latency they show.
+    /// </summary>
+    public async Task<(string? GatewayMac, List<string> CounterIfNames)> GetWanCounterInterfacesAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            var (mac, ifNames) = await ResolveWanCounterAsync(ct);
+            return (mac, ifNames ?? new List<string>());
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "ISP Health could not resolve the scored WAN's counter interfaces");
+            return (null, new List<string>());
+        }
     }
 
     /// <summary>
@@ -1433,13 +1774,21 @@ public class IspHealthService
         if (!_options.UsageWeightingEnabled) return null;
         try
         {
-            var (mac, ifNames) = await ResolveWanCounterAsync(ct);
-            if (mac == null || ifNames == null || ifNames.Count == 0) return null;
+            // ALL WANs, deliberately - the one input that widens across WANs. The fingerprint asks
+            // "was the user doing anything in this hour", not "how loaded is the link being graded":
+            // an hour carried by a secondary WAN is still an hour the user was active, so it must
+            // not read idle and soften that hour's outage weighting. Identical across the per-WAN
+            // instances by construction. The summed multi-interface read is opted into explicitly
+            // (see QueryGatewayWanRatesAsync's contract); with one WAN the list has one name and
+            // the query is byte-identical to before.
+            var (mac, ifNames) = await ResolveAllWanCounterInterfacesAsync(ct);
+            if (mac == null || ifNames.Count == 0) return null;
 
             var from = windowEnd.AddDays(-_options.UsageFingerprintLookbackDays);
             // Active usage is sustained (streaming, calls, uploads); a 5-min mean is plenty to catch
             // it and keeps the lookback series small.
-            var rates = await _influx.QueryGatewayWanRatesAsync(mac, ifNames, from, windowEnd, TimeSpan.FromMinutes(5), ct: ct);
+            var rates = await _influx.QueryGatewayWanRatesAsync(mac, ifNames, from, windowEnd, TimeSpan.FromMinutes(5),
+                sumAcrossInterfaces: true, ct: ct);
             if (rates.Count == 0) return null;
 
             var tz = TimeZoneInfo.Local;
@@ -1473,6 +1822,45 @@ public class IspHealthService
         }
     }
 
+    /// <summary>
+    /// Gateway MAC plus EVERY WAN's counter interface, for the all-WAN usage fingerprint only
+    /// (see the summing contract on QueryGatewayWanRatesAsync). Live enumeration when the
+    /// console answers, augmented by the remembered per-WAN profile rows so WANs the console
+    /// currently omits (down, disabled) still contribute their recorded usage.
+    /// </summary>
+    private async Task<(string? Mac, List<string> IfNames)> ResolveAllWanCounterInterfacesAsync(CancellationToken ct)
+    {
+        string? mac = null;
+        var names = new List<string>();
+        try
+        {
+            var devices = await _connectionService.GetDiscoveredDevicesAsync(ct);
+            mac = devices?.FirstOrDefault(d => d.Type == DeviceType.Gateway || d.HardwareType == DeviceType.Gateway)?.Mac;
+            foreach (var wan in await _connectionService.GetAllWanInterfacesAsync(ct))
+                if (!string.IsNullOrEmpty(wan.CounterIfName))
+                    names.Add(wan.CounterIfName!);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "ISP Health: could not enumerate WAN counter interfaces from the console");
+        }
+        try
+        {
+            await using var db = await CreateSiteDbAsync(ct);
+            var profiles = await db.WanProfiles.AsNoTracking()
+                .Where(w => w.CounterInterface != null)
+                .ToListAsync(ct);
+            foreach (var p in profiles)
+                names.Add(p.CounterInterface!);
+            mac ??= profiles.Select(p => p.GatewayMac).FirstOrDefault(m => !string.IsNullOrEmpty(m));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "ISP Health: could not read the remembered WAN profiles for the usage fingerprint");
+        }
+        return (mac, names.Distinct(StringComparer.OrdinalIgnoreCase).ToList());
+    }
+
     /// <summary>Expected plan speeds for callers outside the scoring pipeline (e.g. loaded-loss investigation).</summary>
     public async Task<(double? DownMbps, double? UpMbps)> GetExpectedWanSpeedsAsync(CancellationToken ct = default)
     {
@@ -1496,6 +1884,13 @@ public class IspHealthService
                 || t.TargetType == MonitoringTargetType.Transit
                 || t.TargetType == MonitoringTargetType.InternetService))
             .ToListAsync(ct);
+        // Same WAN scope as the compute (ScopeTargetsToWan there), so the Investigate highlight
+        // averages exactly the pool this instance's score is graded on - configured primary
+        // first, name-ordered guess only offline, like the compute.
+        var scoredKey = _scopedWanKey
+            ?? await ResolveConfiguredPrimaryWanKeyAsync(ct)
+            ?? ResolvePrimaryWanKey(await db.WanDiscoveryContexts.AsNoTracking().ToListAsync(ct));
+        targets = ScopeTargetsToWan(targets, scoredKey, includeUnassigned: _scopedWanKey == null);
         // Flat-lined targets the last computed report dropped come out here too. Subtracting from the
         // report rather than re-deriving it keeps this the single definition: the exclusion is a
         // measurement judgment and this method only reads the database, so it cannot make it itself.
@@ -1525,17 +1920,25 @@ public class IspHealthService
         string? source = null;
         var smartQueues = false;
         WanIdentity? wan = null;
+        // A scoped instance reads ITS WAN's networkconf row; the primary instance keeps the
+        // configured-primary resolution unchanged. There is deliberately no cross-WAN fallback
+        // anywhere below: a WAN whose plan the console never reported ends unscored on Speed vs
+        // Plan rather than graded against another WAN's plan.
+        var scopedGroup = _scopedWanKey == null ? null : GatewayWanHelper.WanNetworkGroupFromKey(_scopedWanKey);
         try
         {
             var networks = await _connectionService.GetNetworksAsync(ct);
-            var primary = UniFiConnectionService.ResolvePrimaryWanNetwork(networks, _logger);
-            if (primary != null)
+            var net = scopedGroup == null
+                ? UniFiConnectionService.ResolvePrimaryWanNetwork(networks, _logger)
+                : networks.FirstOrDefault(n => n.IsWan && n.Enabled
+                    && string.Equals(n.WanNetworkgroup, scopedGroup, StringComparison.OrdinalIgnoreCase));
+            if (net != null)
             {
-                if (primary.WanDownloadMbps > 0) down = primary.WanDownloadMbps;
-                if (primary.WanUploadMbps > 0) up = primary.WanUploadMbps;
+                if (net.WanDownloadMbps > 0) down = net.WanDownloadMbps;
+                if (net.WanUploadMbps > 0) up = net.WanUploadMbps;
                 if (down != null || up != null) source = "UniFi Network";
-                smartQueues = primary.WanSmartqEnabled;
-                wan = new WanIdentity(primary.Name, primary.WanNetworkgroup, primary.WanIfname);
+                smartQueues = net.WanSmartqEnabled;
+                wan = new WanIdentity(net.Name, net.WanNetworkgroup, net.WanIfname);
             }
         }
         catch (Exception ex)
@@ -1545,8 +1948,7 @@ public class IspHealthService
 
         // Remember what the console said, per WAN. This is what lets a site whose console has gone
         // away still be graded, and it is stored per WAN because plan speeds belong to a WAN:
-        // scoring reads the primary today, and multi-WAN scoring is planned, at which point each
-        // WAN's row is already here.
+        // every scored WAN writes its own row here, keyed by WanNetworkgroup.
         if (wan?.NetworkGroup is { Length: > 0 })
             await RememberWanSpeedsAsync(wan, down, up, ct);
 
@@ -1559,9 +1961,13 @@ public class IspHealthService
             // where the SQM value is a shaping target someone typed in - what to rate-limit to,
             // not what the ISP confirmed the line does.
             //
-            // With no console we cannot ask which WAN is primary, so prefer the first WAN group and
-            // fall back to the most recently confirmed row. Multi-WAN scoring picks its own WAN here.
+            // Primary with no console: we cannot ask which WAN holds the primary ROLE (WanProfile
+            // carries no primary marker), so the first-by-group-name row is a documented GUESS -
+            // on a WAN2-primary site whose WAN1 failover also has a remembered row, it grades
+            // against the failover's plan until the console comes back. A scoped instance reads
+            // exactly its own WAN's row - another WAN's row is never an answer.
             var remembered = await db.WanProfiles.AsNoTracking()
+                .Where(w => scopedGroup == null || w.WanNetworkgroup == scopedGroup)
                 .OrderBy(w => w.WanNetworkgroup)
                 .ThenByDescending(w => w.UpdatedAt)
                 .FirstOrDefaultAsync(ct);
@@ -1575,9 +1981,13 @@ public class IspHealthService
             }
 
             // Truly inferred, so it goes last: only reached when the console has never told us.
+            // The primary keeps the lowest-numbered row (unchanged); a scoped WAN matches its
+            // own WAN number and otherwise stays unscored.
             if (down == null || up == null)
             {
+                var scopedWanNumber = _scopedWanKey == null ? 0 : GatewayWanHelper.WanIndexFromKey(_scopedWanKey);
                 var sqmWan = await db.SqmWanConfigurations.AsNoTracking()
+                    .Where(c => scopedWanNumber == 0 || c.WanNumber == scopedWanNumber)
                     .OrderBy(c => c.WanNumber)
                     .FirstOrDefaultAsync(ct);
                 if (sqmWan != null)
@@ -1613,9 +2023,15 @@ public class IspHealthService
             // Keep the previous data path when the device read comes back empty on an otherwise
             // successful console read: overwriting it with the physical port would make a later
             // offline PPPoE check grade the line without its overlay, which is what splitting these
-            // two columns exists to prevent.
-            var dataPath = await _connectionService.GetPrimaryWanDataPathInterfaceAsync(ct)
-                ?? row.DataPathInterface ?? wan.Interface;
+            // two columns exists to prevent. Scoped instances resolve THEIR WAN's data path; the
+            // primary keeps the primary resolver.
+            var liveDataPath = _scopedWanKey == null
+                ? await _connectionService.GetPrimaryWanDataPathInterfaceAsync(ct)
+                : (await _connectionService.GetWanInterfacesForGroupAsync(
+                    GatewayWanHelper.WanNetworkGroupFromKey(_scopedWanKey), ct)) is { } scopedIfaces
+                    ? scopedIfaces.UplinkIfName ?? scopedIfaces.PhysicalIfName
+                    : null;
+            var dataPath = liveDataPath ?? row.DataPathInterface ?? wan.Interface;
             row.DataPathInterface = dataPath;
             row.CounterInterface = NetworkUtilities.PreferredWanCounterInterface(wan.Interface, dataPath);
 
@@ -1631,6 +2047,26 @@ public class IspHealthService
             row.DownloadMbps = down;
             row.UploadMbps = up;
             row.UpdatedAt = DateTime.UtcNow;
+
+            // Record which WAN holds the primary role, and whether the site load balances, while
+            // a console is answering. Both are read where no console can be reached - the probe
+            // push path has none at all - and both are otherwise guessed from the WAN's NAME,
+            // which carries no role information. Exactly one row may claim primary, so the others
+            // are cleared in the same save rather than left to accumulate stale claims.
+            var networks = await _connectionService.GetNetworksAsync(ct);
+            var primaryGroup = UniFiConnectionService.ResolvePrimaryWanNetwork(networks)?.WanNetworkgroup;
+            if (!string.IsNullOrEmpty(primaryGroup))
+            {
+                var loadBalances = UniFiConnectionService.ResolveSiteLoadBalances(networks);
+                foreach (var profile in await db.WanProfiles.ToListAsync(ct))
+                {
+                    profile.IsPrimary = string.Equals(
+                        profile.WanNetworkgroup, primaryGroup, StringComparison.OrdinalIgnoreCase);
+                    profile.SiteLoadBalances = loadBalances;
+                }
+                row.IsPrimary = string.Equals(row.WanNetworkgroup, primaryGroup, StringComparison.OrdinalIgnoreCase);
+                row.SiteLoadBalances = loadBalances;
+            }
             await db.SaveChangesAsync(ct);
         }
         catch (Exception ex)
@@ -1646,8 +2082,10 @@ public class IspHealthService
     /// offline site still resolves it - the interface is what the throughput series are keyed on,
     /// so without it a site with plenty of stored history reads as having none.
     ///
-    /// Multi-WAN planned: this returns the primary only, and picks the first WAN group when there
-    /// is no console to ask. Per-WAN scoring resolves its own WAN's interface from its own row.
+    /// The offline pick is first-by-group-name, a documented GUESS: primary is a role, so on an
+    /// offline WAN2-primary site with a WAN1 failover row this returns the failover's data path
+    /// (WanProfile carries no primary marker to prefer). Per-WAN scoring resolves its own WAN's
+    /// interface from its own row and never lands here.
     /// </summary>
     private async Task<string?> GetPrimaryWanInterfaceAsync(CancellationToken ct)
     {
@@ -1765,7 +2203,25 @@ public class IspHealthService
             // yields a recent capacity number. Bounded above by windowEnd for historical windows.
             var fallbackStart = windowEnd.AddDays(-_options.SpeedTestFallbackDays);
             var since = windowStart < fallbackStart ? windowStart : fallbackStart;
+            // Tests are attributed to the scored WAN by their recorded WAN group. A scoped WAN
+            // takes only tests stamped with its own group, never unstamped ones - an unstamped
+            // test ran over the default route, which is the primary's.
+            var scopedGroupLower = _scopedWanKey == null
+                ? null
+                : GatewayWanHelper.WanNetworkGroupFromKey(_scopedWanKey).ToLowerInvariant();
             await using var db = await CreateSiteDbAsync(ct);
+
+            // The primary's own group, when a connected compute has recorded which WAN holds the
+            // role. Without it the predicate below falls back to the conventional first group,
+            // which is right on the sites that have one WAN or lead with WAN1 and wrong on a site
+            // whose primary is WAN2 - there it would miss every test stamped "WAN2" and count the
+            // FAILOVER link's tests as the primary's, grading a backup circuit against the fiber
+            // plan. Unstamped rows stay in either way: they predate stamping and ran over the
+            // default route, which is the primary's by definition.
+            var primaryGroupLower = scopedGroupLower != null
+                ? null
+                : (await db.WanProfiles.AsNoTracking()
+                    .FirstOrDefaultAsync(w => w.IsPrimary == true, ct))?.WanNetworkgroup?.ToLowerInvariant();
             var results = await db.Iperf3Results.AsNoTracking()
                 .Where(r => r.Success
                     && r.TestTime >= since
@@ -1774,7 +2230,10 @@ public class IspHealthService
                         || r.Direction == SpeedTestDirection.CloudflareWanGateway
                         || r.Direction == SpeedTestDirection.UwnWan
                         || r.Direction == SpeedTestDirection.UwnWanGateway)
-                    && (r.WanNetworkGroup == null || r.WanNetworkGroup.ToLower() == "wan"))
+                    && (scopedGroupLower == null
+                        ? (r.WanNetworkGroup == null
+                            || r.WanNetworkGroup.ToLower() == (primaryGroupLower ?? "wan"))
+                        : r.WanNetworkGroup != null && r.WanNetworkGroup.ToLower() == scopedGroupLower))
                 .OrderByDescending(r => r.TestTime)
                 .Select(r => new { r.TestTime, r.DownloadBitsPerSecond, r.UploadBitsPerSecond, r.PingMs, r.DownloadLatencyMs, r.UploadLatencyMs })
                 .ToListAsync(ct);
