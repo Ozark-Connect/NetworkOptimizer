@@ -929,37 +929,41 @@ public class IspHealthScorer
         var stale = _options.LoadedLatencyElevationStaleEpisodes;
         var elevatedEpisodes = episodes.Where(e => e.Value >= noiseFloor).ToList();
 
+        ElevationVerdict.Verdict? verdict = null;
         if (stale > 0 && episodes.Count > stale)
         {
-            var verdict = ElevationVerdict.For(
+            verdict = ElevationVerdict.For(
                 episodes, noiseFloor, stale,
                 _options.LoadedLatencyElevationStaleNeedsSameHour,
                 TimeSpan.FromSeconds(Math.Max(1, _options.LoadWindowSeconds)),
                 LoadedLatencyRegimeFloorMs);
 
-            // Logged whether it fires or not: "why is this WAN still reporting bufferbloat I
-            // fixed" is asked from the field, and the answer is always one of these numbers. The
-            // newest elevated episode is named so the moment can be gone and looked at rather
-            // than inferred.
-            _logger?.LogDebug(
-                "ISP Health: loaded latency {Dir} - {Episodes} episode(s), {Elevated} elevated "
-                + "(newest {NewestElevated}), clean run {CleanRun}/{Needed}, "
-                + "problem hour re-tested: {HourCovered} -> {Verdict}",
-                upstream ? "up" : "down", episodes.Count, verdict.ElevatedCount,
-                elevatedEpisodes.Count > 0
-                    ? $"{elevatedEpisodes[0].Time:yyyy-MM-dd HH:mm:ss}Z at "
-                        + elevatedEpisodes[0].Value.ToString("0.0", CultureInfo.InvariantCulture) + " ms"
-                    : "none",
-                verdict.CleanRun.Count, stale, verdict.ProblemHourReTested,
-                verdict.ElevationIsOver ? "elevation over"
-                    : verdict.ElevatedCount == 0 ? "clean - no elevated episodes"
-                    : "still elevated");
-
-            // The line was fixed: the elevated episodes describe a connection that no longer
-            // exists, so only the clean run since speaks for it.
-            if (verdict.ElevationIsOver)
-                return Math.Max(0, SeriesStats.Median(verdict.CleanRun.Select(e => e.Value).ToList())!.Value);
         }
+
+        // Logged for EVERY report, verdict or not. Gating this behind the verdict's own condition
+        // meant a WAN with too few load episodes to judge - the case most worth looking at - was
+        // the one that said nothing at all. The newest elevated episode is named so the moment can
+        // be pulled up in the time series rather than inferred from what sits near it.
+        _logger?.LogDebug(
+            "ISP Health: loaded latency {Dir} - {Episodes} episode(s), {Elevated} elevated "
+            + "(newest {NewestElevated}), clean run {CleanRun}, needs {Needed}, "
+            + "problem hour re-tested: {HourCovered} -> {Verdict}",
+            upstream ? "up" : "down", episodes.Count, elevatedEpisodes.Count,
+            elevatedEpisodes.Count > 0
+                ? $"{elevatedEpisodes[0].Time:yyyy-MM-dd HH:mm:ss}Z at "
+                    + elevatedEpisodes[0].Value.ToString("0.0", CultureInfo.InvariantCulture) + " ms"
+                : "none",
+            verdict?.CleanRun.Count.ToString(CultureInfo.InvariantCulture) ?? "n/a", stale,
+            verdict?.ProblemHourReTested.ToString() ?? "n/a",
+            verdict is null ? "too few episodes to judge"
+                : verdict.ElevationIsOver ? "elevation over"
+                : elevatedEpisodes.Count == 0 ? "clean - no elevated episodes"
+                : "still elevated");
+
+        // The line was fixed: the elevated episodes describe a connection that no longer exists,
+        // so only the clean run since speaks for it.
+        if (verdict is { ElevationIsOver: true })
+            return Math.Max(0, SeriesStats.Median(verdict.CleanRun.Select(e => e.Value).ToList())!.Value);
 
         // The reported figure is the median ACROSS EPISODES - what this line typically does under
         // load - weighted by recency and by how credible each episode's load was.
