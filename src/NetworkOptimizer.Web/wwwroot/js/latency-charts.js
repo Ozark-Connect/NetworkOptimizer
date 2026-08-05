@@ -322,6 +322,15 @@ const SHARED_OUTAGE_MIN_TARGETS = 3;
 // live in Blazor (Monitoring.razor), which has the target metadata. Entirely best-effort:
 // wrapped so a failure here can never disturb chart rendering, and a no-op until Blazor has
 // handed us its DotNet reference via window.__netoptLatencyRef.
+// A ?at= in the URL says where a link wanted this window. The moment the user moves it themselves
+// that stops being true, so Blazor is told to drop the parameter - otherwise a reload or the back
+// button drags them back to the linked instant. Called from the user's own handlers only, never
+// from frameMoment/frameTrailing, which ARE the link landing. Best-effort, like the hints below.
+function notifyTimelineMoved() {
+    try { window.__netoptLatencyRef?.invokeMethodAsync('OnTimelineMovedByUser'); }
+    catch { /* no ref yet, or the circuit is gone - the window still moved */ }
+}
+
 function notifyLanFlakyHints(data) {
     try {
         const ref = window.__netoptLatencyRef;
@@ -610,6 +619,7 @@ function updateCustomLabel(container) {
 function applyDragZoom(xaxis) {
     const container = document.getElementById(containerId);
     if (container && xaxis && Number.isFinite(xaxis.min) && Number.isFinite(xaxis.max) && xaxis.min < xaxis.max) {
+        notifyTimelineMoved();
         customFrom = new Date(xaxis.min);
         customTo = new Date(xaxis.max);
         isCustomRange = true;
@@ -692,12 +702,12 @@ export async function mount(elId, initialWanScope, initialCategory) {
 
     // Preset range buttons
     container.querySelectorAll('[data-range]').forEach(btn => {
-        btn.addEventListener('click', () => selectPresetRange(container, parseInt(btn.dataset.range)));
+        btn.addEventListener('click', () => { notifyTimelineMoved(); selectPresetRange(container, parseInt(btn.dataset.range)); });
     });
 
     // Shift arrows
     container.querySelectorAll('[data-shift]').forEach(btn => {
-        btn.addEventListener('click', () => shiftWindow(btn.dataset.shift));
+        btn.addEventListener('click', () => { notifyTimelineMoved(); shiftWindow(btn.dataset.shift); });
     });
 
     // Custom range popover
@@ -728,6 +738,7 @@ export async function mount(elId, initialWanScope, initialCategory) {
         const from = fromInput?.value ? new Date(fromInput.value) : null;
         const to = toInput?.value ? new Date(toInput.value) : null;
         if (!from || !to || isNaN(from) || isNaN(to) || from >= to) return;
+        notifyTimelineMoved();
         customFrom = from;
         customTo = to;
         isCustomRange = true;

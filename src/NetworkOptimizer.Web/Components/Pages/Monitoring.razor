@@ -2304,6 +2304,9 @@
     private long? _pendingAtMs;
     private string? _armedAtUri;
 
+    /// <summary>The instant a link asked for, while the timeline is still sitting on it.</summary>
+    private long? _linkedInstantMs;
+
     private bool _monitoringReady => _monitoringEnabled && _influxConfigured;
 
     /// <summary>This site's agent, when it has one. Null on a server-polled site.</summary>
@@ -3907,6 +3910,8 @@
 
         if (isoTimestamp == null)
         {
+            // Back to live under their own hand, so the linked instant is behind them.
+            ClearLinkedInstant();
             _mapHistoricAt = null;
             _historicSnapshot = null;
             await InvokeAsync(StateHasChanged);
@@ -3914,9 +3919,45 @@
         }
 
         var at = DateTime.Parse(isoTimestamp, null, System.Globalization.DateTimeStyles.RoundtripKind);
+        // Anywhere but the instant the link asked for means the timeline was moved - scrubbed,
+        // played, stepped - so the parameter describing where the link wanted them stops being
+        // true. Compared against that instant rather than acted on blindly, because the link's own
+        // seek reports back through here too and must not clear what it just applied.
+        if (_linkedInstantMs is { } linked
+            && Math.Abs(new DateTimeOffset(at.ToUniversalTime()).ToUnixTimeMilliseconds() - linked) > 1000)
+        {
+            ClearLinkedInstant();
+        }
         _mapHistoricAt = at;
         await FetchHistoricSnapshotAsync(at);
         await InvokeAsync(StateHasChanged);
+    }
+
+    /// <summary>
+    /// Told by the analysis charts that the user moved their own window - a range button, a shift
+    /// arrow, a custom range, a drag-zoom.
+    /// </summary>
+    [JSInvokable]
+    public void OnTimelineMovedByUser() => ClearLinkedInstant();
+
+    /// <summary>
+    /// Drops ?at= once the timeline is under the user's own hand. The parameter says where a link
+    /// wanted to land; left in place after they move, a reload or the back button drags them back
+    /// to it. Done on THEIR input and nowhere else - clearing it on arrival instead cost an extra
+    /// navigation per jump, and looping between the jump icons tripped the browser's throttle.
+    /// </summary>
+    private void ClearLinkedInstant()
+    {
+        _linkedInstantMs = null;
+        if (string.IsNullOrWhiteSpace(AtParam)) return;
+
+        var stripped = SiteContextService.RemoveQueryParam(NavigationManager.Uri, "at");
+        if (stripped == NavigationManager.Uri) return;
+        // Armed against the new URL first, or being re-supplied under it would arm a fresh seek
+        // and pull them straight back to where they just left.
+        _armedAtUri = stripped;
+        _pendingAtMs = null;
+        NavigationManager.NavigateTo(stripped, forceLoad: false, replace: true);
     }
 
     private async Task FetchHistoricSnapshotAsync(DateTime at)
@@ -4993,6 +5034,7 @@
                 // same visit leaves a scrubbed position alone.
                 long initialAtMs = _pendingAtMs ?? 0;
                 _pendingAtMs = null;
+                if (initialAtMs > 0) _linkedInstantMs = initialAtMs;
                 // Per-mount values (storagePrefix, initialAt) MUST be arguments, never
                 // interpolated into the function body: JS interop resolves the
                 // identifier to a function reference once and keeps invoking that
