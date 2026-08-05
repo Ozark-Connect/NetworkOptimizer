@@ -1033,7 +1033,16 @@ public static class IspHealthProfiles
         // (Local Priority) ~4.3 ms MAD, degraded backup ~9.2 ms. The several-ms steady-state wander
         // is inherent LEO (handovers ~every 15 s); MAD is robust to the obstruction tail.
         AccessTechnology.Satellite => new AccessProfile("Satellite (LEO)",
-            IdleRttIdealMs: 23.0, IdleRttNormalLowMs: 30.0, IdleRttNormalHighMs: 45.0, IdleRttPoorMs: 80.0,
+            // Anchored on measured plans rather than estimates. 23 ms is the best the medium does
+            // at all - months of it on a tier above Local Priority - so it is full marks, and 42 ms
+            // is the floor of good, which is where a Backup dish sits when nothing is wrong with
+            // it. Those two points set the rest: with the ladder's 85 at normal-high and 25 at
+            // poor, 40 and 64 put 42 exactly on 80 and drop 45 to about 72.
+            //
+            // Deliberately not tier-aware. A cheaper plan really is worse latency, and hiding that
+            // behind per-tier bands would score every dish against its own plan and never tell
+            // anyone their tier is the reason.
+            IdleRttIdealMs: 23.0, IdleRttNormalLowMs: 30.0, IdleRttNormalHighMs: 40.0, IdleRttPoorMs: 64.0,
             IdleLossIdealPct: 0.2, IdleLossAcceptablePct: 0.5,
             LoadedLossDownLowPct: 0.5, LoadedLossDownHighPct: 1.0,
             LoadedLossUpLowPct: 0.25, LoadedLossUpHighPct: 0.5,

@@ -577,6 +577,22 @@ public class IspHealthScorerTests
     }
 
     [Fact]
+    public void Satellite_idle_latency_is_anchored_on_measured_plans()
+    {
+        // Both ends come from real dishes: 23 ms is the best the medium does at all, and 42 ms is
+        // where a healthy Backup dish sits - the floor of good rather than a fault.
+        var satellite = IspHealthProfiles.GetProfile(AccessTechnology.Satellite)!;
+
+        int Idle(double rtt) => new IspHealthScorer(Options)
+            .Score(BuildInputs(idleRtt: rtt), satellite)
+            .AccessDimension.Factors.Single(f => f.Name == "Idle Latency").Score!.Value;
+
+        Idle(23).Should().Be(100);
+        Idle(42).Should().Be(80);
+        Idle(45).Should().BeInRange(70, 75);
+    }
+
+    [Fact]
     public void A_standby_link_carrying_nothing_still_fails()
     {
         // Forgiving is not blind: the one outcome that would actually fail its owner is a backup
