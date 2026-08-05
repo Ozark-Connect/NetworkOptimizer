@@ -4532,6 +4532,18 @@ tr:hover .snmp-row-chevron {
     flex-shrink: 0;
 }
 
+.multi-wan-hint {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.multi-wan-hint p {
+    flex: 1;
+    margin: 0;
+}
+
 .connection-banner .btn-secondary {
     background: white;
     color: var(--warning-color) !important;

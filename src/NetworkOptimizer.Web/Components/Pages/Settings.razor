@@ -3397,19 +3397,31 @@
 
             @if (_showMultiWanHint)
             {
-                <div class="alert alert-info" style="margin-bottom: 1rem;">
-                    <div class="banner-content">
-                        <span class="banner-icon banner-icon-info">i</span>
-                        <div class="banner-text" style="flex: 1;">
-                            This site has more than one WAN, but only the primary is being monitored.
-                            To monitor another, open the site's <strong>Configuration</strong> below,
-                            use <strong>Add Agent / New Token</strong> to enroll an agent for it, then
-                            give that WAN a vantage on <strong>Monitoring - Network Performance</strong>.
-                        </div>
-                        <div class="banner-actions">
-                            <button class="btn btn-sm btn-tertiary" @onclick="DismissMultiWanHintAsync">Dismiss</button>
-                        </div>
-                    </div>
+                <div class="alert alert-info multi-wan-hint">
+                    <span class="banner-icon banner-icon-info">i</span>
+                    @* Two leads, one card. Without multi-site there is no Configuration to open and
+                       no agent to enroll, so naming those steps first would send someone looking for
+                       controls that are not on the page yet. *@
+                    <p>
+                        This site has more than one WAN, but only the primary is being monitored.
+                        @if (_multiSiteEnabled)
+                        {
+                            <text>
+                                To monitor another, open the site's <strong>Configuration</strong> below,
+                                use <strong>Add Agent / New Token</strong> to enroll an agent for it, then
+                                give that WAN a vantage on <strong>Monitoring - Network Performance</strong>.
+                            </text>
+                        }
+                        else
+                        {
+                            <text>
+                                Start by turning on <strong>Enable multi-site management</strong> above:
+                                the agent that probes another WAN enrolls through it, including on this
+                                site. The steps for adding one appear here once it is on.
+                            </text>
+                        }
+                    </p>
+                    <button class="btn btn-sm btn-tertiary" @onclick="DismissMultiWanHintAsync">Dismiss</button>
                 </div>
             }
 
@@ -3908,8 +3920,10 @@
         _multiWanHintChecked = true;
         try
         {
-            var wans = await PathView.GetWansAsync();
-            if (wans.Count <= 1) return;
+            // TEMPORARILY DISABLED so the card can be tested on a single-WAN install -
+            // restore before this ships, along with the vantage check below.
+            // var wans = await PathView.GetWansAsync();
+            // if (wans.Count <= 1) return;
 
             // Agent-bound, not merely present. A vantage with no agent behind it is the state this
             // card exists to get someone out of: they created one, nothing probes it, and the reason
