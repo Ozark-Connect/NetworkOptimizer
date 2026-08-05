@@ -15537,24 +15537,6 @@ a.affected-client:hover {
     text-align: center;
 }
 
-.card-corner-jump {
-    position: relative;
-}
-
-.card-corner-jump > .card-header {
-    padding-right: 2.9rem;
-}
-
-.card-corner-jump > .monitoring-jump-btn {
-    position: absolute;
-    top: 12px;
-    right: 16px;
-    justify-content: center;
-    width: 1.35rem;
-    height: 1.35rem;
-    padding: 0;
-}
-
 .wan-filter-badge {
     display: inline-flex;
     align-items: center;
