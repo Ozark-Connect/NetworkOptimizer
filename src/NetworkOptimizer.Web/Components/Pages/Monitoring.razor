@@ -2298,6 +2298,12 @@
 
     private string _activeTab = "setup";
 
+    // The instant the last navigation named, waiting for a map to hand it to, and the URL that
+    // armed it. Keyed on the URL rather than the value: the eye sends the same instant every time
+    // round a loop, and each of those navigations is its own request to seek there.
+    private long? _pendingAtMs;
+    private string? _armedAtUri;
+
     private bool _monitoringReady => _monitoringEnabled && _influxConfigured;
 
     /// <summary>This site's agent, when it has one. Null on a server-polled site.</summary>
@@ -2617,6 +2623,18 @@
 
         if (!string.IsNullOrEmpty(DeviceParam) && _activeTab == "devices")
             _soloDeviceMac = DeviceParam;
+
+        // A deep-linked instant is armed by the NAVIGATION that named it, and consumed by the
+        // next map mount. Mount is the wrong place to decide: the map mounts several times per
+        // visit, so seeking on each one undoes a scrub, while gating it there starved the fresh
+        // instance every second link. Parameters are only re-supplied when the URL changes, so
+        // one navigation arms exactly one seek - a repeated link with the same instant included,
+        // which is what a loop between the two icons sends.
+        if (NavigationManager.Uri != _armedAtUri)
+        {
+            _armedAtUri = NavigationManager.Uri;
+            _pendingAtMs = long.TryParse(AtParam, out var armAtMs) && armAtMs > 0 ? armAtMs : null;
+        }
 
         if (!string.IsNullOrEmpty(CategoryParam) && _activeTab == "performance")
         {
@@ -4960,14 +4978,10 @@
             try
             {
                 _mapDotNetRef ??= DotNetObjectReference.Create(this);
-                // Deep-linked timestamp (?at=): handed to EVERY mount the URL still names it for.
-                // Gating it here - once per page, then once per distinct value - was wrong both
-                // times, and the second one alternated: the map mounts several times per visit and
-                // the eye sends the same instant each round trip, so every other mount came up
-                // with nothing and played live. There is nothing to guard against. mount() builds
-                // a new map each time and _applyInitialSeek clears itself after one use, so an
-                // instance can never re-seek on its own - the guard only ever starved a fresh one.
-                long initialAtMs = long.TryParse(AtParam, out var atMs) && atMs > 0 ? atMs : 0;
+                // Whatever the last navigation armed, consumed here so a remount later in the
+                // same visit leaves a scrubbed position alone.
+                long initialAtMs = _pendingAtMs ?? 0;
+                _pendingAtMs = null;
                 // Per-mount values (storagePrefix, initialAt) MUST be arguments, never
                 // interpolated into the function body: JS interop resolves the
                 // identifier to a function reference once and keeps invoking that
