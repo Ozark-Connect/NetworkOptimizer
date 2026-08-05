@@ -20,6 +20,12 @@ namespace NetworkOptimizer.Web.Services.Monitoring;
 /// looks for ≥30% loss across the trailing window. No flapping suppression
 /// beyond the consecutive-failure threshold; AlertCooldownTracker upstream
 /// already handles repeat-event suppression.
+///
+/// Per-target events are published for Fabric and Custom targets only. The WAN-facing
+/// categories (access ISP, transit, internet, legacy WAN) fail together when the connection
+/// does, so their per-target state feeds <see cref="WanOutageEvaluator"/> - which publishes
+/// one per-WAN outage alert instead of one alert per target - while the state machine here
+/// keeps running unchanged underneath for all types.
 /// </summary>
 public class MonitoringAlertEvaluator
 {
@@ -31,6 +37,7 @@ public class MonitoringAlertEvaluator
     private readonly IAlertEventBus _eventBus;
     private readonly ILogger<MonitoringAlertEvaluator> _logger;
     private readonly DeviceTransitionTracker _transitions;
+    private readonly WanOutageEvaluator _wanOutages;
     private readonly ConcurrentDictionary<string, TargetAlertState> _states = new();
     private readonly string _siteSuffix;
     private readonly string _siteSlug;
@@ -42,12 +49,13 @@ public class MonitoringAlertEvaluator
     /// alert titles; the default site reads exactly as before.
     /// </param>
     public MonitoringAlertEvaluator(IAlertEventBus eventBus, ILogger<MonitoringAlertEvaluator> logger,
-        DeviceTransitionTracker transitions,
+        DeviceTransitionTracker transitions, WanOutageEvaluator wanOutages,
         string siteSlug = SiteManagementService.DefaultSiteSlug)
     {
         _eventBus = eventBus;
         _logger = logger;
         _transitions = transitions;
+        _wanOutages = wanOutages;
         _siteSlug = siteSlug ?? SiteManagementService.DefaultSiteSlug;
         _siteSuffix = string.IsNullOrEmpty(siteSlug) || siteSlug == SiteManagementService.DefaultSiteSlug
             ? "" : $" (site {siteSlug})";
@@ -56,7 +64,20 @@ public class MonitoringAlertEvaluator
     public async ValueTask EvaluateAsync(MonitoringTarget target, PingProbeResult result, CancellationToken ct = default)
     {
         var state = _states.GetOrAdd(target.TargetId, _ => new TargetAlertState());
+        var publishPerTarget = !WanOutageEvaluator.CoversTargetType(target.TargetType);
 
+        await EvaluatePerTargetAsync(target, result, state, publishPerTarget, ct);
+
+        if (!publishPerTarget)
+        {
+            _wanOutages.RecordTargetState(target, state.IsOffline, state.IsLossy);
+            await _wanOutages.EvaluateAsync(ct);
+        }
+    }
+
+    private async ValueTask EvaluatePerTargetAsync(MonitoringTarget target, PingProbeResult result,
+        TargetAlertState state, bool publishPerTarget, CancellationToken ct)
+    {
         if (result.Success)
         {
             state.ConsecutiveFailures = 0;
@@ -68,7 +89,8 @@ public class MonitoringAlertEvaluator
             if (state.IsOffline && state.ConsecutiveSuccesses >= SuccessesToDeclareRecovered)
             {
                 state.IsOffline = false;
-                await _eventBus.PublishAsync(BuildRecoveredEvent(target, result), ct);
+                if (publishPerTarget)
+                    await _eventBus.PublishAsync(BuildRecoveredEvent(target, result), ct);
             }
 
             // Sustained-loss detection only matters while the target is nominally up.
@@ -78,7 +100,8 @@ public class MonitoringAlertEvaluator
                 if (!state.IsLossy && avgLoss >= SustainedLossThresholdPercent)
                 {
                     state.IsLossy = true;
-                    await _eventBus.PublishAsync(BuildSustainedLossEvent(target, avgLoss), ct);
+                    if (publishPerTarget)
+                        await _eventBus.PublishAsync(BuildSustainedLossEvent(target, avgLoss), ct);
                 }
                 else if (state.IsLossy && avgLoss < SustainedLossThresholdPercent / 2)
                 {
@@ -116,7 +139,8 @@ public class MonitoringAlertEvaluator
                 state.IsLossy = false; // offline supersedes lossy
                 state.LossWindow.Clear();
                 state.TransitionSuppressionLogged = false;
-                await _eventBus.PublishAsync(BuildOfflineEvent(target), ct);
+                if (publishPerTarget)
+                    await _eventBus.PublishAsync(BuildOfflineEvent(target), ct);
             }
         }
     }
