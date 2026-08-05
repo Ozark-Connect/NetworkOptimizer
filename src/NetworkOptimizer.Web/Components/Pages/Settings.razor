@@ -3918,13 +3918,13 @@
 
     /// <summary>
     /// Names the site in the card so a reader with several rows in the table knows which one to
-    /// open. A whole phrase rather than a name dropped into a sentence: with no name to use, "the
-    /// &lt;blank&gt; site's" would read as a missing word, while "this site's" is simply the weaker
-    /// of two correct sentences.
+    /// open. A whole phrase rather than a name dropped into a template, because the name is already
+    /// a noun: "the Main Site site's Configuration" is what a template produces, and people do call
+    /// their sites things like that. Possessive on the name alone, or the plain fallback.
     /// </summary>
     private string HintSitePhrase => string.IsNullOrWhiteSpace(_currentSiteName)
         ? "this site's"
-        : $"the {_currentSiteName} site's";
+        : $"{_currentSiteName}'s";
 
     private async Task EnsureMultiWanHintAsync()
     {
