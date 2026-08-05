@@ -35,6 +35,14 @@ public interface IAlertRepository
     Task<List<AlertHistoryEntry>> GetAlertsByIncidentIdAsync(int incidentId, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Sets the status of many alerts in ONE round trip, stamping the timestamp that goes with it.
+    /// The bulk buttons used to call <see cref="UpdateAlertAsync"/> per alert, and each of those is
+    /// a SaveChanges - a SQLite commit - against a change tracker that grew by an entity every
+    /// iteration. Returns the number of rows changed.
+    /// </summary>
+    Task<int> SetAlertStatusAsync(IReadOnlyCollection<int> alertIds, AlertStatus status, DateTime timestamp, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Marks every active alert of the given event types on the given device as resolved and
     /// returns the entries that were closed. Used by the alert pipeline to close open WAN outage
     /// alerts when their recovery - or a superseding total outage - event arrives.

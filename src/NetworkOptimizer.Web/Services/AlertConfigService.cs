@@ -65,6 +65,14 @@ public interface IAlertConfigService
     [AuditAction(AuditActions.AlertRuleChanged, TargetType = "alert")]
     Task UpdateAlertAsync(AlertHistoryEntry alert);
 
+    /// <summary>
+    /// Sets many alerts to one status in a single round trip. What the bulk buttons use: updating
+    /// them one at a time is a database commit each, and slows to a crawl on a few hundred alerts.
+    /// </summary>
+    [RequireRole(Roles.Operator)]
+    [AuditAction(AuditActions.AlertRuleChanged, TargetType = "alert")]
+    Task<int> SetAlertStatusAsync(IReadOnlyCollection<int> alertIds, AlertStatus status, DateTime timestamp);
+
     /// <summary>Saves an incident's state, which the alert list edits alongside its alerts.</summary>
     [RequireRole(Roles.Operator)]
     [AuditAction(AuditActions.AlertRuleChanged, TargetType = "incident")]
@@ -118,6 +126,17 @@ public sealed class AlertConfigService : IAlertConfigService
         await _alerts.UpdateAlertAsync(alert);
         _auditContext.SetTarget(alert.Id.ToString(), alert.EventType);
         _auditContext.SetDetails(new { alert.AcknowledgedAt, alert.ResolvedAt });
+    }
+
+    /// <inheritdoc />
+    public async Task<int> SetAlertStatusAsync(IReadOnlyCollection<int> alertIds, AlertStatus status, DateTime timestamp)
+    {
+        var changed = await _alerts.SetAlertStatusAsync(alertIds, status, timestamp);
+        // One audit entry for the action, not one per alert: the bulk buttons are a single
+        // deliberate act and the count is what makes it readable afterwards.
+        _auditContext.SetTarget($"{changed} alert(s)", status.ToString());
+        _auditContext.SetDetails(new { Status = status.ToString(), Count = changed, Timestamp = timestamp });
+        return changed;
     }
 
     /// <inheritdoc />

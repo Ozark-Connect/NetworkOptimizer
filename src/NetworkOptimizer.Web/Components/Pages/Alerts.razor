@@ -2467,13 +2467,13 @@
         {
             var active = _unresolvedAlerts.Where(a => a.Status == AlertStatus.Active).ToList();
             var now = DateTime.UtcNow;
+            await AlertConfig.SetAlertStatusAsync(active.Select(a => a.Id).ToList(), AlertStatus.Acknowledged, now);
             foreach (var alert in active)
             {
                 alert.Status = AlertStatus.Acknowledged;
                 alert.AcknowledgedAt = now;
-                await AlertConfig.UpdateAlertAsync(alert);
-                await RecalculateIncidentStatusAsync(alert);
             }
+            await RecalculateIncidentsOnceAsync(active);
             await LoadActiveAlerts();
         }
         catch (Exception ex)
@@ -2493,11 +2493,11 @@
             // read this way.
             var active = _unresolvedAlerts.Where(a => a.Status != AlertStatus.Resolved).ToList();
             var now = DateTime.UtcNow;
+            await AlertConfig.SetAlertStatusAsync(active.Select(a => a.Id).ToList(), AlertStatus.Resolved, now);
             foreach (var alert in active)
             {
                 alert.Status = AlertStatus.Resolved;
                 alert.ResolvedAt = now;
-                await AlertConfig.UpdateAlertAsync(alert);
             }
             await RecalculateIncidentsOnceAsync(active);
             await LoadActiveAlerts();
@@ -2518,11 +2518,11 @@
             // before the button said which alerts it meant.
             var acknowledged = _unresolvedAlerts.Where(a => a.Status == AlertStatus.Acknowledged).ToList();
             var now = DateTime.UtcNow;
+            await AlertConfig.SetAlertStatusAsync(acknowledged.Select(a => a.Id).ToList(), AlertStatus.Resolved, now);
             foreach (var alert in acknowledged)
             {
                 alert.Status = AlertStatus.Resolved;
                 alert.ResolvedAt = now;
-                await AlertConfig.UpdateAlertAsync(alert);
             }
             await RecalculateIncidentsOnceAsync(acknowledged);
             await LoadActiveAlerts();
@@ -2614,16 +2614,19 @@
         try
         {
             var now = DateTime.UtcNow;
-            foreach (var incident in _incidents.Where(i => i.Status == AlertStatus.Active).ToList())
+            // Every incident's alerts are gathered first and written in one go: a save per alert
+            // is a database commit per alert, which is what made these buttons crawl on a site
+            // with a few hundred of them.
+            var incidents = _incidents.Where(i => i.Status == AlertStatus.Active).ToList();
+            var alertIds = new List<int>();
+            foreach (var incident in incidents)
             {
                 var alerts = await AlertRepository.GetAlertsByIncidentIdAsync(incident.Id);
-                foreach (var alert in alerts.Where(a => a.Status == AlertStatus.Active))
-                {
-                    alert.Status = AlertStatus.Acknowledged;
-                    alert.AcknowledgedAt = now;
-                    await AlertConfig.UpdateAlertAsync(alert);
-                }
-
+                alertIds.AddRange(alerts.Where(a => a.Status == AlertStatus.Active).Select(a => a.Id));
+            }
+            await AlertConfig.SetAlertStatusAsync(alertIds, AlertStatus.Acknowledged, now);
+            foreach (var incident in incidents)
+            {
                 incident.Status = AlertStatus.Acknowledged;
                 await AlertConfig.UpdateIncidentAsync(incident);
             }
@@ -2641,16 +2644,17 @@
         try
         {
             var now = DateTime.UtcNow;
-            foreach (var incident in _incidents.Where(i => i.Status != AlertStatus.Resolved).ToList())
+            // Same as Acknowledge All Incidents: gather every incident's alerts, write them once.
+            var incidents = _incidents.Where(i => i.Status != AlertStatus.Resolved).ToList();
+            var alertIds = new List<int>();
+            foreach (var incident in incidents)
             {
                 var alerts = await AlertRepository.GetAlertsByIncidentIdAsync(incident.Id);
-                foreach (var alert in alerts.Where(a => a.Status != AlertStatus.Resolved))
-                {
-                    alert.Status = AlertStatus.Resolved;
-                    alert.ResolvedAt = now;
-                    await AlertConfig.UpdateAlertAsync(alert);
-                }
-
+                alertIds.AddRange(alerts.Where(a => a.Status != AlertStatus.Resolved).Select(a => a.Id));
+            }
+            await AlertConfig.SetAlertStatusAsync(alertIds, AlertStatus.Resolved, now);
+            foreach (var incident in incidents)
+            {
                 incident.Status = AlertStatus.Resolved;
                 incident.ResolvedAt = now;
                 await AlertConfig.UpdateIncidentAsync(incident);

@@ -399,6 +399,42 @@ public class AlertRepository : IAlertRepository
         }
     }
 
+    public async Task<int> SetAlertStatusAsync(
+        IReadOnlyCollection<int> alertIds,
+        AlertStatus status,
+        DateTime timestamp,
+        CancellationToken cancellationToken = default)
+    {
+        if (alertIds.Count == 0) return 0;
+
+        try
+        {
+            var ids = alertIds.ToList();
+            var rows = await _context.AlertHistory
+                .Where(a => ids.Contains(a.Id))
+                .ToListAsync(cancellationToken);
+
+            foreach (var row in rows)
+            {
+                row.Status = status;
+                if (status == AlertStatus.Acknowledged) row.AcknowledgedAt = timestamp;
+                else if (status == AlertStatus.Resolved) row.ResolvedAt = timestamp;
+            }
+
+            // One commit for the lot. Per-alert saves meant a SQLite transaction each, and the
+            // tracked graph grew every iteration, so a few hundred alerts turned a button press
+            // into hundreds of fsyncs and a quadratic walk of the change tracker.
+            await _context.SaveChangesAsync(cancellationToken);
+            _logger.LogInformation("Set {Count} alert(s) to {Status}", rows.Count, status);
+            return rows.Count;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to set {Count} alert(s) to {Status}", alertIds.Count, status);
+            throw;
+        }
+    }
+
     public Task<List<AlertHistoryEntry>> ResolveActiveAlertsAnyDeviceAsync(
         IReadOnlyCollection<string> eventTypes,
         CancellationToken cancellationToken = default) =>
