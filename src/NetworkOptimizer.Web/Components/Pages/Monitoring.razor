@@ -1888,6 +1888,7 @@
     // deep-links land on the same WAN.
     private sealed record WanOption(string Key, string Label, bool IsPrimary);
     private List<WanOption> _wanOptions = new();
+    private bool _wanOptionsLoaded;
     private HashSet<string> _selectedWanKeys = new(StringComparer.OrdinalIgnoreCase);
     // Seed only. WAN group names are arbitrary in UniFi Network and any of them can hold the
     // primary role, so this is a guess that stands until LoadWanOptionsAsync asks which WAN
@@ -1971,6 +1972,27 @@
         _discoveryWanKey = FirstSelectedWanKey();
         StateHasChanged();
         await RefreshLossInvestigationForWanAsync();
+    }
+
+    /// <summary>
+    /// Runs a deep-linked investigation once everything it reads is in place: the performance tab,
+    /// its mounted chart, and the WAN scope the link asked for. Called from OnAfterRenderAsync and
+    /// again right after the link's WAN is applied, so it never depends on which render pass gets
+    /// there first. Idempotent - the pending kind is taken before the first await.
+    /// </summary>
+    private async Task TryRunPendingInvestigationAsync()
+    {
+        if (_pendingInvestigateParam == null || _activeTab != "performance"
+            || !_monitoringReady || _investigatingLoss || !LinkWanScopeSettled) return;
+
+        var kind = _pendingInvestigateParam;
+        _pendingInvestigateParam = null;
+        // Open the (possibly collapsed) card so the deep-linked result and nav controls are
+        // visible. Live state only - the saved preference is untouched, and leaving the tab
+        // reverts to it, so a linkable investigation never counts as a user-set expand.
+        _investigateCollapsed = false;
+        _investigateDeepLinkOpened = true;
+        await NavigateToLossEvent(null, null, loadedOnly: kind == "loaded-loss");
     }
 
     /// <summary>
@@ -2141,6 +2163,10 @@
         // only which pill starts lit, and the next load with a reachable console corrects it.
         _primaryWanKey = options.FirstOrDefault(o => o.IsPrimary)?.Key ?? options.FirstOrDefault()?.Key ?? NetworkOptimizer.UniFi.GatewayWanHelper.DefaultWanKey;
         _wanOptions = options;
+        // Set even when the console could not be reached and the list came back empty: it records
+        // that the question has been ASKED, which is what the link-scope gate waits on. Leaving it
+        // false on a failure would hold a deep-linked investigation forever.
+        _wanOptionsLoaded = true;
         if (_selectedWanKeys.Count == 0)
             _selectedWanKeys.Add(_primaryWanKey);
         // Drop selections whose WAN no longer exists; fall back to primary.
@@ -2238,14 +2264,17 @@
     /// </summary>
     private async Task ApplyLinkWanSelectionAsync()
     {
+        if (!_wanOptionsLoaded) return;
         if (!_multiWanUiVisible || _wanOptions.Count <= 1) return;
         if (string.IsNullOrWhiteSpace(WanParam) || !LinkNarrowsWanFilter) return;
         if (_appliedLinkWanKey == LinkWanKey) return;
 
         var keys = ResolveLinkWanKeys(WanParam);
-        if (keys.Count == 0) return;
-
+        // Stamped before the resolve is judged: the link has been CONSIDERED either way, and the
+        // options are loaded by here, so a WAN this site does not have will not resolve on a later
+        // pass either. Leaving it unstamped would hold the deep-link gate open forever.
         _appliedLinkWanKey = LinkWanKey;
+        if (keys.Count == 0) return;
         // Narrowing for as long as the link does. Never persisted, and released on the way back
         // in without one, so a saved All is what the tab has again next time.
         _linkNarrowedWanSelection = true;
@@ -2442,6 +2471,22 @@
     /// WAN's trouble you came to look at. A discovery link carries a WAN too and is NOT - it is
     /// asking to run discovery on that WAN, not to re-scope the analysis.
     /// </summary>
+    /// <summary>
+    /// Whether the WAN scope a link asked for is in place, so an investigation fired from that link
+    /// searches the WAN the link named rather than whatever the tab loaded with. The investigation
+    /// runs from OnAfterRenderAsync ahead of the chart-mount block that applies the link's WAN, so
+    /// without this it raced that block and landed on the wrong WAN about half the time - whichever
+    /// render pass happened to flip _monitoringReady decided it.
+    /// <para>
+    /// Never blocks when there is nothing to wait for: a link with no WAN, a single-WAN site, or a
+    /// WAN already applied. Delaying a render or two costs nothing next to searching the wrong WAN.
+    /// </para>
+    /// </summary>
+    private bool LinkWanScopeSettled =>
+        !LinkNarrowsWanFilter
+        || _appliedLinkWanKey == LinkWanKey
+        || (_wanOptionsLoaded && (!_multiWanUiVisible || _wanOptions.Count <= 1));
+
     private bool LinkNarrowsWanFilter =>
         !string.IsNullOrWhiteSpace(WanParam)
         && (!string.IsNullOrEmpty(CategoryParam)
@@ -5046,18 +5091,7 @@
             StateHasChanged();
         }
 
-        // Deep-linked investigation fires once the performance tab and its chart exist
-        if (_pendingInvestigateParam != null && _activeTab == "performance" && _monitoringReady && !_investigatingLoss)
-        {
-            var kind = _pendingInvestigateParam;
-            _pendingInvestigateParam = null;
-            // Open the (possibly collapsed) card so the deep-linked result and nav controls are
-            // visible. Live state only - the saved preference is untouched, and leaving the tab
-            // reverts to it, so a linkable investigation never counts as a user-set expand.
-            _investigateCollapsed = false;
-            _investigateDeepLinkOpened = true;
-            await NavigateToLossEvent(null, null, loadedOnly: kind == "loaded-loss");
-        }
+        await TryRunPendingInvestigationAsync();
 
         // Mount/unmount charts based on active tab. Only mount when the container
         // div exists in the DOM (i.e., the tab is active). Unmount when switching away.
@@ -5257,6 +5291,11 @@
                 }
                 await JS.InvokeVoidAsync("eval",
                     $"(async () => {{ const m = await import('{chartsUrl}'); window.__latencyCharts = m; await m.mount('latency-charts-container', {WanScopeJson()}, '{DefaultChartCategory()}'); {postMount} }})();");
+                // The link's WAN is applied above, so a deep-linked investigation held back at the
+                // top of this method can run now. Done here rather than left to the next render:
+                // the apply does not always raise one, and waiting for an unrelated render is the
+                // race all over again.
+                await TryRunPendingInvestigationAsync();
             }
             catch (Exception ex) { _latencyChartsMounted = false; Logger.LogDebug(ex, "Latency charts mount failed; will retry on next render"); }
         }
