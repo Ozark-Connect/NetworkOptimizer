@@ -187,12 +187,12 @@ else if (_report == null)
                 <span class="banner-icon banner-icon-info">i</span>
                 <div class="banner-text" style="flex: 1;">
                     Collecting monitoring data. ISP Health needs a few hours of latency history before it can grade your connection; check back soon.
-                    @if (!_wanHasSpeedTestSchedule)
+                    @if (ShowScheduleNudge)
                     {
                         <text> No speed tests are scheduled for this WAN yet - schedule recurring tests and run one now, so throughput history builds alongside.</text>
                     }
                 </div>
-                @if (!_wanHasSpeedTestSchedule)
+                @if (ShowScheduleNudge)
                 {
                     <div class="banner-actions">
                         <a href="/alerts" class="btn btn-sm btn-primary">Set up schedule</a>
@@ -1073,6 +1073,16 @@ else
     /// on an unknown answer.
     /// </summary>
     private bool _wanHasSpeedTestSchedule = true;
+
+    /// <summary>
+    /// Whether this user could act on the schedule nudge. Creating a scheduled speed test is a
+    /// site administrator's to do, so anyone else is left with the plain collecting-data line
+    /// rather than being sent to a page that will not let them do it.
+    /// </summary>
+    private bool _canConfigureSchedules;
+
+    /// <summary>Whether to offer the schedule nudge: this WAN has none, and the user could add one.</summary>
+    private bool ShowScheduleNudge => !_wanHasSpeedTestSchedule && _canConfigureSchedules;
     private string SharedWanScopeKey => SiteContext.ScopeStorageKey("monitoringWanScope");
 
     /// <summary>
@@ -1367,6 +1377,10 @@ else
     {
         _canOperate = AuthState is null
             || (await Authz.AuthorizeAsync((await AuthState).User, SiteContext.Slug, Policies.SiteOperator)).Succeeded;
+        // Scheduled speed tests are a site administrator's to create (Alerts & Schedule gates the
+        // whole section on it), so only an administrator is pointed at them.
+        _canConfigureSchedules = AuthState is null
+            || (await Authz.AuthorizeAsync((await AuthState).User, SiteContext.Slug, Policies.SiteAdmin)).Succeeded;
 
         // Pull-to-refresh on this tab recomputes the scorecard (the Refresh button's action)
         // instead of the layout's full-page-reload fallback.
