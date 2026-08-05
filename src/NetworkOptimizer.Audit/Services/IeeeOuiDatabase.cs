@@ -89,9 +89,30 @@ public class IeeeOuiDatabase : IIeeeOuiDatabase
         if (string.IsNullOrEmpty(macOrOui))
             return null;
 
+        // Before the OUI fold: these are matched on the WHOLE address, not a prefix.
+        if (KnownFixedMacs.TryGetValue(NormalizeMac(macOrOui), out var fixedVendor))
+            return fixedVendor;
+
         var oui = NormalizeToOui(macOrOui);
         return _ouiToVendor.TryGetValue(oui, out var vendor) ? vendor : null;
     }
+
+    /// <summary>
+    /// Vendors for specific locally-administered MACs. Such an address is by definition absent
+    /// from the IEEE registry, so no amount of registry data will ever name it - but kit that
+    /// ships with a FIXED one is still identifiable by the whole address. Every Starlink dish of
+    /// this generation presents 26:12:AC:1A:80:01 on its LAN side, so a gateway neighbor lookup
+    /// that came back blank was a name we already had and were not using. Keyed on the full MAC
+    /// deliberately: the prefix is locally administered and says nothing on its own.
+    /// </summary>
+    private static readonly Dictionary<string, string> KnownFixedMacs =
+        new(StringComparer.OrdinalIgnoreCase) { ["2612AC1A8001"] = "Starlink" };
+
+    private static string NormalizeMac(string input) => input
+        .Replace(":", "")
+        .Replace("-", "")
+        .Replace(".", "")
+        .ToUpperInvariant();
 
     /// <summary>
     /// Check if a vendor exists in the database

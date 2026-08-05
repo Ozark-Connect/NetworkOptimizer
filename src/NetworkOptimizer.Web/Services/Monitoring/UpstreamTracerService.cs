@@ -1353,15 +1353,34 @@ public class UpstreamTracerService
             Enabled = true
         }).ToList();
 
+        // A Starlink hop whose PTR is the "undefined" placeholder is a SATELLITE, not ground
+        // infrastructure - overhead for a few minutes and then gone, so the row would flap between
+        // reachable and dark for as long as it existed. Dropped from the candidate set outright
+        // rather than proposed and left to fail: nothing on the ground answers that way, and the
+        // ground hops on the same ASN keep a real PTR to be found by.
+        State.AccessHops.RemoveAll(h =>
+            IsPlaceholderPtrHostname(h.PtrHostname)
+            && IsStarlinkAsn(h.AsnNumber ?? accessAsn, h.AsnName ?? orgName));
+
         // Generate "<Org> <PTR-derived>" labels, same format as transit targets. With no usable
-        // PTR the hop's own number identifies it - a running counter drifted from the hop numbers
-        // beside it in the table as soon as any hop in between did have a name.
-        foreach (var hop in State.AccessHops)
+        // PTR the hop's own number names it, bare. Where several responders answer at the SAME hop
+        // - ECMP, which is how satellite first miles usually look - the number alone names them
+        // all identically, so those carry a -1, -2 suffix and nothing else does.
+        foreach (var hopGroup in State.AccessHops.GroupBy(h => h.HopNumber))
         {
-            var ptrLabel = FormatTransitHopLabel(hop.PtrHostname, hop.Address);
-            hop.Label = ptrLabel != null
-                ? $"{orgName} {ptrLabel}"
-                : $"{orgName} hop {hop.HopNumber}";
+            var labeled = hopGroup
+                .Select(h => (Hop: h, Ptr: FormatTransitHopLabel(h.PtrHostname, h.Address)))
+                .ToList();
+            var unnamedCount = labeled.Count(x => x.Ptr == null);
+            var suffix = 0;
+            foreach (var (hop, ptr) in labeled)
+            {
+                hop.Label = ptr != null
+                    ? $"{orgName} {ptr}"
+                    : unnamedCount > 1
+                        ? $"{orgName} {hop.HopNumber}-{++suffix}"
+                        : $"{orgName} {hop.HopNumber}";
+            }
         }
 
         // The ISP itself can settle the technology where the L2 neighbor could not: a Starlink
@@ -2391,26 +2410,46 @@ public class UpstreamTracerService
     internal static void ApplyAutoEnableBudget(UpstreamTracerState state, int? budget)
     {
         if (budget is not int max) return;
-        var remaining = max;
-        foreach (var hop in state.AccessHops.OrderBy(h => h.HopNumber))
-            hop.Enabled = remaining-- > 0;
 
-        // Transit ASNs and path endpoints (the anycast DNS and CDN set) alternate rather than
-        // running in discovery order, so a small budget keeps some of each. Taken in order, one
-        // category fills the allowance and the other is cut entirely - and the two answer
-        // different questions: a transit hop says which upstream is at fault, a path endpoint
-        // says whether anything the user actually reaches is affected. A budget that keeps only
-        // one of those measures half the path.
-        var upstream = state.TransitAsns.Where(t => t.Method != DiscoveryMethod.PathProxy).ToList();
-        var endpoints = state.TransitAsns.Where(t => t.Method == DiscoveryMethod.PathProxy).ToList();
-        var interleaved = new List<TransitAsnCandidate>(state.TransitAsns.Count);
-        for (var i = 0; i < Math.Max(upstream.Count, endpoints.Count); i++)
+        // Three buckets, taken one at a time in rotation. Access hops used to be taken first and
+        // in full, which on a first mile that answers with a dozen ECMP addresses spent nearly the
+        // whole allowance before the other two were reached - one internet target survived, so the
+        // site could see its access cloud in detail and could not tell whether anything it
+        // actually reaches was up. Each bucket answers a different question: an access hop says
+        // whether the ISP's own first mile is at fault, a transit hop says which upstream is, and
+        // a path endpoint says whether any of it is reaching the things people use. A budget that
+        // buys depth in one of them measures a fraction of the path.
+        var buckets = new List<Action<bool>>[]
         {
-            if (i < upstream.Count) interleaved.Add(upstream[i]);
-            if (i < endpoints.Count) interleaved.Add(endpoints[i]);
+            state.AccessHops.OrderBy(h => h.HopNumber)
+                .Select(h => (Action<bool>)(on => h.Enabled = on)).ToList(),
+            state.TransitAsns.Where(t => t.Method != DiscoveryMethod.PathProxy)
+                .Select(t => (Action<bool>)(on => t.Enabled = on)).ToList(),
+            state.TransitAsns.Where(t => t.Method == DiscoveryMethod.PathProxy)
+                .Select(t => (Action<bool>)(on => t.Enabled = on)).ToList(),
+        };
+
+        var cursors = new int[buckets.Length];
+        var remaining = max;
+        bool tookAny;
+        do
+        {
+            tookAny = false;
+            for (var b = 0; b < buckets.Length && remaining > 0; b++)
+            {
+                if (cursors[b] >= buckets[b].Count) continue;
+                buckets[b][cursors[b]++](true);
+                remaining--;
+                tookAny = true;
+            }
         }
-        foreach (var transit in interleaved)
-            transit.Enabled = remaining-- > 0;
+        while (tookAny && remaining > 0);
+
+        // Whatever the rotation did not reach is left off - within a bucket that is its own order,
+        // so the nearest access hops and the first-listed endpoints are the ones kept.
+        for (var b = 0; b < buckets.Length; b++)
+            for (var i = cursors[b]; i < buckets[b].Count; i++)
+                buckets[b][i](false);
     }
 
     public async Task CommitResultsAsync(CancellationToken ct = default)
@@ -3221,14 +3260,31 @@ public class UpstreamTracerService
     /// ASN, or a registry rename, still lands.
     /// </summary>
     internal static AccessTechnology? TechnologyFromAccessAsn(int? asn, string? orgName)
+        => IsStarlinkAsn(asn, orgName) ? AccessTechnology.Satellite : null;
+
+    /// <summary>
+    /// Whether an ASN is SpaceX's. Matched on the number AND the org name so a secondary ASN, or a
+    /// registry rename, still lands.
+    /// </summary>
+    internal static bool IsStarlinkAsn(int? asn, string? orgName)
     {
-        if (asn == 14593) return AccessTechnology.Satellite;
-        if (string.IsNullOrWhiteSpace(orgName)) return null;
+        if (asn == 14593) return true;
+        if (string.IsNullOrWhiteSpace(orgName)) return false;
         return orgName.Contains("starlink", StringComparison.OrdinalIgnoreCase)
             || orgName.Contains("space exploration", StringComparison.OrdinalIgnoreCase)
-            || orgName.Contains("spacex", StringComparison.OrdinalIgnoreCase)
-                ? AccessTechnology.Satellite
-                : null;
+            || orgName.Contains("spacex", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Whether a PTR answers with a placeholder rather than a name - "undefined.hostname.localhost"
+    /// and the like. Distinct from having no PTR at all, which is a different and less telling
+    /// thing: a host that answers with a placeholder is saying something about what it is.
+    /// </summary>
+    internal static bool IsPlaceholderPtrHostname(string? hostname)
+    {
+        if (string.IsNullOrEmpty(hostname)) return false;
+        var first = hostname.Split('.')[0];
+        return PlaceholderPtrLabels.Contains(first);
     }
 
     /// <summary>
