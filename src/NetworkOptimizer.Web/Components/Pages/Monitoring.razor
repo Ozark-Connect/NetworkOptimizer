@@ -637,7 +637,7 @@
 
         <!-- Upstream tracer wizard -->
         <div id="upstream-discovery" style="margin-top: 1.5rem;">
-            <UpstreamTracerPanel ForceExpand="_forceExpandUpstream" SelectWanKey="@_discoveryWanKey"
+            <UpstreamTracerPanel @ref="_upstreamPanel" ForceExpand="_forceExpandUpstream" SelectWanKey="@_discoveryWanKey"
                                  OnWanSelected="OnDiscoveryWanSelectedAsync" OnSaved="StateHasChanged" />
         </div>
 
@@ -2347,6 +2347,7 @@
     // The WAN a discovery link named, so the panel opens on that WAN's discovery rather than the
     // primary's - a link from a WAN-scoped report already knows which one it meant.
     private string? _discoveryWanKey;
+    private UpstreamTracerPanel? _upstreamPanel;
     private bool _forceExpandWanContexts;
     private bool _scrollToWanContextsPending;
 
@@ -3483,6 +3484,10 @@
         var before = UpstreamTargetSignature();
         var beforeIspHealth = IspHealthInputSignature();
         await LoadTargetsAsync();
+        // A vantage added just now is a WAN discovery can newly be run for, and the panel reads
+        // its choices once at init - without this the new WAN has no pill and stays unreachable
+        // until a reload.
+        if (_upstreamPanel != null) await _upstreamPanel.RefreshWanChoicesAsync();
         if (UpstreamTargetSignature() != before)
             LanFlowMapCache.Invalidate();
 

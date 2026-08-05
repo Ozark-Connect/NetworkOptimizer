@@ -194,7 +194,14 @@
                     {
                         <div class="form-group">
                             <label class="form-label">Interface</label>
-                            <input type="text" class="form-control" @bind="_newInterfaceName" placeholder="eth8" />
+                            @if (!string.IsNullOrEmpty(KnownWanInterface))
+                            {
+                                <input type="text" class="form-control" value="@_newInterfaceName" readonly />
+                            }
+                            else
+                            {
+                                <input type="text" class="form-control" @bind="_newInterfaceName" placeholder="eth8" />
+                            }
                         </div>
                     }
                     <div class="form-group wc-form-span">
@@ -382,6 +389,7 @@
     private string _newAgentId = "";
     private string _newWanInterface = "";
     private string _newInterfaceName = "";
+    private bool _agentTouched;
     private string? _addError;
     private List<SiteAgent> _agents = new();
     private IReadOnlyList<WanSummary> _wans = Array.Empty<WanSummary>();
@@ -553,6 +561,7 @@
     private void ResetForm()
     {
         _editingId = null;
+        _agentTouched = false;
         _newName = "";
         _newDescription = "";
         _newSourceIp = "";
@@ -658,6 +667,7 @@
     /// </summary>
     private void OnAgentSelected(ChangeEventArgs e)
     {
+        _agentTouched = true;
         _newAgentId = e.Value?.ToString() ?? "";
         // Clearing the address is right only where the agent cannot bind one - there it is the
         // server's mechanism and the agent has just replaced it. An agent that binds addresses
@@ -673,6 +683,15 @@
     private void OnWanSelected(ChangeEventArgs e)
     {
         _newWanInterface = e.Value?.ToString() ?? "";
+        // Probing a secondary WAN from the server is the exception, not the default: it needs a
+        // policy route built by hand, while an agent binds for itself. So picking a WAN offers the
+        // first agent rather than None. Only on a new vantage, and only until the agent field is
+        // touched - after that the choice is the user's, including a deliberate None.
+        if (!_agentTouched && _editingId == null && string.IsNullOrEmpty(_newAgentId) && _agents.Count > 0)
+        {
+            _newAgentId = _agents[0].Id.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            if (!SelectedAgentCanBindSource) _newSourceIp = "";
+        }
         FillInterfaceFromWan();
     }
 
@@ -685,11 +704,24 @@
     private void FillInterfaceFromWan()
     {
         if (!SelectedAgentCanBindInterface) return;
-        var wan = _wans.FirstOrDefault(w =>
-            string.Equals(w.WanInterface, _newWanInterface, StringComparison.OrdinalIgnoreCase));
-        var dataPath = wan?.UplinkIfName ?? wan?.PhysicalIfName;
-        if (!string.IsNullOrEmpty(dataPath))
-            _newInterfaceName = dataPath!;
+        if (KnownWanInterface is { Length: > 0 } dataPath)
+            _newInterfaceName = dataPath;
+    }
+
+    /// <summary>
+    /// The selected WAN's data-path interface as the console reports it, or null when the console
+    /// has nothing to say about that WAN - a WAN that is down, or one the site has only through a
+    /// vantage. Not a guess when it has a value, which is why the field showing it is read-only:
+    /// an agent on the gateway leaves by that interface or it does not leave by the WAN at all.
+    /// </summary>
+    private string? KnownWanInterface
+    {
+        get
+        {
+            var wan = _wans.FirstOrDefault(w =>
+                string.Equals(w.WanInterface, _newWanInterface, StringComparison.OrdinalIgnoreCase));
+            return wan?.UplinkIfName ?? wan?.PhysicalIfName;
+        }
     }
 
     /// <summary>

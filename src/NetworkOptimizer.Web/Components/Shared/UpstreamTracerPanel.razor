@@ -778,6 +778,25 @@
     }
 
     /// <summary>
+    /// Rebuilds the WAN choice bar. The choices are read once at init, so a WAN that gained a
+    /// vantage while the page was open had no pill to select and discovery could not be started
+    /// for it at all - on a site whose first vantage was just added, the bar did not exist yet.
+    /// </summary>
+    public async Task RefreshWanChoicesAsync()
+    {
+        var wasSelected = _selectedTracerWanKey;
+        await LoadTracerWanChoicesAsync();
+        // The reload lands on the primary, which is what init wants and not what this wants: a
+        // vantage being added elsewhere is no reason to move someone off the WAN they were on.
+        if (!string.IsNullOrEmpty(wasSelected)
+            && _wanChoices.Any(c => string.Equals(c.Key, wasSelected, StringComparison.OrdinalIgnoreCase)))
+        {
+            _selectedTracerWanKey = wasSelected;
+        }
+        StateHasChanged();
+    }
+
+    /// <summary>
     /// A pill click here: select it, then tell the tab so its other filters follow. Separate from
     /// <see cref="SelectTracerWanAsync"/>, which is also how an inbound selection is applied - going
     /// through this one there would echo it straight back out.
