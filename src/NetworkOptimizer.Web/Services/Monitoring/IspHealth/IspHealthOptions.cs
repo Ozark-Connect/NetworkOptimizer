@@ -997,7 +997,15 @@ public static class IspHealthProfiles
             IdleRttIdealMs: 1.5, IdleRttNormalLowMs: 2.0, IdleRttNormalHighMs: 3.0, IdleRttPoorMs: 8.0,
             IdleLossIdealPct: 0.02, IdleLossAcceptablePct: 0.05,
             LoadedLossDownLowPct: 1.0, LoadedLossDownHighPct: 2.0,
-            LoadedLossUpLowPct: 0.5, LoadedLossUpHighPct: 1.0,
+            // Upstream high is 1.5 rather than 1.0 (raised 2026-08-05). GPON upstream is 1.244 Gbps
+            // shared on TDMA grants, and a gig plan alone is ~80% of it, so contention loss under a
+            // saturating upload is the medium behaving normally rather than a fault. It is also
+            // where SQM does its work: we recommend enabling it, and an AQM controls the queue BY
+            // dropping - at a 1.0 ceiling a correctly-shaping line was graded as a problem for it.
+            // A genuinely oversubscribed segment still fails (3% scores 50, 4.5% scores 32).
+            // Judgment, not measurement - unlike the RTT / jitter / stability bands below, the
+            // loaded-loss bands have no calibration set behind them.
+            LoadedLossUpLowPct: 0.5, LoadedLossUpHighPct: 1.5,
             LoadedDeltaExcellentMs: 2.0, LoadedDeltaAcceptableMs: 10.0,
             JitterIdealMs: 0.4, JitterTypicalMs: 0.7, JitterPoorMs: 3.0,
             StabilityMadIdealMs: 0.15, StabilityMadTypicalMs: 0.4, StabilityMadPoorMs: 1.5),

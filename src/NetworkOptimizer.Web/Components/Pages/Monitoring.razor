@@ -1970,6 +1970,21 @@
         catch { /* circuit going away, or charts not mounted yet - the mount push covers it */ }
         _discoveryWanKey = FirstSelectedWanKey();
         StateHasChanged();
+        await RefreshLossInvestigationForWanAsync();
+    }
+
+    /// <summary>
+    /// Re-runs an active loss investigation against the WAN scope now selected. The event on screen
+    /// was found on the WAN that was focused when Investigate ran - its targets, its plan speeds,
+    /// its counters - so leaving it in place after the filter moves shows one WAN's loss event over
+    /// another WAN's charts. Runs on every selection change, whether by pill, All, reset, or a link.
+    /// </summary>
+    private async Task RefreshLossInvestigationForWanAsync()
+    {
+        if (!_lossNavActive || _investigatingLoss || _activeTab != "performance") return;
+        // Fresh search rather than a step: the event stepping is anchored to the old WAN's event
+        // bounds, which say nothing about where this one's events are.
+        await NavigateToLossEvent(null, null, _lossNavLoadedOnly, resetIfNotFound: true);
     }
 
     /// <summary>
@@ -2207,7 +2222,7 @@
     private void ReleaseLinkWanSelection()
     {
         if (!_linkNarrowedWanSelection) return;
-        if (!string.IsNullOrWhiteSpace(WanParam) && !string.IsNullOrEmpty(CategoryParam)) return;
+        if (LinkNarrowsWanFilter) return;
 
         _linkNarrowedWanSelection = false;
         // Lets the stored selection be read again; nothing else clears this one-shot.
@@ -2224,7 +2239,7 @@
     private async Task ApplyLinkWanSelectionAsync()
     {
         if (!_multiWanUiVisible || _wanOptions.Count <= 1) return;
-        if (string.IsNullOrWhiteSpace(WanParam) || string.IsNullOrEmpty(CategoryParam)) return;
+        if (string.IsNullOrWhiteSpace(WanParam) || !LinkNarrowsWanFilter) return;
         if (_appliedLinkWanKey == LinkWanKey) return;
 
         var keys = ResolveLinkWanKeys(WanParam);
@@ -2419,7 +2434,18 @@
     // so a pill clicked afterwards is never stomped by the URL that is still sitting there.
     private string? _appliedLinkWanKey;
 
-    private string LinkWanKey => $"{_activeTab}|{WanParam}|{AtParam}|{CategoryParam}";
+    private string LinkWanKey => $"{_activeTab}|{WanParam}|{AtParam}|{CategoryParam}|{InvestigateParam}";
+
+    /// <summary>
+    /// Whether the link in the address bar is one whose <c>?wan=</c> should narrow this filter. A
+    /// category jump from Live View and an ISP Health investigate jump both are: each says which
+    /// WAN's trouble you came to look at. A discovery link carries a WAN too and is NOT - it is
+    /// asking to run discovery on that WAN, not to re-scope the analysis.
+    /// </summary>
+    private bool LinkNarrowsWanFilter =>
+        !string.IsNullOrWhiteSpace(WanParam)
+        && (!string.IsNullOrEmpty(CategoryParam)
+            || InvestigateParam is "packet-loss" or "loaded-loss");
 
     private bool _linkNarrowedWanSelection;
     private bool _wanLiveChartMounted = false;
@@ -4780,7 +4806,7 @@
         await JS.InvokeVoidAsync("eval", "window.__latencyCharts?.restoreState();");
     }
 
-    private async Task NavigateToLossEvent(DateTime? before, DateTime? after, bool loadedOnly)
+    private async Task NavigateToLossEvent(DateTime? before, DateTime? after, bool loadedOnly, bool resetIfNotFound = false)
     {
         _investigatingLoss = true;
         // Set before the await so only the clicked button shows its spinner
@@ -4827,6 +4853,16 @@
             }
             if (result == null)
             {
+                // A re-scope that finds nothing has to let go of the event it was showing - it
+                // belonged to the WAN that just left the view. Stepping is different: "no newer
+                // events" means stay where you are.
+                if (resetIfNotFound)
+                {
+                    ResetLossNavState();
+                    _lossInvestigateResult = "No loss events on this WAN";
+                    await JS.InvokeVoidAsync("eval", "window.__latencyCharts?.restoreState();");
+                    return;
+                }
                 _lossInvestigateResult = after.HasValue ? "No newer events" : "No older events";
                 return;
             }

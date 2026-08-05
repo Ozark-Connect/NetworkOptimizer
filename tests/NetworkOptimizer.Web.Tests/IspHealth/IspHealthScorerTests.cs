@@ -724,6 +724,27 @@ public class IspHealthScorerTests
     }
 
     [Fact]
+    public void Upstream_loaded_loss_inside_the_gpon_band_is_not_flagged()
+    {
+        // GPON upstream tolerates 1.5%: that upstream is shared on TDMA grants, a gig plan is most
+        // of it, and an AQM controls the queue BY dropping - so 1.2% under a saturating upload is
+        // the medium working, not a fault to report.
+        var report = new IspHealthScorer(Options).Score(BuildInputs(lossPct: 1.2), Gpon);
+
+        report.Issues.Should().NotContain(i => i.Title == "Packet loss under load");
+    }
+
+    [Fact]
+    public void Upstream_loaded_loss_past_the_gpon_band_is_flagged()
+    {
+        // The far side of the same breakpoint. 1.8% clears upstream's 1.5% while still sitting
+        // under downstream's untouched 2.0%, so the upstream band is what fires here.
+        var report = new IspHealthScorer(Options).Score(BuildInputs(lossPct: 1.8), Gpon);
+
+        report.Issues.Should().Contain(i => i.Title == "Packet loss under load");
+    }
+
+    [Fact]
     public void Overall_is_equal_thirds_of_dimensions()
     {
         var noisy = new List<LatencySample>();
@@ -2123,8 +2144,11 @@ public class IspHealthProfilesTests
         pppoe.LoadedLossDownLowPct.Should().BeApproximately(1.5, 0.001);
         pppoe.LoadedLossDownHighPct.Should().BeApproximately(3.0, 0.001);
         pppoe.LoadedLossUpLowPct.Should().BeApproximately(1.0, 0.001);
-        pppoe.LoadedLossUpHighPct.Should().BeApproximately(2.0, 0.001);
+        // 1.5 baseline + the same 1.0 the downstream high gets. The overlay is unchanged; the
+        // GPON upstream high it widens moved from 1.0 to 1.5 on 2026-08-05.
+        pppoe.LoadedLossUpHighPct.Should().BeApproximately(2.5, 0.001);
     }
+
 
     [Fact]
     public void Pppoe_overlay_never_tightens_a_band()
