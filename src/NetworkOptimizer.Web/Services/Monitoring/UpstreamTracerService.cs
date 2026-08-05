@@ -2419,13 +2419,18 @@ public class UpstreamTracerService
         // whether the ISP's own first mile is at fault, a transit hop says which upstream is, and
         // a path endpoint says whether any of it is reaching the things people use. A budget that
         // buys depth in one of them measures a fraction of the path.
+        // Candidates the reachability gate already rejected are not in the running. This runs
+        // AFTER that gate, and switching one back on because it happened to fall inside the
+        // budget hands the operator a target that is known not to answer - and spends one of the
+        // few slots a metered WAN gets doing it. Only reachable candidates are considered, and
+        // the rejected ones keep the Enabled=false the gate gave them.
         var buckets = new List<Action<bool>>[]
         {
-            state.AccessHops.OrderBy(h => h.HopNumber)
+            state.AccessHops.Where(h => !h.Unreachable).OrderBy(h => h.HopNumber)
                 .Select(h => (Action<bool>)(on => h.Enabled = on)).ToList(),
-            state.TransitAsns.Where(t => t.Method != DiscoveryMethod.PathProxy)
+            state.TransitAsns.Where(t => t.Method != DiscoveryMethod.PathProxy && !t.Unreachable)
                 .Select(t => (Action<bool>)(on => t.Enabled = on)).ToList(),
-            state.TransitAsns.Where(t => t.Method == DiscoveryMethod.PathProxy)
+            state.TransitAsns.Where(t => t.Method == DiscoveryMethod.PathProxy && !t.Unreachable)
                 .Select(t => (Action<bool>)(on => t.Enabled = on)).ToList(),
         };
 
