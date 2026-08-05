@@ -522,11 +522,11 @@ public class IspHealthScorer
     /// test actually overlapped rather than allowed to lift the whole factor.
     /// </para>
     /// </summary>
-    private double LiftToSpeedTest(
-        DateTime start, DateTime end, double measured, IspHealthInputs inputs, bool upstream)
+    private List<(DateTime Time, double Value)> QualifyingTests(
+        DateTime start, DateTime end, IspHealthInputs inputs, bool upstream)
     {
         var tolerance = TimeSpan.FromSeconds(Math.Max(0, _options.LoadedLatencySpeedTestMatchSeconds));
-        var best = measured;
+        var found = new List<(DateTime Time, double Value)>();
         foreach (var test in inputs.WanSpeedTests)
         {
             if (test.Time < start - tolerance || test.Time > end + tolerance) continue;
@@ -542,10 +542,9 @@ public class IspHealthScorer
             if (!(expected > 0) || achieved < expected * _options.LoadedLatencySpeedTestMinPlanFraction)
                 continue;
 
-            var delta = underLoad.Value - test.PingMs.Value;
-            if (delta > best) best = delta;
+            found.Add((test.Time, Math.Max(0, underLoad.Value - test.PingMs.Value)));
         }
-        return best;
+        return found;
     }
 
     private static double EpisodeDelta(List<double> deltas, double noiseFloor)
@@ -1002,19 +1001,36 @@ public class IspHealthScorer
             .GroupBy(kv => kv.Value)
             .ToDictionary(g => g.Key, g => g.Max(kv => kv.Key)
                 .AddSeconds(Math.Max(1, _options.LoadWindowSeconds)));
-        // The best any speed test measured during a load episode, or null if none qualified. Held
-        // aside and applied to the FINAL figure rather than to the episodes it came from: the
-        // figure is a median across episodes, and a median cannot be moved by one member however
-        // it is weighted - that is what a median is for. Lifting per-episode left the better
-        // instrument unable to change a reported number even once, which is not a safeguard, it
-        // is a feature that does nothing.
-        var speedTestDelta = episodes
-            .Select(e => LiftToSpeedTest(
+        // What a speed test measured during each episode, where one qualified. Applied to the
+        // FINAL figure rather than to the episode it came from, because the figure is a median
+        // across episodes and a median cannot be moved by one member however it is weighted -
+        // lifting per-episode left the better instrument unable to change a reported number even
+        // once. But applied only over the episodes the answer is actually being drawn from: a
+        // test is evidence about the line AS IT WAS THEN, and a window-wide maximum would let a
+        // test from before a fix override the clean run that proves the fix.
+        var testsByEpisode = episodes.ToDictionary(
+            e => e.Time,
+            e => QualifyingTests(
                 e.Time, episodeEnds.TryGetValue(e.Time, out var end) ? end : e.Time,
-                double.NegativeInfinity, inputs, upstream))
-            .Where(d => !double.IsNegativeInfinity(d))
-            .DefaultIfEmpty(double.NegativeInfinity)
-            .Max();
+                inputs, upstream));
+
+        // Judged the same way the speed-test fallback judges its own pool: a recent run of clean
+        // tests is read as the line having been FIXED and the older ones as describing a
+        // connection that no longer exists, otherwise recency-weighted. A plain maximum threw all
+        // of that away - the worst test in the window won outright, so a line whose recent tests
+        // are all clean kept reporting its worst day from a week ago.
+        double SpeedTestOver(IEnumerable<(DateTime Time, double Value)> over)
+        {
+            var deltas = over
+                .SelectMany(e => testsByEpisode.TryGetValue(e.Time, out var t) ? t : [])
+                .DistinctBy(t => t.Time)
+                .OrderByDescending(t => t.Time)
+                .ToList();
+            if (deltas.Count == 0) return double.NegativeInfinity;
+            return RecentRegimeDelta(deltas)
+                ?? RecencyWeightedDelta(deltas, inputs.WindowEnd)
+                ?? double.NegativeInfinity;
+        }
 
         var loadWeight = BuildLoadWeighting(inputs, upstream, loaded);
         var stale = _options.LoadedLatencyElevationStaleEpisodes;
@@ -1055,10 +1071,14 @@ public class IspHealthScorer
 
         // The line was fixed: the elevated episodes describe a connection that no longer exists,
         // so only the clean run since speaks for it.
+        // Only tests taken DURING the clean run speak for a line that was fixed. The elevated
+        // episodes describe a connection that no longer exists, and so do the tests that ran in
+        // them - letting those back in through the lift would re-assert the very finding the
+        // clean run just cleared.
         if (verdict is { ElevationIsOver: true })
             return Math.Max(0, Math.Max(
                 SeriesStats.Median(verdict.CleanRun.Select(e => e.Value).ToList())!.Value,
-                speedTestDelta));
+                SpeedTestOver(verdict.CleanRun)));
 
         // The reported figure is the median ACROSS EPISODES - what this line typically does under
         // load - weighted by recency and by how credible each episode's load was.
@@ -1070,7 +1090,7 @@ public class IspHealthScorer
         // verdict above - it is not a filter on what gets reported.
         return Math.Max(0, Math.Max(
             RecencyWeightedDelta(episodes, inputs.WindowEnd, loadWeight) ?? 0,
-            speedTestDelta));
+            SpeedTestOver(episodes)));
     }
 
     private (IspScoreFactor Factor, bool HasData) ScoreLoadedLoss(

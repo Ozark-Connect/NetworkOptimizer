@@ -125,6 +125,26 @@ public class SpeedTestLiftTests
     }
 
     [Fact]
+    public void Recent_clean_tests_outrank_an_older_bad_one()
+    {
+        // The regression this exists for. Taking the highest qualifying test in the window meant
+        // one bad day outranked every clean test since, so a line whose recent tests are all clean
+        // kept reporting its worst reading from a week ago - and it walked straight past the
+        // clean-run verdict that had already decided the line was fixed.
+        var oldBad = Test(LoadedStart.AddMinutes(10), 980, 31);
+        var recentClean = new[]
+        {
+            Test(LoadedStart.AddHours(3), 980, 6.2),
+            Test(LoadedStart.AddHours(4), 980, 6.1),
+            Test(LoadedStart.AddHours(5), 980, 6.3),
+        };
+
+        var withHistory = LoadedDown(3.0, new[] { oldBad }.Concat(recentClean).ToArray());
+
+        withHistory.Should().BeLessThan(10);
+    }
+
+    [Fact]
     public void A_site_whose_probes_saw_nothing_still_gets_what_its_test_measured()
     {
         // Since load episodes that all read clean became a real answer rather than no-answer, a
