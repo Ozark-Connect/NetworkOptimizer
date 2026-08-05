@@ -924,6 +924,13 @@ public class IspHealthScorer
 
             if (cleared)
                 return Math.Max(0, SeriesStats.Median(cleanRun.Select(e => e.Value).ToList())!.Value);
+
+            // No episode elevated at all is not "no information" - it is the strongest statement
+            // available: every time this line was loaded, it stayed clean. Falling through to the
+            // sample path there reports the median of whatever minority of samples crossed the
+            // noise floor, which is 23 ms on a line whose every load episode read under 0.5.
+            if (elevated == 0 && episodes.Count >= 2)
+                return Math.Max(0, SeriesStats.Median(episodes.Select(e => e.Value).ToList())!.Value);
         }
 
         var credible = pooled.Where(x => x.Value >= noiseFloor).ToList();

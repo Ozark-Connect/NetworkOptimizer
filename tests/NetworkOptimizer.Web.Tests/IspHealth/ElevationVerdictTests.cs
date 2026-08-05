@@ -43,9 +43,12 @@ public class ElevationVerdictTests
     }
 
     [Fact]
-    public void A_line_that_was_never_elevated_has_nothing_to_declare_over()
+    public void A_line_that_was_never_elevated_has_no_elevation_to_declare_over()
     {
-        // It takes the path it always took rather than being "cleared" of a problem it never had.
+        // Not "cleared" of a problem it never had - but the caller reads ElevatedCount 0 as its own
+        // answer: every load episode was clean, which is the strongest statement available and the
+        // reason this line no longer falls through to the median of whichever samples crossed the
+        // noise floor. That path reported 23 ms on a WAN whose every episode read under 0.5.
         var verdict = Judge((At(0, 22), 0.1), (At(0, 21), 0), (At(0, 20), 0.2), (At(1, 8), 0.1));
 
         verdict.ElevatedCount.Should().Be(0);
