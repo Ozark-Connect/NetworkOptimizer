@@ -85,7 +85,7 @@ public class IspHealthScorer
         var jitterFloor = ComputeJitterFloor(inputs);
         _logger?.LogDebug("ISP Health: path jitter floor {Floor} ms", FormatMsOrNull(jitterFloor));
         var (loadedLatency, hasLoadedLatency) = ScoreLoadedLatency(loadedDeltas, profile);
-        var (loadedLoss, hasLoadedLoss) = ScoreLoadedLoss(inputs.LossPoolSeries, loadWindows, profile);
+        var (loadedLoss, hasLoadedLoss) = ScoreLoadedLoss(inputs, inputs.LossPoolSeries, loadWindows, profile);
 
         // Physical Link: the access medium's own physical layer (optical RX, DOCSIS RF/FEC,
         // cellular signal). Null factor (omitted, no penalty) when no source matched the WAN.
@@ -511,29 +511,44 @@ public class IspHealthScorer
     /// unknown, which leaves the figure exactly as it was before load was considered.
     /// </summary>
     private Func<DateTime, double> BuildLoadWeighting(
-        IspHealthInputs inputs, bool upstream, Dictionary<DateTime, LoadWindow> loadWindows)
+        IspHealthInputs inputs, bool upstream, IReadOnlySet<DateTime> loaded)
     {
+        var floor = _options.LoadedLatencyMinLoadWeight;
+        var windowSeconds = Math.Max(1, _options.LoadWindowSeconds);
+        var fullSeconds = Math.Max(windowSeconds, _options.LoadedLatencyFullCredibilitySustainedSeconds);
+        var episodeSeconds = SeriesStats.LoadEpisodeSeconds(loaded, windowSeconds);
+
+        double DurationWeight(DateTime key) =>
+            episodeSeconds.TryGetValue(key, out var seconds)
+                ? SeriesStats.Credibility(seconds, fullSeconds, floor)
+                : floor;
+
+        // Utilization needs the plan speed. Without it there is nothing to measure "hard" against,
+        // so that half is left at 1 and duration alone decides - which is still an improvement and
+        // leaves nothing worse than before.
         var planMbps = upstream ? inputs.ExpectedUploadMbps : inputs.ExpectedDownloadMbps;
-        if (planMbps is not > 0) return _ => 1;
+        if (planMbps is not > 0) return time => DurationWeight(FloorToWindow(time));
 
         var planBps = planMbps.Value * 1_000_000;
-        var byWindow = new Dictionary<DateTime, double>();
+        var utilizationByWindow = new Dictionary<DateTime, double>();
         foreach (var rate in inputs.WanRates)
         {
             var bps = upstream ? rate.UploadBps : rate.DownloadBps;
             if (bps is not > 0) continue;
             var key = FloorToWindow(rate.Time);
-            var utilization = bps.Value / planBps;
-            byWindow[key] = Math.Max(byWindow.GetValueOrDefault(key), utilization);
+            utilizationByWindow[key] = Math.Max(utilizationByWindow.GetValueOrDefault(key), bps.Value / planBps);
         }
 
-        var full = _options.LoadedLatencyFullCredibilityUtilization;
-        var floor = _options.LoadedLatencyMinLoadWeight;
+        var start = _options.LoadedCredibilityUtilizationStart;
+        var full = _options.LoadedCredibilityUtilizationFull;
         return time =>
         {
-            if (!byWindow.TryGetValue(FloorToWindow(time), out var utilization)) return floor;
-            if (full <= 0) return 1;
-            return Math.Clamp(utilization / full, floor, 1);
+            var key = FloorToWindow(time);
+            var duration = DurationWeight(key);
+            var utilization = utilizationByWindow.TryGetValue(key, out var u)
+                ? SeriesStats.CredibilityBetween(u, start, full, floor)
+                : floor;
+            return duration * utilization;
         };
     }
 
@@ -865,8 +880,12 @@ public class IspHealthScorer
                 .Select(s => (s.Time, s.RttAvgMs!.Value - baseline.Value)));
         }
 
-        // One value per load episode, so a long saturation does not outvote several short ones and
-        // the run below counts episodes rather than samples - the same unit one speed test is.
+        // Episodes for the REGIME TEST only, never for the median below. That test asks whether the
+        // newest N measurements all sit far below the older ones, and N has to be a unit big enough
+        // that a fluctuation cannot fill it: per-sample, "the newest 3" can be three readings
+        // seconds apart inside one bad evening, and a brief lull would read as a line that was
+        // fixed. The median keeps every sample, so a long saturation - where bufferbloat actually
+        // develops, as buffers fill over seconds - outweighs a short burst, as it should.
         var episodes = pooled
             .GroupBy(x => FloorToWindow(x.Time))
             .Select(g => (Time: g.Key, Value: SeriesStats.Median(g.Select(x => x.Value).ToList())!.Value))
@@ -877,11 +896,12 @@ public class IspHealthScorer
 
         var credible = pooled.Where(x => x.Value >= noiseFloor).ToList();
         if (credible.Count < _options.MinLoadedSamples) return null;
-        var loadWeight = BuildLoadWeighting(inputs, upstream, loadWindows);
+        var loadWeight = BuildLoadWeighting(inputs, upstream, loaded);
         return Math.Max(0, RecencyWeightedDelta(credible, inputs.WindowEnd, loadWeight) ?? 0);
     }
 
     private (IspScoreFactor Factor, bool HasData) ScoreLoadedLoss(
+        IspHealthInputs inputs,
         List<List<LatencySample>> lossPool,
         Dictionary<DateTime, LoadWindow> loadWindows,
         AccessProfile profile)
@@ -896,8 +916,8 @@ public class IspHealthScorer
             }, false);
         }
 
-        var downLoss = LoadedMeanLoss(lossPool, loadWindows, w => w.IsLoadedDown, w => w.IsLoadedUp);
-        var upLoss = LoadedMeanLoss(lossPool, loadWindows, w => w.IsLoadedUp, w => w.IsLoadedDown);
+        var downLoss = LoadedMeanLoss(inputs, lossPool, loadWindows, w => w.IsLoadedDown, w => w.IsLoadedUp, upstream: false);
+        var upLoss = LoadedMeanLoss(inputs, lossPool, loadWindows, w => w.IsLoadedUp, w => w.IsLoadedDown, upstream: true);
 
         var scores = new List<double>();
         if (downLoss.HasValue) scores.Add(ScoreLossBand(downLoss.Value, profile.LoadedLossDownLowPct, profile.LoadedLossDownHighPct));
@@ -943,17 +963,20 @@ public class IspHealthScorer
     }
 
     private double? LoadedMeanLoss(
+        IspHealthInputs inputs,
         List<List<LatencySample>> lossPool,
         Dictionary<DateTime, LoadWindow> loadWindows,
         Func<LoadWindow, bool> directionSelector,
-        Func<LoadWindow, bool> oppositeSelector)
+        Func<LoadWindow, bool> oppositeSelector,
+        bool upstream)
     {
         var loaded = DilateLoadedWindows(loadWindows, directionSelector, oppositeSelector);
-        var losses = lossPool.SelectMany(series => series)
+        var samples = lossPool.SelectMany(series => series)
             .Where(s => s.LossPercent.HasValue && !InOutage(s.Time)
                 && loaded.Contains(FloorToWindow(s.Time)))
-            .Select(s => _gatewayFloor.Apply(s.LossPercent!.Value, s.Time))
+            .Select(s => (s.Time, Value: _gatewayFloor.Apply(s.LossPercent!.Value, s.Time)))
             .ToList();
+        var losses = samples.Select(s => s.Value).ToList();
         // Loaded loss rests on however many samples happen to fall inside the loaded windows, and on
         // a long window the rate series is aggregated far coarser than LoadWindowSeconds, so that set
         // can be small enough for a few dark samples to set the whole figure. Log what it was built
@@ -963,7 +986,17 @@ public class IspHealthScorer
             losses.Count, loaded.Count, losses.Count(l => l >= 99.0),
             losses.Count > 0 ? losses.Average().ToString("0.##", CultureInfo.InvariantCulture) : "n/a");
         if (losses.Count < _options.MinLoadedSamples) return null;
-        return losses.Average();
+        // Same credibility rules as loaded latency: a sustained saturation says far more about
+        // behavior under load than a two-second burst that may not even have been load, and recent
+        // evidence outranks old evidence of the same kind. A weighted MEAN rather than a median,
+        // because loss is a rate - most samples are zero even on a bad line, and a median over
+        // them reports zero however bad the rest are.
+        var loadWeight = BuildLoadWeighting(inputs, upstream, loaded);
+        return SeriesStats.WeightedMean(samples
+            .Select(s => (s.Value,
+                SeriesStats.RecencyWeight(inputs.WindowEnd - s.Time, _options.LoadedLatencyRecencyHalfLifeHours)
+                    * loadWeight(s.Time)))
+            .ToList()) ?? losses.Average();
     }
 
     /// <summary>
@@ -2235,8 +2268,8 @@ public class IspHealthScorer
         var loss = false;
         if (loadWindows.Count > 0)
         {
-            var downLoss = LoadedMeanLoss(inputs.LossPoolSeries, loadWindows, w => w.IsLoadedDown, w => w.IsLoadedUp);
-            var upLoss = LoadedMeanLoss(inputs.LossPoolSeries, loadWindows, w => w.IsLoadedUp, w => w.IsLoadedDown);
+            var downLoss = LoadedMeanLoss(inputs, inputs.LossPoolSeries, loadWindows, w => w.IsLoadedDown, w => w.IsLoadedUp, upstream: false);
+            var upLoss = LoadedMeanLoss(inputs, inputs.LossPoolSeries, loadWindows, w => w.IsLoadedUp, w => w.IsLoadedDown, upstream: true);
             loss = downLoss > profile.LoadedLossDownHighPct || upLoss > profile.LoadedLossUpHighPct;
         }
         return (latency, loss);

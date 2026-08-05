@@ -46,6 +46,74 @@ internal static class SeriesStats
     }
 
     /// <summary>
+    /// Weighted arithmetic mean. Used where the quantity is naturally averaged - loss is a rate,
+    /// and a median over mostly-zero samples reports zero however bad the rest are.
+    /// </summary>
+    public static double? WeightedMean(IReadOnlyList<(double Value, double Weight)> samples)
+    {
+        var total = 0.0;
+        var weight = 0.0;
+        foreach (var (value, w) in samples)
+        {
+            if (w <= 0) continue;
+            total += value * w;
+            weight += w;
+        }
+        return weight > 0 ? total / weight : null;
+    }
+
+    /// <summary>
+    /// How long the run of consecutive loaded windows containing each window lasted, in seconds.
+    /// <para>
+    /// Duration is credibility, not just sample count. A short burst is where load classification
+    /// goes wrong most often, and it is too brief for buffers to fill, so its latency understates
+    /// what a full pipe does - weak evidence twice over. A long saturation is the best evidence
+    /// there is, better than a speed test, which is itself short and synthetic.
+    /// </para>
+    /// </summary>
+    public static Dictionary<DateTime, double> LoadEpisodeSeconds(
+        IEnumerable<DateTime> loadedWindowKeys, int windowSeconds)
+    {
+        var size = Math.Max(1, windowSeconds);
+        var ordered = loadedWindowKeys.Distinct().OrderBy(t => t).ToList();
+        var seconds = new Dictionary<DateTime, double>();
+        for (var i = 0; i < ordered.Count;)
+        {
+            var run = 1;
+            while (i + run < ordered.Count
+                && (ordered[i + run] - ordered[i + run - 1]).TotalSeconds <= size + 0.001)
+            {
+                run++;
+            }
+            var episode = run * (double)size;
+            for (var j = 0; j < run; j++) seconds[ordered[i + j]] = episode;
+            i += run;
+        }
+        return seconds;
+    }
+
+    /// <summary>
+    /// A credibility multiplier that rises to 1 as a measure approaches the level at which it is
+    /// fully believable, and never falls below <paramref name="floor"/> - weak evidence is not
+    /// absent evidence. A non-positive target means "cannot judge", which is 1 throughout.
+    /// </summary>
+    public static double Credibility(double measured, double fullAt, double floor)
+        => fullAt <= 0 ? 1 : Math.Clamp(measured / fullAt, floor, 1);
+
+    /// <summary>
+    /// The same over a BAND: nothing earned below <paramref name="start"/>, everything earned at
+    /// <paramref name="fullAt"/>. For measures whose interesting range does not begin at zero - a
+    /// ramp from zero would score every value near the top and separate nothing.
+    /// </summary>
+    public static double CredibilityBetween(double measured, double start, double fullAt, double floor)
+    {
+        var span = fullAt - start;
+        return span <= 0
+            ? Credibility(measured, fullAt, floor)
+            : Math.Clamp((measured - start) / span, floor, 1);
+    }
+
+    /// <summary>
     /// Weight for a sample of a given age, halving every <paramref name="halfLifeHours"/>. Zero or
     /// negative half-life means no decay at all, which is how a caller opts out.
     /// </summary>

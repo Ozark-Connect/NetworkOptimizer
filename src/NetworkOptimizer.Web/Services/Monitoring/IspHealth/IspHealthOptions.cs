@@ -100,13 +100,20 @@ public class IspHealthOptions
     public double LoadedLatencyRegimeDropFraction { get; set; } = 0.5;
 
     /// <summary>
-    /// Utilization, as a fraction of the plan speed, at which a load episode is fully credible as
-    /// evidence about behavior under load. Below it an episode still counts, but proportionally
-    /// less: a line carrying 20% of its plan is barely loaded, and whatever latency it shows says
-    /// little about what happens when the pipe is actually full. At or above it the episode counts
-    /// in full - past saturation, more load tells us nothing new.
+    /// Utilization band, as a fraction of plan speed, over which a load episode earns credibility:
+    /// weak at the bottom, full at the top.
+    /// <para>
+    /// It starts ABOVE <see cref="LoadedThresholdFraction"/> deliberately. Everything reaching this
+    /// code is already classified loaded at 50%, so a ramp from zero would score almost every
+    /// episode near the top and separate nothing. Queues do not really build until the pipe is
+    /// most of the way full, so 60% is where the evidence starts being worth something and 90% is
+    /// where it is worth all it can be.
+    /// </para>
     /// </summary>
-    public double LoadedLatencyFullCredibilityUtilization { get; set; } = 0.6;
+    public double LoadedCredibilityUtilizationStart { get; set; } = 0.60;
+
+    /// <summary>Utilization at which an episode is fully credible. See the start of the band.</summary>
+    public double LoadedCredibilityUtilizationFull { get; set; } = 0.90;
 
     /// <summary>
     /// Least weight any load episode keeps, however light. Never zero: a lightly loaded episode is
@@ -114,6 +121,16 @@ public class IspHealthOptions
     /// have nothing to score at all.
     /// </summary>
     public double LoadedLatencyMinLoadWeight { get; set; } = 0.15;
+
+    /// <summary>
+    /// Sustained seconds of load after which an episode is fully credible. Duration is not just
+    /// more samples: a short burst is the case load CLASSIFICATION gets wrong most often, and it is
+    /// also too brief for buffers to fill, so its latency understates what the line does when the
+    /// pipe stays full. A long saturation is the best evidence there is - better than a speed test,
+    /// which is short and synthetic - so it carries full weight while a few seconds of traffic
+    /// carries a fraction.
+    /// </summary>
+    public int LoadedLatencyFullCredibilitySustainedSeconds { get; set; } = 60;
 
     /// <summary>Weight of loaded packet loss within the access dimension.</summary>
     public double LoadedLossWeight { get; set; } = 0.14875;
