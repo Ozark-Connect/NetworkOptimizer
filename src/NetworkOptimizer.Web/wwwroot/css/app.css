@@ -9509,6 +9509,20 @@ a.path-hop.hop-clickable:hover {
     margin-left: 0.3rem;
 }
 
+@media (max-width: 768px) {
+    .wan-pill-token {
+        display: none;
+    }
+
+    .stat-stack-wan {
+        font-size: 0.65rem;
+    }
+
+    .stat-stack-value {
+        font-size: 0.78rem;
+    }
+}
+
 .time-btn.active .wan-pill-token {
     color: var(--text-secondary);
 }
