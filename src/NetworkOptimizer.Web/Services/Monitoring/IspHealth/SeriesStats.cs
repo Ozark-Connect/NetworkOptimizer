@@ -31,26 +31,32 @@ internal static class SeriesStats
     /// </para>
     /// </summary>
     /// <summary>
-    /// Collapses simultaneous samples from different series into one value per instant: the
-    /// COMMON MODE, what all of them saw at once.
+    /// Collapses simultaneous samples from different series into one value per instant, weighing
+    /// the elevation by how much of the cohort CORROBORATED it.
     /// <para>
-    /// Congestion on a link is common to everything crossing it - every target behind it rises
-    /// together. One hop rising alone while its neighbors stay flat at the same second is that
-    /// hop's own responder, not the link, and a statistic that pools every sample flat cannot tell
-    /// the two apart: it sees only "some sample was high". Taking the median ACROSS series at each
-    /// instant answers the question that actually distinguishes them, because a lone squealer is
-    /// outvoted by its clean neighbors while a genuinely loaded link carries all of them up.
+    /// Congestion on a link is in front of everything crossing it, so a real access-layer queue
+    /// lights up most of what reported in that second. One hop rising while the rest read clean at
+    /// the same instant is that hop's own responder, and the clean readings beside it are the
+    /// proof - proof a flat pool throws away, because the noise floor discards them before the
+    /// median ever sees them.
     /// </para>
     /// <para>
-    /// An instant with fewer than <paramref name="minCohort"/> distinct series has nothing to
-    /// corroborate against and is passed through untouched - a short event where only one hop
-    /// happened to be probed is still evidence, just uncorroborated evidence.
+    /// Magnitude comes from the series that actually saw it, and only the CREDENCE scales with the
+    /// cohort. Collapsing magnitude across the whole cohort instead made the number fall as more
+    /// targets were monitored - a WAN watching 28 targets diluted a genuine 8 ms to a third of a
+    /// millisecond, and far destinations swinging below their own baseline cancelled what was left.
+    /// Monitoring more would have scored better, which is backwards.
+    /// </para>
+    /// <para>
+    /// The denominator is what REPORTED in this instant, never the cohort's full size: targets do
+    /// not all probe on the same cadence, and one that said nothing has not said "clean".
     /// </para>
     /// </summary>
     public static List<(DateTime Time, double Value)> CommonModeByInstant(
         IReadOnlyList<(DateTime Time, double Value, int Series)> samples,
         TimeSpan tolerance,
-        int minCohort)
+        int minCohort,
+        double elevationFloor)
     {
         var result = new List<(DateTime Time, double Value)>();
         if (samples.Count == 0) return result;
@@ -64,14 +70,19 @@ internal static class SeriesStats
             while (j < ordered.Count && ordered[j].Time - start <= tolerance) j++;
 
             var cluster = ordered.GetRange(i, j - i);
-            var distinct = cluster.Select(c => c.Series).Distinct().Count();
-            if (distinct >= minCohort)
+            var reporting = cluster.Select(c => c.Series).Distinct().Count();
+            if (reporting >= minCohort)
             {
-                var m = Median(cluster.Select(c => c.Value).ToList());
-                if (m.HasValue) result.Add((start, m.Value));
+                var elevated = cluster.Where(c => c.Value >= elevationFloor).ToList();
+                // Nothing elevated is not "no reading" - it is every target that reported saying
+                // the link was fine, which is the strongest clean evidence there is.
+                var corroboration = (double)elevated.Select(c => c.Series).Distinct().Count() / reporting;
+                result.Add((start, elevated.Count == 0 ? 0 : elevated.Average(c => c.Value) * corroboration));
             }
             else
             {
+                // Nothing to corroborate against. A short event where one hop happened to be the
+                // only one probed is still evidence, just uncorroborated evidence.
                 result.AddRange(cluster.Select(c => (c.Time, c.Value)));
             }
 

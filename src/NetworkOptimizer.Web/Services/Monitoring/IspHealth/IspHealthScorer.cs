@@ -927,7 +927,8 @@ public class IspHealthScorer
         var pooled = SeriesStats.CommonModeByInstant(
             perHop,
             TimeSpan.FromSeconds(_options.LoadedLatencyAgreementToleranceSeconds),
-            _options.LoadedLatencyAgreementMinCohort);
+            _options.LoadedLatencyAgreementMinCohort,
+            noiseFloor);
 
         // Grouped by EPISODE - the run of consecutive loaded windows - not by window. A window is
         // seven seconds, so "the newest three windows" is the last twenty seconds and any brief
