@@ -408,8 +408,8 @@ public class IspHealthScorer
         double? down = null, up = null;
         if (loadWindows.Count > 0)
         {
-            down = LoadedLatencyDelta(inputs, loadWindows, w => w.IsLoadedDown, w => w.IsLoadedUp);
-            up = LoadedLatencyDelta(inputs, loadWindows, w => w.IsLoadedUp, w => w.IsLoadedDown);
+            down = LoadedLatencyDelta(inputs, loadWindows, w => w.IsLoadedDown, w => w.IsLoadedUp, upstream: false);
+            up = LoadedLatencyDelta(inputs, loadWindows, w => w.IsLoadedUp, w => w.IsLoadedDown, upstream: true);
         }
 
         bool downFromSpeedTest = false, upFromSpeedTest = false;
@@ -419,24 +419,23 @@ public class IspHealthScorer
             // Recency-weighted, so a fix shows up in days rather than after the good tests
             // outnumber the bad ones. Still a median: one clean run cannot clear a standing
             // finding, and one bad run cannot create one.
-            var halfLife = _options.LoadedLatencyRecencyHalfLifeHours;
-            List<(double Value, double Weight)> Deltas(Func<SpeedTestSample, double?> loaded) => tests
+            List<(DateTime Time, double Value)> Deltas(Func<SpeedTestSample, double?> loaded) => tests
                 .Where(t => loaded(t).HasValue && t.PingMs.HasValue)
-                .Select(t => (
-                    Value: Math.Max(0, loaded(t)!.Value - t.PingMs!.Value),
-                    Weight: SeriesStats.RecencyWeight(inputs.WindowEnd - t.Time, halfLife)))
+                .Select(t => (t.Time, Math.Max(0, loaded(t)!.Value - t.PingMs!.Value)))
                 .ToList();
 
             var downDeltas = Deltas(t => t.DownloadLatencyMs);
             var upDeltas = Deltas(t => t.UploadLatencyMs);
+            // No load weighting here: a speed test saturates the line by definition, so every one
+            // of these is a fully loaded episode already.
             if (down == null && downDeltas.Count > 0)
             {
-                down = LoadedDeltaFromTests(downDeltas);
+                down = RecentRegimeDelta(downDeltas) ?? RecencyWeightedDelta(downDeltas, inputs.WindowEnd);
                 downFromSpeedTest = true;
             }
             if (up == null && upDeltas.Count > 0)
             {
-                up = LoadedDeltaFromTests(upDeltas);
+                up = RecentRegimeDelta(upDeltas) ?? RecencyWeightedDelta(upDeltas, inputs.WindowEnd);
                 upFromSpeedTest = true;
             }
         }
@@ -454,26 +453,88 @@ public class IspHealthScorer
     /// line stopped misbehaving.
     /// </para>
     /// </summary>
-    private double? LoadedDeltaFromTests(IReadOnlyList<(double Value, double Weight)> newestFirst)
+    /// <summary>
+    /// The delta a run of the NEWEST measurements supports when they all sit far below everything
+    /// older - a line someone fixed, where the older measurements describe a connection that no
+    /// longer exists. Null when the evidence does not say that.
+    /// <para>
+    /// Age-weighting alone cannot see this. The scoring window is short, so a fix this afternoon
+    /// leaves a few clean measurements against a few bad ones only hours older: too close in age
+    /// for decay to separate, and the median stays on the bad cluster for days after the line
+    /// stopped misbehaving.
+    /// </para>
+    /// <para>
+    /// Asked BEFORE the monitoring path's noise floor on purpose. That floor drops deltas under
+    /// half a millisecond, which is exactly what a fixed line produces - so the evidence of the fix
+    /// lives in the samples it throws away, and a rule running after it could never see one.
+    /// </para>
+    /// </summary>
+    private double? RecentRegimeDelta(IReadOnlyList<(DateTime Time, double Value)> newestFirst)
     {
         var run = _options.LoadedLatencyRegimeSamples;
-        if (run > 0 && newestFirst.Count > run)
+        if (run <= 0 || newestFirst.Count <= run) return null;
+
+        var recent = newestFirst.Take(run).Select(s => s.Value).ToList();
+        var older = newestFirst.Skip(run).Select(s => s.Value).ToList();
+        if (SeriesStats.Median(older) is not { } baseline || baseline <= LoadedLatencyRegimeFloorMs)
+            return null;
+
+        // The floor keeps a connection whose delta is already small from tripping this on ordinary
+        // measurement noise - halving 1 ms proves nothing.
+        var threshold = Math.Max(
+            baseline * _options.LoadedLatencyRegimeDropFraction,
+            LoadedLatencyRegimeFloorMs);
+        return recent.All(v => v < threshold) ? SeriesStats.Median(recent) : null;
+    }
+
+    /// <summary>
+    /// Weighs each measurement by age and, where the load behind it is known, by how hard the line
+    /// was working - then takes the median at half the total weight.
+    /// </summary>
+    private double? RecencyWeightedDelta(
+        IReadOnlyList<(DateTime Time, double Value)> samples,
+        DateTime windowEnd,
+        Func<DateTime, double>? loadWeight = null)
+        => SeriesStats.WeightedMedian(samples
+            .Select(s => (
+                s.Value,
+                SeriesStats.RecencyWeight(windowEnd - s.Time, _options.LoadedLatencyRecencyHalfLifeHours)
+                    * (loadWeight?.Invoke(s.Time) ?? 1)))
+            .ToList());
+
+    /// <summary>
+    /// How much a load episode's latency is worth as evidence, from how hard the line was actually
+    /// working during it. A window carrying a fifth of the plan barely loads the buffers, so what
+    /// it shows says little about behavior when the pipe is full; a window at or past
+    /// <see cref="IspHealthOptions.LoadedLatencyFullCredibilityUtilization"/> counts in full. Never
+    /// zero - light load is weak evidence, not none - and 1 throughout when the plan speed is
+    /// unknown, which leaves the figure exactly as it was before load was considered.
+    /// </summary>
+    private Func<DateTime, double> BuildLoadWeighting(
+        IspHealthInputs inputs, bool upstream, Dictionary<DateTime, LoadWindow> loadWindows)
+    {
+        var planMbps = upstream ? inputs.ExpectedUploadMbps : inputs.ExpectedDownloadMbps;
+        if (planMbps is not > 0) return _ => 1;
+
+        var planBps = planMbps.Value * 1_000_000;
+        var byWindow = new Dictionary<DateTime, double>();
+        foreach (var rate in inputs.WanRates)
         {
-            var recent = newestFirst.Take(run).Select(s => s.Value).ToList();
-            var older = newestFirst.Skip(run).Select(s => s.Value).ToList();
-            var olderMedian = SeriesStats.Median(older);
-            if (olderMedian is { } baseline)
-            {
-                // The floor keeps a connection whose delta is already small from tripping this on
-                // ordinary measurement noise - halving 1 ms proves nothing.
-                var threshold = Math.Max(
-                    baseline * _options.LoadedLatencyRegimeDropFraction,
-                    LoadedLatencyRegimeFloorMs);
-                if (recent.All(v => v < threshold) && baseline > LoadedLatencyRegimeFloorMs)
-                    return SeriesStats.Median(recent);
-            }
+            var bps = upstream ? rate.UploadBps : rate.DownloadBps;
+            if (bps is not > 0) continue;
+            var key = FloorToWindow(rate.Time);
+            var utilization = bps.Value / planBps;
+            byWindow[key] = Math.Max(byWindow.GetValueOrDefault(key), utilization);
         }
-        return SeriesStats.WeightedMedian(newestFirst);
+
+        var full = _options.LoadedLatencyFullCredibilityUtilization;
+        var floor = _options.LoadedLatencyMinLoadWeight;
+        return time =>
+        {
+            if (!byWindow.TryGetValue(FloorToWindow(time), out var utilization)) return floor;
+            if (full <= 0) return 1;
+            return Math.Clamp(utilization / full, floor, 1);
+        };
     }
 
     /// <summary>Below this a loaded delta is too small for a "it was fixed" call to mean anything.</summary>
@@ -743,9 +804,6 @@ public class IspHealthScorer
             deltas.DownMs.HasValue ? $"+{FormatLoadedDelta(deltas.DownMs.Value)} down" : "n/a down",
             deltas.UpMs.HasValue ? $"+{FormatLoadedDelta(deltas.UpMs.Value)} up" : "n/a up"
         };
-        _logger.LogDebug(
-            "ISP Health: loaded latency down={Down} (speedTest={DownSt}) up={Up} (speedTest={UpSt})",
-            deltas.DownMs, deltas.DownFromSpeedTest, deltas.UpMs, deltas.UpFromSpeedTest);
         var valuedDirections = (deltas.DownMs.HasValue ? 1 : 0) + (deltas.UpMs.HasValue ? 1 : 0);
         var speedTestDirections = (deltas.DownMs.HasValue && deltas.DownFromSpeedTest ? 1 : 0)
             + (deltas.UpMs.HasValue && deltas.UpFromSpeedTest ? 1 : 0);
@@ -786,7 +844,8 @@ public class IspHealthScorer
         IspHealthInputs inputs,
         Dictionary<DateTime, LoadWindow> loadWindows,
         Func<LoadWindow, bool> directionSelector,
-        Func<LoadWindow, bool> oppositeSelector)
+        Func<LoadWindow, bool> oppositeSelector,
+        bool upstream)
     {
         const double noiseFloor = 0.5;
         var loaded = DilateLoadedWindows(loadWindows, directionSelector, oppositeSelector);
@@ -795,22 +854,31 @@ public class IspHealthScorer
             ? inputs.AccessHopSeries
             : new List<List<LatencySample>> { inputs.FirstHopSeries };
 
-        var pooledDeltas = new List<double>();
+        var pooled = new List<(DateTime Time, double Value)>();
         foreach (var hop in accessCohort)
         {
             var baseline = ComputeIdleBaseline(hop, loadWindows);
             if (baseline == null) continue;
 
-            var deltas = hop
+            pooled.AddRange(hop
                 .Where(s => s.RttAvgMs.HasValue && loaded.Contains(FloorToWindow(s.Time)))
-                .Select(s => s.RttAvgMs!.Value - baseline.Value);
-
-            pooledDeltas.AddRange(deltas);
+                .Select(s => (s.Time, s.RttAvgMs!.Value - baseline.Value)));
         }
 
-        var credible = pooledDeltas.Where(d => d >= noiseFloor).ToList();
+        // One value per load episode, so a long saturation does not outvote several short ones and
+        // the run below counts episodes rather than samples - the same unit one speed test is.
+        var episodes = pooled
+            .GroupBy(x => FloorToWindow(x.Time))
+            .Select(g => (Time: g.Key, Value: SeriesStats.Median(g.Select(x => x.Value).ToList())!.Value))
+            .OrderByDescending(e => e.Time)
+            .ToList();
+
+        if (RecentRegimeDelta(episodes) is { } regime) return Math.Max(0, regime);
+
+        var credible = pooled.Where(x => x.Value >= noiseFloor).ToList();
         if (credible.Count < _options.MinLoadedSamples) return null;
-        return Math.Max(0, SeriesStats.Median(credible)!.Value);
+        var loadWeight = BuildLoadWeighting(inputs, upstream, loadWindows);
+        return Math.Max(0, RecencyWeightedDelta(credible, inputs.WindowEnd, loadWeight) ?? 0);
     }
 
     private (IspScoreFactor Factor, bool HasData) ScoreLoadedLoss(

@@ -99,6 +99,22 @@ public class IspHealthOptions
     /// </summary>
     public double LoadedLatencyRegimeDropFraction { get; set; } = 0.5;
 
+    /// <summary>
+    /// Utilization, as a fraction of the plan speed, at which a load episode is fully credible as
+    /// evidence about behavior under load. Below it an episode still counts, but proportionally
+    /// less: a line carrying 20% of its plan is barely loaded, and whatever latency it shows says
+    /// little about what happens when the pipe is actually full. At or above it the episode counts
+    /// in full - past saturation, more load tells us nothing new.
+    /// </summary>
+    public double LoadedLatencyFullCredibilityUtilization { get; set; } = 0.6;
+
+    /// <summary>
+    /// Least weight any load episode keeps, however light. Never zero: a lightly loaded episode is
+    /// weak evidence, not absent evidence, and a line whose only load is light would otherwise
+    /// have nothing to score at all.
+    /// </summary>
+    public double LoadedLatencyMinLoadWeight { get; set; } = 0.15;
+
     /// <summary>Weight of loaded packet loss within the access dimension.</summary>
     public double LoadedLossWeight { get; set; } = 0.14875;
 
