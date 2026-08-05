@@ -1225,15 +1225,17 @@ else
     {
         if (_wanOptions.Count <= 1) return false;
 
-        // An explicit ?wan= beats the stored selection and replaces it: arriving by a link that
+        // An explicit ?wan= beats the stored selection for this visit: arriving by a link that
         // names a WAN is a statement about which report you want, where the stored value is only
-        // where you happened to be last. Persisted so the rest of the session follows the link
-        // rather than snapping back on the next visit.
+        // where you happened to be last. NOT persisted - following a link is not the same as
+        // choosing a filter, and writing it meant one click from a tile silently became the WAN
+        // this panel opened on from then on. Coming back without the link reads the stored one
+        // again, the same rule the Network Performance filter follows.
         var linked = LinkedWanKey();
         if (!string.IsNullOrEmpty(linked)
             && _wanOptions.Any(w => string.Equals(w.Key, linked, StringComparison.OrdinalIgnoreCase)))
         {
-            await SelectWanAsync(linked!, persist: true);
+            await SelectWanAsync(linked!, persist: false);
             return true;
         }
 
