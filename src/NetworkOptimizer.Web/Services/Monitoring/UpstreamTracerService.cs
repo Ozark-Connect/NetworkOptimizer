@@ -964,6 +964,17 @@ public class UpstreamTracerService
         // re-derivable any time from uplink_ifname "ppp0" / wan_type "pppoe". Nothing infers PPPoE -
         // TechnologyFromVendor cannot return it, and it is no longer in the Upstream Discovery
         // dropdown - so this only redirects values picked before it was removed.
+        // A gre* uplink is a UniFi cellular modem and nothing else, so the medium is known from the
+        // interface rather than guessed from whoever answered. Runs before the vendor pass so the
+        // definitive answer wins, and still only fills an empty slot - a user's choice stands.
+        if (State.AccessTechnology is AccessTechnology.Unknown or AccessTechnology.PppoE
+            && GatewayWanHelper.IsCellularUplink(_wanUplinkIfName))
+        {
+            State.AccessTechnology = AccessTechnology.Cellular;
+            State.AccessTechnologyInferred = true;
+            _logger.LogDebug("Tracer: access technology set to Cellular from the {Uplink} uplink", _wanUplinkIfName);
+        }
+
         if (State.AccessTechnology is AccessTechnology.Unknown or AccessTechnology.PppoE)
         {
             var inferred = TechnologyFromVendor(State.WanNeighborOuiVendor);
@@ -1217,8 +1228,15 @@ public class UpstreamTracerService
         // the first responsive hops are all private). Carrier-side CGNAT
         // hops (also private, Asn == null) are still eligible - they ARE
         // first-mile access infra.
+        // On a cellular WAN the gateway reaches the modem over a GRE tunnel, so hop 1 is the modem's
+        // own tunnel endpoint - a CGNAT address on our side of the radio that answers every trace and
+        // says nothing about the carrier's first mile. Dropped only for gre* uplinks: everywhere else
+        // hop 1 IS the ISP's first-mile device, and carrier CGNAT hops past this one stay eligible.
+        var greUplink = GatewayWanHelper.IsCellularUplink(_wanUplinkIfName);
+
         var candidateHops = _mergedHops
             .Where(h => !_gatewayIps.Contains(h.Address))
+            .Where(h => !greUplink || h.HopNumber > 1)
             .ToList();
 
         // Resolve the destination (CDN) ASNs up front: the access-ISP pick below must

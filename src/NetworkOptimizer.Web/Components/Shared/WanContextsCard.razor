@@ -1,7 +1,11 @@
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
 @using Microsoft.EntityFrameworkCore
 @using NetworkOptimizer.Storage.Models
 @using NetworkOptimizer.UniFi
+@using NetworkOptimizer.Web.Services.Authorization
 @using NetworkOptimizer.Web.Services.Monitoring
+@inject IAuthorizationService Authz
 @inject NetworkOptimizer.Storage.Services.SiteDbContextFactory SiteDb
 @inject SiteContextService SiteCtx
 @inject IDbContextFactory<NetworkOptimizerDbContext> MainDbFactory
@@ -527,8 +531,24 @@
         catch { }
     }
 
+    /// <summary>
+    /// Whether this user may add, change or remove a vantage on this site. The markup already hides
+    /// those controls from anyone below Site Admin; this is the same rule where the work actually
+    /// happens, so it no longer depends on which wrapper a button happens to sit inside.
+    /// </summary>
+    private bool _canConfigure = true;
+
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
     protected override async Task OnParametersSetAsync()
     {
+        // The same policy against the same resource as the SiteAdminOnly wrapper around these
+        // controls, so it can only ever reject someone who had no button to press. Resolved on every
+        // parameter set because the site can change under the card. No cascading state means no
+        // authentication is in play at all, which is the one case that must not lock anyone out.
+        _canConfigure = AuthState is null
+            || (await Authz.AuthorizeAsync((await AuthState).User, SiteCtx.Slug, Policies.SiteAdmin)).Succeeded;
+
         try
         {
             await using var db = CreateDb();
@@ -548,6 +568,7 @@
     /// </summary>
     private async Task ShowAddAsync()
     {
+        if (!_canConfigure) return;
         ResetForm();
         await LoadPickerDataAsync();
         _showForm = true;
@@ -566,6 +587,7 @@
 
     private async Task EditContextAsync(WanContext context)
     {
+        if (!_canConfigure) return;
         ResetForm();
         _editingId = context.Id;
         _newName = context.Name;
@@ -892,6 +914,7 @@
 
     private async Task SaveContextAsync()
     {
+        if (!_canConfigure) return;
         _addError = null;
         // An empty field takes the suggestion the placeholder was showing, so what the user saw
         // before saving is what gets saved.
@@ -966,6 +989,7 @@
 
     private async Task DeleteContextAsync(int contextId)
     {
+        if (!_canConfigure) return;
         try
         {
             await using var db = CreateDb();

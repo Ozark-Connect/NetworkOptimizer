@@ -97,6 +97,14 @@ public static class GatewayWanHelper
     /// <see cref="FormatWanLabel"/> reads as "no WAN label".
     /// </summary>
     /// <summary>
+    /// Whether a WAN's uplink interface is a UniFi cellular modem. The gateway reaches an attached
+    /// 5G/LTE modem over a GRE tunnel, and nothing else on a UniFi gateway presents as <c>gre*</c>,
+    /// so the interface name identifies the medium outright rather than by inference.
+    /// </summary>
+    public static bool IsCellularUplink(string? uplinkIfName) =>
+        uplinkIfName?.TrimStart().StartsWith("gre", StringComparison.OrdinalIgnoreCase) == true;
+
+    /// <summary>
     /// A WAN token cut down to its index for tight layouts ("WAN2" -> "2"), where the column is
     /// narrow enough that repeating "WAN" on every row costs more than it says. Anything that is
     /// not a token - a connection name, from a label that carried none - comes back untouched.
