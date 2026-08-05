@@ -694,14 +694,19 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
             var agents = new List<ProbeVantageAgent>();
             foreach (var connection in connections)
             {
-                var context = contexts.FirstOrDefault(c => c.AgentId == connection.AgentId);
+                var bindings = contexts
+                    .Where(c => c.AgentId == connection.AgentId)
+                    .Select(c => new ProbeVantageBinding(
+                        c.Id,
+                        c.Name,
+                        WanLabelFor(wans, c.WanInterface),
+                        c.InterfaceName ?? c.ProbeSourceIp))
+                    .ToList();
                 agents.Add(new ProbeVantageAgent(
                     connection.AgentId,
                     agentNames.GetValueOrDefault(connection.AgentId, connection.AgentName),
                     await OnGatewayDetector.MatchGatewayAddressAsync(SiteContext.Slug, connection.HostAddresses) != null,
-                    context?.Name,
-                    WanLabelFor(wans, context?.WanInterface),
-                    context?.InterfaceName ?? context?.ProbeSourceIp));
+                    bindings));
             }
 
             _probeVantages = ProbeVantages.ForPicker(
@@ -957,8 +962,15 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
         if (_fromKey == "server") return ExecutorFactory.GetServer();
         // A named agent runs the probe itself, rather than whichever agent the site's "server"
         // vantage resolves to - the point of picking it is that it sits behind a given WAN.
-        if (_fromKey.StartsWith("agent:") && int.TryParse(_fromKey.AsSpan("agent:".Length), out var vantageAgentId))
-            return ExecutorFactory.ForAgent(vantageAgentId);
+        if (_fromKey.StartsWith("agent:"))
+        {
+            // "agent:{id}" or "agent:{id}:{vantageId}" - the vantage decides the binding, which
+            // the picker option already carries, so only the agent id is needed here.
+            var rest = _fromKey.AsSpan("agent:".Length);
+            var separator = rest.IndexOf(':');
+            if (int.TryParse(separator >= 0 ? rest[..separator] : rest, out var vantageAgentId))
+                return ExecutorFactory.ForAgent(vantageAgentId);
+        }
         if (_fromKey.StartsWith("device:"))
         {
             var mac = _fromKey.Substring("device:".Length);

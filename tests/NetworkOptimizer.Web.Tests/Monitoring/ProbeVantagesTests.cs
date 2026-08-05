@@ -14,9 +14,12 @@ namespace NetworkOptimizer.Web.Tests.Monitoring;
 public class ProbeVantagesTests
 {
     private static ProbeVantageAgent Agent(
-        int id, string name, bool onGateway = false, string? context = null,
-        string? wanLabel = null, string? bind = null)
-        => new(id, name, onGateway, context, wanLabel, bind);
+        int id, string name, bool onGateway = false, params ProbeVantageBinding[] vantages)
+        => new(id, name, onGateway, vantages);
+
+    private static ProbeVantageBinding Vantage(
+        int id, string name, string? wanLabel = null, string? bind = null)
+        => new(id, name, wanLabel, bind);
 
     [Fact]
     public void ServerOnly_OffersNoPicker()
@@ -41,12 +44,12 @@ public class ProbeVantagesTests
     {
         var options = ProbeVantages.ForPicker(true, "Network Optimizer server", new[]
         {
-            Agent(7, "Agent1", context: "backup-wan", wanLabel: "Backup ISP WAN2", bind: "198.51.100.7")
+            Agent(7, "Agent1", false, Vantage(4, "backup-wan", "Backup ISP WAN2", "198.51.100.7"))
         });
 
-        options.Select(o => o.Key).Should().Equal("server", "agent:7");
+        options.Select(o => o.Key).Should().Equal("server", "agent:7:4");
         options[0].AgentId.Should().BeNull();
-        options[1].Label.Should().Be("Agent1 (backup-wan, Backup ISP WAN2)");
+        options[1].Label.Should().Be("Agent1 - Backup ISP WAN2");
         options[1].AgentId.Should().Be(7);
         options[1].SourceBind.Should().Be("198.51.100.7");
     }
@@ -58,34 +61,54 @@ public class ProbeVantagesTests
         // and these two are never collapsed into one entry.
         var options = ProbeVantages.ForPicker(true, "Network Optimizer server", new[]
         {
-            Agent(3, "Agent1", onGateway: true, context: "wan2-context", wanLabel: "Backup ISP WAN2", bind: "eth8")
+            Agent(3, "Agent1", true, Vantage(9, "wan2-context", "Backup ISP WAN2", "eth8"))
         });
 
         options.Should().HaveCount(2);
-        options[1].Label.Should().Be("Agent1 (wan2-context, Backup ISP WAN2, on the gateway)");
+        options[1].Label.Should().Be("Agent1 - Backup ISP WAN2 (gateway)");
         options[1].SourceBind.Should().Be("eth8");
     }
 
     [Fact]
     public void OnGatewayAgentWithNoContext_StillCarriesTheMarker()
     {
-        var label = ProbeVantages.LabelFor(Agent(4, "Agent2", onGateway: true));
+        var label = ProbeVantages.LabelFor(Agent(4, "Agent2", onGateway: true), null);
 
-        label.Should().Be("Agent2 (on the gateway)");
+        label.Should().Be("Agent2 (gateway)");
     }
 
     [Fact]
     public void PlainAgent_IsJustItsName()
     {
-        ProbeVantages.LabelFor(Agent(5, "Agent3")).Should().Be("Agent3");
+        ProbeVantages.LabelFor(Agent(5, "Agent3"), null).Should().Be("Agent3");
     }
 
     [Fact]
     public void ContextWithNoKnownWan_LabelsTheContextAlone()
     {
-        // The console can be unreachable when the list is built; the context still names itself.
-        ProbeVantages.LabelFor(Agent(6, "Agent4", context: "backup-wan"))
-            .Should().Be("Agent4 (backup-wan)");
+        // The console can be unreachable when the list is built; the vantage still names itself.
+        ProbeVantages.LabelFor(Agent(6, "Agent4"), Vantage(2, "backup-wan"))
+            .Should().Be("Agent4 - backup-wan");
+    }
+
+    [Fact]
+    public void AnAgentWithSeveralVantages_OffersOneEntryEach()
+    {
+        // Each vantage binds differently, so each is its own place to probe from. Offered as one
+        // entry per agent, the picker had to choose a binding and probes left by whichever
+        // vantage sorted first.
+        var options = ProbeVantages.ForPicker(true, "Network Optimizer server", new[]
+        {
+            Agent(67, "Agent 2", true,
+                Vantage(11, "Yelcot Cable (WAN4)", "Yelcot Cable WAN4", "eth1"),
+                Vantage(12, "Starlink (WAN2)", "Starlink WAN2", "eth0"))
+        });
+
+        options.Select(o => o.Key).Should().Equal("server", "agent:67:12", "agent:67:11");
+        options[1].Label.Should().Be("Agent 2 - Starlink WAN2 (gateway)");
+        options[1].SourceBind.Should().Be("eth0");
+        options[2].Label.Should().Be("Agent 2 - Yelcot Cable WAN4 (gateway)");
+        options[2].SourceBind.Should().Be("eth1");
     }
 
     [Fact]
@@ -93,10 +116,10 @@ public class ProbeVantagesTests
     {
         var options = ProbeVantages.ForPicker(false, "On-site agent", new[]
         {
-            Agent(2, "Zulu"), Agent(1, "Alpha", context: "backup-wan")
+            Agent(2, "Zulu"), Agent(1, "Alpha", false, Vantage(3, "backup-wan"))
         });
 
-        options.Select(o => o.Key).Should().Equal("agent:1", "agent:2");
+        options.Select(o => o.Key).Should().Equal("agent:1:3", "agent:2");
         options.Should().NotContain(o => o.Key == ProbeVantages.ServerKey);
     }
 }

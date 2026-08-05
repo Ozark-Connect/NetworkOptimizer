@@ -326,7 +326,7 @@
                 }
             </div>
             @{ var ispTarget = ScopedTargetStats(MonitoringTargetType.AccessIsp, meanAcrossTargets: false); }
-            <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => NavigationManager.NavigateTo("/monitoring?tab=performance&category=AccessIsp"))">
+            <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => JumpToAnalysis(AccessIspCategory))">
                 @if (LiveWan.IsComparing)
                 {
                     <div class="stat-value stat-value-stacked">
@@ -346,7 +346,7 @@
                 }
                 <div class="stat-label">ISP RTT</div>
             </div>
-            <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => NavigationManager.NavigateTo("/monitoring?tab=performance&category=AccessIsp"))">
+            <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => JumpToAnalysis(AccessIspCategory))">
                 @if (LiveWan.IsComparing)
                 {
                     <div class="stat-value stat-value-stacked">
@@ -367,7 +367,7 @@
                 <div class="stat-label">ISP Loss</div>
             </div>
             @{ var transitTarget = ScopedTargetStats(MonitoringTargetType.Transit, meanAcrossTargets: true); }
-            <div class="monitoring-stat-card clickable-stat-card stat-card-no-minheight" @onclick="@(() => NavigationManager.NavigateTo("/monitoring?tab=performance&category=Transit"))">
+            <div class="monitoring-stat-card clickable-stat-card stat-card-no-minheight" @onclick="@(() => JumpToAnalysis(TransitCategory))">
                 @if (LiveWan.IsComparing)
                 {
                     <div class="stat-value stat-value-stacked">
@@ -387,7 +387,7 @@
                 }
                 <div class="stat-label">Transit RTT</div>
             </div>
-            <div class="monitoring-stat-card clickable-stat-card stat-card-no-minheight" @onclick="@(() => NavigationManager.NavigateTo("/monitoring?tab=performance&category=Transit"))">
+            <div class="monitoring-stat-card clickable-stat-card stat-card-no-minheight" @onclick="@(() => JumpToAnalysis(TransitCategory))">
                 @if (LiveWan.IsComparing)
                 {
                     <div class="stat-value stat-value-stacked">
@@ -3312,6 +3312,7 @@
     private const string FabricCategory = "Fabric";
     private const string AccessIspCategory = "AccessIsp";
     private const string CustomCategory = "Custom";
+    private const string TransitCategory = "Transit";
 
     /// <summary>
     /// The <c>?at=</c> value meaning "it was live, not parked" - the analysis lands on a trailing
@@ -3688,11 +3689,16 @@
     /// Carries the live tiles' WAN into the ISP Health link, so clicking a WAN's score opens that
     /// WAN's report. The two selections have their own storage on purpose - watching a WAN should
     /// not move the analysis focus - but following a link IS the intent to move it, so the
-    /// parameter travels and the panel adopts it. Empty for the primary, whose report is the
-    /// default anyway.
+    /// parameter travels and the panel adopts it.
+    /// <para>
+    /// The PRIMARY is named too. Leaving it out on the grounds that its report is the default
+    /// assumed the destination had no opinion, and it does: it remembers the WAN it was last left
+    /// on. Clicking WAN1's score after reading WAN4's report opened WAN4 again, which is the one
+    /// case where the tile and what it opens disagree outright.
+    /// </para>
     /// </summary>
     private string IspHealthWanQuery() =>
-        LiveWan.Selected is { IsPrimary: false } w ? $"&wan={Uri.EscapeDataString(w.Key)}" : "";
+        LiveWan.Selected is { } w ? $"&wan={Uri.EscapeDataString(w.Key)}" : "";
 
     /// <summary>Same land-and-highlight as the discovery link, for the card a WAN needs first.</summary>
     private async Task ScrollToWanContextsAsync()
