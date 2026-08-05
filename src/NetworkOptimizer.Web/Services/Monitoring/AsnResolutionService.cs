@@ -83,8 +83,18 @@ public class AsnResolutionService
         try
         {
             if (_cache.TryGetValue(ipAddress, out cached)) return cached;
+            // Logged per lookup, with how long it took: the offline database answers everything it
+            // can before this point, so each of these is a public address it did not know. A run
+            // that reaches the network repeatedly, or slowly, is worth seeing - previously a whois
+            // call left no trace at all unless it threw, which is why a hang looked like a silent
+            // stall rather than a lookup.
+            var startedAt = System.Diagnostics.Stopwatch.GetTimestamp();
             var result = await QueryBgpToolsWhoisAsync(ipAddress, ct);
             _cache[ipAddress] = result;
+            _logger.LogDebug("ASN: whois fallback for {Ip} took {Ms} ms -> {Result}",
+                ipAddress,
+                (int)System.Diagnostics.Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds,
+                result == null ? "no attribution" : $"AS{result.Asn}");
             return result;
         }
         finally
