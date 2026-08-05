@@ -4452,11 +4452,11 @@
             @{ var fabricLoad = GetTotalFabricLoad(); }
             <div class="monitoring-stat-pair">
                 <div class="monitoring-stat-card">
-                    <div class="stat-value" style="color: #3b82f6;">@FormatRate(fabricLoad.ingress)</div>
+                    <div class="stat-value" style="color: var(--speed-download-color);">@FormatRate(fabricLoad.ingress)</div>
                     <div class="stat-label">Fabric Ingress</div>
                 </div>
                 <div class="monitoring-stat-card">
-                    <div class="stat-value" style="color: #10b981;">@FormatRate(fabricLoad.egress)</div>
+                    <div class="stat-value" style="color: var(--speed-upload-color);">@FormatRate(fabricLoad.egress)</div>
                     <div class="stat-label">Fabric Egress</div>
                 </div>
             </div>
