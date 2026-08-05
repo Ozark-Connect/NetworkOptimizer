@@ -1711,6 +1711,9 @@
                         <div @onclick='() => SelectEventType("monitoring.target_offline")'><code>monitoring.target_offline</code> <span>Probe target went offline</span></div>
                         <div @onclick='() => SelectEventType("monitoring.target_recovered")'><code>monitoring.target_recovered</code> <span>Probe target came back online</span></div>
                         <div @onclick='() => SelectEventType("monitoring.target_sustained_loss")'><code>monitoring.target_sustained_loss</code> <span>Sustained packet loss detected</span></div>
+                        <div @onclick='() => SelectEventType("monitoring.wan_outage")'><code>monitoring.wan_outage</code> <span>Internet down on a WAN - one alert per outage instead of one per target</span></div>
+                        <div @onclick='() => SelectEventType("monitoring.wan_outage_partial")'><code>monitoring.wan_outage_partial</code> <span>Partial internet outage on a WAN - some destinations unreachable while the connection still passes traffic</span></div>
+                        <div @onclick='() => SelectEventType("monitoring.wan_recovered")'><code>monitoring.wan_recovered</code> <span>A WAN's internet connection is back</span></div>
                         <div @onclick='() => SelectEventType("monitoring.sfp_rx_power")'><code>monitoring.sfp_rx_power</code> <span>SFP/PON RX power below threshold</span></div>
                         <div @onclick='() => SelectEventType("monitoring.sfp_tx_power")'><code>monitoring.sfp_tx_power</code> <span>SFP/PON TX power above threshold</span></div>
                         <div @onclick='() => SelectEventType("monitoring.sfp_temperature")'><code>monitoring.sfp_temperature</code> <span>SFP temperature above threshold</span></div>

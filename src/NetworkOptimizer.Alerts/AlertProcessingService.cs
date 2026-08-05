@@ -127,6 +127,10 @@ public class AlertProcessingService : BackgroundService
         scope.ServiceProvider.GetRequiredService<IAlertSiteScope>().UseSite(alertEvent.SiteSlug);
         var repository = scope.ServiceProvider.GetRequiredService<IAlertRepository>();
 
+        // Close whatever this event supersedes before any rule is consulted, so an install with
+        // no rule for the recovery event still gets its outage alerts closed.
+        await ResolveSupersededWanAlertsAsync(alertEvent, repository, cancellationToken);
+
         var siteKey = alertEvent.SiteSlug ?? "";
         var rules = await GetRulesAsync(repository, siteKey, cancellationToken);
 
@@ -157,6 +161,89 @@ public class AlertProcessingService : BackgroundService
             {
                 _logger.LogError(ex, "Failed to process rule {RuleId} for event {EventType}", rule.Id, alertEvent.EventType);
             }
+        }
+    }
+
+    // --- WAN outage alerts: an open/close family, unlike the rest of the alert catalog ---
+    //
+    // The three monitoring.wan_* event types maintain at most one open alert per (WAN, kind).
+    // A WAN raises a partial outage while part of the path out is unreachable but traffic still
+    // flows, and a total outage once the whole WAN is confirmed down; "all-wans" is the site-level
+    // rollup raised when every WAN is out at once. Both kinds close themselves: monitoring.wan_recovered
+    // closes the WAN's open outage alerts (and invalidates any rollup, since a rollup asserts that
+    // every WAN was out), and a confirmed total outage supersedes the partial it grew out of rather
+    // than stacking a second open alert on the same WAN.
+    //
+    // Per-target monitoring alerts (monitoring.target_offline and friends) have no such pairing and
+    // stay open until a user resolves them, so this closing step applies to the WAN family only.
+
+    internal const string WanOutageEventType = "monitoring.wan_outage";
+    internal const string WanOutagePartialEventType = "monitoring.wan_outage_partial";
+    internal const string WanRecoveredEventType = "monitoring.wan_recovered";
+
+    /// <summary>DeviceId carried by the site-level rollup alert, instead of a single WAN's key.</summary>
+    internal const string AllWansDeviceId = "all-wans";
+
+    /// <summary>
+    /// Decides which open alerts an incoming event closes: each entry is the set of event types to
+    /// resolve for one DeviceId. Empty for every event outside the WAN outage family.
+    /// </summary>
+    internal static List<(string[] EventTypes, string DeviceId)> GetWanAlertsToResolve(string eventType, string? deviceId)
+    {
+        var targets = new List<(string[] EventTypes, string DeviceId)>();
+        var wanKey = deviceId?.Trim();
+
+        if (eventType == WanRecoveredEventType)
+        {
+            // A recovery closes this WAN's own outage alerts, whichever kind is open...
+            if (!string.IsNullOrEmpty(wanKey))
+                targets.Add(([WanOutageEventType, WanOutagePartialEventType], wanKey));
+
+            // ...and invalidates the site rollup, which claimed every WAN was out.
+            targets.Add(([WanOutageEventType], AllWansDeviceId));
+        }
+        else if (eventType == WanOutageEventType && !string.IsNullOrEmpty(wanKey) && wanKey != AllWansDeviceId)
+        {
+            // The total outage supersedes the partial that preceded it on the same WAN.
+            targets.Add(([WanOutagePartialEventType], wanKey));
+        }
+
+        return targets;
+    }
+
+    /// <summary>
+    /// Closes the open WAN outage alerts this event supersedes and re-derives the status of any
+    /// incident they belonged to. Failures are logged and swallowed: resolution is housekeeping and
+    /// must never stop the event from being processed into an alert.
+    /// </summary>
+    internal async Task ResolveSupersededWanAlertsAsync(
+        AlertEvent alertEvent,
+        IAlertRepository repository,
+        CancellationToken cancellationToken)
+    {
+        var targets = GetWanAlertsToResolve(alertEvent.EventType, alertEvent.DeviceId);
+        if (targets.Count == 0)
+            return;
+
+        try
+        {
+            foreach (var (eventTypes, deviceId) in targets)
+            {
+                var resolved = await repository.ResolveActiveAlertsAsync(eventTypes, deviceId, cancellationToken);
+                if (resolved.Count == 0)
+                    continue;
+
+                _logger.LogDebug("Closed {Count} open WAN alert(s) for {DeviceId} on {EventType}",
+                    resolved.Count, deviceId, alertEvent.EventType);
+
+                foreach (var alert in resolved)
+                    await AlertCorrelationService.RecalculateIncidentStatusAsync(alert, repository, cancellationToken);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to close open WAN alerts for event {EventType} ({DeviceId})",
+                alertEvent.EventType, alertEvent.DeviceId);
         }
     }
 

@@ -292,20 +292,6 @@ public sealed class AlertConfigService : IAlertConfigService
         return alert;
     }
 
-    private async Task RecalculateIncidentStatusAsync(AlertHistoryEntry alert)
-    {
-        if (!alert.IncidentId.HasValue) return;
-
-        var incident = await _alerts.GetIncidentAsync(alert.IncidentId.Value);
-        if (incident == null) return;
-
-        var incidentAlerts = await _alerts.GetAlertsByIncidentIdAsync(incident.Id);
-        var (newStatus, resolvedAt) = AlertCorrelationService.DeriveIncidentStatus(incidentAlerts);
-
-        if (newStatus == incident.Status) return;
-
-        incident.Status = newStatus;
-        incident.ResolvedAt = resolvedAt;
-        await _alerts.UpdateIncidentAsync(incident);
-    }
+    private Task RecalculateIncidentStatusAsync(AlertHistoryEntry alert)
+        => AlertCorrelationService.RecalculateIncidentStatusAsync(alert, _alerts);
 }

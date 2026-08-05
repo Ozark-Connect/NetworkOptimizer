@@ -399,6 +399,45 @@ public class AlertRepository : IAlertRepository
         }
     }
 
+    public async Task<List<AlertHistoryEntry>> ResolveActiveAlertsAsync(
+        IReadOnlyCollection<string> eventTypes,
+        string deviceId,
+        CancellationToken cancellationToken = default)
+    {
+        if (eventTypes.Count == 0 || string.IsNullOrEmpty(deviceId))
+            return [];
+
+        try
+        {
+            // Tracked on purpose: these rows are read to be written back in the same call.
+            var types = eventTypes.ToList();
+            var open = await _context.AlertHistory
+                .Where(a => a.Status == AlertStatus.Active
+                    && a.DeviceId == deviceId
+                    && types.Contains(a.EventType))
+                .ToListAsync(cancellationToken);
+
+            if (open.Count == 0)
+                return [];
+
+            var resolvedAt = DateTime.UtcNow;
+            foreach (var alert in open)
+            {
+                alert.Status = AlertStatus.Resolved;
+                alert.ResolvedAt = resolvedAt;
+            }
+
+            await _context.SaveChangesAsync(cancellationToken);
+            _logger.LogInformation("Resolved {Count} active alert(s) for {DeviceId}", open.Count, deviceId);
+            return open;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to resolve active alerts for {DeviceId}", deviceId);
+            throw;
+        }
+    }
+
     #endregion
 
     #region Alert Incidents

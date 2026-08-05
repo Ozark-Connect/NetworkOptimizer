@@ -37,6 +37,31 @@ public class AlertCorrelationService
     }
 
     /// <summary>
+    /// Re-derives the status of the incident an alert belongs to from the statuses of every alert
+    /// in that incident, and persists it when it changed. No-op for an uncorrelated alert. Shared
+    /// by the UI's acknowledge/resolve actions and by the pipeline's automatic resolution.
+    /// </summary>
+    public static async Task RecalculateIncidentStatusAsync(
+        AlertHistoryEntry alert,
+        IAlertRepository repository,
+        CancellationToken cancellationToken = default)
+    {
+        if (!alert.IncidentId.HasValue) return;
+
+        var incident = await repository.GetIncidentAsync(alert.IncidentId.Value, cancellationToken);
+        if (incident == null) return;
+
+        var incidentAlerts = await repository.GetAlertsByIncidentIdAsync(incident.Id, cancellationToken);
+        var (newStatus, resolvedAt) = DeriveIncidentStatus(incidentAlerts);
+
+        if (newStatus == incident.Status) return;
+
+        incident.Status = newStatus;
+        incident.ResolvedAt = resolvedAt;
+        await repository.UpdateIncidentAsync(incident, cancellationToken);
+    }
+
+    /// <summary>
     /// Derive a correlation key from an alert event.
     /// Events with the same key within the correlation window will be grouped.
     /// </summary>

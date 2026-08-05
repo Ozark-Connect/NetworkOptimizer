@@ -34,6 +34,13 @@ public interface IAlertRepository
     Task<List<AlertHistoryEntry>> GetUnresolvedAlertsAsync(CancellationToken cancellationToken = default);
     Task<List<AlertHistoryEntry>> GetAlertsByIncidentIdAsync(int incidentId, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Marks every active alert of the given event types on the given device as resolved and
+    /// returns the entries that were closed. Used by the alert pipeline to close open WAN outage
+    /// alerts when their recovery - or a superseding total outage - event arrives.
+    /// </summary>
+    Task<List<AlertHistoryEntry>> ResolveActiveAlertsAsync(IReadOnlyCollection<string> eventTypes, string deviceId, CancellationToken cancellationToken = default);
+
     // --- Alert Incidents ---
     Task<int> SaveIncidentAsync(AlertIncident incident, CancellationToken cancellationToken = default);
     Task UpdateIncidentAsync(AlertIncident incident, CancellationToken cancellationToken = default);
