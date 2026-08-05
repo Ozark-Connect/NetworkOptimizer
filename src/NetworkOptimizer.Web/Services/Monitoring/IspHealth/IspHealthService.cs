@@ -953,11 +953,11 @@ public class IspHealthService
 
         var offPathIsp = ispWithSeries.Except(ispForPool).ToList();
         if (offPathIsp.Count > 0)
-            _logger.LogInformation(
+            _logger.LogDebug(
                 "ISP Health: excluding {Count} off-path access hop(s) from the loss pool: {Targets}",
                 offPathIsp.Count, string.Join(", ", offPathIsp.Select(t => t.Address)));
         else if (onPathIsp.Count == 0 && ispWithSeries.Count > 0)
-            _logger.LogInformation(
+            _logger.LogDebug(
                 "ISP Health: keeping {Count} off-path access hop(s) in the loss pool - the site has no on-path access hop",
                 ispWithSeries.Count);
 

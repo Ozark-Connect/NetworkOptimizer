@@ -89,6 +89,26 @@ public class IspHealthOptions
     /// smallest run that is not a fluke; below that the weighted median decides as before.
     /// </para>
     /// </summary>
+    public int LoadedLatencyRegimeSamples { get; set; } = 3;
+
+    /// <summary>
+    /// The share of the plan a WAN speed test must have reached IN THAT DIRECTION before its
+    /// loaded latency may stand in for the measured delta. A test that never filled the pipe did
+    /// not load the buffers either, so its latency describes something other than this link at
+    /// saturation - and since the substitution only ever raises the figure, admitting those would
+    /// bias every matched episode upward with nothing able to correct it. Judged per direction: a
+    /// test that saturated the downstream and not the upstream still speaks for the downstream.
+    /// </summary>
+    public double LoadedLatencySpeedTestMinPlanFraction { get; set; } = 0.7;
+
+    /// <summary>
+    /// How far from a load episode a WAN speed test may sit and still be taken as the measurement
+    /// OF that episode. Only wide enough to bridge the stored instant of a test and the span of
+    /// the load it caused - a test runs for tens of seconds, so anything past that is a different
+    /// event and must not speak for this one.
+    /// </summary>
+    public double LoadedLatencySpeedTestMatchSeconds { get; set; } = 30;
+
     /// <summary>
     /// How close in time two hops' samples must be to count as the same instant for the
     /// cross-hop agreement check. One second: close enough that the same queue state is being
@@ -102,8 +122,6 @@ public class IspHealthOptions
     /// are - see <see cref="SeriesStats.CommonModeByInstant"/>.
     /// </summary>
     public int LoadedLatencyAgreementMinCohort { get; set; } = 4;
-
-    public int LoadedLatencyRegimeSamples { get; set; } = 3;
 
     /// <summary>
     /// How far below the older tests the recent run has to sit to count as a fix: at 0.5, every one

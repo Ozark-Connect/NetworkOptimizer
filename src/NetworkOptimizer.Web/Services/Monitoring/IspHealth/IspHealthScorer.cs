@@ -508,6 +508,46 @@ public class IspHealthScorer
     /// was clean still reported the median of a handful of stray samples.
     /// </para>
     /// </summary>
+    /// <summary>
+    /// Raises one episode's delta to a WAN speed test's own loaded-vs-idle figure when a test ran
+    /// during it and read higher, in the SAME direction.
+    /// <para>
+    /// A test carries its own idle reference (<see cref="SpeedTestSample.PingMs"/>) taken by the
+    /// same probe against the same endpoint seconds apart, so the difference needs no baseline of
+    /// ours and inherits none of its blind spots.
+    /// </para>
+    /// <para>
+    /// Deliberately one-directional, and deliberately per-episode. Taking the larger of two
+    /// estimates biases upward wherever both are about right, so it is confined to the episodes a
+    /// test actually overlapped rather than allowed to lift the whole factor.
+    /// </para>
+    /// </summary>
+    private double LiftToSpeedTest(
+        DateTime start, DateTime end, double measured, IspHealthInputs inputs, bool upstream)
+    {
+        var tolerance = TimeSpan.FromSeconds(Math.Max(0, _options.LoadedLatencySpeedTestMatchSeconds));
+        var best = measured;
+        foreach (var test in inputs.WanSpeedTests)
+        {
+            if (test.Time < start - tolerance || test.Time > end + tolerance) continue;
+            var underLoad = upstream ? test.UploadLatencyMs : test.DownloadLatencyMs;
+            if (!underLoad.HasValue || !test.PingMs.HasValue) continue;
+
+            // Only a test that actually filled the pipe measured this link under load. Without
+            // this the lift is genuinely biased: a stalled or server-limited test reads high for
+            // reasons that are not your access queue, and nothing downstream can pull it back.
+            // Unknown plan speed means the question cannot be asked, so the test is not used.
+            var achieved = upstream ? test.UploadMbps : test.DownloadMbps;
+            var expected = upstream ? inputs.ExpectedUploadMbps : inputs.ExpectedDownloadMbps;
+            if (!(expected > 0) || achieved < expected * _options.LoadedLatencySpeedTestMinPlanFraction)
+                continue;
+
+            var delta = underLoad.Value - test.PingMs.Value;
+            if (delta > best) best = delta;
+        }
+        return best;
+    }
+
     private static double EpisodeDelta(List<double> deltas, double noiseFloor)
     {
         var credible = deltas.Where(d => d >= noiseFloor).ToList();
@@ -952,6 +992,30 @@ public class IspHealthScorer
         // their newest, and always-clean lines have no elevated episodes to go stale.
         if (episodes.Count == 0 || pooled.Count < _options.MinLoadedSamples) return null;
 
+        // Where a WAN speed test ran during an episode, it measured the same event on purpose and
+        // at full saturation, while these probes only sampled it on their own cadence - so a short
+        // event's peak queue can build and drain between two probes and never be seen. Taken only
+        // when it reads HIGHER: that is the direction passive sampling fails in. When the test
+        // reads lower, the series saw something the test's own window did not cover, and the
+        // measurement stands.
+        var episodeEnds = episodeStarts
+            .GroupBy(kv => kv.Value)
+            .ToDictionary(g => g.Key, g => g.Max(kv => kv.Key)
+                .AddSeconds(Math.Max(1, _options.LoadWindowSeconds)));
+        // The best any speed test measured during a load episode, or null if none qualified. Held
+        // aside and applied to the FINAL figure rather than to the episodes it came from: the
+        // figure is a median across episodes, and a median cannot be moved by one member however
+        // it is weighted - that is what a median is for. Lifting per-episode left the better
+        // instrument unable to change a reported number even once, which is not a safeguard, it
+        // is a feature that does nothing.
+        var speedTestDelta = episodes
+            .Select(e => LiftToSpeedTest(
+                e.Time, episodeEnds.TryGetValue(e.Time, out var end) ? end : e.Time,
+                double.NegativeInfinity, inputs, upstream))
+            .Where(d => !double.IsNegativeInfinity(d))
+            .DefaultIfEmpty(double.NegativeInfinity)
+            .Max();
+
         var loadWeight = BuildLoadWeighting(inputs, upstream, loaded);
         var stale = _options.LoadedLatencyElevationStaleEpisodes;
         var elevatedEpisodes = episodes.Where(e => e.Value >= noiseFloor).ToList();
@@ -992,7 +1056,9 @@ public class IspHealthScorer
         // The line was fixed: the elevated episodes describe a connection that no longer exists,
         // so only the clean run since speaks for it.
         if (verdict is { ElevationIsOver: true })
-            return Math.Max(0, SeriesStats.Median(verdict.CleanRun.Select(e => e.Value).ToList())!.Value);
+            return Math.Max(0, Math.Max(
+                SeriesStats.Median(verdict.CleanRun.Select(e => e.Value).ToList())!.Value,
+                speedTestDelta));
 
         // The reported figure is the median ACROSS EPISODES - what this line typically does under
         // load - weighted by recency and by how credible each episode's load was.
@@ -1002,7 +1068,9 @@ public class IspHealthScorer
         // and a WAN whose every episode was clean could still report tens of milliseconds off a
         // handful of stray samples. The floor still decides what counts as elevated for the
         // verdict above - it is not a filter on what gets reported.
-        return Math.Max(0, RecencyWeightedDelta(episodes, inputs.WindowEnd, loadWeight) ?? 0);
+        return Math.Max(0, Math.Max(
+            RecencyWeightedDelta(episodes, inputs.WindowEnd, loadWeight) ?? 0,
+            speedTestDelta));
     }
 
     private (IspScoreFactor Factor, bool HasData) ScoreLoadedLoss(
