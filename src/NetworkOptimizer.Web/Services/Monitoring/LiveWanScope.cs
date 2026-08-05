@@ -202,6 +202,24 @@ public sealed class LiveWanScope
     /// <summary>Whether every WAN is on screen, which is what the All pill means.</summary>
     public bool AllSelected => Options.Count > 1 && Options.All(o => _selected.Contains(o.Key));
 
+    /// <summary>
+    /// The current selection as a <c>?wan=</c> value - the whole set rather than just the focus,
+    /// so a comparison of two WANs arrives wherever the link goes as that same comparison.
+    /// </summary>
+    public string QueryValue() => AllSelected ? AllWansToken : string.Join(",", _selected);
+
+    /// <summary>
+    /// The <c>&amp;wan=...</c> fragment to append to a link, or an empty string when there is no
+    /// choice worth carrying (a single-WAN site, where every view is that WAN's already).
+    /// <paramref name="value"/> overrides the current selection for a link that means something
+    /// else by it - a LAN view asking for every WAN rather than the tiles' focus.
+    /// </summary>
+    public string QueryFragment(string? value = null)
+    {
+        var wan = value ?? QueryValue();
+        return HasChoice && wan.Length > 0 ? $"&wan={Uri.EscapeDataString(wan)}" : "";
+    }
+
     /// <summary>Puts every WAN on screen at once - the All pill.</summary>
     public async Task SelectAllAsync(bool persist = true)
     {

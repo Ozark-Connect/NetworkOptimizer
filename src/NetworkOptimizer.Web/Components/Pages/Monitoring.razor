@@ -3427,15 +3427,6 @@
     private const string LiveAtToken = "live";
 
     /// <summary>
-    /// The live WAN selection as a ?wan= value - the whole set rather than just the focus, so a
-    /// comparison of two WANs arrives at the other tab as that same comparison.
-    /// </summary>
-    private string LiveWanQueryValue() =>
-        LiveWan.AllSelected
-            ? Services.Monitoring.LiveWanScope.AllWansToken
-            : string.Join(",", LiveWan.SelectedKeys);
-
-    /// <summary>
     /// Opens Latency and Packet Loss on what the Live tab is showing: the same instant, the
     /// category for the thing being watched, and the WAN selection carried across. The analysis
     /// view's own saved filter survives untouched - navigateToTime stashes what it replaces and
@@ -3449,10 +3440,8 @@
             : LiveAtToken;
         // LAN targets are not reached over any one WAN, so that jump asks for all of them rather
         // than narrowing the analysis to whichever WAN the tiles happened to be showing.
-        var wan = category == FabricCategory
-            ? Services.Monitoring.LiveWanScope.AllWansToken
-            : LiveWanQueryValue();
-        var wanQuery = LiveWan.HasChoice && wan.Length > 0 ? $"&wan={Uri.EscapeDataString(wan)}" : "";
+        var wanQuery = LiveWan.QueryFragment(
+            category == FabricCategory ? Services.Monitoring.LiveWanScope.AllWansToken : null);
         NavigationManager.NavigateTo($"/monitoring?tab=performance&category={category}&at={at}{wanQuery}");
     }
 

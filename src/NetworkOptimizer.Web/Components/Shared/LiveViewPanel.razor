@@ -696,11 +696,8 @@ else
     /// </summary>
     private void JumpToAnalysis(string category)
     {
-        var wan = LiveWan.AllSelected
-            ? Services.Monitoring.LiveWanScope.AllWansToken
-            : string.Join(",", LiveWan.SelectedKeys);
-        var wanQuery = LiveWan.HasChoice && wan.Length > 0 ? $"&wan={Uri.EscapeDataString(wan)}" : "";
-        NavigationManager.NavigateTo($"/monitoring?tab=performance&category={category}{wanQuery}");
+        NavigationManager.NavigateTo(
+            $"/monitoring?tab=performance&category={category}{LiveWan.QueryFragment()}");
     }
 
     private (double? rtt, double loss) GetBestTargetStats(MonitoringTargetType type)
