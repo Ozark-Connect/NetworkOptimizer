@@ -8,6 +8,7 @@ import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=4';
 import { valueSortedTooltip, tooltipHeld } from './chart-tooltip.js?v=8';
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=4';
+import { downloadColor, uploadColor } from './chart-colors.js?v=1';
 
 const PALETTE = window.Apex?.colors || ['#7EB26D', '#EAB839', '#6ED0E0', '#EF843C', '#E24D42', '#1F78C1'];
 const _colorCache = {};
@@ -194,7 +195,7 @@ function buildWanRateOpts() {
     return baseChartOpts('area', 'Throughput',
         v => v != null ? formatBps(v) : '',
         {
-            colors: ['#3b82f6', '#10b981'],
+            colors: [downloadColor(), uploadColor()],
             fill: {
                 type: 'gradient',
                 gradient: { shadeIntensity: 0.3, opacityFrom: 0.3, opacityTo: 0.05 },

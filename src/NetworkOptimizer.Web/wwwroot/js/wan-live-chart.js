@@ -5,6 +5,7 @@
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 import * as flowData from './lan-flow-data.js?v=7';
 import { valueSortedTooltip } from './chart-tooltip.js?v=8';
+import { downloadColor, uploadColor } from './chart-colors.js?v=1';
 
 const HISTORY_MINUTES = 5;
 // Poll at twice the site's SNMP sample rate so no sample is missed when the two
@@ -24,8 +25,8 @@ const SCROLL_MS = 250;
 // foreground only, and the newest live samples are kept, so the smooth edge
 // never regresses.
 const BACKFILL_MS = 60000;
-const COLOR_DL   = '#3b82f6';
-const COLOR_UL   = '#10b981';
+const COLOR_DL   = downloadColor();
+const COLOR_UL   = uploadColor();
 const COLOR_LOSS = '#ef4444';
 const COLOR_RTT  = '#d946ef';
 
