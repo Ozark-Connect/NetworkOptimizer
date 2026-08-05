@@ -4988,6 +4988,9 @@
                     "  if (initialAt > 0) opts.initialAt = initialAt;" +
                     "  await m.mount(canvasId, opts);" +
                     "}");
+                Logger.LogDebug(
+                    "3D map mount: at={At} appliedAt={Applied} initialAtMs={InitialAt} tab={Tab}",
+                    AtParam, _appliedAtParam, initialAtMs, _activeTab);
                 await JS.InvokeVoidAsync("__mountLanFlowMap", "lan-flow-map-canvas", _mapDotNetRef,
                     SiteCtx.ScopeStorageKey("lanFlowMap"), initialAtMs);
             }
