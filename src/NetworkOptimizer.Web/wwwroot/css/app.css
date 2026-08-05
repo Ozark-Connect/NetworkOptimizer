@@ -15517,16 +15517,20 @@ a.affected-client:hover {
     color: var(--text-primary);
 }
 
+.monitoring-chart-header > .monitoring-jump-btn {
+    padding-right: 0.2rem;
+}
+
 .live-view-jump-row {
     display: flex;
     align-items: flex-start;
     gap: 0.5rem;
-    min-height: 2.15rem;
     margin-bottom: 0.75rem;
 }
 
 .live-view-jump-row .monitoring-jump-btn {
     margin-left: auto;
+    margin-top: auto;
 }
 
 
