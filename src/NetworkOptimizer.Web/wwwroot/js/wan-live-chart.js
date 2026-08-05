@@ -852,6 +852,9 @@ function syncModeUi() {
     if (!modeCluster) return;
     const historic = flowData.getMode() === 'historic';
     modeCluster.style.display = historic ? '' : 'none';
+    // Comparison mode clears the corner the single-WAN chart keeps occupied, so the cluster sits
+    // further right. Follows comparing() rather than a second notion of multi-WAN.
+    modeCluster.classList.toggle('is-comparing', comparing());
     if (!playBtn) return;
     const paused = flowData.isPaused();
     playBtn.textContent = paused ? '▶' : '⏸';
@@ -999,6 +1002,7 @@ async function doSetWans(wans) {
         await setWan(list[0]?.key ?? null);
         // A swap made while parked has to be drawn at the parked instant too.
         if (!pollTimer && histAt > 0) await seekTime(new Date(histAt).toISOString());
+        syncModeUi();
         return;
     }
     if (list.map(w => w.key).join(",") === compareWans.map(w => w.key).join(",")) return;
@@ -1008,6 +1012,9 @@ async function doSetWans(wans) {
     await remountChart();
     await loadCompareHistory();
     await redrawForCurrentTime();
+    // remountChart rebuilds the chart but not the cluster (it is parented outside), so the mode
+    // class has to be refreshed here rather than riding in on a mount.
+    syncModeUi();
 }
 
 /**

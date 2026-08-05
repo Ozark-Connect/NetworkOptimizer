@@ -69,7 +69,7 @@ else
                                 }@(wp.Name ?? w.Label)@if (wp.WanToken != null && wp.Name != null)
                                 {<span class="wan-pill-token">@wp.WanToken</span>}</button>
                     }
-                    <button class="time-btn @(LiveWan.AllSelected ? "active" : "")"
+                    <button class="time-btn wan-all-btn @(LiveWan.AllSelected ? "active" : "")"
                             @onclick="() => LiveWan.SelectAllAsync()">All</button>
                     @if (LiveWanIsNarrowed)
                     {
