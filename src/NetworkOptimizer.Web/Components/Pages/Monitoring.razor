@@ -4142,9 +4142,10 @@
     /// to a WAN, so a secondary WAN has none, and asking site-wide opens that WAN on the LAN
     /// category and draws an empty chart.
     /// <para>
-    /// Every rather than any, because the answer decides a category for the whole view. One WAN in
-    /// a comparison having no LAN targets makes LAN a chart that silently shows half the comparison
-    /// asked for - worse than an empty one, which at least reads as empty.
+    /// Any rather than every. The answer only decides whether a category is worth showing, and an
+    /// all-WAN scope routinely includes a WAN with no LAN targets of its own - refusing LAN over
+    /// that one hides the LAN targets every other WAN does have, which is the more surprising
+    /// outcome. A partial comparison is still the data someone asked to see; nothing at all is not.
     /// </para>
     /// <para>
     /// Falls back to the site-wide answer when no WAN is resolved - a single-WAN site, or one whose
@@ -4156,7 +4157,7 @@
         var scoped = _wanOptions.Where(w => _selectedWanKeys.Contains(w.Key)).ToList();
         return scoped.Count == 0
             ? HasUpstreamTargets(type)
-            : scoped.All(w => TargetsForWan(type, w.Key, w.IsPrimary).Count > 0);
+            : scoped.Any(w => TargetsForWan(type, w.Key, w.IsPrimary).Count > 0);
     }
 
     /// <summary>
