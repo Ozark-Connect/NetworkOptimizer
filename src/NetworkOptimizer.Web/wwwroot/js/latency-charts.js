@@ -6,7 +6,7 @@
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=4';
-import { valueSortedTooltip, tooltipHeld } from './chart-tooltip.js?v=7';
+import { valueSortedTooltip, tooltipHeld } from './chart-tooltip.js?v=8';
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=4';
 
 const PALETTE = window.Apex?.colors || ['#7EB26D', '#EAB839', '#6ED0E0', '#EF843C', '#E24D42', '#1F78C1'];
@@ -48,6 +48,41 @@ let visibilityObserver = null;
 let isInViewport = true;
 let lastFetchData = null;
 let savedState = null;
+// Per-WAN scope, set by Blazor (which owns the WAN pill bar and its visibility gate).
+// null = no scoping at all: single-WAN sites never reach this code path and render
+// exactly as before. Shape: { primaryKey, selected: [wanKey...], tokens: {key: 'WAN1'} };
+// selecting every key is comparison mode (per-host color kept, per-WAN dash pattern).
+let wanScope = null;
+// Dash patterns by WAN order: primary solid, then visibly distinct patterns per extra WAN.
+const WAN_DASH_PATTERNS = [0, 6, 2, 9];
+
+function effectiveWanKey(t) {
+    // Unstamped targets are primary-path measurements (same rule as the server side).
+    return (t.wanInterface || wanScope?.primaryKey || 'wan').toLowerCase();
+}
+
+function wanComparisonActive() {
+    return !!wanScope && wanScope.selected.length > 1;
+}
+
+function filterTargetsToWanScope(targets) {
+    if (!wanScope) return targets;
+    const sel = new Set(wanScope.selected.map(k => k.toLowerCase()));
+    return targets.filter(t => sel.has(effectiveWanKey(t)));
+}
+
+function wanDisplayName(t) {
+    if (!wanComparisonActive()) return t.name;
+    const key = effectiveWanKey(t);
+    const token = wanScope.tokens?.[key] || key.toUpperCase();
+    return `${t.name} (${token})`;
+}
+
+function wanDashFor(t) {
+    if (!wanComparisonActive()) return 0;
+    const idx = wanScope.selected.map(k => k.toLowerCase()).indexOf(effectiveWanKey(t));
+    return WAN_DASH_PATTERNS[Math.max(0, idx) % WAN_DASH_PATTERNS.length];
+}
 let investigateMarker = null;  // { startMs, endMs, label, loaded } while investigating a loss event
 
 // Highlight the investigated loss event on the RTT and loss charts, mirroring the
@@ -287,6 +322,15 @@ const SHARED_OUTAGE_MIN_TARGETS = 3;
 // live in Blazor (Monitoring.razor), which has the target metadata. Entirely best-effort:
 // wrapped so a failure here can never disturb chart rendering, and a no-op until Blazor has
 // handed us its DotNet reference via window.__netoptLatencyRef.
+// A ?at= in the URL says where a link wanted this window. The moment the user moves it themselves
+// that stops being true, so Blazor is told to drop the parameter - otherwise a reload or the back
+// button drags them back to the linked instant. Called from the user's own handlers only, never
+// from frameMoment/frameTrailing, which ARE the link landing. Best-effort, like the hints below.
+function notifyTimelineMoved() {
+    try { window.__netoptLatencyRef?.invokeMethodAsync('OnTimelineMovedByUser'); }
+    catch { /* no ref yet, or the circuit is gone - the window still moved */ }
+}
+
 function notifyLanFlakyHints(data) {
     try {
         const ref = window.__netoptLatencyRef;
@@ -340,32 +384,41 @@ async function loadAndUpdate() {
     const data = await fetchData();
     if (!data || !data.targets) return;
 
-    targetMeta = data.targets.map(t => ({
+    // WAN scoping is client-side over the full per-type payload: the fetch stays shared
+    // across WAN selections, and comparison mode simply keeps every WAN's rows. Twin rows
+    // of one host share a name (and therefore a color); the WAN suffix + dash pattern
+    // are what tells them apart in comparison mode.
+    const scopedTargets = filterTargetsToWanScope(data.targets);
+
+    targetMeta = scopedTargets.map(t => ({
         id: t.targetId,
-        name: t.name,
+        name: wanDisplayName(t),
         color: hashColor(t.name),
     }));
 
-    const rttSeries = data.targets.map(t => ({
-        name: t.name,
+    const rttSeries = scopedTargets.map(t => ({
+        name: wanDisplayName(t),
         color: hashColor(t.name),
         data: (t.rtt || []).map(p => ({ x: new Date(p.time).getTime(), y: p.value })),
     }));
 
-    const lossSeries = data.targets.map(t => ({
-        name: t.name,
+    const lossSeries = scopedTargets.map(t => ({
+        name: wanDisplayName(t),
         color: hashColor(t.name),
         data: (t.loss || []).map(p => ({ x: new Date(p.time).getTime(), y: p.value })),
     }));
 
-    lastFetchData = data;
+    lastFetchData = { ...data, targets: scopedTargets };
 
+    const dashArray = scopedTargets.map(wanDashFor);
     if (rttChart) rttChart.updateSeries(rttSeries, false);
     if (lossChart) lossChart.updateSeries(lossSeries, false);
 
     const annotations = buildInvestigateAnnotations();
-    if (rttChart) rttChart.updateOptions({ annotations }, false, false);
-    if (lossChart) lossChart.updateOptions({ annotations }, false, false);
+    if (rttChart) rttChart.updateOptions({ annotations, stroke: { curve: 'smooth', width: 2, dashArray } }, false, false);
+    // Same dashes as the RTT chart: twins of one host share its color, so the pattern is the only
+    // thing telling their WANs apart here too.
+    if (lossChart) lossChart.updateOptions({ annotations, stroke: { curve: 'smooth', width: 2, dashArray } }, false, false);
 
     updateChartVisibility();
 
@@ -383,7 +436,13 @@ async function loadAndUpdate() {
     if (wanCard) wanCard.style.display = showWanRate ? '' : 'none';
 
     if (showWanRate && wanRateChart) {
-        const timeParams = buildQueryParams().replace(/category=[^&]*&?/, '');
+        let timeParams = buildQueryParams().replace(/category=[^&]*&?/, '');
+        // The throughput reference follows the WAN filter: the solo-selected WAN, or the
+        // primary while comparing (never a sum - Blazor labels the card accordingly).
+        if (wanScope) {
+            const focused = wanScope.selected.length === 1 ? wanScope.selected[0] : wanScope.primaryKey;
+            if (focused) timeParams += `${timeParams ? '&' : ''}wan=${encodeURIComponent(focused)}`;
+        }
         try {
             const resp = await fetch(`/api/monitoring/wan-rate-chart?${timeParams}`, { credentials: 'same-origin' });
             if (resp.ok) {
@@ -425,7 +484,7 @@ function renderStatsTable(container, showAll) {
         const rtt = computeStats(rttVals);
         const loss = computeStats(lossVals);
         const meta = targetMeta.find(m => m.id === t.targetId);
-        return { id: t.targetId, label: t.name, color: meta?.color || '#9ca3af',
+        return { id: t.targetId, label: meta?.name || t.name, color: meta?.color || '#9ca3af',
             visible: meta && visibility[meta.id] !== false,
             values: [rtt?.mean, rtt?.min, rtt?.max, rtt?.p95, rtt?.p99, loss?.mean, loss?.max] };
     });
@@ -560,6 +619,7 @@ function updateCustomLabel(container) {
 function applyDragZoom(xaxis) {
     const container = document.getElementById(containerId);
     if (container && xaxis && Number.isFinite(xaxis.min) && Number.isFinite(xaxis.max) && xaxis.min < xaxis.max) {
+        notifyTimelineMoved();
         customFrom = new Date(xaxis.min);
         customTo = new Date(xaxis.max);
         isCustomRange = true;
@@ -589,15 +649,23 @@ function getEffectiveTo() {
     return null;
 }
 
-export async function mount(elId) {
+// initialWanScope arrives with the mount rather than in a call behind it: this module is imported
+// asynchronously, so a separate push can land before the import resolves and be dropped silently.
+// Taking it here also survives the unmount/remount of leaving the tab and returning.
+export async function mount(elId, initialWanScope, initialCategory) {
     containerId = elId;
     const container = document.getElementById(elId);
     if (!container) return;
 
-    // Seed the category from whichever filter button the server rendered active (LAN by
-    // default, ISP when the site has no LAN targets), so the initial load matches the UI.
-    const activeCategoryBtn = container.querySelector('[data-category].active');
-    if (activeCategoryBtn) currentCategory = activeCategoryBtn.dataset.category;
+    setWanScope(initialWanScope);
+
+    // The opening category comes from the server, which knows whether the WANs on screen have any
+    // LAN targets. From here the module owns it: the buttons carry no server-rendered active class,
+    // so a re-render of the header cannot put a stale one back while this still holds another.
+    if (initialCategory) currentCategory = initialCategory;
+    container.querySelectorAll('[data-category]').forEach(b => {
+        b.classList.toggle('active', b.dataset.category === currentCategory);
+    });
 
     const rttEl = container.querySelector('.latency-rtt-chart');
     const lossEl = container.querySelector('.latency-loss-chart');
@@ -634,12 +702,12 @@ export async function mount(elId) {
 
     // Preset range buttons
     container.querySelectorAll('[data-range]').forEach(btn => {
-        btn.addEventListener('click', () => selectPresetRange(container, parseInt(btn.dataset.range)));
+        btn.addEventListener('click', () => { notifyTimelineMoved(); selectPresetRange(container, parseInt(btn.dataset.range)); });
     });
 
     // Shift arrows
     container.querySelectorAll('[data-shift]').forEach(btn => {
-        btn.addEventListener('click', () => shiftWindow(btn.dataset.shift));
+        btn.addEventListener('click', () => { notifyTimelineMoved(); shiftWindow(btn.dataset.shift); });
     });
 
     // Custom range popover
@@ -670,6 +738,7 @@ export async function mount(elId) {
         const from = fromInput?.value ? new Date(fromInput.value) : null;
         const to = toInput?.value ? new Date(toInput.value) : null;
         if (!from || !to || isNaN(from) || isNaN(to) || from >= to) return;
+        notifyTimelineMoved();
         customFrom = from;
         customTo = to;
         isCustomRange = true;
@@ -694,23 +763,19 @@ export async function mount(elId) {
     startPoll();
 }
 
-export function navigateToTime(isoTimestamp, category, label, loaded, eventStartIso, eventEndIso) {
-    if (!savedState) {
-        savedState = { category: currentCategory, rangeHours: currentRangeHours,
-            customFrom, customTo, isCustomRange, windowOffset, visibility: { ...visibility } };
-    }
-    const ts = new Date(isoTimestamp).getTime();
-    investigateMarker = label
-        ? {
-            startMs: eventStartIso ? new Date(eventStartIso).getTime() : ts,
-            endMs: eventEndIso ? new Date(eventEndIso).getTime() : ts,
-            label,
-            loaded: !!loaded,
-        }
-        : null;
-    const windowMs = 10 * 60000; // 10 min window centered on event
-    customFrom = new Date(ts - windowMs);
-    customTo = new Date(ts + windowMs);
+// Frames a custom window centered on one instant and switches category, stashing the view it
+// replaced so leaving can put the user's own filter back. Shared by the two ways in - the
+// Investigate flow below and the jump from the Live tab - because centering, the range-button
+// bookkeeping and the save-once rule are the same job for both; only the marker differs.
+function stashView() {
+    if (savedState) return;
+    savedState = { category: currentCategory, rangeHours: currentRangeHours,
+        customFrom, customTo, isCustomRange, windowOffset, visibility: { ...visibility } };
+}
+
+function frameCustomWindow(ts, category, halfWindowMs) {
+    customFrom = new Date(ts - halfWindowMs);
+    customTo = new Date(ts + halfWindowMs);
     isCustomRange = true;
     windowOffset = 0;
     if (category) currentCategory = category;
@@ -727,6 +792,69 @@ export function navigateToTime(isoTimestamp, category, label, loaded, eventStart
     }
     loadAndUpdate();
     startPoll();
+}
+
+export function navigateToTime(isoTimestamp, category, label, loaded, eventStartIso, eventEndIso) {
+    stashView();
+    const ts = new Date(isoTimestamp).getTime();
+    investigateMarker = label
+        ? {
+            startMs: eventStartIso ? new Date(eventStartIso).getTime() : ts,
+            endMs: eventEndIso ? new Date(eventEndIso).getTime() : ts,
+            label,
+            loaded: !!loaded,
+        }
+        : null;
+    frameCustomWindow(ts, category, 10 * 60000); // 10 min either side of the event
+}
+
+/**
+ * Frames the window on a moment carried in from the Live tab while it was PARKED on that instant:
+ * 7.5 minutes either side, the same 15 minutes wide as the live jump below, so the two arrive at
+ * the same zoom and an event looks like itself whichever way you came in.
+ * Deliberately NOT navigateToTime - that is the Investigate flow, and it carries an event marker
+ * and label this has no business drawing. Same window machinery, no marker.
+ */
+export function frameMoment(isoTimestamp, category) {
+    investigateMarker = null;
+    frameCustomWindow(new Date(isoTimestamp).getTime(), category, 7.5 * 60000);
+}
+
+/**
+ * Frames a trailing 15-minute window for a jump made while the Live tab was LIVE rather than
+ * parked. Centering on "now" would leave half the window in the future and freeze the chart at
+ * the instant of the click - and a frozen chart and a quiet network look identical, so someone
+ * who was watching would end up reading a still frame as the present. Someone who was watching
+ * carries on watching. 15m is also the shortest preset that keeps polling: startPoll stands down
+ * on custom ranges, so a trailing custom window would be the frozen chart this avoids.
+ */
+export function frameTrailing(category) {
+    investigateMarker = null;
+    if (category) currentCategory = category;
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    container.querySelectorAll('[data-category]').forEach(b => {
+        b.classList.toggle('active', b.dataset.category === currentCategory);
+    });
+    selectPresetRange(container, 0);
+}
+
+/**
+ * The view the Live tab needs to reproduce this one: the instant at the CENTER of the window on
+ * screen, plus the category being charted. Center rather than either edge because the spike
+ * someone wants to watch play back is the thing they framed the window around, and a playback
+ * position at the edge puts it half a window away. A plain trailing range keeps no explicit
+ * bounds - getEffectiveFrom/To answer null for it - so its window is derived from the range.
+ */
+export function currentView() {
+    const from = getEffectiveFrom();
+    const to = getEffectiveTo();
+    const endMs = to ? to.getTime() : Date.now();
+    const startMs = from ? from.getTime() : endMs - (RANGE_MS[currentRangeHours] || 3600000);
+    return {
+        atIso: new Date((startMs + endMs) / 2).toISOString(),
+        category: currentCategory,
+    };
 }
 
 export function restoreState() {
@@ -760,6 +888,22 @@ export function restoreState() {
     }
     loadAndUpdate();
     startPoll();
+}
+
+// Blazor pushes the WAN pill bar's state here. Passing null clears scoping entirely
+// (the gate is closed - single WAN, no contexts).
+export function setWanScope(scope) {
+    wanScope = scope && Array.isArray(scope.selected) && scope.selected.length > 0 ? scope : null;
+    visibility = {};
+    // LAN targets belong to the site, not to a WAN, so a secondary WAN has none - staying on the
+    // LAN category there draws an empty chart. Only ever leave a category that has nothing to show;
+    // coming back to a WAN that does have LAN targets leaves the choice alone, because by then it
+    // may be the one the user made.
+    if (wanScope && wanScope.hasLan === false && currentCategory === 'Fabric') {
+        setCategory('AccessIsp');
+        return;
+    }
+    loadAndUpdate();
 }
 
 export function setCategory(cat) {
@@ -808,4 +952,5 @@ export function unmount() {
     savedState = null;
     investigateMarker = null;
     isInViewport = true;
+    wanScope = null;
 }

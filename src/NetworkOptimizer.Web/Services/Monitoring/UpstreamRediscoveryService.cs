@@ -41,6 +41,7 @@ public class UpstreamRediscoveryService : BackgroundService
     private readonly IDbContextFactory<NetworkOptimizerDbContext> _dbFactory;
     private readonly NetworkOptimizer.Storage.Services.SiteDbContextFactory _siteDbFactory;
     private readonly UpstreamTracerRegistry _tracerRegistry;
+    private readonly NetworkOptimizer.Web.Services.AgentTunnelRegistry _tunnelRegistry;
     private readonly ILogger<UpstreamRediscoveryService> _logger;
 
     private readonly NetworkOptimizer.Core.ISiteWorkGate _siteWorkGate;
@@ -50,8 +51,10 @@ public class UpstreamRediscoveryService : BackgroundService
         NetworkOptimizer.Storage.Services.SiteDbContextFactory siteDbFactory,
         UpstreamTracerRegistry tracerRegistry,
         NetworkOptimizer.Core.ISiteWorkGate siteWorkGate,
+        NetworkOptimizer.Web.Services.AgentTunnelRegistry tunnelRegistry,
         ILogger<UpstreamRediscoveryService> logger)
     {
+        _tunnelRegistry = tunnelRegistry;
         _dbFactory = dbFactory;
         _siteDbFactory = siteDbFactory;
         _tracerRegistry = tracerRegistry;
@@ -123,6 +126,12 @@ public class UpstreamRediscoveryService : BackgroundService
         // so this is what keeps them usable as routes-through witnesses.
         await tracer.BackfillWitnessAncestryAsync(ct);
 
+        // Secondary WANs discover on their own per-WAN cadence, before the primary's gates below:
+        // a primary WAN sitting in "needs review" must not stall the other WANs' discovery, and
+        // there is nothing to review for them anyway (they commit as they go). No contexts means
+        // this returns immediately, which is every single-WAN install.
+        await RunWanContextDiscoveriesAsync(slug, db, ct);
+
         if (settings.UpstreamDiscoveryNeedsReview) return; // already flagged - waiting for user
         if (!settings.LastUpstreamDiscoveryAt.HasValue) return; // never committed - nothing to re-discover
 
@@ -178,6 +187,132 @@ public class UpstreamRediscoveryService : BackgroundService
         await db.SaveChangesAsync(ct);
         // Leave the tracer in ReviewingResults so the user lands on the candidate set
         // when they open the Monitoring page and click the banner.
+    }
+
+    /// <summary>
+    /// Discovers the upstream path of every WAN that has a context, one WAN at a time.
+    ///
+    /// Each context traces the WAN it names, bound the way its targets are probed, and its
+    /// access/transit targets are committed straight away rather than staged for review: the
+    /// review flow is the primary WAN's single global flag, and a secondary WAN's candidates
+    /// have nowhere to be reviewed until per-WAN review lands. Committing is what gives that
+    /// WAN targets to probe and hop ancestry to grade at all - the alternative is discovering
+    /// nothing for it.
+    ///
+    /// Cadence is per-WAN, off that WAN's own <see cref="WanDiscoveryContext.LastDiscoveryAt"/>,
+    /// so the WANs don't all sweep on the same hour and a new context discovers on the next tick.
+    /// Best-effort per context: one WAN that can't be traced (its agent offline, the WAN gone)
+    /// doesn't stop the others.
+    /// </summary>
+    /// <param name="slug">Site being ticked.</param>
+    /// <param name="db">The site's database.</param>
+    /// <param name="ct">Cancellation.</param>
+    private async Task RunWanContextDiscoveriesAsync(string slug, NetworkOptimizerDbContext db, CancellationToken ct)
+    {
+        List<WanContext> contexts;
+        try
+        {
+            contexts = await db.WanContexts.AsNoTracking().OrderBy(c => c.Id).ToListAsync(ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Couldn't read WAN contexts for site {Slug}; skipping per-WAN discovery", slug);
+            return;
+        }
+        if (contexts.Count == 0) return;
+
+        var lastByWan = await db.WanDiscoveryContexts.AsNoTracking()
+            .ToDictionaryAsync(c => c.WanInterface, c => c.LastDiscoveryAt, StringComparer.OrdinalIgnoreCase, ct);
+
+        foreach (var context in ContextsDueForDiscovery(contexts, lastByWan, DateTime.UtcNow, RediscoveryThreshold))
+        {
+            if (ct.IsCancellationRequested) return;
+            if (!CanBindForContext(context, slug))
+            {
+                _logger.LogWarning(
+                    "Skipping upstream discovery for WAN context '{Context}' ({Wan}) on site {Slug}: it binds to "
+                    + "interface {Interface}, and the assigned agent does not report source binding. Tracing anyway "
+                    + "would leave by the agent's own route and record another WAN's hops as this one's. Update the agent.",
+                    context.Name, context.WanInterface, slug, context.InterfaceName);
+                continue;
+            }
+            try
+            {
+                var tracer = _tracerRegistry.GetForContext(slug, context);
+                _logger.LogInformation("Running upstream discovery for WAN context '{Context}' ({Wan}) on site {Slug}",
+                    context.Name, context.WanInterface, slug);
+                await tracer.StartDiscoveryAsync(ct);
+                await tracer.WaitForCompletionAsync();
+                if (tracer.State.Step != TracerStep.ReviewingResults)
+                {
+                    _logger.LogInformation("WAN context '{Context}' ({Wan}) discovery finished in state {Step}: {Reason}",
+                        context.Name, context.WanInterface, tracer.State.Step, tracer.State.FailureMessage ?? "no candidates");
+                    continue;
+                }
+                await tracer.CommitResultsAsync(ct);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { return; }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Upstream discovery failed for WAN context '{Context}' ({Wan}) on site {Slug}",
+                    context.Name, context.WanInterface, slug);
+            }
+        }
+    }
+
+
+    /// <summary>
+    /// Whether this context's discovery can actually be bound to its WAN by the agent that would
+    /// run it.
+    /// <para>
+    /// Only contexts that bind PER PROBE need the capability - an interface name goes out as the
+    /// probe's source and the agent has to know what to do with it. A context whose agent sits
+    /// behind the WAN already (policy-routed by MAC, no interface named) needs no binding at all,
+    /// so any agent version traces it correctly.
+    /// </para>
+    /// <para>
+    /// The failure this prevents is silent: an agent too old to bind a traceroute runs it over its
+    /// own route and returns hops that look exactly like a successful bound trace, which then get
+    /// persisted as that WAN's upstream path. Skipping and saying so is the only honest option.
+    /// </para>
+    /// </summary>
+    private bool CanBindForContext(WanContext context, string slug)
+    {
+        if (string.IsNullOrEmpty(context.InterfaceName)) return true;
+        if (context.AgentId is not int agentId) return true;   // server-probed: the server binds
+        var connection = _tunnelRegistry.GetForSite(slug).FirstOrDefault(c => c.AgentId == agentId);
+        // Not connected: let the run start and fail on its own terms rather than blaming the agent
+        // version for an absence.
+        return connection == null || connection.SupportsSourceBind == true;
+    }
+
+    /// <summary>
+    /// Which of a site's WAN contexts discover on this tick. A context with no WAN yet cannot be
+    /// discovered at all - there would be nothing to record the result under - and each WAN runs
+    /// off its OWN last discovery, so the WANs stagger themselves instead of all sweeping on the
+    /// same hour, and a context added today discovers on the next tick rather than in a week.
+    /// </summary>
+    /// <param name="contexts">The site's WAN contexts.</param>
+    /// <param name="lastDiscoveryByWan">Last discovery time per WAN key, from WanDiscoveryContexts.</param>
+    /// <param name="now">Current time.</param>
+    /// <param name="threshold">How stale a WAN's discovery has to be before it re-runs.</param>
+    internal static List<WanContext> ContextsDueForDiscovery(
+        IEnumerable<WanContext> contexts,
+        IReadOnlyDictionary<string, DateTime?> lastDiscoveryByWan,
+        DateTime now,
+        TimeSpan threshold)
+    {
+        var due = new List<WanContext>();
+        foreach (var context in contexts)
+        {
+            if (string.IsNullOrWhiteSpace(context.WanInterface)) continue;
+            if (lastDiscoveryByWan.TryGetValue(context.WanInterface!, out var last)
+                && last.HasValue
+                && now - last.Value < threshold)
+                continue;
+            due.Add(context);
+        }
+        return due;
     }
 
     /// <summary>Result of comparing a run's discovered ASNs against the committed views.</summary>

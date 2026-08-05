@@ -151,6 +151,37 @@ public sealed class AgentTunnelConnection
     /// </summary>
     public bool? ServesSpeedTest { get; internal set; }
 
+    /// <summary>
+    /// Whether this agent can bind a probe to a source address or interface, as it stated in its
+    /// hello. Null for an agent old enough not to say, which the interface-bind offer reads as no:
+    /// a bind an agent cannot honor fails every probe that depends on it.
+    /// </summary>
+    public bool? SupportsSourceBind { get; internal set; }
+
+    /// <summary>
+    /// Every address this agent's host holds, as the agent reported it. Empty from an agent that
+    /// predates the field, where <see cref="LanIp"/> alone is all there is.
+    /// </summary>
+    public IReadOnlyList<string> LocalIps { get; internal set; } = Array.Empty<string>();
+
+    /// <summary>
+    /// Addresses to recognise this agent's host by: everything it reported, or the single address
+    /// it chose when it reported nothing. Never empty of meaning - a caller can compare all of
+    /// these without caring which agent version answered.
+    /// </summary>
+    public IReadOnlyList<string> HostAddresses =>
+        LocalIps.Count > 0
+            ? LocalIps
+            : string.IsNullOrWhiteSpace(LanIp) ? Array.Empty<string>() : new[] { LanIp! };
+
+    /// <summary>
+    /// The LAN address this agent announced in its hello. Per connection rather than per site,
+    /// which is what a multi-agent site needs: the enrollment registry answers with one agent's
+    /// address for the whole site, so anything deciding about THIS agent - where its probes leave
+    /// from, whether it is the box a target points at - has to ask the connection.
+    /// </summary>
+    public string? LanIp { get; internal set; }
+
     public int AgentId { get; }
     public string SiteSlug { get; }
     public string AgentName { get; }

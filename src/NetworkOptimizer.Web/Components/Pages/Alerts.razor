@@ -26,6 +26,7 @@
 @inject UniFiConnectionService ConnectionService
 @inject IGatewaySshService GatewaySshService
 @inject AgentOnGatewayDetector OnGatewayDetector
+@inject NetworkOptimizer.Web.Services.Monitoring.ProbeExecutorFactory ProbeExecutors
 @inject WanDataUsageService DataUsageService
 @inject IJSRuntime JS
 @inject PullToRefreshState PtrState
@@ -204,7 +205,7 @@
                                         <span class="toggle-slider"></span>
                                     </label>
                                     }
-                                    @{ var (wanBaseName, wanDetail) = SplitTaskName(task.Name); }
+                                    @{ var (wanBaseName, wanDetail) = SplitTaskName(task.Name); wanDetail = LabelServerVantage(wanDetail); }
                                     <span>@wanBaseName</span>
                                     @if (wanDetail != null)
                                     {
@@ -244,7 +245,7 @@
                             <div class="schedule-card-body">
                                 <div class="schedule-detail-row">
                                     @{ var wanConfig = ParseTargetConfig(task.TargetConfig); }
-                                    <span class="schedule-detail-tag">@(GetConfigValue(wanConfig, "testType") == "server" ? "Server" : "Gateway")</span>
+                                    <span class="schedule-detail-tag">@(GetConfigValue(wanConfig, "testType") == "server" ? ServerVantageLabel : "Gateway")</span>
                                     @if (GetConfigValue(wanConfig, "wanName") is string wanName && !string.IsNullOrEmpty(wanName))
                                     {
                                         <span class="schedule-detail-tag">@wanName</span>
@@ -1859,7 +1860,7 @@
                             }
                             @if (!_agentOnGateway || _newWanTestType == "server")
                             {
-                                <option value="server">Server</option>
+                                <option value="server">@ServerVantageLabel</option>
                             }
                         </select>
                     </div>
@@ -3311,6 +3312,26 @@
         "failed" => "status-failed",
         _ => "status-badge"
     };
+
+    /// <summary>
+    /// What runs a "server" WAN speed test on THIS site: the server itself, or the on-site agent
+    /// where one owns path measurement. The stored task name says Server either way, because that
+    /// is the vantage's name in configuration - but on an agent-covered site the server never
+    /// touches the WAN, so reading "Server" beside a result the agent produced named the wrong box.
+    /// </summary>
+    private string ServerVantageLabel => ProbeExecutors.ServerVantageIsAgent ? "Agent" : "Server";
+
+    /// <summary>
+    /// Renames the stored "Server" detail for display. Applied at render rather than to the task
+    /// name so schedules made before a site gained its agent read correctly too, with nothing to
+    /// migrate and the configured vantage unchanged.
+    /// </summary>
+    private string? LabelServerVantage(string? detail) =>
+        detail is null || !ProbeExecutors.ServerVantageIsAgent
+            ? detail
+            : detail == "Server" ? "Agent"
+            : detail.StartsWith("Server, ", StringComparison.Ordinal) ? $"Agent, {detail["Server, ".Length..]}"
+            : detail;
 
     private static (string BaseName, string? Detail) SplitTaskName(string name)
     {

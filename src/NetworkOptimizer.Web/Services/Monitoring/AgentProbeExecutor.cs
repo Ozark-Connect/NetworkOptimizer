@@ -19,15 +19,29 @@ public sealed class AgentProbeExecutor : IProbeExecutor
     private readonly AgentProbeService _agentProbe;
     private readonly string _siteSlug;
     private readonly ILogger _logger;
+    private readonly int? _agentId;
 
-    public AgentProbeExecutor(AgentProbeService agentProbe, string siteSlug, ILogger logger)
+    /// <summary>
+    /// Builds an executor for a site's agent vantage.
+    /// </summary>
+    /// <param name="agentProbe">Tunnel probe service.</param>
+    /// <param name="siteSlug">Site whose agent runs the probes.</param>
+    /// <param name="logger">Logger.</param>
+    /// <param name="agentId">
+    /// Which of the site's agents to run on. Null means the site's agent in the singular - the
+    /// original behavior, and what every path that just wants an on-site origin needs. A named
+    /// agent is a specific vantage (a WAN context's), so it is never quietly swapped for another.
+    /// </param>
+    public AgentProbeExecutor(AgentProbeService agentProbe, string siteSlug, ILogger logger, int? agentId = null)
     {
         _agentProbe = agentProbe;
         _siteSlug = siteSlug;
         _logger = logger;
+        _agentId = agentId;
+        Vantage = agentId is int id ? new($"agent:{id}", VantageKind.Server) : new("agent", VantageKind.Server);
     }
 
-    public ProbeVantage Vantage { get; } = new("agent", VantageKind.Server);
+    public ProbeVantage Vantage { get; }
 
     public Task<ProbeCapability> GetCapabilityAsync(CancellationToken ct = default) =>
         Task.FromResult(new ProbeCapability
@@ -43,14 +57,14 @@ public sealed class AgentProbeExecutor : IProbeExecutor
     public async Task<PingProbeResult> PingAsync(ProbeTarget target, int count = 10, TimeSpan? perPingTimeout = null, CancellationToken ct = default)
     {
         var request = BuildRequest(target, traceroute: false, count: count, maxHops: 0);
-        var resp = await _agentProbe.RunAsync(_siteSlug, request, TimeSpan.FromSeconds(count * 3 + 15), ct);
+        var resp = await _agentProbe.RunAsync(_siteSlug, request, TimeSpan.FromSeconds(count * 3 + 15), ct, _agentId);
         if (resp == null) return FailedPing(target, "No on-site agent is online to run the probe");
         if (!resp.Success || string.IsNullOrEmpty(resp.ResultJson))
             return FailedPing(target, string.IsNullOrEmpty(resp.Error) ? "Agent probe failed" : resp.Error);
         try
         {
-            return JsonSerializer.Deserialize<PingProbeResult>(resp.ResultJson)
-                   ?? FailedPing(target, "Agent returned an unreadable ping result");
+            var parsed = JsonSerializer.Deserialize<PingProbeResult>(resp.ResultJson);
+            return parsed == null ? FailedPing(target, "Agent returned an unreadable ping result") : Attribute(parsed);
         }
         catch (Exception ex)
         {
@@ -62,14 +76,14 @@ public sealed class AgentProbeExecutor : IProbeExecutor
     public async Task<TracerouteResult> TracerouteAsync(ProbeTarget target, int maxHops = 30, TimeSpan? perHopTimeout = null, TimeSpan? totalDeadline = null, CancellationToken ct = default)
     {
         var request = BuildRequest(target, traceroute: true, count: 0, maxHops: maxHops);
-        var resp = await _agentProbe.RunAsync(_siteSlug, request, TimeSpan.FromSeconds(30), ct);
+        var resp = await _agentProbe.RunAsync(_siteSlug, request, TimeSpan.FromSeconds(30), ct, _agentId);
         if (resp == null) return FailedTrace(target, "No on-site agent is online to run the traceroute");
         if (!resp.Success || string.IsNullOrEmpty(resp.ResultJson))
             return FailedTrace(target, string.IsNullOrEmpty(resp.Error) ? "Agent traceroute failed" : resp.Error);
         try
         {
-            return JsonSerializer.Deserialize<TracerouteResult>(resp.ResultJson)
-                   ?? FailedTrace(target, "Agent returned an unreadable traceroute result");
+            var parsed = JsonSerializer.Deserialize<TracerouteResult>(resp.ResultJson);
+            return parsed == null ? FailedTrace(target, "Agent returned an unreadable traceroute result") : Attribute(parsed);
         }
         catch (Exception ex)
         {
@@ -92,6 +106,21 @@ public sealed class AgentProbeExecutor : IProbeExecutor
             ErrorMessage = ping.ErrorMessage,
         };
     }
+
+    /// <summary>
+    /// Names the vantage a NAMED agent's result came from. The agent runs the same
+    /// LocalProbeExecutor the server does, so its result arrives calling itself the "server"
+    /// vantage - which reads as this server on a site where the server also probes, and a probe
+    /// picked out by agent has to say which agent ran it. Left untouched for the unnamed
+    /// executor, where "server" is exactly what the site's single agent vantage has always
+    /// reported.
+    /// </summary>
+    private PingProbeResult Attribute(PingProbeResult result) =>
+        _agentId == null ? result : result with { Vantage = Vantage };
+
+    /// <inheritdoc cref="Attribute(PingProbeResult)" />
+    private TracerouteResult Attribute(TracerouteResult result) =>
+        _agentId == null ? result : result with { Vantage = Vantage };
 
     private ProbeRequest BuildRequest(ProbeTarget target, bool traceroute, int count, int maxHops) => new()
     {

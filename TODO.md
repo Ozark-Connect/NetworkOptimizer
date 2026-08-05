@@ -147,6 +147,21 @@ feature that would otherwise write to the controller.
 - Threshold tuning based on real-world data collection
 - **Consistent wireless bottleneck attribution across test types:** LAN client speed tests show the bottleneck relative to the AP (e.g., "[AP] Back Yard (wireless)") while WAN client speed tests show it relative to the client (e.g., "[Phone] TJ iPhone (wireless)"). This is because WAN client paths reverse hops and swap ingress/egress, which flips the perspective. The wireless link is the same physical connection - both descriptions are technically correct but inconsistent. Investigate unifying to always name the AP side, since that's what users can control. Relevant code: `CalculateWanClientPathAsync` hop reversal/swap and `CalculateBottleneck` wireless link attribution.
 
+## WAN Speed Test
+
+### Run from an individual site agent
+Both the page and its schedule run a WAN speed test from one vantage per site: the server, or the
+on-site agent where one owns path measurement. A site with several agents - one behind each WAN -
+cannot say which of them runs the test, so a secondary WAN's throughput cannot be measured the way
+its latency already is.
+
+Wanted: choose the agent, and therefore the WAN, from both the WAN Speed Test page and a schedule.
+The Network Tools vantage picker already models this - one entry per (agent, vantage) carrying that
+vantage's binding - so the shape is settled and this is wiring it into the speed test paths and the
+schedule config.
+
+Not now. The Gateway SSH launched WAN speed test covers the per-WAN case today.
+
 ## Alerts & Scheduling
 
 ### DST-Aware Schedule Time Display

@@ -16,13 +16,20 @@ namespace NetworkOptimizer.Web.Services;
 [MutatingService(SiteScoped = true)]
 public interface IUpstreamDiscoveryService
 {
-    /// <summary>Traces the upstream path and proposes targets for review.</summary>
+    /// <summary>
+    /// Traces the upstream path and proposes targets for review. <paramref name="tracer"/>
+    /// runs a specific tracer instance (a WAN context's own, from the panel's per-WAN view);
+    /// null runs the site's primary tracer, exactly as before.
+    /// </summary>
     [RequireRole(Roles.Operator)]
     [AuditAction(AuditActions.MonitoringSetupChanged, TargetType = "upstream_discovery")]
-    Task StartAsync(CancellationToken ct = default);
+    Task StartAsync(Monitoring.UpstreamTracerService? tracer = null, CancellationToken ct = default);
 
-    /// <summary>Commits the reviewed discovery, writing its hops as monitoring targets.</summary>
+    /// <summary>
+    /// Commits the reviewed discovery, writing its hops as monitoring targets. Same tracer
+    /// selection rule as <see cref="StartAsync"/>.
+    /// </summary>
     [RequireRole(Roles.Operator)]
     [AuditAction(AuditActions.MonitoringSetupChanged, TargetType = "upstream_discovery")]
-    Task CommitAsync(CancellationToken ct = default);
+    Task CommitAsync(Monitoring.UpstreamTracerService? tracer = null, CancellationToken ct = default);
 }

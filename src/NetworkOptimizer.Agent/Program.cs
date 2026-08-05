@@ -105,6 +105,10 @@ static int SpeedTestPagePort(NetworkOptimizer.Agent.AgentConfig cfg) =>
 var lanIp = !string.IsNullOrWhiteSpace(lanIpOverride)
     ? lanIpOverride.Trim()
     : NetworkOptimizer.Core.Helpers.NetworkUtilities.DetectLocalIpFromInterfaces();
+// lanIp is one address chosen for the server to reach this agent back on. The full set goes
+// alongside it so the server can recognise the host by an address it already knows, which the
+// single choice cannot do on a gateway - see LocalUnicastAddresses.
+var localIps = NetworkOptimizer.Core.Helpers.NetworkUtilities.LocalUnicastAddresses();
 
 var handler = new HttpClientHandler();
 if (config.IgnoreSslErrors)
@@ -311,9 +315,14 @@ while (!cts.IsCancellationRequested)
             // Announce the port only when a speed test server is actually up. An agent that
             // serves none - a gateway install, or one where the server failed to start - has no
             // port to give, and claiming a port would advertise a listener that is not there.
-            await tunnel.RunAsync(config.TunnelUrl, config.AgentKey!, version, lanIp,
+            // Source binding is a platform capability, not a setting: it rides the
+            // native ping binary, so the server only offers a WAN context an
+            // interface bind where the agent can actually honor one.
+            await tunnel.RunAsync(config.TunnelUrl, config.AgentKey!, version, lanIp, localIps,
                 speedTestServer != null ? SpeedTestPagePort(config) : 0,
-                speedTestServer != null, config.IgnoreSslErrors, cts.Token);
+                speedTestServer != null,
+                NetworkOptimizer.Monitoring.Probes.LocalProbeExecutor.SupportsSourceBinding,
+                config.IgnoreSslErrors, cts.Token);
             Console.Error.WriteLine("Tunnel closed by server, reconnecting...");
         }
         catch (OperationCanceledException) when (cts.IsCancellationRequested)

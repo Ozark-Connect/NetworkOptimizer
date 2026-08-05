@@ -38,7 +38,7 @@
             <p class="page-description">Measures your internet speed using distributed HTTP servers with multiple concurrent connections.</p>
         </div>
         @{ var ispHealth = IspHealthService.GetCachedScore(); }
-        <div class="monitoring-stat-card clickable-stat-card isp-health-tile wan-header-isp-tile @ispHealth.TileCssClass" data-tooltip="@ispHealth.TileTooltip" data-tooltip-hover-only @onclick="@(() => NavigationManager.NavigateTo("/monitoring?tab=isp-health"))">
+        <div class="monitoring-stat-card clickable-stat-card isp-health-tile wan-header-isp-tile @ispHealth.TileCssClass" data-tooltip="@ispHealth.TileTooltip" data-tooltip-hover-only @onclick="@(() => NavigationManager.NavigateTo($"/monitoring?tab=isp-health&wan={NetworkOptimizer.Web.Services.Monitoring.LiveWanScope.PrimaryWanToken}"))">
             <div class="stat-value isp-tile-score">@ispHealth.TileText</div>
             <div class="stat-label">ISP Health</div>
             @if (ispHealth.Status == IspHealthStatus.Ready && ispHealth.Score.HasValue)
@@ -1711,6 +1711,69 @@
         await ReleaseCardHeight();
     }
 
+    /// <summary>
+    /// The WAN named by a <c>?wan=</c> query parameter, as an interface key ("wan4"). Sent by the
+    /// ISP Health hero, which reads a WAN's own report and links to the speeds behind it.
+    /// </summary>
+    [SupplyParameterFromQuery(Name = "wan")]
+    public string? WanParam { get; set; }
+
+    private bool _linkWanApplied;
+    private bool _scrollToHistoryPending;
+
+    /// <summary>
+    /// The history series a linked WAN belongs to. Resolved through the data rather than by
+    /// matching key strings: a series is keyed by the WAN's group OR its custom name, so the group
+    /// the link names is only recognizable on the results themselves.
+    /// </summary>
+    private string? LinkedSeriesKey()
+    {
+        if (string.IsNullOrWhiteSpace(WanParam)) return null;
+        var index = NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey(WanParam.Trim());
+        if (index <= 0) return null;
+
+        var group = NetworkOptimizer.UniFi.GatewayWanHelper.WanNetworkGroup(index);
+        return _testHistory
+            .Where(r => r.Success && string.Equals(r.WanNetworkGroup, group, StringComparison.OrdinalIgnoreCase))
+            .Select(GetWanKey)
+            .FirstOrDefault();
+    }
+
+    /// <summary>
+    /// Shows only the linked WAN's history and scrolls to it. Once per visit, and only ever from
+    /// the URL - the selection is in-memory, so nothing here outlives the page or reaches a badge
+    /// the user clicks afterwards.
+    /// </summary>
+    private async Task ApplyLinkWanFilterAsync()
+    {
+        if (_linkWanApplied || _wanSeries.Count <= 1) return;
+        if (LinkedSeriesKey() is not { } key) return;
+
+        _linkWanApplied = true;
+        foreach (var series in _wanSeries)
+            series.IsSelected = series.Key == key;
+
+        _historyPage = 1;
+        _expandedHistoryId = null;
+        ApplyFilters();
+        await RenderChartAsync();
+        // Scrolled after a render rather than here: this runs while history is still loading, so
+        // the card it aims at has not been drawn yet and the scroll went nowhere.
+        _scrollToHistoryPending = true;
+        StateHasChanged();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!_scrollToHistoryPending) return;
+        _scrollToHistoryPending = false;
+        // The chart renders asynchronously behind this and the card grows as it does, so a scroll
+        // fired the instant the element exists lands on a position that then moves under it.
+        await Task.Delay(350);
+        try { await JS.InvokeVoidAsync("noHighlightTarget", "speed-history-card"); }
+        catch { /* helper not loaded - the filter still applied, which is the point */ }
+    }
+
     private async Task ToggleWanFilter(string wanKey, MouseEventArgs e)
     {
         var wan = _wanSeries.FirstOrDefault(w => w.Key == wanKey);
@@ -2125,6 +2188,7 @@
             TransformChartData();
             ApplyFilters();
             await RenderChartAsync();
+            await ApplyLinkWanFilterAsync();
         }
         catch (Exception ex)
         {

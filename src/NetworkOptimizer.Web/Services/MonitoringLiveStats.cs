@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Services;
+using NetworkOptimizer.UniFi;
 using NetworkOptimizer.Web.Services.Monitoring;
 
 namespace NetworkOptimizer.Web.Services;
@@ -20,7 +21,7 @@ public class MonitoringLiveStats
     private readonly ILogger<MonitoringLiveStats> _logger;
     private readonly IDbContextFactory<NetworkOptimizerDbContext> _dbFactory;
 
-    private List<(string TargetId, MonitoringTargetType TargetType)>? _ispTransitTargets;
+    private List<(string TargetId, MonitoringTargetType TargetType, string? WanInterface)>? _ispTransitTargets;
     private DateTime _ispTransitTargetsCacheTime;
     private static readonly TimeSpan TargetCacheTtl = TimeSpan.FromSeconds(30);
     private readonly Lock _targetCacheLock = new();
@@ -332,7 +333,7 @@ public class MonitoringLiveStats
     }
 
     /// <summary>Cached list of enabled ISP+Transit monitoring targets. Refreshed every 30s.</summary>
-    public async Task<List<(string TargetId, MonitoringTargetType TargetType)>> GetIspTransitTargetsAsync(
+    public async Task<List<(string TargetId, MonitoringTargetType TargetType, string? WanInterface)>> GetIspTransitTargetsAsync(
         CancellationToken ct = default)
     {
         lock (_targetCacheLock)
@@ -347,10 +348,10 @@ public class MonitoringLiveStats
                 && (t.TargetType == MonitoringTargetType.AccessIsp
                     || t.TargetType == MonitoringTargetType.Transit)
                 && (t.AsnNumber == null || !WellKnownAsns.NonTransitInfrastructure.Contains(t.AsnNumber.Value)))
-            .Select(t => new { t.TargetId, t.TargetType })
+            .Select(t => new { t.TargetId, t.TargetType, t.WanInterface })
             .ToListAsync(ct);
 
-        var result = targets.Select(t => (t.TargetId, t.TargetType)).ToList();
+        var result = targets.Select(t => (t.TargetId, t.TargetType, t.WanInterface)).ToList();
         lock (_targetCacheLock)
         {
             _ispTransitTargets = result;
@@ -368,10 +369,33 @@ public class MonitoringLiveStats
     /// blanked the chart exactly when loss mattered most. Shared by the live-stats
     /// endpoint and the LAN flow map WAN globes so both always show the same number.
     /// </summary>
+    /// <param name="wanInterface">
+    /// Scope to one WAN's targets. Null keeps the site-wide mean, which is what every caller meant
+    /// before there was more than one WAN to tell apart. An unstamped target belongs to the
+    /// primary - the same rule every per-WAN reader uses - so a secondary WAN with no targets of
+    /// its own returns nothing rather than borrowing the primary's numbers and presenting them as
+    /// its own.
+    /// </param>
     public async Task<(double? MeanRttMs, double MeanLossPercent)> GetMeanIspTransitLiveAsync(
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        string? wanInterface = null,
+        bool isPrimary = false)
     {
         var targets = await GetIspTransitTargetsAsync(ct);
+        // No WAN named means the primary, not every WAN. A chart showing one WAN asks for it by
+        // omitting the parameter, and skipping the filter entirely averaged in the other WANs'
+        // targets - a speed test on a secondary WAN then appeared as a latency and loss spike on
+        // the primary's chart, from readings that were never on its path. Unchanged on a
+        // single-WAN site, where every target is the primary's already.
+        var key = string.IsNullOrEmpty(wanInterface)
+            ? GatewayWanHelper.DefaultWanKey
+            : GatewayWanHelper.WanInterfaceKeyFromKey(wanInterface!);
+        var primaryScope = isPrimary || string.IsNullOrEmpty(wanInterface);
+        targets = targets.Where(t => string.IsNullOrEmpty(t.WanInterface)
+            ? primaryScope
+            : string.Equals(GatewayWanHelper.WanInterfaceKeyFromKey(t.WanInterface!), key,
+                StringComparison.OrdinalIgnoreCase))
+            .ToList();
 
         var ispRtts = new List<double>();
         var ispLosses = new List<double>();

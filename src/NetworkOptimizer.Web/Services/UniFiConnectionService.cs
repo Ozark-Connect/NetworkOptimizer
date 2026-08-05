@@ -1458,6 +1458,22 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     }
 
     /// <summary>
+    /// Whether the site spreads traffic across WANs rather than running one primary with the rest
+    /// on failover. True when two or more enabled WANs are NOT marked failover-only, which is
+    /// UniFi's way of saying they share the load.
+    /// <para>
+    /// It decides what an unpinned probe measures. Under failover-only, everything on the LAN
+    /// leaves by the primary, so an ordinary agent measures the primary honestly and needs no
+    /// policy route (during an actual failover it follows the backup - collateral we accept and
+    /// state). Under load balancing the same probe is spread across WANs and attributable to
+    /// none, so every probe source has to be pinned, the primary's included.
+    /// </para>
+    /// </summary>
+    public static bool ResolveSiteLoadBalances(IReadOnlyList<NetworkInfo> networks) =>
+        networks.Count(n => n.IsWan && n.Enabled
+            && !string.Equals(n.WanLoadBalanceType, "failover-only", StringComparison.OrdinalIgnoreCase)) > 1;
+
+    /// <summary>
     /// Convenience: fetches networks and resolves the primary WAN in one call.
     /// </summary>
     public async Task<NetworkInfo?> GetPrimaryWanNetworkAsync(CancellationToken ct = default)
@@ -1478,8 +1494,20 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     {
         var primary = await GetPrimaryWanNetworkAsync(ct);
         if (primary?.WanNetworkgroup == null) return null;
+        return await GetWanInterfacesForGroupAsync(primary.WanNetworkgroup, ct);
+    }
 
-        if (_client == null) return null;
+    /// <summary>
+    /// Resolves the interface forms of ANY WAN by its network group ("WAN", "WAN2") from the
+    /// cached device call - the same walk <see cref="GetPrimaryWanInterfacesAsync"/> performs for
+    /// the configured primary, generalized so per-WAN consumers (multi-WAN ISP Health, the WAN
+    /// throughput selectors) pair a WAN's counters and data path with that same WAN's plan
+    /// speeds instead of falling back to another WAN's. Returns null when the group's wan
+    /// object cannot be found.
+    /// </summary>
+    public async Task<PrimaryWanInterfaces?> GetWanInterfacesForGroupAsync(string networkGroup, CancellationToken ct = default)
+    {
+        if (string.IsNullOrEmpty(networkGroup) || _client == null) return null;
         var rawDevices = await _client.GetDevicesAsync(ct);
         var gw = rawDevices.FirstOrDefault(d => d.Type is "ugw" or "udm" or "uxg");
         if (gw == null) return null;
@@ -1492,7 +1520,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
             gw.AdditionalData != null && gw.AdditionalData.TryGetValue("ethernet_overrides", out var eoElem)
                 ? eoElem : default);
 
-        // Find the wan object whose physical interface maps to the primary networkgroup
+        // Find the wan object whose physical interface maps to the requested networkgroup
         foreach (var wan in wanInterfaces)
         {
             string? ng = null;
@@ -1500,16 +1528,48 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
                 ifnameToNg.TryGetValue(wan.IfName, out ng);
             ng ??= GatewayWanHelper.WanNetworkGroupFromKey(wan.Key);
 
-            if (string.Equals(ng, primary.WanNetworkgroup, StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(ng, networkGroup, StringComparison.OrdinalIgnoreCase))
             {
                 var counter = NetworkUtilities.PreferredWanCounterInterface(wan.IfName, wan.UplinkIfName);
-                _logger.LogDebug("Primary WAN interfaces: counter={Counter}, data-path={Uplink} (physical={Physical}, networkgroup={NG})",
-                    counter, wan.UplinkIfName ?? wan.IfName, wan.IfName, ng);
+                _logger.LogDebug("WAN {NG} interfaces: counter={Counter}, data-path={Uplink} (physical={Physical})",
+                    ng, counter, wan.UplinkIfName ?? wan.IfName, wan.IfName);
                 return new PrimaryWanInterfaces(ng, wan.IfName, wan.UplinkIfName, counter);
             }
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Every WAN's interface forms from the cached device call, one entry per wan1..wan6 object
+    /// with an uplink. The all-WAN usage fingerprint sums these counter interfaces; per-WAN load
+    /// callers must NOT use this list (see MonitoringInfluxClient.QueryGatewayWanRatesAsync's
+    /// summing contract) - they resolve their one WAN via
+    /// <see cref="GetWanInterfacesForGroupAsync"/>.
+    /// </summary>
+    public async Task<List<PrimaryWanInterfaces>> GetAllWanInterfacesAsync(CancellationToken ct = default)
+    {
+        var results = new List<PrimaryWanInterfaces>();
+        if (_client == null) return results;
+        var rawDevices = await _client.GetDevicesAsync(ct);
+        var gw = rawDevices.FirstOrDefault(d => d.Type is "ugw" or "udm" or "uxg");
+        if (gw == null) return results;
+
+        var wanInterfaces = gw.GetWanInterfaces();
+        var ifnameToNg = GatewayWanHelper.BuildNetworkGroupByIfname(
+            gw.AdditionalData != null && gw.AdditionalData.TryGetValue("ethernet_overrides", out var eoElem)
+                ? eoElem : default);
+        foreach (var wan in wanInterfaces)
+        {
+            if (string.IsNullOrEmpty(wan.UplinkIfName) && string.IsNullOrEmpty(wan.IfName)) continue;
+            string? ng = null;
+            if (!string.IsNullOrEmpty(wan.IfName))
+                ifnameToNg.TryGetValue(wan.IfName, out ng);
+            ng ??= GatewayWanHelper.WanNetworkGroupFromKey(wan.Key);
+            var counter = NetworkUtilities.PreferredWanCounterInterface(wan.IfName, wan.UplinkIfName);
+            results.Add(new PrimaryWanInterfaces(ng, wan.IfName, wan.UplinkIfName, counter));
+        }
+        return results;
     }
 
     /// <summary>

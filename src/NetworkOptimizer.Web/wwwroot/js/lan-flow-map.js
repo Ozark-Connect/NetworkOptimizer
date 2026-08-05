@@ -3698,8 +3698,9 @@ export class LanFlowMap {
 
         if (g.userData?.cloud) {
             const cloud = g.userData.cloud;
-            // TODO: enable for all WANs once multi-WAN upstream tracing is implemented
-            if (cloud.kind === 0 && cloud.wanInterface === this._snapshot?.primaryWanInterface) {
+            // Every access-ISP globe, not just the primary's: upstream discovery runs per WAN now,
+            // and the menu carries the WAN so it opens on that globe's own discovery.
+            if (cloud.kind === 0) {
                 this._showCloudContextMenu(e.clientX, e.clientY, cloud);
             }
             return;
@@ -3742,7 +3743,9 @@ export class LanFlowMap {
             e.stopPropagation();
             this._dismissContextMenu();
             if (this._dotnetRef) {
-                this._dotnetRef.invokeMethodAsync('NavigateToUpstreamDiscovery');
+                // The globe knows which WAN it is, so the panel opens on that WAN's discovery
+                // rather than on the primary's - which on a secondary globe is the wrong panel.
+                this._dotnetRef.invokeMethodAsync('NavigateToUpstreamDiscoveryForWan', cloud.wanInterface || null);
             }
         });
         menu.appendChild(item);

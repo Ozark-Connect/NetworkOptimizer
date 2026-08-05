@@ -209,6 +209,13 @@ a:hover {
     color: var(--text-primary);
 }
 
+.agent-install .agent-flavor-note {
+    margin-left: 0.4rem;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--text-muted);
+}
+
 .nav-link.active {
     background: var(--bg-tertiary);
     color: var(--accent-color);
@@ -511,6 +518,37 @@ h1:focus {
     min-height: 59px;
     flex-wrap: wrap;
     gap: 0.75rem;
+}
+
+.monitoring-chart-header .chart-header-controls {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-left: auto;
+    justify-content: flex-end;
+}
+
+.isp-health-toolbar .wan-selector {
+    margin-right: auto;
+}
+
+.monitoring-chart-header.chart-header-stacked .card-title {
+    flex-basis: 100%;
+}
+
+@media (max-width: 768px) {
+    .monitoring-chart-header.chart-header-stacked .wan-selector,
+    .monitoring-chart-header .chart-header-controls {
+        margin-left: 0;
+        flex: 1 1 100%;
+        justify-content: flex-start;
+    }
+}
+
+.wan-selector .wan-filter-reset {
+    position: static;
+    margin-left: 0.15rem;
 }
 
 @media (max-width: 768px) {
@@ -936,6 +974,9 @@ a.stat-card-link:active {
     flex: 1 1 120px;
     min-width: 100px;
     text-align: center;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
 }
 .monitoring-stat-pair {
     display: flex;
@@ -947,6 +988,7 @@ a.stat-card-link:active {
     min-width: 0;
 }
 .monitoring-stat-card .stat-value {
+    font-variant-numeric: tabular-nums;
     font-size: 1.3rem;
     font-weight: 600;
     color: var(--text-primary);
@@ -9417,6 +9459,51 @@ a.path-hop.hop-clickable:hover {
     }
 }
 
+.stat-value-stacked {
+    display: grid;
+    grid-template-columns: 2.6rem 5.2rem;
+    justify-content: center;
+    align-items: center;
+    column-gap: 0.6rem;
+    row-gap: 0.1rem;
+    font-size: 0.95rem;
+    line-height: 1.35;
+    font-variant-numeric: tabular-nums;
+}
+
+.stat-stack-row {
+    display: contents;
+}
+
+.stat-stack-wan {
+    color: var(--text-muted);
+    font-size: 0.7rem;
+    text-align: right;
+}
+
+.stat-stack-value {
+    text-align: left;
+    font-size: 1rem;
+}
+
+.wan-pill-token {
+    color: var(--text-muted);
+    margin-left: 0.3rem;
+}
+
+.time-btn.active .wan-pill-token {
+    color: var(--text-secondary);
+}
+
+.wan-selector-standalone {
+    width: max-content;
+    max-width: 100%;
+}
+
+.time-range-selector.wan-selector-on-page {
+    background: var(--bg-tertiary);
+}
+
 .time-range-selector {
     display: flex;
     gap: 0.25rem;
@@ -9813,6 +9900,11 @@ a.path-hop.hop-clickable:hover {
     .time-btn {
         flex: 1;
         padding: 0.5rem 0.25rem;
+    }
+
+    .wan-selector.wan-selector-many .time-btn {
+        font-size: 0.7rem;
+        padding: 0.5rem 0.15rem;
     }
 
     .filter-group {
@@ -15410,6 +15502,38 @@ a.affected-client:hover {
     color: var(--text-primary);
 }
 
+.monitoring-jump-btn {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.2rem 0.35rem;
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    line-height: 1;
+    cursor: pointer;
+}
+
+.monitoring-jump-btn:hover {
+    color: var(--text-primary);
+}
+
+.monitoring-chart-header > .monitoring-jump-btn {
+    padding-right: 0.1rem;
+}
+
+.live-view-jump-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+}
+
+.live-view-jump-row .monitoring-jump-btn {
+    margin-left: auto;
+    margin-top: auto;
+}
+
+
 .wan-filter-badge {
     display: inline-flex;
     align-items: center;
@@ -17036,6 +17160,15 @@ tr.stats-row-filtered {
     .isp-health-toolbar .btn {
         min-width: 0;
         padding: 0 12px;
+    }
+
+    .isp-health-toolbar {
+        flex-wrap: wrap;
+        row-gap: 0.5rem;
+    }
+
+    .isp-health-toolbar .wan-selector {
+        flex-basis: 100%;
     }
 }
 
@@ -19240,59 +19373,10 @@ body.kiosk-mode .status-indicators {
     overflow-x: auto;
 }
 
-.inline-add-form {
-    margin-top: 1rem;
-    padding: 1rem;
-    background: var(--bg-tertiary);
-    border-radius: 8px;
-}
-
-.inline-add-form-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.75rem;
-    align-items: flex-end;
-}
-
-.inline-add-form-field {
-    flex: 1 1 150px;
-    min-width: 0;
-}
-
-.inline-add-form-field label {
-    display: block;
-    margin-bottom: 0.25rem;
-    font-size: 0.8rem;
-}
-
-.inline-add-form-field input,
-.inline-add-form-field select {
-    width: 100%;
-}
-
-.inline-add-form-actions {
-    display: flex;
-    gap: 0.5rem;
-}
-
 .form-error {
     color: var(--danger-color);
     margin-top: 0.5rem;
     font-size: 0.85rem;
-}
-
-@media (max-width: 768px) {
-    .inline-add-form-field {
-        flex-basis: 100%;
-    }
-
-    .inline-add-form-actions {
-        flex-basis: 100%;
-    }
-
-    .inline-add-form-actions .btn {
-        flex: 1;
-    }
 }
 
 .site-card-agents {

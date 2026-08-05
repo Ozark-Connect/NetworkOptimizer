@@ -30,6 +30,7 @@ public class AgentProbeResultSink
     private readonly Monitoring.DeviceTransitionTracker _deviceTransitions;
     private readonly MonitoringAlertRegistry _alertRegistry;
     private readonly ICredentialProtectionService _credentialProtection;
+    private readonly Monitoring.IspHealth.IspHealthRegistry _ispHealthRegistry;
     private readonly ILogger<AgentProbeResultSink> _logger;
 
     // Counter delta cache for agent-relayed interface samples. Key =
@@ -112,8 +113,12 @@ public class AgentProbeResultSink
         SiteAgentCoverage agentCoverage,
         AgentOnGatewayDetector onGatewayDetector,
         IAgentEnrollmentService enrollment,
+        AgentTunnelRegistry tunnelRegistry,
+        Monitoring.IspHealth.IspHealthRegistry ispHealthRegistry,
         ILogger<AgentProbeResultSink> logger)
     {
+        _ispHealthRegistry = ispHealthRegistry;
+        _tunnelRegistry = tunnelRegistry;
         _siteDbFactory = siteDbFactory;
         _influxRegistry = influxRegistry;
         _liveStatsRegistry = liveStatsRegistry;
@@ -133,6 +138,7 @@ public class AgentProbeResultSink
     private readonly SiteAgentCoverage _agentCoverage;
     private readonly AgentOnGatewayDetector _onGatewayDetector;
     private readonly IAgentEnrollmentService _enrollment;
+    private readonly AgentTunnelRegistry _tunnelRegistry;
 
     /// <summary>
     /// Called once per connection after the hello exchange, and again by the periodic refresh.
@@ -245,7 +251,20 @@ public class AgentProbeResultSink
                 await Task.Delay(TimeSpan.FromSeconds(1), CancellationToken.None);
 
             if (siteConnection.IsConnected)
+            {
                 await PushSnmpConfigAsync(connection, CancellationToken.None);
+
+                // Both halves are up now, so anything computed before this point saw a partial
+                // site. A report produced between server start and this moment is missing whatever
+                // arrives through the console - SNMP above all, which is what classifies load, so
+                // an early compute finds no loaded windows and reports a different score for the
+                // same day. It is then cached and served until something evicts it, which is why a
+                // cold report and a warm one disagreed with nothing in between to reconcile them.
+                _ispHealthRegistry.InvalidateSite(connection.SiteSlug);
+                _logger.LogDebug(
+                    "Agent and console both up for site {Slug}; dropping any ISP Health computed without them",
+                    connection.SiteSlug);
+            }
         }
         catch (Exception ex)
         {
@@ -284,7 +303,53 @@ public class AgentProbeResultSink
                 .AsNoTracking()
                 .Where(t => t.Enabled)
                 .ToListAsync(ct);
+            // Before anything reads a context's binding, give one back to any context that lost the
+            // chance to have one. Runs here because this is the push that follows an agent's hello,
+            // which is exactly when an upgraded agent first reports it can bind.
+            if (await HealUnboundGatewayContextsAsync(db, connection, ct))
+                _ = await db.SaveChangesAsync(ct);
             var contextsById = await db.WanContexts.AsNoTracking().ToDictionaryAsync(c => c.Id, ct);
+
+            // An agent that owns a WAN context is there to measure that WAN and nothing else: it
+            // sits behind a policy-routed source or binds the WAN's own interface, so every probe
+            // it runs leaves by that WAN. Handing it the site's ordinary targets as well would
+            // measure the secondary WAN and file the result under the primary. Only true once a
+            // context names this agent, so a site with no contexts pushes exactly what it always
+            // has.
+            // Steered means the agent's OWN default route leaves by a WAN that is not the primary -
+            // a probe box the gateway policy-routes by MAC, or one running with agent.json's
+            // probeSourceIp. It is a vantage behind that WAN and nothing else, so it must not
+            // probe anything the primary owns.
+            //
+            // Two ways an agent is NOT steered even while serving a context. It binds per probe
+            // (its context names an interface - a gateway agent), so its own route is untouched.
+            // Or its context IS the primary's, which needs no steering to reach: on a failover-only
+            // site every unpinned box already leaves by the primary. Both keep the agent eligible
+            // as the site's collector, which on a gateway-only site it has to be.
+            var primaryWanKey = await ResolvePersistedPrimaryWanKeyAsync(db, ct);
+            var agentIsSteeredToWan = contextsById.Values.Any(c =>
+                c.AgentId == connection.AgentId
+                && string.IsNullOrEmpty(c.InterfaceName)
+                && !IsPrimaryWanContext(c, primaryWanKey));
+
+            // Exactly one agent probes the unassigned (primary-WAN) targets. Several agents on a
+            // site used to each get the whole set as extra vantage points, which on a site running
+            // an agent per WAN means every primary target probed N times for one number. The owner
+            // is the lowest-id agent that is CONNECTED and not steered: deterministic, so a refresh
+            // does not move the pool around, and self-healing, because the next agent takes it over
+            // on the following push if the owner drops. Steered agents are never eligible - their
+            // probes leave by the wrong WAN.
+            // Only when an agent collects for this site at all. On the main site with collection
+            // left to the server, the server probes the unassigned pool itself, and the results of
+            // an agent probing it too are discarded on arrival by ShouldRecordResult - so pushing
+            // them means the agent runs a set of probes for nothing. The push has to ask the same
+            // question the record does, or the two disagree about whose numbers count.
+            var agentCoversPrimary = !isDefault || await _agentCoverage.CoversAsync(connection.SiteSlug);
+            var unassignedOwnerId = agentCoversPrimary
+                ? SelectCollectorAgentId(
+                    _tunnelRegistry.GetForSite(connection.SiteSlug).Select(c => c.AgentId),
+                    contextsById.Values, primaryWanKey, connection.AgentId)
+                : NoCollectorAgentId;
 
             // An agent running ON the gateway cannot usefully probe it: the target is the box the
             // probe runs on, so every reply is loopback - 0 ms and no loss - which reads as a
@@ -296,9 +361,15 @@ public class AgentProbeResultSink
             // this runs on the tunnel's background path with no caller context, and the gate threw -
             // taking the whole push with it, so the site got no targets at all and its monitoring
             // read as total loss.
-            var selfAddress = await _onGatewayDetector.IsAgentOnGatewayAsync(connection.SiteSlug)
-                ? _onGatewayDetector.LastKnownAgentIp(connection.SiteSlug)
-                : null;
+            // Asked per connection rather than per site: with several agents the site-level verdict
+            // correlates against whichever one the registry answers with, so it would skip the
+            // gateway target for an agent that is not on the gateway - and miss it for the one that
+            // is.
+            // The MATCHED address, not the agent's own reported one: the site's target for the
+            // gateway carries the address the console knows it by, which is not necessarily the
+            // address the agent named itself with.
+            var selfAddress = await _onGatewayDetector.MatchGatewayAddressAsync(
+                connection.SiteSlug, connection.HostAddresses, ct);
             var skippedSelf = 0;
 
             var config = new ProbeConfig();
@@ -310,13 +381,16 @@ public class AgentProbeResultSink
                     skippedSelf++;
                     continue;
                 }
-                // Targets in an agent-assigned WAN context go only to that agent
-                // (typically a probe-only instance bound behind the right WAN);
-                // unassigned targets go to every agent as extra vantage points.
-                if (target.WanContextId is int contextId
-                    && contextsById.TryGetValue(contextId, out var context)
-                    && context.AgentId is int assignedAgent
-                    && assignedAgent != connection.AgentId)
+                // Context targets are that context's alone: its assigned agent, or no agent when
+                // the context is server-probed (the server's own prober binds the source IP).
+                // Only UNASSIGNED targets fan out to every ordinary agent as extra vantage
+                // points - except to an agent that owns a context, which measures only that. A
+                // WanContextId whose row is gone counts as a context with no agent (pushed
+                // nowhere) rather than as unassigned - conservative until the row is cleaned up.
+                var context = target.WanContextId is int contextId
+                    && contextsById.TryGetValue(contextId, out var found) ? found : null;
+                if (!ShouldPushTargetToAgent(target.WanContextId != null, context?.AgentId, connection.AgentId,
+                        agentIsSteeredToWan, unassignedOwnerId, IsFabricTarget(target.TargetType)))
                     continue;
                 config.Targets.Add(new ProbeTargetSpec
                 {
@@ -327,6 +401,11 @@ public class AgentProbeResultSink
                     PollIntervalSeconds = target.PollIntervalSeconds,
                     PingCount = target.PingCount,
                     TargetType = target.TargetType.ToString().ToLowerInvariant(),
+                    // The context's bind rides the target: an interface name for an
+                    // on-gateway agent, a source IP for a policy-routed one. The agent
+                    // prefers this over its own agent.json default, so one agent can
+                    // still serve a context while probing on its own route elsewhere.
+                    SourceIp = ResolveSpecSourceIp(context, connection.AgentId),
                 });
             }
 
@@ -343,6 +422,285 @@ public class AgentProbeResultSink
     }
 
     /// <summary>
+    /// The one agent that collects for a site: its SNMP, its fabric targets, and the primary WAN's
+    /// targets. The lowest-id CONNECTED agent that is not steered behind a secondary WAN.
+    /// <para>
+    /// Lowest-id makes it deterministic, so a refresh does not move the workload around; taking it
+    /// from the connected set makes it self-healing, because the next agent picks the work up on
+    /// the following push if the holder drops. Steered agents are never eligible - everything they
+    /// send leaves by the wrong WAN. <paramref name="fallbackAgentId"/> is returned when nothing is
+    /// eligible, which keeps a lone steered agent collecting rather than leaving a site dark.
+    /// </para>
+    /// </summary>
+    /// <summary>
+    /// Stands in for "no agent collects here", where the server does it. Never a real agent id, so
+    /// every ownership comparison simply fails.
+    /// </summary>
+    internal const int NoCollectorAgentId = -1;
+
+    internal static int SelectCollectorAgentId(
+        IEnumerable<int> connectedAgentIds,
+        IEnumerable<WanContext> contexts,
+        string? primaryWanKey,
+        int fallbackAgentId)
+    {
+        var contextList = contexts as IReadOnlyCollection<WanContext> ?? contexts.ToList();
+        return connectedAgentIds
+            .Where(id => !contextList.Any(c =>
+                c.AgentId == id
+                && string.IsNullOrEmpty(c.InterfaceName)
+                && !IsPrimaryWanContext(c, primaryWanKey)))
+            .DefaultIfEmpty(fallbackAgentId)
+            .Min();
+    }
+
+    /// <summary>
+    /// Which agent currently collects for a site, for display. Same answer the push path acts on,
+    /// asked from one place so the page cannot disagree with what is actually happening. Null when
+    /// no agent is connected.
+    /// </summary>
+    public async Task<int?> GetCollectorAgentIdAsync(string siteSlug, CancellationToken ct = default)
+    {
+        var connected = _tunnelRegistry.GetForSite(siteSlug).Select(c => c.AgentId).ToList();
+        if (connected.Count == 0) return null;
+        try
+        {
+            var isDefault = siteSlug == SiteManagementService.DefaultSiteSlug;
+            await using var db = _siteDbFactory.CreateForSite(siteSlug, isDefault);
+            var contexts = await db.WanContexts.AsNoTracking().ToListAsync(ct);
+            var primaryWanKey = await ResolvePersistedPrimaryWanKeyAsync(db, ct);
+            return SelectCollectorAgentId(connected, contexts, primaryWanKey, connected.Min());
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not resolve the collector agent for site {Slug}", siteSlug);
+            return connected.Min();
+        }
+    }
+
+    /// <summary>
+    /// The primary WAN's key as the last connected compute recorded it, or null when none has.
+    /// Read from the site's WanProfiles because this path has no console to ask, and a WAN's name
+    /// says nothing about its role. Null means unknown: callers must not read it as "not primary".
+    /// </summary>
+    /// <summary>
+    /// Fills the bind interface for this agent's contexts that have none, when the agent runs on the
+    /// gateway and can bind.
+    /// <para>
+    /// The state is reachable without any mistake: save a vantage while the agent is too old to
+    /// offer a binding, then update the agent. The capability arrives, the empty configuration does
+    /// not change, and the probes go on leaving by the gateway's default route while their results
+    /// are filed under the context's WAN - a wrong number that looks exactly like a right one. A
+    /// policy-based route cannot rescue it either, because routing policy does not govern the
+    /// gateway's OWN egress; binding the interface is the only mechanism there is.
+    /// </para>
+    /// <para>
+    /// Only ever fills an empty binding, so it cannot overwrite a choice. The interface comes from
+    /// the WAN's persisted data path - the logical uplink, ppp0 on PPPoE rather than the physical
+    /// port - so it needs no console call and works while the console is unreachable.
+    /// </para>
+    /// </summary>
+    /// <returns>Whether anything changed and the caller should save.</returns>
+    private async Task<bool> HealUnboundGatewayContextsAsync(
+        NetworkOptimizerDbContext db, AgentTunnelConnection connection, CancellationToken ct)
+    {
+        if (connection.SupportsSourceBind != true) return false;
+        var unbound = await db.WanContexts
+            .Where(c => c.AgentId == connection.AgentId
+                && (c.InterfaceName == null || c.InterfaceName == "")
+                && (c.ProbeSourceIp == null || c.ProbeSourceIp == "")
+                && c.WanInterface != null && c.WanInterface != "")
+            .ToListAsync(ct);
+        if (unbound.Count == 0) return false;
+
+        // Asked only when there is something to heal: it can await a console round trip.
+        if (await _onGatewayDetector.MatchGatewayAddressAsync(
+                connection.SiteSlug, connection.HostAddresses, ct) == null)
+            return false;
+
+        var profiles = await db.WanProfiles.AsNoTracking().ToListAsync(ct);
+        var healed = false;
+        foreach (var context in unbound)
+        {
+            var key = GatewayWanHelper.WanInterfaceKeyFromKey(context.WanInterface!);
+            var dataPath = profiles.FirstOrDefault(p =>
+                !string.IsNullOrEmpty(p.WanNetworkgroup)
+                && string.Equals(GatewayWanHelper.WanInterfaceKeyFromKey(p.WanNetworkgroup), key,
+                    StringComparison.OrdinalIgnoreCase))?.DataPathInterface;
+            if (string.IsNullOrEmpty(dataPath)) continue;
+            context.InterfaceName = dataPath;
+            healed = true;
+            _logger.LogInformation(
+                "WAN vantage '{Name}' had no binding; bound it to {Interface} for agent {Id} (site {Slug})",
+                context.Name, dataPath, connection.AgentId, connection.SiteSlug);
+        }
+        return healed;
+    }
+
+    private static async Task<string?> ResolvePersistedPrimaryWanKeyAsync(
+        NetworkOptimizerDbContext db, CancellationToken ct)
+    {
+        var group = (await db.WanProfiles.AsNoTracking()
+            .FirstOrDefaultAsync(w => w.IsPrimary == true, ct))?.WanNetworkgroup;
+        return string.IsNullOrEmpty(group) ? null : GatewayWanHelper.WanInterfaceKeyFromKey(group);
+    }
+
+    /// <summary>
+    /// Whether a context measures the primary WAN. False when the primary is unknown: an agent is
+    /// only excused from being treated as steered on a positive answer, so an unresolved primary
+    /// leaves the conservative reading in place rather than handing it the site's targets.
+    /// </summary>
+    internal static bool IsPrimaryWanContext(WanContext context, string? primaryWanKey) =>
+        !string.IsNullOrEmpty(primaryWanKey)
+        && !string.IsNullOrEmpty(context.WanInterface)
+        && string.Equals(GatewayWanHelper.WanInterfaceKeyFromKey(context.WanInterface!),
+            primaryWanKey, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Whether a target belongs in one agent's pushed set.
+    ///
+    /// Every target has exactly one prober, and which one depends on what the target measures.
+    ///
+    /// FABRIC targets - the gateway, switches, APs, anything inside the LAN - never cross a WAN, so
+    /// no WAN owns them and a context could not mean anything for one. They go to the site's
+    /// collector, the same agent that polls SNMP: it is the one inside the network, and pairing the
+    /// two keeps a device's counters and its reachability measured from the same place.
+    ///
+    /// WAN targets belong to the WAN they leave by: a context's targets to that context's agent,
+    /// and the unassigned ones - the primary's - to ONE agent rather than all of them, so a site
+    /// running an agent per WAN does not probe every primary target once per agent for one number.
+    ///
+    /// A STEERED agent is probe-only for its context: everything it sends leaves by that WAN, so a
+    /// primary target probed from it would measure the wrong path and be recorded as the primary's.
+    /// An interface-bound (gateway) agent is not steered - it binds each context probe to that
+    /// WAN's interface while its own route stays the primary - so it can serve contexts AND be the
+    /// site's collector, which on a gateway-only site it has to be.
+    /// </summary>
+    /// <param name="targetHasContext">Whether the target belongs to ANY WAN context. A context
+    /// target is that context's alone: its assigned agent when it has one, or - for a source-IP
+    /// (server-probed) context - NO agent at all, because an ordinary agent would probe it over
+    /// its own primary route while the result gets tagged with the secondary WAN's key,
+    /// corrupting that WAN's score now that the tag is read.</param>
+    /// <param name="contextAgentId">Agent assigned to the target's WAN context; null when the target has no context, or its context has no agent (server-probed).</param>
+    /// <param name="agentId">The agent being pushed to.</param>
+    /// <param name="agentIsSteeredToWan">Whether a context names this agent WITHOUT an interface
+    /// to bind - i.e. the whole box sits behind one WAN.</param>
+    /// <param name="unassignedOwnerId">The one agent that collects for the site: fabric targets
+    /// and the primary WAN's.</param>
+    /// <param name="targetIsFabric">Whether the target is inside the LAN, so no WAN owns it.</param>
+    internal static bool ShouldPushTargetToAgent(
+        bool targetHasContext, int? contextAgentId, int agentId, bool agentIsSteeredToWan,
+        int unassignedOwnerId, bool targetIsFabric = false)
+        => targetIsFabric
+            ? !agentIsSteeredToWan && unassignedOwnerId == agentId
+            : targetHasContext
+                ? contextAgentId == agentId
+                : !agentIsSteeredToWan && unassignedOwnerId == agentId;
+
+    /// <summary>
+    /// Whether a target sits inside the LAN, where no WAN is involved and a WAN context would mean
+    /// nothing. Fabric is the type the discovery tier gives the gateway, switches and APs.
+    /// </summary>
+    internal static bool IsFabricTarget(MonitoringTargetType targetType) =>
+        targetType == MonitoringTargetType.Fabric;
+
+    /// <summary>
+    /// The source an agent binds this target's probes to: the context's interface when it has one,
+    /// otherwise its source IP, and empty for anything the agent is not running on that context's
+    /// behalf. Empty leaves the agent on its own configured default, which is what every target
+    /// carried before contexts existed.
+    /// </summary>
+    internal static string ResolveSpecSourceIp(WanContext? context, int agentId)
+        => context != null && context.AgentId == agentId
+            ? context.InterfaceName ?? context.ProbeSourceIp ?? ""
+            : "";
+
+    /// <summary>
+    /// Whether a result an agent sent should be written.
+    ///
+    /// Coverage governs primary-path measurement: a main-site agent that is not covering the site
+    /// is a second prober for targets the server is already probing, and its results are dropped so
+    /// the two cadences don't saw across the same series. A context's targets are not that - the
+    /// server never probes them (it cannot reach the secondary WAN), so the assigned agent's
+    /// results are the only ones there are and coverage has no bearing on them.
+    /// </summary>
+    internal static bool ShouldRecordResult(bool agentCoversPrimary, int? contextAgentId, int agentId)
+        => agentCoversPrimary || contextAgentId == agentId;
+
+    /// <summary>
+    /// Whether an agent should be sent the site's SNMP config and speed-test server list.
+    ///
+    /// A STEERED agent is a probe vantage behind one WAN, not a second collector: polling SNMP
+    /// from it would double every counter the site already collects, and it serves no speed tests.
+    /// An interface-bound (gateway) agent is a collector that also serves contexts, so it keeps
+    /// both - a site whose only agent is on the gateway must still get its SNMP from somewhere.
+    /// False only once a steered context names it, so a site with no contexts is unaffected.
+    /// </summary>
+    internal static bool ShouldPushSiteCollectionConfig(bool agentIsSteeredToWan) => !agentIsSteeredToWan;
+
+    /// <summary>
+    /// Whether this agent sits ENTIRELY behind one WAN: a context names it and gives no interface
+    /// to bind, so the box itself is policy-routed out that WAN. An agent whose contexts all name
+    /// an interface binds per probe and still routes normally, so it is not steered. Answers false
+    /// when the site database cannot be read, which leaves every gate on this at the behavior it
+    /// has today rather than standing an agent down on a hiccup.
+    /// </summary>
+    private async Task<bool> IsSteeredToWanAgentAsync(AgentTunnelConnection connection, CancellationToken ct)
+    {
+        try
+        {
+            var isDefault = connection.SiteSlug == SiteManagementService.DefaultSiteSlug;
+            await using var db = _siteDbFactory.CreateForSite(connection.SiteSlug, isDefault);
+            var primaryWanKey = await ResolvePersistedPrimaryWanKeyAsync(db, ct);
+            var contexts = await db.WanContexts.AsNoTracking()
+                .Where(c => c.AgentId == connection.AgentId
+                    && (c.InterfaceName == null || c.InterfaceName == ""))
+                .ToListAsync(ct);
+            return contexts.Any(c => !IsPrimaryWanContext(c, primaryWanKey));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not read WAN contexts for agent {Id} (site {Slug})",
+                connection.AgentId, connection.SiteSlug);
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Whether this agent owns any WAN context on its site, however that context binds. The test for
+    /// "is there anything worth reading this agent's results for" - the per-result check below then
+    /// decides which of them to keep.
+    /// </summary>
+    private async Task<bool> AgentOwnsAnyContextAsync(AgentTunnelConnection connection, CancellationToken ct)
+    {
+        try
+        {
+            await using var db = _siteDbFactory.CreateForSite(
+                connection.SiteSlug, connection.SiteSlug == SiteManagementService.DefaultSiteSlug);
+            return await db.WanContexts.AsNoTracking().AnyAsync(c => c.AgentId == connection.AgentId, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not read WAN contexts for agent {Id} (site {Slug})",
+                connection.AgentId, connection.SiteSlug);
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Re-pushes probe config to every connected agent of a site. Reassigning a WAN context moves
+    /// targets between agents, and both ends have to hear about it: the agent losing the context
+    /// keeps probing what it no longer owns until it is told otherwise, and the one gaining it does
+    /// not start until it is. The periodic refresh would settle both within a minute; this makes
+    /// the edit take effect when the user makes it.
+    /// </summary>
+    public async Task PushProbeConfigToSiteAsync(string siteSlug, CancellationToken ct = default)
+    {
+        foreach (var connection in _tunnelRegistry.GetForSite(siteSlug))
+            await PushProbeConfigAsync(connection, ct);
+    }
+
+    /// <summary>
     /// Pushes the WAN speed-test server list (global, main database) so the
     /// agent can serve its /wan/ redirect without the external servers needing
     /// any per-site config: /wan/ goes to the default server, /wan/&lt;id&gt;/ to
@@ -351,6 +709,10 @@ public class AgentProbeResultSink
     /// </summary>
     public async Task PushWanSpeedTestConfigAsync(AgentTunnelConnection connection, CancellationToken ct)
     {
+        // A context-assigned agent serves no speed test page, so it has no /wan/ redirect to
+        // resolve and no reason to hold the server list.
+        if (!ShouldPushSiteCollectionConfig(await IsSteeredToWanAgentAsync(connection, ct)))
+            return;
         try
         {
             await using var db = _siteDbFactory.CreateForSite(SiteManagementService.DefaultSiteSlug, isDefault: true);
@@ -384,12 +746,23 @@ public class AgentProbeResultSink
     /// connection, filtered and addressed by the same SnmpDeviceRules the
     /// local collection agent uses. A default-site agent gets SNMP config only when the site is
     /// configured for its agent to cover it - otherwise the server's own collection agent is still
-    /// polling those devices and pushing a second poller would double every sample.
+    /// polling those devices and pushing a second poller would double every sample. A
+    /// context-assigned agent gets an explicitly disabled config for the same reason: it is a probe
+    /// vantage behind one WAN, and the site already has a collector.
     /// </summary>
     public async Task PushSnmpConfigAsync(AgentTunnelConnection connection, CancellationToken ct)
     {
         var isDefault = connection.SiteSlug == SiteManagementService.DefaultSiteSlug;
         if (isDefault && !await _agentCoverage.CoversAsync(connection.SiteSlug)) return;
+        if (!ShouldPushSiteCollectionConfig(await IsSteeredToWanAgentAsync(connection, ct)))
+        {
+            // Disabled rather than absent: an agent that polled before being assigned a context
+            // keeps polling on its last config until a new one tells it to stop.
+            connection.TrySend(new ServerMessage { SnmpConfig = new SnmpConfig { Enabled = false } });
+            _logger.LogDebug("Agent {Id} (site {Slug}) probes a WAN context; SNMP polling left to the site's collector",
+                connection.AgentId, connection.SiteSlug);
+            return;
+        }
         try
         {
             await using var db = _siteDbFactory.CreateForSite(connection.SiteSlug, isDefault);
@@ -1240,13 +1613,29 @@ public class AgentProbeResultSink
 
         var isDefault = connection.SiteSlug == SiteManagementService.DefaultSiteSlug;
 
-        // The push path already refuses to send targets to a main-site agent that is not covering
-        // the site; results are refused for the same reason. Switching coverage off stops the
-        // config going out but does not stop an agent that already has targets, so it keeps
-        // probing and pushing while the server resumes probing the same targets itself. Both write
-        // the same series at different cadences, which reads as a sawtooth on the charts rather
-        // than as duplicate points.
-        if (isDefault && !await _agentCoverage.CoversAsync(connection.SiteSlug)) return;
+        // A main-site agent that is not covering the site probes targets the server is probing too,
+        // and both write the same series at different cadences - which reads as a sawtooth on the
+        // charts rather than as duplicate points. So its results are dropped. (The push path does
+        // NOT refuse those targets, which an earlier comment here claimed: the agent is sent the
+        // site's targets as an extra vantage point, probes them, and everything it reports lands
+        // here to be discarded.)
+        //
+        // A WAN context's targets are the exception: the server cannot reach the secondary WAN, so
+        // it never probes them, and the assigned agent's results are the only measurement there is.
+        // Below, each result is judged against the target's own context rather than the whole batch
+        // being refused here.
+        var agentCoversPrimary = !isDefault || await _agentCoverage.CoversAsync(connection.SiteSlug);
+        // Nothing this agent sends can be kept, so drop the batch without loading the site's
+        // targets for it - which is what happened before contexts existed, and still happens on
+        // every site that has none.
+        //
+        // The question is whether the agent owns ANY context, not whether it is steered. Those are
+        // the same for an agent whose whole box is routed out a WAN, and different for one on the
+        // gateway that binds each probe: binding leaves its own route alone, so it is not steered,
+        // yet its context's results are still the only measurement that WAN has. Asking the steering
+        // question here threw away every result from a gateway vantage the moment it was given an
+        // interface to bind.
+        if (!agentCoversPrimary && !await AgentOwnsAnyContextAsync(connection, ct)) return;
 
         await using var db = _siteDbFactory.CreateForSite(connection.SiteSlug, isDefault);
         var ids = batch.Results.Select(r => r.TargetId).Distinct().ToList();
@@ -1264,6 +1653,7 @@ public class AgentProbeResultSink
         var influx = _influxRegistry.GetFor(connection.SiteSlug);
         if (!influx.IsConfigured) await influx.ReconfigureAsync(ct);
         var liveStats = _liveStatsRegistry.GetFor(connection.SiteSlug);
+        var discarded = 0;
 
         foreach (var result in batch.Results)
         {
@@ -1273,9 +1663,16 @@ public class AgentProbeResultSink
                 continue;
             }
 
+            var context = target.WanContextId is int contextId && contextsById.TryGetValue(contextId, out var found)
+                ? found : null;
+            if (!ShouldRecordResult(agentCoversPrimary, context?.AgentId, connection.AgentId))
+            {
+                discarded++;
+                continue;
+            }
+
             var timestamp = DateTimeOffset.FromUnixTimeMilliseconds(result.TimestampUnixMs).UtcDateTime;
-            var wanContext = target.WanContextId is int contextId && contextsById.TryGetValue(contextId, out var context)
-                ? context.Name : null;
+            var wanContext = context?.InfluxWanTag;
 
             await influx.WriteLatencyAsync(
                 targetId: target.TargetId,
@@ -1346,6 +1743,11 @@ public class AgentProbeResultSink
             if (result.Success)
                 target.LastVerified = timestamp;
         }
+
+        if (discarded > 0)
+            _logger.LogDebug(
+                "Dropped {Count} result(s) from agent {Id}: the main site is collecting for itself and these targets are not in a WAN context this agent owns",
+                discarded, connection.AgentId);
 
         await db.SaveChangesAsync(ct);
     }

@@ -85,7 +85,7 @@ public class IspHealthScorer
         var jitterFloor = ComputeJitterFloor(inputs);
         _logger?.LogDebug("ISP Health: path jitter floor {Floor} ms", FormatMsOrNull(jitterFloor));
         var (loadedLatency, hasLoadedLatency) = ScoreLoadedLatency(loadedDeltas, profile);
-        var (loadedLoss, hasLoadedLoss) = ScoreLoadedLoss(inputs.LossPoolSeries, loadWindows, profile);
+        var (loadedLoss, hasLoadedLoss) = ScoreLoadedLoss(inputs, inputs.LossPoolSeries, loadWindows, profile);
 
         // Physical Link: the access medium's own physical layer (optical RX, DOCSIS RF/FEC,
         // cellular signal). Null factor (omitted, no penalty) when no source matched the WAN.
@@ -408,35 +408,214 @@ public class IspHealthScorer
         double? down = null, up = null;
         if (loadWindows.Count > 0)
         {
-            down = LoadedLatencyDelta(inputs, loadWindows, w => w.IsLoadedDown, w => w.IsLoadedUp);
-            up = LoadedLatencyDelta(inputs, loadWindows, w => w.IsLoadedUp, w => w.IsLoadedDown);
+            down = LoadedLatencyDelta(inputs, loadWindows, w => w.IsLoadedDown, w => w.IsLoadedUp, upstream: false);
+            up = LoadedLatencyDelta(inputs, loadWindows, w => w.IsLoadedUp, w => w.IsLoadedDown, upstream: true);
         }
 
         bool downFromSpeedTest = false, upFromSpeedTest = false;
         if (down == null || up == null)
         {
             var (tests, _) = SelectSpeedTests(inputs);
-            var downDeltas = tests
-                .Where(t => t.DownloadLatencyMs.HasValue && t.PingMs.HasValue)
-                .Select(t => Math.Max(0, t.DownloadLatencyMs!.Value - t.PingMs!.Value))
+            // Recency-weighted, so a fix shows up in days rather than after the good tests
+            // outnumber the bad ones. Still a median: one clean run cannot clear a standing
+            // finding, and one bad run cannot create one.
+            List<(DateTime Time, double Value)> Deltas(Func<SpeedTestSample, double?> loaded) => tests
+                .Where(t => loaded(t).HasValue && t.PingMs.HasValue)
+                .Select(t => (t.Time, Math.Max(0, loaded(t)!.Value - t.PingMs!.Value)))
                 .ToList();
-            var upDeltas = tests
-                .Where(t => t.UploadLatencyMs.HasValue && t.PingMs.HasValue)
-                .Select(t => Math.Max(0, t.UploadLatencyMs!.Value - t.PingMs!.Value))
-                .ToList();
+
+            var downDeltas = Deltas(t => t.DownloadLatencyMs);
+            var upDeltas = Deltas(t => t.UploadLatencyMs);
+            // No load weighting here: a speed test saturates the line by definition, so every one
+            // of these is a fully loaded episode already.
             if (down == null && downDeltas.Count > 0)
             {
-                down = SeriesStats.Median(downDeltas);
+                down = RecentRegimeDelta(downDeltas) ?? RecencyWeightedDelta(downDeltas, inputs.WindowEnd);
                 downFromSpeedTest = true;
             }
             if (up == null && upDeltas.Count > 0)
             {
-                up = SeriesStats.Median(upDeltas);
+                up = RecentRegimeDelta(upDeltas) ?? RecencyWeightedDelta(upDeltas, inputs.WindowEnd);
                 upFromSpeedTest = true;
             }
         }
         return new LoadedDeltas(down, up, downFromSpeedTest, upFromSpeedTest);
     }
+
+    /// <summary>
+    /// The loaded delta the speed tests support, newest first. Normally the recency-weighted
+    /// median; but when the newest runs in a row all sit far below everything older, that is a
+    /// line someone FIXED, and the older tests describe a connection that no longer exists.
+    /// <para>
+    /// Age-weighting alone cannot see this. The scoring window is short, so a fix this afternoon
+    /// leaves a handful of clean tests against a handful of bad ones only hours older - too close
+    /// in age for decay to separate, and the median stays on the bad cluster for days after the
+    /// line stopped misbehaving.
+    /// </para>
+    /// </summary>
+    /// <summary>
+    /// The delta a run of the NEWEST measurements supports when they all sit far below everything
+    /// older - a line someone fixed, where the older measurements describe a connection that no
+    /// longer exists. Null when the evidence does not say that.
+    /// <para>
+    /// Age-weighting alone cannot see this. The scoring window is short, so a fix this afternoon
+    /// leaves a few clean measurements against a few bad ones only hours older: too close in age
+    /// for decay to separate, and the median stays on the bad cluster for days after the line
+    /// stopped misbehaving.
+    /// </para>
+    /// <para>
+    /// Asked BEFORE the monitoring path's noise floor on purpose. That floor drops deltas under
+    /// half a millisecond, which is exactly what a fixed line produces - so the evidence of the fix
+    /// lives in the samples it throws away, and a rule running after it could never see one.
+    /// </para>
+    /// </summary>
+    private double? RecentRegimeDelta(IReadOnlyList<(DateTime Time, double Value)> newestFirst)
+    {
+        var run = _options.LoadedLatencyRegimeSamples;
+        if (run <= 0 || newestFirst.Count <= run) return null;
+
+        var recent = newestFirst.Take(run).Select(s => s.Value).ToList();
+        var older = newestFirst.Skip(run).Select(s => s.Value).ToList();
+        if (SeriesStats.Median(older) is not { } baseline || baseline <= LoadedLatencyRegimeFloorMs)
+            return null;
+
+        // The floor keeps a connection whose delta is already small from tripping this on ordinary
+        // measurement noise - halving 1 ms proves nothing.
+        var threshold = Math.Max(
+            baseline * _options.LoadedLatencyRegimeDropFraction,
+            LoadedLatencyRegimeFloorMs);
+        return recent.All(v => v < threshold) ? SeriesStats.Median(recent) : null;
+    }
+
+    /// <summary>
+    /// Weighs each measurement by age and, where the load behind it is known, by how hard the line
+    /// was working - then takes the median at half the total weight.
+    /// </summary>
+    /// <summary>
+    /// One episode's added delay, by the SAME statistic the pooled path has always used: every
+    /// access hop's samples together, those below the noise floor dropped, median of what remains.
+    /// <para>
+    /// That statistic IS the attribution and is deliberately untouched. Pooling the hops and taking
+    /// a low-order statistic of the credible ones is what tells a hop that genuinely queues from
+    /// one that only deprioritizes ICMP - the throttled hop sits at the top of the distribution
+    /// where a low-order statistic ignores it, while a flat near hop falls below the floor and
+    /// cannot dilute an OLT that really did spike. Reaching for the worst hop instead would promote
+    /// the very noise this rejects.
+    /// </para>
+    /// <para>
+    /// Nothing above the floor is zero: the line was loaded and it stayed clean. That is a reading,
+    /// not a gap - and it was the reading being thrown away, which is how a WAN whose every episode
+    /// was clean still reported the median of a handful of stray samples.
+    /// </para>
+    /// </summary>
+    /// <summary>
+    /// Raises one episode's delta to a WAN speed test's own loaded-vs-idle figure when a test ran
+    /// during it and read higher, in the SAME direction.
+    /// <para>
+    /// A test carries its own idle reference (<see cref="SpeedTestSample.PingMs"/>) taken by the
+    /// same probe against the same endpoint seconds apart, so the difference needs no baseline of
+    /// ours and inherits none of its blind spots.
+    /// </para>
+    /// <para>
+    /// Deliberately one-directional, and deliberately per-episode. Taking the larger of two
+    /// estimates biases upward wherever both are about right, so it is confined to the episodes a
+    /// test actually overlapped rather than allowed to lift the whole factor.
+    /// </para>
+    /// </summary>
+    private List<(DateTime Time, double Value)> QualifyingTests(
+        DateTime start, DateTime end, IspHealthInputs inputs, bool upstream)
+    {
+        var tolerance = TimeSpan.FromSeconds(Math.Max(0, _options.LoadedLatencySpeedTestMatchSeconds));
+        var found = new List<(DateTime Time, double Value)>();
+        foreach (var test in inputs.WanSpeedTests)
+        {
+            if (test.Time < start - tolerance || test.Time > end + tolerance) continue;
+            var underLoad = upstream ? test.UploadLatencyMs : test.DownloadLatencyMs;
+            if (!underLoad.HasValue || !test.PingMs.HasValue) continue;
+
+            // Only a test that actually filled the pipe measured this link under load. Without
+            // this the lift is genuinely biased: a stalled or server-limited test reads high for
+            // reasons that are not your access queue, and nothing downstream can pull it back.
+            // Unknown plan speed means the question cannot be asked, so the test is not used.
+            var achieved = upstream ? test.UploadMbps : test.DownloadMbps;
+            var expected = upstream ? inputs.ExpectedUploadMbps : inputs.ExpectedDownloadMbps;
+            if (!(expected > 0) || achieved < expected * _options.LoadedLatencySpeedTestMinPlanFraction)
+                continue;
+
+            found.Add((test.Time, Math.Max(0, underLoad.Value - test.PingMs.Value)));
+        }
+        return found;
+    }
+
+    private static double EpisodeDelta(List<double> deltas, double noiseFloor)
+    {
+        var credible = deltas.Where(d => d >= noiseFloor).ToList();
+        return credible.Count == 0 ? 0 : SeriesStats.Median(credible)!.Value;
+    }
+
+    private double? RecencyWeightedDelta(
+        IReadOnlyList<(DateTime Time, double Value)> samples,
+        DateTime windowEnd,
+        Func<DateTime, double>? loadWeight = null)
+        => SeriesStats.WeightedMedian(samples
+            .Select(s => (
+                s.Value,
+                SeriesStats.RecencyWeight(windowEnd - s.Time, _options.LoadedLatencyRecencyHalfLifeHours)
+                    * (loadWeight?.Invoke(s.Time) ?? 1)))
+            .ToList());
+
+    /// <summary>
+    /// How much a load episode's latency is worth as evidence, from how hard the line was actually
+    /// working during it. A window carrying a fifth of the plan barely loads the buffers, so what
+    /// it shows says little about behavior when the pipe is full; a window at or past
+    /// <see cref="IspHealthOptions.LoadedLatencyFullCredibilityUtilization"/> counts in full. Never
+    /// zero - light load is weak evidence, not none - and 1 throughout when the plan speed is
+    /// unknown, which leaves the figure exactly as it was before load was considered.
+    /// </summary>
+    private Func<DateTime, double> BuildLoadWeighting(
+        IspHealthInputs inputs, bool upstream, IReadOnlySet<DateTime> loaded)
+    {
+        var floor = _options.LoadedLatencyMinLoadWeight;
+        var windowSeconds = Math.Max(1, _options.LoadWindowSeconds);
+        var fullSeconds = Math.Max(windowSeconds, _options.LoadedLatencyFullCredibilitySustainedSeconds);
+        var episodeSeconds = SeriesStats.LoadEpisodeSeconds(loaded, windowSeconds);
+
+        double DurationWeight(DateTime key) =>
+            episodeSeconds.TryGetValue(key, out var seconds)
+                ? SeriesStats.Credibility(seconds, fullSeconds, floor)
+                : floor;
+
+        // Utilization needs the plan speed. Without it there is nothing to measure "hard" against,
+        // so that half is left at 1 and duration alone decides - which is still an improvement and
+        // leaves nothing worse than before.
+        var planMbps = upstream ? inputs.ExpectedUploadMbps : inputs.ExpectedDownloadMbps;
+        if (planMbps is not > 0) return time => DurationWeight(FloorToWindow(time));
+
+        var planBps = planMbps.Value * 1_000_000;
+        var utilizationByWindow = new Dictionary<DateTime, double>();
+        foreach (var rate in inputs.WanRates)
+        {
+            var bps = upstream ? rate.UploadBps : rate.DownloadBps;
+            if (bps is not > 0) continue;
+            var key = FloorToWindow(rate.Time);
+            utilizationByWindow[key] = Math.Max(utilizationByWindow.GetValueOrDefault(key), bps.Value / planBps);
+        }
+
+        var start = _options.LoadedCredibilityUtilizationStart;
+        var full = _options.LoadedCredibilityUtilizationFull;
+        return time =>
+        {
+            var key = FloorToWindow(time);
+            var duration = DurationWeight(key);
+            var utilization = utilizationByWindow.TryGetValue(key, out var u)
+                ? SeriesStats.CredibilityBetween(u, start, full, floor)
+                : floor;
+            return duration * utilization;
+        };
+    }
+
+    /// <summary>Below this a loaded delta is too small for a "it was fixed" call to mean anything.</summary>
+    private const double LoadedLatencyRegimeFloorMs = 3;
 
     /// <summary>
     /// Median RTT of the first clean ISP hop during idle windows. Without load
@@ -503,6 +682,21 @@ public class IspHealthScorer
             }, null, null, null);
         }
 
+        // Both directions pinned at UniFi Network's 1 Mbps minimum is not a 1 Mbps plan - it is the
+        // lowest the field accepts from someone with nothing real to enter, most often a dish in
+        // standby or a metered backup held in reserve. A ratio against it is meaningless, but the
+        // link is not: what matters for a standby WAN is whether it carries usable traffic when
+        // called on, so it is graded on that instead. Only when BOTH sit at the floor; a real plan
+        // with a 1 Mbps upstream is unusual but expressible, and half a sentinel is still a plan.
+        // Corroborated where the dish says so outright, inferred otherwise. The reported tier is
+        // ground truth and stands on its own: a dish capped by its plan measured against a REAL
+        // configured plan is the same story told worse, since the shortfall is the tier and not
+        // the link either way.
+        var reportedTier = inputs.PhysicalLink?.ReducedSpeedTier == true;
+        var standby = reportedTier
+            || (inputs.ExpectedDownloadMbps <= _options.PlanFloorMbps
+                && inputs.ExpectedUploadMbps <= _options.PlanFloorMbps);
+
         var (tests, stale) = SelectSpeedTests(inputs);
         if (tests.Count == 0)
         {
@@ -514,8 +708,12 @@ public class IspHealthScorer
             }, null, null, null);
         }
 
-        var down = ScoreDirection(tests.Select(t => t.DownloadMbps), inputs.ExpectedDownloadMbps);
-        var up = ScoreDirection(tests.Select(t => t.UploadMbps), inputs.ExpectedUploadMbps);
+        var down = standby
+            ? ScoreStandbyDirection(tests.Select(t => t.DownloadMbps))
+            : ScoreDirection(tests.Select(t => t.DownloadMbps), inputs.ExpectedDownloadMbps);
+        var up = standby
+            ? ScoreStandbyDirection(tests.Select(t => t.UploadMbps))
+            : ScoreDirection(tests.Select(t => t.UploadMbps), inputs.ExpectedUploadMbps);
         var scores = new[] { down?.Score, up?.Score }.Where(s => s.HasValue).Select(s => s!.Value).ToList();
         if (scores.Count == 0)
         {
@@ -536,6 +734,25 @@ public class IspHealthScorer
         var typicalUp = up?.TypicalMbps ?? bestUp;
         var planText = $"{FormatMbps(inputs.ExpectedDownloadMbps ?? 0)} / {FormatMbps(inputs.ExpectedUploadMbps ?? 0)} Mbps plan";
         var multi = tests.Count > 1;
+        if (standby)
+        {
+            var standbyNote = multi ? $" Fastest of {tests.Count} WAN tests." : "";
+            return (new IspScoreFactor
+            {
+                Name = "Speed vs Plan",
+                Score = (int)Math.Round(scores.Average()),
+                Weight = _options.SpeedVsPlanWeight,
+                ValueText = $"{FormatMbps(bestDown)} / {FormatMbps(bestUp)} Mbps",
+                Description = (reportedTier
+                        ? "The dish reports a reduced-speed plan tier (such as Standby), so throughput "
+                            + "is capped by the plan rather than the link. Graded on whether it carries "
+                            + "usable traffic."
+                        : "Backup link with expected speeds at 1 / 1 Mbps, the lowest UniFi Network "
+                            + "allows. Graded on whether it carries usable traffic, not against a plan speed.")
+                    + standbyNote + staleNote
+            }, new SpeedTestSample(bestTest.Time, bestDown, bestUp), down?.TypicalMbps, up?.TypicalMbps);
+        }
+
         var description = multi
             ? $"Fastest of {tests.Count} WAN tests vs your {planText}. Typical {FormatMbps(typicalDown)} / {FormatMbps(typicalUp)} Mbps (down / up).{staleNote}"
             : $"Your latest WAN speed test vs your {planText} (down / up).{staleNote}";
@@ -547,6 +764,41 @@ public class IspHealthScorer
             ValueText = multi ? $"{FormatMbps(bestDown)} / {FormatMbps(bestUp)} Mbps best" : $"{FormatMbps(bestDown)} / {FormatMbps(bestUp)} Mbps",
             Description = description
         }, new SpeedTestSample(bestTest.Time, bestDown, bestUp), down?.TypicalMbps, up?.TypicalMbps);
+    }
+
+    /// <summary>
+    /// Grades a standby link on capability rather than ratio: is it carrying usable traffic.
+    /// <para>
+    /// Reaching the nominal 1 Mbps IS meeting the stated plan, so that scores full. Below it the
+    /// taper is deliberately forgiving - a dish in standby delivering 0.6 / 0.1 Mbps is doing
+    /// exactly its job in the emergency it exists for, and the ratio scoring called that a 17.
+    /// Only a link carrying essentially nothing scores badly, because that is the only outcome
+    /// that would actually fail its owner.
+    /// </para>
+    /// </summary>
+    private (double Score, double BestMbps, double TypicalMbps)? ScoreStandbyDirection(
+        IEnumerable<double> resultsMbps)
+    {
+        var sorted = resultsMbps.OrderBy(v => v).ToList();
+        if (sorted.Count == 0) return null;
+        var trim = (int)Math.Floor(sorted.Count * _options.SpeedTestOutlierTrimFraction);
+        var kept = sorted.Skip(Math.Min(trim, sorted.Count - 1)).ToList();
+
+        var best = kept[^1];
+        var typical = SeriesStats.Median(kept)!.Value;
+        var totalWeight = _options.SpeedCapacityWeight + _options.SpeedTypicalWeight;
+        var score = (StandbyScore(best) * _options.SpeedCapacityWeight
+                     + StandbyScore(typical) * _options.SpeedTypicalWeight) / totalWeight;
+        return (score, best, typical);
+
+        static double StandbyScore(double mbps) => mbps switch
+        {
+            >= 1.0 => 100,                                  // meets the nominal plan outright
+            >= 0.1 => 80 + 20 * (mbps - 0.1) / 0.9,         // usable for messaging, mail, alarms
+            >= 0.01 => 40 + 40 * (mbps - 0.01) / 0.09,      // reachable, barely
+            > 0 => 40 * mbps / 0.01,
+            _ => 0
+        };
     }
 
     /// <summary>
@@ -742,7 +994,8 @@ public class IspHealthScorer
         IspHealthInputs inputs,
         Dictionary<DateTime, LoadWindow> loadWindows,
         Func<LoadWindow, bool> directionSelector,
-        Func<LoadWindow, bool> oppositeSelector)
+        Func<LoadWindow, bool> oppositeSelector,
+        bool upstream)
     {
         const double noiseFloor = 0.5;
         var loaded = DilateLoadedWindows(loadWindows, directionSelector, oppositeSelector);
@@ -751,25 +1004,170 @@ public class IspHealthScorer
             ? inputs.AccessHopSeries
             : new List<List<LatencySample>> { inputs.FirstHopSeries };
 
-        var pooledDeltas = new List<double>();
-        foreach (var hop in accessCohort)
+        // Everything monitored out this WAN, LAN targets excluded - transit, the internet
+        // destinations, and the user's own witness targets join the access hops. A queue on the
+        // access link is in front of ALL of them, so under real bufferbloat they rise together;
+        // one hop rising while the rest read clean at the same second is that responder, not the
+        // link. This is the absolution DestinationSeries already performs for jitter by ancestry,
+        // done here by simultaneity, which needs no proven route between the two.
+        var agreementCohort = accessCohort
+            .Concat(inputs.TransitAsnSeries.Select(a => a.Samples))
+            .Concat(inputs.DestinationSeries.Select(a => a.Samples))
+            .Concat(inputs.WitnessSeries.Select(a => a.Samples))
+            .Where(series => series.Count > 0)
+            .ToList();
+
+        var perHop = new List<(DateTime Time, double Value, int Series)>();
+        for (var h = 0; h < agreementCohort.Count; h++)
         {
+            var hop = agreementCohort[h];
             var baseline = ComputeIdleBaseline(hop, loadWindows);
             if (baseline == null) continue;
 
-            var deltas = hop
+            var series = h;
+            perHop.AddRange(hop
                 .Where(s => s.RttAvgMs.HasValue && loaded.Contains(FloorToWindow(s.Time)))
-                .Select(s => s.RttAvgMs!.Value - baseline.Value);
-
-            pooledDeltas.AddRange(deltas);
+                .Select(s => (s.Time, s.RttAvgMs!.Value - baseline.Value, series)));
         }
 
-        var credible = pooledDeltas.Where(d => d >= noiseFloor).ToList();
-        if (credible.Count < _options.MinLoadedSamples) return null;
-        return Math.Max(0, SeriesStats.Median(credible)!.Value);
+        // Hops that reported at the same instant are collapsed to what they AGREED on before any
+        // of this looks at magnitudes. Pooling them flat and then keeping whatever cleared the
+        // noise floor asked "was any sample high", which one ICMP-deprioritized responder answers
+        // yes to on its own; the clean hops it was sitting next to were discarded by that same
+        // floor before the median ever saw them. Collapsing first asks "was the LINK high", which
+        // is the question the score is about, and a lone squealer loses the vote.
+        var pooled = SeriesStats.CommonModeByInstant(
+            perHop,
+            TimeSpan.FromSeconds(_options.LoadedLatencyAgreementToleranceSeconds),
+            _options.LoadedLatencyAgreementMinCohort,
+            noiseFloor);
+
+        // Grouped by EPISODE - the run of consecutive loaded windows - not by window. A window is
+        // seven seconds, so "the newest three windows" is the last twenty seconds and any brief
+        // lull inside one bad evening would read as a line that was fixed. An episode is however
+        // long the line actually stayed loaded, which is the unit a person means by "a load event".
+        var episodeStarts = SeriesStats.LoadEpisodeStarts(loaded, Math.Max(1, _options.LoadWindowSeconds));
+        var episodes = pooled
+            .Where(x => episodeStarts.ContainsKey(FloorToWindow(x.Time)))
+            .GroupBy(x => episodeStarts[FloorToWindow(x.Time)])
+            .Select(g => (Time: g.Key, Value: EpisodeDelta(g.Select(x => x.Value).ToList(), noiseFloor)))
+            .OrderByDescending(e => e.Time)
+            .ToList();
+
+        // Has the elevation STOPPED? Comparing medians cannot answer that here: most loaded samples
+        // sit near zero even while the line misbehaves, so the median over everything is ~0 before
+        // and after a fix, and the figure that gets reported comes from the elevated minority the
+        // noise floor keeps. Whether elevation is still happening IS visible - and a run of clean
+        // episodes after elevated ones is a line someone fixed.
+        //
+        // A line that was not fixed is untouched: still-bad lines have elevated episodes among
+        // their newest, and always-clean lines have no elevated episodes to go stale.
+        if (episodes.Count == 0 || pooled.Count < _options.MinLoadedSamples) return null;
+
+        // Where a WAN speed test ran during an episode, it measured the same event on purpose and
+        // at full saturation, while these probes only sampled it on their own cadence - so a short
+        // event's peak queue can build and drain between two probes and never be seen. Taken only
+        // when it reads HIGHER: that is the direction passive sampling fails in. When the test
+        // reads lower, the series saw something the test's own window did not cover, and the
+        // measurement stands.
+        var episodeEnds = episodeStarts
+            .GroupBy(kv => kv.Value)
+            .ToDictionary(g => g.Key, g => g.Max(kv => kv.Key)
+                .AddSeconds(Math.Max(1, _options.LoadWindowSeconds)));
+        // What a speed test measured during each episode, where one qualified. Applied to the
+        // FINAL figure rather than to the episode it came from, because the figure is a median
+        // across episodes and a median cannot be moved by one member however it is weighted -
+        // lifting per-episode left the better instrument unable to change a reported number even
+        // once. But applied only over the episodes the answer is actually being drawn from: a
+        // test is evidence about the line AS IT WAS THEN, and a window-wide maximum would let a
+        // test from before a fix override the clean run that proves the fix.
+        var testsByEpisode = episodes.ToDictionary(
+            e => e.Time,
+            e => QualifyingTests(
+                e.Time, episodeEnds.TryGetValue(e.Time, out var end) ? end : e.Time,
+                inputs, upstream));
+
+        // Judged the same way the speed-test fallback judges its own pool: a recent run of clean
+        // tests is read as the line having been FIXED and the older ones as describing a
+        // connection that no longer exists, otherwise recency-weighted. A plain maximum threw all
+        // of that away - the worst test in the window won outright, so a line whose recent tests
+        // are all clean kept reporting its worst day from a week ago.
+        double SpeedTestOver(IEnumerable<(DateTime Time, double Value)> over)
+        {
+            var deltas = over
+                .SelectMany(e => testsByEpisode.TryGetValue(e.Time, out var t) ? t : [])
+                .DistinctBy(t => t.Time)
+                .OrderByDescending(t => t.Time)
+                .ToList();
+            if (deltas.Count == 0) return double.NegativeInfinity;
+            return RecentRegimeDelta(deltas)
+                ?? RecencyWeightedDelta(deltas, inputs.WindowEnd)
+                ?? double.NegativeInfinity;
+        }
+
+        var loadWeight = BuildLoadWeighting(inputs, upstream, loaded);
+        var stale = _options.LoadedLatencyElevationStaleEpisodes;
+        var elevatedEpisodes = episodes.Where(e => e.Value >= noiseFloor).ToList();
+
+        ElevationVerdict.Verdict? verdict = null;
+        if (stale > 0 && episodes.Count > stale)
+        {
+            verdict = ElevationVerdict.For(
+                episodes, noiseFloor, stale,
+                _options.LoadedLatencyElevationStaleNeedsSameHour,
+                TimeSpan.FromSeconds(Math.Max(1, _options.LoadWindowSeconds)),
+                LoadedLatencyRegimeFloorMs);
+
+        }
+
+        // Logged for EVERY report, verdict or not. Gating this behind the verdict's own condition
+        // meant a WAN with too few load episodes to judge - the case most worth looking at - was
+        // the one that said nothing at all. The newest elevated episode is named so the moment can
+        // be pulled up in the time series rather than inferred from what sits near it.
+        _logger?.LogDebug(
+            "ISP Health: loaded latency {Dir} - {Episodes} episode(s) from {Cohort} target(s), "
+            + "{Elevated} elevated (newest {NewestElevated}), clean run {CleanRun}, needs {Needed}, "
+            + "problem hour re-tested: {HourCovered} -> {Verdict}",
+            upstream ? "up" : "down", episodes.Count, agreementCohort.Count, elevatedEpisodes.Count,
+            elevatedEpisodes.Count > 0
+                // Local, not UTC: this is read by someone about to go and look at that moment in
+                // the time series, and every other part of this reasons in their hours too.
+                ? $"{TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(elevatedEpisodes[0].Time, DateTimeKind.Utc), TimeZoneInfo.Local):yyyy-MM-dd HH:mm:ss} local at "
+                    + elevatedEpisodes[0].Value.ToString("0.0", CultureInfo.InvariantCulture) + " ms"
+                : "none",
+            verdict?.CleanRun.Count.ToString(CultureInfo.InvariantCulture) ?? "n/a", stale,
+            verdict?.ProblemHourReTested.ToString() ?? "n/a",
+            verdict is null ? "too few episodes to judge"
+                : verdict.ElevationIsOver ? "elevation over"
+                : elevatedEpisodes.Count == 0 ? "clean - no elevated episodes"
+                : "still elevated");
+
+        // The line was fixed: the elevated episodes describe a connection that no longer exists,
+        // so only the clean run since speaks for it.
+        // Only tests taken DURING the clean run speak for a line that was fixed. The elevated
+        // episodes describe a connection that no longer exists, and so do the tests that ran in
+        // them - letting those back in through the lift would re-assert the very finding the
+        // clean run just cleared.
+        if (verdict is { ElevationIsOver: true })
+            return Math.Max(0, Math.Max(
+                SeriesStats.Median(verdict.CleanRun.Select(e => e.Value).ToList())!.Value,
+                SpeedTestOver(verdict.CleanRun)));
+
+        // The reported figure is the median ACROSS EPISODES - what this line typically does under
+        // load - weighted by recency and by how credible each episode's load was.
+        //
+        // It used to be the median of the SAMPLES above the noise floor, which is a different
+        // question: the worst of it. One elevated episode among five then set the whole number,
+        // and a WAN whose every episode was clean could still report tens of milliseconds off a
+        // handful of stray samples. The floor still decides what counts as elevated for the
+        // verdict above - it is not a filter on what gets reported.
+        return Math.Max(0, Math.Max(
+            RecencyWeightedDelta(episodes, inputs.WindowEnd, loadWeight) ?? 0,
+            SpeedTestOver(episodes)));
     }
 
     private (IspScoreFactor Factor, bool HasData) ScoreLoadedLoss(
+        IspHealthInputs inputs,
         List<List<LatencySample>> lossPool,
         Dictionary<DateTime, LoadWindow> loadWindows,
         AccessProfile profile)
@@ -784,8 +1182,8 @@ public class IspHealthScorer
             }, false);
         }
 
-        var downLoss = LoadedMeanLoss(lossPool, loadWindows, w => w.IsLoadedDown, w => w.IsLoadedUp);
-        var upLoss = LoadedMeanLoss(lossPool, loadWindows, w => w.IsLoadedUp, w => w.IsLoadedDown);
+        var downLoss = LoadedMeanLoss(inputs, lossPool, loadWindows, w => w.IsLoadedDown, w => w.IsLoadedUp, upstream: false);
+        var upLoss = LoadedMeanLoss(inputs, lossPool, loadWindows, w => w.IsLoadedUp, w => w.IsLoadedDown, upstream: true);
 
         var scores = new List<double>();
         if (downLoss.HasValue) scores.Add(ScoreLossBand(downLoss.Value, profile.LoadedLossDownLowPct, profile.LoadedLossDownHighPct));
@@ -831,17 +1229,20 @@ public class IspHealthScorer
     }
 
     private double? LoadedMeanLoss(
+        IspHealthInputs inputs,
         List<List<LatencySample>> lossPool,
         Dictionary<DateTime, LoadWindow> loadWindows,
         Func<LoadWindow, bool> directionSelector,
-        Func<LoadWindow, bool> oppositeSelector)
+        Func<LoadWindow, bool> oppositeSelector,
+        bool upstream)
     {
         var loaded = DilateLoadedWindows(loadWindows, directionSelector, oppositeSelector);
-        var losses = lossPool.SelectMany(series => series)
+        var samples = lossPool.SelectMany(series => series)
             .Where(s => s.LossPercent.HasValue && !InOutage(s.Time)
                 && loaded.Contains(FloorToWindow(s.Time)))
-            .Select(s => _gatewayFloor.Apply(s.LossPercent!.Value, s.Time))
+            .Select(s => (s.Time, Value: _gatewayFloor.Apply(s.LossPercent!.Value, s.Time)))
             .ToList();
+        var losses = samples.Select(s => s.Value).ToList();
         // Loaded loss rests on however many samples happen to fall inside the loaded windows, and on
         // a long window the rate series is aggregated far coarser than LoadWindowSeconds, so that set
         // can be small enough for a few dark samples to set the whole figure. Log what it was built
@@ -851,7 +1252,17 @@ public class IspHealthScorer
             losses.Count, loaded.Count, losses.Count(l => l >= 99.0),
             losses.Count > 0 ? losses.Average().ToString("0.##", CultureInfo.InvariantCulture) : "n/a");
         if (losses.Count < _options.MinLoadedSamples) return null;
-        return losses.Average();
+        // Same credibility rules as loaded latency: a sustained saturation says far more about
+        // behavior under load than a two-second burst that may not even have been load, and recent
+        // evidence outranks old evidence of the same kind. A weighted MEAN rather than a median,
+        // because loss is a rate - most samples are zero even on a bad line, and a median over
+        // them reports zero however bad the rest are.
+        var loadWeight = BuildLoadWeighting(inputs, upstream, loaded);
+        return SeriesStats.WeightedMean(samples
+            .Select(s => (s.Value,
+                SeriesStats.RecencyWeight(inputs.WindowEnd - s.Time, _options.LoadedLatencyRecencyHalfLifeHours)
+                    * loadWeight(s.Time)))
+            .ToList()) ?? losses.Average();
     }
 
     /// <summary>
@@ -1983,24 +2394,34 @@ public class IspHealthScorer
             // Queues. Loss under load while it shapes means the rate it holds isn't backing off
             // enough for the real-time capacity drop, so point at its own tuning knobs (Severity
             // deepens the time-of-day dips; nominal speeds set the ceiling everything scales from).
+            // One recommendation used to serve both findings below, worded for loss - so a
+            // bufferbloat finding was answered with advice about drops the user was not seeing.
+            // The Adaptive SQM branch now says which symptom it is talking about; the other two
+            // are symptom-neutral and stay one string.
             string recommendation;
+            string latencyRecommendation;
             if (inputs.AdaptiveSqmEnabled)
             {
                 recommendation = "Adaptive SQM is already shaping this WAN, so loss under load means the rate it holds isn't backing off enough when the line congests. In your Adaptive SQM settings, raise the Severity so the peak-hour rate dips go deeper, or lower the nominal download/upload if the line consistently delivers less than its plan. If loss persists once the rate is pulled down, the drops are upstream and only your ISP can fix them.";
+                latencyRecommendation = "Adaptive SQM is already shaping this WAN, so latency under load means the rate it holds isn't backing off enough when the line congests. In your Adaptive SQM settings, raise the Severity so the peak-hour rate dips go deeper, or lower the nominal download/upload if the line consistently delivers less than its plan. If the loaded latency persists once the rate is pulled down, the queue is upstream and only your ISP can drain it.";
             }
             else if (inputs.SmartQueuesEnabled)
             {
                 recommendation = "Smart Queues is enabled on this WAN but the line still degrades under load; check that its configured rates match what the line actually delivers.";
+                latencyRecommendation = recommendation;
             }
             else
             {
                 recommendation = "Enable Smart Queues (SQM) on this WAN in UniFi Network (Settings, Internet, your WAN, Smart Queues).";
+                latencyRecommendation = recommendation;
             }
             // Only pitch Adaptive SQM when the WAN isn't already running it.
             if (!inputs.AdaptiveSqmEnabled
                 && inputs.CongestionEvents.Count(e => e.Disposition == CongestionDisposition.Confirmed) >= _options.SqmRecurringCongestionEvents)
             {
-                recommendation += " This connection also shows a recurring congestion pattern; consider Adaptive SQM, which tracks time-of-day capacity changes automatically.";
+                const string alsoConsider = " This connection also shows a recurring congestion pattern; consider Adaptive SQM, which tracks time-of-day capacity changes automatically.";
+                recommendation += alsoConsider;
+                latencyRecommendation += alsoConsider;
             }
             if (latencyTriggered)
             {
@@ -2009,7 +2430,7 @@ public class IspHealthScorer
                     Severity = IspIssueSeverity.Warning,
                     Title = "Bufferbloat under load",
                     Description = "Latency rises well beyond the excellent range for this connection type when the line is loaded.",
-                    Recommendation = recommendation,
+                    Recommendation = latencyRecommendation,
                     LinkUrl = "/sqm",
                     LinkText = "Adaptive SQM"
                 });
@@ -2113,8 +2534,8 @@ public class IspHealthScorer
         var loss = false;
         if (loadWindows.Count > 0)
         {
-            var downLoss = LoadedMeanLoss(inputs.LossPoolSeries, loadWindows, w => w.IsLoadedDown, w => w.IsLoadedUp);
-            var upLoss = LoadedMeanLoss(inputs.LossPoolSeries, loadWindows, w => w.IsLoadedUp, w => w.IsLoadedDown);
+            var downLoss = LoadedMeanLoss(inputs, inputs.LossPoolSeries, loadWindows, w => w.IsLoadedDown, w => w.IsLoadedUp, upstream: false);
+            var upLoss = LoadedMeanLoss(inputs, inputs.LossPoolSeries, loadWindows, w => w.IsLoadedUp, w => w.IsLoadedDown, upstream: true);
             loss = downLoss > profile.LoadedLossDownHighPct || upLoss > profile.LoadedLossUpHighPct;
         }
         return (latency, loss);

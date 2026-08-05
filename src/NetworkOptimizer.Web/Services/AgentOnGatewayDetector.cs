@@ -46,6 +46,12 @@ public class AgentOnGatewayDetector
     // work without a system scope.
     private readonly ConcurrentDictionary<string, string> _agentIp = new();
     private readonly ConcurrentDictionary<string, Task> _refreshing = new();
+    // The site's gateway addresses from the last resolution, so the per-connection check below can
+    // answer for an agent the site-level verdict never considered. Cached and refreshed on the same
+    // TTL as the verdict itself; a site with 2+ agents has one gateway either way.
+    private readonly ConcurrentDictionary<string, (IReadOnlyList<string> Ips, DateTime At)> _gatewayIps = new();
+    private readonly ConcurrentDictionary<string, (IReadOnlyList<string> Ips, DateTime At)> _gatewayHostIps = new();
+    private readonly ConcurrentDictionary<string, Task> _gatewayIpRefreshing = new();
 
     public AgentOnGatewayDetector(
         AgentEnrollmentService enrollment,
@@ -115,6 +121,95 @@ public class AgentOnGatewayDetector
     public string? LastKnownAgentIp(string siteSlug) =>
         _agentIp.TryGetValue(siteSlug, out var ip) ? ip : null;
 
+    /// <summary>
+    /// Whether a specific address is one of the site's gateway addresses - the per-connection
+    /// counterpart to <see cref="IsAgentOnGatewayAsync"/>, for the questions that are about ONE
+    /// agent rather than about the site. A site with several agents has one gateway, but only one
+    /// of those agents may be sitting on it, and the site-level verdict cannot tell them apart: it
+    /// correlates against whichever agent the enrollment registry answers with.
+    ///
+    /// Deliberately not gated on the site being non-default. The site-level verdict keeps its
+    /// existing "false for the default site" contract for its existing consumers; this one answers
+    /// from the gateway addresses alone, so a main-site agent running on the gateway is recognized
+    /// as such - which is exactly the deployment multi-WAN contexts target.
+    /// </summary>
+    public async Task<bool> IsIpOnGatewayAsync(string siteSlug, string? ip, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(siteSlug) || string.IsNullOrWhiteSpace(ip))
+            return false;
+
+        var hasCached = _gatewayIps.TryGetValue(siteSlug, out var cached);
+        if (!hasCached || DateTime.UtcNow - cached.At >= CacheTtl)
+        {
+            var refresh = StartOrJoinGatewayIpRefresh(siteSlug);
+            if (!hasCached)
+            {
+                try
+                {
+                    await refresh.WaitAsync(ct);
+                }
+                catch (OperationCanceledException)
+                {
+                    // Caller gave up - the refresh itself continues and fills the cache.
+                }
+                hasCached = _gatewayIps.TryGetValue(siteSlug, out cached);
+            }
+        }
+
+        return hasCached && cached.Ips.Contains(ip!.Trim(), StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// The first of <paramref name="candidates"/> that is one of this site's gateway addresses, or
+    /// null when none is.
+    /// <para>
+    /// The gateway address set is unchanged - this only asks the same question of more candidates.
+    /// An agent picks ONE address to report itself by, and on a gateway that choice is whichever
+    /// Ethernet interface the kernel enumerates first, which can easily be an uplink the console
+    /// never lists as the gateway's own. Comparing every address the host holds answers "is this
+    /// that machine" instead of "did it happen to name the address we know".
+    /// </para>
+    /// <para>
+    /// Returns the MATCHING address rather than a bool because callers that skip the gateway's own
+    /// target need the address the site knows it by, not the one the agent named itself with.
+    /// </para>
+    /// </summary>
+    public async Task<string?> MatchGatewayAddressAsync(
+        string siteSlug, IEnumerable<string> candidates, CancellationToken ct = default)
+    {
+        var addresses = candidates.Where(c => !string.IsNullOrWhiteSpace(c)).Select(c => c.Trim()).ToList();
+        if (addresses.Count == 0) return null;
+
+        // Narrow set first, so a caller using the answer as an ADDRESS gets the one the site knows
+        // the gateway by rather than some other interface of the same box.
+        foreach (var candidate in addresses)
+            if (await IsIpOnGatewayAsync(siteSlug, candidate, ct)) return candidate;
+
+        if (!_gatewayHostIps.TryGetValue(siteSlug, out var host)) return null;
+        return addresses.FirstOrDefault(c => host.Ips.Contains(c, StringComparer.OrdinalIgnoreCase));
+    }
+
+    /// <summary>One in-flight gateway-address resolution per site; the result lands in the cache.</summary>
+    private Task StartOrJoinGatewayIpRefresh(string siteSlug) =>
+        _gatewayIpRefreshing.GetOrAdd(siteSlug, slug => Task.Run(async () =>
+        {
+            try
+            {
+                using var cts = new CancellationTokenSource(RefreshTimeout);
+                var connection = _siteConnections.GetFor(slug);
+                if (connection.IsConnected && connection.Client != null)
+                    await ResolveGatewayIpsAsync(slug, connection.Client, cts.Token);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Gateway address resolution failed for site {Slug}", slug);
+            }
+            finally
+            {
+                _gatewayIpRefreshing.TryRemove(slug, out _);
+            }
+        }));
+
     /// <summary>One in-flight refresh per site; result lands in the cache, and first-time callers await the returned task.</summary>
     private Task StartOrJoinRefresh(string siteSlug) =>
         _refreshing.GetOrAdd(siteSlug, slug => Task.Run(async () =>
@@ -154,14 +249,46 @@ public class AgentOnGatewayDetector
             return;
         }
 
-        var devices = await connection.Client.GetDevicesAsync(ct) ?? new();
+        var gatewayIps = await ResolveGatewayIpsAsync(siteSlug, connection.Client, ct);
+
+        var onGateway = gatewayIps.Contains(agentIp!, StringComparer.OrdinalIgnoreCase);
+        _cache[siteSlug] = (onGateway, DateTime.UtcNow);
+        _agentIp[siteSlug] = agentIp!;
+        await PersistAsync(siteSlug, onGateway);
+    }
+
+    /// <summary>
+    /// The site's gateway addresses: every gateway device's reported IP (on a gateway agent that is
+    /// the WAN address) plus the LAN-side gateway IP, in case the agent's own detection landed
+    /// there instead. Caches what it found so the per-connection check can answer without its own
+    /// console round trip.
+    /// </summary>
+    private async Task<List<string>> ResolveGatewayIpsAsync(
+        string siteSlug, UniFi.UniFiApiClient client, CancellationToken ct)
+    {
+        var devices = await client.GetDevicesAsync(ct) ?? new();
         var gatewayIps = devices
             .Where(d => d.DeviceType == DeviceType.Gateway && !string.IsNullOrEmpty(d.Ip))
             .Select(d => d.Ip!)
             .ToList();
+
+        // Superset, cached alongside and never mixed into the set above: EVERY address the console
+        // reports the gateway holding, for the one question that needs it - is an agent running on
+        // this box. A gateway holds a dozen addresses and an agent that reports only one may name
+        // any of them, so the narrow set answers that question with a false no. Deliberately built
+        // from the gateway's own interfaces only; inform_ip and connect_request_ip are the console's
+        // loopback and would match every host alive, so they are not read at all.
+        var hostIps = new List<string>(gatewayIps);
+        foreach (var device in devices.Where(d => d.DeviceType == DeviceType.Gateway))
+        {
+            AddHostIp(hostIps, device.LanIp);
+            AddHostIp(hostIps, device.ConfigNetwork?.Ip);
+            foreach (var port in device.PortTable ?? new())
+                AddHostIp(hostIps, port.Ip);
+        }
         try
         {
-            var lanIp = await Monitoring.SnmpDeviceRules.ResolveGatewayLanIpAsync(connection.Client, ct);
+            var lanIp = await Monitoring.SnmpDeviceRules.ResolveGatewayLanIpAsync(client, ct);
             if (!string.IsNullOrEmpty(lanIp))
                 gatewayIps.Add(lanIp!);
         }
@@ -170,10 +297,28 @@ public class AgentOnGatewayDetector
             _logger.LogDebug(ex, "Gateway LAN IP resolution failed for site {Slug} during on-gateway detection", siteSlug);
         }
 
-        var onGateway = gatewayIps.Contains(agentIp!, StringComparer.OrdinalIgnoreCase);
-        _cache[siteSlug] = (onGateway, DateTime.UtcNow);
-        _agentIp[siteSlug] = agentIp!;
-        await PersistAsync(siteSlug, onGateway);
+        if (gatewayIps.Count > 0)
+        {
+            _gatewayIps[siteSlug] = (gatewayIps, DateTime.UtcNow);
+            foreach (var ip in gatewayIps) AddHostIp(hostIps, ip);
+            _gatewayHostIps[siteSlug] = (hostIps, DateTime.UtcNow);
+        }
+        return gatewayIps;
+    }
+
+    /// <summary>
+    /// Adds an address to the host set when it can identify a host: not empty, not a duplicate, and
+    /// neither loopback nor link-local - the two an unrelated machine could hold as readily as this
+    /// one, where a match would mean nothing.
+    /// </summary>
+    private static void AddHostIp(List<string> hostIps, string? ip)
+    {
+        var value = ip?.Trim();
+        if (string.IsNullOrEmpty(value)) return;
+        if (!System.Net.IPAddress.TryParse(value, out var parsed)) return;
+        if (System.Net.IPAddress.IsLoopback(parsed)) return;
+        if (value.StartsWith("169.254.", StringComparison.Ordinal)) return;
+        if (!hostIps.Contains(value, StringComparer.OrdinalIgnoreCase)) hostIps.Add(value);
     }
 
     /// <summary>

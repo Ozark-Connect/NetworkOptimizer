@@ -41,7 +41,10 @@ public class IspHealthScorerTests
         bool hopOrderKnown = false,
         List<OutageEvent>? outages = null,
         TimeSpan? scoreWindow = null,
-        HashSet<string>? notTracedTargetIds = null)
+        HashSet<string>? notTracedTargetIds = null,
+        double? expectedDownMbps = null,
+        double? expectedUpMbps = null,
+        PhysicalLinkInput? physicalLink = null)
     {
         // lineIdle: a near-zero, flat WAN with no load bursts (~0% average load), for
         // exercising the load-calibrated packet-loss ceiling at the idle end.
@@ -73,8 +76,9 @@ public class IspHealthScorerTests
             DestinationSeries = destinations ?? new List<AsnSeries>(),
             WanRates = rates,
             InternetMedianDeltaMs = internetDeltaMs,
-            ExpectedDownloadMbps = withExpectedSpeeds ? 1000 : null,
-            ExpectedUploadMbps = withExpectedSpeeds ? 500 : null,
+            PhysicalLink = physicalLink,
+            ExpectedDownloadMbps = withExpectedSpeeds ? expectedDownMbps ?? 1000 : null,
+            ExpectedUploadMbps = withExpectedSpeeds ? expectedUpMbps ?? 500 : null,
             ExpectedSpeedSource = withExpectedSpeeds ? "UniFi Network" : null,
             WanSpeedTests = speedTests ?? new List<SpeedTestSample>
             {
@@ -482,6 +486,140 @@ public class IspHealthScorerTests
 
         withOlt.Score.Should().BeLessThan(100);
         withOlt.ValueText.Should().Contain("6.0 ms down");
+    }
+
+    [Fact]
+    public void A_hop_squealing_while_the_rest_of_the_WAN_reads_clean_is_outvoted()
+    {
+        // Same shape as the OLT case above, but this WAN monitors enough targets to have an
+        // opinion. A queue on the access link sits in front of every one of them, so a single hop
+        // rising while transit and the internet destinations stay flat AT THE SAME SECOND is that
+        // responder deprioritizing ICMP - the reading the old flat pooling reported in full,
+        // because the noise floor discarded the clean samples before the median saw them.
+        var rates = TestSeries.Throughput(TestSeries.Start, Day, 50, 5)
+            .Select(r => r.Time >= LoadedDownStart && r.Time < LoadedDownEnd
+                ? r with { DownloadBps = 800_000_000 }
+                : r)
+            .ToList();
+
+        var nearHop = TestSeries.Flat(TestSeries.Start, Day, 2.0, 0.3);
+        var squealer = TestSeries.Flat(TestSeries.Start, Day, 2.0, 0.3)
+            .WithSegment(LoadedDownStart, LoadedDownEnd, 8.0, 0.3);
+
+        AsnSeries Clean(string name, double rtt) => new()
+        {
+            AsnNumber = 0,
+            AsnName = name,
+            Samples = TestSeries.Flat(TestSeries.Start, Day, rtt, 0.3)
+        };
+
+        var inputs = new IspHealthInputs
+        {
+            WindowStart = TestSeries.Start,
+            WindowEnd = TestSeries.Start + Day,
+            FirstHopSeries = nearHop,
+            AccessHopSeries = new List<List<LatencySample>> { nearHop, squealer },
+            TransitAsnSeries = new List<AsnSeries> { Clean("Transit", 9.0) },
+            DestinationSeries = new List<AsnSeries> { Clean("DNS", 14.0), Clean("CDN", 16.0) },
+            LossPoolSeries = new List<List<LatencySample>> { nearHop },
+            WanRates = rates,
+            ExpectedDownloadMbps = 1000,
+            ExpectedUploadMbps = 500,
+            ExpectedSpeedSource = "UniFi Network",
+            WanSpeedTests = new List<SpeedTestSample> { new(TestSeries.Start.AddHours(6), 980, 490) }
+        };
+
+        var factor = new IspHealthScorer(Options).Score(inputs, Gpon)
+            .AccessDimension.Factors.Single(f => f.Name == "Loaded Latency");
+
+        factor.ValueText.Should().NotContain("6.0 ms down");
+        factor.Score.Should().Be(100);
+    }
+
+    [Fact]
+    public void A_standby_link_is_graded_on_carrying_traffic_not_on_ratio()
+    {
+        // 1 / 1 is the lowest expected speed UniFi Network accepts, so a dish held in standby ends
+        // up there with nothing real to enter. Scored as a ratio it read 17 - a link doing exactly
+        // its job in the emergency it exists for, marked as failing.
+        var inputs = BuildInputs(
+            expectedDownMbps: 1, expectedUpMbps: 1,
+            speedTests: new List<SpeedTestSample> { new(TestSeries.Start.AddHours(6), 0.6, 0.1) });
+
+        var factor = new IspHealthScorer(Options).Score(inputs, Gpon)
+            .AccessDimension.Factors.Single(f => f.Name == "Speed vs Plan");
+
+        factor.Score.Should().BeGreaterThan(80);
+        factor.ValueText.Should().Contain("0.6");
+        factor.Description.Should().Contain("lowest UniFi Network allows");
+    }
+
+    [Fact]
+    public void A_dish_reporting_a_reduced_speed_tier_is_graded_that_way_against_a_real_plan()
+    {
+        // Ground truth beats the inference: the dish says its throughput is capped by the plan
+        // tier, so the shortfall is not the link - even though a real 1000 / 500 plan is
+        // configured and the ratio against it would read as a near-total failure.
+        var inputs = BuildInputs(
+            speedTests: new List<SpeedTestSample> { new(TestSeries.Start.AddHours(6), 0.6, 0.1) },
+            physicalLink: new PhysicalLinkInput
+            {
+                Medium = PhysicalMedium.Satellite,
+                SourceName = "Dish",
+                ReducedSpeedTier = true
+            });
+
+        var factor = new IspHealthScorer(Options).Score(inputs, Gpon)
+            .AccessDimension.Factors.Single(f => f.Name == "Speed vs Plan");
+
+        factor.Score.Should().BeGreaterThan(80);
+        factor.Description.Should().Contain("reduced-speed plan tier");
+    }
+
+    [Fact]
+    public void Satellite_idle_latency_is_anchored_on_measured_plans()
+    {
+        // Both ends come from real dishes: 23 ms is the best the medium does at all, and 42 ms is
+        // where a healthy Backup dish sits - the floor of good rather than a fault.
+        var satellite = IspHealthProfiles.GetProfile(AccessTechnology.Satellite)!;
+
+        int Idle(double rtt) => new IspHealthScorer(Options)
+            .Score(BuildInputs(idleRtt: rtt), satellite)
+            .AccessDimension.Factors.Single(f => f.Name == "Idle Latency").Score!.Value;
+
+        Idle(23).Should().Be(100);
+        Idle(42).Should().Be(80);
+        Idle(45).Should().BeInRange(70, 75);
+    }
+
+    [Fact]
+    public void A_standby_link_carrying_nothing_still_fails()
+    {
+        // Forgiving is not blind: the one outcome that would actually fail its owner is a backup
+        // that carries nothing when called on.
+        var inputs = BuildInputs(
+            expectedDownMbps: 1, expectedUpMbps: 1,
+            speedTests: new List<SpeedTestSample> { new(TestSeries.Start.AddHours(6), 0.001, 0) });
+
+        var factor = new IspHealthScorer(Options).Score(inputs, Gpon)
+            .AccessDimension.Factors.Single(f => f.Name == "Speed vs Plan");
+
+        factor.Score.Should().BeLessThan(30);
+    }
+
+    [Fact]
+    public void A_real_plan_with_a_1_Mbps_upstream_is_still_graded()
+    {
+        // Half a sentinel is still a plan: 100 Mbps down cannot have been typed by someone with
+        // nothing to enter, so the link keeps its grade.
+        var inputs = BuildInputs(
+            expectedDownMbps: 100, expectedUpMbps: 1,
+            speedTests: new List<SpeedTestSample> { new(TestSeries.Start.AddHours(6), 95, 1) });
+
+        var factor = new IspHealthScorer(Options).Score(inputs, Gpon)
+            .AccessDimension.Factors.Single(f => f.Name == "Speed vs Plan");
+
+        factor.Score.Should().NotBeNull();
     }
 
     [Fact]
@@ -1369,7 +1507,8 @@ public class IspHealthScorerTests
         };
         var dest = new AsnSeries
         {
-            AsnNumber = 64512, AsnName = "Destination",
+            AsnNumber = 64512,
+            AsnName = "Destination",
             TargetIds = { "dest-clean" },
             Samples = TestSeries.Flat(TestSeries.Start, Day, 13, 0.4),
             HopIps = { "30.0.0.1" },
@@ -1399,13 +1538,21 @@ public class IspHealthScorerTests
         // with high jitter is flagged SuggestDisable. The graded on-path hop never is.
         var graded = new AsnSeries
         {
-            AsnNumber = 64496, AsnName = "ISP", TargetIds = { "isp-near" }, RoleTargetIds = { "isp-near" },
-            Samples = TestSeries.Flat(TestSeries.Start, Day, 2.0, 0.3), HopIps = { "10.0.0.1" }
+            AsnNumber = 64496,
+            AsnName = "ISP",
+            TargetIds = { "isp-near" },
+            RoleTargetIds = { "isp-near" },
+            Samples = TestSeries.Flat(TestSeries.Start, Day, 2.0, 0.3),
+            HopIps = { "10.0.0.1" }
         };
         var offPathJittery = new AsnSeries
         {
-            AsnNumber = 64496, AsnName = "ISP", TargetIds = { "isp-olt" }, RoleTargetIds = { "isp-olt" },
-            Samples = TestSeries.Flat(TestSeries.Start, Day, 4.0, 6.0), HopIps = { "10.0.0.9" }
+            AsnNumber = 64496,
+            AsnName = "ISP",
+            TargetIds = { "isp-olt" },
+            RoleTargetIds = { "isp-olt" },
+            Samples = TestSeries.Flat(TestSeries.Start, Day, 4.0, 6.0),
+            HopIps = { "10.0.0.9" }
         };
         var hops = new List<AsnSeries> { graded, offPathJittery };
 
@@ -1436,8 +1583,11 @@ public class IspHealthScorerTests
         };
         var peeredDest = new AsnSeries
         {
-            AsnNumber = 64512, AsnName = "Destination", TargetIds = { "dest" },
-            Samples = TestSeries.Flat(TestSeries.Start, Day, 8, 0.4), HopIps = { "30.0.0.1" },
+            AsnNumber = 64512,
+            AsnName = "Destination",
+            TargetIds = { "dest" },
+            Samples = TestSeries.Flat(TestSeries.Start, Day, 8, 0.4),
+            HopIps = { "30.0.0.1" },
             AncestorIps = { "9.9.9.9" } // routes through neither transit (peered)
         };
 
@@ -1469,20 +1619,29 @@ public class IspHealthScorerTests
         };
         var peered = new AsnSeries
         {
-            AsnNumber = 13335, AsnName = "Peered", TargetIds = { "peered" },
-            Samples = TestSeries.Flat(TestSeries.Start, Day, 4, 0.3), HopIps = { "30.0.0.1" },
+            AsnNumber = 13335,
+            AsnName = "Peered",
+            TargetIds = { "peered" },
+            Samples = TestSeries.Flat(TestSeries.Start, Day, 4, 0.3),
+            HopIps = { "30.0.0.1" },
             AncestorIps = { "10.0.0.1" } // access ISP hop only - crosses no transit
         };
         var viaTransit = new AsnSeries
         {
-            AsnNumber = 15169, AsnName = "ViaTransit", TargetIds = { "via" },
-            Samples = TestSeries.Flat(TestSeries.Start, Day, 4, 0.3), HopIps = { "31.0.0.1" },
+            AsnNumber = 15169,
+            AsnName = "ViaTransit",
+            TargetIds = { "via" },
+            Samples = TestSeries.Flat(TestSeries.Start, Day, 4, 0.3),
+            HopIps = { "31.0.0.1" },
             AncestorIps = { "10.0.0.1", "20.0.0.1" } // low RTT but routes through the transit ASN
         };
         var farPeer = new AsnSeries
         {
-            AsnNumber = 54113, AsnName = "FarPeer", TargetIds = { "far" },
-            Samples = TestSeries.Flat(TestSeries.Start, Day, 20, 0.3), HopIps = { "32.0.0.1" },
+            AsnNumber = 54113,
+            AsnName = "FarPeer",
+            TargetIds = { "far" },
+            Samples = TestSeries.Flat(TestSeries.Start, Day, 20, 0.3),
+            HopIps = { "32.0.0.1" },
             AncestorIps = { "10.0.0.1" } // crosses no transit, but ~18 ms beyond the access hop
         };
 
@@ -1508,8 +1667,11 @@ public class IspHealthScorerTests
         };
         var viaTransit = new AsnSeries
         {
-            AsnNumber = 15169, AsnName = "ViaTransit", TargetIds = { "via" },
-            Samples = TestSeries.Flat(TestSeries.Start, Day, 12, 0.3), HopIps = { "31.0.0.1" },
+            AsnNumber = 15169,
+            AsnName = "ViaTransit",
+            TargetIds = { "via" },
+            Samples = TestSeries.Flat(TestSeries.Start, Day, 12, 0.3),
+            HopIps = { "31.0.0.1" },
             AncestorIps = { "10.0.0.1", "20.0.0.1" }
         };
 
@@ -1762,14 +1924,19 @@ public class IspHealthScorerTests
     }
 
     [Fact]
-    public void Loaded_latency_filters_sub_half_ms_deltas()
+    public void Loaded_latency_reports_a_line_that_stays_clean_under_load()
     {
-        // Access hops show sub-0.5 ms delta under load (no meaningful bufferbloat).
-        // All samples filtered out, returns null (falls back to speed tests).
+        // Access hops show sub-0.5 ms delta under load - no meaningful bufferbloat.
+        //
+        // This used to return null and fall through to the speed tests, on the reasoning that the
+        // noise floor had filtered everything and nothing was left to say. It is the opposite: no
+        // episode elevated means every time this line was loaded it stayed clean, which is the
+        // strongest statement the data can make. Returning null here is what left a real WAN
+        // reporting +23 ms from the median of whichever stray samples crossed the floor.
         var inputs = BuildInputs(
             accessHops: new() { LoadedDownHop(2, 0.1), LoadedDownHop(3, 0.2) });
 
-        ResolvedDownDelta(inputs).Should().BeNull();
+        ResolvedDownDelta(inputs).Should().BeInRange(0, 0.5);
     }
 
     [Fact]

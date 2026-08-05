@@ -5,28 +5,52 @@
 @inject NetworkOptimizer.Web.Services.Monitoring.ProbeExecutorFactory ExecutorFactory
 @inject NetworkOptimizer.Web.Services.IMonitoringTargetService TargetService
 @inject Microsoft.JSInterop.IJSRuntime JS
+@inject NetworkOptimizer.Web.Services.Monitoring.MonitoringPathView PathView
 
 <div class="card">
     <div class="card-header card-header-collapsible" @onclick="ToggleCollapse">
-        <h2 class="card-title">Latency targets</h2>
+        <h2 class="card-title">Latency Targets</h2>
+        @if (_wanChoices.Count > 1)
+        {
+            <div class="time-range-selector wan-selector @(_wanChoices.Count > 3 ? "wan-selector-many" : "")" @onclick:stopPropagation>
+                @foreach (var w in _wanChoices)
+                {
+                    <button class="time-btn @(!AllSelected && SelectedWanKeys.Contains(w.Key) ? "active" : "")"
+                            @onclick="() => PickWanAsync(w.Key)" @onclick:stopPropagation>
+                        @{
+                            var wp = NetworkOptimizer.UniFi.GatewayWanHelper.SplitWanLabel(
+                                w.Label, NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey(w.Key));
+                        }@(wp.Name ?? w.Label)@if (wp.WanToken != null && wp.Name != null)
+                        {<span class="wan-pill-token">@wp.WanToken</span>}
+                    </button>
+                }
+                <button class="time-btn @(AllSelected ? "active" : "")"
+                        @onclick="() => PickWanAsync(AllWansKey)" @onclick:stopPropagation>All</button>
+            </div>
+        }
         <div style="display: flex; align-items: center; gap: 0.5rem;">
             <span class="status-badge status-active" @onclick:stopPropagation="true">@Targets.Count(t => t.Enabled) active</span>
-            <a href="/network-tools" class="tooltip-icon settings-link" data-tooltip="Run an ad-hoc probe" @onclick:stopPropagation="true">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" width="16" height="16">
-                    <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM5.5 8.5a.5.5 0 010-1h2.793L7.146 6.354a.5.5 0 11.708-.708l2 2a.5.5 0 010 .708l-2 2a.5.5 0 11-.708-.708L8.293 8.5H5.5zm6.354-1.146a.5.5 0 010 .708L10.707 9.207H13.5a.5.5 0 010 1h-2.793l1.147 1.147a.5.5 0 11-.708.708l-2-2a.5.5 0 010-.708l2-2a.5.5 0 01.708 0z" clip-rule="evenodd" />
-                </svg>
-            </a>
             <span class="issue-type-chevron">@(_collapsed ? "▼" : "▲")</span>
         </div>
     </div>
     <div class="expand-wrapper @(!_collapsed ? "expanded" : "")">
         <div class="expand-content">
     <div class="card-body">
-        <p class="section-description">
-            Default WAN targets and one fabric target per discovered device. The agent probes
-            each target at its own interval and writes results to the <code>latency</code>
-            measurement in InfluxDB.
-        </p>
+        <div class="lt-intro">
+            <p class="section-description">
+                Default WAN targets and one fabric target per discovered device. The agent probes
+                each target at its own interval and writes results to the <code>latency</code>
+                measurement in InfluxDB.
+            </p>
+            <div class="lt-actions">
+                <a href="/network-tools" class="btn btn-sm btn-secondary">Run Probe</a>
+                <SiteOperatorOnly>
+                    <button class="btn btn-sm btn-primary" @onclick="ShowAddTargetFromTop">
+                        + Add Target
+                    </button>
+                </SiteOperatorOnly>
+            </div>
+        </div>
 
         @if (Targets.Count == 0)
         {
@@ -54,7 +78,15 @@
                     </tr>
                 </thead>
                 <tbody>
-                    @foreach (var t in Targets.OrderBy(t => t.TargetType).ThenBy(t => t.Name))
+                    @if (!VisibleTargets().Any())
+                    {
+                        <tr>
+                            <td colspan="@VisibleColumnCount" class="latency-targets-empty">
+                                No targets for this WAN.
+                            </td>
+                        </tr>
+                    }
+                    @foreach (var t in VisibleTargets())
                     {
                         var latest = LiveStats.GetTargetStats(t.TargetId);
                         <tr id="latency-target-@t.Id" class="@(t.Enabled ? "" : "latency-target-paused")">
@@ -71,7 +103,7 @@
                                     <SiteOperatorOnly>
                                         <select class="cadence-select"
                                             @onchange="(e) => UpdateWanContextAsync(t.Id, e)">
-                                        <option value="" selected="@(t.WanContextId == null)">Primary</option>
+                                        <option value="" selected="@(t.WanContextId == null)">@PrimaryWanLabel</option>
                                         @foreach (var wc in WanContexts)
                                         {
                                             <option value="@wc.Id" selected="@(t.WanContextId == wc.Id)">@wc.Name</option>
@@ -156,7 +188,7 @@
                 }
             </div>
             <p class="page-description" style="margin-top: 0.5rem;">
-                Removing a fabric or default WAN target will trigger it to be re-created
+                Removing a fabric or upstream-discovered WAN target will trigger it to be re-created
                 on the next agent cycle. Use <strong>Pause</strong> instead to stop
                 probing without losing the row's history.
             </p>
@@ -172,42 +204,55 @@
         }
         else if (_showAddTarget)
         {
-            <div class="add-target-form" style="margin-top: 1rem; padding: 1rem; background: var(--bg-tertiary); border-radius: 8px;">
-                <div style="display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: end;">
-                    <div>
-                        <label class="form-label" style="margin-bottom: 0.25rem; font-size: 0.8rem;">Name</label>
-                        <input type="text" class="custom-range-input" @bind="_newTargetName" placeholder="My ISP gateway" style="width: 160px;" />
+            <div class="lt-add-form" id="add-target-form">
+                <div class="lt-form-grid">
+                    <div class="form-group lt-form-wide">
+                        <label class="form-label">Name</label>
+                        <input type="text" class="form-control" @bind="_newTargetName" placeholder="My ISP gateway" />
                     </div>
-                    <div>
-                        <label class="form-label" style="margin-bottom: 0.25rem; font-size: 0.8rem;">Address</label>
-                        <input type="text" class="custom-range-input" @bind="_newTargetAddress" placeholder="192.168.1.1 or hostname" style="width: 180px;" />
+                    <div class="form-group lt-form-wide">
+                        <label class="form-label">Address</label>
+                        <input type="text" class="form-control" @bind="_newTargetAddress" placeholder="192.168.1.1 or hostname" />
                     </div>
-                    <div>
-                        <label class="form-label" style="margin-bottom: 0.25rem; font-size: 0.8rem;">Type</label>
-                        <select class="cadence-select" style="width: 130px;" @bind="_newTargetType">
+                    <div class="form-group">
+                        <label class="form-label">Type</label>
+                        <select class="form-control" @bind="_newTargetType">
                             <option value="Custom">Custom</option>
                             <option value="InternetService">Internet</option>
                             <option value="AccessIsp">ISP</option>
                             <option value="Transit">Transit</option>
                         </select>
                     </div>
-                    <div>
-                        <label class="form-label" style="margin-bottom: 0.25rem; font-size: 0.8rem;">Probe</label>
-                        <select class="cadence-select" style="width: 100px;" @bind="_newTargetProbeMode">
+                    <div class="form-group">
+                        <label class="form-label">Probe</label>
+                        <select class="form-control" @bind="_newTargetProbeMode">
                             <option value="Icmp">ICMP</option>
                             <option value="Tcp">TCP</option>
                         </select>
                     </div>
                     @if (_newTargetProbeMode == "Tcp")
                     {
-                        <div>
-                            <label class="form-label" style="margin-bottom: 0.25rem; font-size: 0.8rem;">Port</label>
-                            <input type="number" class="custom-range-input" @bind="_newTargetPort" placeholder="443" style="width: 70px;" />
+                        <div class="form-group">
+                            <label class="form-label">Port</label>
+                            <input type="number" class="form-control" @bind="_newTargetPort" placeholder="443" />
                         </div>
                     }
-                    <div>
-                        <label class="form-label" style="margin-bottom: 0.25rem; font-size: 0.8rem;">Interval</label>
-                        <select class="cadence-select" style="width: 80px;" @bind="_newTargetInterval">
+                    @if (WanContexts.Count > 0)
+                    {
+                        <div class="form-group">
+                            <label class="form-label">WAN</label>
+                            <select class="form-control" @bind="_newTargetWanContextId">
+                                <option value="">@PrimaryWanLabel</option>
+                                @foreach (var wc in WanContexts)
+                                {
+                                    <option value="@wc.Id">@wc.Name</option>
+                                }
+                            </select>
+                        </div>
+                    }
+                    <div class="form-group">
+                        <label class="form-label">Interval</label>
+                        <select class="form-control" @bind="_newTargetInterval">
                             <option value="5">5 s</option>
                             <option value="10">10 s</option>
                             <option value="15">15 s</option>
@@ -215,18 +260,18 @@
                             <option value="60">60 s</option>
                         </select>
                     </div>
-                    <div style="display: flex; gap: 0.5rem;">
-                        <SiteOperatorOnly>
-                            <button class="btn btn-sm btn-primary" @onclick="AddTargetAsync" disabled="@_addingTarget">
+                </div>
+                <div class="lt-form-actions">
+                    <SiteOperatorOnly>
+                        <button class="btn btn-sm btn-primary" @onclick="AddTargetAsync" disabled="@_addingTarget">
                             @if (_addingTarget) { <span class="spinner-sm"></span> } else { <span>Add</span> }
                         </button>
-                        </SiteOperatorOnly>
-                        <button class="btn btn-sm btn-secondary" @onclick="() => _showAddTarget = false">Cancel</button>
-                    </div>
+                    </SiteOperatorOnly>
+                    <button class="btn btn-sm btn-tertiary" @onclick="() => _showAddTarget = false">Cancel</button>
                 </div>
                 @if (!string.IsNullOrEmpty(_addTargetError))
                 {
-                    <p style="color: var(--danger-color); margin-top: 0.5rem; font-size: 0.85rem;">@_addTargetError</p>
+                    <p class="form-error">@_addTargetError</p>
                 }
             </div>
         }
@@ -236,16 +281,98 @@
                expensive to rebuild - it accumulates over time and nothing recreates it - so the
                asymmetry is deliberate: measuring one more thing is cheap and reversible, losing one
                that someone established months ago is not. *@
-            <SiteOperatorOnly>
-                <button class="btn btn-sm btn-secondary" style="margin-top: 0.75rem;" @onclick="() => _showAddTarget = true">
-                    + Add target
-                </button>
-            </SiteOperatorOnly>
+            <div class="lt-actions lt-actions-bottom">
+                <a href="/network-tools" class="btn btn-sm btn-secondary">Run Probe</a>
+                <SiteOperatorOnly>
+                    <button class="btn btn-sm btn-primary" @onclick="ShowAddTarget">
+                        + Add Target
+                    </button>
+                </SiteOperatorOnly>
+            </div>
         }
     </div>
         </div>
     </div>
 </div>
+
+<style>
+    .lt-intro {
+        display: flex;
+        align-items: flex-start;
+        gap: 1rem;
+    }
+
+    .lt-intro .section-description {
+        flex: 1;
+    }
+
+    .lt-actions {
+        display: flex;
+        gap: 0.5rem;
+        flex: 0 0 auto;
+    }
+
+    .lt-actions .btn {
+        white-space: nowrap;
+    }
+
+    .lt-actions-bottom {
+        margin-top: 0.75rem;
+    }
+
+    .lt-add-form {
+        margin-top: 1rem;
+        padding: 1rem 1.25rem 1.25rem;
+        background: var(--bg-tertiary);
+        border: 1px solid var(--border-color);
+        border-radius: var(--border-radius-lg);
+    }
+
+    .lt-form-grid {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 1rem;
+    }
+
+    .lt-form-grid .form-group {
+        margin-bottom: 0;
+    }
+
+    .lt-form-wide {
+        grid-column: span 2;
+    }
+
+    .lt-form-actions {
+        display: flex;
+        gap: 0.5rem;
+        margin-top: 1rem;
+    }
+
+    @@media (max-width: 1024px) {
+        .lt-form-grid {
+            grid-template-columns: repeat(2, 1fr);
+        }
+    }
+
+    @@media (max-width: 768px) {
+        .lt-intro {
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .lt-form-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .lt-form-wide {
+            grid-column: span 1;
+        }
+
+        .lt-form-actions .btn {
+            flex: 1;
+        }
+    }
+</style>
 
 @code {
     [Parameter, EditorRequired]
@@ -257,6 +384,112 @@
     /// </summary>
     [Parameter]
     public List<WanContext> WanContexts { get; set; } = new();
+
+    /// <summary>
+    /// What to call the primary WAN in the WAN pickers. A target with no vantage is probed over
+    /// the primary WAN, and naming that WAN the way the vantages beside it are named keeps the
+    /// list one kind of thing; "Primary" states a role and leaves the reader to work out which
+    /// connection holds it.
+    /// </summary>
+    [Parameter]
+    public string PrimaryWanLabel { get; set; } = "Primary";
+
+    /// <summary>The tab's WAN selection, so this list shows the same WANs the charts above do.</summary>
+    [Parameter]
+    public IReadOnlyCollection<string> SelectedWanKeys { get; set; } = Array.Empty<string>();
+
+    /// <summary>
+    /// Raised with the key the user picked, or <see cref="AllWansKey"/> for All, so the tab can move
+    /// its own filters with this one.
+    /// </summary>
+    [Parameter]
+    public EventCallback<string> OnWanSelected { get; set; }
+
+    /// <summary>Sentinel for the All pill, which is not a WAN and can never collide with a key.</summary>
+    public const string AllWansKey = "*";
+
+    private sealed record WanChoice(string Key, string Label, bool IsPrimary);
+    private List<WanChoice> _wanChoices = new();
+
+    /// <summary>
+    /// All is every WAN at once rather than a mode of its own, so it lives in the same selection the
+    /// rest of the tab reads and needs nothing else to remember it.
+    /// </summary>
+    /// <summary>
+    /// Whether the selection this card can act on is "everything". True when every WAN is selected,
+    /// and also when NONE of them is: the tab's WAN bar offers WANs this card has no pill for - one
+    /// with no context and so no targets of its own - and filtering a list to a WAN it cannot show
+    /// leaves an empty table with no lit pill to explain it. All is the honest reading of a
+    /// selection this list has nothing to say about.
+    /// </summary>
+    private bool AllSelected =>
+        _wanChoices.Count > 1
+        && (_wanChoices.All(w => SelectedWanKeys.Contains(w.Key))
+            || !_wanChoices.Any(w => SelectedWanKeys.Contains(w.Key)));
+
+    private async Task PickWanAsync(string key)
+    {
+        // Filtering a list that is closed changes something the user cannot see, so open it.
+        _collapsed = false;
+        if (OnWanSelected.HasDelegate) await OnWanSelected.InvokeAsync(key);
+    }
+
+    /// <summary>
+    /// The rows for the WANs on screen. A target with no WAN of its own belongs to the primary, the
+    /// same rule every other per-WAN reader uses.
+    /// </summary>
+    /// <summary>Columns in the table, so an empty-state row spans all of them.</summary>
+    private int VisibleColumnCount => WanContexts.Count > 0 ? 8 : 7;
+
+    private IEnumerable<MonitoringTarget> VisibleTargets()
+    {
+        var ordered = Targets.OrderBy(t => t.TargetType).ThenBy(t => t.Name);
+        if (_wanChoices.Count <= 1 || AllSelected || SelectedWanKeys.Count == 0) return ordered;
+        var primaryKey = _wanChoices.FirstOrDefault(w => w.IsPrimary)?.Key;
+        return ordered.Where(t => string.IsNullOrEmpty(t.WanInterface)
+            ? primaryKey != null && SelectedWanKeys.Contains(primaryKey)
+            : SelectedWanKeys.Any(k => string.Equals(
+                NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(k),
+                NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(t.WanInterface!),
+                StringComparison.OrdinalIgnoreCase)));
+    }
+
+    /// <summary>
+    /// The primary plus every context-bound WAN - the same set Upstream Path Discovery offers, since
+    /// those are the only WANs a target can be filed under.
+    /// </summary>
+    private async Task LoadWanChoicesAsync()
+    {
+        var choices = new List<WanChoice>();
+        var liveWans = new List<NetworkOptimizer.Web.Services.Monitoring.WanSummary>();
+        try { liveWans = (await PathView.GetWansAsync()).ToList(); }
+        catch { }
+
+        var primaryKey = NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(
+            liveWans.FirstOrDefault(w => w.IsPrimary)?.WanInterface
+            ?? liveWans.FirstOrDefault()?.WanInterface
+            ?? NetworkOptimizer.UniFi.GatewayWanHelper.DefaultWanKey);
+        choices.Add(new WanChoice(primaryKey, WanLabelFor(liveWans, primaryKey, null), IsPrimary: true));
+
+        foreach (var ctx in WanContexts.Where(c => !string.IsNullOrEmpty(c.WanInterface)))
+        {
+            var key = NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(ctx.WanInterface!);
+            if (choices.Any(c => string.Equals(c.Key, key, StringComparison.OrdinalIgnoreCase))) continue;
+            choices.Add(new WanChoice(key, WanLabelFor(liveWans, key, ctx.Name), IsPrimary: false));
+        }
+        _wanChoices = choices.Count > 1 ? choices : new List<WanChoice>();
+    }
+
+    private static string WanLabelFor(
+        List<NetworkOptimizer.Web.Services.Monitoring.WanSummary> liveWans, string key, string? fallbackName)
+    {
+        var live = liveWans.FirstOrDefault(w => string.Equals(
+            NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(w.WanInterface), key,
+            StringComparison.OrdinalIgnoreCase));
+        return NetworkOptimizer.UniFi.GatewayWanHelper.FormatWanLabel(
+            live?.FriendlyName ?? fallbackName,
+            NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey(key), null, null);
+    }
 
     [Parameter]
     public EventCallback OnTargetsChanged { get; set; }
@@ -280,6 +513,9 @@
     private string _newTargetProbeMode = "Icmp";
     private int _newTargetPort = 443;
     private int _newTargetInterval = 10;
+    private string _newTargetWanContextId = "";
+    private bool _revealAddForm;
+    private bool _ringAddForm;
     private string? _addTargetError;
     private string? _targetError;
 
@@ -298,6 +534,19 @@
         // Let the expand animation start and the row render before scrolling to it.
         await Task.Delay(350);
         await JS.InvokeVoidAsync("noHighlightRow", $"latency-target-{targetId}");
+    }
+
+    /// <summary>
+    /// Opens the card and scrolls to it, with no row to single out. Sent here to assign targets,
+    /// someone needs the list in front of them - scrolling a collapsed card into view leaves them
+    /// looking at its header and nothing else.
+    /// </summary>
+    public async Task ExpandAndRevealAsync()
+    {
+        _collapsed = false;
+        StateHasChanged();
+        await Task.Delay(350);
+        await JS.InvokeVoidAsync("noHighlightTarget", "latency-targets");
     }
 
     private async Task SetTargetEnabledAsync(int targetId, bool enabled)
@@ -343,6 +592,49 @@
         }
     }
 
+    /// <summary>
+    /// Opens the add form and scrolls it into view. The card sits low on the page, so the form
+    /// can otherwise open entirely below the fold and the button look like it did nothing.
+    /// </summary>
+    private void ShowAddTarget()
+    {
+        _showAddTarget = true;
+        _revealAddForm = true;
+    }
+
+    /// <summary>
+    /// Same, from the button beside the description. This one rings the form as well: it acts at
+    /// a distance - the whole target table can sit between the button and what it opened - and
+    /// after that scroll the user needs telling which thing on screen is the one they asked for.
+    /// The button under the table does not, because the form opens exactly where it was.
+    /// </summary>
+    private void ShowAddTargetFromTop()
+    {
+        _showAddTarget = true;
+        _revealAddForm = true;
+        _ringAddForm = true;
+    }
+
+    protected override async Task OnParametersSetAsync() => await LoadWanChoicesAsync();
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // After the render that created it, not before - there is no element to scroll to until
+        // the form is actually in the DOM. Scroll only, no ring: the user pressed the button that
+        // opened this, so nothing needs pointing out to them.
+        if (!_revealAddForm) return;
+        _revealAddForm = false;
+        if (_ringAddForm)
+        {
+            _ringAddForm = false;
+            await JS.InvokeVoidAsync("noHighlightTarget", "add-target-form", "center", "var(--border-radius-lg)");
+        }
+        else
+        {
+            await JS.InvokeVoidAsync("noScrollTo", "add-target-form", "center");
+        }
+    }
+
     private async Task AddTargetAsync()
     {
         _addTargetError = null;
@@ -359,7 +651,8 @@
                     ? NetworkOptimizer.Core.Enums.ProbeMode.Tcp
                     : NetworkOptimizer.Core.Enums.ProbeMode.Icmp,
                 Port = _newTargetPort,
-                PollIntervalSeconds = _newTargetInterval
+                PollIntervalSeconds = _newTargetInterval,
+                WanContextId = int.TryParse(_newTargetWanContextId, out var wcId) ? wcId : null
             });
 
             _showAddTarget = false;
@@ -369,6 +662,7 @@
             _newTargetProbeMode = "Icmp";
             _newTargetPort = 443;
             _newTargetInterval = 10;
+            _newTargetWanContextId = "";
             await OnTargetsChanged.InvokeAsync();
         }
         catch (NetworkOptimizer.Web.Services.MonitoringTargetValidationException ex)

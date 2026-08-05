@@ -3,8 +3,8 @@ using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Services;
 using NetworkOptimizer.Web.Services;
-using NetworkOptimizer.Web.Services.Monitoring;
 using NetworkOptimizer.Web.Services.Authorization;
+using NetworkOptimizer.Web.Services.Monitoring;
 
 namespace NetworkOptimizer.Web.Endpoints;
 
@@ -20,6 +20,9 @@ public static class MonitoringChartEndpoints
         group.MapGet("/api/monitoring/live-stats", async (
             MonitoringLiveStats liveStats,
             UniFiConnectionService connectionService,
+            NetworkOptimizer.Storage.Services.SiteDbContextFactory siteDb,
+            SiteContextService siteContext,
+            string? wan,
             CancellationToken ct) =>
         {
             string? gatewayMac = null;
@@ -33,6 +36,39 @@ public static class MonitoringChartEndpoints
                 wanIfNames = gw?.WanInterfaceNames;
             }
             catch { }
+
+            // The live tick has to answer for the same WAN the caller is charting. Without this it
+            // served the primary's counters to every caller, so a chart backfilled with one WAN's
+            // history then grew a live edge of the primary's traffic - the two halves of the same
+            // line describing different connections. Absent means the primary, exactly as before.
+            if (!string.IsNullOrEmpty(wan))
+            {
+                var group2 = NetworkOptimizer.UniFi.GatewayWanHelper.WanNetworkGroupFromKey(wan);
+                string? scopedCounter = null;
+                try
+                {
+                    scopedCounter = (await connectionService.GetWanInterfacesForGroupAsync(group2, ct))?.CounterIfName;
+                }
+                catch { }
+                if (string.IsNullOrEmpty(scopedCounter))
+                {
+                    try
+                    {
+                        await using var db = siteDb.CreateForSite(siteContext.Slug, siteContext.IsDefault);
+                        var profile = await db.WanProfiles.AsNoTracking()
+                            .FirstOrDefaultAsync(w => w.WanNetworkgroup == group2, ct);
+                        scopedCounter = profile?.CounterInterface;
+                        if (string.IsNullOrEmpty(gatewayMac) && profile?.GatewayMac != null)
+                            gatewayMac = profile.GatewayMac.Replace("-", ":").ToLowerInvariant();
+                    }
+                    catch { }
+                }
+                // Empty rather than the primary's: a WAN with no recorded counter has no live
+                // answer, and borrowing one would draw another WAN's traffic under its name.
+                wanIfNames = string.IsNullOrEmpty(scopedCounter)
+                    ? new List<string>()
+                    : new List<string> { scopedCounter! };
+            }
 
             double wanDown = 0, wanUp = 0;
             DateTime? sampleTime = null;
@@ -49,7 +85,13 @@ public static class MonitoringChartEndpoints
                 }
             }
 
-            var (meanRtt, meanLoss) = await liveStats.GetMeanIspTransitLiveAsync(ct);
+            // Scoped to the same WAN as the rates above, or the chart's RTT and loss lines would
+            // be the site's while its throughput was one WAN's - and a WAN with no targets of its
+            // own would show the primary's latency as if it were its own.
+            var isPrimaryWan = string.IsNullOrEmpty(wan)
+                || string.Equals(NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(wan!),
+                    NetworkOptimizer.UniFi.GatewayWanHelper.DefaultWanKey, StringComparison.OrdinalIgnoreCase);
+            var (meanRtt, meanLoss) = await liveStats.GetMeanIspTransitLiveAsync(ct, wan, isPrimaryWan);
 
             return Results.Ok(new
             {
@@ -72,6 +114,7 @@ public static class MonitoringChartEndpoints
             ILoggerFactory loggerFactory,
             DateTime? from,
             DateTime? to,
+            string? wan,
             CancellationToken ct) =>
         {
             DateTime queryFrom, queryTo;
@@ -107,7 +150,35 @@ public static class MonitoringChartEndpoints
             // console that returns no gateway still yields an empty series as before, and eth0,
             // eth6.100 and ppp0 keep resolving live. CounterInterface, not the data path - a VLAN
             // sub-interface's counters double, which is why the two are stored apart.
-            if ((string.IsNullOrEmpty(gatewayMac) || wanIfNames is not { Count: > 0 })
+            // A named WAN replaces the primary-only list with THAT WAN's counter interface: live
+            // from the console, else the WAN's own remembered profile. Never a fallback to another
+            // WAN - an empty series is the honest answer for a WAN nothing has recorded, where
+            // borrowing the primary's would draw someone else's traffic under this WAN's name.
+            if (!string.IsNullOrEmpty(wan))
+            {
+                var group = NetworkOptimizer.UniFi.GatewayWanHelper.WanNetworkGroupFromKey(wan);
+                string? scopedCounter = null;
+                try
+                {
+                    var ifaces = await connectionService.GetWanInterfacesForGroupAsync(group, ct);
+                    scopedCounter = ifaces?.CounterIfName;
+                }
+                catch { }
+                try
+                {
+                    await using var db = siteDb.CreateForSite(siteContext.Slug, siteContext.IsDefault);
+                    var profile = await db.WanProfiles.AsNoTracking()
+                        .FirstOrDefaultAsync(w => w.WanNetworkgroup == group, ct);
+                    scopedCounter ??= profile?.CounterInterface;
+                    if (string.IsNullOrEmpty(gatewayMac) && profile?.GatewayMac != null)
+                        gatewayMac = profile.GatewayMac.Replace("-", ":").ToLowerInvariant();
+                }
+                catch { }
+                wanIfNames = string.IsNullOrEmpty(scopedCounter)
+                    ? new List<string>()
+                    : new List<string> { scopedCounter! };
+            }
+            else if ((string.IsNullOrEmpty(gatewayMac) || wanIfNames is not { Count: > 0 })
                 && !connectionService.IsConnected)
             {
                 try
@@ -153,9 +224,47 @@ public static class MonitoringChartEndpoints
                 ? influx.QueryGatewayWanRatesAsync(gatewayMac, wanIfNames, queryFrom, queryTo,
                     sampleIntervalSeconds: sampleIntervalSeconds, ct: ct)
                 : Task.FromResult<IReadOnlyList<MonitoringInfluxClient.WanRatePoint>>(Array.Empty<MonitoringInfluxClient.WanRatePoint>());
+            // Scoped like the rates above: the backfilled RTT and loss have to belong to the WAN
+            // being charted, or a secondary WAN's history is drawn with the primary's latency -
+            // the same borrowing the live tick did, just arriving as history instead.
             var targets = await liveStats.GetIspTransitTargetsAsync(ct);
+            // Points are scoped as well as targets. Selecting the right target ids is not enough on
+            // its own: one host reachable from two WANs is probed under each, and a row that has
+            // moved between contexts keeps its older points under the tag they were written with -
+            // so a read by id alone returns another WAN's readings too, which is a speed test on one
+            // WAN showing up as a latency spike on another's chart. Same scope the ISP Health
+            // reports use, built by the same helper.
+            // Same rule as the live tick: no WAN named means the primary, never every WAN.
+            MonitoringInfluxClient.LatencyWanScope? latencyScope = null;
+            {
+                var wanKey = string.IsNullOrEmpty(wan)
+                    ? NetworkOptimizer.UniFi.GatewayWanHelper.DefaultWanKey
+                    : NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(wan!);
+                var wanIsPrimary = string.Equals(wanKey,
+                    NetworkOptimizer.UniFi.GatewayWanHelper.DefaultWanKey, StringComparison.OrdinalIgnoreCase);
+                targets = targets.Where(t => string.IsNullOrEmpty(t.WanInterface)
+                    ? wanIsPrimary
+                    : string.Equals(NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(t.WanInterface!),
+                        wanKey, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+                try
+                {
+                    await using var scopeDb = siteDb.CreateForSite(siteContext.Slug, siteContext.IsDefault);
+                    var contexts = await scopeDb.WanContexts.AsNoTracking().ToListAsync(ct);
+                    latencyScope = NetworkOptimizer.Web.Services.Monitoring.IspHealth.IspHealthService
+                        .BuildWanScope(contexts, wanKey, wanIsPrimary);
+                }
+                catch
+                {
+                    // Unreadable contexts: fall back to the id-only read rather than an empty chart.
+                }
+            }
             var targetIds = targets.Select(t => t.TargetId).ToList();
-            var rttTask = influx.QueryMeanIspTransitLatencyAsync(queryFrom, queryTo, targetIds, ct: ct);
+            // No targets on this WAN means no latency history for it - an empty query would read
+            // as the site's, so it is skipped and the series stays empty.
+            var rttTask = targetIds.Count > 0
+                ? influx.QueryMeanIspTransitLatencyAsync(queryFrom, queryTo, targetIds, wanScope: latencyScope, ct: ct)
+                : Task.FromResult<IReadOnlyList<MonitoringInfluxClient.LatencyPoint>>(Array.Empty<MonitoringInfluxClient.LatencyPoint>());
 
             await Task.WhenAll(wanTask, rttTask);
 
@@ -230,7 +339,7 @@ public static class MonitoringChartEndpoints
                 .Where(t => t.TargetType == targetType && t.Enabled
                     && (t.AsnNumber == null || !WellKnownAsns.NonTransitInfrastructure.Contains(t.AsnNumber.Value)))
                 .OrderBy(t => t.Name)
-                .Select(t => new { t.TargetId, t.Name, t.AutoLabel })
+                .Select(t => new { t.TargetId, t.Name, t.AutoLabel, t.WanInterface, t.Address })
                 .ToListAsync(ct);
 
             if (targets.Count == 0)
@@ -249,6 +358,10 @@ public static class MonitoringChartEndpoints
                     // Role label ("gateway"/"switch"/"ap"/...) so the LAN flaky detector can
                     // identify the gateway target and mask out gateway-outage windows.
                     autoLabel = t.AutoLabel,
+                    // WAN ownership (null = unstamped = primary) and address, so the chart's WAN
+                    // filter can scope series client-side and pair the same host's per-WAN twins.
+                    wanInterface = t.WanInterface,
+                    address = t.Address,
                     rtt = pts.Select(p => new { time = p.Time.ToString("o"), value = p.RttAvgMs }),
                     loss = pts.Select(p => new { time = p.Time.ToString("o"), value = p.LossPercent }),
                 };
@@ -260,9 +373,12 @@ public static class MonitoringChartEndpoints
         group.MapGet("/api/monitoring/wan-rate-chart", async (
             MonitoringInfluxClient influx,
             UniFiConnectionService connectionService,
+            SiteDbContextFactory siteDbFactory,
+            SiteContextService siteContext,
             int? rangeHours,
             DateTime? from,
             DateTime? to,
+            string? wan,
             CancellationToken ct) =>
         {
             DateTime queryFrom, queryTo;
@@ -290,6 +406,36 @@ public static class MonitoringChartEndpoints
                 wanIfNames = gw?.WanInterfaceNames;
             }
             catch { }
+
+            // Explicit WAN (a UniFi wan key like "wan2", from the chart's WAN filter): that WAN's
+            // own counter interface - live, then its remembered profile row - replaces the default
+            // primary/active-uplink resolution above. Never a cross-WAN fallback: an unresolvable
+            // WAN returns an empty series rather than another WAN's throughput.
+            if (!string.IsNullOrWhiteSpace(wan))
+            {
+                var wanGroup = NetworkOptimizer.UniFi.GatewayWanHelper.WanNetworkGroupFromKey(wan.Trim());
+                string? counter = null;
+                try
+                {
+                    counter = (await connectionService.GetWanInterfacesForGroupAsync(wanGroup, ct))?.CounterIfName;
+                }
+                catch { }
+                if (string.IsNullOrEmpty(counter) || string.IsNullOrEmpty(gatewayMac))
+                {
+                    try
+                    {
+                        await using var wdb = siteDbFactory.CreateForSite(siteContext.Slug, siteContext.IsDefault);
+                        var profile = await wdb.WanProfiles.AsNoTracking()
+                            .Where(w => w.WanNetworkgroup == wanGroup)
+                            .OrderByDescending(w => w.UpdatedAt)
+                            .FirstOrDefaultAsync(ct);
+                        counter ??= profile?.CounterInterface;
+                        gatewayMac = string.IsNullOrEmpty(gatewayMac) ? profile?.GatewayMac : gatewayMac;
+                    }
+                    catch { }
+                }
+                wanIfNames = string.IsNullOrEmpty(counter) ? null : new List<string> { counter! };
+            }
 
             if (string.IsNullOrEmpty(gatewayMac) || wanIfNames == null || wanIfNames.Count == 0)
                 return Results.Ok(new { download = Array.Empty<object>(), upload = Array.Empty<object>() });

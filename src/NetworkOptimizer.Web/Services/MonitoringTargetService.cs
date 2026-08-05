@@ -81,6 +81,18 @@ public class MonitoringTargetService : IMonitoringTargetService
             AsnName = asnName
         };
 
+        // Same stamping the reassign path uses, so a target created against a WAN context carries
+        // both keys from its first poll: the context that routes the probe and the WAN the readings
+        // are filed under.
+        if (spec.WanContextId is int newContextId)
+        {
+            await using var contextDb = CreateDb();
+            var context = await contextDb.WanContexts.FindAsync(new object?[] { newContextId }, ct);
+            if (context == null)
+                throw new MonitoringTargetValidationException("That WAN context no longer exists.");
+            Monitoring.WanContextTargetStamping.ApplyAssignment(entity, newContextId, context.WanInterface);
+        }
+
         await using (var db = CreateDb())
         {
             db.MonitoringTargets.Add(entity);
@@ -95,7 +107,8 @@ public class MonitoringTargetService : IMonitoringTargetService
             probeMode = entity.ProbeMode.ToString(),
             entity.Port,
             entity.PollIntervalSeconds,
-            entity.AsnNumber
+            entity.AsnNumber,
+            entity.WanContextId
         });
 
         // Trace-on-save: an Internet/Custom target only absolves the ISP/transit hops it crosses
@@ -159,14 +172,26 @@ public class MonitoringTargetService : IMonitoringTargetService
         });
 
     /// <inheritdoc />
-    public Task<bool> SetWanContextAsync(int id, int? wanContextId, CancellationToken ct = default) =>
-        UpdateAsync(id, ct, row =>
+    public async Task<bool> SetWanContextAsync(int id, int? wanContextId, CancellationToken ct = default)
+    {
+        // The context's WAN rides along with the assignment: WanContextId routes the probes and
+        // WanInterface says which WAN the data describes, and every per-WAN reader scopes on the
+        // latter - an assignment that moved only the routing would keep grading the data under
+        // the old WAN. Moving back to the primary clears both (see WanContextTargetStamping).
+        string? contextWanInterface = null;
+        if (wanContextId is int contextId)
+        {
+            await using var db = CreateDb();
+            contextWanInterface = (await db.WanContexts.FindAsync(new object?[] { contextId }, ct))?.WanInterface;
+        }
+        return await UpdateAsync(id, ct, row =>
         {
             if (row.WanContextId == wanContextId) return null;
             var before = row.WanContextId;
-            row.WanContextId = wanContextId;
+            Monitoring.WanContextTargetStamping.ApplyAssignment(row, wanContextId, contextWanInterface);
             return new { field = "WanContextId", from = before, to = wanContextId };
         });
+    }
 
     /// <summary>
     /// Applies a single-field edit and records what actually changed. A mutate that returns null

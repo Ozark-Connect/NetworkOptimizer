@@ -439,6 +439,13 @@ public class PhysicalLinkResolver
             CurrentlyObstructed = live?.CurrentlyObstructed,
             DishDropRateAvg = dropAvg,
             DishDropRateMax = dropMax > 0 ? dropMax : null,
+            // LowSpeedPolicyLimit is the plan itself being a reduced-speed tier, as the Starlink
+            // panel already reads it. Plain PolicyLimit is ordinary shaping on nearly every plan
+            // and says nothing, so it is deliberately not treated as one.
+            ReducedSpeedTier = live is null
+                ? null
+                : live.DownlinkRestrictedReason == "LowSpeedPolicyLimit"
+                    || live.UplinkRestrictedReason == "LowSpeedPolicyLimit",
             OutageSecondsTotal = outageSeconds,
             OutageCountTotal = outageCount,
             SnrPersistentlyLow = live?.IsSnrPersistentlyLow,

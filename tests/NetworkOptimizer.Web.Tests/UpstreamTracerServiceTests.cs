@@ -1139,7 +1139,7 @@ public class CollectUnannouncedAccessAddressesTests
     public void Unannounced_public_hops_before_the_access_border_are_attributed()
     {
         // The #984 shape: RFC1918, then unannounced public space, then the announced
-        // access-ASN border. The public hops are kept; the RFC1918 hop is not.
+        // access-ASN border. Everything below the border is kept, private included.
         var traces = new IReadOnlyList<string>[]
         {
             new[] { "10.0.0.2", "203.0.113.10", "203.0.113.11", "192.0.2.60" }
@@ -1147,7 +1147,7 @@ public class CollectUnannouncedAccessAddressesTests
         var map = Map(("192.0.2.60", Bell));
 
         UpstreamTracerService.CollectUnannouncedAccessAddresses(traces, map, Bell)
-            .Should().Equal("203.0.113.10", "203.0.113.11");
+            .Should().Equal("10.0.0.2", "203.0.113.10", "203.0.113.11");
     }
 
     [Fact]
@@ -1161,13 +1161,102 @@ public class CollectUnannouncedAccessAddressesTests
     }
 
     [Fact]
-    public void Rfc1918_hops_are_never_attributed()
+    public void Rfc1918_hops_are_attributed()
     {
+        // An ISP numbering its access network out of private space leaves no other trace of its
+        // first mile, so every private hop below the ISP's border is a candidate.
         var traces = new IReadOnlyList<string>[] { new[] { "10.0.0.2", "172.16.0.2", "192.168.1.2", "192.0.2.60" } };
         var map = Map(("192.0.2.60", Bell));
 
         UpstreamTracerService.CollectUnannouncedAccessAddresses(traces, map, Bell)
-            .Should().BeEmpty();
+            .Should().Equal("10.0.0.2", "172.16.0.2", "192.168.1.2");
+    }
+
+    [Fact]
+    public void Our_own_gateway_is_never_attributed()
+    {
+        var traces = new IReadOnlyList<string>[] { new[] { "192.168.1.1", "192.168.100.1", "10.99.2.5", "192.0.2.60" } };
+        var map = Map(("192.0.2.60", Bell));
+        var gateways = new HashSet<string>(new[] { "192.168.1.1" }, StringComparer.OrdinalIgnoreCase);
+
+        UpstreamTracerService.CollectUnannouncedAccessAddresses(traces, map, Bell, gateways)
+            .Should().Equal("192.168.100.1", "10.99.2.5");
+    }
+
+    [Fact]
+    public void A_private_hop_answering_from_our_own_side_is_not_attributed()
+    {
+        // 192.168.100.1 at 0.3 ms is a bridged CPE on our side of the WAN; the CMTS at 11 ms is a
+        // WAN crossing away. Distance separates them where position cannot.
+        var traces = new IReadOnlyList<string>[] { new[] { "192.168.100.1", "10.99.2.5", "192.0.2.60" } };
+        var map = Map(("192.0.2.60", Bell));
+        var rtt = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["192.168.100.1"] = 0.3,
+            ["10.99.2.5"] = 11.087,
+        };
+
+        UpstreamTracerService.CollectUnannouncedAccessAddresses(traces, map, Bell, null, rtt)
+            .Should().Equal("10.99.2.5");
+    }
+
+    [Fact]
+    public void A_private_hop_with_no_timing_is_still_attributed()
+    {
+        var traces = new IReadOnlyList<string>[] { new[] { "10.99.2.5", "192.0.2.60" } };
+        var map = Map(("192.0.2.60", Bell));
+
+        UpstreamTracerService.CollectUnannouncedAccessAddresses(
+                traces, map, Bell, null, new Dictionary<string, double>())
+            .Should().Equal("10.99.2.5");
+    }
+
+    [Fact]
+    public void A_close_public_hop_is_still_attributed()
+    {
+        // The distance test is for private space only - carrier space is carrier space.
+        var traces = new IReadOnlyList<string>[] { new[] { "198.51.100.9", "192.0.2.60" } };
+        var map = Map(("192.0.2.60", Bell));
+        var rtt = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase) { ["198.51.100.9"] = 0.4 };
+
+        UpstreamTracerService.CollectUnannouncedAccessAddresses(traces, map, Bell, null, rtt)
+            .Should().Equal("198.51.100.9");
+    }
+
+    [Fact]
+    public void The_first_responding_hop_is_attributed_when_the_gateway_is_the_vantage()
+    {
+        // Probing from the gateway itself: there is no gateway hop to skip, and the first responder
+        // is already ISP-side.
+        var traces = new IReadOnlyList<string>[] { new[] { "10.99.2.5", "192.0.2.60" } };
+        var map = Map(("192.0.2.60", Bell));
+
+        UpstreamTracerService.CollectUnannouncedAccessAddresses(traces, map, Bell)
+            .Should().Equal("10.99.2.5");
+    }
+
+    [Fact]
+    public void A_cgnat_first_hop_past_our_gateway_is_still_attributed()
+    {
+        // The hold-back is for RFC1918 only. On a CGNAT provider the first hop past the gateway is
+        // the carrier's own first-mile device, and it is usually the only one that answers at all.
+        var traces = new IReadOnlyList<string>[] { new[] { "192.168.1.1", "100.64.0.1", "192.0.2.60" } };
+        var map = Map(("192.0.2.60", Bell));
+        var gateways = new HashSet<string>(new[] { "192.168.1.1" }, StringComparer.OrdinalIgnoreCase);
+
+        UpstreamTracerService.CollectUnannouncedAccessAddresses(traces, map, Bell, gateways)
+            .Should().Equal("100.64.0.1");
+    }
+
+    [Fact]
+    public void A_public_first_hop_past_our_gateway_is_still_attributed()
+    {
+        var traces = new IReadOnlyList<string>[] { new[] { "192.168.1.1", "198.51.100.9", "192.0.2.60" } };
+        var map = Map(("192.0.2.60", Bell));
+        var gateways = new HashSet<string>(new[] { "192.168.1.1" }, StringComparer.OrdinalIgnoreCase);
+
+        UpstreamTracerService.CollectUnannouncedAccessAddresses(traces, map, Bell, gateways)
+            .Should().Equal("198.51.100.9");
     }
 
     [Fact]
