@@ -671,7 +671,14 @@ public class AgentProbeResultSink
     /// "is there anything worth reading this agent's results for" - the per-result check below then
     /// decides which of them to keep.
     /// </summary>
-    private async Task<bool> AgentOwnsAnyContextAsync(AgentTunnelConnection connection, CancellationToken ct)
+    /// <returns>
+    /// True or false when the site's contexts could be read, and NULL when they could not - which
+    /// is not the same answer and must not be treated as one. Reading them fails while the site's
+    /// database is still coming up, and the first batch after a restart is the agent's buffered
+    /// backlog: answering false there threw the whole backlog away silently, every time the server
+    /// was restarted, on the one site that consults this at all.
+    /// </returns>
+    private async Task<bool?> AgentOwnsAnyContextAsync(AgentTunnelConnection connection, CancellationToken ct)
     {
         try
         {
@@ -683,7 +690,7 @@ public class AgentProbeResultSink
         {
             _logger.LogDebug(ex, "Could not read WAN contexts for agent {Id} (site {Slug})",
                 connection.AgentId, connection.SiteSlug);
-            return false;
+            return null;
         }
     }
 
@@ -1635,7 +1642,21 @@ public class AgentProbeResultSink
         // yet its context's results are still the only measurement that WAN has. Asking the steering
         // question here threw away every result from a gateway vantage the moment it was given an
         // interface to bind.
-        if (!agentCoversPrimary && !await AgentOwnsAnyContextAsync(connection, ct)) return;
+        // Only a definite "owns nothing" drops the batch. An unreadable answer lets it through to
+        // the per-result judgement below, which asks the same question per target and keeps
+        // whatever it can stand behind - the batch is evidence that was expensive to collect and
+        // cannot be asked for again.
+        if (!agentCoversPrimary)
+        {
+            var ownsContext = await AgentOwnsAnyContextAsync(connection, ct);
+            if (ownsContext == false)
+            {
+                _logger.LogDebug(
+                    "Dropped a batch of {Count} result(s) from agent {Id}: the main site collects for itself and this agent owns no WAN context",
+                    batch.Results.Count, connection.AgentId);
+                return;
+            }
+        }
 
         await using var db = _siteDbFactory.CreateForSite(connection.SiteSlug, isDefault);
         var ids = batch.Results.Select(r => r.TargetId).Distinct().ToList();
@@ -1652,6 +1673,15 @@ public class AgentProbeResultSink
         // configures itself from that site's MonitoringSettings on first use.
         var influx = _influxRegistry.GetFor(connection.SiteSlug);
         if (!influx.IsConfigured) await influx.ReconfigureAsync(ct);
+        // The latency writes below no-op silently on an unconfigured client, so a batch arriving
+        // while the site's Influx settings are unreadable - the buffered backlog being the first
+        // thing an agent sends after a restart - is swallowed with nothing to show for it. Say so;
+        // the batch still runs, because the live caches and alerting do not depend on Influx and
+        // are worth having either way.
+        if (!influx.IsConfigured)
+            _logger.LogWarning(
+                "{Count} result(s) from agent {Id} (site {Slug}) will not be stored: the site's InfluxDB client is not configured",
+                batch.Results.Count, connection.AgentId, connection.SiteSlug);
         var liveStats = _liveStatsRegistry.GetFor(connection.SiteSlug);
         var discarded = 0;
 
