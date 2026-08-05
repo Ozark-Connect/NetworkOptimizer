@@ -2036,7 +2036,7 @@ public class IspHealthScorer
             if (inputs.AdaptiveSqmEnabled)
             {
                 recommendation = "Adaptive SQM is already shaping this WAN, so loss under load means the rate it holds isn't backing off enough when the line congests. In your Adaptive SQM settings, raise the Severity so the peak-hour rate dips go deeper, or lower the nominal download/upload if the line consistently delivers less than its plan. If loss persists once the rate is pulled down, the drops are upstream and only your ISP can fix them.";
-                latencyRecommendation = "Adaptive SQM is already shaping this WAN, so latency under load means the rate it holds isn't backing off enough when the line congests. In your Adaptive SQM settings, raise the Severity so the peak-hour rate dips go deeper, or lower the nominal download/upload if the line consistently delivers less than its plan. If the latency persists once the rate is pulled down, the queue is upstream and only your ISP can drain it.";
+                latencyRecommendation = "Adaptive SQM is already shaping this WAN, so latency under load means the rate it holds isn't backing off enough when the line congests. In your Adaptive SQM settings, raise the Severity so the peak-hour rate dips go deeper, or lower the nominal download/upload if the line consistently delivers less than its plan. If the loaded latency persists once the rate is pulled down, the queue is upstream and only your ISP can drain it.";
             }
             else if (inputs.SmartQueuesEnabled)
             {
