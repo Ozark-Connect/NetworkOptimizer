@@ -119,6 +119,22 @@ public class IspHealthOptions
     public int LoadedLatencyElevationStaleEpisodes { get; set; } = 3;
 
     /// <summary>
+    /// Whether the clean run must also cover the hour of day when the elevation used to appear.
+    /// <para>
+    /// Without this a nightly problem clears itself: a line that bufferbloats every evening is
+    /// clean all night, so a run computed at 3 AM sees three clean episodes on top of elevated ones
+    /// and calls it fixed. Congestion is a time-of-day phenomenon, and "it has been fine since"
+    /// only means something if the "since" covers the hour it used to go wrong.
+    /// </para>
+    /// <para>
+    /// The cost is honest: a fix is confirmed once the line carries traffic during that hour again,
+    /// not the moment it stops misbehaving at 3 AM. Until then the figure keeps describing the
+    /// behavior actually observed at the hour in question, which is all that is known.
+    /// </para>
+    /// </summary>
+    public bool LoadedLatencyElevationStaleNeedsSameHour { get; set; } = true;
+
+    /// <summary>
     /// Utilization band, as a fraction of plan speed, over which a load episode earns credibility:
     /// weak at the bottom, full at the top.
     /// <para>

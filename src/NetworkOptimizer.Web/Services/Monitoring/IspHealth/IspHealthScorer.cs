@@ -454,6 +454,39 @@ public class IspHealthScorer
     /// </para>
     /// </summary>
     /// <summary>
+    /// Whether the clean run has been seen at the hour of day the elevation used to appear at.
+    /// <para>
+    /// A nightly problem otherwise clears itself: a line that bufferbloats every evening is clean
+    /// all night, so a run computed at 3 AM finds clean episodes on top of elevated ones and calls
+    /// it fixed. The hour with the most elevated episodes is the one that has to be re-tested -
+    /// "it has been fine since" means nothing if the "since" never covered the hour it went wrong.
+    /// </para>
+    /// <para>
+    /// Hours come from <see cref="UsageWeighting.LocalHoursSpanned"/>, the same helper the usage
+    /// weighting uses, so an episode spanning a boundary counts for every hour it touches.
+    /// </para>
+    /// </summary>
+    private bool CleanRunCoversTheProblemHour(
+        IReadOnlyList<(DateTime Time, double Value)> cleanRun,
+        IReadOnlyList<(DateTime Time, double Value)> elevated)
+    {
+        if (!_options.LoadedLatencyElevationStaleNeedsSameHour) return true;
+
+        var windowSpan = TimeSpan.FromSeconds(Math.Max(1, _options.LoadWindowSeconds));
+        IEnumerable<int> HoursOf((DateTime Time, double Value) episode) =>
+            UsageWeighting.LocalHoursSpanned(episode.Time, episode.Time + windowSpan, TimeZoneInfo.Local);
+
+        var problemHour = elevated
+            .SelectMany(HoursOf)
+            .GroupBy(h => h)
+            .OrderByDescending(g => g.Count())
+            .ThenBy(g => g.Key)
+            .First().Key;
+
+        return cleanRun.SelectMany(HoursOf).Contains(problemHour);
+    }
+
+    /// <summary>
     /// The delta a run of the NEWEST measurements supports when they all sit far below everything
     /// older - a line someone fixed, where the older measurements describe a connection that no
     /// longer exists. Null when the evidence does not say that.
@@ -904,9 +937,12 @@ public class IspHealthScorer
         if (stale > 0 && episodes.Count > stale)
         {
             var cleanRun = episodes.TakeWhile(e => e.Value < noiseFloor).ToList();
-            var everElevated = episodes.Any(e => e.Value >= noiseFloor);
-            if (everElevated && cleanRun.Count >= stale)
+            var elevated = episodes.Where(e => e.Value >= noiseFloor).ToList();
+            if (elevated.Count > 0 && cleanRun.Count >= stale
+                && CleanRunCoversTheProblemHour(cleanRun, elevated))
+            {
                 return Math.Max(0, SeriesStats.Median(cleanRun.Select(e => e.Value).ToList())!.Value);
+            }
         }
 
         var credible = pooled.Where(x => x.Value >= noiseFloor).ToList();
