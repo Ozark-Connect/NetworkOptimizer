@@ -202,7 +202,7 @@ else if (_report == null)
             </div>
         </div>
     }
-    else
+    else if (Svc.Status == IspHealthStatus.NotConfigured)
     {
         <div class="alert alert-warning" style="margin-bottom: 1rem;">
             <div class="banner-content">
@@ -212,6 +212,21 @@ else if (_report == null)
                 </div>
                 <div class="banner-actions">
                     <button class="btn btn-sm btn-primary" @onclick="@(() => NavigationManager.NavigateTo("/monitoring?tab=setup"))">Open Setup</button>
+                </div>
+            </div>
+        </div>
+    }
+    else
+    {
+        @* Every status above is handled, so this is a completed compute that produced no report
+           for the window asked for - a range predating collection, most often. It used to share
+           the NotConfigured banner, which sent someone to check an InfluxDB that was working
+           fine. *@
+        <div class="alert alert-info" style="margin-bottom: 1rem;">
+            <div class="banner-content">
+                <span class="banner-icon banner-icon-info">i</span>
+                <div class="banner-text" style="flex: 1;">
+                    No ISP Health data for the selected time range. Try a more recent window.
                 </div>
             </div>
         </div>
