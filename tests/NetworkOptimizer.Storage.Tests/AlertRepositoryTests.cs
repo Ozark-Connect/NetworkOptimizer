@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using Moq;
 using NetworkOptimizer.Alerts.Models;
 using NetworkOptimizer.Core.Enums;
+using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Repositories;
 using Xunit;
 

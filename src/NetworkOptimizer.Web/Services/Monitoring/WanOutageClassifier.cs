@@ -87,10 +87,13 @@ internal static class WanOutageClassifier
                 null, null, null, failing.Count, targets.Count);
 
         // Upstream of the access layer: the first hop answers, everything beyond it is failing.
+        // At least one failing internet destination is required - a set that is all transit
+        // beyond the access hop can go probe-dark from rate limiting alone, and with no
+        // destination monitored there is no evidence anything the user reaches is down.
         if (accessRows.Count > 0
             && accessRows.All(a => !a.Failing)
             && targets.Where(t => t.Type != MonitoringTargetType.AccessIsp).All(t => t.Failing)
-            && failing.Count > 0)
+            && targets.Any(t => t.IsInternet && t.Failing))
         {
             var (lastReachable, brokenNetwork) = AttributeUpstreamBreak(targets);
             return new WanVerdict(WanVerdictKind.Total, AccessDown: false,

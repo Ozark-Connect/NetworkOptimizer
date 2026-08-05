@@ -219,7 +219,17 @@ public class WanOutageEvaluator
             {
                 if (!other.CoveredByRollup) continue;
                 other.CoveredByRollup = false;
-                other.OpenKind = WanVerdictKind.Total;
+                var otherKind = other.LastVerdict?.Kind ?? WanVerdictKind.None;
+                if (otherKind == WanVerdictKind.None)
+                {
+                    // Recovering alongside this WAN (possibly in the very same pass): the
+                    // rollup's close already says the site is back, so nothing reopens and
+                    // its own None-confirmation has nothing left to announce.
+                    other.OpenKind = WanVerdictKind.None;
+                    other.EpisodeStart = null;
+                    continue;
+                }
+                other.OpenKind = otherKind;
                 await _eventBus.PublishAsync(BuildOutageEvent(WanInfo(otherKey), other, now), ct);
             }
             _rollupSince = null;
@@ -316,9 +326,9 @@ public class WanOutageEvaluator
                 message += $" The break looks like it sits in {verdict.BrokenNetwork}.";
         }
         else if (verdict.BranchLabel != null)
-            message = $"{verdict.FailingCount} of {verdict.TotalCount} monitored targets on {info.Label} have been failing for {duration}, all behind {verdict.BranchLabel}. Other destinations are reachable, so the connection itself looks fine.";
+            message = $"{verdict.FailingCount} of {verdict.TotalCount} monitored targets on {info.Label} have been failing or degraded for {duration}, all behind {verdict.BranchLabel}. Other destinations are reachable, so the connection itself looks fine.";
         else
-            message = $"{verdict.FailingCount} of {verdict.TotalCount} monitored targets on {info.Label} have been failing for {duration}, across unrelated networks. The connection itself is still passing traffic.";
+            message = $"{verdict.FailingCount} of {verdict.TotalCount} monitored targets on {info.Label} have been failing or degraded for {duration}, across unrelated networks. The connection itself is still passing traffic.";
 
         return new AlertEvent
         {
