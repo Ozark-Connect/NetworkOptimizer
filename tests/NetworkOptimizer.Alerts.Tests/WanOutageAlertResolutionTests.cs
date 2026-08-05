@@ -79,12 +79,18 @@ public class WanOutageAlertResolutionTests
         targets[0].EventTypes.Should().Equal("monitoring.wan_outage_partial");
     }
 
+    /// <summary>
+    /// The rollup says the whole site is down, which is the same outage every per-WAN alert was
+    /// describing a piece of - so it closes them all, whatever WAN they name.
+    /// </summary>
     [Fact]
-    public void GetWanAlertsToResolve_SiteRollupOutage_ClosesNothing()
+    public void GetWanAlertsToResolve_SiteRollupOutage_ClosesEveryPerWanAlert()
     {
         var targets = AlertProcessingService.GetWanAlertsToResolve("monitoring.wan_outage", "all-wans");
 
-        targets.Should().BeEmpty();
+        targets.Should().ContainSingle();
+        targets[0].DeviceId.Should().BeNull("a null device id means every device");
+        targets[0].EventTypes.Should().Equal("monitoring.wan_outage", "monitoring.wan_outage_partial");
     }
 
     [Fact]

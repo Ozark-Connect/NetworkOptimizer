@@ -399,12 +399,24 @@ public class AlertRepository : IAlertRepository
         }
     }
 
-    public async Task<List<AlertHistoryEntry>> ResolveActiveAlertsAsync(
+    public Task<List<AlertHistoryEntry>> ResolveActiveAlertsAnyDeviceAsync(
+        IReadOnlyCollection<string> eventTypes,
+        CancellationToken cancellationToken = default) =>
+        ResolveActiveAlertsCoreAsync(eventTypes, "", anyDevice: true, cancellationToken);
+
+    public Task<List<AlertHistoryEntry>> ResolveActiveAlertsAsync(
         IReadOnlyCollection<string> eventTypes,
         string deviceId,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        ResolveActiveAlertsCoreAsync(eventTypes, deviceId, anyDevice: false, cancellationToken);
+
+    private async Task<List<AlertHistoryEntry>> ResolveActiveAlertsCoreAsync(
+        IReadOnlyCollection<string> eventTypes,
+        string deviceId,
+        bool anyDevice,
+        CancellationToken cancellationToken)
     {
-        if (eventTypes.Count == 0 || string.IsNullOrEmpty(deviceId))
+        if (eventTypes.Count == 0 || (!anyDevice && string.IsNullOrEmpty(deviceId)))
             return [];
 
         try
@@ -413,7 +425,7 @@ public class AlertRepository : IAlertRepository
             var types = eventTypes.ToList();
             var open = await _context.AlertHistory
                 .Where(a => a.Status == AlertStatus.Active
-                    && a.DeviceId == deviceId
+                    && (anyDevice || a.DeviceId == deviceId)
                     && types.Contains(a.EventType))
                 .ToListAsync(cancellationToken);
 

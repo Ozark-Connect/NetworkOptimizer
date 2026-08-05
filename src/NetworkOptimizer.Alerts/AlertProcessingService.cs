@@ -186,12 +186,21 @@ public class AlertProcessingService : BackgroundService
 
     /// <summary>
     /// Decides which open alerts an incoming event closes: each entry is the set of event types to
-    /// resolve for one DeviceId. Empty for every event outside the WAN outage family.
+    /// resolve for one DeviceId, or for EVERY device when the DeviceId is null. Empty for every
+    /// event outside the WAN outage family.
     /// </summary>
-    internal static List<(string[] EventTypes, string DeviceId)> GetWanAlertsToResolve(string eventType, string? deviceId)
+    internal static List<(string[] EventTypes, string? DeviceId)> GetWanAlertsToResolve(string eventType, string? deviceId)
     {
-        var targets = new List<(string[] EventTypes, string DeviceId)>();
+        var targets = new List<(string[] EventTypes, string? DeviceId)>();
         var wanKey = deviceId?.Trim();
+
+        // The site rollup supersedes every per-WAN alert: it says the whole site is down, which
+        // is the same outage those alerts were each describing a piece of.
+        if (eventType == WanOutageEventType && wanKey == AllWansDeviceId)
+        {
+            targets.Add(([WanOutageEventType, WanOutagePartialEventType], null));
+            return targets;
+        }
 
         if (eventType == WanRecoveredEventType)
         {
@@ -229,7 +238,9 @@ public class AlertProcessingService : BackgroundService
         {
             foreach (var (eventTypes, deviceId) in targets)
             {
-                var resolved = await repository.ResolveActiveAlertsAsync(eventTypes, deviceId, cancellationToken);
+                var resolved = deviceId == null
+                    ? await repository.ResolveActiveAlertsAnyDeviceAsync(eventTypes, cancellationToken)
+                    : await repository.ResolveActiveAlertsAsync(eventTypes, deviceId, cancellationToken);
                 if (resolved.Count == 0)
                     continue;
 

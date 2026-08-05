@@ -41,6 +41,13 @@ public interface IAlertRepository
     /// </summary>
     Task<List<AlertHistoryEntry>> ResolveActiveAlertsAsync(IReadOnlyCollection<string> eventTypes, string deviceId, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Marks every active alert of the given event types as resolved, whatever device it names,
+    /// and returns the entries that were closed. Used when a site-wide alert supersedes the
+    /// per-device alerts describing pieces of the same event.
+    /// </summary>
+    Task<List<AlertHistoryEntry>> ResolveActiveAlertsAnyDeviceAsync(IReadOnlyCollection<string> eventTypes, CancellationToken cancellationToken = default);
+
     // --- Alert Incidents ---
     Task<int> SaveIncidentAsync(AlertIncident incident, CancellationToken cancellationToken = default);
     Task UpdateIncidentAsync(AlertIncident incident, CancellationToken cancellationToken = default);

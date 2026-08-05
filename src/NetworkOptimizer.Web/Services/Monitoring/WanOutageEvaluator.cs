@@ -43,6 +43,9 @@ public class WanOutageEvaluator
     private const int ConfirmsToClose = 3;
     private const int FailedProbesToCountFailing = 2;
     private const int TargetStalenessSeconds = 180;
+
+    /// <summary>How far apart the WANs' total-outage confirmations may sit and still read as one site outage.</summary>
+    private const int RollupWindowSeconds = 90;
     private const int ContextTtlSeconds = 300;
 
     private readonly IAlertEventBus _eventBus;
@@ -164,19 +167,39 @@ public class WanOutageEvaluator
 
             var needed = verdict.Kind == WanVerdictKind.None ? ConfirmsToClose : ConfirmsToOpen;
             if (state.PendingCount >= needed) confirmedThisPass[wanKey] = verdict.Kind;
+
+            // When this WAN's total outage was first confirmed, for the rollup's window. Cleared
+            // the moment it is no longer verdicted total, so a recovered WAN cannot hold a stale
+            // confirmation and let a later rollup claim the site was wholly down.
+            if (verdict.Kind == WanVerdictKind.Total && state.PendingCount >= ConfirmsToOpen)
+                state.TotalConfirmedAt ??= now;
+            else if (verdict.Kind != WanVerdictKind.Total)
+                state.TotalConfirmedAt = null;
         }
 
-        // Site rollup: every WAN of a multi-WAN site confirmed down in the same evaluation, with
-        // nothing already open, collapses into ONE site-level Critical - N notifications for one
-        // event is the spam this alert class exists to remove.
+        // Site rollup: every WAN of a multi-WAN site down together collapses into ONE site-level
+        // Critical - N notifications for one event is the spam this alert class exists to remove.
+        // "Together" is a window rather than a single evaluation: WANs are polled at their own
+        // intervals (10 s on one, 60 s on another is ordinary), so a site that loses everything
+        // at once still confirms its WANs a minute apart, and a same-pass test would almost never
+        // fire. A WAN that already opened its own alert is folded in - the rollup event resolves
+        // the per-WAN alerts it supersedes - so the worst case is one alert then the rollup,
+        // rather than one per WAN.
+        var totalEverywhere = byWan.Keys.All(k => GetWanState(k).TotalConfirmedAt != null);
         if (!_rollupOpen
             && byWan.Count >= 2
-            && byWan.Keys.All(k => confirmedThisPass.TryGetValue(k, out var kind) && kind == WanVerdictKind.Total)
-            && byWan.Keys.All(k => GetWanState(k).OpenKind == WanVerdictKind.None && !GetWanState(k).CoveredByRollup))
+            && totalEverywhere
+            && now - byWan.Keys.Min(k => GetWanState(k).TotalConfirmedAt!.Value)
+                <= TimeSpan.FromSeconds(RollupWindowSeconds))
         {
             _rollupOpen = true;
             _rollupSince = byWan.Keys.Select(k => GetWanState(k).EpisodeStart).Min() ?? now;
-            foreach (var k in byWan.Keys) GetWanState(k).CoveredByRollup = true;
+            foreach (var k in byWan.Keys)
+            {
+                var s = GetWanState(k);
+                s.CoveredByRollup = true;
+                s.OpenKind = WanVerdictKind.None;
+            }
             await _eventBus.PublishAsync(BuildRollupEvent(byWan.Keys.ToList(), now), ct);
             return;
         }
@@ -470,6 +493,9 @@ public class WanOutageEvaluator
 
         /// <summary>Whether this WAN's outage is represented by the site-level rollup alert.</summary>
         public bool CoveredByRollup;
+
+        /// <summary>When this WAN's total outage was confirmed, for the site rollup's window.</summary>
+        public DateTime? TotalConfirmedAt;
 
         /// <summary>The most recent classification, carried into the event bodies.</summary>
         public WanVerdict? LastVerdict;
