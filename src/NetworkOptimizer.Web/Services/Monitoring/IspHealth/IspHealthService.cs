@@ -942,6 +942,11 @@ public class IspHealthService
                 darkByTargetId.TryGetValue(t.TargetId, out var dark)
                     ? transitSeries[t.TargetId].Where(s => !dark.Any(w => s.Time >= w.Start && s.Time <= w.End)).ToList()
                     : transitSeries[t.TargetId])));
+        // Anycast DNS goes in RAW, deliberately - no unreachable carve-out. Those addresses are
+        // served from everywhere at once and effectively never have an outage of their own, so a
+        // resolver going dark is the ISP failing to reach it, which is exactly the loss this pool
+        // exists to catch. Carving it out for symmetry with the hops above would delete the
+        // clearest outage signal there is.
         identifiedPool.AddRange(targets
             .Where(t => t.TargetType == MonitoringTargetType.InternetService
                 && AnycastDnsIps.Contains(t.Address)
