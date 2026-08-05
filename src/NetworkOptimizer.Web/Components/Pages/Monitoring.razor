@@ -2399,12 +2399,7 @@
     // Chart mount tracking
     private bool _mapMounted = false;
     private bool _map2dMounted = false;
-    // WHICH instant was applied, not whether one ever was. Arriving from another page builds a
-    // new Monitoring, so a once-per-page flag looked right there - but the eye on Network
-    // Performance is a tab switch inside this same instance, and a flag any earlier link had
-    // already spent left the map to start playing live instead of seeking. A reload "fixed" it by
-    // rebuilding the component, which is what made it look like a loading problem.
-    private string? _appliedAtParam;
+
 
     // Which link's WAN filter has been applied, rather than whether one ever was. Both jumps are
     // tab switches inside this same component instance, so a once-per-page flag is already spent
@@ -4965,15 +4960,14 @@
             try
             {
                 _mapDotNetRef ??= DotNetObjectReference.Create(this);
-                // Deep-linked timestamp (?at=): applied once per distinct value, so a new link
-                // seeks and merely switching tabs away and back does not yank the map into the
-                // past again on the parameter still sitting in the URL.
-                long initialAtMs = 0;
-                if (_appliedAtParam != AtParam && long.TryParse(AtParam, out var atMs) && atMs > 0)
-                {
-                    _appliedAtParam = AtParam;
-                    initialAtMs = atMs;
-                }
+                // Deep-linked timestamp (?at=): handed to EVERY mount the URL still names it for.
+                // Gating it here - once per page, then once per distinct value - was wrong both
+                // times, and the second one alternated: the map mounts several times per visit and
+                // the eye sends the same instant each round trip, so every other mount came up
+                // with nothing and played live. There is nothing to guard against. mount() builds
+                // a new map each time and _applyInitialSeek clears itself after one use, so an
+                // instance can never re-seek on its own - the guard only ever starved a fresh one.
+                long initialAtMs = long.TryParse(AtParam, out var atMs) && atMs > 0 ? atMs : 0;
                 // Per-mount values (storagePrefix, initialAt) MUST be arguments, never
                 // interpolated into the function body: JS interop resolves the
                 // identifier to a function reference once and keeps invoking that
@@ -4988,9 +4982,6 @@
                     "  if (initialAt > 0) opts.initialAt = initialAt;" +
                     "  await m.mount(canvasId, opts);" +
                     "}");
-                Logger.LogDebug(
-                    "3D map mount: at={At} appliedAt={Applied} initialAtMs={InitialAt} tab={Tab}",
-                    AtParam, _appliedAtParam, initialAtMs, _activeTab);
                 await JS.InvokeVoidAsync("__mountLanFlowMap", "lan-flow-map-canvas", _mapDotNetRef,
                     SiteCtx.ScopeStorageKey("lanFlowMap"), initialAtMs);
             }
