@@ -70,7 +70,7 @@ public class MonitoringAlertEvaluator
 
         if (!publishPerTarget)
         {
-            _wanOutages.RecordTargetState(target, state.IsOffline, state.IsLossy);
+            _wanOutages.RecordTargetState(target, state.IsOffline, state.IsLossy, state.ConsecutiveFailures);
             await _wanOutages.EvaluateAsync(ct);
         }
     }

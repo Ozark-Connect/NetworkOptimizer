@@ -28,12 +28,15 @@ namespace NetworkOptimizer.Web.Tests.Monitoring;
 public class WanOutageEvaluatorTests
 {
     /// <summary>
-    /// Probe rounds needed to open or close an alert: three to move each per-target machine, then
-    /// three confirming passes, plus the one-round lag from a pass seeing the round it interrupts.
+    /// Probe rounds comfortably past what it takes to open or close an alert. Opening needs two
+    /// failed probes per target and two confirming passes; closing needs three successes to clear
+    /// each per-target machine and three passes, so this is sized for the slower of the two. Extra
+    /// rounds are harmless - the state machine only publishes on transitions.
     /// </summary>
     private const int RoundsToConfirm = 8;
 
-    private const int SecondsPerPass = 31;
+    /// <summary>A hair over the evaluator's pass interval, so each round runs exactly one pass.</summary>
+    private const int SecondsPerPass = 11;
 
     private static readonly DateTime Start = new(2026, 7, 25, 12, 0, 0, DateTimeKind.Utc);
 
@@ -77,9 +80,14 @@ public class WanOutageEvaluatorTests
 
     public WanOutageEvaluatorTests()
     {
+        _evaluator = BuildEvaluator(BuildContext());
+    }
+
+    private MonitoringAlertEvaluator BuildEvaluator(WanOutageContext context)
+    {
         var wanOutages = new WanOutageEvaluator(_bus, NullLogger<WanOutageEvaluator>.Instance,
-            new FakeContextSource(BuildContext()), timeProvider: _time);
-        _evaluator = new MonitoringAlertEvaluator(_bus, NullLogger<MonitoringAlertEvaluator>.Instance,
+            new FakeContextSource(context), timeProvider: _time);
+        return new MonitoringAlertEvaluator(_bus, NullLogger<MonitoringAlertEvaluator>.Instance,
             new DeviceTransitionTracker(), wanOutages);
     }
 
@@ -218,6 +226,30 @@ public class WanOutageEvaluatorTests
         evt.DeviceId.Should().Be("aabbccddeeff");
     }
 
+    /// <summary>
+    /// Under load balancing every WAN carries live sessions, so a backup going dark is a real
+    /// service loss rather than lost redundancy - it grades the same as the primary would.
+    /// </summary>
+    [Fact]
+    public async Task NonPrimaryWanDownOnALoadBalancingSite_IsCritical()
+    {
+        var evaluator = BuildEvaluator(BuildContext(loadBalances: true));
+
+        for (var round = 0; round < RoundsToConfirm; round++)
+        {
+            foreach (var target in Wan2Targets)
+                await evaluator.EvaluateAsync(target, Probe(target, success: false));
+            foreach (var target in WanTargets)
+                await evaluator.EvaluateAsync(target, Probe(target, success: true));
+            _time.Advance(TimeSpan.FromSeconds(SecondsPerPass));
+        }
+
+        var evt = _bus.Published.Should().ContainSingle().Subject;
+        evt.EventType.Should().Be("monitoring.wan_outage");
+        evt.DeviceId.Should().Be("wan2");
+        evt.Severity.Should().Be(AlertSeverity.Critical);
+    }
+
     #endregion
 
     #region Silences
@@ -230,26 +262,17 @@ public class WanOutageEvaluatorTests
     [Fact]
     public async Task VerdictThatDoesNotHoldLongEnough_PublishesNothing()
     {
-        // Three failed probes inside one evaluation window: every target is offline, and only the
-        // very first probe ran a pass (which saw nothing wrong yet).
-        await ProbeAsync(WanTargets, success: false);
-        _time.Advance(TimeSpan.FromSeconds(5));
-        await ProbeAsync(WanTargets, success: false);
-        _time.Advance(TimeSpan.FromSeconds(5));
+        // First failed probe: the pass it triggers has nothing recorded to judge yet.
         await ProbeAsync(WanTargets, success: false);
 
-        // Two confirming passes - one short of what it takes to open.
-        _time.Advance(TimeSpan.FromSeconds(SecondsPerPass));
-        await ProbeAsync(WanTargets, success: false);
+        // Second failed probe puts every target over the failing threshold, and the pass that
+        // comes with it reaches a Total verdict - one confirming pass, one short of opening.
         _time.Advance(TimeSpan.FromSeconds(SecondsPerPass));
         await ProbeAsync(WanTargets, success: false);
 
-        // Back up inside the same window, so the next pass already sees a healthy WAN.
-        for (var i = 0; i < 3; i++)
-        {
-            _time.Advance(TimeSpan.FromSeconds(5));
-            await ProbeAsync(WanTargets, success: true);
-        }
+        // Back up before the next pass. A success resets the failure count immediately (the
+        // targets never reached the per-target offline threshold), so that pass sees a healthy
+        // WAN and the pending Total never gets its second confirmation.
         _time.Advance(TimeSpan.FromSeconds(SecondsPerPass));
         await ProbeAsync(WanTargets, success: true);
 
@@ -263,14 +286,7 @@ public class WanOutageEvaluatorTests
     [Fact]
     public async Task WanWhoseTargetsStopReporting_PublishesNothing()
     {
-        await ProbeAsync(WanTargets, success: false);
-        _time.Advance(TimeSpan.FromSeconds(5));
-        await ProbeAsync(WanTargets, success: false);
-        _time.Advance(TimeSpan.FromSeconds(5));
-        await ProbeAsync(WanTargets, success: false);
-
-        // Two confirming passes, then wan stops reporting entirely.
-        _time.Advance(TimeSpan.FromSeconds(SecondsPerPass));
+        // One confirming pass on a failing WAN, then wan stops reporting entirely.
         await ProbeAsync(WanTargets, success: false);
         _time.Advance(TimeSpan.FromSeconds(SecondsPerPass));
         await ProbeAsync(WanTargets, success: false);
@@ -332,12 +348,13 @@ public class WanOutageEvaluatorTests
     /// the monitored transit; resolver-b reaches the internet another way, so a pair of dark
     /// destinations has no shared branch to be named after.
     /// </summary>
-    private static WanOutageContext BuildContext() => new(
+    private static WanOutageContext BuildContext(bool loadBalances = false) => new(
         PrimaryWanKey: "wan",
         Wans: new Dictionary<string, WanOutageWanInfo>(StringComparer.OrdinalIgnoreCase)
         {
-            ["wan"] = new("wan", "Acme Fiber WAN1", TreatAsPrimary: true, ConsoleUp: null),
-            ["wan2"] = new("wan2", "Beta Cable WAN2", TreatAsPrimary: false, ConsoleUp: null)
+            ["wan"] = new("wan", "Acme Fiber WAN1", TreatAsPrimary: true, CarriesTraffic: true, ConsoleUp: null),
+            ["wan2"] = new("wan2", "Beta Cable WAN2", TreatAsPrimary: false,
+                CarriesTraffic: loadBalances, ConsoleUp: null)
         },
         HopsByTargetId: new Dictionary<string, WanOutageHopInfo>
         {

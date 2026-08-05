@@ -31,9 +31,17 @@ public class WanOutageEvaluator
     /// <summary>AlertEvent.DeviceId of the site-level all-WANs rollup alert.</summary>
     internal const string RollupDeviceId = "all-wans";
 
-    private const int EvaluationIntervalSeconds = 30;
-    private const int ConfirmsToOpen = 3;
+    // Tuned to beat the console's own WAN-down push (~60-120 s): a target counts as failing
+    // for WAN verdicts after two failed probes (each probe is multi-ping, and no WAN verdict
+    // ever rests on one target - a total needs the whole cohort failing at once, which is the
+    // real flap suppression), passes run at probe cadence, and two held passes open. Closing
+    // stays at three so a flapping WAN still produces one alert and one recovery rather than
+    // a stream. Net budget: ~25-40 s from first lost packet to alert. The per-target machine's
+    // own 3-strikes threshold (Fabric/Custom alerts) is deliberately untouched.
+    private const int EvaluationIntervalSeconds = 10;
+    private const int ConfirmsToOpen = 2;
     private const int ConfirmsToClose = 3;
+    private const int FailedProbesToCountFailing = 2;
     private const int TargetStalenessSeconds = 180;
     private const int ContextTtlSeconds = 300;
 
@@ -82,12 +90,12 @@ public class WanOutageEvaluator
     /// <see cref="MonitoringAlertEvaluator"/> on every probe result for a covered target,
     /// from both the local collection loop and the agent result sink.
     /// </summary>
-    internal void RecordTargetState(MonitoringTarget target, bool isOffline, bool isLossy)
+    internal void RecordTargetState(MonitoringTarget target, bool isOffline, bool isLossy, int consecutiveFailures)
     {
         if (!CoversTargetType(target.TargetType)) return;
         var state = _targets.GetOrAdd(target.TargetId, _ => new TargetLiveState());
         state.Target = target;
-        state.Offline = isOffline;
+        state.Offline = isOffline || consecutiveFailures >= FailedProbesToCountFailing;
         state.Lossy = isLossy;
         state.LastResultUtc = _time.GetUtcNow().UtcDateTime;
     }
@@ -299,7 +307,7 @@ public class WanOutageEvaluator
             ? info
             : new WanOutageWanInfo(wanKey,
                 GatewayWanHelper.FormatWanLabel(null, GatewayWanHelper.WanIndexFromKey(wanKey), null, null),
-                TreatAsPrimary: true, ConsoleUp: null);
+                TreatAsPrimary: true, CarriesTraffic: true, ConsoleUp: null);
 
     private AlertEvent BuildOutageEvent(WanOutageWanInfo info, WanState state, DateTime now)
     {
@@ -334,9 +342,12 @@ public class WanOutageEvaluator
         {
             EventType = total ? "monitoring.wan_outage" : "monitoring.wan_outage_partial",
             Source = "monitoring",
+            // Severity tracks user impact, not which link failed: a WAN that is carrying traffic
+            // (the primary, or any WAN on a load-balancing site) taking a total outage is a real
+            // service loss, while an idle failover backup dropping costs redundancy only.
             Severity = total
-                ? info.TreatAsPrimary ? AlertSeverity.Critical : AlertSeverity.Warning
-                : info.TreatAsPrimary ? AlertSeverity.Warning : AlertSeverity.Info,
+                ? info.CarriesTraffic ? AlertSeverity.Critical : AlertSeverity.Warning
+                : info.CarriesTraffic ? AlertSeverity.Warning : AlertSeverity.Info,
             Title = total
                 ? $"Internet down on {info.Label}{_siteSuffix}"
                 : $"Partial internet outage on {info.Label}{_siteSuffix}",

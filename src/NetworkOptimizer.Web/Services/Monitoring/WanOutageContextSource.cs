@@ -12,8 +12,14 @@ namespace NetworkOptimizer.Web.Services.Monitoring;
 /// AND when nothing has ever said (unknown role must over-alert about the connection the site
 /// actually uses, not stay quiet); false only when the console recorded another WAN as primary.
 /// </param>
+/// <param name="CarriesTraffic">
+/// Whether this WAN is carrying user traffic right now, which is what outage severity turns on.
+/// True for the primary, and true for every WAN on a load-balancing site: under load balancing
+/// each WAN carries live sessions, so losing a non-primary one drops real traffic rather than
+/// only redundancy. False only for an idle failover backup.
+/// </param>
 /// <param name="ConsoleUp">The console's link state for the WAN, when a console was reachable; null when unknown.</param>
-internal sealed record WanOutageWanInfo(string WanKey, string Label, bool TreatAsPrimary, bool? ConsoleUp);
+internal sealed record WanOutageWanInfo(string WanKey, string Label, bool TreatAsPrimary, bool CarriesTraffic, bool? ConsoleUp);
 
 /// <summary>A target's place in the persisted trace map.</summary>
 internal sealed record WanOutageHopInfo(int Depth, IReadOnlySet<string> AncestorIps);
@@ -81,6 +87,9 @@ public class WanOutageContextSource
             ? KeyFromGroup(primary.WanNetworkgroup)
             : GatewayWanHelper.DefaultWanKey;
 
+        // Recorded per WAN but a site-wide fact, so any row that has an answer speaks for the site.
+        var loadBalances = profiles.Any(p => p.SiteLoadBalances == true);
+
         var consoleUp = isDefault ? await TryGetConsoleLinkStatesAsync(ct) : null;
 
         // Every WAN we know about, from any source: profiles, discovery contexts, and the WAN
@@ -95,12 +104,17 @@ public class WanOutageContextSource
             var profile = profiles.FirstOrDefault(p =>
                 string.Equals(KeyFromGroup(p.WanNetworkgroup), key, StringComparison.OrdinalIgnoreCase));
             var index = GatewayWanHelper.WanIndexFromKey(key);
+            // Only an explicit "another WAN is primary" makes a WAN non-primary; an unknown
+            // role must over-alert about the connection the site may actually be using.
+            var treatAsPrimary = profile?.IsPrimary != false;
             wans[key] = new WanOutageWanInfo(
                 key,
                 GatewayWanHelper.FormatWanLabel(profile?.Name, index, null, null),
-                // Only an explicit "another WAN is primary" makes a WAN non-primary; an unknown
-                // role must over-alert about the connection the site may actually be using.
-                profile?.IsPrimary != false,
+                treatAsPrimary,
+                // Load balancing puts traffic on every WAN, so a backup's outage is a real
+                // service loss there, not just lost redundancy. Unknown reads as failover:
+                // that is the conventional setup, and the primary is covered either way.
+                treatAsPrimary || loadBalances,
                 consoleUp != null && consoleUp.TryGetValue(key, out var up) ? up : null);
         }
 
