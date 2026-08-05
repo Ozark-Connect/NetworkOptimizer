@@ -1369,7 +1369,8 @@ public class IspHealthScorerTests
         };
         var dest = new AsnSeries
         {
-            AsnNumber = 64512, AsnName = "Destination",
+            AsnNumber = 64512,
+            AsnName = "Destination",
             TargetIds = { "dest-clean" },
             Samples = TestSeries.Flat(TestSeries.Start, Day, 13, 0.4),
             HopIps = { "30.0.0.1" },
@@ -1399,13 +1400,21 @@ public class IspHealthScorerTests
         // with high jitter is flagged SuggestDisable. The graded on-path hop never is.
         var graded = new AsnSeries
         {
-            AsnNumber = 64496, AsnName = "ISP", TargetIds = { "isp-near" }, RoleTargetIds = { "isp-near" },
-            Samples = TestSeries.Flat(TestSeries.Start, Day, 2.0, 0.3), HopIps = { "10.0.0.1" }
+            AsnNumber = 64496,
+            AsnName = "ISP",
+            TargetIds = { "isp-near" },
+            RoleTargetIds = { "isp-near" },
+            Samples = TestSeries.Flat(TestSeries.Start, Day, 2.0, 0.3),
+            HopIps = { "10.0.0.1" }
         };
         var offPathJittery = new AsnSeries
         {
-            AsnNumber = 64496, AsnName = "ISP", TargetIds = { "isp-olt" }, RoleTargetIds = { "isp-olt" },
-            Samples = TestSeries.Flat(TestSeries.Start, Day, 4.0, 6.0), HopIps = { "10.0.0.9" }
+            AsnNumber = 64496,
+            AsnName = "ISP",
+            TargetIds = { "isp-olt" },
+            RoleTargetIds = { "isp-olt" },
+            Samples = TestSeries.Flat(TestSeries.Start, Day, 4.0, 6.0),
+            HopIps = { "10.0.0.9" }
         };
         var hops = new List<AsnSeries> { graded, offPathJittery };
 
@@ -1436,8 +1445,11 @@ public class IspHealthScorerTests
         };
         var peeredDest = new AsnSeries
         {
-            AsnNumber = 64512, AsnName = "Destination", TargetIds = { "dest" },
-            Samples = TestSeries.Flat(TestSeries.Start, Day, 8, 0.4), HopIps = { "30.0.0.1" },
+            AsnNumber = 64512,
+            AsnName = "Destination",
+            TargetIds = { "dest" },
+            Samples = TestSeries.Flat(TestSeries.Start, Day, 8, 0.4),
+            HopIps = { "30.0.0.1" },
             AncestorIps = { "9.9.9.9" } // routes through neither transit (peered)
         };
 
@@ -1469,20 +1481,29 @@ public class IspHealthScorerTests
         };
         var peered = new AsnSeries
         {
-            AsnNumber = 13335, AsnName = "Peered", TargetIds = { "peered" },
-            Samples = TestSeries.Flat(TestSeries.Start, Day, 4, 0.3), HopIps = { "30.0.0.1" },
+            AsnNumber = 13335,
+            AsnName = "Peered",
+            TargetIds = { "peered" },
+            Samples = TestSeries.Flat(TestSeries.Start, Day, 4, 0.3),
+            HopIps = { "30.0.0.1" },
             AncestorIps = { "10.0.0.1" } // access ISP hop only - crosses no transit
         };
         var viaTransit = new AsnSeries
         {
-            AsnNumber = 15169, AsnName = "ViaTransit", TargetIds = { "via" },
-            Samples = TestSeries.Flat(TestSeries.Start, Day, 4, 0.3), HopIps = { "31.0.0.1" },
+            AsnNumber = 15169,
+            AsnName = "ViaTransit",
+            TargetIds = { "via" },
+            Samples = TestSeries.Flat(TestSeries.Start, Day, 4, 0.3),
+            HopIps = { "31.0.0.1" },
             AncestorIps = { "10.0.0.1", "20.0.0.1" } // low RTT but routes through the transit ASN
         };
         var farPeer = new AsnSeries
         {
-            AsnNumber = 54113, AsnName = "FarPeer", TargetIds = { "far" },
-            Samples = TestSeries.Flat(TestSeries.Start, Day, 20, 0.3), HopIps = { "32.0.0.1" },
+            AsnNumber = 54113,
+            AsnName = "FarPeer",
+            TargetIds = { "far" },
+            Samples = TestSeries.Flat(TestSeries.Start, Day, 20, 0.3),
+            HopIps = { "32.0.0.1" },
             AncestorIps = { "10.0.0.1" } // crosses no transit, but ~18 ms beyond the access hop
         };
 
@@ -1508,8 +1529,11 @@ public class IspHealthScorerTests
         };
         var viaTransit = new AsnSeries
         {
-            AsnNumber = 15169, AsnName = "ViaTransit", TargetIds = { "via" },
-            Samples = TestSeries.Flat(TestSeries.Start, Day, 12, 0.3), HopIps = { "31.0.0.1" },
+            AsnNumber = 15169,
+            AsnName = "ViaTransit",
+            TargetIds = { "via" },
+            Samples = TestSeries.Flat(TestSeries.Start, Day, 12, 0.3),
+            HopIps = { "31.0.0.1" },
             AncestorIps = { "10.0.0.1", "20.0.0.1" }
         };
 
@@ -1762,14 +1786,19 @@ public class IspHealthScorerTests
     }
 
     [Fact]
-    public void Loaded_latency_filters_sub_half_ms_deltas()
+    public void Loaded_latency_reports_a_line_that_stays_clean_under_load()
     {
-        // Access hops show sub-0.5 ms delta under load (no meaningful bufferbloat).
-        // All samples filtered out, returns null (falls back to speed tests).
+        // Access hops show sub-0.5 ms delta under load - no meaningful bufferbloat.
+        //
+        // This used to return null and fall through to the speed tests, on the reasoning that the
+        // noise floor had filtered everything and nothing was left to say. It is the opposite: no
+        // episode elevated means every time this line was loaded it stayed clean, which is the
+        // strongest statement the data can make. Returning null here is what left a real WAN
+        // reporting +23 ms from the median of whichever stray samples crossed the floor.
         var inputs = BuildInputs(
             accessHops: new() { LoadedDownHop(2, 0.1), LoadedDownHop(3, 0.2) });
 
-        ResolvedDownDelta(inputs).Should().BeNull();
+        ResolvedDownDelta(inputs).Should().BeInRange(0, 0.5);
     }
 
     [Fact]
