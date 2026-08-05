@@ -2304,6 +2304,9 @@
     private long? _pendingAtMs;
     private string? _armedAtUri;
 
+    /// <summary>A link's WAN was applied on this visit to Live, and its parameter then removed.</summary>
+    private bool _consumedLinkWan;
+
     private bool _monitoringReady => _monitoringEnabled && _influxConfigured;
 
     /// <summary>This site's agent, when it has one. Null on a server-polled site.</summary>
@@ -2500,6 +2503,9 @@
             if (!confirmed) return;
         }
         var enteringPerformance = tab == "performance" && _activeTab != "performance";
+        // Leaving Live ends a link's hold on the filter: coming back is a fresh look and reads
+        // the stored selection again, which is what makes the link's WAN last for the visit only.
+        if (tab != "live") _consumedLinkWan = false;
         _activeTab = tab;
         ResetThresholdSavedFlags();
         if (enteringPerformance) await AdoptSharedWanFocusAsync();
@@ -4862,7 +4868,10 @@
         // read again rather than the jump's choice holding for the rest of the page's life.
         if (_multiWanUiVisible)
         {
-            if (string.IsNullOrWhiteSpace(WanParam)) LiveWan.ReleaseLink();
+            // Released when no WAN is named AND none was consumed on this visit. Without the
+            // second half the strip above would undo itself: the URL loses the parameter, this
+            // sees it gone, and the stored filter lands straight back on top of the link's.
+            if (string.IsNullOrWhiteSpace(WanParam) && !_consumedLinkWan) LiveWan.ReleaseLink();
             await LiveWan.RestoreAsync();
         }
 
@@ -4877,13 +4886,25 @@
         {
             // Only recorded once it actually took: a pass that arrives before the WAN options
             // have loaded resolves nothing, and must be free to try again on the next one.
-            // Deliberately NOT stripped from the address bar here. replaceState behind Blazor's
-            // back desynchronizes the router's idea of the URL from the browser's: the parameter
-            // stayed set while the release below saw it gone, the two fought over the selection,
-            // and looping between the jump icons tripped the browser's navigation throttle until
-            // the icons stopped working altogether. A reload re-applying the link is the smaller
-            // problem, and the release below still gives the tab-away-and-back case.
-            if (await LiveWan.SelectFromLinkAsync(WanParam)) _appliedLinkWanKey = LinkWanKey;
+            if (await LiveWan.SelectFromLinkAsync(WanParam))
+            {
+                _appliedLinkWanKey = LinkWanKey;
+                _consumedLinkWan = true;
+                // Out of the address bar once applied, so a reload does not put it back. Through
+                // the router, NOT history.replaceState: changing the URL behind Blazor's back left
+                // it believing the parameter was still there while the release path saw it gone,
+                // and the two fought until the browser throttled navigation.
+                //
+                // Cannot re-enter: this block needs a WAN in the URL and there is none afterwards.
+                // The at-arming is told the new URL first, or being re-supplied under it would arm
+                // a second seek and pull the map back off a scrubbed position.
+                var stripped = SiteContextService.RemoveQueryParam(NavigationManager.Uri, "wan");
+                if (stripped != NavigationManager.Uri)
+                {
+                    _armedAtUri = stripped;
+                    NavigationManager.NavigateTo(stripped, forceLoad: false, replace: true);
+                }
+            }
         }
 
         // After render, so the tab and the WAN options have settled and the check reflects what
