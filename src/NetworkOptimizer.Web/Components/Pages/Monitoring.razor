@@ -507,7 +507,10 @@
         </div>
 
         <!-- Latency time-series charts -->
-        <div class="card" id="latency-charts-container" style="margin-top: 1.5rem;">
+        <div class="card card-corner-jump" id="latency-charts-container" style="margin-top: 1.5rem;">
+            <MonitoringJumpButton Icon="MonitoringJumpButton.JumpIcon.Watch"
+                                  Tooltip="Watch this moment in Live View"
+                                  OnClick="JumpToLiveAsync" />
             <div class="card-header monitoring-chart-header @(_multiWanUiVisible && _wanOptions.Count > 1 ? "chart-header-stacked" : "")">
                 <h2 class="card-title">Latency &amp; Packet Loss</h2>
                 @if (_multiWanUiVisible && _wanOptions.Count > 1)
@@ -574,9 +577,6 @@
                     </div>
                     <button class="time-btn" data-shift="forward" data-tooltip="Shift window forward">&#x25B6;</button>
                     </div>
-                    <MonitoringJumpButton Icon="MonitoringJumpButton.JumpIcon.Watch"
-                                          Tooltip="Watch this moment in Live View"
-                                          OnClick="JumpToLiveAsync" />
                 </div>
             </div>
             <div class="card-body">
