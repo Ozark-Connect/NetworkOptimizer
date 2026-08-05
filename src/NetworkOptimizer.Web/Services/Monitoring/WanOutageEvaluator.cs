@@ -333,10 +333,13 @@ public class WanOutageEvaluator
             else if (verdict.BrokenNetwork != null)
                 message += $" The break looks like it sits in {verdict.BrokenNetwork}.";
         }
+        // No reassurance about the connection itself: a partial is often a total still arriving,
+        // with the rest of the targets a probe cycle behind. State the evidence, not a verdict
+        // on the WAN that the next evaluation may overturn.
         else if (verdict.BranchLabel != null)
-            message = $"{verdict.FailingCount} of {verdict.TotalCount} monitored targets on {info.Label} have been failing or degraded for {duration}, all behind {verdict.BranchLabel}. Other destinations are reachable, so the connection itself looks fine.";
+            message = $"{verdict.FailingCount} of {verdict.TotalCount} monitored targets on {info.Label} have been failing or degraded for {duration}, all behind {verdict.BranchLabel}. Other destinations are still reachable.";
         else
-            message = $"{verdict.FailingCount} of {verdict.TotalCount} monitored targets on {info.Label} have been failing or degraded for {duration}, across unrelated networks. The connection itself is still passing traffic.";
+            message = $"{verdict.FailingCount} of {verdict.TotalCount} monitored targets on {info.Label} have been failing or degraded for {duration}, across unrelated networks.";
 
         return new AlertEvent
         {
