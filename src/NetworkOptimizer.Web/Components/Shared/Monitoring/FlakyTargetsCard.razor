@@ -34,6 +34,10 @@
                                 <tr>
                                     <th>Target</th>
                                     <th class="hide-mobile">Type</th>
+                                    @if (WanContexts.Count > 0)
+                                    {
+                                        <th class="hide-mobile">WAN</th>
+                                    }
                                     <th>Loss vs peers</th>
                                     <th class="col-actions"></th>
                                 </tr>
@@ -44,6 +48,10 @@
                                     <tr>
                                         <td><span class="host-truncate">@f.Name</span></td>
                                         <td class="hide-mobile">@TypeLabel(f.Type)</td>
+                                        @if (WanContexts.Count > 0)
+                                        {
+                                            <td class="hide-mobile">@WanLabel(f.WanContextId)</td>
+                                        }
                                         <td class="flaky-evidence">
                                             @($"{f.LossPct:0.0}% loss")<span class="hide-mobile"> vs @($"{f.BaselinePct:0.0}% peer median")</span>
                                         </td>
@@ -84,6 +92,20 @@
 @code {
     [Parameter] public EventCallback OnTargetsChanged { get; set; }
     [Parameter] public bool ForceExpand { get; set; }
+
+    /// <summary>
+    /// The site's WAN contexts, from the same source Latency Targets uses. Empty on a single-WAN
+    /// site, which is what hides the column - two rows for the same hop are only ambiguous once
+    /// the hop is reachable more than one way.
+    /// </summary>
+    [Parameter] public IReadOnlyList<WanContext> WanContexts { get; set; } = System.Array.Empty<WanContext>();
+
+    /// <summary>Label for targets with no context of their own, matching Latency Targets.</summary>
+    [Parameter] public string PrimaryWanLabel { get; set; } = "Primary";
+
+    private string WanLabel(int? wanContextId) => wanContextId is null
+        ? PrimaryWanLabel
+        : WanContexts.FirstOrDefault(w => w.Id == wanContextId)?.Name ?? PrimaryWanLabel;
 
     private IReadOnlyList<FlakyTargetService.FlakyTarget> _flaky = System.Array.Empty<FlakyTargetService.FlakyTarget>();
     private bool _collapsed; // expanded by default when candidates exist

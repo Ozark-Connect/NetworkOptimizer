@@ -88,7 +88,8 @@ public class FlakyTargetService
         double LossPct,
         double BaselinePct,
         int OverBins,
-        int TotalBins)
+        int TotalBins,
+        int? WanContextId)
     {
         public string Evidence => $"{LossPct:0.0}% loss vs {BaselinePct:0.0}% peer median";
     }
@@ -259,7 +260,7 @@ public class FlakyTargetService
             if (!byId.TryGetValue(targetId, out var t)) continue;
             var over = survivors.Count(l => l >= threshold);
             flaky.Add(new FlakyTarget(targetId, t.Id, string.IsNullOrEmpty(t.Name) ? t.Address : t.Name,
-                t.TargetType, metric, baseline, over, survivors.Count));
+                t.TargetType, metric, baseline, over, survivors.Count, t.WanContextId));
         }
 
         logger?.LogDebug("Flaky-target detect: {Count} flagged, baseline {Base:0.00}%, threshold {Thr:0.00}%, {Bins} surviving bins",
