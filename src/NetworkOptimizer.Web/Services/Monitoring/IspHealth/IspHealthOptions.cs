@@ -99,6 +99,15 @@ public class IspHealthOptions
     /// bias every matched episode upward with nothing able to correct it. Judged per direction: a
     /// test that saturated the downstream and not the upstream still speaks for the downstream.
     /// </summary>
+    /// <summary>
+    /// Plan speed at or below which the configured plan is treated as UNSET rather than as a real
+    /// plan. UniFi Network will not accept anything under 1 Mbps, so a link with no meaningful
+    /// figure to enter - a metered backup, a standby WAN - ends up pinned at the floor. Grading
+    /// against it turns an ordinary backup link into a failing one: 0.6 / 0.1 Mbps against a
+    /// "1 / 1 plan" scored 17.
+    /// </summary>
+    public double PlanFloorMbps { get; set; } = 1.0;
+
     public double LoadedLatencySpeedTestMinPlanFraction { get; set; } = 0.7;
 
     /// <summary>

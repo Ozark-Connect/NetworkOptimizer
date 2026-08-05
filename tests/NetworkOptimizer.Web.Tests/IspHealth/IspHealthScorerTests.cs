@@ -41,7 +41,9 @@ public class IspHealthScorerTests
         bool hopOrderKnown = false,
         List<OutageEvent>? outages = null,
         TimeSpan? scoreWindow = null,
-        HashSet<string>? notTracedTargetIds = null)
+        HashSet<string>? notTracedTargetIds = null,
+        double? expectedDownMbps = null,
+        double? expectedUpMbps = null)
     {
         // lineIdle: a near-zero, flat WAN with no load bursts (~0% average load), for
         // exercising the load-calibrated packet-loss ceiling at the idle end.
@@ -73,8 +75,8 @@ public class IspHealthScorerTests
             DestinationSeries = destinations ?? new List<AsnSeries>(),
             WanRates = rates,
             InternetMedianDeltaMs = internetDeltaMs,
-            ExpectedDownloadMbps = withExpectedSpeeds ? 1000 : null,
-            ExpectedUploadMbps = withExpectedSpeeds ? 500 : null,
+            ExpectedDownloadMbps = withExpectedSpeeds ? expectedDownMbps ?? 1000 : null,
+            ExpectedUploadMbps = withExpectedSpeeds ? expectedUpMbps ?? 500 : null,
             ExpectedSpeedSource = withExpectedSpeeds ? "UniFi Network" : null,
             WanSpeedTests = speedTests ?? new List<SpeedTestSample>
             {
@@ -530,6 +532,37 @@ public class IspHealthScorerTests
 
         factor.ValueText.Should().NotContain("6.0 ms down");
         factor.Score.Should().Be(100);
+    }
+
+    [Fact]
+    public void A_plan_pinned_at_the_1_Mbps_minimum_is_not_graded()
+    {
+        // UniFi Network will not accept less than 1 Mbps, so a metered backup with nothing real to
+        // enter sits at the floor. Grading against it scored an ordinary standby link 17.
+        var inputs = BuildInputs(
+            expectedDownMbps: 1, expectedUpMbps: 1,
+            speedTests: new List<SpeedTestSample> { new(TestSeries.Start.AddHours(6), 0.6, 0.1) });
+
+        var factor = new IspHealthScorer(Options).Score(inputs, Gpon)
+            .AccessDimension.Factors.Single(f => f.Name == "Speed vs Plan");
+
+        factor.Score.Should().BeNull();
+        factor.Description.Should().Contain("1 Mbps minimum");
+    }
+
+    [Fact]
+    public void A_real_plan_with_a_1_Mbps_upstream_is_still_graded()
+    {
+        // Half a sentinel is still a plan: 100 Mbps down cannot have been typed by someone with
+        // nothing to enter, so the link keeps its grade.
+        var inputs = BuildInputs(
+            expectedDownMbps: 100, expectedUpMbps: 1,
+            speedTests: new List<SpeedTestSample> { new(TestSeries.Start.AddHours(6), 95, 1) });
+
+        var factor = new IspHealthScorer(Options).Score(inputs, Gpon)
+            .AccessDimension.Factors.Single(f => f.Name == "Speed vs Plan");
+
+        factor.Score.Should().NotBeNull();
     }
 
     [Fact]

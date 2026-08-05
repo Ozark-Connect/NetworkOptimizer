@@ -682,6 +682,24 @@ public class IspHealthScorer
             }, null, null, null);
         }
 
+        // Both directions pinned at UniFi Network's 1 Mbps minimum is not a 1 Mbps plan, it is the
+        // lowest number the field would accept from someone with nothing real to enter - a metered
+        // backup or a standby WAN. Grading against it makes an ordinary backup link look broken,
+        // and the link cannot be described any lower, so there is no reading under which the
+        // figure is a genuine plan. Only when BOTH sit at the floor: a real plan with a 1 Mbps
+        // upstream is unusual but expressible, and half a sentinel is still a plan.
+        var floor = _options.PlanFloorMbps;
+        if (inputs.ExpectedDownloadMbps <= floor && inputs.ExpectedUploadMbps <= floor)
+        {
+            return (new IspScoreFactor
+            {
+                Name = "Speed vs Plan",
+                Weight = _options.SpeedVsPlanWeight,
+                Description = "Plan speeds are at UniFi Network's 1 Mbps minimum, so there is nothing "
+                    + "meaningful to grade against. Set your actual ISP speeds to score throughput."
+            }, null, null, null);
+        }
+
         var (tests, stale) = SelectSpeedTests(inputs);
         if (tests.Count == 0)
         {
