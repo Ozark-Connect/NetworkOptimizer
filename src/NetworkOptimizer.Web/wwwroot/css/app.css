@@ -999,6 +999,9 @@ a.stat-card-link:active {
     color: var(--text-muted);
     margin-top: 0.25rem;
 }
+.monitoring-stat-card .stat-value .stat-unit {
+    margin-left: 0.25rem;
+}
 .monitoring-stat-card .stat-danger {
     color: var(--danger-color);
 }
@@ -1027,6 +1030,10 @@ a.stat-card-link:active {
     }
     .monitoring-stat-card .stat-value {
         font-size: 1rem;
+    }
+    .monitoring-stat-card .stat-value .stat-unit {
+        font-size: 0.7em;
+        margin-left: 0.15rem;
     }
     .monitoring-stat-pair {
         gap: 0.5rem;

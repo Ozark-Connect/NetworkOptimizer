@@ -308,13 +308,14 @@
         <!-- Top stat cards: WAN rates, ISP Health score, ISP/Transit mean RTT/loss -->
         <div class="monitoring-stat-cards">
             @{ var wanRates = GetWanRates(); }
+            @{ var wanDown = FormatRateParts(wanRates.download); var wanUp = FormatRateParts(wanRates.upload); }
             <div class="monitoring-stat-card monitoring-stat-rate">
-                <div class="stat-value" style="color: #3b82f6;">@FormatRate(wanRates.download)</div>
-                <div class="stat-label">@WanRateLabel("Download")</div>
+                <div class="stat-value" style="color: var(--good-color);">@wanDown.Value@if (wanDown.Unit != null) {<span class="stat-unit">@wanDown.Unit</span>}</div>
+                <div class="stat-label">WAN <span class="desktop-label">Download</span><span class="mobile-label">&#8595;</span>@WanRateCount()</div>
             </div>
             <div class="monitoring-stat-card monitoring-stat-rate">
-                <div class="stat-value" style="color: #10b981;">@FormatRate(wanRates.upload)</div>
-                <div class="stat-label">@WanRateLabel("Upload")</div>
+                <div class="stat-value" style="color: #10b981;">@wanUp.Value@if (wanUp.Unit != null) {<span class="stat-unit">@wanUp.Unit</span>}</div>
+                <div class="stat-label">WAN <span class="desktop-label">Upload</span><span class="mobile-label">&#8593;</span>@WanRateCount()</div>
             </div>
             @{ var ispHealth = CurrentIspHealth(); }
             <div class="monitoring-stat-card clickable-stat-card isp-health-tile @ispHealth.TileCssClass" data-tooltip="@ispHealth.TileTooltip" data-tooltip-hover-only @onclick="@(() => NavigateFromIspHealthTile(ispHealth.Status))">
@@ -4346,8 +4347,8 @@
     }
 
     /// <summary>Label for the throughput tiles: names the aggregate so a summed figure cannot read as one WAN's.</summary>
-    private string WanRateLabel(string direction) =>
-        LiveWan.IsComparing ? $"WAN {direction} ({LiveWan.SelectedKeys.Count} WANs)" : $"WAN {direction}";
+    private string WanRateCount() =>
+        LiveWan.IsComparing ? $" ({LiveWan.SelectedKeys.Count} WANs)" : "";
 
     private DeviceLiveStats? GetGatewayStats()
     {
@@ -4679,6 +4680,16 @@
         if (v >= 1_000_000) return $"{v / 1_000_000:0.#} Mbps";
         if (v >= 1_000) return $"{v / 1_000:0.#} Kbps";
         return $"{v:0} bps";
+    }
+
+    /// <summary>
+    /// Splits a formatted rate into its numeric value and unit so the unit can be styled separately.
+    /// </summary>
+    private static (string Value, string? Unit) FormatRateParts(double? bps)
+    {
+        var text = FormatRate(bps);
+        var space = text.IndexOf(' ');
+        return space < 0 ? (text, null) : (text[..space], text[(space + 1)..]);
     }
 
     private static string FormatRtt(double? ms) => NetworkOptimizer.Web.Services.Monitoring.MonitoringStatFormat.Rtt(ms);
