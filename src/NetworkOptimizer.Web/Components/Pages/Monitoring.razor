@@ -1925,7 +1925,10 @@
         {
             if (!_multiWanUiVisible || _wanOptions.Count <= 1) return string.Empty;
             var focused = _wanOptions.FirstOrDefault(w => string.Equals(w.Key, FocusedWanKey, StringComparison.OrdinalIgnoreCase));
-            return focused == null ? string.Empty : $" - {focused.Label}";
+            // Prose form, not the pill form: a title is read as a phrase, so the WAN token needs
+            // parentheses to sit apart from the connection's name instead of running into it.
+            return focused == null ? string.Empty
+                : $" - {NetworkOptimizer.UniFi.GatewayWanHelper.FormatWanLabelInProse(focused.Label, NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey(focused.Key))}";
         }
     }
 
