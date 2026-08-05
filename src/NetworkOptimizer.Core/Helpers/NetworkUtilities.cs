@@ -903,4 +903,23 @@ public static class NetworkUtilities
         if (string.IsNullOrWhiteSpace(uplinkIfName)) return false;
         return Regex.IsMatch(uplinkIfName.Trim(), @"^ppp(oe)?\d+$", RegexOptions.IgnoreCase);
     }
+
+    /// <summary>
+    /// True when a WAN's data-path interface name is the GRE tunnel a UniFi gateway uses to reach an
+    /// attached UniFi Cellular Modem - "gre0", "gre1". Nothing else on a UniFi gateway presents a WAN
+    /// that way, so a match identifies the medium as cellular without asking.
+    ///
+    /// The implication runs one way only. A third-party LTE/5G modem, a carrier router in bridge
+    /// mode, or a USB dongle is every bit as cellular and appears as an ordinary Ethernet or PPPoE
+    /// WAN, so FALSE says nothing about the medium - do not read it as "not cellular".
+    ///
+    /// Anchored for the same reason as <see cref="IsPppoeInterface"/>: "gretap0", or any name merely
+    /// beginning with those letters, is not one of these. Pass the data-path interface (uplink_ifname,
+    /// which a UniFi Cellular Modem WAN reports as gre1 for both it and ifname).
+    /// </summary>
+    public static bool IsUniFiCellularModemTunnel(string? dataPathIfName)
+    {
+        if (string.IsNullOrWhiteSpace(dataPathIfName)) return false;
+        return Regex.IsMatch(dataPathIfName.Trim(), @"^gre\d+$", RegexOptions.IgnoreCase);
+    }
 }
