@@ -453,8 +453,17 @@ else
         return $"/monitoring?tab=isp-health{IspHealthWanQuery()}";
     }
 
+    /// <summary>
+    /// Carries this panel's WAN into the ISP Health link, exactly as the Monitoring Live View tab
+    /// does - the two tiles mean the same thing and must not disagree about where they open.
+    /// <para>
+    /// The PRIMARY is named too. Leaving it out on the grounds that its report is the default
+    /// assumed the destination has no opinion, and it does: it remembers the WAN it was last left
+    /// on, so clicking the primary's score after reading another WAN's opened that one again.
+    /// </para>
+    /// </summary>
     private string IspHealthWanQuery() =>
-        LiveWan.Selected is { IsPrimary: false } w ? $"&wan={Uri.EscapeDataString(w.Key)}" : "";
+        LiveWan.Selected is { } w ? $"&wan={Uri.EscapeDataString(w.Key)}" : "";
 
     // The modifier that adds a WAN to the comparison set, named for the reader's own keyboard.
     private bool _showWanCompareHint;
