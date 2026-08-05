@@ -38,7 +38,7 @@
             <p class="page-description">Measures your internet speed using distributed HTTP servers with multiple concurrent connections.</p>
         </div>
         @{ var ispHealth = IspHealthService.GetCachedScore(); }
-        <div class="monitoring-stat-card clickable-stat-card isp-health-tile wan-header-isp-tile @ispHealth.TileCssClass" data-tooltip="@ispHealth.TileTooltip" data-tooltip-hover-only @onclick="@(() => NavigationManager.NavigateTo("/monitoring?tab=isp-health"))">
+        <div class="monitoring-stat-card clickable-stat-card isp-health-tile wan-header-isp-tile @ispHealth.TileCssClass" data-tooltip="@ispHealth.TileTooltip" data-tooltip-hover-only @onclick="@(() => NavigationManager.NavigateTo($"/monitoring?tab=isp-health&wan={NetworkOptimizer.Web.Services.Monitoring.LiveWanScope.PrimaryWanToken}"))">
             <div class="stat-value isp-tile-score">@ispHealth.TileText</div>
             <div class="stat-label">ISP Health</div>
             @if (ispHealth.Status == IspHealthStatus.Ready && ispHealth.Score.HasValue)

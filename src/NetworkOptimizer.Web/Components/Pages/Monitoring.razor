@@ -2249,6 +2249,8 @@
         var trimmed = wanParam.Trim();
         if (string.Equals(trimmed, Services.Monitoring.LiveWanScope.AllWansToken, StringComparison.OrdinalIgnoreCase))
             return _wanOptions.Select(o => o.Key).ToList();
+        if (string.Equals(trimmed, Services.Monitoring.LiveWanScope.PrimaryWanToken, StringComparison.OrdinalIgnoreCase))
+            return _wanOptions.Where(o => o.IsPrimary).Select(o => o.Key).ToList();
 
         return trimmed
             .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)

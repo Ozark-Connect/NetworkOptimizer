@@ -35,6 +35,14 @@ public sealed class LiveWanScope
     /// <summary>The <c>?wan=</c> value meaning every WAN, for links from a view that spans them all.</summary>
     public const string AllWansToken = "all";
 
+    /// <summary>
+    /// The <c>?wan=</c> value meaning whichever WAN holds the primary role, for a link from
+    /// somewhere that shows the primary's figures without knowing which WAN that is. Named rather
+    /// than spelled "wan": primary is a ROLE in UniFi Network and any WAN group can hold it, so a
+    /// link that hardcoded WAN1 would open the wrong report on a site whose primary is not first.
+    /// </summary>
+    public const string PrimaryWanToken = "primary";
+
     public LiveWanScope(
         MonitoringPathView pathView,
         SiteDbContextFactory siteDb,
@@ -215,6 +223,9 @@ public sealed class LiveWanScope
     /// </summary>
     public string? ResolveOptionKey(string? wanKey)
     {
+        if (string.Equals(wanKey?.Trim(), PrimaryWanToken, StringComparison.OrdinalIgnoreCase))
+            return Options.FirstOrDefault(o => o.IsPrimary)?.Key;
+
         var index = GatewayWanHelper.WanIndexFromKey(wanKey?.Trim());
         return index <= 0
             ? null
