@@ -3569,8 +3569,12 @@
         // the ISP Health inputs, so drop the cached report and let the next visit to the tab
         // recompute. Gated on the scored set actually changing so unrelated edits (intervals,
         // renames) don't force a CPU-bound recompute.
+        //
+        // Every WAN of the site, not the injected instance - that one is always the primary, so a
+        // secondary WAN's report stayed frozen on targets that had since been paused or removed.
+        // The signature spans all WANs' targets, so the gate already accounts for them.
         if (IspHealthInputSignature() != beforeIspHealth)
-            IspHealthService.Invalidate();
+            IspHealthRegistry.InvalidateSite(SiteCtx.Slug);
 
         // Re-check flaky targets when the advisory is up so disabling/pausing the flagged ones
         // clears the banner (they drop out of the enabled pool). Only when a banner is showing -

@@ -42,6 +42,7 @@ public class UpstreamTracerService
     private IProbeExecutor _traceExecutor => _traceExecutorFactory();
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IspHealth.IspHealthService _ispHealth;
+    private readonly IspHealth.IspHealthRegistry _ispHealthRegistry;
     private readonly NetworkOptimizer.Audit.Services.IeeeOuiDatabase _ouiDb;
     private readonly ILogger<UpstreamTracerService> _logger;
 
@@ -278,6 +279,7 @@ public class UpstreamTracerService
         UniFiConnectionService connectionService,
         IGatewaySshService gatewaySsh,
         IspHealth.IspHealthService ispHealth,
+        IspHealth.IspHealthRegistry ispHealthRegistry,
         Func<IProbeExecutor> traceExecutor,
         NetworkOptimizer.Storage.Services.SiteDbContextFactory siteDbFactory,
         IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
@@ -293,6 +295,7 @@ public class UpstreamTracerService
         _connectionService = connectionService;
         _gatewaySsh = gatewaySsh;
         _ispHealth = ispHealth;
+        _ispHealthRegistry = ispHealthRegistry;
         _traceExecutorFactory = traceExecutor;
         _siteDbFactory = siteDbFactory;
         _dbFactory = dbFactory;
@@ -2633,7 +2636,11 @@ public class UpstreamTracerService
 
         // Drop the ISP Health cache so the "re-run discovery" banner clears on the next tab
         // view without a manual refresh - the freshly committed ancestry is now in the DB.
-        _ispHealth.Invalidate();
+        //
+        // Every WAN of the site: this run commits targets for the WAN it was bound to, which is
+        // usually NOT the primary, and the injected instance always is. Invalidating that alone
+        // left the report for the very WAN just discovered showing its pre-discovery state.
+        _ispHealthRegistry.InvalidateSite(_siteSlug);
 
         State.Step = TracerStep.Done;
         State.CurrentActivity = "Targets committed. The agent will start probing on the next latency-tier cycle.";

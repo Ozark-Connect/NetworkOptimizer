@@ -920,7 +920,9 @@ public class IspHealthScorer
                 + "clean run {CleanRun}/{Needed}, problem hour re-tested: {HourCovered} -> {Verdict}",
                 upstream ? "up" : "down", episodes.Count, elevated,
                 cleanRun.Count, stale, hourCovered,
-                cleared ? "elevation over" : "still elevated");
+                cleared ? "elevation over"
+                    : elevated == 0 ? "clean - no elevated episodes"
+                    : "still elevated");
 
             if (cleared)
                 return Math.Max(0, SeriesStats.Median(cleanRun.Select(e => e.Value).ToList())!.Value);

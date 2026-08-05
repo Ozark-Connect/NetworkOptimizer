@@ -54,6 +54,32 @@ public class IspHealthRegistry : ISiteScopedRegistry
     /// <summary>The default site's primary-WAN ISP Health service.</summary>
     public IspHealthService GetDefault() => GetFor(SiteManagementService.DefaultSiteSlug);
 
+    /// <summary>
+    /// Drops the cached report for EVERY WAN of a site, so the next read recomputes.
+    /// <para>
+    /// Callers reach for this after the monitoring targets change, and a target belongs to one WAN
+    /// but the change is not knowable per-WAN from where they stand: pausing a flaky target, an
+    /// upstream discovery committing hops, a rediscovery replacing them. Invalidating only the
+    /// injected instance - which is always the primary - left every secondary WAN's report frozen
+    /// on inputs that no longer existed, for as long as the process lived.
+    /// </para>
+    /// <para>
+    /// Cheap: it marks the caches stale rather than computing anything, and a WAN nobody opens
+    /// never recomputes at all.
+    /// </para>
+    /// </summary>
+    public void InvalidateSite(string slug)
+    {
+        foreach (var (key, instance) in _instances)
+        {
+            if (string.Equals(key, slug, StringComparison.OrdinalIgnoreCase)
+                || key.StartsWith(slug + "|", StringComparison.OrdinalIgnoreCase))
+            {
+                instance.Invalidate();
+            }
+        }
+    }
+
     /// <inheritdoc />
     /// <remarks>Sweeps every WAN instance of the site, not just the primary.</remarks>
     public Func<ValueTask>? EvictSite(string slug)
