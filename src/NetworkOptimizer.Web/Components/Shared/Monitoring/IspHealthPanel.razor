@@ -269,7 +269,7 @@ else
                     </select>
                 </div>
             </div>
-            <a href="/wan-speedtest" class="isp-health-hero-speed">
+            <a href="@WanSpeedTestHref()" class="isp-health-hero-speed">
                 <div class="isp-speed-label">Speed vs Plan</div>
                 <div class="isp-speed-headline" data-tooltip="Best download and best upload from your recent WAN speed tests; each may come from a different test."
                      data-tooltip-click data-tooltip-wide>
@@ -1173,6 +1173,17 @@ else
     /// caller rather than erroring: a stale link to a WAN the site no longer has should land on
     /// the default report, not on nothing.
     /// </summary>
+    /// <summary>
+    /// The WAN Speed Test link for the report on screen, filtered to the same WAN. The speeds in
+    /// this tile are that WAN's, so the history behind them should be too rather than every WAN's
+    /// results mixed together. Single-WAN sites get the plain page: the parameter resolves to the
+    /// one series there and the filter bar does not render at all.
+    /// </summary>
+    private string WanSpeedTestHref() =>
+        string.IsNullOrEmpty(_selectedWanKey)
+            ? "/wan-speedtest"
+            : $"/wan-speedtest?wan={Uri.EscapeDataString(_selectedWanKey)}";
+
     private string? LinkedWanKey()
     {
         try
