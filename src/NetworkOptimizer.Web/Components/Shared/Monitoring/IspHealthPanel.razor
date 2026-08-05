@@ -1126,7 +1126,13 @@ else
 
     private async Task SelectWanAsync(string key, bool persist = true)
     {
-        if (string.Equals(key, _selectedWanKey, StringComparison.OrdinalIgnoreCase)) return;
+        // Same WAN AND a report already in hand is the no-op this guard is for. Without the
+        // second half it also swallowed the first selection of the WAN the panel opens on, which
+        // is the primary: _selectedWanKey is seeded with it, so ?wan=<primary> matched and
+        // returned before fetching anything. The render then found no report, read a status of
+        // Ready rather than Computing, and fell through to the catch-all telling the operator
+        // their monitoring was broken - repeatably, and only ever for the primary.
+        if (string.Equals(key, _selectedWanKey, StringComparison.OrdinalIgnoreCase) && _report != null) return;
         var choice = _wanOptions.FirstOrDefault(w => string.Equals(w.Key, key, StringComparison.OrdinalIgnoreCase));
         if (choice == null) return;
         _selectedWanKey = choice.Key;
