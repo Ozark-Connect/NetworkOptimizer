@@ -507,7 +507,10 @@
         </div>
 
         <!-- Latency time-series charts -->
-        <div class="card" id="latency-charts-container" style="margin-top: 1.5rem;">
+        <div class="card card-corner-jump" id="latency-charts-container" style="margin-top: 1.5rem;">
+            <MonitoringJumpButton Icon="MonitoringJumpButton.JumpIcon.Watch"
+                                  Tooltip="Watch this moment in Live View"
+                                  OnClick="JumpToLiveAsync" />
             <div class="card-header monitoring-chart-header @(_multiWanUiVisible && _wanOptions.Count > 1 ? "chart-header-stacked" : "")">
                 <h2 class="card-title">Latency &amp; Packet Loss</h2>
                 @if (_multiWanUiVisible && _wanOptions.Count > 1)
@@ -575,9 +578,6 @@
                     <button class="time-btn" data-shift="forward" data-tooltip="Shift window forward">&#x25B6;</button>
                     </div>
                 </div>
-                <MonitoringJumpButton Icon="MonitoringJumpButton.JumpIcon.Watch"
-                                      Tooltip="Watch this moment in Live View"
-                                      OnClick="JumpToLiveAsync" />
             </div>
             <div class="card-body">
                 <div class="latency-filter-badges wan-filter-badges"></div>
@@ -2468,6 +2468,7 @@
     private string? _soloDeviceMac;
     private string? _preSelectCategory;
     private long? _preSelectAtMs;
+    private bool _preSelectTrailing;
     private string? _soloTargetId;
     private bool _mapOrder2dFirst;
     private bool _liveViewOnDashboard;
@@ -2580,6 +2581,7 @@
             _preSelectAtMs = long.TryParse(AtParam, out var analyzeAtMs) && analyzeAtMs > 0
                 ? analyzeAtMs
                 : null;
+            _preSelectTrailing = string.Equals(AtParam, LiveAtToken, StringComparison.OrdinalIgnoreCase);
         }
     }
 
@@ -3267,8 +3269,11 @@
     private const string AccessIspCategory = "AccessIsp";
     private const string CustomCategory = "Custom";
 
-    /// <summary>The instant the Live tab is showing: the parked playback position, or now.</summary>
-    private DateTime LiveViewInstant => _mapHistoricAt ?? DateTime.UtcNow;
+    /// <summary>
+    /// The <c>?at=</c> value meaning "it was live, not parked" - the analysis lands on a trailing
+    /// window instead of one frozen at the click.
+    /// </summary>
+    private const string LiveAtToken = "live";
 
     /// <summary>
     /// The live WAN selection as a ?wan= value - the whole set rather than just the focus, so a
@@ -3288,14 +3293,16 @@
     /// </summary>
     private void JumpToAnalysis(string category)
     {
-        var atMs = new DateTimeOffset(LiveViewInstant.ToUniversalTime()).ToUnixTimeMilliseconds();
+        var at = _mapHistoricAt is { } parkedAt
+            ? new DateTimeOffset(parkedAt.ToUniversalTime()).ToUnixTimeMilliseconds().ToString()
+            : LiveAtToken;
         // LAN targets are not reached over any one WAN, so that jump asks for all of them rather
         // than narrowing the analysis to whichever WAN the tiles happened to be showing.
         var wan = category == FabricCategory
             ? Services.Monitoring.LiveWanScope.AllWansToken
             : LiveWanQueryValue();
         var wanQuery = LiveWan.HasChoice && wan.Length > 0 ? $"&wan={Uri.EscapeDataString(wan)}" : "";
-        NavigationManager.NavigateTo($"/monitoring?tab=performance&category={category}&at={atMs}{wanQuery}");
+        NavigationManager.NavigateTo($"/monitoring?tab=performance&category={category}&at={at}{wanQuery}");
     }
 
     private sealed record LatencyChartView(string AtIso, string Category);
@@ -5017,28 +5024,38 @@
                     await JS.InvokeVoidAsync("__netoptSetLatencyRef", _latencyDotNetRef);
                 }
                 catch { }
+                // Read the stored selection BEFORE mounting so the scope rides in with the mount
+                // call: pushing it afterwards races the module import, and a remount would
+                // otherwise come back unfiltered. A single-WAN site passes null and the module
+                // renders exactly as it always has. The link's own selection is applied first of
+                // all, because the LAN fallback below has to be judged against the WANs this is
+                // about to show rather than the ones it is leaving.
+                await ApplyLinkWanSelectionAsync();
+                await RestoreWanSelectionAsync();
                 var postMount = "";
                 if (!string.IsNullOrEmpty(_preSelectCategory))
                 {
-                    var category = System.Text.Encodings.Web.JavaScriptEncoder.Default.Encode(_preSelectCategory);
-                    // A jump from the Live tab carries the moment it was showing, so the window is
-                    // framed on it rather than the category simply being switched underneath the
-                    // range the card happened to be on.
+                    // LAN with nothing to draw is a dead end, so it falls through to ISP the same
+                    // way the card's own opening choice does - one rule, not a second copy of it.
+                    var resolved = _preSelectCategory == FabricCategory
+                        ? DefaultChartCategory()
+                        : _preSelectCategory;
+                    var category = System.Text.Encodings.Web.JavaScriptEncoder.Default.Encode(resolved);
+                    // A jump from the Live tab carries what it was showing: an instant if it was
+                    // parked there, which the window is framed on, or "live" if it was not - and
+                    // that lands on a trailing window that keeps updating rather than a frozen one.
                     postMount = _preSelectAtMs is { } atMs
                         ? $"m.frameMoment('{DateTimeOffset.FromUnixTimeMilliseconds(atMs).UtcDateTime:O}', '{category}');"
-                        : $"m.setCategory('{category}');";
+                        : _preSelectTrailing
+                            ? $"m.frameTrailing('{category}');"
+                            : $"m.setCategory('{category}');";
                     if (!string.IsNullOrEmpty(_soloTargetId))
                         postMount += $"m.soloTarget('{System.Text.Encodings.Web.JavaScriptEncoder.Default.Encode(_soloTargetId)}');";
                     _preSelectCategory = null;
                     _soloTargetId = null;
                     _preSelectAtMs = null;
+                    _preSelectTrailing = false;
                 }
-                // Read the stored selection BEFORE mounting so the scope rides in with the mount
-                // call: pushing it afterwards races the module import, and a remount would
-                // otherwise come back unfiltered. A single-WAN site passes null and the module
-                // renders exactly as it always has.
-                await ApplyLinkWanSelectionAsync();
-                await RestoreWanSelectionAsync();
                 await JS.InvokeVoidAsync("eval",
                     $"(async () => {{ const m = await import('{chartsUrl}'); window.__latencyCharts = m; await m.mount('latency-charts-container', {WanScopeJson()}, '{DefaultChartCategory()}'); {postMount} }})();");
             }

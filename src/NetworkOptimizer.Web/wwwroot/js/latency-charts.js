@@ -756,11 +756,14 @@ export async function mount(elId, initialWanScope, initialCategory) {
 // replaced so leaving can put the user's own filter back. Shared by the two ways in - the
 // Investigate flow below and the jump from the Live tab - because centering, the range-button
 // bookkeeping and the save-once rule are the same job for both; only the marker differs.
+function stashView() {
+    if (savedState) return;
+    savedState = { category: currentCategory, rangeHours: currentRangeHours,
+        customFrom, customTo, isCustomRange, windowOffset, visibility: { ...visibility } };
+}
+
 function frameCustomWindow(ts, category, halfWindowMs) {
-    if (!savedState) {
-        savedState = { category: currentCategory, rangeHours: currentRangeHours,
-            customFrom, customTo, isCustomRange, windowOffset, visibility: { ...visibility } };
-    }
+    stashView();
     customFrom = new Date(ts - halfWindowMs);
     customTo = new Date(ts + halfWindowMs);
     isCustomRange = true;
@@ -795,15 +798,35 @@ export function navigateToTime(isoTimestamp, category, label, loaded, eventStart
 }
 
 /**
- * Frames the window on a moment carried in from the Live tab: five minutes either side of the
- * instant that was on screen there, so the span matches the live chart's own window on both
- * sides of the anchor and the same event is recognizably the same shape here.
+ * Frames the window on a moment carried in from the Live tab while it was PARKED on that instant:
+ * 7.5 minutes either side, the same 15 minutes wide as the live jump below, so the two arrive at
+ * the same zoom and an event looks like itself whichever way you came in.
  * Deliberately NOT navigateToTime - that is the Investigate flow, and it carries an event marker
  * and label this has no business drawing. Same window machinery, no marker.
  */
 export function frameMoment(isoTimestamp, category) {
     investigateMarker = null;
-    frameCustomWindow(new Date(isoTimestamp).getTime(), category, 5 * 60000);
+    frameCustomWindow(new Date(isoTimestamp).getTime(), category, 7.5 * 60000);
+}
+
+/**
+ * Frames a trailing 15-minute window for a jump made while the Live tab was LIVE rather than
+ * parked. Centering on "now" would leave half the window in the future and freeze the chart at
+ * the instant of the click - and a frozen chart and a quiet network look identical, so someone
+ * who was watching would end up reading a still frame as the present. Someone who was watching
+ * carries on watching. 15m is also the shortest preset that keeps polling: startPoll stands down
+ * on custom ranges, so a trailing custom window would be the frozen chart this avoids.
+ */
+export function frameTrailing(category) {
+    stashView();
+    investigateMarker = null;
+    if (category) currentCategory = category;
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    container.querySelectorAll('[data-category]').forEach(b => {
+        b.classList.toggle('active', b.dataset.category === currentCategory);
+    });
+    selectPresetRange(container, 0);
 }
 
 /**
