@@ -82,11 +82,11 @@ else
             @{ var wanDown = FormatRateParts(wanRates.download); var wanUp = FormatRateParts(wanRates.upload); }
             <div class="monitoring-stat-card monitoring-stat-rate">
                 <div class="stat-value" style="color: var(--speed-download-color);">@wanDown.Value@if (wanDown.Unit != null) {<span class="stat-unit">@wanDown.Unit</span>}</div>
-                <div class="stat-label">WAN <span class="desktop-label">Download</span><span class="mobile-label">&#8595;</span>@WanRateCount()</div>
+                <div class="stat-label">WAN <span class="desktop-label">Download@WanRateCount()</span><span class="mobile-label">&#8595;@WanRateCountShort()</span></div>
             </div>
             <div class="monitoring-stat-card monitoring-stat-rate">
                 <div class="stat-value" style="color: var(--speed-upload-color);">@wanUp.Value@if (wanUp.Unit != null) {<span class="stat-unit">@wanUp.Unit</span>}</div>
-                <div class="stat-label">WAN <span class="desktop-label">Upload</span><span class="mobile-label">&#8593;</span>@WanRateCount()</div>
+                <div class="stat-label">WAN <span class="desktop-label">Upload@WanRateCount()</span><span class="mobile-label">&#8593;@WanRateCountShort()</span></div>
             </div>
             @{ var ispHealth = CurrentIspHealth(); }
             <div class="monitoring-stat-card clickable-stat-card isp-health-tile @ispHealth.TileCssClass" data-tooltip="@ispHealth.TileTooltip" data-tooltip-hover-only @onclick="@(() => NavigationManager.NavigateTo(IspHealthTileHref(ispHealth.Status)))">
@@ -656,6 +656,11 @@ else
     /// <summary>Label for the throughput tiles: names the aggregate so a summed figure cannot read as one WAN's.</summary>
     private string WanRateCount() =>
         LiveWan.IsComparing ? $" ({LiveWan.SelectedKeys.Count} WANs)" : "";
+
+    /// <summary>The comparison count without its unit, for the mobile label where the arrow has
+    /// already established what the tile is and the width will not carry "WANs".</summary>
+    private string WanRateCountShort() =>
+        LiveWan.IsComparing ? $" ({LiveWan.SelectedKeys.Count})" : "";
 
     private DeviceLiveStats? GetGatewayStats()
     {

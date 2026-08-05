@@ -311,11 +311,11 @@
             @{ var wanDown = FormatRateParts(wanRates.download); var wanUp = FormatRateParts(wanRates.upload); }
             <div class="monitoring-stat-card monitoring-stat-rate">
                 <div class="stat-value" style="color: var(--speed-download-color);">@wanDown.Value@if (wanDown.Unit != null) {<span class="stat-unit">@wanDown.Unit</span>}</div>
-                <div class="stat-label">WAN <span class="desktop-label">Download</span><span class="mobile-label">&#8595;</span>@WanRateCount()</div>
+                <div class="stat-label">WAN <span class="desktop-label">Download@WanRateCount()</span><span class="mobile-label">&#8595;@WanRateCountShort()</span></div>
             </div>
             <div class="monitoring-stat-card monitoring-stat-rate">
                 <div class="stat-value" style="color: var(--speed-upload-color);">@wanUp.Value@if (wanUp.Unit != null) {<span class="stat-unit">@wanUp.Unit</span>}</div>
-                <div class="stat-label">WAN <span class="desktop-label">Upload</span><span class="mobile-label">&#8593;</span>@WanRateCount()</div>
+                <div class="stat-label">WAN <span class="desktop-label">Upload@WanRateCount()</span><span class="mobile-label">&#8593;@WanRateCountShort()</span></div>
             </div>
             @{ var ispHealth = CurrentIspHealth(); }
             <div class="monitoring-stat-card clickable-stat-card isp-health-tile @ispHealth.TileCssClass" data-tooltip="@ispHealth.TileTooltip" data-tooltip-hover-only @onclick="@(() => NavigateFromIspHealthTile(ispHealth.Status))">
@@ -1968,6 +1968,9 @@
             {
                 await JS.InvokeVoidAsync("localStorage.setItem", NpWanSetKey, string.Join(",", _selectedWanKeys));
                 await JS.InvokeVoidAsync("localStorage.setItem", SharedWanScopeKey, FocusedWanKeyOrNull ?? "");
+                // persist:true is the user's own pick - the link and the restore both pass false - so
+                // this is the moment the link's WAN stops describing what is on screen.
+                ClearLinkedWan();
             }
             await JS.InvokeVoidAsync("eval", $"window.__latencyCharts?.setWanScope({WanScopeJson()});");
         }
@@ -2496,6 +2499,10 @@
             || InvestigateParam is "packet-loss" or "loaded-loss");
 
     private bool _linkNarrowedWanSelection;
+
+    /// <summary>Set while a link's WAN is being applied, so the change callback can tell the link's
+    /// own selection from the user's and only strip the parameter for theirs.</summary>
+    private bool _applyingLinkWan;
     private bool _wanLiveChartMounted = false;
     private bool _portStatsMounted = false;
     private bool _latencyChartsMounted;
@@ -3523,6 +3530,9 @@
 
     private async Task OnLiveWanChangedAsync()
     {
+        // Not while the link itself is being applied: that fires this same callback, and stripping
+        // there would be the clear-on-arrival that cost a navigation per jump.
+        if (!_applyingLinkWan) ClearLinkedWan();
         await InvokeAsync(StateHasChanged);
         try { await JS.InvokeVoidAsync("eval", $"window.__wanLiveChart?.setWans({LiveWanJsLiteral()});"); }
         catch { /* chart not mounted yet - it takes the scope at mount instead */ }
@@ -4021,22 +4031,47 @@
     public void OnTimelineMovedByUser() => ClearLinkedInstant();
 
     /// <summary>
-    /// Drops ?at= once the timeline is under the user's own hand. The parameter says where a link
-    /// wanted to land; left in place after they move, a reload or the back button drags them back
-    /// to it. Done on THEIR input and nowhere else - clearing it on arrival instead cost an extra
-    /// navigation per jump, and looping between the jump icons tripped the browser's throttle.
+    /// Drops ?at= and ?wan= once the timeline is under the user's own hand. Both say where a link
+    /// wanted to put them - one in time, one on a WAN - and left in place after they move, a reload
+    /// or the back button drags them back to it. Done on THEIR input and nowhere else - clearing on
+    /// arrival instead cost an extra navigation per jump, and looping between the jump icons tripped
+    /// the browser's throttle. The two are dropped in ONE navigation for the same reason: a second
+    /// replaceState behind Blazor's router is what desynchronized the two views of the URL before.
     /// </summary>
+    /// <summary>
+    /// Drops ?wan= once the user picks their own WAN, and leaves ?at= alone: choosing which WAN is
+    /// on screen says nothing about the instant they are looking at. Otherwise the same reasoning as
+    /// <see cref="ClearLinkedInstant"/> - the parameter records which WAN a link wanted, and left in
+    /// place a reload or the back button re-narrows to it over the choice they just made.
+    /// </summary>
+    private void ClearLinkedWan()
+    {
+        if (string.IsNullOrWhiteSpace(WanParam)) return;
+
+        var stripped = SiteContextService.RemoveQueryParam(NavigationManager.Uri, "wan");
+        if (stripped == NavigationManager.Uri) return;
+        // The URL is about to change, which re-arms the linked instant unless the arm moves with it -
+        // a WAN change would then seek them back to the link's moment. _pendingAtMs is deliberately
+        // left as it stands: this is not a statement about time.
+        _armedAtUri = stripped;
+        NavigationManager.NavigateTo(stripped, forceLoad: false, replace: true);
+    }
+
     private void ClearLinkedInstant()
     {
         _linkedInstantMs = null;
-        if (string.IsNullOrWhiteSpace(AtParam)) return;
-
-        var stripped = SiteContextService.RemoveQueryParam(NavigationManager.Uri, "at");
-        if (stripped == NavigationManager.Uri) return;
+        var current = NavigationManager.Uri;
+        var stripped = current;
+        if (!string.IsNullOrWhiteSpace(AtParam))
+            stripped = SiteContextService.RemoveQueryParam(stripped, "at");
+        if (!string.IsNullOrWhiteSpace(WanParam))
+            stripped = SiteContextService.RemoveQueryParam(stripped, "wan");
+        if (stripped == current) return;
         // Armed against the new URL first, or being re-supplied under it would arm a fresh seek
-        // and pull them straight back to where they just left.
+        // and pull them straight back to where they just left. Set even when only the WAN was
+        // dropped, since the URL still changed and would otherwise re-arm the instant.
         _armedAtUri = stripped;
-        _pendingAtMs = null;
+        if (!string.IsNullOrWhiteSpace(AtParam)) _pendingAtMs = null;
         NavigationManager.NavigateTo(stripped, forceLoad: false, replace: true);
     }
 
@@ -4423,6 +4458,11 @@
     /// <summary>Label for the throughput tiles: names the aggregate so a summed figure cannot read as one WAN's.</summary>
     private string WanRateCount() =>
         LiveWan.IsComparing ? $" ({LiveWan.SelectedKeys.Count} WANs)" : "";
+
+    /// <summary>The comparison count without its unit, for the mobile label where the arrow has
+    /// already established what the tile is and the width will not carry "WANs".</summary>
+    private string WanRateCountShort() =>
+        LiveWan.IsComparing ? $" ({LiveWan.SelectedKeys.Count})" : "";
 
     private DeviceLiveStats? GetGatewayStats()
     {
@@ -5024,7 +5064,12 @@
             // and looping between the jump icons tripped the browser's navigation throttle until
             // the icons stopped working altogether. A reload re-applying the link is the smaller
             // problem, and the release below still gives the tab-away-and-back case.
-            if (await LiveWan.SelectFromLinkAsync(WanParam)) _appliedLinkWanKey = LinkWanKey;
+            _applyingLinkWan = true;
+            try
+            {
+                if (await LiveWan.SelectFromLinkAsync(WanParam)) _appliedLinkWanKey = LinkWanKey;
+            }
+            finally { _applyingLinkWan = false; }
         }
 
         // After render, so the tab and the WAN options have settled and the check reflects what
