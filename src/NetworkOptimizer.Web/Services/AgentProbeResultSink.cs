@@ -671,14 +671,7 @@ public class AgentProbeResultSink
     /// "is there anything worth reading this agent's results for" - the per-result check below then
     /// decides which of them to keep.
     /// </summary>
-    /// <returns>
-    /// True or false when the site's contexts could be read, and NULL when they could not - which
-    /// is not the same answer and must not be treated as one. Reading them fails while the site's
-    /// database is still coming up, and the first batch after a restart is the agent's buffered
-    /// backlog: answering false there threw the whole backlog away silently, every time the server
-    /// was restarted, on the one site that consults this at all.
-    /// </returns>
-    private async Task<bool?> AgentOwnsAnyContextAsync(AgentTunnelConnection connection, CancellationToken ct)
+    private async Task<bool> AgentOwnsAnyContextAsync(AgentTunnelConnection connection, CancellationToken ct)
     {
         try
         {
@@ -690,7 +683,7 @@ public class AgentProbeResultSink
         {
             _logger.LogDebug(ex, "Could not read WAN contexts for agent {Id} (site {Slug})",
                 connection.AgentId, connection.SiteSlug);
-            return null;
+            return false;
         }
     }
 
@@ -1642,20 +1635,12 @@ public class AgentProbeResultSink
         // yet its context's results are still the only measurement that WAN has. Asking the steering
         // question here threw away every result from a gateway vantage the moment it was given an
         // interface to bind.
-        // Only a definite "owns nothing" drops the batch. An unreadable answer lets it through to
-        // the per-result judgement below, which asks the same question per target and keeps
-        // whatever it can stand behind - the batch is evidence that was expensive to collect and
-        // cannot be asked for again.
-        if (!agentCoversPrimary)
+        if (!agentCoversPrimary && !await AgentOwnsAnyContextAsync(connection, ct))
         {
-            var ownsContext = await AgentOwnsAnyContextAsync(connection, ct);
-            if (ownsContext == false)
-            {
-                _logger.LogDebug(
-                    "Dropped a batch of {Count} result(s) from agent {Id}: the main site collects for itself and this agent owns no WAN context",
-                    batch.Results.Count, connection.AgentId);
-                return;
-            }
+            _logger.LogDebug(
+                "Dropped a batch of {Count} result(s) from agent {Id}: the main site collects for itself and this agent owns no WAN context",
+                batch.Results.Count, connection.AgentId);
+            return;
         }
 
         await using var db = _siteDbFactory.CreateForSite(connection.SiteSlug, isDefault);
