@@ -1154,6 +1154,10 @@ else
                 : await Svc.GetReportAsync();
         }
         catch { _report = null; }
+        // The chart fetches its own series and scopes them by WAN, so it has to be told. It mounts
+        // once and never again, so without this the pills moved the report and left the chart on
+        // the WAN it first loaded - which looked like the chart failing to load at all.
+        await PushChartWanAsync();
         _loading = false;
         // A WAN that has never been scored comes back null with a compute now running behind it.
         // Waiting for the 30 s age tick to notice leaves the user on a spinner-less funnel for
@@ -1649,8 +1653,21 @@ else
                 $"window.__ispHealthCharts = m; await m.mount('isp-health-asn-chart', {fromArg}, {toArg}, {HiddenChartTypesJson()}); }})();");
             // Hand the chart a callback so its drag-zoom can filter the events list to the visible window.
             await JS.InvokeVoidAsync("__ispHealthCharts.setDotNetRef", _selfRef);
+            await PushChartWanAsync();
         }
         catch { _chartMounted = false; }
+    }
+
+    /// <summary>
+    /// Tells the per-network chart which WAN to fetch. Null for the primary, matching how the
+    /// report itself is sourced - the primary's series are the unscoped ones.
+    /// </summary>
+    private async Task PushChartWanAsync()
+    {
+        if (!_chartMounted) return;
+        var wan = _wanSvc == null ? "null" : $"'{System.Text.Encodings.Web.JavaScriptEncoder.Default.Encode(_selectedWanKey)}'";
+        try { await JS.InvokeVoidAsync("eval", $"window.__ispHealthCharts?.setWan({wan});"); }
+        catch { /* chart not mounted yet - it takes the WAN when it is */ }
     }
 
     private void ToggleCustomPopover()
