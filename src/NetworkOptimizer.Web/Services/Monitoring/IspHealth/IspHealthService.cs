@@ -901,7 +901,21 @@ public class IspHealthService
                 .Concat(TransitUnreachableDetector.DetectMostlyDark(
                     t.TargetId, t.AsnNumber ?? 0, AsnNameCleanup.Clean(t.AsnName), transitSeries[t.TargetId], _options)))
             .ToList();
-        var darkByTargetId = transitDarkWindows
+        // The same rule for access-ISP hops. When a network withdraws a route its own hops go dark
+        // with it, and those are AccessIsp targets - so the carve-out that spared the transit
+        // targets left their siblings inside the very same ASN pouring 100% loss into the pool,
+        // while the timeline told the user the event was "excluded from the Packet Loss factor".
+        // It is routing either side of the boundary; which target type happens to sit on the dark
+        // hop does not change what caused it.
+        var ispDarkWindows = ispTargets
+            .Where(t => ispSeries.ContainsKey(t.TargetId))
+            .SelectMany(t => TransitUnreachableDetector.Detect(
+                    t.TargetId, t.AsnNumber ?? 0, AsnNameCleanup.Clean(t.AsnName), ispSeries[t.TargetId], _options)
+                .Concat(TransitUnreachableDetector.DetectMostlyDark(
+                    t.TargetId, t.AsnNumber ?? 0, AsnNameCleanup.Clean(t.AsnName), ispSeries[t.TargetId], _options)))
+            .ToList();
+        var darkWindows = transitDarkWindows.Concat(ispDarkWindows).ToList();
+        var darkByTargetId = darkWindows
             .GroupBy(w => w.TargetId)
             .ToDictionary(g => g.Key, g => g.ToList());
 
@@ -919,7 +933,10 @@ public class IspHealthService
         // where a target can be named.
         var identifiedPool = new List<LossPoolFilter.PoolEntry>();
         identifiedPool.AddRange(ispTargets.Where(t => ispSeries.ContainsKey(t.TargetId))
-            .Select(t => new LossPoolFilter.PoolEntry(t.TargetId, ispSeries[t.TargetId])));
+            .Select(t => new LossPoolFilter.PoolEntry(t.TargetId,
+                darkByTargetId.TryGetValue(t.TargetId, out var ispDark)
+                    ? ispSeries[t.TargetId].Where(s => !ispDark.Any(w => s.Time >= w.Start && s.Time <= w.End)).ToList()
+                    : ispSeries[t.TargetId])));
         identifiedPool.AddRange(transitTargets.Where(t => transitSeries.ContainsKey(t.TargetId)).Select(t =>
             new LossPoolFilter.PoolEntry(t.TargetId,
                 darkByTargetId.TryGetValue(t.TargetId, out var dark)
@@ -1241,7 +1258,7 @@ public class IspHealthService
         var blackoutSpans = outages.Where(o => !o.IsPartial).Select(o => (o.Start, o.End)).ToList();
         double OverlapSeconds(DateTime s, DateTime e) => blackoutSpans.Sum(b =>
             Math.Max(0, (new DateTime(Math.Min(e.Ticks, b.End.Ticks)) - new DateTime(Math.Max(s.Ticks, b.Start.Ticks))).TotalSeconds));
-        var unreachableEvents = TransitUnreachableDetector.MergeByAsn(transitDarkWindows, _options)
+        var unreachableEvents = TransitUnreachableDetector.MergeByAsn(darkWindows, _options)
             .Where(e => OverlapSeconds(e.Start, e.End) < (e.End - e.Start).TotalSeconds * 0.5)
             .Select(e => new PathShiftEvent
             {
