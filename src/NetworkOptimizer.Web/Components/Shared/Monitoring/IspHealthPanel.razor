@@ -1141,6 +1141,12 @@ else
         // is answering for a WAN whose report has not been read yet, and the catch-all among them
         // says the site's monitoring is broken.
         _loading = true;
+        // The whole report - the chart element with it - is behind @if (!_loading), so showing the
+        // spinner tears that div out of the DOM and leaves ApexCharts holding a detached node. The
+        // mount flag has to come off with it, or the after-render path sees "already mounted",
+        // skips the re-mount, and the WAN switch lands on an empty chart area. Pushing a new WAN
+        // to the old instance cannot help: the element it drew into is gone.
+        await DropChartMountAsync();
         StateHasChanged();
         if (persist)
         {
@@ -1662,6 +1668,18 @@ else
     /// Tells the per-network chart which WAN to fetch. Null for the primary, matching how the
     /// report itself is sourced - the primary's series are the unscoped ones.
     /// </summary>
+    /// <summary>
+    /// Forgets the mounted chart so the next render builds a new one. Called whenever the report
+    /// content is about to be replaced, since the chart's element goes with it.
+    /// </summary>
+    private async Task DropChartMountAsync()
+    {
+        if (!_chartMounted) return;
+        _chartMounted = false;
+        try { await JS.InvokeVoidAsync("eval", "window.__ispHealthCharts?.unmount?.();"); }
+        catch { /* nothing mounted, or the circuit is going away */ }
+    }
+
     private async Task PushChartWanAsync()
     {
         if (!_chartMounted) return;
