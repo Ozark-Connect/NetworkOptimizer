@@ -3408,7 +3408,7 @@
                         @if (_multiSiteEnabled)
                         {
                             <text>
-                                To monitor another, open the @HintSiteName site's <strong>Configuration</strong>
+                                To monitor another, open @HintSitePhrase <strong>Configuration</strong>
                                 below, use <strong>Add Agent / New Token</strong> to enroll an agent for it,
                                 then give that WAN a vantage on <strong>Monitoring - Network Performance</strong>.
                             </text>
@@ -3917,11 +3917,14 @@
     private bool _showMultiWanHint;
 
     /// <summary>
-    /// The site to name in the card, so a reader with several sites in the table knows which row to
-    /// open. Falls back to "this" when the name has not loaded, which keeps the sentence grammatical
-    /// rather than leaving a gap where a name should be.
+    /// Names the site in the card so a reader with several rows in the table knows which one to
+    /// open. A whole phrase rather than a name dropped into a sentence: with no name to use, "the
+    /// &lt;blank&gt; site's" would read as a missing word, while "this site's" is simply the weaker
+    /// of two correct sentences.
     /// </summary>
-    private string HintSiteName => string.IsNullOrWhiteSpace(_currentSiteName) ? "this" : _currentSiteName!;
+    private string HintSitePhrase => string.IsNullOrWhiteSpace(_currentSiteName)
+        ? "this site's"
+        : $"the {_currentSiteName} site's";
 
     private async Task EnsureMultiWanHintAsync()
     {
@@ -4119,7 +4122,14 @@
         _multiSiteEnabled = e.Value is true;
         await SiteManagement.SetMultiSiteEnabledAsync(_multiSiteEnabled);
         if (_multiSiteEnabled)
+        {
             _sites = await SiteManagement.GetSitesAsync();
+            // Named here too, not only on init. Everything that names the current site - the header
+            // badge, the WAN vantage card - was blank until the page was left and come back to,
+            // because the init path is the only other place that fills this in and it is guarded on
+            // multi-site being on, which it was not when this page loaded.
+            _currentSiteName = _sites.FirstOrDefault(s => s.Slug == SiteContext.Slug)?.Name ?? SiteContext.Slug;
+        }
     }
 
     // Disabling multi-site hides every managed site - never a casual one-click.
