@@ -2399,7 +2399,12 @@
     // Chart mount tracking
     private bool _mapMounted = false;
     private bool _map2dMounted = false;
-    private bool _initialAtApplied = false;
+    // WHICH instant was applied, not whether one ever was. Arriving from another page builds a
+    // new Monitoring, so a once-per-page flag looked right there - but the eye on Network
+    // Performance is a tab switch inside this same instance, and a flag any earlier link had
+    // already spent left the map to start playing live instead of seeking. A reload "fixed" it by
+    // rebuilding the component, which is what made it look like a loading problem.
+    private string? _appliedAtParam;
 
     // Which link's WAN filter has been applied, rather than whether one ever was. Both jumps are
     // tab switches inside this same component instance, so a once-per-page flag is already spent
@@ -4960,12 +4965,13 @@
             try
             {
                 _mapDotNetRef ??= DotNetObjectReference.Create(this);
-                // Deep-linked timestamp (?at=): applied only on this first mount, so
-                // switching tabs away and back doesn't yank the map back to the past.
+                // Deep-linked timestamp (?at=): applied once per distinct value, so a new link
+                // seeks and merely switching tabs away and back does not yank the map into the
+                // past again on the parameter still sitting in the URL.
                 long initialAtMs = 0;
-                if (!_initialAtApplied && long.TryParse(AtParam, out var atMs) && atMs > 0)
+                if (_appliedAtParam != AtParam && long.TryParse(AtParam, out var atMs) && atMs > 0)
                 {
-                    _initialAtApplied = true;
+                    _appliedAtParam = AtParam;
                     initialAtMs = atMs;
                 }
                 // Per-mount values (storagePrefix, initialAt) MUST be arguments, never
