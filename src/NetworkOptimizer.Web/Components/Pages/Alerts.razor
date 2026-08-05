@@ -2498,8 +2498,8 @@
                 alert.Status = AlertStatus.Resolved;
                 alert.ResolvedAt = now;
                 await AlertConfig.UpdateAlertAsync(alert);
-                await RecalculateIncidentStatusAsync(alert);
             }
+            await RecalculateIncidentsOnceAsync(active);
             await LoadActiveAlerts();
         }
         catch (Exception ex)
@@ -2520,14 +2520,26 @@
                 alert.Status = AlertStatus.Resolved;
                 alert.ResolvedAt = now;
                 await AlertConfig.UpdateAlertAsync(alert);
-                await RecalculateIncidentStatusAsync(alert);
             }
+            await RecalculateIncidentsOnceAsync(acknowledged);
             await LoadActiveAlerts();
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error resolving all acknowledged alerts");
         }
+    }
+
+    /// <summary>
+    /// Re-derives each affected incident's status ONCE, after the alerts have been written.
+    /// Recalculating per alert re-read the incident and every alert on it for each of its members,
+    /// so a list where twenty alerts shared one incident did that work twenty times - and every
+    /// read and write is its own SQLite transaction, which is what made Resolve All crawl.
+    /// </summary>
+    private async Task RecalculateIncidentsOnceAsync(IReadOnlyList<AlertHistoryEntry> resolved)
+    {
+        foreach (var group in resolved.Where(a => a.IncidentId.HasValue).GroupBy(a => a.IncidentId!.Value))
+            await RecalculateIncidentStatusAsync(group.First());
     }
 
     private async Task RecalculateIncidentStatusAsync(AlertHistoryEntry alert)

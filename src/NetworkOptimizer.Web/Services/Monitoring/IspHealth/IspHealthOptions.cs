@@ -28,7 +28,9 @@ public class IspHealthOptions
     public TimeSpan ComputeBudget { get; set; } = TimeSpan.FromSeconds(25);
 
     /// <summary>Minimum hours of latency data required before a score is shown (new installs).</summary>
-    public int MinDataHours { get; set; } = 4;
+    // TEMPORARY (2026-08-05): raised from 4 to exercise the collecting-data banner on a WAN that
+    // has just crossed the real threshold. REVERT TO 4 once that has been checked.
+    public int MinDataHours { get; set; } = 5;
 
     /// <summary>Weight of the access-layer dimension in the overall score.</summary>
     public double AccessWeight { get; set; } = 1.0 / 3.0;
