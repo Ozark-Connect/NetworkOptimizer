@@ -77,6 +77,10 @@ public class DashboardService : IDashboardService
 
             if (devices != null)
             {
+                // The instant the uptimes below were read, so a reboot reason can be checked
+                // against the boot the device is reporting rather than an older one.
+                var uptimeReadAt = DateTime.UtcNow;
+
                 data.DeviceCount = devices.Count;
                 data.Devices = devices.Select(d =>
                 {
@@ -94,7 +98,9 @@ public class DashboardService : IDashboardService
                         SuricataUpgradeAvailable = d.SuricataUpgradeAvailable
                     };
 
-                    var rebootReason = string.IsNullOrEmpty(d.Mac) ? null : _rebootTracker.GetReason(d.Mac);
+                    var rebootReason = string.IsNullOrEmpty(d.Mac)
+                        ? null
+                        : _rebootTracker.GetReasonForReportedUptime(d.Mac, info.UptimeSeconds, uptimeReadAt);
                     if (rebootReason != null)
                     {
                         info.RebootReason = rebootReason.Summary;
