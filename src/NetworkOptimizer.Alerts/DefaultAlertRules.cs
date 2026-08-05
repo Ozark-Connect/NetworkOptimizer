@@ -251,6 +251,35 @@ public static class DefaultAlertRules
             MinSeverity = AlertSeverity.Warning,
             CooldownSeconds = 1800 // 30 minutes
         },
+        new AlertRule
+        {
+            Name = "Monitoring: WAN Outage",
+            IsEnabled = true,
+            EventTypePattern = "monitoring.wan_outage",
+            Source = "monitoring",
+            MinSeverity = AlertSeverity.Warning,
+            CooldownSeconds = 600 // 10 minutes - the WAN outage evaluator opens one alert per outage
+        },
+        new AlertRule
+        {
+            // Info on purpose: a partial outage on a non-primary WAN publishes at Info, and this
+            // rule has to match it.
+            Name = "Monitoring: WAN Partial Outage",
+            IsEnabled = true,
+            EventTypePattern = "monitoring.wan_outage_partial",
+            Source = "monitoring",
+            MinSeverity = AlertSeverity.Info,
+            CooldownSeconds = 600 // 10 minutes - the WAN outage evaluator opens one alert per outage
+        },
+        new AlertRule
+        {
+            Name = "Monitoring: WAN Recovered",
+            IsEnabled = true,
+            EventTypePattern = "monitoring.wan_recovered",
+            Source = "monitoring",
+            MinSeverity = AlertSeverity.Info,
+            CooldownSeconds = 60 // 1 minute - recoveries are paired with outage events
+        },
 
         // --- SFP / PON threshold alerts (enabled - auto-managed for detected modules) ---
         new AlertRule

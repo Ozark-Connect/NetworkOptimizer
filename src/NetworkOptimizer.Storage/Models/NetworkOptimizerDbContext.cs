@@ -37,6 +37,7 @@ public class NetworkOptimizerDbContext : DbContext
     public DbSet<FloorPlanImage> FloorPlanImages { get; set; }
     public DbSet<ClientSignalLog> ClientSignalLogs { get; set; }
     public DbSet<AlertRule> AlertRules { get; set; }
+    public DbSet<SeededAlertRule> SeededAlertRules { get; set; }
     public DbSet<DeliveryChannel> DeliveryChannels { get; set; }
     public DbSet<AlertHistoryEntry> AlertHistory { get; set; }
     public DbSet<AlertIncident> AlertIncidents { get; set; }
@@ -425,6 +426,14 @@ public class NetworkOptimizerDbContext : DbContext
             entity.ToTable("AlertRules");
             entity.Property(e => e.MinSeverity).HasConversion<int>();
             entity.Property(e => e.EscalationSeverity).HasConversion<int>();
+        });
+
+        // SeededAlertRule configuration
+        modelBuilder.Entity<SeededAlertRule>(entity =>
+        {
+            entity.ToTable("SeededAlertRules");
+            entity.Property(e => e.EventTypePattern).HasMaxLength(200);
+            entity.HasIndex(e => e.EventTypePattern).IsUnique();
         });
 
         // DeliveryChannel configuration

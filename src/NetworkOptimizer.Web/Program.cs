@@ -613,6 +613,9 @@ builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.AsnResolu
 builder.Services.AddSiteScopedRegistry<MonitoringAlertRegistry>();
 // (The cable modem, ONT, and cellular alert evaluators are per site via
 // MonitoringAlertRegistry.)
+// Loads the per-site WAN context (roles, labels, trace map) the WAN outage evaluator
+// classifies against; the evaluator instances themselves live in MonitoringAlertRegistry.
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.WanOutageContextSource>();
 // Upstream tracer is per site (isolated discovery state in each site's DB, traceroute
 // from the site's own vantage). Scoped resolution forwards to the current site's tracer;
 // the background re-discovery iterates sites via the registry.
@@ -1024,20 +1027,16 @@ using (var scope = app.Services.CreateScope())
             // Seed the Alerts & Schedule defaults into each site's DB too, so secondary
             // sites match the main site instead of showing blank lists. The main-DB seed
             // below only covers the default site.
-            var siteMissingRules = NetworkOptimizer.Alerts.DefaultAlertRules.GetDefaults()
-                .Where(r => !siteDb.AlertRules.Select(x => x.EventTypePattern).Contains(r.EventTypePattern))
-                .ToList();
-            if (siteMissingRules.Count > 0)
+            var siteSeededPatterns = StartupHelpers.SeedAlertRules(
+                siteDb, NetworkOptimizer.Alerts.DefaultAlertRules.GetDefaults());
+            if (siteSeededPatterns.Count > 0)
             {
-                siteDb.AlertRules.AddRange(siteMissingRules);
-                siteDb.SaveChanges();
-                app.Logger.LogInformation("Seeded {Count} alert rule(s) for site {Slug}", siteMissingRules.Count, site.Slug);
+                app.Logger.LogInformation("Seeded {Count} alert rule(s) for site {Slug}", siteSeededPatterns.Count, site.Slug);
 
                 // Enable any freshly seeded modem/ONT rules for a secondary site that already
                 // has the matching monitoring configured (mirrors the main-site seed below,
                 // which secondary sites otherwise never got - a new ONT rule landed disabled).
-                var siteSeededPatterns = siteMissingRules.Select(m => m.EventTypePattern).ToHashSet();
-
+                //
                 // Same one-time Device Offline enable as the main site, so managed sites match.
                 AlertRuleAutoEnable.EnableNowThatItHasAPublisher(
                     siteDb, "device.offline", "device.recovered", siteSeededPatterns, app.Logger);
@@ -1088,7 +1087,7 @@ using (var scope = app.Services.CreateScope())
         app.Logger.LogInformation("Database journal mode: WAL (filesystem: {FilesystemType})", detectedFsType);
     }
 
-    // Seed default alert rules - insert any missing rules by EventTypePattern
+    // Seed default alert rules - insert any rule this database has never been seeded before
     {
         var defaults = NetworkOptimizer.Alerts.DefaultAlertRules.GetDefaults();
 
@@ -1103,22 +1102,15 @@ using (var scope = app.Services.CreateScope())
         if (defaultSiteId == null || !db.SiteAgents.Any(a => a.SiteId == defaultSiteId))
             defaults = defaults.Where(d => d.Source != "agent").ToList();
 
-        var existingPatterns = db.AlertRules.Select(r => r.EventTypePattern).ToHashSet();
-        var missing = defaults.Where(d => !existingPatterns.Contains(d.EventTypePattern)).ToList();
-        if (missing.Count > 0)
-        {
-            db.AlertRules.AddRange(missing);
-            db.SaveChanges();
-            app.Logger.LogInformation("Seeded {Count} new alert rules", missing.Count);
-        }
+        var seededPatterns = StartupHelpers.SeedAlertRules(db, defaults);
+        if (seededPatterns.Count > 0)
+            app.Logger.LogInformation("Seeded {Count} new alert rules", seededPatterns.Count);
 
         // Auto-enable freshly seeded modem/ONT rules for users who already have
         // configs. Only touches rules we just inserted - never re-enables rules
         // the user has manually disabled.
-        if (missing.Count > 0)
+        if (seededPatterns.Count > 0)
         {
-            var seededPatterns = missing.Select(m => m.EventTypePattern).ToHashSet();
-
             // Device Offline shipped disabled because nothing published device.offline until this
             // release. Enable that ONE rule as its publisher lands - keyed off the paired
             // device.recovered rule arriving, so it happens once and overrides no later choice.
@@ -1606,6 +1598,55 @@ static partial class StartupHelpers
         return System.Security.Cryptography.X509Certificates.X509CertificateLoader.LoadPkcs12(
             certificate.Export(System.Security.Cryptography.X509Certificates.X509ContentType.Pfx),
             password: null);
+    }
+
+    /// <summary>
+    /// Inserts the default alert rules a database has never been given, and records every default
+    /// pattern it holds in SeededAlertRules so each one is seeded at most once per database. The
+    /// record is what makes a deletion stick: seeding used to key off AlertRules alone, so a rule
+    /// the user deleted (or a whole source they cleared out) came straight back on the next start.
+    ///
+    /// Patterns already present in AlertRules but not yet recorded are backfilled, including when
+    /// nothing was inserted, so existing installs stop resurrecting rules from here on.
+    /// <paramref name="defaults"/> is the caller's already-filtered list and is the only source of
+    /// recorded patterns - a default held back because the site lacks its capability (agent rules)
+    /// stays unrecorded and can still seed once that capability arrives.
+    /// </summary>
+    /// <param name="db">Database to seed (main or a site's).</param>
+    /// <param name="defaults">Default rules this database should have.</param>
+    /// <returns>The patterns inserted by this pass, for the auto-enable helpers to act on.</returns>
+    internal static HashSet<string> SeedAlertRules(
+        NetworkOptimizerDbContext db, List<NetworkOptimizer.Alerts.Models.AlertRule> defaults)
+    {
+        var existingPatterns = db.AlertRules.Select(r => r.EventTypePattern).ToHashSet();
+        var recordedPatterns = db.SeededAlertRules.Select(s => s.EventTypePattern).ToHashSet();
+
+        var missing = defaults
+            .Where(d => !existingPatterns.Contains(d.EventTypePattern) && !recordedPatterns.Contains(d.EventTypePattern))
+            .ToList();
+        if (missing.Count > 0)
+        {
+            db.AlertRules.AddRange(missing);
+            db.SaveChanges();
+        }
+
+        var seededPatterns = missing.Select(m => m.EventTypePattern).ToHashSet();
+
+        var toRecord = defaults
+            .Select(d => d.EventTypePattern)
+            .Distinct()
+            .Where(p => !recordedPatterns.Contains(p) && (existingPatterns.Contains(p) || seededPatterns.Contains(p)))
+            .ToList();
+        if (toRecord.Count > 0)
+        {
+            db.SeededAlertRules.AddRange(toRecord.Select(p => new NetworkOptimizer.Alerts.Models.SeededAlertRule
+            {
+                EventTypePattern = p
+            }));
+            db.SaveChanges();
+        }
+
+        return seededPatterns;
     }
 
     internal static (bool isFuse, string filesystemType) DetectFilesystem(string filePath)
