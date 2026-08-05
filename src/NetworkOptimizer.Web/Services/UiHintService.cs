@@ -95,6 +95,39 @@ public class UiHintService
         }
     }
 
+    /// <summary>
+    /// Retires a hint outright because the user said so. Some hints teach a gesture and can fade on
+    /// their own after <see cref="ShowLimit"/> showings; a card that occupies the page until it is
+    /// closed needs an explicit answer, and that answer is per user for the same reason the counts
+    /// are - one operator dismissing it says nothing about their colleagues. Recorded as the limit
+    /// rather than as a separate flag, so <see cref="ShouldShowAsync"/> needs no second rule.
+    /// </summary>
+    public async Task DismissAsync(string hintKey, CancellationToken ct = default)
+    {
+        var userId = await CurrentUserIdAsync();
+        if (userId == null) return;
+        try
+        {
+            await using var db = await _authDb.CreateDbContextAsync(ct);
+            var row = await db.UserUiHints
+                .FirstOrDefaultAsync(h => h.UserId == userId && h.HintKey == hintKey, ct);
+            if (row == null)
+            {
+                row = new UserUiHint { UserId = userId, HintKey = hintKey };
+                db.UserUiHints.Add(row);
+            }
+            row.TimesShown = ShowLimit;
+            row.UpdatedAt = DateTime.UtcNow;
+            await db.SaveChangesAsync(ct);
+        }
+        catch (Exception ex)
+        {
+            // The card is already gone from this page; failing here costs its return on the next
+            // visit, which is not worth throwing over.
+            _logger.LogDebug(ex, "Could not record dismissal for {Hint}", hintKey);
+        }
+    }
+
     private async Task<string?> CurrentUserIdAsync()
     {
         try
@@ -113,4 +146,11 @@ public static class UiHintKeys
 {
     /// <summary>Ctrl/Cmd-click on the WAN filter builds a comparison - invisible without saying so.</summary>
     public const string WanFilterCompare = "wan-filter-compare";
+
+    /// <summary>
+    /// Where to go to start monitoring a second WAN, shown on Settings - Multi-Site to a site that
+    /// has more than one WAN and no vantage for any of them. Dismissed rather than counted down:
+    /// it is a card on the page, not a passing tooltip.
+    /// </summary>
+    public const string MultiWanVantageSetup = "multi-wan-vantage-setup";
 }

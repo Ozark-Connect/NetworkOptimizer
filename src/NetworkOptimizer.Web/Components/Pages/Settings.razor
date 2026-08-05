@@ -47,6 +47,8 @@
 @inject AgentProbeResultSink ProbeSink
 @inject AgentOnGatewayDetector OnGatewayDetector
 @inject NetworkOptimizer.Storage.Services.SiteDbContextFactory SiteDb
+@inject NetworkOptimizer.Web.Services.Monitoring.MonitoringPathView PathView
+@inject UiHintService UiHints
 @inject ISiteConfigurationService SiteConfig
 @inject SnmpDetectionService SnmpDetection
 @inject MonitoringInfluxClient InfluxClient
@@ -3393,6 +3395,24 @@
                 </AdminOnly>
             }
 
+            @if (_showMultiWanHint)
+            {
+                <div class="alert alert-info" style="margin-bottom: 1rem;">
+                    <div class="banner-content">
+                        <span class="banner-icon banner-icon-info">i</span>
+                        <div class="banner-text" style="flex: 1;">
+                            This site has more than one WAN, but only the primary is being monitored.
+                            To monitor another, open the site's <strong>Configuration</strong> below,
+                            use <strong>Add Agent / New Token</strong> to enroll an agent for it, then
+                            give that WAN a vantage on <strong>Monitoring - Network Performance</strong>.
+                        </div>
+                        <div class="banner-actions">
+                            <button class="btn btn-sm btn-tertiary" @onclick="DismissMultiWanHintAsync">Dismiss</button>
+                        </div>
+                    </div>
+                </div>
+            }
+
             @if (_multiSiteEnabled)
             {
                 <div class="form-group">
@@ -3874,6 +3894,43 @@
     /// <summary>Set when the Audit Log tab was reached by query parameter, so the deferred panel is
     /// loaded on the next render - SetActiveTab does it for a click, nothing did it for a deep link.</summary>
     private bool _pendingAuditLoad;
+
+    // The Multi-Site tab's teaching card: where to go to start monitoring a second WAN. Three
+    // conditions, and all three have to hold. More than one WAN on this site, or there is nothing to
+    // say. No vantage configured yet, because a site that has one has already been through this and
+    // does not need telling. And the user has not dismissed it, which is remembered per user.
+    private bool _multiWanHintChecked;
+    private bool _showMultiWanHint;
+
+    private async Task EnsureMultiWanHintAsync()
+    {
+        if (_multiWanHintChecked) return;
+        _multiWanHintChecked = true;
+        try
+        {
+            var wans = await PathView.GetWansAsync();
+            if (wans.Count <= 1) return;
+
+            await using var db = SiteDb.CreateForSite(SiteContext.Slug, SiteContext.IsDefault);
+            if (await db.WanContexts.AnyAsync()) return;
+
+            _showMultiWanHint = await UiHints.ShouldShowAsync(UiHintKeys.MultiWanVantageSetup);
+            if (_showMultiWanHint) StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            // A console we cannot reach cannot tell us how many WANs there are. Staying quiet is the
+            // right failure: the card teaches something optional, and guessing wrong shows a site
+            // with one WAN advice about its second.
+            Logger.LogDebug(ex, "Could not decide the multi-WAN vantage hint; leaving it hidden");
+        }
+    }
+
+    private async Task DismissMultiWanHintAsync()
+    {
+        _showMultiWanHint = false;
+        await UiHints.DismissAsync(UiHintKeys.MultiWanVantageSetup);
+    }
 
     private void SetActiveTab(string tab)
     {
@@ -4868,6 +4925,11 @@
             // the gateway would otherwise only be asked about after clicking away and back.
             await EnsureKeyDeployStatusAsync();
         }
+
+        // Costs a WAN lookup, so it waits until the tab that shows it is actually on screen. Checked
+        // on every render rather than only on the tab click, since a link with ?tab=multisite never
+        // goes through SetActiveTab; the method itself runs once.
+        if (_activeTab == "multisite") await EnsureMultiWanHintAsync();
 
         // Landing on ?tab=auditlog does not go through SetActiveTab, which is what asks the deferred
         // panel to load - a deep link (the guided tour is one) would have shown the empty state on a
