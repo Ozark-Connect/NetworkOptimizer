@@ -4877,20 +4877,13 @@
         {
             // Only recorded once it actually took: a pass that arrives before the WAN options
             // have loaded resolves nothing, and must be free to try again on the next one.
-            if (await LiveWan.SelectFromLinkAsync(WanParam))
-            {
-                _appliedLinkWanKey = LinkWanKey;
-                // Taken out of the address bar once it has been applied, without a navigation: the
-                // selection is for this visit, and a parameter left sitting there re-applies
-                // itself on every reload. Unlike ?at=, nothing wants to carry a WAN key onward -
-                // the site switcher already strips it for the same reason.
-                try
-                {
-                    var stripped = SiteContextService.RemoveQueryParam(NavigationManager.Uri, "wan");
-                    await JS.InvokeVoidAsync("history.replaceState", null, "", stripped);
-                }
-                catch (Exception ex) { Logger.LogDebug(ex, "Could not strip the applied WAN parameter"); }
-            }
+            // Deliberately NOT stripped from the address bar here. replaceState behind Blazor's
+            // back desynchronizes the router's idea of the URL from the browser's: the parameter
+            // stayed set while the release below saw it gone, the two fought over the selection,
+            // and looping between the jump icons tripped the browser's navigation throttle until
+            // the icons stopped working altogether. A reload re-applying the link is the smaller
+            // problem, and the release below still gives the tab-away-and-back case.
+            if (await LiveWan.SelectFromLinkAsync(WanParam)) _appliedLinkWanKey = LinkWanKey;
         }
 
         // After render, so the tab and the WAN options have settled and the check reflects what
