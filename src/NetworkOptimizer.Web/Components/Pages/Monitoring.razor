@@ -4635,16 +4635,24 @@
         // Pick the target with the lowest RTT (nearest ISP infrastructure).
         double? bestRtt = null;
         double bestLoss = 0;
+        var freshLosses = new List<double>();
+        var freshAfter = DateTime.UtcNow - Services.MonitoringLiveStats.LiveReadingMaxAge;
         foreach (var t in targets)
         {
             var s = LiveStats.GetTargetStats(t.TargetId);
-            if (s?.RttAvgMs != null && (bestRtt == null || s.RttAvgMs.Value < bestRtt.Value))
+            // Current readings only - a target that stopped reporting must not keep presenting
+            // the reading it carried before it went quiet.
+            if (s == null || s.LastUpdate < freshAfter) continue;
+            freshLosses.Add(s.LossPercent);
+            if (s.RttAvgMs != null && (bestRtt == null || s.RttAvgMs.Value < bestRtt.Value))
             {
                 bestRtt = s.RttAvgMs;
                 bestLoss = s.LossPercent;
             }
         }
-        return (bestRtt, bestLoss);
+        // Nothing answered, so there is no nearest hop to read loss off; the mean of what did
+        // report is the honest figure, and 0% would read as a healthy connection mid-outage.
+        return (bestRtt, bestRtt == null ? (freshLosses.Count > 0 ? freshLosses.Average() : 0) : bestLoss);
     }
 
 
@@ -4731,10 +4739,13 @@
                 var losses = new List<double>();
                 double? best = null;
                 double bestLoss = 0;
+                var freshAfter = DateTime.UtcNow - Services.MonitoringLiveStats.LiveReadingMaxAge;
                 foreach (var t in targets)
                 {
                     var st = LiveStats.GetTargetStats(t.TargetId);
-                    if (st == null) continue;
+                    // A reading only counts while it is current: a target that stops reporting
+                    // otherwise keeps presenting the reading it carried before it went quiet.
+                    if (st == null || st.LastUpdate < freshAfter) continue;
                     losses.Add(st.LossPercent);
                     if (st.RttAvgMs == null) continue;
                     rtts.Add(st.RttAvgMs.Value);
@@ -4747,7 +4758,12 @@
                 // Transit reads as the mean of its hops; the access ISP reads as its nearest clean
                 // hop. Same choice the single-WAN tiles have always made, kept per WAN.
                 rtt = meanAcrossTargets ? (rtts.Count > 0 ? rtts.Average() : null) : best;
-                loss = meanAcrossTargets ? (losses.Count > 0 ? losses.Average() : 0) : bestLoss;
+                // With no hop answering there is no nearest hop to read loss off, and taking it
+                // from one anyway left the tile reporting that hop's last loss - 0% - through an
+                // outage where every hop was dark. Fall back to the mean of what did report.
+                loss = meanAcrossTargets || best == null
+                    ? (losses.Count > 0 ? losses.Average() : 0)
+                    : bestLoss;
             }
             rows.Add((WanRowLabel(wan), rtt, loss));
         }
