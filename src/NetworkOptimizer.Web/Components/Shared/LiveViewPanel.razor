@@ -98,7 +98,7 @@ else
                 }
             </div>
             @{ var ispTarget = ScopedTargetStats(MonitoringTargetType.AccessIsp, meanAcrossTargets: false); }
-            <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => NavigationManager.NavigateTo("/monitoring?tab=performance&category=AccessIsp"))">
+            <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => JumpToAnalysis("AccessIsp"))">
                 @if (LiveWan.IsComparing)
                 {
                     <div class="stat-value stat-value-stacked">
@@ -114,7 +114,7 @@ else
                 }
                 <div class="stat-label">ISP RTT</div>
             </div>
-            <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => NavigationManager.NavigateTo("/monitoring?tab=performance&category=AccessIsp"))">
+            <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => JumpToAnalysis("AccessIsp"))">
                 @if (LiveWan.IsComparing)
                 {
                     <div class="stat-value stat-value-stacked">
@@ -131,7 +131,7 @@ else
                 <div class="stat-label">ISP Loss</div>
             </div>
             @{ var transitTarget = ScopedTargetStats(MonitoringTargetType.Transit, meanAcrossTargets: true); }
-            <div class="monitoring-stat-card clickable-stat-card stat-card-no-minheight" @onclick="@(() => NavigationManager.NavigateTo("/monitoring?tab=performance&category=Transit"))">
+            <div class="monitoring-stat-card clickable-stat-card stat-card-no-minheight" @onclick="@(() => JumpToAnalysis("Transit"))">
                 @if (LiveWan.IsComparing)
                 {
                     <div class="stat-value stat-value-stacked">
@@ -147,7 +147,7 @@ else
                 }
                 <div class="stat-label">Transit RTT</div>
             </div>
-            <div class="monitoring-stat-card clickable-stat-card stat-card-no-minheight" @onclick="@(() => NavigationManager.NavigateTo("/monitoring?tab=performance&category=Transit"))">
+            <div class="monitoring-stat-card clickable-stat-card stat-card-no-minheight" @onclick="@(() => JumpToAnalysis("Transit"))">
                 @if (LiveWan.IsComparing)
                 {
                     <div class="stat-value stat-value-stacked">
@@ -684,6 +684,23 @@ else
         if (targetId == null) return (null, 0);
         var s = LiveStats.GetTargetStats(targetId);
         return (s?.RttAvgMs, s?.LossPercent ?? 0);
+    }
+
+    /// <summary>
+    /// Opens Latency and Packet Loss on what these tiles are showing, carrying the WAN selection
+    /// across. On the Monitoring page the tiles jump within the page, which keeps the filter by
+    /// staying put; from the Dashboard the same tiles navigate, and without the WAN on the link
+    /// the destination opened unfiltered - showing every WAN's targets after a click on one WAN's
+    /// tile. Mirrors Monitoring's own JumpToAnalysis: the whole selection, so a comparison of two
+    /// WANs arrives as that same comparison.
+    /// </summary>
+    private void JumpToAnalysis(string category)
+    {
+        var wan = LiveWan.AllSelected
+            ? Services.Monitoring.LiveWanScope.AllWansToken
+            : string.Join(",", LiveWan.SelectedKeys);
+        var wanQuery = LiveWan.HasChoice && wan.Length > 0 ? $"&wan={Uri.EscapeDataString(wan)}" : "";
+        NavigationManager.NavigateTo($"/monitoring?tab=performance&category={category}{wanQuery}");
     }
 
     private (double? rtt, double loss) GetBestTargetStats(MonitoringTargetType type)
