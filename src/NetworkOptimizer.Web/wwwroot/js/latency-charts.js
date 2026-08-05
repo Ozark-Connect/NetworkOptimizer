@@ -763,7 +763,6 @@ function stashView() {
 }
 
 function frameCustomWindow(ts, category, halfWindowMs) {
-    stashView();
     customFrom = new Date(ts - halfWindowMs);
     customTo = new Date(ts + halfWindowMs);
     isCustomRange = true;
@@ -785,6 +784,7 @@ function frameCustomWindow(ts, category, halfWindowMs) {
 }
 
 export function navigateToTime(isoTimestamp, category, label, loaded, eventStartIso, eventEndIso) {
+    stashView();
     const ts = new Date(isoTimestamp).getTime();
     investigateMarker = label
         ? {
@@ -818,7 +818,6 @@ export function frameMoment(isoTimestamp, category) {
  * on custom ranges, so a trailing custom window would be the frozen chart this avoids.
  */
 export function frameTrailing(category) {
-    stashView();
     investigateMarker = null;
     if (category) currentCategory = category;
     const container = document.getElementById(containerId);

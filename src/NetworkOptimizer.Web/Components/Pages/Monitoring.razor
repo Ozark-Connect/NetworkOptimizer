@@ -2195,12 +2195,16 @@
     /// </summary>
     private async Task ApplyLinkWanSelectionAsync()
     {
-        if (_wanSelectionRestored || !_multiWanUiVisible || _wanOptions.Count <= 1) return;
+        if (!_multiWanUiVisible || _wanOptions.Count <= 1) return;
         if (string.IsNullOrWhiteSpace(WanParam) || string.IsNullOrEmpty(CategoryParam)) return;
+        if (_appliedLinkWanKey == LinkWanKey) return;
 
         var keys = ResolveLinkWanKeys(WanParam);
         if (keys.Count == 0) return;
 
+        _appliedLinkWanKey = LinkWanKey;
+        // Claims the restore as well, so the stored selection cannot be read over the top of the
+        // link on a first load - and is never written, so the saved filter survives the visit.
         _wanSelectionRestored = true;
         _selectedWanKeys = new HashSet<string>(keys, StringComparer.OrdinalIgnoreCase);
         await ApplyWanSelectionAsync(persist: false);
@@ -2364,7 +2368,15 @@
     private bool _mapMounted = false;
     private bool _map2dMounted = false;
     private bool _initialAtApplied = false;
-    private bool _initialWanApplied = false;
+
+    // Which link's WAN filter has been applied, rather than whether one ever was. Both jumps are
+    // tab switches inside this same component instance, so a once-per-page flag is already spent
+    // by the time one arrives - the filter silently stopped being set on every jump after the
+    // first. Keyed on the link itself: a new link applies, and the re-renders that follow do not,
+    // so a pill clicked afterwards is never stomped by the URL that is still sitting there.
+    private string? _appliedLinkWanKey;
+
+    private string LinkWanKey => $"{_activeTab}|{WanParam}|{AtParam}|{CategoryParam}";
     private bool _wanLiveChartMounted = false;
     private bool _portStatsMounted = false;
     private bool _latencyChartsMounted;
@@ -4772,10 +4784,13 @@
         // overwritten by it. Both tabs read this one selection, so both honor the link. Once only:
         // the link chooses where the user arrives, not where they have to stay. A single-WAN site
         // resolves nothing and keeps what it had.
-        if (_multiWanUiVisible && !_initialWanApplied && LiveWan.HasChoice
-            && (_activeTab == "live" || _activeTab == "isp-health"))
+        if (_multiWanUiVisible && LiveWan.HasChoice && _appliedLinkWanKey != LinkWanKey
+            && (_activeTab == "live" || _activeTab == "isp-health")
+            && !string.IsNullOrWhiteSpace(WanParam))
         {
-            _initialWanApplied = await LiveWan.SelectFromLinkAsync(WanParam);
+            // Only recorded once it actually took: a pass that arrives before the WAN options
+            // have loaded resolves nothing, and must be free to try again on the next one.
+            if (await LiveWan.SelectFromLinkAsync(WanParam)) _appliedLinkWanKey = LinkWanKey;
         }
 
         // After render, so the tab and the WAN options have settled and the check reflects what
