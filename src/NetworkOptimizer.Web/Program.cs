@@ -668,6 +668,8 @@ builder.Services.AddScoped<AuditService>(); // Scoped - uses IMemoryCache for cr
 // Running a scan and curating findings are gated separately from the audit read surface.
 builder.Services.AddMutatingService<IAuditScanService>(sp => sp.GetRequiredService<AuditService>());
 builder.Services.AddScoped<DiagnosticsService>(); // Scoped - network diagnostics (trunk consistency, AP lock, etc.)
+// Scoped - reads the gateway's traffic control over SSH for the Smart Queues shaper check
+builder.Services.AddScoped<NetworkOptimizer.Web.Services.Ssh.GatewayShaperProbeService>();
 // Mutating product services go through the declarative gate (design doc 06, gate 9): the
 // interface is proxied by MethodSecurityInterceptor, which authorizes the ambient caller against
 // the method's [RequireRole] and writes its [AuditAction] envelope.

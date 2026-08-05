@@ -44,7 +44,8 @@ public class PerformanceAnalyzer
         JsonDocument? wanEnrichedData = null,
         bool runPerformanceChecks = true,
         bool runCellularChecks = true,
-        List<UniFiPortProfile>? portProfiles = null)
+        List<UniFiPortProfile>? portProfiles = null,
+        List<WanShaperState>? wanShaperStates = null)
     {
         var issues = new List<PerformanceIssue>();
 
@@ -54,6 +55,7 @@ public class PerformanceAnalyzer
             issues.AddRange(CheckJumboFrames(devices, settingsData));
             issues.AddRange(CheckFlowControl(devices, networks, clients, settingsData, portProfiles));
             issues.AddRange(CheckSqmFirmwareRegression(devices, networks));
+            issues.AddRange(CheckSqmNotShaping(devices, wanShaperStates));
         }
 
         if (runCellularChecks)
@@ -491,6 +493,93 @@ public class PerformanceAnalyzer
     }
 
     /// <summary>
+    /// Check whether the WANs that have Smart Queues enabled are actually being shaped.
+    ///
+    /// UniFi Network regularly accepts the Smart Queues toggle without provisioning the queues:
+    /// the setting reads as on, no shaper is ever created, and the connection runs unshaped with
+    /// nothing on screen to say so. The gateway's own traffic control is the only place the truth
+    /// shows, so the states come from an SSH read (GatewayShaperProbeService) and are empty
+    /// whenever the gateway cannot be reached - a site we cannot see raises nothing.
+    ///
+    /// Egress rides the WAN's data-path interface (upload), ingress rides its "ifb" companion
+    /// (download), and a direction UniFi was explicitly told to shape at 0 is not expected to
+    /// have a shaper at all.
+    /// </summary>
+    [VendorSpecific("UniFi", "UniFi Network's Smart Queues provisioning and its ifb ingress device naming")]
+    internal List<PerformanceIssue> CheckSqmNotShaping(
+        List<UniFiDeviceResponse> devices,
+        List<WanShaperState>? wanShaperStates)
+    {
+        var issues = new List<PerformanceIssue>();
+
+        if (wanShaperStates == null || wanShaperStates.Count == 0)
+            return issues;
+
+        var gatewayName = devices.FirstOrDefault(d => d.DeviceType == DeviceType.Gateway)?.Name;
+
+        foreach (var state in wanShaperStates)
+        {
+            // The WAN's own interface missing means we asked about a device this box does not
+            // have, so the readout says nothing about UniFi's provisioning.
+            if (!state.Egress.DeviceFound)
+            {
+                _logger?.LogDebug(
+                    "Skipping Smart Queues shaper check for {Wan}: {Interface} not found on the gateway",
+                    state.WanName, state.Interface);
+                continue;
+            }
+
+            var uploadExpected = state.UpRateMbps != 0;
+            var downloadExpected = state.DownRateMbps != 0;
+
+            var uploadShaped = state.Egress.HasRootHtb;
+            var downloadShaped = state.Ingress.DeviceFound && state.Ingress.HasRootHtb;
+
+            var uploadMissing = uploadExpected && !uploadShaped;
+            var downloadMissing = downloadExpected && !downloadShaped;
+
+            if (!uploadMissing && !downloadMissing)
+                continue;
+
+            var preamble = $"Smart Queues is enabled for {state.WanName} in UniFi Network, but the gateway ";
+            string description;
+
+            if (uploadMissing && downloadMissing)
+            {
+                description = preamble +
+                    $"has no shaper on {state.Interface} or {state.IfbInterface}. UniFi Network took the setting " +
+                    "without provisioning the queues, so this connection is running unshaped.";
+            }
+            else if (uploadMissing)
+            {
+                description = downloadShaped
+                    ? preamble + $"is only shaping download. {state.Interface} has no shaper, so upload traffic is running unshaped."
+                    : preamble + $"has no shaper on {state.Interface}, so upload traffic is running unshaped.";
+            }
+            else
+            {
+                description = uploadShaped
+                    ? preamble + $"is only shaping upload. {state.IfbInterface} has no shaper, so download traffic is running unshaped."
+                    : preamble + $"has no shaper on {state.IfbInterface}, so download traffic is running unshaped.";
+            }
+
+            issues.Add(new PerformanceIssue
+            {
+                Title = $"Smart Queues Not Shaping on {state.WanName}",
+                Description = description,
+                Recommendation = "Add any QoS rule in UniFi Network under Settings > Policy Engine > Policy Table > QoS Rules. " +
+                    "It does not matter what the rule targets - creating one makes UniFi Network provision the queues. " +
+                    "Give it about 45 seconds, then run Analyze again.",
+                Severity = PerformanceSeverity.Recommendation,
+                Category = PerformanceCategory.Performance,
+                DeviceName = gatewayName
+            });
+        }
+
+        return issues;
+    }
+
+    /// <summary>
     /// Check if cellular WAN is present and QoS rules cover bandwidth-heavy app categories.
     /// </summary>
     [VendorSpecific("UniFi", "Reads UniFi WAN interfaces, modem mbb_overrides, and QoS rule JSON")]
@@ -558,7 +647,7 @@ public class PerformanceAnalyzer
             {
                 Title = "Streaming Video Not Rate-Limited",
                 Description = streamingGap,
-                Recommendation = "Create a QoS Rule under Policy Engine > Policy Table > QoS Rules to limit " +
+                Recommendation = "Create a QoS Rule under Settings > Policy Engine > Policy Table > QoS Rules to limit " +
                     "streaming video apps when on cellular. " +
                     "<br><a href=\"https://ozarkconnect.net/blog/unifi-5g-backup-qos\" target=\"_blank\">How-To Guide</a>",
                 Severity = severity,
@@ -575,7 +664,7 @@ public class PerformanceAnalyzer
             {
                 Title = "Cloud Sync Not Rate-Limited",
                 Description = cloudGap,
-                Recommendation = "Create a QoS Rule under Policy Engine > Policy Table > QoS Rules to limit cloud storage sync speed when on cellular. " +
+                Recommendation = "Create a QoS Rule under Settings > Policy Engine > Policy Table > QoS Rules to limit cloud storage sync speed when on cellular. " +
                     "This prevents large uploads/downloads from burning through your data plan. " +
                     "<br><a href=\"https://ozarkconnect.net/blog/unifi-5g-backup-qos\" target=\"_blank\">How-To Guide</a>",
                 Severity = severity,
@@ -592,7 +681,7 @@ public class PerformanceAnalyzer
             {
                 Title = "Game/App Downloads Not Rate-Limited",
                 Description = downloadGap,
-                Recommendation = "Create a QoS Rule under Policy Engine > Policy Table > QoS Rules to limit or block game/app downloads when on cellular. " +
+                Recommendation = "Create a QoS Rule under Settings > Policy Engine > Policy Table > QoS Rules to limit or block game/app downloads when on cellular. " +
                     "Game updates alone can exceed monthly data caps in a single download. " +
                     "<br><a href=\"https://ozarkconnect.net/blog/unifi-5g-backup-qos\" target=\"_blank\">How-To Guide</a>",
                 Severity = severity,

@@ -1,0 +1,20 @@
+{
+  "id": "2.6.0",
+  "kind": "whats-new",
+  "title": "What's new in v2.6.0",
+  "summary": "Config Optimizer now catches Smart Queues that UniFi Network never actually turned on.",
+  "steps": [
+    {
+      "id": "smart-queues-not-shaping",
+      "level": "minor",
+      "url": "/config-optimizer",
+      "selector": "[data-tour=\"performance-suggestions\"]",
+      "title": "Smart Queues check",
+      "listLabel": "Smart Queues that UniFi Network never actually turned on",
+      "badge": "improved",
+      "body": "UniFi Network can leave Smart Queues switched on with no shaper actually running. **Analyze** now catches that and tells you how to fix it.",
+      "placement": "top",
+      "requires": ["smart-queues"]
+    }
+  ]
+}

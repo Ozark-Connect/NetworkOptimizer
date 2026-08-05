@@ -1980,4 +1980,132 @@ public class PerformanceAnalyzerTests
     }
 
     #endregion
+
+    #region SQM Not Shaping
+
+    [Fact]
+    public void CheckSqmNotShaping_NoStates_ReturnsEmpty()
+    {
+        _analyzer.CheckSqmNotShaping(new List<UniFiDeviceResponse> { CreateGateway() }, null)
+            .Should().BeEmpty();
+
+        _analyzer.CheckSqmNotShaping(new List<UniFiDeviceResponse> { CreateGateway() }, new List<WanShaperState>())
+            .Should().BeEmpty();
+    }
+
+    [Fact]
+    public void CheckSqmNotShaping_BothDirectionsShaped_ReturnsEmpty()
+    {
+        var states = new List<WanShaperState> { CreateShaperState(egressHtb: true, ingressHtb: true) };
+
+        var result = _analyzer.CheckSqmNotShaping(new List<UniFiDeviceResponse> { CreateGateway() }, states);
+
+        result.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void CheckSqmNotShaping_NeitherDirectionShaped_ReportsBothInterfaces()
+    {
+        var states = new List<WanShaperState> { CreateShaperState(egressHtb: false, ingressHtb: false) };
+
+        var result = _analyzer.CheckSqmNotShaping(new List<UniFiDeviceResponse> { CreateGateway() }, states);
+
+        var issue = result.Should().ContainSingle().Subject;
+        issue.Title.Should().Be("Smart Queues Not Shaping on Fiber");
+        issue.Severity.Should().Be(PerformanceSeverity.Recommendation);
+        issue.Category.Should().Be(PerformanceCategory.Performance);
+        issue.DeviceName.Should().Be("Test Gateway");
+        issue.Description.Should().Contain("no shaper on ppp0 or ifbppp0");
+        issue.Description.Should().Contain("running unshaped");
+        issue.Recommendation.Should().Contain("QoS rule");
+    }
+
+    [Fact]
+    public void CheckSqmNotShaping_IfbDeviceMissing_ReportsDownloadUnshaped()
+    {
+        var states = new List<WanShaperState> { CreateShaperState(egressHtb: true, ingressFound: false) };
+
+        var result = _analyzer.CheckSqmNotShaping(new List<UniFiDeviceResponse> { CreateGateway() }, states);
+
+        var issue = result.Should().ContainSingle().Subject;
+        issue.Description.Should().Contain("only shaping upload");
+        issue.Description.Should().Contain("ifbppp0 has no shaper");
+        issue.Description.Should().Contain("download traffic is running unshaped");
+    }
+
+    [Fact]
+    public void CheckSqmNotShaping_EgressUnshaped_ReportsUploadUnshaped()
+    {
+        var states = new List<WanShaperState> { CreateShaperState(egressHtb: false, ingressHtb: true) };
+
+        var result = _analyzer.CheckSqmNotShaping(new List<UniFiDeviceResponse> { CreateGateway() }, states);
+
+        var issue = result.Should().ContainSingle().Subject;
+        issue.Description.Should().Contain("only shaping download");
+        issue.Description.Should().Contain("ppp0 has no shaper");
+        issue.Description.Should().Contain("upload traffic is running unshaped");
+    }
+
+    [Fact]
+    public void CheckSqmNotShaping_DirectionRatedZero_IsNotExpectedToShape()
+    {
+        var states = new List<WanShaperState>
+        {
+            CreateShaperState(egressHtb: false, ingressHtb: true, upRateMbps: 0)
+        };
+
+        var result = _analyzer.CheckSqmNotShaping(new List<UniFiDeviceResponse> { CreateGateway() }, states);
+
+        result.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void CheckSqmNotShaping_WanInterfaceNotOnGateway_ReturnsEmpty()
+    {
+        // We resolved a device name the box doesn't have - that says nothing about UniFi's
+        // provisioning, so it must not surface as a finding.
+        var states = new List<WanShaperState> { CreateShaperState(egressFound: false, ingressFound: false) };
+
+        var result = _analyzer.CheckSqmNotShaping(new List<UniFiDeviceResponse> { CreateGateway() }, states);
+
+        result.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void CheckSqmNotShaping_MultipleWans_ReportsOnlyTheUnshapedOne()
+    {
+        var states = new List<WanShaperState>
+        {
+            CreateShaperState(egressHtb: true, ingressHtb: true),
+            CreateShaperState(egressHtb: false, ingressHtb: false, wanName: "Cable", ifName: "eth7")
+        };
+
+        var result = _analyzer.CheckSqmNotShaping(new List<UniFiDeviceResponse> { CreateGateway() }, states);
+
+        result.Should().ContainSingle().Which.Title.Should().Be("Smart Queues Not Shaping on Cable");
+    }
+
+    private static WanShaperState CreateShaperState(
+        bool egressHtb = false,
+        bool ingressHtb = false,
+        bool egressFound = true,
+        bool ingressFound = true,
+        int? downRateMbps = 900,
+        int? upRateMbps = 500,
+        string wanName = "Fiber",
+        string ifName = "ppp0")
+    {
+        return new WanShaperState
+        {
+            WanName = wanName,
+            Interface = ifName,
+            IfbInterface = $"ifb{ifName}",
+            DownRateMbps = downRateMbps,
+            UpRateMbps = upRateMbps,
+            Egress = new TcDeviceState { DeviceFound = egressFound, HasRootHtb = egressHtb },
+            Ingress = new TcDeviceState { DeviceFound = ingressFound, HasRootHtb = ingressHtb }
+        };
+    }
+
+    #endregion
 }
