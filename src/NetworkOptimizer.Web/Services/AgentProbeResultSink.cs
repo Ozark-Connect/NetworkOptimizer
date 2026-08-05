@@ -30,6 +30,7 @@ public class AgentProbeResultSink
     private readonly Monitoring.DeviceTransitionTracker _deviceTransitions;
     private readonly MonitoringAlertRegistry _alertRegistry;
     private readonly ICredentialProtectionService _credentialProtection;
+    private readonly Monitoring.IspHealth.IspHealthRegistry _ispHealthRegistry;
     private readonly ILogger<AgentProbeResultSink> _logger;
 
     // Counter delta cache for agent-relayed interface samples. Key =
@@ -113,8 +114,10 @@ public class AgentProbeResultSink
         AgentOnGatewayDetector onGatewayDetector,
         IAgentEnrollmentService enrollment,
         AgentTunnelRegistry tunnelRegistry,
+        Monitoring.IspHealth.IspHealthRegistry ispHealthRegistry,
         ILogger<AgentProbeResultSink> logger)
     {
+        _ispHealthRegistry = ispHealthRegistry;
         _tunnelRegistry = tunnelRegistry;
         _siteDbFactory = siteDbFactory;
         _influxRegistry = influxRegistry;
@@ -248,7 +251,20 @@ public class AgentProbeResultSink
                 await Task.Delay(TimeSpan.FromSeconds(1), CancellationToken.None);
 
             if (siteConnection.IsConnected)
+            {
                 await PushSnmpConfigAsync(connection, CancellationToken.None);
+
+                // Both halves are up now, so anything computed before this point saw a partial
+                // site. A report produced between server start and this moment is missing whatever
+                // arrives through the console - SNMP above all, which is what classifies load, so
+                // an early compute finds no loaded windows and reports a different score for the
+                // same day. It is then cached and served until something evicts it, which is why a
+                // cold report and a warm one disagreed with nothing in between to reconcile them.
+                _ispHealthRegistry.InvalidateSite(connection.SiteSlug);
+                _logger.LogDebug(
+                    "Agent and console both up for site {Slug}; dropping any ISP Health computed without them",
+                    connection.SiteSlug);
+            }
         }
         catch (Exception ex)
         {
