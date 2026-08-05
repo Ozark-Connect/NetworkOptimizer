@@ -283,7 +283,7 @@
             {
                 @* Separate scope from the analysis selectors on purpose - watching a WAN here must not move them. *@
                 <div class="time-range-selector wan-selector wan-selector-standalone wan-selector-on-page @(LiveWan.Options.Count > 3 ? "wan-selector-many" : "")"
-                     data-tooltip="@(_showWanCompareHint ? _wanCompareHint : null)" data-tooltip-hover-only style="margin-bottom: 0.75rem;">
+                     data-tooltip="@(_showWanCompareHint ? _wanCompareHint : null)" data-tooltip-hover-only>
                     @foreach (var w in LiveWan.Options)
                     {
                         <button class="time-btn @(LiveWan.IsSelected(w.Key) ? "active" : "")"
@@ -507,10 +507,7 @@
         </div>
 
         <!-- Latency time-series charts -->
-        <div class="card card-corner-jump" id="latency-charts-container" style="margin-top: 1.5rem;">
-            <MonitoringJumpButton Icon="MonitoringJumpButton.JumpIcon.Watch"
-                                  Tooltip="Watch this moment in Live View"
-                                  OnClick="JumpToLiveAsync" />
+        <div class="card" id="latency-charts-container" style="margin-top: 1.5rem;">
             <div class="card-header monitoring-chart-header @(_multiWanUiVisible && _wanOptions.Count > 1 ? "chart-header-stacked" : "")">
                 <h2 class="card-title">Latency &amp; Packet Loss</h2>
                 @if (_multiWanUiVisible && _wanOptions.Count > 1)
@@ -578,6 +575,9 @@
                     <button class="time-btn" data-shift="forward" data-tooltip="Shift window forward">&#x25B6;</button>
                     </div>
                 </div>
+                <MonitoringJumpButton Icon="MonitoringJumpButton.JumpIcon.Watch"
+                                      Tooltip="Watch this moment in Live View"
+                                      OnClick="JumpToLiveAsync" />
             </div>
             <div class="card-body">
                 <div class="latency-filter-badges wan-filter-badges"></div>

@@ -15521,40 +15521,14 @@ a.affected-client:hover {
     display: flex;
     align-items: flex-start;
     gap: 0.5rem;
+    min-height: 2.15rem;
+    margin-bottom: 0.75rem;
 }
 
 .live-view-jump-row .monitoring-jump-btn {
     margin-left: auto;
 }
 
-.live-view-jump-row:not(:has(.wan-selector)) {
-    height: 0;
-    align-items: flex-end;
-}
-
-.live-view-jump-row:not(:has(.wan-selector)) .monitoring-jump-btn {
-    position: relative;
-    top: -0.9rem;
-}
-
-.latency-targets-empty {
-    color: var(--text-muted);
-    text-align: center;
-}
-
-.card-corner-jump {
-    position: relative;
-}
-
-.card-corner-jump > .monitoring-jump-btn {
-    position: absolute;
-    top: 12px;
-    right: 16px;
-    justify-content: center;
-    width: 1.35rem;
-    height: 1.35rem;
-    padding: 0;
-}
 
 .wan-filter-badge {
     display: inline-flex;
