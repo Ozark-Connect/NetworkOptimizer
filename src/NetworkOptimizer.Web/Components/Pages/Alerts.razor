@@ -798,7 +798,7 @@
                         <div class="alert-group-actions">
                             @if (_canOperate)
                             {
-                            <button class="btn btn-sm btn-primary" @onclick="ResolveAllAcknowledged">Resolve All</button>
+                            <button class="btn btn-sm btn-primary" @onclick="ResolveAllAcknowledged">Resolve Acknowledged</button>
                             }
                         </div>
                     </div>
@@ -2512,8 +2512,11 @@
     {
         try
         {
-            // Same reasoning: whichever section's Resolve All you press, it clears the unresolved list.
-            var acknowledged = _unresolvedAlerts.Where(a => a.Status != AlertStatus.Resolved).ToList();
+            // This section's button, and this section's alerts. Resolve All in the Active section
+            // above still takes the whole unresolved list, so acknowledging everything and then
+            // resolving in one go is still one press - which is what the wider scope here was for
+            // before the button said which alerts it meant.
+            var acknowledged = _unresolvedAlerts.Where(a => a.Status == AlertStatus.Acknowledged).ToList();
             var now = DateTime.UtcNow;
             foreach (var alert in acknowledged)
             {
