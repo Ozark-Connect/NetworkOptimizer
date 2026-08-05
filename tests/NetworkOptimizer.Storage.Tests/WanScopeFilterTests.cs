@@ -33,8 +33,10 @@ public class WanScopeFilterTests
         var filter = MonitoringInfluxClient.BuildWanScopeFilter(
             MonitoringInfluxClient.LatencyWanScope.Primary(new[] { "wan" }));
 
-        filter.Should().Be(@"
-  |> filter(fn: (r) => not exists r.wan or r.wan == ""wan"")");
+        // Explicit \n, never a verbatim string spanning a source newline: the emitted filter
+        // always uses \n, while a verbatim literal follows the checkout's line endings and
+        // fails on a CRLF working copy.
+        filter.Should().Be("\n  |> filter(fn: (r) => not exists r.wan or r.wan == \"wan\")");
     }
 
     [Fact]
@@ -43,8 +45,7 @@ public class WanScopeFilterTests
         var filter = MonitoringInfluxClient.BuildWanScopeFilter(
             MonitoringInfluxClient.LatencyWanScope.ForWan(new[] { "wan2", "starlink-backup" }));
 
-        filter.Should().Be(@"
-  |> filter(fn: (r) => r.wan == ""wan2"" or r.wan == ""starlink-backup"")");
+        filter.Should().Be("\n  |> filter(fn: (r) => r.wan == \"wan2\" or r.wan == \"starlink-backup\")");
     }
 
     [Fact]
