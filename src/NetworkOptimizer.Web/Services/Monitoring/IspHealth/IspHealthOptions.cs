@@ -131,6 +131,13 @@ public class IspHealthOptions
     /// not the moment it stops misbehaving at 3 AM. Until then the figure keeps describing the
     /// behavior actually observed at the hour in question, which is all that is known.
     /// </para>
+    /// <para>
+    /// Only asked when the history shows hour-dependence at all. A line that was elevated in EVERY
+    /// episode before the clean run was not misbehaving at a time of day - it was misbehaving under
+    /// load, full stop - so any clean run disproves it. Requiring the same hour there would hold a
+    /// fix hostage to whenever the line is next busy, which on a WAN whose only regular load is a
+    /// scheduled speed test is the following day.
+    /// </para>
     /// </summary>
     public bool LoadedLatencyElevationStaleNeedsSameHour { get; set; } = true;
 
