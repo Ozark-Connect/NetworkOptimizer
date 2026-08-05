@@ -950,7 +950,9 @@ public class IspHealthScorer
             + "problem hour re-tested: {HourCovered} -> {Verdict}",
             upstream ? "up" : "down", episodes.Count, elevatedEpisodes.Count,
             elevatedEpisodes.Count > 0
-                ? $"{elevatedEpisodes[0].Time:yyyy-MM-dd HH:mm:ss}Z at "
+                // Local, not UTC: this is read by someone about to go and look at that moment in
+                // the time series, and every other part of this reasons in their hours too.
+                ? $"{TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(elevatedEpisodes[0].Time, DateTimeKind.Utc), TimeZoneInfo.Local):yyyy-MM-dd HH:mm:ss} local at "
                     + elevatedEpisodes[0].Value.ToString("0.0", CultureInfo.InvariantCulture) + " ms"
                 : "none",
             verdict?.CleanRun.Count.ToString(CultureInfo.InvariantCulture) ?? "n/a", stale,
