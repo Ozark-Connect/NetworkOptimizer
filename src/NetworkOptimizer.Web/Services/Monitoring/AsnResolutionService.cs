@@ -50,16 +50,10 @@ public class AsnResolutionService
 
         // Skip non-public addresses - they can't have ASN attribution and we'd just
         // burn an upstream call.
-        //
-        // CGNAT counts as non-public here. RFC 6598 space is shared and not announced in BGP, so
-        // neither the offline database nor the whois fallback can attribute it - the fallback just
-        // pays a network round trip to learn that, once per distinct hop. It matters because whole
-        // first miles are built from it: a Starlink trace is mostly 100.64/10, and each of those
-        // hops was a separate query. Callers already expect null here; the tracer's WAN IP lookup
-        // documents exactly that.
         var classified = NetworkOptimizer.Core.Helpers.NetworkUtilities
             .ClassifyPublicAddress(ipAddress);
-        if (classified != NetworkOptimizer.Core.Helpers.PublicAddressClass.PublicIPv4)
+        var isCgnat = classified == NetworkOptimizer.Core.Helpers.PublicAddressClass.Cgnat;
+        if (classified != NetworkOptimizer.Core.Helpers.PublicAddressClass.PublicIPv4 && !isCgnat)
         {
             _cache[ipAddress] = null;
             return null;
@@ -76,6 +70,18 @@ public class AsnResolutionService
                 _cache[ipAddress] = hit;
                 return hit;
             }
+        }
+
+        // CGNAT stops at the offline database. The lookup above costs nothing and does sometimes
+        // know shared space a carrier has registered, so it is worth asking; the network call is
+        // not, because RFC 6598 space is not announced in BGP and whois has nothing to say about
+        // it. That distinction matters at scale: whole first miles are built from this space - a
+        // Starlink trace is mostly 100.64/10 - and each distinct hop was previously its own query,
+        // which is what turned one rate-limited provider into a stalled discovery.
+        if (isCgnat)
+        {
+            _cache[ipAddress] = null;
+            return null;
         }
 
         // Fallback: bgp.tools whois on TCP/43.
@@ -132,11 +138,13 @@ public class AsnResolutionService
 
             using var reader = new StreamReader(stream, Encoding.ASCII);
             string? line;
+            string? firstLine = null;
             // Skip the header line; first data row carries the answer.
             bool headerSkipped = false;
             while ((line = await reader.ReadLineAsync(exchangeCts.Token)) != null)
             {
                 if (string.IsNullOrWhiteSpace(line)) continue;
+                firstLine ??= line;
                 if (!headerSkipped)
                 {
                     headerSkipped = true;
@@ -148,6 +156,14 @@ public class AsnResolutionService
                 var name = AsnNameCleanup.Clean(parts[6]);
                 return new AsnLookup(asn, string.IsNullOrEmpty(name) ? $"AS{asn}" : name);
             }
+
+            // Nothing parsed, and the reasons look identical from the outside: bgp.tools genuinely
+            // has no row for the prefix, it answered with a notice instead of data, or the format
+            // moved. The reply itself separates them, so keep the first line of it.
+            _logger.LogDebug("bgp.tools returned no usable row for {Ip}; first line of the reply: {Reply}",
+                ipAddress,
+                firstLine == null ? "(empty response)"
+                    : firstLine.Length > 200 ? firstLine[..200] + "..." : firstLine);
             return null;
         }
         catch (Exception ex)
