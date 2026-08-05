@@ -50,10 +50,16 @@ public class AsnResolutionService
 
         // Skip non-public addresses - they can't have ASN attribution and we'd just
         // burn an upstream call.
+        //
+        // CGNAT counts as non-public here. RFC 6598 space is shared and not announced in BGP, so
+        // neither the offline database nor the whois fallback can attribute it - the fallback just
+        // pays a network round trip to learn that, once per distinct hop. It matters because whole
+        // first miles are built from it: a Starlink trace is mostly 100.64/10, and each of those
+        // hops was a separate query. Callers already expect null here; the tracer's WAN IP lookup
+        // documents exactly that.
         var classified = NetworkOptimizer.Core.Helpers.NetworkUtilities
             .ClassifyPublicAddress(ipAddress);
-        if (classified != NetworkOptimizer.Core.Helpers.PublicAddressClass.PublicIPv4
-            && classified != NetworkOptimizer.Core.Helpers.PublicAddressClass.Cgnat)
+        if (classified != NetworkOptimizer.Core.Helpers.PublicAddressClass.PublicIPv4)
         {
             _cache[ipAddress] = null;
             return null;
@@ -100,19 +106,25 @@ public class AsnResolutionService
         try
         {
             using var tcp = new TcpClient();
-            using var connectCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            connectCts.CancelAfter(TimeSpan.FromSeconds(5));
-            await tcp.ConnectAsync("bgp.tools", 43, connectCts.Token);
+            // One budget for the WHOLE exchange, not just the connect. A rate-limited bgp.tools
+            // accepts the connection and then says nothing, and the read carried no deadline of its
+            // own - so it waited on the caller's token, held one of the two permits, and blocked
+            // every later lookup behind it until the run was abandoned. Observed with both permits
+            // held by sockets sitting at 0 bytes in either direction. A timeout lands in the catch
+            // below and returns null, which is already what an unattributable hop looks like.
+            using var exchangeCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            exchangeCts.CancelAfter(TimeSpan.FromSeconds(8));
+            await tcp.ConnectAsync("bgp.tools", 43, exchangeCts.Token);
 
             using var stream = tcp.GetStream();
             var query = Encoding.ASCII.GetBytes($" -v {ipAddress}\r\n");
-            await stream.WriteAsync(query, ct);
+            await stream.WriteAsync(query, exchangeCts.Token);
 
             using var reader = new StreamReader(stream, Encoding.ASCII);
             string? line;
             // Skip the header line; first data row carries the answer.
             bool headerSkipped = false;
-            while ((line = await reader.ReadLineAsync(ct)) != null)
+            while ((line = await reader.ReadLineAsync(exchangeCts.Token)) != null)
             {
                 if (string.IsNullOrWhiteSpace(line)) continue;
                 if (!headerSkipped)
