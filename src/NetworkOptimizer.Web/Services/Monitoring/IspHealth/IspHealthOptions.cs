@@ -63,6 +63,21 @@ public class IspHealthOptions
     /// <summary>Weight of loaded latency delta within the access dimension.</summary>
     public double LoadedLatencyWeight { get; set; } = 0.14875;
 
+    /// <summary>
+    /// Half-life, in hours, for how much a speed test still counts toward the loaded-latency
+    /// figure. A plain median over the window treats a test from an hour ago exactly like one from
+    /// six days ago, so a line fixed this afternoon went on reporting bufferbloat until the good
+    /// tests outnumbered the bad - which on a daily schedule takes a week. Two days of evidence
+    /// counts half, so three consecutive clean runs outweigh a week of bad ones.
+    /// <para>
+    /// Not shorter than that on purpose. On the daily schedule most sites run, a 24-hour half-life
+    /// gives the newest test more weight than every earlier test combined - which is not a median
+    /// any more, it is "latest test wins", and one bad run would raise a finding on its own.
+    /// </para>
+    /// <para>Zero disables the decay and restores the plain median.</para>
+    /// </summary>
+    public double LoadedLatencyRecencyHalfLifeHours { get; set; } = 48;
+
     /// <summary>Weight of loaded packet loss within the access dimension.</summary>
     public double LoadedLossWeight { get; set; } = 0.14875;
 

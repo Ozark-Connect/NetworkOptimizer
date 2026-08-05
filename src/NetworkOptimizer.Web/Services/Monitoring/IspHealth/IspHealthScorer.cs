@@ -416,22 +416,27 @@ public class IspHealthScorer
         if (down == null || up == null)
         {
             var (tests, _) = SelectSpeedTests(inputs);
-            var downDeltas = tests
-                .Where(t => t.DownloadLatencyMs.HasValue && t.PingMs.HasValue)
-                .Select(t => Math.Max(0, t.DownloadLatencyMs!.Value - t.PingMs!.Value))
+            // Recency-weighted, so a fix shows up in days rather than after the good tests
+            // outnumber the bad ones. Still a median: one clean run cannot clear a standing
+            // finding, and one bad run cannot create one.
+            var halfLife = _options.LoadedLatencyRecencyHalfLifeHours;
+            List<(double Value, double Weight)> Deltas(Func<SpeedTestSample, double?> loaded) => tests
+                .Where(t => loaded(t).HasValue && t.PingMs.HasValue)
+                .Select(t => (
+                    Value: Math.Max(0, loaded(t)!.Value - t.PingMs!.Value),
+                    Weight: SeriesStats.RecencyWeight(inputs.WindowEnd - t.Time, halfLife)))
                 .ToList();
-            var upDeltas = tests
-                .Where(t => t.UploadLatencyMs.HasValue && t.PingMs.HasValue)
-                .Select(t => Math.Max(0, t.UploadLatencyMs!.Value - t.PingMs!.Value))
-                .ToList();
+
+            var downDeltas = Deltas(t => t.DownloadLatencyMs);
+            var upDeltas = Deltas(t => t.UploadLatencyMs);
             if (down == null && downDeltas.Count > 0)
             {
-                down = SeriesStats.Median(downDeltas);
+                down = SeriesStats.WeightedMedian(downDeltas);
                 downFromSpeedTest = true;
             }
             if (up == null && upDeltas.Count > 0)
             {
-                up = SeriesStats.Median(upDeltas);
+                up = SeriesStats.WeightedMedian(upDeltas);
                 upFromSpeedTest = true;
             }
         }
@@ -1983,24 +1988,34 @@ public class IspHealthScorer
             // Queues. Loss under load while it shapes means the rate it holds isn't backing off
             // enough for the real-time capacity drop, so point at its own tuning knobs (Severity
             // deepens the time-of-day dips; nominal speeds set the ceiling everything scales from).
+            // One recommendation used to serve both findings below, worded for loss - so a
+            // bufferbloat finding was answered with advice about drops the user was not seeing.
+            // The Adaptive SQM branch now says which symptom it is talking about; the other two
+            // are symptom-neutral and stay one string.
             string recommendation;
+            string latencyRecommendation;
             if (inputs.AdaptiveSqmEnabled)
             {
                 recommendation = "Adaptive SQM is already shaping this WAN, so loss under load means the rate it holds isn't backing off enough when the line congests. In your Adaptive SQM settings, raise the Severity so the peak-hour rate dips go deeper, or lower the nominal download/upload if the line consistently delivers less than its plan. If loss persists once the rate is pulled down, the drops are upstream and only your ISP can fix them.";
+                latencyRecommendation = "Adaptive SQM is already shaping this WAN, so added delay under load means the rate it holds isn't backing off enough when the line congests. In your Adaptive SQM settings, raise the Severity so the peak-hour rate dips go deeper, or lower the nominal download/upload if the line consistently delivers less than its plan. If the delay persists once the rate is pulled down, the queue is upstream and only your ISP can drain it.";
             }
             else if (inputs.SmartQueuesEnabled)
             {
                 recommendation = "Smart Queues is enabled on this WAN but the line still degrades under load; check that its configured rates match what the line actually delivers.";
+                latencyRecommendation = recommendation;
             }
             else
             {
                 recommendation = "Enable Smart Queues (SQM) on this WAN in UniFi Network (Settings, Internet, your WAN, Smart Queues).";
+                latencyRecommendation = recommendation;
             }
             // Only pitch Adaptive SQM when the WAN isn't already running it.
             if (!inputs.AdaptiveSqmEnabled
                 && inputs.CongestionEvents.Count(e => e.Disposition == CongestionDisposition.Confirmed) >= _options.SqmRecurringCongestionEvents)
             {
-                recommendation += " This connection also shows a recurring congestion pattern; consider Adaptive SQM, which tracks time-of-day capacity changes automatically.";
+                const string alsoConsider = " This connection also shows a recurring congestion pattern; consider Adaptive SQM, which tracks time-of-day capacity changes automatically.";
+                recommendation += alsoConsider;
+                latencyRecommendation += alsoConsider;
             }
             if (latencyTriggered)
             {
@@ -2009,7 +2024,7 @@ public class IspHealthScorer
                     Severity = IspIssueSeverity.Warning,
                     Title = "Bufferbloat under load",
                     Description = "Latency rises well beyond the excellent range for this connection type when the line is loaded.",
-                    Recommendation = recommendation,
+                    Recommendation = latencyRecommendation,
                     LinkUrl = "/sqm",
                     LinkText = "Adaptive SQM"
                 });

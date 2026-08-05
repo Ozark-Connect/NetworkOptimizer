@@ -20,6 +20,43 @@ internal static class SeriesStats
     }
 
     /// <summary>
+    /// Median with each value weighted, taken at the point where half the total weight has
+    /// accumulated. Still a median - one wild value cannot drag it the way a weighted mean can -
+    /// but a heavier sample counts for more of the half.
+    /// <para>
+    /// Used where recent evidence should outrank old evidence of the same kind: a plain median
+    /// over a week-long window treats a measurement from an hour ago exactly like one from six
+    /// days ago, so a line that was fixed this afternoon keeps reporting the fault until the good
+    /// samples outnumber the bad ones.
+    /// </para>
+    /// </summary>
+    public static double? WeightedMedian(IReadOnlyList<(double Value, double Weight)> samples)
+    {
+        var usable = samples.Where(s => s.Weight > 0).OrderBy(s => s.Value).ToArray();
+        if (usable.Length == 0) return null;
+
+        var half = usable.Sum(s => s.Weight) / 2.0;
+        var running = 0.0;
+        foreach (var (value, weight) in usable)
+        {
+            running += weight;
+            if (running >= half) return value;
+        }
+        return usable[^1].Value;
+    }
+
+    /// <summary>
+    /// Weight for a sample of a given age, halving every <paramref name="halfLifeHours"/>. Zero or
+    /// negative half-life means no decay at all, which is how a caller opts out.
+    /// </summary>
+    public static double RecencyWeight(TimeSpan age, double halfLifeHours)
+    {
+        if (halfLifeHours <= 0) return 1;
+        var hours = Math.Max(0, age.TotalHours);
+        return Math.Pow(0.5, hours / halfLifeHours);
+    }
+
+    /// <summary>
     /// Mean after winsorizing the upper tail: values above the given percentile are capped
     /// to it, then averaged. Keeps sustained elevation fully visible (those samples sit
     /// below the cap) while stopping a few extreme outliers - a route flap or a single bad
