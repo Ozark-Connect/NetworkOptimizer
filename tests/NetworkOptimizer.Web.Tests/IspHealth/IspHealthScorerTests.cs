@@ -485,6 +485,54 @@ public class IspHealthScorerTests
     }
 
     [Fact]
+    public void A_hop_squealing_while_the_rest_of_the_WAN_reads_clean_is_outvoted()
+    {
+        // Same shape as the OLT case above, but this WAN monitors enough targets to have an
+        // opinion. A queue on the access link sits in front of every one of them, so a single hop
+        // rising while transit and the internet destinations stay flat AT THE SAME SECOND is that
+        // responder deprioritizing ICMP - the reading the old flat pooling reported in full,
+        // because the noise floor discarded the clean samples before the median saw them.
+        var rates = TestSeries.Throughput(TestSeries.Start, Day, 50, 5)
+            .Select(r => r.Time >= LoadedDownStart && r.Time < LoadedDownEnd
+                ? r with { DownloadBps = 800_000_000 }
+                : r)
+            .ToList();
+
+        var nearHop = TestSeries.Flat(TestSeries.Start, Day, 2.0, 0.3);
+        var squealer = TestSeries.Flat(TestSeries.Start, Day, 2.0, 0.3)
+            .WithSegment(LoadedDownStart, LoadedDownEnd, 8.0, 0.3);
+
+        AsnSeries Clean(string name, double rtt) => new()
+        {
+            AsnNumber = 0,
+            AsnName = name,
+            Samples = TestSeries.Flat(TestSeries.Start, Day, rtt, 0.3)
+        };
+
+        var inputs = new IspHealthInputs
+        {
+            WindowStart = TestSeries.Start,
+            WindowEnd = TestSeries.Start + Day,
+            FirstHopSeries = nearHop,
+            AccessHopSeries = new List<List<LatencySample>> { nearHop, squealer },
+            TransitAsnSeries = new List<AsnSeries> { Clean("Transit", 9.0) },
+            DestinationSeries = new List<AsnSeries> { Clean("DNS", 14.0), Clean("CDN", 16.0) },
+            LossPoolSeries = new List<List<LatencySample>> { nearHop },
+            WanRates = rates,
+            ExpectedDownloadMbps = 1000,
+            ExpectedUploadMbps = 500,
+            ExpectedSpeedSource = "UniFi Network",
+            WanSpeedTests = new List<SpeedTestSample> { new(TestSeries.Start.AddHours(6), 980, 490) }
+        };
+
+        var factor = new IspHealthScorer(Options).Score(inputs, Gpon)
+            .AccessDimension.Factors.Single(f => f.Name == "Loaded Latency");
+
+        factor.ValueText.Should().NotContain("6.0 ms down");
+        factor.Score.Should().Be(100);
+    }
+
+    [Fact]
     public void Below_band_idle_latency_scores_higher_than_above_band()
     {
         var scorer = new IspHealthScorer(Options);

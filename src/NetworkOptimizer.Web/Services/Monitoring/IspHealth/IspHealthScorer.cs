@@ -892,16 +892,42 @@ public class IspHealthScorer
             ? inputs.AccessHopSeries
             : new List<List<LatencySample>> { inputs.FirstHopSeries };
 
-        var pooled = new List<(DateTime Time, double Value)>();
-        foreach (var hop in accessCohort)
+        // Everything monitored out this WAN, LAN targets excluded - transit, the internet
+        // destinations, and the user's own witness targets join the access hops. A queue on the
+        // access link is in front of ALL of them, so under real bufferbloat they rise together;
+        // one hop rising while the rest read clean at the same second is that responder, not the
+        // link. This is the absolution DestinationSeries already performs for jitter by ancestry,
+        // done here by simultaneity, which needs no proven route between the two.
+        var agreementCohort = accessCohort
+            .Concat(inputs.TransitAsnSeries.Select(a => a.Samples))
+            .Concat(inputs.DestinationSeries.Select(a => a.Samples))
+            .Concat(inputs.WitnessSeries.Select(a => a.Samples))
+            .Where(series => series.Count > 0)
+            .ToList();
+
+        var perHop = new List<(DateTime Time, double Value, int Series)>();
+        for (var h = 0; h < agreementCohort.Count; h++)
         {
+            var hop = agreementCohort[h];
             var baseline = ComputeIdleBaseline(hop, loadWindows);
             if (baseline == null) continue;
 
-            pooled.AddRange(hop
+            var series = h;
+            perHop.AddRange(hop
                 .Where(s => s.RttAvgMs.HasValue && loaded.Contains(FloorToWindow(s.Time)))
-                .Select(s => (s.Time, s.RttAvgMs!.Value - baseline.Value)));
+                .Select(s => (s.Time, s.RttAvgMs!.Value - baseline.Value, series)));
         }
+
+        // Hops that reported at the same instant are collapsed to what they AGREED on before any
+        // of this looks at magnitudes. Pooling them flat and then keeping whatever cleared the
+        // noise floor asked "was any sample high", which one ICMP-deprioritized responder answers
+        // yes to on its own; the clean hops it was sitting next to were discarded by that same
+        // floor before the median ever saw them. Collapsing first asks "was the LINK high", which
+        // is the question the score is about, and a lone squealer loses the vote.
+        var pooled = SeriesStats.CommonModeByInstant(
+            perHop,
+            TimeSpan.FromSeconds(_options.LoadedLatencyAgreementToleranceSeconds),
+            _options.LoadedLatencyAgreementMinCohort);
 
         // Grouped by EPISODE - the run of consecutive loaded windows - not by window. A window is
         // seven seconds, so "the newest three windows" is the last twenty seconds and any brief
@@ -945,10 +971,10 @@ public class IspHealthScorer
         // the one that said nothing at all. The newest elevated episode is named so the moment can
         // be pulled up in the time series rather than inferred from what sits near it.
         _logger?.LogDebug(
-            "ISP Health: loaded latency {Dir} - {Episodes} episode(s), {Elevated} elevated "
-            + "(newest {NewestElevated}), clean run {CleanRun}, needs {Needed}, "
+            "ISP Health: loaded latency {Dir} - {Episodes} episode(s) from {Cohort} target(s), "
+            + "{Elevated} elevated (newest {NewestElevated}), clean run {CleanRun}, needs {Needed}, "
             + "problem hour re-tested: {HourCovered} -> {Verdict}",
-            upstream ? "up" : "down", episodes.Count, elevatedEpisodes.Count,
+            upstream ? "up" : "down", episodes.Count, agreementCohort.Count, elevatedEpisodes.Count,
             elevatedEpisodes.Count > 0
                 // Local, not UTC: this is read by someone about to go and look at that moment in
                 // the time series, and every other part of this reasons in their hours too.

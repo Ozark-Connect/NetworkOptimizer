@@ -30,6 +30,57 @@ internal static class SeriesStats
     /// samples outnumber the bad ones.
     /// </para>
     /// </summary>
+    /// <summary>
+    /// Collapses simultaneous samples from different series into one value per instant: the
+    /// COMMON MODE, what all of them saw at once.
+    /// <para>
+    /// Congestion on a link is common to everything crossing it - every target behind it rises
+    /// together. One hop rising alone while its neighbors stay flat at the same second is that
+    /// hop's own responder, not the link, and a statistic that pools every sample flat cannot tell
+    /// the two apart: it sees only "some sample was high". Taking the median ACROSS series at each
+    /// instant answers the question that actually distinguishes them, because a lone squealer is
+    /// outvoted by its clean neighbors while a genuinely loaded link carries all of them up.
+    /// </para>
+    /// <para>
+    /// An instant with fewer than <paramref name="minCohort"/> distinct series has nothing to
+    /// corroborate against and is passed through untouched - a short event where only one hop
+    /// happened to be probed is still evidence, just uncorroborated evidence.
+    /// </para>
+    /// </summary>
+    public static List<(DateTime Time, double Value)> CommonModeByInstant(
+        IReadOnlyList<(DateTime Time, double Value, int Series)> samples,
+        TimeSpan tolerance,
+        int minCohort)
+    {
+        var result = new List<(DateTime Time, double Value)>();
+        if (samples.Count == 0) return result;
+
+        var ordered = samples.OrderBy(s => s.Time).ToList();
+        var i = 0;
+        while (i < ordered.Count)
+        {
+            var start = ordered[i].Time;
+            var j = i;
+            while (j < ordered.Count && ordered[j].Time - start <= tolerance) j++;
+
+            var cluster = ordered.GetRange(i, j - i);
+            var distinct = cluster.Select(c => c.Series).Distinct().Count();
+            if (distinct >= minCohort)
+            {
+                var m = Median(cluster.Select(c => c.Value).ToList());
+                if (m.HasValue) result.Add((start, m.Value));
+            }
+            else
+            {
+                result.AddRange(cluster.Select(c => (c.Time, c.Value)));
+            }
+
+            i = j;
+        }
+
+        return result;
+    }
+
     public static double? WeightedMedian(IReadOnlyList<(double Value, double Weight)> samples)
     {
         var usable = samples.Where(s => s.Weight > 0).OrderBy(s => s.Value).ToArray();

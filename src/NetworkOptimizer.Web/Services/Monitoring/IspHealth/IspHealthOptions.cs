@@ -89,6 +89,20 @@ public class IspHealthOptions
     /// smallest run that is not a fluke; below that the weighted median decides as before.
     /// </para>
     /// </summary>
+    /// <summary>
+    /// How close in time two hops' samples must be to count as the same instant for the
+    /// cross-hop agreement check. One second: close enough that the same queue state is being
+    /// reported by both, loose enough to catch probes that do not fire in lockstep.
+    /// </summary>
+    public double LoadedLatencyAgreementToleranceSeconds { get; set; } = 1;
+
+    /// <summary>
+    /// How many distinct hops must report at one instant before their agreement is consulted.
+    /// Below this there is nothing to corroborate against and the samples pass through as they
+    /// are - see <see cref="SeriesStats.CommonModeByInstant"/>.
+    /// </summary>
+    public int LoadedLatencyAgreementMinCohort { get; set; } = 4;
+
     public int LoadedLatencyRegimeSamples { get; set; } = 3;
 
     /// <summary>
