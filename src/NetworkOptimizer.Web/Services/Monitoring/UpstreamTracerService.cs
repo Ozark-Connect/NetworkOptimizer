@@ -800,6 +800,21 @@ public class UpstreamTracerService
         State.WanIpAddress = wanIp;
         State.WanIpClass = NetworkUtilities.ClassifyPublicAddress(wanIp);
 
+        // A gre* uplink is a UniFi Cellular Modem attached to the gateway, and nothing else on the
+        // gateway presents a WAN that way, so this WAN's medium is known from the interface rather
+        // than guessed from whoever answered. It settles only this case: a third-party modem or a
+        // bridged carrier router is equally cellular and looks like an ordinary WAN, so those still
+        // rely on the inference below or on the user. Decided HERE rather than beside the vendor
+        // inference because a GRE tunnel has no ARP neighbor, so that step returns early on exactly
+        // these WANs and never reaches it. Still only fills an empty slot.
+        if (State.AccessTechnology is AccessTechnology.Unknown or AccessTechnology.PppoE
+            && NetworkUtilities.IsUniFiCellularModemTunnel(_wanUplinkIfName))
+        {
+            State.AccessTechnology = AccessTechnology.Cellular;
+            State.AccessTechnologyInferred = true;
+            _logger.LogDebug("Tracer: access technology set to Cellular from the {Uplink} uplink", _wanUplinkIfName);
+        }
+
         switch (State.WanIpClass)
         {
             case PublicAddressClass.PublicIPv4:
@@ -964,17 +979,6 @@ public class UpstreamTracerService
         // re-derivable any time from uplink_ifname "ppp0" / wan_type "pppoe". Nothing infers PPPoE -
         // TechnologyFromVendor cannot return it, and it is no longer in the Upstream Discovery
         // dropdown - so this only redirects values picked before it was removed.
-        // A gre* uplink is a UniFi cellular modem and nothing else, so the medium is known from the
-        // interface rather than guessed from whoever answered. Runs before the vendor pass so the
-        // definitive answer wins, and still only fills an empty slot - a user's choice stands.
-        if (State.AccessTechnology is AccessTechnology.Unknown or AccessTechnology.PppoE
-            && GatewayWanHelper.IsCellularUplink(_wanUplinkIfName))
-        {
-            State.AccessTechnology = AccessTechnology.Cellular;
-            State.AccessTechnologyInferred = true;
-            _logger.LogDebug("Tracer: access technology set to Cellular from the {Uplink} uplink", _wanUplinkIfName);
-        }
-
         if (State.AccessTechnology is AccessTechnology.Unknown or AccessTechnology.PppoE)
         {
             var inferred = TechnologyFromVendor(State.WanNeighborOuiVendor);
@@ -1228,15 +1232,8 @@ public class UpstreamTracerService
         // the first responsive hops are all private). Carrier-side CGNAT
         // hops (also private, Asn == null) are still eligible - they ARE
         // first-mile access infra.
-        // On a cellular WAN the gateway reaches the modem over a GRE tunnel, so hop 1 is the modem's
-        // own tunnel endpoint - a CGNAT address on our side of the radio that answers every trace and
-        // says nothing about the carrier's first mile. Dropped only for gre* uplinks: everywhere else
-        // hop 1 IS the ISP's first-mile device, and carrier CGNAT hops past this one stay eligible.
-        var greUplink = GatewayWanHelper.IsCellularUplink(_wanUplinkIfName);
-
         var candidateHops = _mergedHops
             .Where(h => !_gatewayIps.Contains(h.Address))
-            .Where(h => !greUplink || h.HopNumber > 1)
             .ToList();
 
         // Resolve the destination (CDN) ASNs up front: the access-ISP pick below must
@@ -1300,6 +1297,27 @@ public class UpstreamTracerService
                 .OrderBy(h => h.HopNumber)
                 .ToList();
             _accessHopsResolved = unannounced.Concat(_accessHopsResolved).ToList();
+        }
+
+        // On a UniFi Cellular Modem WAN the gateway reaches the modem over a GRE tunnel, so hop 1 is
+        // the modem's own tunnel endpoint: a CGNAT address on our side of the radio, answering in a
+        // fraction of a millisecond, that says nothing about the carrier's first mile. Dropped here
+        // rather than in any single collector because three paths feed this pool - the access-ASN
+        // filter, the positional pass for unannounced CGNAT first-mile hops, and the border walk -
+        // and it arrives by the second, which by design admits exactly this shape of address.
+        // Confined to that one topology: a cellular WAN behind any other modem has no tunnel hop to
+        // drop, and on every other medium hop 1 IS the first-mile device. Carrier hops past it, CGNAT
+        // included, stay eligible.
+        if (NetworkUtilities.IsUniFiCellularModemTunnel(_wanUplinkIfName))
+        {
+            var tunnelHops = _accessHopsResolved.Where(h => h.HopNumber <= 1).ToList();
+            if (tunnelHops.Count > 0)
+            {
+                _accessHopsResolved = _accessHopsResolved.Where(h => h.HopNumber > 1).ToList();
+                _logger.LogDebug(
+                    "Tracer: dropped {Count} first hop(s) at the {Uplink} tunnel endpoint from the access pool: {Addresses}",
+                    tunnelHops.Count, _wanUplinkIfName, string.Join(", ", tunnelHops.Select(h => h.Address)));
+            }
         }
 
         // Walk each individual trace to find border hops: an access-ASN hop
