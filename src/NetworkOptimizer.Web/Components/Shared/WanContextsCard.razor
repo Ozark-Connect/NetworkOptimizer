@@ -106,7 +106,7 @@
                                 {
                                     <span class="wc-targets-none">0</span>
                                     <SiteOperatorOnly>
-                                        <button class="btn btn-link wc-targets-assign" @onclick="JumpToLatencyTargetsAsync">Assign targets</button>
+                                        <button class="btn btn-link wc-targets-assign" @onclick="() => JumpToDiscoveryAsync(wc)">Assign targets</button>
                                     </SiteOperatorOnly>
                                 }
                                 else
@@ -370,9 +370,17 @@
     [Parameter]
     public EventCallback OnChanged { get; set; }
 
-    /// <summary>Raised by Assign targets, so the page can open the Latency Targets card.</summary>
+    /// <summary>
+    /// Raised to open the Latency Targets card. Not currently wired to a control - Assign targets
+    /// sends a vantage with no targets to discovery instead - but kept for the case where a
+    /// vantage that already HAS targets wants to jump to its list.
+    /// </summary>
     [Parameter]
     public EventCallback OnAssignTargets { get; set; }
+
+    /// <summary>Raised by Assign targets on a vantage with no targets: run discovery for its WAN.</summary>
+    [Parameter]
+    public EventCallback<string?> OnDiscoverTargets { get; set; }
 
     /// <summary>
     /// Opens the card when a link sent the user here. A WAN with no context cannot be discovered
@@ -493,6 +501,17 @@
     {
         try { _connectedAgents = TunnelRegistry.GetForSite(SiteCtx.Slug).Select(c => c.AgentId).ToHashSet(); }
         catch { _connectedAgents = new(); }
+    }
+
+    /// <summary>
+    /// A vantage with no targets is at its starting state, and discovery is how that state is
+    /// left: sending someone to an empty target list asks them to hand-enter what a trace would
+    /// find. The WAN goes with it so discovery opens on the one they clicked.
+    /// </summary>
+    private async Task JumpToDiscoveryAsync(WanContext context)
+    {
+        if (OnDiscoverTargets.HasDelegate)
+            await OnDiscoverTargets.InvokeAsync(context.WanInterface);
     }
 
     private async Task JumpToLatencyTargetsAsync()

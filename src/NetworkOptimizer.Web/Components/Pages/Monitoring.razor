@@ -655,7 +655,8 @@
         {
             <div id="wan-contexts" style="margin-top: 1.5rem;">
                 <WanContextsCard WanContexts="_wanContexts" ForceExpand="_forceExpandWanContexts" OnChanged="OnTargetsChanged"
-                                 OnAssignTargets="OpenLatencyTargetsAsync" />
+                                 OnAssignTargets="OpenLatencyTargetsAsync"
+                                 OnDiscoverTargets="OpenDiscoveryForWanAsync" />
             </div>
         }
     }
@@ -2174,6 +2175,14 @@
     private async Task AdoptSharedWanFocusAsync(bool apply = true)
     {
         if (!_multiWanUiVisible || _wanOptions.Count <= 1) return;
+        // A link's narrowing is not a selection to reason from. Entering the tab runs this with
+        // apply:true, so on the way back from a jump it saw the narrowed set, found no shared
+        // focus, defaulted to the primary, and - because the narrowed WAN was not the primary -
+        // replaced the set with it AND WROTE THAT to storage. That is what destroyed a saved All:
+        // the first round trip looked right, and every one after it read back the primary. The
+        // narrowing is released and the stored set re-read when the charts remount; until then
+        // there is nothing here worth adopting against.
+        if (_linkNarrowedWanSelection) return;
         try
         {
             var shared = await JS.InvokeAsync<string?>("localStorage.getItem", SharedWanScopeKey);
@@ -3496,7 +3505,20 @@
         }
     }
 
-    /// <summary>Opens and reveals the Latency Targets card - the Assign targets jump.</summary>
+    /// <summary>
+    /// Opens Upstream Path Discovery on a WAN - where a vantage with no targets starts. Same
+    /// expand-and-scroll as the discover=1 deep link, with the WAN pre-selected in the panel.
+    /// </summary>
+    private void OpenDiscoveryForWanAsync(string? wanKey)
+    {
+        if (!string.IsNullOrWhiteSpace(wanKey))
+            _discoveryWanKey = wanKey.Trim().ToLowerInvariant();
+        _forceExpandUpstream = true;
+        _scrollToDiscoveryPending = true;
+        StateHasChanged();
+    }
+
+    /// <summary>Opens and reveals the Latency Targets card, for a jump that wants the list.</summary>
     private async Task OpenLatencyTargetsAsync()
     {
         if (_latencyTargetsCard != null) await _latencyTargetsCard.ExpandAndRevealAsync();
