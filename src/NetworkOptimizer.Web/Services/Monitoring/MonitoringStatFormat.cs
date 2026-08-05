@@ -12,8 +12,15 @@ namespace NetworkOptimizer.Web.Services.Monitoring;
 /// </summary>
 public static class MonitoringStatFormat
 {
-    /// <summary>Round-trip time as "1.00 ms", or "-" when nothing has been measured.</summary>
-    public static string Rtt(double? ms) => ms.HasValue ? $"{ms.Value:0.00} ms" : "-";
+    /// <summary>
+    /// Round-trip time as "1.00 ms", dropping to one decimal at 100 ms and above ("120.5 ms"), or
+    /// "-" when nothing has been measured. The step keeps the digit count steady rather than
+    /// breaking it: "99.99" and "100.0" are the same width, so the tile does not jump as a figure
+    /// crosses a hundred, and the second decimal stops being worth its space once the number is
+    /// that large.
+    /// </summary>
+    public static string Rtt(double? ms) =>
+        ms.HasValue ? (ms.Value >= 100 ? $"{ms.Value:0.0} ms" : $"{ms.Value:0.00} ms") : "-";
 
     /// <summary>Loss as "0.0%". Zero is shown to the same precision - it is a reading, not an absence.</summary>
     public static string Loss(double percent) => $"{percent:0.0}%";
