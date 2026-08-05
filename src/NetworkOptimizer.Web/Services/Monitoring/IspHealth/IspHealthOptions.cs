@@ -1037,7 +1037,14 @@ public static class IspHealthProfiles
             IdleLossIdealPct: 0.2, IdleLossAcceptablePct: 0.5,
             LoadedLossDownLowPct: 0.5, LoadedLossDownHighPct: 1.0,
             LoadedLossUpLowPct: 0.25, LoadedLossUpHighPct: 0.5,
-            LoadedDeltaExcellentMs: 5.0, LoadedDeltaAcceptableMs: 25.0,
+            // Set from 403 real Starlink tests. The old 25 ms ceiling sat above the 95th
+            // percentile of measured delta (17.3 down, 21.6 up), so 97% of load events passed and
+            // nothing could ever fail it. 12 ms sits near p88 and flags the worst sixth; 3 ms is
+            // about the median, so "excellent" still means better than this link's usual.
+            // Not pushed lower on purpose: idle RTT itself swings 16 to 77 ms with obstructions
+            // and handovers, and a quarter of measured deltas come out negative, so a tighter
+            // ceiling would be reading that movement rather than queueing.
+            LoadedDeltaExcellentMs: 3.0, LoadedDeltaAcceptableMs: 12.0,
             JitterIdealMs: 5.0, JitterTypicalMs: 6.5, JitterPoorMs: 15.0,
             StabilityMadIdealMs: 5.0, StabilityMadTypicalMs: 9.0, StabilityMadPoorMs: 22.0),
 
