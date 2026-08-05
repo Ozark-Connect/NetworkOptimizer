@@ -9548,6 +9548,12 @@ a.path-hop.hop-clickable:hover {
     max-width: 100%;
 }
 
+@media (max-width: 768px) {
+    .wan-selector-standalone {
+        width: auto;
+    }
+}
+
 .wan-all-btn {
     flex: 0.4;
 }
