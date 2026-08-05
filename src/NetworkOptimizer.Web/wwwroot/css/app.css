@@ -15528,13 +15528,8 @@ a.affected-client:hover {
 }
 
 .live-view-jump-row:not(:has(.wan-selector)) {
-    height: 0;
+    margin-bottom: -0.35rem;
     align-items: flex-end;
-}
-
-.live-view-jump-row:not(:has(.wan-selector)) .monitoring-jump-btn {
-    position: relative;
-    top: -0.4rem;
 }
 
 .latency-targets-empty {
@@ -15544,6 +15539,10 @@ a.affected-client:hover {
 
 .card-corner-jump {
     position: relative;
+}
+
+.card-corner-jump > .card-header {
+    padding-right: 2.9rem;
 }
 
 .card-corner-jump > .monitoring-jump-btn {
