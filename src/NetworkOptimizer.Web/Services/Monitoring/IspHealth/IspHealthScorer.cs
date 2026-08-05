@@ -431,17 +431,53 @@ public class IspHealthScorer
             var upDeltas = Deltas(t => t.UploadLatencyMs);
             if (down == null && downDeltas.Count > 0)
             {
-                down = SeriesStats.WeightedMedian(downDeltas);
+                down = LoadedDeltaFromTests(downDeltas);
                 downFromSpeedTest = true;
             }
             if (up == null && upDeltas.Count > 0)
             {
-                up = SeriesStats.WeightedMedian(upDeltas);
+                up = LoadedDeltaFromTests(upDeltas);
                 upFromSpeedTest = true;
             }
         }
         return new LoadedDeltas(down, up, downFromSpeedTest, upFromSpeedTest);
     }
+
+    /// <summary>
+    /// The loaded delta the speed tests support, newest first. Normally the recency-weighted
+    /// median; but when the newest runs in a row all sit far below everything older, that is a
+    /// line someone FIXED, and the older tests describe a connection that no longer exists.
+    /// <para>
+    /// Age-weighting alone cannot see this. The scoring window is short, so a fix this afternoon
+    /// leaves a handful of clean tests against a handful of bad ones only hours older - too close
+    /// in age for decay to separate, and the median stays on the bad cluster for days after the
+    /// line stopped misbehaving.
+    /// </para>
+    /// </summary>
+    private double? LoadedDeltaFromTests(IReadOnlyList<(double Value, double Weight)> newestFirst)
+    {
+        var run = _options.LoadedLatencyRegimeSamples;
+        if (run > 0 && newestFirst.Count > run)
+        {
+            var recent = newestFirst.Take(run).Select(s => s.Value).ToList();
+            var older = newestFirst.Skip(run).Select(s => s.Value).ToList();
+            var olderMedian = SeriesStats.Median(older);
+            if (olderMedian is { } baseline)
+            {
+                // The floor keeps a connection whose delta is already small from tripping this on
+                // ordinary measurement noise - halving 1 ms proves nothing.
+                var threshold = Math.Max(
+                    baseline * _options.LoadedLatencyRegimeDropFraction,
+                    LoadedLatencyRegimeFloorMs);
+                if (recent.All(v => v < threshold) && baseline > LoadedLatencyRegimeFloorMs)
+                    return SeriesStats.Median(recent);
+            }
+        }
+        return SeriesStats.WeightedMedian(newestFirst);
+    }
+
+    /// <summary>Below this a loaded delta is too small for a "it was fixed" call to mean anything.</summary>
+    private const double LoadedLatencyRegimeFloorMs = 3;
 
     /// <summary>
     /// Median RTT of the first clean ISP hop during idle windows. Without load
@@ -707,6 +743,9 @@ public class IspHealthScorer
             deltas.DownMs.HasValue ? $"+{FormatLoadedDelta(deltas.DownMs.Value)} down" : "n/a down",
             deltas.UpMs.HasValue ? $"+{FormatLoadedDelta(deltas.UpMs.Value)} up" : "n/a up"
         };
+        _logger.LogDebug(
+            "ISP Health: loaded latency down={Down} (speedTest={DownSt}) up={Up} (speedTest={UpSt})",
+            deltas.DownMs, deltas.DownFromSpeedTest, deltas.UpMs, deltas.UpFromSpeedTest);
         var valuedDirections = (deltas.DownMs.HasValue ? 1 : 0) + (deltas.UpMs.HasValue ? 1 : 0);
         var speedTestDirections = (deltas.DownMs.HasValue && deltas.DownFromSpeedTest ? 1 : 0)
             + (deltas.UpMs.HasValue && deltas.UpFromSpeedTest ? 1 : 0);
@@ -1997,7 +2036,7 @@ public class IspHealthScorer
             if (inputs.AdaptiveSqmEnabled)
             {
                 recommendation = "Adaptive SQM is already shaping this WAN, so loss under load means the rate it holds isn't backing off enough when the line congests. In your Adaptive SQM settings, raise the Severity so the peak-hour rate dips go deeper, or lower the nominal download/upload if the line consistently delivers less than its plan. If loss persists once the rate is pulled down, the drops are upstream and only your ISP can fix them.";
-                latencyRecommendation = "Adaptive SQM is already shaping this WAN, so added delay under load means the rate it holds isn't backing off enough when the line congests. In your Adaptive SQM settings, raise the Severity so the peak-hour rate dips go deeper, or lower the nominal download/upload if the line consistently delivers less than its plan. If the delay persists once the rate is pulled down, the queue is upstream and only your ISP can drain it.";
+                latencyRecommendation = "Adaptive SQM is already shaping this WAN, so latency under load means the rate it holds isn't backing off enough when the line congests. In your Adaptive SQM settings, raise the Severity so the peak-hour rate dips go deeper, or lower the nominal download/upload if the line consistently delivers less than its plan. If the latency persists once the rate is pulled down, the queue is upstream and only your ISP can drain it.";
             }
             else if (inputs.SmartQueuesEnabled)
             {

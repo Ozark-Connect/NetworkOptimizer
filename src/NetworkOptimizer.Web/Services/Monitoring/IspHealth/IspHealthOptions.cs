@@ -78,6 +78,27 @@ public class IspHealthOptions
     /// </summary>
     public double LoadedLatencyRecencyHalfLifeHours { get; set; } = 48;
 
+    /// <summary>
+    /// Consecutive newest speed tests that, if all materially better than what came before, are
+    /// read as the line having been FIXED rather than as it varying - and the older tests are then
+    /// describing a connection that no longer exists.
+    /// <para>
+    /// Weighting by age alone cannot answer this. The window is short enough that a fix this
+    /// afternoon leaves three clean tests against four bad ones only hours older, where decay
+    /// barely separates them and the median still sits on the bad cluster. Three in a row is the
+    /// smallest run that is not a fluke; below that the weighted median decides as before.
+    /// </para>
+    /// </summary>
+    public int LoadedLatencyRegimeSamples { get; set; } = 3;
+
+    /// <summary>
+    /// How far below the older tests the recent run has to sit to count as a fix: at 0.5, every one
+    /// of them must be under half the older median. A line that merely had a good afternoon does
+    /// not clear this, and a plausible measurement floor is allowed for besides, so a connection
+    /// whose delta is already small cannot trip it on noise.
+    /// </summary>
+    public double LoadedLatencyRegimeDropFraction { get; set; } = 0.5;
+
     /// <summary>Weight of loaded packet loss within the access dimension.</summary>
     public double LoadedLossWeight { get; set; } = 0.14875;
 
