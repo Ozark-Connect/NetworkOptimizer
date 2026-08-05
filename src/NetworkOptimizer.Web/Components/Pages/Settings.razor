@@ -3911,8 +3911,15 @@
             var wans = await PathView.GetWansAsync();
             if (wans.Count <= 1) return;
 
-            await using var db = SiteDb.CreateForSite(SiteContext.Slug, SiteContext.IsDefault);
-            if (await db.WanContexts.AnyAsync()) return;
+            // Agent-bound, not merely present. A vantage with no agent behind it is the state this
+            // card exists to get someone out of: they created one, nothing probes it, and the reason
+            // is the step this card names. Treating any vantage as "sorted" would hide the advice
+            // from exactly the person stuck for want of it.
+            // TEMPORARILY DISABLED for testing the card on a site that already has bound vantages -
+            // restore before this ships.
+            // await using var db = SiteDb.CreateForSite(SiteContext.Slug, SiteContext.IsDefault);
+            // if (await db.WanContexts.AnyAsync(c => c.AgentId != null)) return;
+            await Task.CompletedTask;
 
             _showMultiWanHint = await UiHints.ShouldShowAsync(UiHintKeys.MultiWanVantageSetup);
             if (_showMultiWanHint) StateHasChanged();
