@@ -15502,6 +15502,31 @@ a.affected-client:hover {
     color: var(--text-primary);
 }
 
+.monitoring-jump-btn {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.2rem 0.35rem;
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    line-height: 1;
+    cursor: pointer;
+}
+
+.monitoring-jump-btn:hover {
+    color: var(--text-primary);
+}
+
+.live-view-jump-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+}
+
+.live-view-jump-row .monitoring-jump-btn {
+    margin-left: auto;
+}
+
 .wan-filter-badge {
     display: inline-flex;
     align-items: center;

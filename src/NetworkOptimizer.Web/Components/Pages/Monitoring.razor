@@ -278,6 +278,7 @@
             </div>
         }
 
+            <div class="live-view-jump-row">
             @if (LiveWan.HasChoice)
             {
                 @* Separate scope from the analysis selectors on purpose - watching a WAN here must not move them. *@
@@ -300,6 +301,10 @@
                     }
                 </div>
             }
+                <MonitoringJumpButton Icon="MonitoringJumpButton.JumpIcon.Analyze"
+                                      Tooltip="Analyze this moment in Latency &amp; Packet Loss"
+                                      OnClick="() => JumpToAnalysis(AccessIspCategory)" />
+            </div>
         <!-- Top stat cards: WAN rates, ISP Health score, ISP/Transit mean RTT/loss -->
         <div class="monitoring-stat-cards">
             @{ var wanRates = GetWanRates(); }
@@ -570,6 +575,9 @@
                     <button class="time-btn" data-shift="forward" data-tooltip="Shift window forward">&#x25B6;</button>
                     </div>
                 </div>
+                <MonitoringJumpButton Icon="MonitoringJumpButton.JumpIcon.Watch"
+                                      Tooltip="Watch this moment in Live View"
+                                      OnClick="JumpToLiveAsync" />
             </div>
             <div class="card-body">
                 <div class="latency-filter-badges wan-filter-badges"></div>
@@ -2178,6 +2186,48 @@
         catch { /* no interop yet - the stored set stands */ }
     }
 
+    /// <summary>
+    /// Applies a WAN filter carried in from the Live tab, for this visit only. Runs BEFORE the
+    /// stored selection is read and claims the restore, so the link decides what the analysis is
+    /// scoped to without the saved filter being read over the top of it - or written to. Gated on
+    /// a category riding along, which only the Live tab's jump sends: a discovery link carries a
+    /// WAN too, and narrowing this filter is not what that one is asking for.
+    /// </summary>
+    private async Task ApplyLinkWanSelectionAsync()
+    {
+        if (_wanSelectionRestored || !_multiWanUiVisible || _wanOptions.Count <= 1) return;
+        if (string.IsNullOrWhiteSpace(WanParam) || string.IsNullOrEmpty(CategoryParam)) return;
+
+        var keys = ResolveLinkWanKeys(WanParam);
+        if (keys.Count == 0) return;
+
+        _wanSelectionRestored = true;
+        _selectedWanKeys = new HashSet<string>(keys, StringComparer.OrdinalIgnoreCase);
+        await ApplyWanSelectionAsync(persist: false);
+    }
+
+    /// <summary>
+    /// The WAN keys a link's <c>?wan=</c> names: "all" for a view that spans every WAN, otherwise
+    /// a comma list. Matched on WAN index rather than string for the same reason the live scope
+    /// does it - the primary answers to "wan", "wan1" and "WAN" depending on who wrote the link.
+    /// </summary>
+    private List<string> ResolveLinkWanKeys(string wanParam)
+    {
+        var trimmed = wanParam.Trim();
+        if (string.Equals(trimmed, Services.Monitoring.LiveWanScope.AllWansToken, StringComparison.OrdinalIgnoreCase))
+            return _wanOptions.Select(o => o.Key).ToList();
+
+        return trimmed
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey)
+            .Where(index => index > 0)
+            .Select(index => _wanOptions
+                .FirstOrDefault(o => NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey(o.Key) == index)?.Key)
+            .OfType<string>()
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
     private async Task RestoreWanSelectionAsync()
     {
         if (_wanSelectionRestored || !_multiWanUiVisible || _wanOptions.Count <= 1) return;
@@ -2417,6 +2467,7 @@
     private string? _soloSfpModuleId;
     private string? _soloDeviceMac;
     private string? _preSelectCategory;
+    private long? _preSelectAtMs;
     private string? _soloTargetId;
     private bool _mapOrder2dFirst;
     private bool _liveViewOnDashboard;
@@ -2524,6 +2575,11 @@
         {
             _preSelectCategory = CategoryParam;
             _soloTargetId = TargetParam;
+            // An instant rode in with the category: a jump from the Live tab, which frames the
+            // window on that moment instead of just switching which targets are drawn.
+            _preSelectAtMs = long.TryParse(AtParam, out var analyzeAtMs) && analyzeAtMs > 0
+                ? analyzeAtMs
+                : null;
         }
     }
 
@@ -3202,6 +3258,72 @@
     /// which is the request the chart made before it could be pointed anywhere. Several entries
     /// put it in comparison mode, one line pair per WAN.
     /// </summary>
+    // ─── Cross-tab jumps: watch a moment, or analyze it ───
+
+    // The category tokens the chart module and its header buttons use. Named here because the
+    // jumps have to reason about two of them: LAN and Custom targets are not reached over any one
+    // WAN, so those views span every WAN rather than carrying a filter across.
+    private const string FabricCategory = "Fabric";
+    private const string AccessIspCategory = "AccessIsp";
+    private const string CustomCategory = "Custom";
+
+    /// <summary>The instant the Live tab is showing: the parked playback position, or now.</summary>
+    private DateTime LiveViewInstant => _mapHistoricAt ?? DateTime.UtcNow;
+
+    /// <summary>
+    /// The live WAN selection as a ?wan= value - the whole set rather than just the focus, so a
+    /// comparison of two WANs arrives at the other tab as that same comparison.
+    /// </summary>
+    private string LiveWanQueryValue() =>
+        LiveWan.AllSelected
+            ? Services.Monitoring.LiveWanScope.AllWansToken
+            : string.Join(",", LiveWan.SelectedKeys);
+
+    /// <summary>
+    /// Opens Latency and Packet Loss on what the Live tab is showing: the same instant, the
+    /// category for the thing being watched, and the WAN selection carried across. The analysis
+    /// view's own saved filter survives untouched - navigateToTime stashes what it replaces and
+    /// puts it back on the way out - so following this never costs someone the filter they set
+    /// up over there.
+    /// </summary>
+    private void JumpToAnalysis(string category)
+    {
+        var atMs = new DateTimeOffset(LiveViewInstant.ToUniversalTime()).ToUnixTimeMilliseconds();
+        // LAN targets are not reached over any one WAN, so that jump asks for all of them rather
+        // than narrowing the analysis to whichever WAN the tiles happened to be showing.
+        var wan = category == FabricCategory
+            ? Services.Monitoring.LiveWanScope.AllWansToken
+            : LiveWanQueryValue();
+        var wanQuery = LiveWan.HasChoice && wan.Length > 0 ? $"&wan={Uri.EscapeDataString(wan)}" : "";
+        NavigationManager.NavigateTo($"/monitoring?tab=performance&category={category}&at={atMs}{wanQuery}");
+    }
+
+    private sealed record LatencyChartView(string AtIso, string Category);
+
+    /// <summary>
+    /// Plays back the moment Latency and Packet Loss is framing - the center of the window on
+    /// screen, which is where someone puts the spike they are looking at. A LAN or Custom view
+    /// spans every WAN and asks for all of them; ISP, Transit and Internet carry their WAN filter
+    /// across. The Live tab's own saved filter is left where it was either way: the link applies
+    /// for the visit only.
+    /// </summary>
+    private async Task JumpToLiveAsync()
+    {
+        try
+        {
+            var view = await JS.InvokeAsync<LatencyChartView>("__latencyCharts.currentView");
+            var at = DateTime.Parse(view.AtIso, null, System.Globalization.DateTimeStyles.RoundtripKind);
+            var atMs = new DateTimeOffset(at.ToUniversalTime()).ToUnixTimeMilliseconds();
+            var spansEveryWan = view.Category == FabricCategory || view.Category == CustomCategory;
+            var wan = spansEveryWan || AllWansSelected
+                ? Services.Monitoring.LiveWanScope.AllWansToken
+                : string.Join(",", _selectedWanKeys);
+            var wanQuery = _multiWanUiVisible && wan.Length > 0 ? $"&wan={Uri.EscapeDataString(wan)}" : "";
+            NavigationManager.NavigateTo($"/monitoring?tab=live&at={atMs}{wanQuery}");
+        }
+        catch (Exception ex) { Logger.LogDebug(ex, "Live view jump failed; latency charts not ready"); }
+    }
+
     private string LiveWanJsLiteral()
     {
         var selected = LiveWan.SelectedOptions;
@@ -4111,6 +4233,9 @@
             <div class="card-header">
                 <h2 class="card-title">3D LAN Flow Map</h2>
                 <div class="card-header-right">
+                    <MonitoringJumpButton Icon="MonitoringJumpButton.JumpIcon.Analyze"
+                                          Tooltip="Analyze this moment in Latency &amp; Packet Loss"
+                                          OnClick="() => JumpToAnalysis(FabricCategory)" />
                     <button class="card-edit-btn" @onclick="SwapMapOrderAsync" data-tooltip="Swap map order">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="7 3 7 21"/><polyline points="3 7 7 3 11 7"/><polyline points="17 21 17 3"/><polyline points="13 17 17 21 21 17"/></svg>
                     </button>
@@ -4130,6 +4255,9 @@
             <div class="card-header">
                 <h2 class="card-title">LAN Topology Flow Map</h2>
                 <div class="card-header-right">
+                    <MonitoringJumpButton Icon="MonitoringJumpButton.JumpIcon.Analyze"
+                                          Tooltip="Analyze this moment in Latency &amp; Packet Loss"
+                                          OnClick="() => JumpToAnalysis(FabricCategory)" />
                     <button class="card-edit-btn" @onclick="SwapMapOrderAsync" data-tooltip="Swap map order">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="7 3 7 21"/><polyline points="3 7 7 3 11 7"/><polyline points="17 21 17 3"/><polyline points="13 17 17 21 21 17"/></svg>
                     </button>
@@ -4892,16 +5020,24 @@
                 var postMount = "";
                 if (!string.IsNullOrEmpty(_preSelectCategory))
                 {
-                    postMount = $"m.setCategory('{System.Text.Encodings.Web.JavaScriptEncoder.Default.Encode(_preSelectCategory)}');";
+                    var category = System.Text.Encodings.Web.JavaScriptEncoder.Default.Encode(_preSelectCategory);
+                    // A jump from the Live tab carries the moment it was showing, so the window is
+                    // framed on it rather than the category simply being switched underneath the
+                    // range the card happened to be on.
+                    postMount = _preSelectAtMs is { } atMs
+                        ? $"m.frameMoment('{DateTimeOffset.FromUnixTimeMilliseconds(atMs).UtcDateTime:O}', '{category}');"
+                        : $"m.setCategory('{category}');";
                     if (!string.IsNullOrEmpty(_soloTargetId))
                         postMount += $"m.soloTarget('{System.Text.Encodings.Web.JavaScriptEncoder.Default.Encode(_soloTargetId)}');";
                     _preSelectCategory = null;
                     _soloTargetId = null;
+                    _preSelectAtMs = null;
                 }
                 // Read the stored selection BEFORE mounting so the scope rides in with the mount
                 // call: pushing it afterwards races the module import, and a remount would
                 // otherwise come back unfiltered. A single-WAN site passes null and the module
                 // renders exactly as it always has.
+                await ApplyLinkWanSelectionAsync();
                 await RestoreWanSelectionAsync();
                 await JS.InvokeVoidAsync("eval",
                     $"(async () => {{ const m = await import('{chartsUrl}'); window.__latencyCharts = m; await m.mount('latency-charts-container', {WanScopeJson()}, '{DefaultChartCategory()}'); {postMount} }})();");

@@ -32,6 +32,9 @@ public sealed class LiveWanScope
     private bool _restored;
     private bool _pinned;
 
+    /// <summary>The <c>?wan=</c> value meaning every WAN, for links from a view that spans them all.</summary>
+    public const string AllWansToken = "all";
+
     public LiveWanScope(
         MonitoringPathView pathView,
         SiteDbContextFactory siteDb,
@@ -233,12 +236,28 @@ public sealed class LiveWanScope
     /// That raced: the same link kept or dropped the WAN depending on which finished first.
     /// </para>
     /// </summary>
-    public async Task<bool> SelectFromLinkAsync(string? wanKey)
+    public async Task<bool> SelectFromLinkAsync(string? wanParam)
     {
-        if (ResolveOptionKey(wanKey) is not { } key) return false;
+        if (string.IsNullOrWhiteSpace(wanParam) || Options.Count == 0) return false;
+
+        // "all" and comma lists both exist because the analysis views send their whole WAN filter
+        // over, not just a focus: a LAN or Custom view spans every WAN and says so with "all",
+        // while an ISP view narrowed to two WANs sends those two and expects to see those two.
+        var keys = string.Equals(wanParam.Trim(), AllWansToken, StringComparison.OrdinalIgnoreCase)
+            ? Options.Select(o => o.Key).ToList()
+            : wanParam
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Select(ResolveOptionKey)
+                .OfType<string>()
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        if (keys.Count == 0) return false;
+
         _pinned = true;
         _restored = true;
-        await SelectAsync(key, persist: false);
+        _selected.Clear();
+        foreach (var key in keys) _selected.Add(key);
+        await PersistAndNotifyAsync(persist: false);
         return true;
     }
 

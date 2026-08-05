@@ -1,0 +1,30 @@
+@* Cross-tab jump between watching and analyzing the same moment: the magnifier opens the
+   analysis view for what is on screen, the eye plays back the moment the analysis is framing.
+   One component so the two directions cannot drift apart in glyph, hit area, or tooltip mode. *@
+<button type="button" class="monitoring-jump-btn" @onclick="OnClick" @onclick:stopPropagation
+        aria-label="@Tooltip" data-tooltip="@Tooltip" data-tooltip-hover-only>
+    @if (Icon == JumpIcon.Analyze)
+    {
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="11" cy="11" r="7" />
+            <path d="m20 20-3.9-3.9" />
+        </svg>
+    }
+    else
+    {
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7Z" />
+            <circle cx="12" cy="12" r="3" />
+        </svg>
+    }
+</button>
+
+@code {
+    public enum JumpIcon { Analyze, Watch }
+
+    [Parameter] public JumpIcon Icon { get; set; }
+    [Parameter] public string Tooltip { get; set; } = "";
+    [Parameter] public EventCallback OnClick { get; set; }
+}

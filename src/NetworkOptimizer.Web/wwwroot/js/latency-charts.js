@@ -752,23 +752,17 @@ export async function mount(elId, initialWanScope, initialCategory) {
     startPoll();
 }
 
-export function navigateToTime(isoTimestamp, category, label, loaded, eventStartIso, eventEndIso) {
+// Frames a custom window centered on one instant and switches category, stashing the view it
+// replaced so leaving can put the user's own filter back. Shared by the two ways in - the
+// Investigate flow below and the jump from the Live tab - because centering, the range-button
+// bookkeeping and the save-once rule are the same job for both; only the marker differs.
+function frameCustomWindow(ts, category, halfWindowMs) {
     if (!savedState) {
         savedState = { category: currentCategory, rangeHours: currentRangeHours,
             customFrom, customTo, isCustomRange, windowOffset, visibility: { ...visibility } };
     }
-    const ts = new Date(isoTimestamp).getTime();
-    investigateMarker = label
-        ? {
-            startMs: eventStartIso ? new Date(eventStartIso).getTime() : ts,
-            endMs: eventEndIso ? new Date(eventEndIso).getTime() : ts,
-            label,
-            loaded: !!loaded,
-        }
-        : null;
-    const windowMs = 10 * 60000; // 10 min window centered on event
-    customFrom = new Date(ts - windowMs);
-    customTo = new Date(ts + windowMs);
+    customFrom = new Date(ts - halfWindowMs);
+    customTo = new Date(ts + halfWindowMs);
     isCustomRange = true;
     windowOffset = 0;
     if (category) currentCategory = category;
@@ -785,6 +779,49 @@ export function navigateToTime(isoTimestamp, category, label, loaded, eventStart
     }
     loadAndUpdate();
     startPoll();
+}
+
+export function navigateToTime(isoTimestamp, category, label, loaded, eventStartIso, eventEndIso) {
+    const ts = new Date(isoTimestamp).getTime();
+    investigateMarker = label
+        ? {
+            startMs: eventStartIso ? new Date(eventStartIso).getTime() : ts,
+            endMs: eventEndIso ? new Date(eventEndIso).getTime() : ts,
+            label,
+            loaded: !!loaded,
+        }
+        : null;
+    frameCustomWindow(ts, category, 10 * 60000); // 10 min either side of the event
+}
+
+/**
+ * Frames the window on a moment carried in from the Live tab: five minutes either side of the
+ * instant that was on screen there, so the span matches the live chart's own window on both
+ * sides of the anchor and the same event is recognizably the same shape here.
+ * Deliberately NOT navigateToTime - that is the Investigate flow, and it carries an event marker
+ * and label this has no business drawing. Same window machinery, no marker.
+ */
+export function frameMoment(isoTimestamp, category) {
+    investigateMarker = null;
+    frameCustomWindow(new Date(isoTimestamp).getTime(), category, 5 * 60000);
+}
+
+/**
+ * The view the Live tab needs to reproduce this one: the instant at the CENTER of the window on
+ * screen, plus the category being charted. Center rather than either edge because the spike
+ * someone wants to watch play back is the thing they framed the window around, and a playback
+ * position at the edge puts it half a window away. A plain trailing range keeps no explicit
+ * bounds - getEffectiveFrom/To answer null for it - so its window is derived from the range.
+ */
+export function currentView() {
+    const from = getEffectiveFrom();
+    const to = getEffectiveTo();
+    const endMs = to ? to.getTime() : Date.now();
+    const startMs = from ? from.getTime() : endMs - (RANGE_MS[currentRangeHours] || 3600000);
+    return {
+        atIso: new Date((startMs + endMs) / 2).toISOString(),
+        category: currentCategory,
+    };
 }
 
 export function restoreState() {
