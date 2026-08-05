@@ -1739,7 +1739,11 @@ else
         // datetime-local binds local wall-clock (Kind=Unspecified); treat it as local -> UTC.
         var startUtc = _customFrom.ToUniversalTime();
         var endUtc = _customTo.ToUniversalTime();
-        if (endUtc <= startUtc) return;
+        // A start after the end is a typo, not a request for nothing. Collapsing it onto the end
+        // lets the minimum-window rule below open it back up, so the user gets the shortest real
+        // window instead of a popover that closes and leaves the previous one on screen with no
+        // sign the input was rejected.
+        if (startUtc > endUtc) startUtc = endUtc;
         if (endUtc - startUtc < TimeSpan.FromHours(MinRangeHours))
             startUtc = endUtc.AddHours(-MinRangeHours);   // enforce the minimum window
         if (endUtc - startUtc > TimeSpan.FromHours(MaxRangeHours))
