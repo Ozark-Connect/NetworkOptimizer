@@ -81,11 +81,11 @@ else
             @{ var wanRates = GetWanRates(); }
             @{ var wanDown = FormatRateParts(wanRates.download); var wanUp = FormatRateParts(wanRates.upload); }
             <div class="monitoring-stat-card monitoring-stat-rate">
-                <div class="stat-value" style="color: var(--good-color);">@wanDown.Value@if (wanDown.Unit != null) {<span class="stat-unit">@wanDown.Unit</span>}</div>
+                <div class="stat-value" style="color: var(--speed-download-color);">@wanDown.Value@if (wanDown.Unit != null) {<span class="stat-unit">@wanDown.Unit</span>}</div>
                 <div class="stat-label">WAN <span class="desktop-label">Download</span><span class="mobile-label">&#8595;</span>@WanRateCount()</div>
             </div>
             <div class="monitoring-stat-card monitoring-stat-rate">
-                <div class="stat-value" style="color: #10b981;">@wanUp.Value@if (wanUp.Unit != null) {<span class="stat-unit">@wanUp.Unit</span>}</div>
+                <div class="stat-value" style="color: var(--speed-upload-color);">@wanUp.Value@if (wanUp.Unit != null) {<span class="stat-unit">@wanUp.Unit</span>}</div>
                 <div class="stat-label">WAN <span class="desktop-label">Upload</span><span class="mobile-label">&#8593;</span>@WanRateCount()</div>
             </div>
             @{ var ispHealth = CurrentIspHealth(); }
