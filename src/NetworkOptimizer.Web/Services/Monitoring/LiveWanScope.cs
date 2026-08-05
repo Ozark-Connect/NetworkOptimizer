@@ -247,6 +247,20 @@ public sealed class LiveWanScope
     /// That raced: the same link kept or dropped the WAN depending on which finished first.
     /// </para>
     /// </summary>
+    /// <summary>
+    /// Lets go of a link's selection once the URL stops naming a WAN, so the stored one is read
+    /// again. The pin exists to stop storage landing on top of a link that is still in force - it
+    /// was never meant to outlive the link, and leaving it set meant a WAN chosen by one jump held
+    /// for the rest of the page's life, which is indistinguishable from having overwritten the
+    /// saved filter.
+    /// </summary>
+    public void ReleaseLink()
+    {
+        if (!_pinned) return;
+        _pinned = false;
+        _restored = false;
+    }
+
     public async Task<bool> SelectFromLinkAsync(string? wanParam)
     {
         if (string.IsNullOrWhiteSpace(wanParam) || Options.Count == 0) return false;
