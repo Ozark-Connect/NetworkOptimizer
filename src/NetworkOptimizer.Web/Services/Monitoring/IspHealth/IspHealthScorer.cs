@@ -491,6 +491,29 @@ public class IspHealthScorer
     /// Weighs each measurement by age and, where the load behind it is known, by how hard the line
     /// was working - then takes the median at half the total weight.
     /// </summary>
+    /// <summary>
+    /// One episode's added delay, by the SAME statistic the pooled path has always used: every
+    /// access hop's samples together, those below the noise floor dropped, median of what remains.
+    /// <para>
+    /// That statistic IS the attribution and is deliberately untouched. Pooling the hops and taking
+    /// a low-order statistic of the credible ones is what tells a hop that genuinely queues from
+    /// one that only deprioritizes ICMP - the throttled hop sits at the top of the distribution
+    /// where a low-order statistic ignores it, while a flat near hop falls below the floor and
+    /// cannot dilute an OLT that really did spike. Reaching for the worst hop instead would promote
+    /// the very noise this rejects.
+    /// </para>
+    /// <para>
+    /// Nothing above the floor is zero: the line was loaded and it stayed clean. That is a reading,
+    /// not a gap - and it was the reading being thrown away, which is how a WAN whose every episode
+    /// was clean still reported the median of a handful of stray samples.
+    /// </para>
+    /// </summary>
+    private static double EpisodeDelta(List<double> deltas, double noiseFloor)
+    {
+        var credible = deltas.Where(d => d >= noiseFloor).ToList();
+        return credible.Count == 0 ? 0 : SeriesStats.Median(credible)!.Value;
+    }
+
     private double? RecencyWeightedDelta(
         IReadOnlyList<(DateTime Time, double Value)> samples,
         DateTime windowEnd,
@@ -888,7 +911,7 @@ public class IspHealthScorer
         var episodes = pooled
             .Where(x => episodeStarts.ContainsKey(FloorToWindow(x.Time)))
             .GroupBy(x => episodeStarts[FloorToWindow(x.Time)])
-            .Select(g => (Time: g.Key, Value: SeriesStats.Median(g.Select(x => x.Value).ToList())!.Value))
+            .Select(g => (Time: g.Key, Value: EpisodeDelta(g.Select(x => x.Value).ToList(), noiseFloor)))
             .OrderByDescending(e => e.Time)
             .ToList();
 
@@ -900,7 +923,12 @@ public class IspHealthScorer
         //
         // A line that was not fixed is untouched: still-bad lines have elevated episodes among
         // their newest, and always-clean lines have no elevated episodes to go stale.
+        if (episodes.Count == 0 || pooled.Count < _options.MinLoadedSamples) return null;
+
+        var loadWeight = BuildLoadWeighting(inputs, upstream, loaded);
         var stale = _options.LoadedLatencyElevationStaleEpisodes;
+        var elevatedEpisodes = episodes.Where(e => e.Value >= noiseFloor).ToList();
+
         if (stale > 0 && episodes.Count > stale)
         {
             var verdict = ElevationVerdict.For(
@@ -908,37 +936,40 @@ public class IspHealthScorer
                 _options.LoadedLatencyElevationStaleNeedsSameHour,
                 TimeSpan.FromSeconds(Math.Max(1, _options.LoadWindowSeconds)),
                 LoadedLatencyRegimeFloorMs);
-            var cleanRun = verdict.CleanRun;
-            var elevated = verdict.ElevatedCount;
-            var hourCovered = verdict.ProblemHourReTested;
-            var cleared = verdict.ElevationIsOver;
 
             // Logged whether it fires or not: "why is this WAN still reporting bufferbloat I
-            // fixed" is asked from the field, and the answer is always one of these three numbers.
+            // fixed" is asked from the field, and the answer is always one of these numbers. The
+            // newest elevated episode is named so the moment can be gone and looked at rather
+            // than inferred.
             _logger?.LogDebug(
-                "ISP Health: loaded latency {Dir} - {Episodes} episode(s), {Elevated} elevated, "
-                + "clean run {CleanRun}/{Needed}, problem hour re-tested: {HourCovered} -> {Verdict}",
-                upstream ? "up" : "down", episodes.Count, elevated,
-                cleanRun.Count, stale, hourCovered,
-                cleared ? "elevation over"
-                    : elevated == 0 ? "clean - no elevated episodes"
+                "ISP Health: loaded latency {Dir} - {Episodes} episode(s), {Elevated} elevated "
+                + "(newest {NewestElevated}), clean run {CleanRun}/{Needed}, "
+                + "problem hour re-tested: {HourCovered} -> {Verdict}",
+                upstream ? "up" : "down", episodes.Count, verdict.ElevatedCount,
+                elevatedEpisodes.Count > 0
+                    ? $"{elevatedEpisodes[0].Time:yyyy-MM-dd HH:mm:ss}Z at "
+                        + elevatedEpisodes[0].Value.ToString("0.0", CultureInfo.InvariantCulture) + " ms"
+                    : "none",
+                verdict.CleanRun.Count, stale, verdict.ProblemHourReTested,
+                verdict.ElevationIsOver ? "elevation over"
+                    : verdict.ElevatedCount == 0 ? "clean - no elevated episodes"
                     : "still elevated");
 
-            if (cleared)
-                return Math.Max(0, SeriesStats.Median(cleanRun.Select(e => e.Value).ToList())!.Value);
-
-            // No episode elevated at all is not "no information" - it is the strongest statement
-            // available: every time this line was loaded, it stayed clean. Falling through to the
-            // sample path there reports the median of whatever minority of samples crossed the
-            // noise floor, which is 23 ms on a line whose every load episode read under 0.5.
-            if (elevated == 0 && episodes.Count >= 2)
-                return Math.Max(0, SeriesStats.Median(episodes.Select(e => e.Value).ToList())!.Value);
+            // The line was fixed: the elevated episodes describe a connection that no longer
+            // exists, so only the clean run since speaks for it.
+            if (verdict.ElevationIsOver)
+                return Math.Max(0, SeriesStats.Median(verdict.CleanRun.Select(e => e.Value).ToList())!.Value);
         }
 
-        var credible = pooled.Where(x => x.Value >= noiseFloor).ToList();
-        if (credible.Count < _options.MinLoadedSamples) return null;
-        var loadWeight = BuildLoadWeighting(inputs, upstream, loaded);
-        return Math.Max(0, RecencyWeightedDelta(credible, inputs.WindowEnd, loadWeight) ?? 0);
+        // The reported figure is the median ACROSS EPISODES - what this line typically does under
+        // load - weighted by recency and by how credible each episode's load was.
+        //
+        // It used to be the median of the SAMPLES above the noise floor, which is a different
+        // question: the worst of it. One elevated episode among five then set the whole number,
+        // and a WAN whose every episode was clean could still report tens of milliseconds off a
+        // handful of stray samples. The floor still decides what counts as elevated for the
+        // verdict above - it is not a filter on what gets reported.
+        return Math.Max(0, RecencyWeightedDelta(episodes, inputs.WindowEnd, loadWeight) ?? 0);
     }
 
     private (IspScoreFactor Factor, bool HasData) ScoreLoadedLoss(
