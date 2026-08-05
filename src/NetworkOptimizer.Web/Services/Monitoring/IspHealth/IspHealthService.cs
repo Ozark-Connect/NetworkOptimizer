@@ -919,6 +919,12 @@ public class IspHealthService
             .GroupBy(w => w.TargetId)
             .ToDictionary(g => g.Key, g => g.ToList());
 
+        // Hops with a discovery row but HopNumber 0 answered pings yet never landed in a trace
+        // (OLT/CMTS ICMP-deprioritization); only meaningful once there is trace data at all.
+        var notTracedTargetIds = hopOrderKnown
+            ? hopNumberByTargetId.Where(kv => kv.Value == 0).Select(kv => kv.Key).ToHashSet(StringComparer.OrdinalIgnoreCase)
+            : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
         // Loss pool: ALL enabled AccessIsp + Transit targets plus well-known anycast DNS.
         // Every probe crosses the access link before reaching its target, so loss on ANY
         // of these is a signal of access-layer loss - including under load, where the
@@ -932,7 +938,30 @@ public class IspHealthService
         // the scorer's pool is anonymous (LatencySample carries no target), so this is the last point
         // where a target can be named.
         var identifiedPool = new List<LossPoolFilter.PoolEntry>();
-        identifiedPool.AddRange(ispTargets.Where(t => ispSeries.ContainsKey(t.TargetId))
+        // Access hops that answer pings but sit on no traced path are excluded outright. Nothing
+        // of yours crosses them, so their loss is not loss you suffered - it is a box beside the
+        // road dropping the probes aimed at it. Their jitter was already discounted for exactly
+        // this reason; the same logic was never carried over to loss, and one ICMP-deprioritized
+        // OLT answering badly could hold the pooled figure up on its own.
+        // ...unless they are ALL that this site has. An off-path OLT is weak evidence, but it is
+        // the only access-layer member available on a network with nothing else pingable in front
+        // of transit, and dropping it would leave access-layer loss measured entirely by hops
+        // beyond the access network. Weak evidence in the right place beats none.
+        var ispWithSeries = ispTargets.Where(t => ispSeries.ContainsKey(t.TargetId)).ToList();
+        var onPathIsp = ispWithSeries.Where(t => !notTracedTargetIds.Contains(t.TargetId)).ToList();
+        var ispForPool = onPathIsp.Count > 0 ? onPathIsp : ispWithSeries;
+
+        var offPathIsp = ispWithSeries.Except(ispForPool).ToList();
+        if (offPathIsp.Count > 0)
+            _logger.LogInformation(
+                "ISP Health: excluding {Count} off-path access hop(s) from the loss pool: {Targets}",
+                offPathIsp.Count, string.Join(", ", offPathIsp.Select(t => t.Address)));
+        else if (onPathIsp.Count == 0 && ispWithSeries.Count > 0)
+            _logger.LogInformation(
+                "ISP Health: keeping {Count} off-path access hop(s) in the loss pool - the site has no on-path access hop",
+                ispWithSeries.Count);
+
+        identifiedPool.AddRange(ispForPool
             .Select(t => new LossPoolFilter.PoolEntry(t.TargetId,
                 darkByTargetId.TryGetValue(t.TargetId, out var ispDark)
                     ? ispSeries[t.TargetId].Where(s => !ispDark.Any(w => s.Time >= w.Start && s.Time <= w.End)).ToList()
@@ -1347,9 +1376,7 @@ public class IspHealthService
             HopOrderKnown = hopOrderKnown,
             // Hops with a discovery row but HopNumber 0 answered pings yet never landed in a trace
             // (OLT/CMTS ICMP-deprioritization); only meaningful once we have trace data at all.
-            NotTracedTargetIds = hopOrderKnown
-                ? hopNumberByTargetId.Where(kv => kv.Value == 0).Select(kv => kv.Key).ToHashSet(StringComparer.OrdinalIgnoreCase)
-                : new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+            NotTracedTargetIds = notTracedTargetIds,
             LoadExclusionWindows = loadExclusions,
             PhysicalLink = physical.Input
         };
