@@ -892,6 +892,23 @@ public class IspHealthScorer
             .OrderByDescending(e => e.Time)
             .ToList();
 
+        // TEMPORARY diagnostic: why the fix-detector did or did not fire.
+        var run = _options.LoadedLatencyRegimeSamples;
+        var olderMedian = episodes.Count > run
+            ? SeriesStats.Median(episodes.Skip(run).Select(e => e.Value).ToList())
+            : null;
+        _logger?.LogDebug(
+            "ISP Health: loaded latency {Dir} - {Episodes} episode(s), newest [{Recent}], older median {Older}, threshold {Threshold}",
+            upstream ? "up" : "down",
+            episodes.Count,
+            string.Join(", ", episodes.Take(run).Select(e =>
+                $"{e.Time:HH:mm:ss}={e.Value.ToString("0.0", CultureInfo.InvariantCulture)}")),
+            olderMedian?.ToString("0.0", CultureInfo.InvariantCulture) ?? "n/a",
+            olderMedian is { } b
+                ? Math.Max(b * _options.LoadedLatencyRegimeDropFraction, LoadedLatencyRegimeFloorMs)
+                    .ToString("0.0", CultureInfo.InvariantCulture)
+                : "n/a");
+
         if (RecentRegimeDelta(episodes) is { } regime) return Math.Max(0, regime);
 
         var credible = pooled.Where(x => x.Value >= noiseFloor).ToList();
