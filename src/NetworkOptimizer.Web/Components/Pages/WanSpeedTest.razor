@@ -1719,6 +1719,7 @@
     public string? WanParam { get; set; }
 
     private bool _linkWanApplied;
+    private bool _scrollToHistoryPending;
 
     /// <summary>
     /// The history series a linked WAN belongs to. Resolved through the data rather than by
@@ -1756,7 +1757,19 @@
         _expandedHistoryId = null;
         ApplyFilters();
         await RenderChartAsync();
+        // Scrolled after a render rather than here: this runs while history is still loading, so
+        // the card it aims at has not been drawn yet and the scroll went nowhere.
+        _scrollToHistoryPending = true;
         StateHasChanged();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!_scrollToHistoryPending) return;
+        _scrollToHistoryPending = false;
+        // The chart renders asynchronously behind this and the card grows as it does, so a scroll
+        // fired the instant the element exists lands on a position that then moves under it.
+        await Task.Delay(350);
         try { await JS.InvokeVoidAsync("noHighlightTarget", "speed-history-card"); }
         catch { /* helper not loaded - the filter still applied, which is the point */ }
     }
