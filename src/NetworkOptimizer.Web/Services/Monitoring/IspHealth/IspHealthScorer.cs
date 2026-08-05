@@ -682,23 +682,20 @@ public class IspHealthScorer
             }, null, null, null);
         }
 
-        // Both directions pinned at UniFi Network's 1 Mbps minimum is not a 1 Mbps plan, it is the
-        // lowest number the field would accept from someone with nothing real to enter - a metered
-        // backup or a standby WAN. Grading against it makes an ordinary backup link look broken,
-        // and the link cannot be described any lower, so there is no reading under which the
-        // figure is a genuine plan. Only when BOTH sit at the floor: a real plan with a 1 Mbps
-        // upstream is unusual but expressible, and half a sentinel is still a plan.
-        var floor = _options.PlanFloorMbps;
-        if (inputs.ExpectedDownloadMbps <= floor && inputs.ExpectedUploadMbps <= floor)
-        {
-            return (new IspScoreFactor
-            {
-                Name = "Speed vs Plan",
-                Weight = _options.SpeedVsPlanWeight,
-                Description = "Plan speeds are at UniFi Network's 1 Mbps minimum, so there is nothing "
-                    + "meaningful to grade against. Set your actual ISP speeds to score throughput."
-            }, null, null, null);
-        }
+        // Both directions pinned at UniFi Network's 1 Mbps minimum is not a 1 Mbps plan - it is the
+        // lowest the field accepts from someone with nothing real to enter, most often a dish in
+        // standby or a metered backup held in reserve. A ratio against it is meaningless, but the
+        // link is not: what matters for a standby WAN is whether it carries usable traffic when
+        // called on, so it is graded on that instead. Only when BOTH sit at the floor; a real plan
+        // with a 1 Mbps upstream is unusual but expressible, and half a sentinel is still a plan.
+        // Corroborated where the dish says so outright, inferred otherwise. The reported tier is
+        // ground truth and stands on its own: a dish capped by its plan measured against a REAL
+        // configured plan is the same story told worse, since the shortfall is the tier and not
+        // the link either way.
+        var reportedTier = inputs.PhysicalLink?.ReducedSpeedTier == true;
+        var standby = reportedTier
+            || (inputs.ExpectedDownloadMbps <= _options.PlanFloorMbps
+                && inputs.ExpectedUploadMbps <= _options.PlanFloorMbps);
 
         var (tests, stale) = SelectSpeedTests(inputs);
         if (tests.Count == 0)
@@ -711,8 +708,12 @@ public class IspHealthScorer
             }, null, null, null);
         }
 
-        var down = ScoreDirection(tests.Select(t => t.DownloadMbps), inputs.ExpectedDownloadMbps);
-        var up = ScoreDirection(tests.Select(t => t.UploadMbps), inputs.ExpectedUploadMbps);
+        var down = standby
+            ? ScoreStandbyDirection(tests.Select(t => t.DownloadMbps))
+            : ScoreDirection(tests.Select(t => t.DownloadMbps), inputs.ExpectedDownloadMbps);
+        var up = standby
+            ? ScoreStandbyDirection(tests.Select(t => t.UploadMbps))
+            : ScoreDirection(tests.Select(t => t.UploadMbps), inputs.ExpectedUploadMbps);
         var scores = new[] { down?.Score, up?.Score }.Where(s => s.HasValue).Select(s => s!.Value).ToList();
         if (scores.Count == 0)
         {
@@ -733,6 +734,25 @@ public class IspHealthScorer
         var typicalUp = up?.TypicalMbps ?? bestUp;
         var planText = $"{FormatMbps(inputs.ExpectedDownloadMbps ?? 0)} / {FormatMbps(inputs.ExpectedUploadMbps ?? 0)} Mbps plan";
         var multi = tests.Count > 1;
+        if (standby)
+        {
+            var standbyNote = multi ? $" Fastest of {tests.Count} WAN tests." : "";
+            return (new IspScoreFactor
+            {
+                Name = "Speed vs Plan",
+                Score = (int)Math.Round(scores.Average()),
+                Weight = _options.SpeedVsPlanWeight,
+                ValueText = $"{FormatMbps(bestDown)} / {FormatMbps(bestUp)} Mbps",
+                Description = (reportedTier
+                        ? "The dish reports a reduced-speed plan tier (such as Standby), so throughput "
+                            + "is capped by the plan rather than the link. Graded on whether it carries "
+                            + "usable traffic."
+                        : "Backup link with expected speeds at 1 / 1 Mbps, the lowest UniFi Network "
+                            + "allows. Graded on whether it carries usable traffic, not against a plan speed.")
+                    + standbyNote + staleNote
+            }, new SpeedTestSample(bestTest.Time, bestDown, bestUp), down?.TypicalMbps, up?.TypicalMbps);
+        }
+
         var description = multi
             ? $"Fastest of {tests.Count} WAN tests vs your {planText}. Typical {FormatMbps(typicalDown)} / {FormatMbps(typicalUp)} Mbps (down / up).{staleNote}"
             : $"Your latest WAN speed test vs your {planText} (down / up).{staleNote}";
@@ -744,6 +764,41 @@ public class IspHealthScorer
             ValueText = multi ? $"{FormatMbps(bestDown)} / {FormatMbps(bestUp)} Mbps best" : $"{FormatMbps(bestDown)} / {FormatMbps(bestUp)} Mbps",
             Description = description
         }, new SpeedTestSample(bestTest.Time, bestDown, bestUp), down?.TypicalMbps, up?.TypicalMbps);
+    }
+
+    /// <summary>
+    /// Grades a standby link on capability rather than ratio: is it carrying usable traffic.
+    /// <para>
+    /// Reaching the nominal 1 Mbps IS meeting the stated plan, so that scores full. Below it the
+    /// taper is deliberately forgiving - a dish in standby delivering 0.6 / 0.1 Mbps is doing
+    /// exactly its job in the emergency it exists for, and the ratio scoring called that a 17.
+    /// Only a link carrying essentially nothing scores badly, because that is the only outcome
+    /// that would actually fail its owner.
+    /// </para>
+    /// </summary>
+    private (double Score, double BestMbps, double TypicalMbps)? ScoreStandbyDirection(
+        IEnumerable<double> resultsMbps)
+    {
+        var sorted = resultsMbps.OrderBy(v => v).ToList();
+        if (sorted.Count == 0) return null;
+        var trim = (int)Math.Floor(sorted.Count * _options.SpeedTestOutlierTrimFraction);
+        var kept = sorted.Skip(Math.Min(trim, sorted.Count - 1)).ToList();
+
+        var best = kept[^1];
+        var typical = SeriesStats.Median(kept)!.Value;
+        var totalWeight = _options.SpeedCapacityWeight + _options.SpeedTypicalWeight;
+        var score = (StandbyScore(best) * _options.SpeedCapacityWeight
+                     + StandbyScore(typical) * _options.SpeedTypicalWeight) / totalWeight;
+        return (score, best, typical);
+
+        static double StandbyScore(double mbps) => mbps switch
+        {
+            >= 1.0 => 100,                                  // meets the nominal plan outright
+            >= 0.1 => 80 + 20 * (mbps - 0.1) / 0.9,         // usable for messaging, mail, alarms
+            >= 0.01 => 40 + 40 * (mbps - 0.01) / 0.09,      // reachable, barely
+            > 0 => 40 * mbps / 0.01,
+            _ => 0
+        };
     }
 
     /// <summary>

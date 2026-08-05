@@ -43,7 +43,8 @@ public class IspHealthScorerTests
         TimeSpan? scoreWindow = null,
         HashSet<string>? notTracedTargetIds = null,
         double? expectedDownMbps = null,
-        double? expectedUpMbps = null)
+        double? expectedUpMbps = null,
+        PhysicalLinkInput? physicalLink = null)
     {
         // lineIdle: a near-zero, flat WAN with no load bursts (~0% average load), for
         // exercising the load-calibrated packet-loss ceiling at the idle end.
@@ -75,6 +76,7 @@ public class IspHealthScorerTests
             DestinationSeries = destinations ?? new List<AsnSeries>(),
             WanRates = rates,
             InternetMedianDeltaMs = internetDeltaMs,
+            PhysicalLink = physicalLink,
             ExpectedDownloadMbps = withExpectedSpeeds ? expectedDownMbps ?? 1000 : null,
             ExpectedUploadMbps = withExpectedSpeeds ? expectedUpMbps ?? 500 : null,
             ExpectedSpeedSource = withExpectedSpeeds ? "UniFi Network" : null,
@@ -535,10 +537,11 @@ public class IspHealthScorerTests
     }
 
     [Fact]
-    public void A_plan_pinned_at_the_1_Mbps_minimum_is_not_graded()
+    public void A_standby_link_is_graded_on_carrying_traffic_not_on_ratio()
     {
-        // UniFi Network will not accept less than 1 Mbps, so a metered backup with nothing real to
-        // enter sits at the floor. Grading against it scored an ordinary standby link 17.
+        // 1 / 1 is the lowest expected speed UniFi Network accepts, so a dish held in standby ends
+        // up there with nothing real to enter. Scored as a ratio it read 17 - a link doing exactly
+        // its job in the emergency it exists for, marked as failing.
         var inputs = BuildInputs(
             expectedDownMbps: 1, expectedUpMbps: 1,
             speedTests: new List<SpeedTestSample> { new(TestSeries.Start.AddHours(6), 0.6, 0.1) });
@@ -546,8 +549,46 @@ public class IspHealthScorerTests
         var factor = new IspHealthScorer(Options).Score(inputs, Gpon)
             .AccessDimension.Factors.Single(f => f.Name == "Speed vs Plan");
 
-        factor.Score.Should().BeNull();
-        factor.Description.Should().Contain("1 Mbps minimum");
+        factor.Score.Should().BeGreaterThan(80);
+        factor.ValueText.Should().Contain("0.6");
+        factor.Description.Should().Contain("lowest UniFi Network allows");
+    }
+
+    [Fact]
+    public void A_dish_reporting_a_reduced_speed_tier_is_graded_that_way_against_a_real_plan()
+    {
+        // Ground truth beats the inference: the dish says its throughput is capped by the plan
+        // tier, so the shortfall is not the link - even though a real 1000 / 500 plan is
+        // configured and the ratio against it would read as a near-total failure.
+        var inputs = BuildInputs(
+            speedTests: new List<SpeedTestSample> { new(TestSeries.Start.AddHours(6), 0.6, 0.1) },
+            physicalLink: new PhysicalLinkInput
+            {
+                Medium = PhysicalMedium.Satellite,
+                SourceName = "Dish",
+                ReducedSpeedTier = true
+            });
+
+        var factor = new IspHealthScorer(Options).Score(inputs, Gpon)
+            .AccessDimension.Factors.Single(f => f.Name == "Speed vs Plan");
+
+        factor.Score.Should().BeGreaterThan(80);
+        factor.Description.Should().Contain("reduced-speed plan tier");
+    }
+
+    [Fact]
+    public void A_standby_link_carrying_nothing_still_fails()
+    {
+        // Forgiving is not blind: the one outcome that would actually fail its owner is a backup
+        // that carries nothing when called on.
+        var inputs = BuildInputs(
+            expectedDownMbps: 1, expectedUpMbps: 1,
+            speedTests: new List<SpeedTestSample> { new(TestSeries.Start.AddHours(6), 0.001, 0) });
+
+        var factor = new IspHealthScorer(Options).Score(inputs, Gpon)
+            .AccessDimension.Factors.Single(f => f.Name == "Speed vs Plan");
+
+        factor.Score.Should().BeLessThan(30);
     }
 
     [Fact]
