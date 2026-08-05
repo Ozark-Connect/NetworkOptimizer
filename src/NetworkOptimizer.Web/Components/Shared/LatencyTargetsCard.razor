@@ -536,6 +536,19 @@
         await JS.InvokeVoidAsync("noHighlightRow", $"latency-target-{targetId}");
     }
 
+    /// <summary>
+    /// Opens the card and scrolls to it, with no row to single out. Sent here to assign targets,
+    /// someone needs the list in front of them - scrolling a collapsed card into view leaves them
+    /// looking at its header and nothing else.
+    /// </summary>
+    public async Task ExpandAndRevealAsync()
+    {
+        _collapsed = false;
+        StateHasChanged();
+        await Task.Delay(350);
+        await JS.InvokeVoidAsync("noHighlightTarget", "latency-targets");
+    }
+
     private async Task SetTargetEnabledAsync(int targetId, bool enabled)
     {
         await MutateAsync(() => TargetService.SetEnabledAsync(targetId, enabled));

@@ -654,7 +654,8 @@
         @if (_multiWanUiVisible)
         {
             <div id="wan-contexts" style="margin-top: 1.5rem;">
-                <WanContextsCard WanContexts="_wanContexts" ForceExpand="_forceExpandWanContexts" OnChanged="OnTargetsChanged" />
+                <WanContextsCard WanContexts="_wanContexts" ForceExpand="_forceExpandWanContexts" OnChanged="OnTargetsChanged"
+                                 OnAssignTargets="OpenLatencyTargetsAsync" />
             </div>
         }
     }
@@ -2202,6 +2203,15 @@
         var keys = ResolveLinkWanKeys(WanParam);
         if (keys.Count == 0) return;
 
+        // Already showing everything the link came to show - most often the saved filter is All -
+        // so leave it be. Narrowing All to the one WAN that was on screen in Live throws away a
+        // wider view the user chose, to arrive at a subset of what was already in front of them.
+        if (keys.All(k => _selectedWanKeys.Contains(k)))
+        {
+            _appliedLinkWanKey = LinkWanKey;
+            return;
+        }
+
         _appliedLinkWanKey = LinkWanKey;
         // Claims the restore as well, so the stored selection cannot be read over the top of the
         // link on a first load - and is never written, so the saved filter survives the visit.
@@ -3472,6 +3482,12 @@
             _allSfps = new List<MonitoredSfp>();
             _monitoredSfps = new List<MonitoredSfp>();
         }
+    }
+
+    /// <summary>Opens and reveals the Latency Targets card - the Assign targets jump.</summary>
+    private async Task OpenLatencyTargetsAsync()
+    {
+        if (_latencyTargetsCard != null) await _latencyTargetsCard.ExpandAndRevealAsync();
     }
 
     private async Task OnTargetsChanged()
@@ -5048,11 +5064,11 @@
                 // Read the stored selection BEFORE mounting so the scope rides in with the mount
                 // call: pushing it afterwards races the module import, and a remount would
                 // otherwise come back unfiltered. A single-WAN site passes null and the module
-                // renders exactly as it always has. The link's own selection is applied first of
-                // all, because the LAN fallback below has to be judged against the WANs this is
-                // about to show rather than the ones it is leaving.
-                await ApplyLinkWanSelectionAsync();
+                // renders exactly as it always has. The stored selection is read BEFORE the
+                // link's, because the link only narrows to a WAN the saved filter does not already
+                // show - and it cannot know that until the saved one is in hand.
                 await RestoreWanSelectionAsync();
+                await ApplyLinkWanSelectionAsync();
                 var postMount = "";
                 if (!string.IsNullOrEmpty(_preSelectCategory))
                 {

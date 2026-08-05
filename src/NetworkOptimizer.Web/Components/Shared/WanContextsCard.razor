@@ -370,6 +370,10 @@
     [Parameter]
     public EventCallback OnChanged { get; set; }
 
+    /// <summary>Raised by Assign targets, so the page can open the Latency Targets card.</summary>
+    [Parameter]
+    public EventCallback OnAssignTargets { get; set; }
+
     /// <summary>
     /// Opens the card when a link sent the user here. A WAN with no context cannot be discovered
     /// at all, so ISP Health points at this card - and arriving to find it collapsed would hide
@@ -493,6 +497,13 @@
 
     private async Task JumpToLatencyTargetsAsync()
     {
+        // The page owns both cards, so it is the one that can open the other. Falls back to
+        // scrolling on its own if nothing is listening.
+        if (OnAssignTargets.HasDelegate)
+        {
+            await OnAssignTargets.InvokeAsync();
+            return;
+        }
         try { await JS.InvokeVoidAsync("noHighlightTarget", "latency-targets"); }
         catch { }
     }
