@@ -33,8 +33,17 @@ public class TourPredicateResolver
     /// </summary>
     public const string SqmEnabled = "sqm-enabled";
 
+    /// <summary>
+    /// UniFi's own Smart Queues is on for at least one of the site's WANs. Not the same thing as
+    /// <see cref="SqmEnabled"/>, which is our Adaptive SQM: a WAN can have UniFi's Smart Queues on
+    /// without Adaptive SQM ever being deployed, and that is exactly the case the Smart Queues
+    /// shaper check exists for.
+    /// </summary>
+    public const string SmartQueues = "smart-queues";
+
     private readonly SiteManagementService _siteManagement;
     private readonly GatewaySshRegistry _gatewaySshRegistry;
+    private readonly SiteConnectionRegistry _siteConnections;
     private readonly AgentEnrollmentService _agentEnrollment;
     private readonly SiteDbContextFactory _siteDbFactory;
     private readonly ILogger<TourPredicateResolver> _logger;
@@ -42,12 +51,14 @@ public class TourPredicateResolver
     public TourPredicateResolver(
         SiteManagementService siteManagement,
         GatewaySshRegistry gatewaySshRegistry,
+        SiteConnectionRegistry siteConnections,
         AgentEnrollmentService agentEnrollment,
         SiteDbContextFactory siteDbFactory,
         ILogger<TourPredicateResolver> logger)
     {
         _siteManagement = siteManagement;
         _gatewaySshRegistry = gatewaySshRegistry;
+        _siteConnections = siteConnections;
         _agentEnrollment = agentEnrollment;
         _siteDbFactory = siteDbFactory;
         _logger = logger;
@@ -119,6 +130,7 @@ public class TourPredicateResolver
         var gatewaySshSites = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var ispHealthSites = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var sqmSites = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var smartQueuesSites = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var site in sites)
         {
             try
@@ -150,6 +162,16 @@ public class TourPredicateResolver
             {
                 _logger.LogDebug(ex, "Tour predicate {Predicate} evaluation failed for site {Slug}", SqmEnabled, site.Slug);
             }
+
+            try
+            {
+                if (await HasSmartQueuesAsync(site.Slug))
+                    smartQueuesSites.Add(site.Slug);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Tour predicate {Predicate} evaluation failed for site {Slug}", SmartQueues, site.Slug);
+            }
         }
         if (gatewaySshSites.Count > 0)
             qualifying[GatewaySsh] = gatewaySshSites;
@@ -157,6 +179,8 @@ public class TourPredicateResolver
             qualifying[IspHealth] = ispHealthSites;
         if (sqmSites.Count > 0)
             qualifying[SqmEnabled] = sqmSites;
+        if (smartQueuesSites.Count > 0)
+            qualifying[SmartQueues] = smartQueuesSites;
 
         return new PredicateContext
         {
@@ -194,5 +218,21 @@ public class TourPredicateResolver
     {
         using var db = _siteDbFactory.CreateForSite(slug, isDefault);
         return await db.SqmWanConfigurations.AsNoTracking().AnyAsync(c => c.Enabled);
+    }
+
+    /// <summary>
+    /// Whether the site has UniFi's Smart Queues turned on for at least one enabled WAN. This one
+    /// has to ask the console - nothing stores UniFi's own toggle locally - which is affordable
+    /// only because predicates resolve just for a tour that is actually due, never on the ordinary
+    /// Dashboard visit. A site that isn't connected simply does not qualify.
+    /// </summary>
+    private async Task<bool> HasSmartQueuesAsync(string slug)
+    {
+        var connection = _siteConnections.GetFor(slug);
+        if (!connection.IsConnected || connection.Client == null)
+            return false;
+
+        var wans = await connection.Client.GetWanConfigsAsync();
+        return wans.Any(w => w.Enabled && w.WanSmartqEnabled);
     }
 }

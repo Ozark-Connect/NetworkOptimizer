@@ -84,6 +84,10 @@ public class DiagnosticsEngine
     /// <param name="clientHistory">Optional historical clients for offline device detection</param>
     /// <param name="settingsData">Raw settings JSON for global switch settings</param>
     /// <param name="qosRulesData">Raw QoS rules JSON for cellular bandwidth checks</param>
+    /// <param name="wanShaperStates">
+    /// Gateway traffic control state for WANs with Smart Queues enabled, read over SSH. Null or
+    /// empty whenever the gateway could not be read, which simply skips that check.
+    /// </param>
     /// <returns>Complete diagnostics result</returns>
     public DiagnosticsResult RunDiagnostics(
         IEnumerable<UniFiClientResponse> clients,
@@ -94,7 +98,8 @@ public class DiagnosticsEngine
         IEnumerable<UniFiClientDetailResponse>? clientHistory = null,
         JsonDocument? settingsData = null,
         JsonDocument? qosRulesData = null,
-        JsonDocument? wanEnrichedData = null)
+        JsonDocument? wanEnrichedData = null,
+        List<WanShaperState>? wanShaperStates = null)
     {
         options ??= new DiagnosticsOptions();
         var stopwatch = Stopwatch.StartNew();
@@ -190,7 +195,8 @@ public class DiagnosticsEngine
                     deviceList, networkList, clientList, settingsData, qosRulesData, wanEnrichedData,
                     runPerformanceChecks: options.RunPerformanceAnalyzer,
                     runCellularChecks: options.RunCellularDataSavings,
-                    portProfiles: profileList);
+                    portProfiles: profileList,
+                    wanShaperStates: wanShaperStates);
                 result.CellularWanDetected = _performanceAnalyzer.CellularWanDetected;
                 _logger?.LogDebug("Performance Analyzer found {Count} issues", result.PerformanceIssues.Count);
             }

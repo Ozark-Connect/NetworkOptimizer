@@ -24,6 +24,7 @@ public class DiagnosticsService
     private readonly ILoggerFactory _loggerFactory;
     private readonly SiteContextService _siteContext;
     private readonly Licensing.LicenseStateService _licenseState;
+    private readonly Ssh.GatewayShaperProbeService _shaperProbe;
 
     public DiagnosticsService(
         ILogger<DiagnosticsService> logger,
@@ -33,7 +34,8 @@ public class DiagnosticsService
         IMemoryCache cache,
         ILoggerFactory loggerFactory,
         SiteContextService siteContext,
-        Licensing.LicenseStateService licenseState)
+        Licensing.LicenseStateService licenseState,
+        Ssh.GatewayShaperProbeService shaperProbe)
     {
         _siteContext = siteContext;
         _licenseState = licenseState;
@@ -43,6 +45,7 @@ public class DiagnosticsService
         _ieeeOuiDb = ieeeOuiDb;
         _cache = cache;
         _loggerFactory = loggerFactory;
+        _shaperProbe = shaperProbe;
     }
 
     /// <summary>
@@ -108,8 +111,13 @@ public class DiagnosticsService
             var qosRulesTask = _connectionService.Client.GetQosRulesRawAsync();
             var wanEnrichedTask = _connectionService.Client.GetWanEnrichedConfigRawAsync();
 
+            // The gateway's traffic control, for WANs with Smart Queues enabled. Runs alongside
+            // the rest of the fetches and returns nothing at all when the gateway can't be read
+            // over SSH.
+            var shaperTask = ProbeWanShapersAsync(networksTask, options);
+
             await Task.WhenAll(devicesTask, clientsTask, networksTask, portProfilesTask, clientHistoryTask,
-                settingsTask, qosRulesTask, wanEnrichedTask);
+                settingsTask, qosRulesTask, wanEnrichedTask, shaperTask);
 
             var devices = await devicesTask;
             var clients = await clientsTask;
@@ -119,6 +127,7 @@ public class DiagnosticsService
             using var settingsDoc = await settingsTask;
             using var qosRulesDoc = await qosRulesTask;
             using var wanEnrichedDoc = await wanEnrichedTask;
+            var wanShaperStates = await shaperTask;
 
             _logger.LogInformation(
                 "Fetched data for diagnostics: {DeviceCount} devices, {ClientCount} clients, " +
@@ -145,7 +154,7 @@ public class DiagnosticsService
                 performanceLogger: _loggerFactory.CreateLogger<Diagnostics.Analyzers.PerformanceAnalyzer>());
 
             var result = engine.RunDiagnostics(clients, devices, portProfiles, networks, options, clientHistory,
-                settingsDoc, qosRulesDoc, wanEnrichedDoc);
+                settingsDoc, qosRulesDoc, wanEnrichedDoc, wanShaperStates);
 
             // Cache the result
             _cache.Set(CacheKeyLastResult, result);
@@ -166,6 +175,36 @@ public class DiagnosticsService
         {
             _cache.Set(CacheKeyIsRunning, false);
         }
+    }
+
+    /// <summary>
+    /// The gateway's shaper state for WANs with Smart Queues enabled, or nothing when there is
+    /// no such WAN.
+    ///
+    /// Gated on the network configs this run already fetches: reading the shapers means asking the
+    /// controller for the WAN interface names, which costs a second device-list fetch, and an
+    /// install with Smart Queues off everywhere can never produce the finding that would pay for
+    /// it. Waiting on that one small call is what buys the skip - everything else stays parallel.
+    /// </summary>
+    private async Task<List<Diagnostics.Models.WanShaperState>> ProbeWanShapersAsync(
+        Task<List<UniFi.Models.UniFiNetworkConfig>> networksTask, DiagnosticsOptions? options)
+    {
+        var none = new List<Diagnostics.Models.WanShaperState>();
+
+        if (!(options?.RunPerformanceAnalyzer ?? true))
+            return none;
+
+        var networks = await networksTask;
+        var smartQueuesAnywhere = networks.Any(n =>
+            string.Equals(n.Purpose, "wan", StringComparison.OrdinalIgnoreCase) && n.WanSmartqEnabled);
+
+        if (!smartQueuesAnywhere)
+        {
+            _logger.LogDebug("No WAN has Smart Queues enabled - skipping the gateway shaper read");
+            return none;
+        }
+
+        return await _shaperProbe.RunAsync();
     }
 
     private static DiagnosticsResult CreateErrorResult(string title, string message)
