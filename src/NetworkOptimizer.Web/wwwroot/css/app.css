@@ -15534,7 +15534,7 @@ a.affected-client:hover {
 
 .live-view-jump-row:not(:has(.wan-selector)) .monitoring-jump-btn {
     position: relative;
-    top: -0.4rem;
+    top: -0.9rem;
 }
 
 .latency-targets-empty {
