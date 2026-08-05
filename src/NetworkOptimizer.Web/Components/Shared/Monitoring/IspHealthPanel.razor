@@ -154,7 +154,7 @@ else if (_report == null)
                     }
                     else
                     {
-                        <button class="btn btn-sm btn-primary" @onclick="@(() => NavigationManager.NavigateTo($"/monitoring?tab=performance&discover=1{DiscoveryWanQuery()}"))">Run Upstream Discovery</button>
+                        <button class="btn btn-sm btn-primary" @onclick="@(() => NavigationManager.NavigateTo($"/monitoring?tab=performance&discover=1{WanLinkQuery()}"))">Run Upstream Discovery</button>
                     }
                 </div>
             </div>
@@ -166,7 +166,7 @@ else if (_report == null)
             <div class="banner-content">
                 <span class="banner-icon banner-icon-info">i</span>
                 <div class="banner-text" style="flex: 1;">
-                    <span>Pick your access network technology so ISP Health can grade against the right expectations. You can also set it during <a href="/monitoring?tab=performance&amp;discover=1@DiscoveryWanQuery()">Upstream Discovery</a>.</span>
+                    <span>Pick your access network technology so ISP Health can grade against the right expectations. You can also set it during <a href="/monitoring?tab=performance&amp;discover=1@WanLinkQuery()">Upstream Discovery</a>.</span>
                 </div>
                 <div class="banner-actions">
                     <select class="form-control" style="max-width: 240px;" aria-label="Access technology" disabled="@(!_canOperate)" @onchange="OnAccessTechnologyChanged">
@@ -244,7 +244,7 @@ else
                     Re-run Upstream Discovery to map your trace path, so ISP Health can tell a genuinely congested hop from one that just deprioritizes ICMP.
                 </div>
                 <div class="banner-actions">
-                    <button class="btn btn-sm btn-primary" @onclick="@(() => NavigationManager.NavigateTo($"/monitoring?tab=performance&discover=1{DiscoveryWanQuery()}"))">Re-run Upstream Discovery</button>
+                    <button class="btn btn-sm btn-primary" @onclick="@(() => NavigationManager.NavigateTo($"/monitoring?tab=performance&discover=1{WanLinkQuery()}"))">Re-run Upstream Discovery</button>
                 </div>
             </div>
         </div>
@@ -373,7 +373,7 @@ else
                             @if (!string.IsNullOrEmpty(issue.InvestigateUrl))
                             {
                                 <div class="issue-investigate">
-                                    <a class="isp-factor-link" href="@issue.InvestigateUrl"
+                                    <a class="isp-factor-link" href="@(issue.InvestigateUrl + WanLinkQuery())"
                                        data-tooltip="Jump to the most recent matching loss event on the Network Performance charts" data-tooltip-hover-only>@(issue.InvestigateText ?? "Investigate on the charts")</a>
                                 </div>
                             }
@@ -1255,8 +1255,11 @@ else
         }
     }
 
-    /// <summary>Carries the report's WAN into a discovery link so it opens on that WAN's discovery.</summary>
-    private string DiscoveryWanQuery() =>
+    /// <summary>
+    /// Carries the report's WAN into a link out of this panel, so the destination opens filtered to
+    /// the WAN the report was about. Empty on a single-WAN site, where the parameter says nothing.
+    /// </summary>
+    private string WanLinkQuery() =>
         string.IsNullOrEmpty(_selectedWanKey) || _wanOptions.Count <= 1
             ? "" : $"&wan={Uri.EscapeDataString(_selectedWanKey)}";
 
@@ -1879,10 +1882,14 @@ else
         return Math.Clamp(dark / span * 100, 0, 95);
     }
 
-    private static string? FactorInvestigateUrl(string factorName) => factorName switch
+    /// <summary>
+    /// Where a factor's name links to. The report's WAN rides along, so the charts open filtered to
+    /// the same WAN the factor was graded on rather than to whatever the last visit left selected.
+    /// </summary>
+    private string? FactorInvestigateUrl(string factorName) => factorName switch
     {
-        "Packet Loss" => "/monitoring?tab=performance&investigate=packet-loss",
-        "Loaded Loss" => "/monitoring?tab=performance&investigate=loaded-loss",
+        "Packet Loss" => $"/monitoring?tab=performance&investigate=packet-loss{WanLinkQuery()}",
+        "Loaded Loss" => $"/monitoring?tab=performance&investigate=loaded-loss{WanLinkQuery()}",
         _ => null
     };
 
