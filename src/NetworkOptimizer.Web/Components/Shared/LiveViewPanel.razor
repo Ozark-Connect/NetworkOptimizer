@@ -104,7 +104,7 @@ else
                     <div class="stat-value stat-value-stacked">
                         @foreach (var r in PerWanTargetStats(MonitoringTargetType.AccessIsp, meanAcrossTargets: false))
                         {
-                            <div class="stat-stack-row"><span class="stat-stack-wan">@r.Label</span><span class="stat-stack-value">@FormatRtt(r.Rtt)</span></div>
+                            <div class="stat-stack-row"><span class="stat-stack-wan"><span class="desktop-label">@r.Label</span><span class="mobile-label">@NetworkOptimizer.UniFi.GatewayWanHelper.ShortWanToken(r.Label)</span></span><span class="stat-stack-value">@FormatRtt(r.Rtt)</span></div>
                         }
                     </div>
                 }
@@ -120,7 +120,7 @@ else
                     <div class="stat-value stat-value-stacked">
                         @foreach (var r in PerWanTargetStats(MonitoringTargetType.AccessIsp, meanAcrossTargets: false))
                         {
-                            <div class="stat-stack-row @(r.Loss > 0 ? "stat-danger" : "")"><span class="stat-stack-wan">@r.Label</span><span class="stat-stack-value">@FormatLoss(r.Loss)</span></div>
+                            <div class="stat-stack-row @(r.Loss > 0 ? "stat-danger" : "")"><span class="stat-stack-wan"><span class="desktop-label">@r.Label</span><span class="mobile-label">@NetworkOptimizer.UniFi.GatewayWanHelper.ShortWanToken(r.Label)</span></span><span class="stat-stack-value">@FormatLoss(r.Loss)</span></div>
                         }
                     </div>
                 }
@@ -137,7 +137,7 @@ else
                     <div class="stat-value stat-value-stacked">
                         @foreach (var r in PerWanTargetStats(MonitoringTargetType.Transit, meanAcrossTargets: true))
                         {
-                            <div class="stat-stack-row"><span class="stat-stack-wan">@r.Label</span><span class="stat-stack-value">@FormatRtt(r.Rtt)</span></div>
+                            <div class="stat-stack-row"><span class="stat-stack-wan"><span class="desktop-label">@r.Label</span><span class="mobile-label">@NetworkOptimizer.UniFi.GatewayWanHelper.ShortWanToken(r.Label)</span></span><span class="stat-stack-value">@FormatRtt(r.Rtt)</span></div>
                         }
                     </div>
                 }
@@ -153,7 +153,7 @@ else
                     <div class="stat-value stat-value-stacked">
                         @foreach (var r in PerWanTargetStats(MonitoringTargetType.Transit, meanAcrossTargets: true))
                         {
-                            <div class="stat-stack-row @(r.Loss > 0 ? "stat-danger" : "")"><span class="stat-stack-wan">@r.Label</span><span class="stat-stack-value">@FormatLoss(r.Loss)</span></div>
+                            <div class="stat-stack-row @(r.Loss > 0 ? "stat-danger" : "")"><span class="stat-stack-wan"><span class="desktop-label">@r.Label</span><span class="mobile-label">@NetworkOptimizer.UniFi.GatewayWanHelper.ShortWanToken(r.Label)</span></span><span class="stat-stack-value">@FormatLoss(r.Loss)</span></div>
                         }
                     </div>
                 }

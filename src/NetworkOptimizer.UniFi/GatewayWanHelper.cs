@@ -96,6 +96,18 @@ public static class GatewayWanHelper
     /// "wan2" → 2). Zero for anything that is not a wan key, which
     /// <see cref="FormatWanLabel"/> reads as "no WAN label".
     /// </summary>
+    /// <summary>
+    /// A WAN token cut down to its index for tight layouts ("WAN2" -> "2"), where the column is
+    /// narrow enough that repeating "WAN" on every row costs more than it says. Anything that is
+    /// not a token - a connection name, from a label that carried none - comes back untouched.
+    /// </summary>
+    public static string ShortWanToken(string? label)
+    {
+        if (string.IsNullOrWhiteSpace(label)) return label ?? "";
+        var index = WanIndexFromKey(label);
+        return index >= 1 ? index.ToString(System.Globalization.CultureInfo.InvariantCulture) : label;
+    }
+
     public static int WanIndexFromKey(string? wanKey)
     {
         if (string.IsNullOrWhiteSpace(wanKey)) return 0;
