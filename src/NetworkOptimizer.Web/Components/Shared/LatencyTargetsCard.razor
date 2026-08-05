@@ -24,7 +24,7 @@
                         {<span class="wan-pill-token">@wp.WanToken</span>}
                     </button>
                 }
-                <button class="time-btn @(AllSelected ? "active" : "")"
+                <button class="time-btn wan-all-btn @(AllSelected ? "active" : "")"
                         @onclick="() => PickWanAsync(AllWansKey)" @onclick:stopPropagation>All</button>
             </div>
         }

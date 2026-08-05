@@ -293,7 +293,7 @@
                                 }@(wp.Name ?? w.Label)@if (wp.WanToken != null && wp.Name != null)
                                 {<span class="wan-pill-token">@wp.WanToken</span>}</button>
                     }
-                    <button class="time-btn @(LiveWan.AllSelected ? "active" : "")"
+                    <button class="time-btn wan-all-btn @(LiveWan.AllSelected ? "active" : "")"
                             @onclick="() => LiveWan.SelectAllAsync()">All</button>
                     @if (LiveWanIsNarrowed)
                     {
@@ -524,7 +524,7 @@
                             }@(wp.Name ?? w.Label)@if (wp.WanToken != null && wp.Name != null)
                             {<span class="wan-pill-token">@wp.WanToken</span>}</button>
                         }
-                        <button class="time-btn @(AllWansSelected ? "active" : "")"
+                        <button class="time-btn wan-all-btn @(AllWansSelected ? "active" : "")"
                                 @onclick="SelectAllWansAsync">All</button>
                         @if (WanFilterIsNarrowed)
                         {

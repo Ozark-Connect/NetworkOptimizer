@@ -482,8 +482,12 @@ h1:focus {
     align-items: center;
     gap: 0.4rem;
 }
+.wan-chart-mode-cluster.is-comparing {
+    right: 2.25rem;
+}
 @media (max-width: 768px) {
-    .wan-chart-mode-cluster {
+    .wan-chart-mode-cluster,
+    .wan-chart-mode-cluster.is-comparing {
         right: 0;
     }
 }
@@ -9530,6 +9534,10 @@ a.path-hop.hop-clickable:hover {
 .wan-selector-standalone {
     width: max-content;
     max-width: 100%;
+}
+
+.wan-all-btn {
+    flex: 0.4;
 }
 
 .time-range-selector.wan-selector-on-page {
