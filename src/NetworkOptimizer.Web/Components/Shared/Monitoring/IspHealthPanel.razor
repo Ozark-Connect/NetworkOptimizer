@@ -187,7 +187,17 @@ else if (_report == null)
                 <span class="banner-icon banner-icon-info">i</span>
                 <div class="banner-text" style="flex: 1;">
                     Collecting monitoring data. ISP Health needs a few hours of latency history before it can grade your connection; check back soon.
+                    @if (!_wanHasSpeedTestSchedule)
+                    {
+                        <text> No speed tests are scheduled for this WAN yet - schedule recurring tests and run one now, so throughput history builds alongside.</text>
+                    }
                 </div>
+                @if (!_wanHasSpeedTestSchedule)
+                {
+                    <div class="banner-actions">
+                        <a href="/alerts" class="btn btn-sm btn-primary">Set up schedule</a>
+                    </div>
+                }
             </div>
         </div>
     }
@@ -1055,6 +1065,14 @@ else
     // not probed at all, and discovery cannot change that.
     private HashSet<string> _wansWithContext = new(StringComparer.OrdinalIgnoreCase);
     private string _selectedWanKey = "";
+
+    /// <summary>
+    /// Whether the selected WAN has an enabled scheduled WAN speed test. Read alongside the
+    /// report so the collecting-data banner can point a freshly monitored WAN at Alerts &amp;
+    /// Schedule while its latency history builds. Defaults to true so the nudge never shows
+    /// on an unknown answer.
+    /// </summary>
+    private bool _wanHasSpeedTestSchedule = true;
     private string SharedWanScopeKey => SiteContext.ScopeStorageKey("monitoringWanScope");
 
     /// <summary>
@@ -1137,6 +1155,53 @@ else
             // and let the status funnels render the fallback message.
             _report = null;
         }
+        await RefreshWanScheduleHintAsync();
+    }
+
+    /// <summary>
+    /// Rereads whether the selected WAN is covered by an enabled scheduled WAN speed test. A
+    /// gateway schedule carries its network group(s) in TargetConfig ("WAN", "WAN+WAN2"); a
+    /// server-vantage schedule carries none and rides the default route, so it counts for the
+    /// primary. Any failure reads as covered - the banner nudge must never appear on a guess.
+    /// </summary>
+    private async Task RefreshWanScheduleHintAsync()
+    {
+        try
+        {
+            var choice = _wanOptions.FirstOrDefault(w => string.Equals(w.Key, _selectedWanKey, StringComparison.OrdinalIgnoreCase));
+            var wanKey = string.IsNullOrEmpty(_selectedWanKey) ? NetworkOptimizer.UniFi.GatewayWanHelper.DefaultWanKey : _selectedWanKey;
+            var wanGroup = NetworkOptimizer.UniFi.GatewayWanHelper.WanNetworkGroupFromKey(wanKey);
+            var isPrimary = choice?.IsPrimary ?? true;
+
+            await using var db = SiteDb.CreateForSite(SiteContext.Slug, SiteContext.IsDefault);
+            var configs = await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.ToListAsync(
+                System.Linq.Queryable.Select(
+                    System.Linq.Queryable.Where(db.ScheduledTasks,
+                        t => t.Enabled && t.TaskType == "wan_speedtest"),
+                    t => t.TargetConfig));
+            _wanHasSpeedTestSchedule = configs.Any(c => ScheduleCoversWan(c, wanGroup, isPrimary));
+        }
+        catch
+        {
+            _wanHasSpeedTestSchedule = true;
+        }
+    }
+
+    private static bool ScheduleCoversWan(string? targetConfig, string wanGroup, bool wanIsPrimary)
+    {
+        if (string.IsNullOrEmpty(targetConfig)) return wanIsPrimary;
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(targetConfig);
+            if (!doc.RootElement.TryGetProperty("wanGroup", out var g) || g.ValueKind != System.Text.Json.JsonValueKind.String)
+                return wanIsPrimary;
+            return (g.GetString() ?? "").Split('+')
+                .Any(part => string.Equals(part.Trim(), wanGroup, StringComparison.OrdinalIgnoreCase));
+        }
+        catch
+        {
+            return wanIsPrimary;
+        }
     }
 
     private async Task SelectWanAsync(string key, bool persist = true)
@@ -1175,6 +1240,7 @@ else
                 : await Svc.GetReportAsync();
         }
         catch { _report = null; }
+        await RefreshWanScheduleHintAsync();
         // The chart fetches its own series and scopes them by WAN, so it has to be told. The
         // chart itself is dropped right now (the content render below re-mounts it), but the WAN
         // key is module-level JS state that survives the remount - pushing it here means the
