@@ -289,9 +289,14 @@ function renderBadges() {
     }
 }
 
+// Returns whether it actually mounted. The panel renders the chart element only alongside a
+// loaded report, so during a WAN switch (spinner up, report body out of the DOM) there is
+// nothing to mount into - that case returns false, without throwing, so the caller can leave
+// its mounted flag down and retry on a later render instead of recording a chart that was
+// never built.
 export async function mount(elId, fromISO = null, toISO = null, hidden = null) {
     const el = document.getElementById(elId);
-    if (!el) return;
+    if (!el) return false;
     win = (fromISO && toISO) ? { from: fromISO, to: toISO } : null;
     hiddenTypes = new Set(hidden || []);
 
@@ -316,6 +321,7 @@ export async function mount(elId, fromISO = null, toISO = null, hidden = null) {
     await loadAndUpdate();
     // Guarded at the tick, not inside loadAndUpdate, so an explicit reload is never suppressed.
     pollTimer = setInterval(() => { if (!tooltipHeld(el)) loadAndUpdate(); }, POLL_MS);
+    return true;
 }
 
 export async function reload() {
@@ -332,10 +338,17 @@ export async function setWindow(fromISO, toISO) {
     await loadAndUpdate();
 }
 
+// NOT reset by unmount, on purpose: the panel drops the chart while it switches WAN (the
+// element leaves the DOM with the report body) and pushes the new key before the re-mount,
+// so the fresh mount's first fetch reads it and loads the right WAN straight away.
 let wanKey = null;
 
 export function setWan(w) {
-    wanKey = w || null;
+    const next = w || null;
+    // Same key is a no-op rather than a reload: the post-mount push repeats the key the mount
+    // just fetched with, and refetching it would only abort-and-redo an identical request.
+    if (next === wanKey) return;
+    wanKey = next;
     loadAndUpdate();
 }
 
