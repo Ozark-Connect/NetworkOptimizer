@@ -174,7 +174,7 @@
                     <label class="form-label">Access network technology</label>
                     <select class="form-control upstream-tech-select @AccessTechAttentionClass"
                             value="@((int)_state.AccessTechnology)" disabled="@(!_canOperate)"
-                            @onchange="OnAccessTechChanged">
+                            @onchange="OnAccessTechChangedAsync">
                         @foreach (var tech in AccessTechOptions)
                         {
                             <option value="@((int)tech)">@FormatTechName(tech)</option>
@@ -1013,7 +1013,7 @@
         : _state.AccessTechnology == AccessTechnology.Unknown ? "upstream-tech-unset"
         : "";
 
-    private void OnAccessTechChanged(ChangeEventArgs e)
+    private async Task OnAccessTechChangedAsync(ChangeEventArgs e)
     {
         if (!_canOperate) return;
         _state.AccessTechnology = (AccessTechnology)int.Parse((string)e.Value!);
@@ -1021,6 +1021,10 @@
         // changed the value or re-picked the same one.
         _state.AccessTechnologyInferred = false;
         Svc.RecomputeL2NeighborLabel();
+        // How many targets arrive ticked depends on this field, and the run that proposed them
+        // may have had it wrong - naming a metered medium here has to narrow the selection now,
+        // not on some later run.
+        await Svc.ReapplyProbeBudgetAsync();
     }
 
     private void ToggleCollapse() => _collapsed = !_collapsed;

@@ -1353,15 +1353,28 @@ public class UpstreamTracerService
             Enabled = true
         }).ToList();
 
-        // Generate "<Org> <PTR-derived>" labels, same format as transit targets.
-        var accessIdx = 0;
+        // Generate "<Org> <PTR-derived>" labels, same format as transit targets. With no usable
+        // PTR the hop's own number identifies it - a running counter drifted from the hop numbers
+        // beside it in the table as soon as any hop in between did have a name.
         foreach (var hop in State.AccessHops)
         {
             var ptrLabel = FormatTransitHopLabel(hop.PtrHostname, hop.Address);
-            if (ptrLabel != null)
-                hop.Label = $"{orgName} {ptrLabel}";
-            else
-                hop.Label = $"{orgName} {++accessIdx}";
+            hop.Label = ptrLabel != null
+                ? $"{orgName} {ptrLabel}"
+                : $"{orgName} hop {hop.HopNumber}";
+        }
+
+        // The ISP itself can settle the technology where the L2 neighbor could not: a Starlink
+        // dish presents its own router to the gateway, so the OUI names the CPE rather than the
+        // medium. Same rule as the vendor inference - only into an empty slot, never over a
+        // choice someone made.
+        if (State.AccessTechnology is AccessTechnology.Unknown or AccessTechnology.PppoE
+            && TechnologyFromAccessAsn(accessAsn, orgName) is { } asnTech)
+        {
+            State.AccessTechnology = asnTech;
+            State.AccessTechnologyInferred = true;
+            _logger.LogDebug("Tracer: access technology inferred as {Tech} from access AS{Asn} ({Org})",
+                asnTech, accessAsn, orgName);
         }
 
         // Inject the L2 neighbor (from ip neigh) as the first access hop if it
@@ -3188,7 +3201,55 @@ public class UpstreamTracerService
         var parts = hostname.Split('.');
         if (IsIpDerivedHostname(parts, ipAddress ?? string.Empty)) return null;
         if (parts.Length <= 2) return null;
-        return string.Join('.', parts.Take(parts.Length - 2));
+        var label = string.Join('.', parts.Take(parts.Length - 2));
+        return PlaceholderPtrLabels.Contains(label) ? null : label;
+    }
+
+    /// <summary>
+    /// PTR labels that name nothing. Starlink answers most of its network with
+    /// "undefined.hostname.localhost", which parses as a perfectly good label and produced a row
+    /// called "&lt;Org&gt; undefined" - repeated for every hop, so they were not even distinguishable
+    /// from each other. A placeholder is treated as no PTR at all.
+    /// </summary>
+    private static readonly HashSet<string> PlaceholderPtrLabels =
+        new(StringComparer.OrdinalIgnoreCase) { "undefined", "unknown", "none", "null", "localhost" };
+
+    /// <summary>
+    /// Access technology implied by the access ISP itself. Only satellite is safe to read this
+    /// way: a terrestrial ISP's AS carries fiber, cable and DSL customers behind the same number,
+    /// while SpaceX's carries one medium. Matched on the number AND the org name so a secondary
+    /// ASN, or a registry rename, still lands.
+    /// </summary>
+    internal static AccessTechnology? TechnologyFromAccessAsn(int? asn, string? orgName)
+    {
+        if (asn == 14593) return AccessTechnology.Satellite;
+        if (string.IsNullOrWhiteSpace(orgName)) return null;
+        return orgName.Contains("starlink", StringComparison.OrdinalIgnoreCase)
+            || orgName.Contains("space exploration", StringComparison.OrdinalIgnoreCase)
+            || orgName.Contains("spacex", StringComparison.OrdinalIgnoreCase)
+                ? AccessTechnology.Satellite
+                : null;
+    }
+
+    /// <summary>
+    /// Re-applies the metered probe budget to the candidates on screen. The budget reads the
+    /// access technology, which is often only right once someone sets it in the review - a
+    /// satellite WAN identified after the run would otherwise keep the pre-selection an unmetered
+    /// run made, which is the whole allowance it was meant to save.
+    /// </summary>
+    public async Task ReapplyProbeBudgetAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            await using var db = await CreateDbAsync(ct);
+            var plan = await ResolveProbePlanAsync(
+                db, _binding?.WanInterface ?? State.WanInterface ?? "wan", ct);
+            ApplyAutoEnableBudget(State, plan.MaxAutoEnabled);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Re-applying the probe budget after an access technology change failed");
+        }
     }
 
     private bool Fail(string message)

@@ -78,6 +78,14 @@
                     </tr>
                 </thead>
                 <tbody>
+                    @if (!VisibleTargets().Any())
+                    {
+                        <tr>
+                            <td colspan="@VisibleColumnCount" class="latency-targets-empty">
+                                No targets for this WAN.
+                            </td>
+                        </tr>
+                    }
                     @foreach (var t in VisibleTargets())
                     {
                         var latest = LiveStats.GetTargetStats(t.TargetId);
@@ -180,7 +188,7 @@
                 }
             </div>
             <p class="page-description" style="margin-top: 0.5rem;">
-                Removing a fabric or default WAN target will trigger it to be re-created
+                Removing a fabric or upstream-discovered WAN target will trigger it to be re-created
                 on the next agent cycle. Use <strong>Pause</strong> instead to stop
                 probing without losing the row's history.
             </p>
@@ -430,6 +438,9 @@
     /// The rows for the WANs on screen. A target with no WAN of its own belongs to the primary, the
     /// same rule every other per-WAN reader uses.
     /// </summary>
+    /// <summary>Columns in the table, so an empty-state row spans all of them.</summary>
+    private int VisibleColumnCount => WanContexts.Count > 0 ? 8 : 7;
+
     private IEnumerable<MonitoringTarget> VisibleTargets()
     {
         var ordered = Targets.OrderBy(t => t.TargetType).ThenBy(t => t.Name);
