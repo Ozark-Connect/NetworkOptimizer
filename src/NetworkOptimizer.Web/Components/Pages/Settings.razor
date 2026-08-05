@@ -3398,6 +3398,7 @@
             @if (_showMultiWanHint)
             {
                 <div class="alert alert-info multi-wan-hint">
+                    <div class="multi-wan-hint-body">
                     <span class="banner-icon banner-icon-info">i</span>
                     @* Two leads, one card. Without multi-site there is no Configuration to open and
                        no agent to enroll, so naming those steps first would send someone looking for
@@ -3407,9 +3408,9 @@
                         @if (_multiSiteEnabled)
                         {
                             <text>
-                                To monitor another, open the site's <strong>Configuration</strong> below,
-                                use <strong>Add Agent / New Token</strong> to enroll an agent for it, then
-                                give that WAN a vantage on <strong>Monitoring - Network Performance</strong>.
+                                To monitor another, open the @HintSiteName site's <strong>Configuration</strong>
+                                below, use <strong>Add Agent / New Token</strong> to enroll an agent for it,
+                                then give that WAN a vantage on <strong>Monitoring - Network Performance</strong>.
                             </text>
                         }
                         else
@@ -3421,6 +3422,7 @@
                             </text>
                         }
                     </p>
+                    </div>
                     <button class="btn btn-sm btn-tertiary" @onclick="DismissMultiWanHintAsync">Dismiss</button>
                 </div>
             }
@@ -3913,6 +3915,13 @@
     // does not need telling. And the user has not dismissed it, which is remembered per user.
     private bool _multiWanHintChecked;
     private bool _showMultiWanHint;
+
+    /// <summary>
+    /// The site to name in the card, so a reader with several sites in the table knows which row to
+    /// open. Falls back to "this" when the name has not loaded, which keeps the sentence grammatical
+    /// rather than leaving a gap where a name should be.
+    /// </summary>
+    private string HintSiteName => string.IsNullOrWhiteSpace(_currentSiteName) ? "this" : _currentSiteName!;
 
     private async Task EnsureMultiWanHintAsync()
     {
