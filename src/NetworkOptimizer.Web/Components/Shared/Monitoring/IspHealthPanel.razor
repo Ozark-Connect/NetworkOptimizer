@@ -1174,7 +1174,15 @@ else
             var query = new Uri(NavigationManager.Uri).Query;
             var value = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(query)
                 .TryGetValue("wan", out var v) ? v.ToString() : null;
-            return string.IsNullOrWhiteSpace(value) ? null : value.Trim().ToLowerInvariant();
+            if (string.IsNullOrWhiteSpace(value)) return null;
+
+            var key = value.Trim().ToLowerInvariant();
+            // "primary" names the role rather than a WAN group, for links from somewhere that
+            // shows the primary's figures without knowing which WAN holds that role - it is a
+            // role in UniFi Network and any group can hold it, so those links cannot spell a key.
+            return string.Equals(key, Services.Monitoring.LiveWanScope.PrimaryWanToken, StringComparison.Ordinal)
+                ? _wanOptions.FirstOrDefault(w => w.IsPrimary)?.Key
+                : key;
         }
         catch { return null; }
     }
