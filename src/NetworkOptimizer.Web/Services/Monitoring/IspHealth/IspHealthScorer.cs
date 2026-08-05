@@ -880,36 +880,34 @@ public class IspHealthScorer
                 .Select(s => (s.Time, s.RttAvgMs!.Value - baseline.Value)));
         }
 
-        // Episodes for the REGIME TEST only, never for the median below. That test asks whether the
-        // newest N measurements all sit far below the older ones, and N has to be a unit big enough
-        // that a fluctuation cannot fill it: per-sample, "the newest 3" can be three readings
-        // seconds apart inside one bad evening, and a brief lull would read as a line that was
-        // fixed. The median keeps every sample, so a long saturation - where bufferbloat actually
-        // develops, as buffers fill over seconds - outweighs a short burst, as it should.
+        // Grouped by EPISODE - the run of consecutive loaded windows - not by window. A window is
+        // seven seconds, so "the newest three windows" is the last twenty seconds and any brief
+        // lull inside one bad evening would read as a line that was fixed. An episode is however
+        // long the line actually stayed loaded, which is the unit a person means by "a load event".
+        var episodeStarts = SeriesStats.LoadEpisodeStarts(loaded, Math.Max(1, _options.LoadWindowSeconds));
         var episodes = pooled
-            .GroupBy(x => FloorToWindow(x.Time))
+            .Where(x => episodeStarts.ContainsKey(FloorToWindow(x.Time)))
+            .GroupBy(x => episodeStarts[FloorToWindow(x.Time)])
             .Select(g => (Time: g.Key, Value: SeriesStats.Median(g.Select(x => x.Value).ToList())!.Value))
             .OrderByDescending(e => e.Time)
             .ToList();
 
-        // TEMPORARY diagnostic: why the fix-detector did or did not fire.
-        var run = _options.LoadedLatencyRegimeSamples;
-        var olderMedian = episodes.Count > run
-            ? SeriesStats.Median(episodes.Skip(run).Select(e => e.Value).ToList())
-            : null;
-        _logger?.LogDebug(
-            "ISP Health: loaded latency {Dir} - {Episodes} episode(s), newest [{Recent}], older median {Older}, threshold {Threshold}",
-            upstream ? "up" : "down",
-            episodes.Count,
-            string.Join(", ", episodes.Take(run).Select(e =>
-                $"{e.Time:HH:mm:ss}={e.Value.ToString("0.0", CultureInfo.InvariantCulture)}")),
-            olderMedian?.ToString("0.0", CultureInfo.InvariantCulture) ?? "n/a",
-            olderMedian is { } b
-                ? Math.Max(b * _options.LoadedLatencyRegimeDropFraction, LoadedLatencyRegimeFloorMs)
-                    .ToString("0.0", CultureInfo.InvariantCulture)
-                : "n/a");
-
-        if (RecentRegimeDelta(episodes) is { } regime) return Math.Max(0, regime);
+        // Has the elevation STOPPED? Comparing medians cannot answer that here: most loaded samples
+        // sit near zero even while the line misbehaves, so the median over everything is ~0 before
+        // and after a fix, and the figure that gets reported comes from the elevated minority the
+        // noise floor keeps. Whether elevation is still happening IS visible - and a run of clean
+        // episodes after elevated ones is a line someone fixed.
+        //
+        // A line that was not fixed is untouched: still-bad lines have elevated episodes among
+        // their newest, and always-clean lines have no elevated episodes to go stale.
+        var stale = _options.LoadedLatencyElevationStaleEpisodes;
+        if (stale > 0 && episodes.Count > stale)
+        {
+            var cleanRun = episodes.TakeWhile(e => e.Value < noiseFloor).ToList();
+            var everElevated = episodes.Any(e => e.Value >= noiseFloor);
+            if (everElevated && cleanRun.Count >= stale)
+                return Math.Max(0, SeriesStats.Median(cleanRun.Select(e => e.Value).ToList())!.Value);
+        }
 
         var credible = pooled.Where(x => x.Value >= noiseFloor).ToList();
         if (credible.Count < _options.MinLoadedSamples) return null;

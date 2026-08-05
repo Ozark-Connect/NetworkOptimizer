@@ -100,6 +100,25 @@ public class IspHealthOptions
     public double LoadedLatencyRegimeDropFraction { get; set; } = 0.5;
 
     /// <summary>
+    /// Consecutive newest load episodes that must show no added delay before the elevation is
+    /// treated as OVER - the line was fixed, and the elevated episodes behind it describe a
+    /// connection that no longer exists.
+    /// <para>
+    /// Asked this way round because of what the noise floor does downstream. Most loaded samples on
+    /// a healthy line sit near zero, so the floor keeps only the elevated ones and the figure
+    /// reported is the median OF THE BAD ONES. Comparing medians cannot see a fix there - the
+    /// median over everything is ~0 both before and after. Whether elevation is still HAPPENING
+    /// can be seen, and that is the question.
+    /// </para>
+    /// <para>
+    /// Nothing changes for a line that was not fixed: a still-bad line has elevated episodes among
+    /// its newest and never qualifies, and a line that was always clean has no elevated episodes to
+    /// go stale, so it takes the path it always took.
+    /// </para>
+    /// </summary>
+    public int LoadedLatencyElevationStaleEpisodes { get; set; } = 3;
+
+    /// <summary>
     /// Utilization band, as a fraction of plan speed, over which a load episode earns credibility:
     /// weak at the bottom, full at the top.
     /// <para>

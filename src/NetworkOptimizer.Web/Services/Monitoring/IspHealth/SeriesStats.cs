@@ -93,6 +93,32 @@ internal static class SeriesStats
     }
 
     /// <summary>
+    /// The start time of the run of consecutive loaded windows each window belongs to, so samples
+    /// can be grouped by EPISODE rather than by window. A window is seven seconds; an episode is
+    /// however long the line actually stayed loaded, which is the unit a person would call "a load
+    /// event" and the only one at which "the last three" means anything.
+    /// </summary>
+    public static Dictionary<DateTime, DateTime> LoadEpisodeStarts(
+        IEnumerable<DateTime> loadedWindowKeys, int windowSeconds)
+    {
+        var size = Math.Max(1, windowSeconds);
+        var ordered = loadedWindowKeys.Distinct().OrderBy(t => t).ToList();
+        var starts = new Dictionary<DateTime, DateTime>();
+        for (var i = 0; i < ordered.Count;)
+        {
+            var run = 1;
+            while (i + run < ordered.Count
+                && (ordered[i + run] - ordered[i + run - 1]).TotalSeconds <= size + 0.001)
+            {
+                run++;
+            }
+            for (var j = 0; j < run; j++) starts[ordered[i + j]] = ordered[i];
+            i += run;
+        }
+        return starts;
+    }
+
+    /// <summary>
     /// A credibility multiplier that rises to 1 as a measure approaches the level at which it is
     /// fully believable, and never falls below <paramref name="floor"/> - weak evidence is not
     /// absent evidence. A non-positive target means "cannot judge", which is 1 throughout.
