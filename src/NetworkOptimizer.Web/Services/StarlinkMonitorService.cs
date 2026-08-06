@@ -389,6 +389,18 @@ public sealed class StarlinkMonitorService : IDisposable
 
         var baseline = new DishBaseline(median, capable, to);
         _baselines[configId] = baseline;
+
+        // Says which of the two baseline-dependent rules are armed and why. A null median here is
+        // the difference between "alignment drift is watching" and "alignment drift is off", and
+        // without this line the two look identical from outside.
+        _logger.LogDebug(
+            "Starlink {Id} baseline over {Days}d: alignment={Median} from {Offsets} points, " +
+            "capable={Capable} Mbps from {Speeds} points",
+            configId, BaselineWindow.TotalDays,
+            median?.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture) ?? "none",
+            offsets.Count, capable?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "none",
+            speeds.Count);
+
         return baseline;
     }
 

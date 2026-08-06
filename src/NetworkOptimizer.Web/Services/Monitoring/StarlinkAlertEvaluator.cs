@@ -274,12 +274,64 @@ public class StarlinkAlertEvaluator
             await CheckEthSpeed(state, subject, stats, ethCapableMbps, now, ct);
             await CheckOutageBurst(state, subject, stats, now, ct);
             await CheckServiceRestriction(state, subject, stats, ct);
+
+            // Logged after the checks so the open set reflects this poll. Built only when Debug is
+            // on, since it medians the alignment window and sums the outage window to do it.
+            if (_logger.IsEnabled(LogLevel.Debug))
+                LogEvaluation(state, subject, stats, alignmentBaselineDeg, ethCapableMbps);
         }
         finally
         {
             state.Gate.Release();
         }
     }
+
+    /// <summary>
+    /// One line per poll describing everything the rules just judged, because a healthy dish is
+    /// silent by construction: no alert fires, so nothing otherwise proves the chain is live. This
+    /// is what confirms the baseline came back from Influx, the dish got bound to a WAN, and each
+    /// condition is being evaluated against real numbers - none of which can be told apart from a
+    /// broken evaluator by the absence of alerts.
+    /// </summary>
+    private void LogEvaluation(DishState state, DishSubject subject, StarlinkStats stats,
+        double? baselineDeg, int? capableMbps)
+    {
+        var samples = state.AlignmentSamples.Count;
+        double? current = samples > 0 ? Median(state.AlignmentSamples.Select(s => s.Offset)) : null;
+        double? drift = current is { } c && baselineDeg is { } b ? Math.Abs(c - b) : null;
+        var gated = stats.AttitudeUncertaintyDeg > AttitudeUncertaintyMaxDeg;
+
+        var open = new List<string>();
+        if (state.OpenDishAlertCodes.Count > 0) open.Add("dish_alert");
+        if (state.Obstruction.Open) open.Add("obstructed");
+        if (state.Alignment.Open) open.Add("alignment_drift");
+        if (state.EthSpeed.Open) open.Add("eth_speed_degraded");
+        if (state.OutageBurstOpen) open.Add("outage_burst");
+
+        _logger.LogDebug(
+            "Starlink {Dish} alerting: wan={Wan} obstruction={Obstruction} snrLow={SnrLow} " +
+            "align={Current}/{Baseline}deg drift={Drift} samples={Samples} uncertainty={Uncertainty}{Gated} " +
+            "eth={Eth}/{Capable}Mbps outages24h={Outage}s restricted={Restricted} open=[{Open}]",
+            subject.DishName,
+            subject.WanLabel ?? "unbound",
+            Show(stats.FractionObstructed),
+            stats.IsSnrPersistentlyLow?.ToString() ?? "n/a",
+            Show(current),
+            Show(baselineDeg),
+            Show(drift),
+            samples,
+            Show(stats.AttitudeUncertaintyDeg),
+            gated ? " (gated)" : "",
+            stats.EthSpeedMbps?.ToString(CultureInfo.InvariantCulture) ?? "n/a",
+            capableMbps?.ToString(CultureInfo.InvariantCulture) ?? "n/a",
+            Show(state.OutageSamples.Sum(s => s.Seconds)),
+            state.WasRestricted?.ToString() ?? "n/a",
+            open.Count == 0 ? "none" : string.Join(",", open));
+    }
+
+    /// <summary>A number for the diagnostic line, or "n/a" where the dish reported none.</summary>
+    private static string Show(double? value) =>
+        value?.ToString("0.####", CultureInfo.InvariantCulture) ?? "n/a";
 
     // --- starlink.dish_alert -----------------------------------------------------------------
 
