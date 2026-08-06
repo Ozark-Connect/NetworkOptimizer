@@ -4586,6 +4586,13 @@
     /// reports every address its host holds, which is the reliable answer; an agent with no open
     /// tunnel falls back to its last known LAN IP, since an outdated agent - exactly the one whose
     /// upgrade command this drives - may well be the one that is down.
+    /// <para>
+    /// Never blocks on the site's UniFi Console. The addresses to compare against come from it, and
+    /// on an agent site it reconnects through the agent's own tunnel, so this panel routinely opens
+    /// ahead of it - but a site whose console is broken or unconfigured is exactly where an
+    /// operator goes to fix it, and it has to stay responsive. The detector answers from its
+    /// persisted verdict meanwhile.
+    /// </para>
     /// </summary>
     private async Task LoadAgentsOnGatewayAsync(Site site)
     {
@@ -4595,10 +4602,7 @@
             var candidates = connections.FirstOrDefault(c => c.AgentId == agent.Id)?.HostAddresses;
             if (candidates is not { Count: > 0 })
                 candidates = string.IsNullOrEmpty(agent.LanIp) ? Array.Empty<string>() : new[] { agent.LanIp! };
-            var match = candidates.Count > 0
-                ? await OnGatewayDetector.MatchGatewayAddressAsync(site.Slug, candidates)
-                : null;
-            return (agent.Id, OnGateway: match != null);
+            return (agent.Id, OnGateway: await OnGatewayDetector.IsAgentOnGatewayAsync(site.Slug, agent.Id, candidates));
         }));
         foreach (var (agentId, onGateway) in resolved)
             _agentOnGateway[agentId] = onGateway;

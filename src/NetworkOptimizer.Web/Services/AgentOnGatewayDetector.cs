@@ -46,6 +46,11 @@ public class AgentOnGatewayDetector
     // work without a system scope.
     private readonly ConcurrentDictionary<string, string> _agentIp = new();
     private readonly ConcurrentDictionary<string, Task> _refreshing = new();
+    // Per-agent verdicts and their in-flight refreshes, for the per-agent overload. Separate from
+    // the site-level pair above rather than replacing it: the two answer different questions and
+    // the site-level one keeps its own contract.
+    private readonly ConcurrentDictionary<(string Slug, int AgentId), (bool OnGateway, DateTime At)> _agentCache = new();
+    private readonly ConcurrentDictionary<(string Slug, int AgentId), Task> _agentRefreshing = new();
     // The site's gateway addresses from the last resolution, so the per-connection check below can
     // answer for an agent the site-level verdict never considered. Cached and refreshed on the same
     // TTL as the verdict itself; a site with 2+ agents has one gateway either way.
@@ -90,7 +95,7 @@ public class AgentOnGatewayDetector
         // invented false into the empty cache.
         if (!hasCached)
         {
-            var persisted = await LoadPersistedAsync(siteSlug);
+            var persisted = await LoadPersistedAsync(siteSlug, SystemSettingKeys.AgentOnGateway);
             if (persisted != null)
             {
                 _cache.TryAdd(siteSlug, (persisted.Value, DateTime.MinValue));
@@ -112,6 +117,101 @@ public class AgentOnGatewayDetector
         }
         return _cache.TryGetValue(siteSlug, out var fresh) && fresh.OnGateway;
     }
+
+    /// <summary>
+    /// Whether ONE agent runs on its site's gateway, given the addresses that agent is known by.
+    /// The per-agent counterpart of <see cref="IsAgentOnGatewayAsync(string, CancellationToken)"/>,
+    /// carrying the same durability: a persisted verdict seeds the answer before the console can be
+    /// asked, and a refresh that cannot reach the console keeps the last answer rather than
+    /// inventing a no.
+    /// <para>
+    /// That durability is the whole point. The addresses to compare against come from the site's
+    /// UniFi Console, which on an agent site reconnects through that agent's own tunnel - so a
+    /// caller asking right after a restart, an agent update, or a page switch would otherwise get a
+    /// silent no and show a gateway agent the wrong instructions. Callers must not block on the
+    /// console to avoid that: a site with a broken or unconfigured console is exactly where someone
+    /// goes to fix it, and it has to stay responsive.
+    /// </para>
+    /// <para>
+    /// Deliberately not gated on the site being non-default, unlike the site-level verdict whose
+    /// "false for the default site" contract its speed-test consumers rely on.
+    /// </para>
+    /// </summary>
+    public async Task<bool> IsAgentOnGatewayAsync(
+        string siteSlug, int agentId, IReadOnlyList<string> candidates, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(siteSlug))
+            return false;
+
+        var key = (siteSlug, agentId);
+        var hasCached = _agentCache.TryGetValue(key, out var cached);
+        if (hasCached && DateTime.UtcNow - cached.At < CacheTtl)
+            return cached.OnGateway;
+
+        // Seeded before the refresh starts, for the same reason the site-level path does it: a
+        // refresh that finds the console down must keep this answer rather than race a made-up
+        // false into an empty cache.
+        if (!hasCached)
+        {
+            var persisted = await LoadPersistedAsync(siteSlug, SystemSettingKeys.AgentOnGatewayFor(agentId));
+            if (persisted != null)
+            {
+                _agentCache.TryAdd(key, (persisted.Value, DateTime.MinValue));
+                hasCached = _agentCache.TryGetValue(key, out cached);
+            }
+        }
+
+        // Nothing to compare: an agent that has never reported an address. Never persisted, so a
+        // known verdict is kept and an unknown one stays unknown.
+        if (candidates.Count == 0)
+            return hasCached && cached.OnGateway;
+
+        var refresh = StartOrJoinAgentRefresh(siteSlug, agentId, candidates);
+        if (hasCached)
+            return cached.OnGateway;
+
+        try
+        {
+            await refresh.WaitAsync(ct);
+        }
+        catch (OperationCanceledException)
+        {
+            // Caller gave up (panel closed) - the refresh itself continues and fills the cache.
+        }
+        return _agentCache.TryGetValue(key, out var fresh) && fresh.OnGateway;
+    }
+
+    /// <summary>One in-flight refresh per agent; the result lands in the cache and is persisted.</summary>
+    private Task StartOrJoinAgentRefresh(string siteSlug, int agentId, IReadOnlyList<string> candidates) =>
+        _agentRefreshing.GetOrAdd((siteSlug, agentId), key => Task.Run(async () =>
+        {
+            try
+            {
+                using var cts = new CancellationTokenSource(RefreshTimeout);
+                var connection = _siteConnections.GetFor(key.Slug);
+                if (!connection.IsConnected || connection.Client == null)
+                {
+                    // Console not up (the norm on an agent site right after a restart, since it
+                    // reconnects through the agent's tunnel).
+                    if (_agentCache.TryGetValue(key, out var last))
+                        _agentCache[key] = (last.OnGateway, DateTime.UtcNow);
+                    return;
+                }
+
+                await ResolveGatewayIpsAsync(key.Slug, connection.Client, cts.Token);
+                var onGateway = await MatchGatewayAddressAsync(key.Slug, candidates, cts.Token) != null;
+                _agentCache[key] = (onGateway, DateTime.UtcNow);
+                await PersistAsync(key.Slug, SystemSettingKeys.AgentOnGatewayFor(key.AgentId), onGateway);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Agent-on-gateway detection failed for agent {AgentId} at site {Slug}", key.AgentId, key.Slug);
+            }
+            finally
+            {
+                _agentRefreshing.TryRemove(key, out _);
+            }
+        }));
 
     /// <summary>
     /// The address the site's agent reported at the last detection, or null if none has completed.
@@ -254,7 +354,7 @@ public class AgentOnGatewayDetector
         var onGateway = gatewayIps.Contains(agentIp!, StringComparer.OrdinalIgnoreCase);
         _cache[siteSlug] = (onGateway, DateTime.UtcNow);
         _agentIp[siteSlug] = agentIp!;
-        await PersistAsync(siteSlug, onGateway);
+        await PersistAsync(siteSlug, SystemSettingKeys.AgentOnGateway, onGateway);
     }
 
     /// <summary>
@@ -334,13 +434,13 @@ public class AgentOnGatewayDetector
             _cache[siteSlug] = (cached.OnGateway, DateTime.UtcNow);
     }
 
-    /// <summary>The persisted last verdict for a site, or null when never detected.</summary>
-    private async Task<bool?> LoadPersistedAsync(string siteSlug)
+    /// <summary>The persisted last verdict under the given key, or null when never detected.</summary>
+    private async Task<bool?> LoadPersistedAsync(string siteSlug, string settingKey)
     {
         try
         {
-            await using var db = _siteDbFactory.CreateForSite(siteSlug, isDefault: false);
-            var value = (await db.SystemSettings.FindAsync(SystemSettingKeys.AgentOnGateway))?.Value;
+            await using var db = _siteDbFactory.CreateForSite(siteSlug, IsDefaultSite(siteSlug));
+            var value = (await db.SystemSettings.FindAsync(settingKey))?.Value;
             return value == null ? null : value == "true";
         }
         catch (Exception ex)
@@ -350,18 +450,26 @@ public class AgentOnGatewayDetector
         }
     }
 
+    /// <summary>
+    /// The default site keeps its settings in the main database rather than a per-site one. The
+    /// site-level verdict never reaches here for it (it answers false and returns), but the
+    /// per-agent one does, and asking for a site database it does not have would write the verdict
+    /// somewhere nothing reads it back from.
+    /// </summary>
+    private static bool IsDefaultSite(string siteSlug) => siteSlug == SiteManagementService.DefaultSiteSlug;
+
     /// <summary>Persists a real (console-backed) verdict; writes only on change to spare the site DB.</summary>
-    private async Task PersistAsync(string siteSlug, bool onGateway)
+    private async Task PersistAsync(string siteSlug, string settingKey, bool onGateway)
     {
         try
         {
             var value = onGateway ? "true" : "false";
-            await using var db = _siteDbFactory.CreateForSite(siteSlug, isDefault: false);
-            var setting = await db.SystemSettings.FindAsync(SystemSettingKeys.AgentOnGateway);
+            await using var db = _siteDbFactory.CreateForSite(siteSlug, IsDefaultSite(siteSlug));
+            var setting = await db.SystemSettings.FindAsync(settingKey);
             if (setting == null)
                 db.SystemSettings.Add(new SystemSetting
                 {
-                    Key = SystemSettingKeys.AgentOnGateway,
+                    Key = settingKey,
                     Value = value
                 });
             else if (setting.Value != value)
