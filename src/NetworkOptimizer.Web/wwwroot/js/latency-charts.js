@@ -350,18 +350,31 @@ function badgeGroups() {
     return [...byHost.values()];
 }
 
+// Draws exactly the series that should be on screen, in one update per chart.
+//
+// This used to call showSeries/hideSeries once per series per chart, and each of those is a full
+// redraw - so going from everything to one host, or clearing back again, cost a redraw for every
+// series that changed while the clicks in between cost two. That is why the first selection and
+// the clear were the slow ones. Nothing here talks to the server; it is all redraw.
 function updateChartVisibility() {
     if (!rttChart || !lossChart) return;
-    targetMeta.forEach((t, i) => {
-        const vis = visibility[t.id] !== false;
-        if (vis) {
-            rttChart.showSeries(t.name);
-            lossChart.showSeries(t.name);
-        } else {
-            rttChart.hideSeries(t.name);
-            lossChart.hideSeries(t.name);
-        }
-    });
+    const shown = (lastFetchData?.targets || []).filter(t => visibility[t.targetId] !== false);
+
+    const seriesOf = key => shown.map(t => ({
+        name: wanDisplayName(t),
+        color: hashColor(t.name),
+        data: (t[key] || []).map(p => ({ x: new Date(p.time).getTime(), y: p.value })),
+    }));
+
+    rttChart.updateSeries(seriesOf('rtt'), false);
+    lossChart.updateSeries(seriesOf('loss'), false);
+
+    // Dashes are positional, so they have to be rebuilt against the series actually drawn. Twins
+    // of one host share its colour, so the pattern is the only thing telling their WANs apart.
+    const annotations = buildInvestigateAnnotations();
+    const opts = { annotations, stroke: { curve: 'smooth', width: 2, dashArray: shown.map(wanDashFor) } };
+    rttChart.updateOptions(opts, false, false);
+    lossChart.updateOptions(opts, false, false);
 }
 
 // Mean loss (%) over the visible window at or above which a LAN fabric target is treated as
@@ -461,29 +474,7 @@ async function loadAndUpdate() {
         color: hashColor(t.name),
     }));
 
-    const rttSeries = scopedTargets.map(t => ({
-        name: wanDisplayName(t),
-        color: hashColor(t.name),
-        data: (t.rtt || []).map(p => ({ x: new Date(p.time).getTime(), y: p.value })),
-    }));
-
-    const lossSeries = scopedTargets.map(t => ({
-        name: wanDisplayName(t),
-        color: hashColor(t.name),
-        data: (t.loss || []).map(p => ({ x: new Date(p.time).getTime(), y: p.value })),
-    }));
-
     lastFetchData = { ...data, targets: scopedTargets };
-
-    const dashArray = scopedTargets.map(wanDashFor);
-    if (rttChart) rttChart.updateSeries(rttSeries, false);
-    if (lossChart) lossChart.updateSeries(lossSeries, false);
-
-    const annotations = buildInvestigateAnnotations();
-    if (rttChart) rttChart.updateOptions({ annotations, stroke: { curve: 'smooth', width: 2, dashArray } }, false, false);
-    // Same dashes as the RTT chart: twins of one host share its color, so the pattern is the only
-    // thing telling their WANs apart here too.
-    if (lossChart) lossChart.updateOptions({ annotations, stroke: { curve: 'smooth', width: 2, dashArray } }, false, false);
 
     updateChartVisibility();
 
