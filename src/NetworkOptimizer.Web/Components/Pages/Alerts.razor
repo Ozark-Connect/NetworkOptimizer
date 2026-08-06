@@ -956,7 +956,7 @@
                     </div>
                     @if (_historyTotal > HistoryPageSize)
                     {
-                        <div class="pagination">
+                        <div class="pagination history-pagination">
                             <button class="btn btn-sm btn-secondary" disabled="@(_historyPage == 0)"
                                     @onclick="() => GoToHistoryPage(_historyPage - 1)">Prev</button>
                             <span class="pagination-info">

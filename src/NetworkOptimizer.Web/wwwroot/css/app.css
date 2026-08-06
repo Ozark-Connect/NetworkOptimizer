@@ -6593,6 +6593,11 @@ a.path-hop.hop-clickable:hover {
     font-size: 0.875rem;
 }
 
+/* Sits inside the history card rather than between sections, so it needs the room underneath. */
+.history-pagination {
+    margin-bottom: 1rem;
+}
+
 .pag-arrow {
     position: relative;
     top: -1px;
