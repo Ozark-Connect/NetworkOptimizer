@@ -1,7 +1,6 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Core.Enums;
-using NetworkOptimizer.Storage;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Web.Services;
 using NetworkOptimizer.Web.Services.Monitoring;
@@ -298,11 +297,11 @@ public class PerWanDiscoveryTests
     {
         var targets = new List<MonitoringTarget>
         {
-            Target("YELCOT speedtest", MonitoringTargetType.AccessIsp, wan: null, interval: 10),
-            Target("CloudKey", MonitoringTargetType.Custom, wan: null, interval: 10),
-            Target("Cox handoff", MonitoringTargetType.Transit, wan: "wan", interval: 15),
-            Target("Starlink hop", MonitoringTargetType.AccessIsp, wan: "wan2", interval: 15),
-            Target("Cellular hop", MonitoringTargetType.AccessIsp, wan: "wan3", interval: 10),
+            Target("ISP speedtest", MonitoringTargetType.AccessIsp, wan: null, interval: 10),
+            Target("LAN controller", MonitoringTargetType.Custom, wan: null, interval: 10),
+            Target("Transit handoff", MonitoringTargetType.Transit, wan: "wan", interval: 15),
+            Target("Satellite first hop", MonitoringTargetType.AccessIsp, wan: "wan2", interval: 15),
+            Target("Cellular first hop", MonitoringTargetType.AccessIsp, wan: "wan3", interval: 10),
             Target("Gateway", MonitoringTargetType.Fabric, wan: "wan3", interval: 5),
             Target("Already slow", MonitoringTargetType.Custom, wan: "wan3", interval: 120),
         };
@@ -310,7 +309,7 @@ public class PerWanDiscoveryTests
         var repaced = UpstreamTracerService.SelectTargetsToRepace(
             targets, pollIntervalSeconds: 60, wanInterface: "wan3", primaryWanKey: "wan");
 
-        repaced.Select(t => t.Name).Should().BeEquivalentTo("Cellular hop");
+        repaced.Select(t => t.Name).Should().BeEquivalentTo("Cellular first hop");
     }
 
     /// <summary>
@@ -322,14 +321,14 @@ public class PerWanDiscoveryTests
     {
         var targets = new List<MonitoringTarget>
         {
-            Target("NextDNS", MonitoringTargetType.InternetService, wan: null, interval: 10),
+            Target("Public resolver", MonitoringTargetType.InternetService, wan: null, interval: 10),
             Target("First hop", MonitoringTargetType.AccessIsp, wan: "wan", interval: 10),
         };
 
         var repaced = UpstreamTracerService.SelectTargetsToRepace(
             targets, pollIntervalSeconds: 60, wanInterface: "wan", primaryWanKey: "wan");
 
-        repaced.Select(t => t.Name).Should().BeEquivalentTo("NextDNS", "First hop");
+        repaced.Select(t => t.Name).Should().BeEquivalentTo("Public resolver", "First hop");
     }
 
     private static MonitoringTarget Target(string name, MonitoringTargetType type, string? wan, int interval) => new()
