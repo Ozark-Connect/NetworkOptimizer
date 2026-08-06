@@ -517,7 +517,7 @@
                 {
                     <div class="time-range-selector wan-selector @(_wanOptions.Count > 3 ? "wan-selector-many" : "")"
                          data-tooltip="@(_showWanCompareHint ? _wanCompareHint : null)" data-tooltip-hover-only>
-                        <button class="time-btn @(_lanScope ? "active" : "")"
+                        <button class="time-btn @(_lanScope || AllWansSelected ? "active" : "")"
                                 @onclick="SelectLanScopeAsync"
                                 data-tooltip="This network's own devices and targets - not reached over any WAN"
                                 data-tooltip-hover-only>LAN</button>
@@ -530,8 +530,10 @@
                             }@(wp.Name ?? w.Label)@if (wp.WanToken != null && wp.Name != null)
                             {<span class="wan-pill-token">@wp.WanToken</span>}</button>
                         }
-                        <button class="time-btn wan-all-btn @(!_lanScope && AllWansSelected ? "active" : "")"
-                                @onclick="SelectAllWansAsync">All</button>
+                        @if (!AllWansSelected)
+                        {
+                            <button class="time-btn wan-all-btn" @onclick="SelectAllWansAsync">All</button>
+                        }
                         @if (WanFilterIsNarrowed)
                         {
                             <WanFilterResetButton OnReset="ResetWanFilterAsync" />

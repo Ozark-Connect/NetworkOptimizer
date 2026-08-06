@@ -13,7 +13,7 @@
         @if (ShowScopeFilter)
         {
             <div class="time-range-selector wan-selector @(_wanChoices.Count > 3 ? "wan-selector-many" : "")" @onclick:stopPropagation>
-                <button class="time-btn @(LanScope ? "active" : "")"
+                <button class="time-btn @(LanScope || AllSelected ? "active" : "")"
                         @onclick="PickLanAsync" @onclick:stopPropagation>LAN</button>
                 @foreach (var w in _wanChoices)
                 {
@@ -26,8 +26,11 @@
                         {<span class="wan-pill-token">@wp.WanToken</span>}
                     </button>
                 }
-                <button class="time-btn wan-all-btn @(!LanScope && AllSelected ? "active" : "")"
-                        @onclick="() => PickWanAsync(AllWansKey)" @onclick:stopPropagation>All</button>
+                @if (!AllSelected)
+                {
+                    <button class="time-btn wan-all-btn"
+                            @onclick="() => PickWanAsync(AllWansKey)" @onclick:stopPropagation>All</button>
+                }
             </div>
             @* Narrows the rows the scope already chose. Hidden on mobile: the scope row alone
                already wraps there, and the Type column still says what each row is. *@
