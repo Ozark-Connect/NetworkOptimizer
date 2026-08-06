@@ -42,6 +42,19 @@ public interface IAlertRepository
     /// </summary>
     Task<int> SetAlertStatusAsync(IReadOnlyCollection<int> alertIds, AlertStatus status, DateTime timestamp, CancellationToken cancellationToken = default);
 
+    /// <summary>Incidents by id, in one query - the batch counterpart of GetIncidentAsync.</summary>
+    Task<List<AlertIncident>> GetIncidentsByIdsAsync(IReadOnlyCollection<int> incidentIds, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Every alert belonging to any of these incidents, in one query. Re-deriving a few hundred
+    /// incidents one at a time is two round trips each, which is the bulk buttons' remaining cost
+    /// once the alerts themselves are written together.
+    /// </summary>
+    Task<List<AlertHistoryEntry>> GetAlertsByIncidentIdsAsync(IReadOnlyCollection<int> incidentIds, CancellationToken cancellationToken = default);
+
+    /// <summary>Saves several incidents in one round trip.</summary>
+    Task UpdateIncidentsAsync(IReadOnlyCollection<AlertIncident> incidents, CancellationToken cancellationToken = default);
+
     /// <summary>
     /// Marks every active alert of the given event types on the given device as resolved and
     /// returns the entries that were closed. Used by the alert pipeline to close open WAN outage

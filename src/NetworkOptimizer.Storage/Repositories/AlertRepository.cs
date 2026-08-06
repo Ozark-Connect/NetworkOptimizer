@@ -399,6 +399,44 @@ public class AlertRepository : IAlertRepository
         }
     }
 
+    public async Task<List<AlertIncident>> GetIncidentsByIdsAsync(
+        IReadOnlyCollection<int> incidentIds, CancellationToken cancellationToken = default)
+    {
+        if (incidentIds.Count == 0) return [];
+        var ids = incidentIds.ToList();
+        return await _context.AlertIncidents
+            .Where(i => ids.Contains(i.Id))
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<List<AlertHistoryEntry>> GetAlertsByIncidentIdsAsync(
+        IReadOnlyCollection<int> incidentIds, CancellationToken cancellationToken = default)
+    {
+        if (incidentIds.Count == 0) return [];
+        var ids = incidentIds.ToList();
+        return await _context.AlertHistory
+            .AsNoTracking()
+            .Where(a => a.IncidentId != null && ids.Contains(a.IncidentId.Value))
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task UpdateIncidentsAsync(
+        IReadOnlyCollection<AlertIncident> incidents, CancellationToken cancellationToken = default)
+    {
+        if (incidents.Count == 0) return;
+        try
+        {
+            // The rows come back tracked from GetIncidentsByIdsAsync, so this is one commit for
+            // the lot rather than one per incident.
+            await _context.SaveChangesAsync(cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to update {Count} incident(s)", incidents.Count);
+            throw;
+        }
+    }
+
     public async Task<int> SetAlertStatusAsync(
         IReadOnlyCollection<int> alertIds,
         AlertStatus status,

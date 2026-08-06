@@ -730,11 +730,17 @@
                         <div class="alert-group-actions">
                             @if (_canOperate)
                             {
-                            <button class="btn btn-sm btn-secondary" @onclick="AcknowledgeAllActive">Acknowledge All</button>
+                            <button class="btn btn-sm btn-secondary" @onclick="AcknowledgeAllActive" disabled="@_bulkBusy">
+                                @if (_bulkBusy) { <span class="spinner spinner-sm"></span> }
+                                <text>Acknowledge All</text>
+                            </button>
                             }
                             @if (_canOperate)
                             {
-                            <button class="btn btn-sm btn-primary" @onclick="ResolveAllActive">Resolve All</button>
+                            <button class="btn btn-sm btn-primary" @onclick="ResolveAllActive" disabled="@_bulkBusy">
+                                @if (_bulkBusy) { <span class="spinner spinner-sm"></span> }
+                                <text>Resolve All</text>
+                            </button>
                             }
                         </div>
                     </div>
@@ -798,7 +804,10 @@
                         <div class="alert-group-actions">
                             @if (_canOperate)
                             {
-                            <button class="btn btn-sm btn-primary" @onclick="ResolveAllAcknowledged">Resolve Acknowledged</button>
+                            <button class="btn btn-sm btn-primary" @onclick="ResolveAllAcknowledged" disabled="@_bulkBusy">
+                                @if (_bulkBusy) { <span class="spinner spinner-sm"></span> }
+                                <text>Resolve Acknowledged</text>
+                            </button>
                             }
                         </div>
                     </div>
@@ -1133,12 +1142,18 @@
                         {
                             @if (_canOperate)
                             {
-                            <button class="btn btn-sm btn-secondary" @onclick="AcknowledgeAllIncidents">Acknowledge All</button>
+                            <button class="btn btn-sm btn-secondary" @onclick="AcknowledgeAllIncidents" disabled="@_bulkBusy">
+                                @if (_bulkBusy) { <span class="spinner spinner-sm"></span> }
+                                <text>Acknowledge All</text>
+                            </button>
                             }
                         }
                         @if (_canOperate)
                         {
-                        <button class="btn btn-sm btn-primary" @onclick="ResolveAllIncidents">Resolve All</button>
+                        <button class="btn btn-sm btn-primary" @onclick="ResolveAllIncidents" disabled="@_bulkBusy">
+                            @if (_bulkBusy) { <span class="spinner spinner-sm"></span> }
+                            <text>Resolve All</text>
+                        </button>
                         }
                     </div>
                 </div>
@@ -1834,6 +1849,13 @@
     private int _newWanFrequency = 1440;
     private int _newLanFrequency = 1440;
     private bool _creatingSchedule;
+
+    /// <summary>
+    /// A bulk acknowledge or resolve is running. All five bulk buttons share it: they act on the
+    /// same lists, so a second press while one is in flight would work from a set that is already
+    /// being written.
+    /// </summary>
+    private bool _bulkBusy;
     private int? _editingWanScheduleId;
     private int? _editingLanScheduleId;
     private string? _scheduleMessage;
@@ -2463,6 +2485,8 @@
 
     private async Task AcknowledgeAllActive()
     {
+        if (_bulkBusy) return;
+        _bulkBusy = true;
         try
         {
             var active = _unresolvedAlerts.Where(a => a.Status == AlertStatus.Active).ToList();
@@ -2480,10 +2504,16 @@
         {
             Logger.LogError(ex, "Error acknowledging all active alerts");
         }
+        finally
+        {
+            _bulkBusy = false;
+        }
     }
 
     private async Task ResolveAllActive()
     {
+        if (_bulkBusy) return;
+        _bulkBusy = true;
         try
         {
             // Everything unresolved, not just what is still Active. Acknowledge All moves the whole
@@ -2506,10 +2536,16 @@
         {
             Logger.LogError(ex, "Error resolving all active alerts");
         }
+        finally
+        {
+            _bulkBusy = false;
+        }
     }
 
     private async Task ResolveAllAcknowledged()
     {
+        if (_bulkBusy) return;
+        _bulkBusy = true;
         try
         {
             // This section's button, and this section's alerts. Resolve All in the Active section
@@ -2531,6 +2567,10 @@
         {
             Logger.LogError(ex, "Error resolving all acknowledged alerts");
         }
+        finally
+        {
+            _bulkBusy = false;
+        }
     }
 
     /// <summary>
@@ -2541,8 +2581,11 @@
     /// </summary>
     private async Task RecalculateIncidentsOnceAsync(IReadOnlyList<AlertHistoryEntry> resolved)
     {
-        foreach (var group in resolved.Where(a => a.IncidentId.HasValue).GroupBy(a => a.IncidentId!.Value))
-            await RecalculateIncidentStatusAsync(group.First());
+        var incidentIds = resolved.Where(a => a.IncidentId.HasValue)
+            .Select(a => a.IncidentId!.Value)
+            .Distinct()
+            .ToList();
+        await AlertCorrelationService.RecalculateIncidentStatusesAsync(incidentIds, AlertRepository);
     }
 
     private async Task RecalculateIncidentStatusAsync(AlertHistoryEntry alert)
@@ -2611,6 +2654,8 @@
 
     private async Task AcknowledgeAllIncidents()
     {
+        if (_bulkBusy) return;
+        _bulkBusy = true;
         try
         {
             var now = DateTime.UtcNow;
@@ -2637,10 +2682,16 @@
         {
             Logger.LogError(ex, "Error acknowledging all incidents");
         }
+        finally
+        {
+            _bulkBusy = false;
+        }
     }
 
     private async Task ResolveAllIncidents()
     {
+        if (_bulkBusy) return;
+        _bulkBusy = true;
         try
         {
             var now = DateTime.UtcNow;
@@ -2665,6 +2716,10 @@
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error resolving all incidents");
+        }
+        finally
+        {
+            _bulkBusy = false;
         }
     }
 
