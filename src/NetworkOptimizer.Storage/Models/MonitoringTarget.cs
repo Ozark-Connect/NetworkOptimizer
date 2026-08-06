@@ -99,6 +99,17 @@ public class MonitoringTarget
     /// primary", and one of them read it as "belongs to whatever WAN is asking" and let a metered
     /// secondary slow every hand-added target on the site.
     /// </para>
+    /// <para>
+    /// A pinned value states which WAN the probe was STEERED down, which is not the same as a
+    /// guarantee it went that way. Where the steering is policy routing on the gateway rather than
+    /// a source binding on the box itself - any on-LAN agent or the server probing an off-box WAN -
+    /// the policy has somewhere else to send the traffic when that WAN fails, and it does. For the
+    /// length of a failover those readings describe whichever WAN carried them while still filed
+    /// under the one that was meant to. Only a kill switch on the policy would prevent it, at the
+    /// cost of the site losing the probes entirely whenever the WAN is down, which is a poor trade
+    /// to make for monitoring alone. Treat a pinned stamp as intent, and read per-WAN latency
+    /// across a known outage with that in mind.
+    /// </para>
     /// </summary>
     [MaxLength(50)]
     public string? WanInterface { get; set; }
