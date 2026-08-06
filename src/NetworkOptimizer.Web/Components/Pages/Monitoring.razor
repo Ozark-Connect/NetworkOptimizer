@@ -517,16 +517,20 @@
                 {
                     <div class="time-range-selector wan-selector @(_wanOptions.Count > 3 ? "wan-selector-many" : "")"
                          data-tooltip="@(_showWanCompareHint ? _wanCompareHint : null)" data-tooltip-hover-only>
+                        <button class="time-btn @(_lanScope ? "active" : "")"
+                                @onclick="SelectLanScopeAsync"
+                                data-tooltip="This network's own devices and targets - not reached over any WAN"
+                                data-tooltip-hover-only>LAN</button>
                         @foreach (var w in _wanOptions)
                         {
-                            <button class="time-btn @(_selectedWanKeys.Contains(w.Key) ? "active" : "")"
+                            <button class="time-btn @(!_lanScope && _selectedWanKeys.Contains(w.Key) ? "active" : "")"
                                     @onclick="e => OnWanPillClickAsync(w.Key, e)">@{
                                 var wp = NetworkOptimizer.UniFi.GatewayWanHelper.SplitWanLabel(
                                     w.Label, NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey(w.Key));
                             }@(wp.Name ?? w.Label)@if (wp.WanToken != null && wp.Name != null)
                             {<span class="wan-pill-token">@wp.WanToken</span>}</button>
                         }
-                        <button class="time-btn wan-all-btn @(AllWansSelected ? "active" : "")"
+                        <button class="time-btn wan-all-btn @(!_lanScope && AllWansSelected ? "active" : "")"
                                 @onclick="SelectAllWansAsync">All</button>
                         @if (WanFilterIsNarrowed)
                         {
@@ -539,7 +543,7 @@
                        Blazor re-rendering this header for any other reason would otherwise assert a
                        stale one over it. The opening choice is passed to mount() instead. *@
                     <div class="time-range-selector">
-                        <button class="time-btn" data-category="Fabric">LAN</button>
+                        <button class="time-btn" data-category="Fabric">Fabric</button>
                         <button class="time-btn" data-category="AccessIsp">ISP</button>
                         <button class="time-btn" data-category="Transit">Transit</button>
                         <button class="time-btn" data-category="InternetService">Internet</button>
@@ -653,6 +657,7 @@
         <div id="latency-targets" style="margin-top: 1.5rem;">
             <LatencyTargetsCard @ref="_latencyTargetsCard" Targets="_targets" WanContexts="_wanContexts" PrimaryWanLabel="@PrimaryWanProseLabel()"
                                  SelectedWanKeys="_selectedWanKeys" OnWanSelected="OnTargetsWanSelectedAsync"
+                                 LanScope="_lanScope" OnLanSelected="SelectLanScopeAsync"
                                  OnTargetsChanged="OnTargetsChanged" />
         </div>
 
@@ -1920,6 +1925,15 @@
         || (_activeTab == "performance" && _multiWanUiVisible && _wanOptions.Count > 1);
     private string _wanCompareHint = "Ctrl-click to compare side by side";
     private string NpWanSetKey => SiteCtx.ScopeStorageKey("npWanSelection");
+    /// <summary>
+    /// Whether the analysis views are scoped to the LAN rather than to a WAN. Kept apart from the
+    /// WAN selection on purpose: ISP Health reads that one and LAN means nothing to it, and the
+    /// separation is also what lets picking LAN clear the WAN pills on screen without losing which
+    /// WAN the user was on.
+    /// </summary>
+    private string NpScopeKey => SiteCtx.ScopeStorageKey("npAnalysisScope");
+    private const string LanScopeToken = "lan";
+    private bool _lanScope;
     private string SharedWanScopeKey => SiteCtx.ScopeStorageKey("monitoringWanScope");
 
     /// <summary>Solo-selected wan key, or the primary while comparing / unscoped.</summary>
@@ -1943,8 +1957,21 @@
         }
     }
 
+    /// <summary>
+    /// Scopes the analysis views to this network. The WAN selection is left exactly as it was -
+    /// only its pills go unlit - so returning to a WAN puts the user back where they were.
+    /// </summary>
+    private async Task SelectLanScopeAsync()
+    {
+        if (_lanScope) return;
+        _lanScope = true;
+        await ApplyWanSelectionAsync(persist: true);
+    }
+
     private async Task OnWanPillClickAsync(string key, MouseEventArgs e)
     {
+        // Picking a WAN is always a move off the LAN, whichever WAN it is.
+        _lanScope = false;
         if (e.CtrlKey || e.MetaKey)
         {
             // Toggle into/out of the comparison set; never empty the set.
@@ -1978,6 +2005,8 @@
             if (persist)
             {
                 await JS.InvokeVoidAsync("localStorage.setItem", NpWanSetKey, string.Join(",", _selectedWanKeys));
+                // Stored apart from the WAN set so the set never holds a value ISP Health cannot read.
+                await JS.InvokeVoidAsync("localStorage.setItem", NpScopeKey, _lanScope ? LanScopeToken : "wan");
                 await JS.InvokeVoidAsync("localStorage.setItem", SharedWanScopeKey, FocusedWanKeyOrNull ?? "");
                 // persist:true is the user's own pick - the link and the restore both pass false - so
                 // this is the moment the link's WAN stops describing what is on screen.
@@ -2044,6 +2073,7 @@
 
     private async Task SelectAllWansAsync()
     {
+        _lanScope = false;
         _selectedWanKeys = new HashSet<string>(_wanOptions.Select(w => w.Key), StringComparer.OrdinalIgnoreCase);
         await ApplyWanSelectionAsync(persist: true);
     }
@@ -2130,6 +2160,10 @@
                 // So the chart can leave the LAN category when the WANs now on screen have no LAN
                 // targets. Only the chart knows which category it is currently showing.
                 hasLan = HasTargetsInWanScope(MonitoringTargetType.Fabric),
+                // LAN is a scope of its own, not a WAN: the chart shows what is on this network and
+                // offers only the categories that can fill it.
+                lan = _lanScope,
+                all = !_lanScope && AllWansSelected,
             };
         return System.Text.Json.JsonSerializer.Serialize(scope);
     }
@@ -2359,7 +2393,14 @@
         _wanSelectionRestored = true;
         try
         {
+            var storedScope = await JS.InvokeAsync<string?>("localStorage.getItem", NpScopeKey);
             var stored = await JS.InvokeAsync<string?>("localStorage.getItem", NpWanSetKey);
+            // No scope stored is either a fresh install or one that predates the key. A WAN set
+            // already stored means the second, and moving that user onto LAN would take them off a
+            // choice they made; with nothing stored at all, LAN is the honest opening view.
+            _lanScope = string.IsNullOrEmpty(storedScope)
+                ? string.IsNullOrEmpty(stored)
+                : string.Equals(storedScope, LanScopeToken, StringComparison.OrdinalIgnoreCase);
             if (!string.IsNullOrEmpty(stored))
             {
                 var keys = stored.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)

@@ -381,7 +381,7 @@ public static class MonitoringChartEndpoints
                 .Where(t => t.TargetType == targetType && t.Enabled
                     && (t.AsnNumber == null || !WellKnownAsns.NonTransitInfrastructure.Contains(t.AsnNumber.Value)))
                 .OrderBy(t => t.Name)
-                .Select(t => new { t.TargetId, t.Name, t.AutoLabel, t.WanInterface, t.Address })
+                .Select(t => new { t.TargetId, t.Name, t.AutoLabel, t.WanInterface, t.Address, t.TargetType, t.IsLocal })
                 .ToListAsync(ct);
 
             if (targets.Count == 0)
@@ -400,10 +400,15 @@ public static class MonitoringChartEndpoints
                     // Role label ("gateway"/"switch"/"ap"/...) so the LAN flaky detector can
                     // identify the gateway target and mask out gateway-outage windows.
                     autoLabel = t.AutoLabel,
-                    // WAN ownership (null = unstamped = primary) and address, so the chart's WAN
-                    // filter can scope series client-side and pair the same host's per-WAN twins.
+                    // WAN ownership and address, so the chart's WAN filter can scope series
+                    // client-side and pair the same host's per-WAN twins.
                     wanInterface = t.WanInterface,
                     address = t.Address,
+                    // Whether this sits on the local network, decided server-side from the resolved
+                    // answer rather than by re-testing the address in JS - one rule, one place, and
+                    // a hostname can only be answered here.
+                    isLan = NetworkOptimizer.Web.Services.Monitoring.LocalTargetResolver.IsLocal(
+                        t.TargetType, t.Address, t.IsLocal),
                     rtt = pts.Select(p => new { time = p.Time.ToString("o"), value = p.RttAvgMs }),
                     loss = pts.Select(p => new { time = p.Time.ToString("o"), value = p.LossPercent }),
                 };

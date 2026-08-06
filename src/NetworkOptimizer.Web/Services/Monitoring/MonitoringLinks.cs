@@ -1,4 +1,4 @@
-namespace NetworkOptimizer.Web.Services.Monitoring;
+﻿namespace NetworkOptimizer.Web.Services.Monitoring;
 
 /// <summary>
 /// The links the Live surfaces build into the analysis views.
@@ -35,10 +35,15 @@ public static class MonitoringLinks
     /// <param name="at">A Unix-ms instant, or <see cref="LiveAtToken"/>.</param>
     /// <param name="selectedWanKeys">The WANs on screen. Empty on a single-WAN site.</param>
     /// <param name="allSelected">Whether that selection is every WAN the site has.</param>
+    /// <param name="lanScope">
+    /// Whether the source view was scoped to the LAN. Those readings are not any one WAN's, so the
+    /// destination is asked for all of them rather than for a WAN the user was not looking at.
+    /// </param>
     public static string Analysis(
-        string category, string at, IReadOnlyCollection<string> selectedWanKeys, bool allSelected)
+        string category, string at, IReadOnlyCollection<string> selectedWanKeys, bool allSelected,
+        bool lanScope = false)
     {
-        var wan = category is FabricCategory or CustomCategory || allSelected
+        var wan = category is FabricCategory or CustomCategory || allSelected || lanScope
             ? LiveWanScope.AllWansToken
             : string.Join(",", selectedWanKeys);
 

@@ -24,8 +24,18 @@ public static class LocalTargetResolver
     /// the address itself says. Fabric is local by what it is, whatever address it wears.
     /// </summary>
     public static bool IsLocal(MonitoringTarget target) =>
-        target.TargetType == MonitoringTargetType.Fabric
-        || (target.IsLocal ?? NetworkUtilities.IsPrivateIpAddress(target.Address ?? string.Empty));
+        IsLocal(target.TargetType, target.Address, target.IsLocal);
+
+    /// <summary>
+    /// The same question from loose fields, for callers projecting columns rather than loading
+    /// entities.
+    /// </summary>
+    /// <param name="targetType">The target's type; Fabric is local whatever its address.</param>
+    /// <param name="address">The configured address.</param>
+    /// <param name="isLocal">The resolved answer, or null when nothing has settled it.</param>
+    public static bool IsLocal(MonitoringTargetType targetType, string? address, bool? isLocal) =>
+        targetType == MonitoringTargetType.Fabric
+        || (isLocal ?? NetworkUtilities.IsPrivateIpAddress(address ?? string.Empty));
 
     /// <summary>
     /// Resolves one address to a local/not-local answer, or null when DNS cannot say. Never

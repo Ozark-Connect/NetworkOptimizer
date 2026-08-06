@@ -1,4 +1,4 @@
-// Latency & Packet Loss charts — pure JS ApexCharts, fed by /api/monitoring/chart-data.
+﻿// Latency & Packet Loss charts — pure JS ApexCharts, fed by /api/monitoring/chart-data.
 // Mounted from Blazor the same way as lan-flow-map.js.
 // TODO: Extract time-range controls (presets, shift arrows, custom range popover,
 // filter badges, poll interval scaling) into a shared module so latency-charts,
@@ -73,10 +73,46 @@ function wanComparisonActive() {
     return !!wanScope && wanScope.selected.length > 1;
 }
 
+// Which categories each scope can show anything in. LAN holds the fabric devices and the
+// hand-added targets that sit on this network; a single WAN holds neither, because neither leaves
+// by it. All is the union, so it offers everything.
+const CATEGORIES_BY_SCOPE = {
+    lan: ['Fabric', 'Custom'],
+    wan: ['AccessIsp', 'Transit', 'InternetService', 'Custom'],
+    all: ['Fabric', 'AccessIsp', 'Transit', 'InternetService', 'Custom'],
+};
+
+function scopeName() {
+    if (!wanScope) return 'all';
+    if (wanScope.lan) return 'lan';
+    return wanScope.all ? 'all' : 'wan';
+}
+
 function filterTargetsToWanScope(targets) {
     if (!wanScope) return targets;
+    // LAN is its own scope, not a WAN: it shows what is on this network and nothing else, and a
+    // single WAN shows the opposite. Only All carries both.
+    if (wanScope.lan) return targets.filter(t => t.isLan);
+    if (wanScope.all) return targets;
     const sel = new Set(wanScope.selected.map(k => k.toLowerCase()));
-    return targets.filter(t => sel.has(effectiveWanKey(t)));
+    return targets.filter(t => !t.isLan && sel.has(effectiveWanKey(t)));
+}
+
+// Shows only the categories the current scope can fill, and moves off one it cannot: the current
+// choice is kept whenever it survives the move - switching WAN while on Custom should stay on
+// Custom - and otherwise falls to the first that does.
+function applyCategoryAvailability() {
+    const container = document.getElementById(containerId);
+    if (!container) return currentCategory;
+    const allowed = CATEGORIES_BY_SCOPE[scopeName()] || CATEGORIES_BY_SCOPE.all;
+    container.querySelectorAll('[data-category]').forEach(b => {
+        b.style.display = allowed.includes(b.dataset.category) ? '' : 'none';
+    });
+    if (!allowed.includes(currentCategory)) currentCategory = allowed[0];
+    container.querySelectorAll('[data-category]').forEach(b => {
+        b.classList.toggle('active', b.dataset.category === currentCategory);
+    });
+    return currentCategory;
 }
 
 function wanDisplayName(t) {
@@ -344,7 +380,7 @@ function notifyLanFlakyHints(data) {
         const ref = window.__netoptLatencyRef;
         if (!ref) return;
         let ids = [];
-        if (currentCategory === 'Fabric' && data && Array.isArray(data.targets)) {
+        if (scopeName() === 'lan' && currentCategory === 'Fabric' && data && Array.isArray(data.targets)) {
             // Mask out timestamps whose loss rode an outage rather than one target's own flakiness,
             // so a switch isn't flagged for loss the gateway (or a shared upstream) caused. A
             // timestamp is an outage when EITHER holds:
@@ -671,9 +707,7 @@ export async function mount(elId, initialWanScope, initialCategory) {
     // LAN targets. From here the module owns it: the buttons carry no server-rendered active class,
     // so a re-render of the header cannot put a stale one back while this still holds another.
     if (initialCategory) currentCategory = initialCategory;
-    container.querySelectorAll('[data-category]').forEach(b => {
-        b.classList.toggle('active', b.dataset.category === currentCategory);
-    });
+    applyCategoryAvailability();
 
     const rttEl = container.querySelector('.latency-rtt-chart');
     const lossEl = container.querySelector('.latency-loss-chart');
@@ -901,16 +935,12 @@ export function restoreState() {
 // Blazor pushes the WAN pill bar's state here. Passing null clears scoping entirely
 // (the gate is closed - single WAN, no contexts).
 export function setWanScope(scope) {
-    wanScope = scope && Array.isArray(scope.selected) && scope.selected.length > 0 ? scope : null;
+    // The LAN scope carries no WAN keys, so it must survive the empty-selected check that used to
+    // mean "no scoping at all".
+    wanScope = scope && (scope.lan || (Array.isArray(scope.selected) && scope.selected.length > 0))
+        ? scope : null;
     visibility = {};
-    // LAN targets belong to the site, not to a WAN, so a secondary WAN has none - staying on the
-    // LAN category there draws an empty chart. Only ever leave a category that has nothing to show;
-    // coming back to a WAN that does have LAN targets leaves the choice alone, because by then it
-    // may be the one the user made.
-    if (wanScope && wanScope.hasLan === false && currentCategory === 'Fabric') {
-        setCategory('AccessIsp');
-        return;
-    }
+    applyCategoryAvailability();
     loadAndUpdate();
 }
 
