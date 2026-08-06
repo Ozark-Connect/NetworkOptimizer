@@ -23,22 +23,42 @@ public static class LocalTargetResolver
     private const int SweepBatchSize = 25;
 
     /// <summary>
-    /// Whether a target is on the local network: what was resolved if anything was, otherwise what
-    /// the address itself says. Fabric is local by what it is, whatever address it wears.
+    /// Whether a target is on the local network.
+    /// <para>
+    /// The address is the last question asked, not the first. What a target IS, and which WAN it is
+    /// already filed under, both answer this outright - and an address cannot, because plenty of
+    /// upstream things wear a private one. A cable modem's first hop lives on 192.168.100.1 and a
+    /// CGNAT first mile on 100.64/10; neither is on this network, and both would read as local if
+    /// the address went first.
+    /// </para>
     /// </summary>
     public static bool IsLocal(MonitoringTarget target) =>
-        IsLocal(target.TargetType, target.Address, target.IsLocal);
+        IsLocal(target.TargetType, target.Address, target.IsLocal, target.WanInterface);
 
     /// <summary>
     /// The same question from loose fields, for callers projecting columns rather than loading
     /// entities.
     /// </summary>
-    /// <param name="targetType">The target's type; Fabric is local whatever its address.</param>
+    /// <param name="targetType">What the target is; only a Custom one is ambiguous.</param>
     /// <param name="address">The configured address.</param>
-    /// <param name="isLocal">The resolved answer, or null when nothing has settled it.</param>
-    public static bool IsLocal(MonitoringTargetType targetType, string? address, bool? isLocal) =>
-        targetType == MonitoringTargetType.Fabric
-        || (isLocal ?? NetworkUtilities.IsPrivateIpAddress(address ?? string.Empty));
+    /// <param name="isLocal">What that address resolved to, or null when nothing has settled it.</param>
+    /// <param name="wanInterface">The WAN it is filed under, if it is filed under one.</param>
+    public static bool IsLocal(
+        MonitoringTargetType targetType, string? address, bool? isLocal, string? wanInterface)
+    {
+        // The discovered gateway, switches and APs: local by what they are.
+        if (targetType == MonitoringTargetType.Fabric) return true;
+
+        // Carrying a WAN means something measured it over that WAN, which settles it.
+        if (!MonitoringTarget.IsUnpinned(wanInterface)) return false;
+
+        // Access ISP, Transit and Internet Service are upstream by classification - the first mile
+        // is not this network however its address reads. Custom is the only type that could be
+        // either, so it is the only one the address gets a say in.
+        if (targetType != MonitoringTargetType.Custom) return false;
+
+        return isLocal ?? NetworkUtilities.IsPrivateIpAddress(address ?? string.Empty);
+    }
 
     /// <summary>
     /// Resolves one address to a local/not-local answer and the address it answered on, or nulls
@@ -88,8 +108,10 @@ public static class LocalTargetResolver
     public static async Task<int> SweepUnresolvedAsync(
         NetworkOptimizerDbContext db, ILogger? logger = null, CancellationToken ct = default)
     {
+        // Only Custom rows: everything else is decided by what it is or by the WAN it carries, so
+        // resolving their addresses would spend DNS on an answer nothing reads.
         var pending = await db.MonitoringTargets
-            .Where(t => t.IsLocal == null)
+            .Where(t => t.IsLocal == null && t.TargetType == MonitoringTargetType.Custom)
             .OrderBy(t => t.Id)
             .Take(SweepBatchSize)
             .ToListAsync(ct);

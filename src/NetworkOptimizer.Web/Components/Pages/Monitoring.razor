@@ -2142,6 +2142,8 @@
     /// </summary>
     private async Task OnTargetsWanSelectedAsync(string key)
     {
+        _lanScope = false;
+        _allScope = key == LatencyTargetsCard.AllWansKey;
         _selectedWanKeys = key == LatencyTargetsCard.AllWansKey
             ? new HashSet<string>(_wanOptions.Select(w => w.Key), StringComparer.OrdinalIgnoreCase)
             : new HashSet<string>(StringComparer.OrdinalIgnoreCase) { key };
@@ -2151,7 +2153,9 @@
     private async Task OnDiscoveryWanSelectedAsync(string key)
     {
         _discoveryWanKey = key;
-        if (_selectedWanKeys.Contains(key)) { StateHasChanged(); return; }
+        if (!_lanScope && !_allScope && _selectedWanKeys.Contains(key)) { StateHasChanged(); return; }
+        _lanScope = false;
+        _allScope = false;
         _selectedWanKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { key };
         await ApplyWanSelectionAsync(persist: true);
     }
@@ -2314,8 +2318,10 @@
             var shared = await JS.InvokeAsync<string?>("localStorage.getItem", SharedWanScopeKey);
             var focus = string.IsNullOrEmpty(shared) ? _primaryWanKey : shared!.Trim().ToLowerInvariant();
             if (!_wanOptions.Any(o => o.Key.Equals(focus, StringComparison.OrdinalIgnoreCase))
-                || _selectedWanKeys.Contains(focus))
+                || (!_lanScope && !_allScope && _selectedWanKeys.Contains(focus)))
                 return;
+            _lanScope = false;
+            _allScope = false;
             _selectedWanKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { focus };
             if (apply) await ApplyWanSelectionAsync(persist: true);
         }
@@ -2387,7 +2393,11 @@
         // Claims the restore as well, so the stored selection cannot be read over the top of the
         // link on a first load - and is never written, so the saved filter survives the visit.
         _wanSelectionRestored = true;
+        // A link naming WANs lands on those WANs, not on whatever scope was left over. Covering
+        // every one of them is the whole site, which is what All means.
+        _lanScope = false;
         _selectedWanKeys = new HashSet<string>(keys, StringComparer.OrdinalIgnoreCase);
+        _allScope = _wanOptions.Count > 1 && _wanOptions.All(w => _selectedWanKeys.Contains(w.Key));
         await ApplyWanSelectionAsync(persist: false);
     }
 

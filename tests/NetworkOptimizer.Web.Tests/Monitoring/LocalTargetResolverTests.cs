@@ -12,14 +12,46 @@ namespace NetworkOptimizer.Web.Tests.Monitoring;
 public class LocalTargetResolverTests
 {
     private static MonitoringTarget Target(string address, bool? isLocal = null,
-        MonitoringTargetType type = MonitoringTargetType.Custom) => new()
+        MonitoringTargetType type = MonitoringTargetType.Custom, string? wan = null) => new()
         {
             TargetId = "t",
             Name = "t",
             Address = address,
             TargetType = type,
             IsLocal = isLocal,
+            WanInterface = wan,
         };
+
+    /// <summary>
+    /// Plenty of upstream things wear a private address - a cable modem's first hop on
+    /// 192.168.100.1, a CGNAT first mile on 100.64/10 - so what a target IS has to be asked before
+    /// where it appears to live.
+    /// </summary>
+    [Theory]
+    [InlineData(MonitoringTargetType.AccessIsp)]
+    [InlineData(MonitoringTargetType.Transit)]
+    [InlineData(MonitoringTargetType.InternetService)]
+    [InlineData(MonitoringTargetType.Wan)]
+    public void Upstream_types_are_never_local_however_their_address_reads(MonitoringTargetType type)
+    {
+        LocalTargetResolver.IsLocal(Target("192.168.100.1", type: type)).Should().BeFalse();
+        LocalTargetResolver.IsLocal(Target("192.168.100.1", isLocal: true, type: type)).Should().BeFalse();
+    }
+
+    /// <summary>A target filed under a WAN was measured over that WAN, whatever its address says.</summary>
+    [Fact]
+    public void A_wan_stamped_target_is_never_local()
+    {
+        LocalTargetResolver.IsLocal(Target("192.168.42.5", wan: "wan2")).Should().BeFalse();
+        LocalTargetResolver.IsLocal(Target("192.168.42.5", isLocal: true, wan: "wan2")).Should().BeFalse();
+    }
+
+    [Fact]
+    public void An_unpinned_custom_target_still_goes_by_its_address()
+    {
+        LocalTargetResolver.IsLocal(Target("192.168.42.5", wan: MonitoringTarget.UnpinnedWan)).Should().BeTrue();
+        LocalTargetResolver.IsLocal(Target("203.0.113.10", wan: MonitoringTarget.UnpinnedWan)).Should().BeFalse();
+    }
 
     [Fact]
     public void Fabric_is_local_whatever_address_it_wears()

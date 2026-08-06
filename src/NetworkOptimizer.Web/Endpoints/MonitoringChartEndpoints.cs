@@ -408,7 +408,7 @@ public static class MonitoringChartEndpoints
                     // answer rather than by re-testing the address in JS - one rule, one place, and
                     // a hostname can only be answered here.
                     isLan = NetworkOptimizer.Web.Services.Monitoring.LocalTargetResolver.IsLocal(
-                        t.TargetType, t.Address, t.IsLocal),
+                        t.TargetType, t.Address, t.IsLocal, t.WanInterface),
                     rtt = pts.Select(p => new { time = p.Time.ToString("o"), value = p.RttAvgMs }),
                     loss = pts.Select(p => new { time = p.Time.ToString("o"), value = p.LossPercent }),
                 };

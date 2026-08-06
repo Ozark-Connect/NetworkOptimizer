@@ -693,6 +693,7 @@
     {
         _showAddTarget = true;
         _revealAddForm = true;
+        PreselectWanFromScope();
     }
 
     /// <summary>
@@ -706,6 +707,26 @@
         _showAddTarget = true;
         _revealAddForm = true;
         _ringAddForm = true;
+        PreselectWanFromScope();
+    }
+
+    /// <summary>
+    /// Opens the form on the WAN the list is already filtered to, when a vantage measures it.
+    /// Adding a target while looking at one WAN almost always means adding it to that WAN, and
+    /// leaving the field on the default path meant the new row vanished from the very view it was
+    /// added in. Only for a single WAN in scope: LAN and All are not one WAN, and a hand-built
+    /// selection of several does not name one either.
+    /// </summary>
+    private void PreselectWanFromScope()
+    {
+        _newTargetWanContextId = "";
+        if (LanScope || AllScope || SelectedWanKeys.Count != 1) return;
+
+        var key = NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(SelectedWanKeys.First());
+        var vantage = WanContexts.FirstOrDefault(c => !string.IsNullOrEmpty(c.WanInterface)
+            && string.Equals(NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(c.WanInterface!),
+                key, StringComparison.OrdinalIgnoreCase));
+        if (vantage != null) _newTargetWanContextId = vantage.Id.ToString();
     }
 
     protected override async Task OnParametersSetAsync() => await LoadWanChoicesAsync();

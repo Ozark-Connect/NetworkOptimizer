@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using FluentAssertions;
 using NetworkOptimizer.UniFi;
 using NetworkOptimizer.UniFi.Models;
@@ -13,7 +13,7 @@ namespace NetworkOptimizer.UniFi.Tests;
 /// </summary>
 public class TrafficRouteWanPinningTests
 {
-    private const string ProbeMac = "b4:96:91:45:e9:b2";
+    private const string ProbeMac = "00:11:22:33:44:55";
 
     private static UniFiTrafficRouteResponse Route(
         string networkId, bool enabled = true, string target = "INTERNET",
@@ -86,8 +86,8 @@ public class TrafficRouteWanPinningTests
     }
 
     [Theory]
-    [InlineData("B4-96-91-45-E9-B2")]
-    [InlineData("b49691 45e9b2")]
+    [InlineData("00-11-22-33-44-55")]
+    [InlineData("001122 334455")]
     public void Compares_macs_regardless_of_separator_or_case(string written)
     {
         TrafficRouteWanPinning.ResolvePin(new[] { Route("wan-net-id", mac: written) }, ProbeMac)
@@ -118,7 +118,7 @@ public class TrafficRouteWanPinningTests
         [{"_id":"r1","description":"[TEST] Rig out DOCSIS","enabled":"true",
           "matching_target":"INTERNET","network_id":"wan-net-id",
           "kill_switch_enabled":"false",
-          "target_devices":[{"client_mac":"b4:96:91:45:e9:b2","type":"CLIENT"}]}]
+          "target_devices":[{"client_mac":"00:11:22:33:44:55","type":"CLIENT"}]}]
         """;
 
         var routes = JsonSerializer.Deserialize<List<UniFiTrafficRouteResponse>>(json)!;
