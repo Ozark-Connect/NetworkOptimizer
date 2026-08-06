@@ -1,4 +1,6 @@
-﻿using Microsoft.EntityFrameworkCore;
+﻿using System.Net;
+using System.Net.Sockets;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Storage.Models;
@@ -51,19 +53,33 @@ public static class LocalTargetResolver
         string? address, ILogger? logger = null, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(address)) return (null, null);
+        var name = address.Trim();
         try
         {
-            var (ip, _) = await ReverseDnsCache.ResolveAsync(address.Trim(), ct);
-            // ResolveAsync hands back the address unchanged when it could not resolve it, so a
-            // name that answered nothing must not be judged as though it were an address.
-            if (string.IsNullOrEmpty(ip) || !System.Net.IPAddress.TryParse(ip, out _))
+            // A literal answers itself; only a name needs asking.
+            if (!IPAddress.TryParse(name, out var literal))
+            {
+                var answers = await Dns.GetHostAddressesAsync(name, ct);
+                // IPv4 first. Locality is judged on the RFC1918 ranges, so an AAAA answer taken
+                // just because DNS listed it first would be judged by a rule that cannot see it.
+                literal = answers.FirstOrDefault(a => a.AddressFamily == AddressFamily.InterNetwork)
+                    ?? answers.FirstOrDefault();
+            }
+
+            // "::" and "0.0.0.0" are what a resolver hands back when the name expanded to
+            // something with no address of its own - a search-domain suffix that exists but
+            // answers nothing. They parse as addresses and are not any host, so judging them
+            // would quietly file a LAN device as reached over a WAN.
+            if (literal is null || literal.Equals(IPAddress.Any) || literal.Equals(IPAddress.IPv6Any))
             {
                 logger?.LogDebug(
-                    "Local check: {Address} did not resolve to an address, so whether it is local is still unknown",
-                    address);
+                    "Local check: {Address} did not resolve to a usable address ({Answer}), so whether it "
+                    + "is local is still unknown", address, literal?.ToString() ?? "no answer");
                 return (null, null);
             }
-            return (NetworkUtilities.IsPrivateIpAddress(ip), ip);
+
+            var ip = literal.ToString();
+            return (NetworkUtilities.IsPrivateIpAddress(literal), ip);
         }
         catch (Exception ex)
         {
