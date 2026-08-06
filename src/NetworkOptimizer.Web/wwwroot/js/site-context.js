@@ -229,6 +229,13 @@ window.noScrollTo = function (id, block) {
 window.noHoldScroll = function (id, windowMs) {
     var el = document.getElementById(id);
     if (!el) return;
+    // The page does not scroll the window. .page-content owns the scrollbar on desktop and
+    // .main-content does on mobile, so window.scrollBy moves nothing and does not error either -
+    // it just silently does nothing at all. scrollRestoration already resolves which of the two it
+    // is, so it is asked rather than the rule being written out a second time here.
+    var box = window.scrollRestoration && window.scrollRestoration.container
+        ? window.scrollRestoration.container()
+        : null;
     var startTop = el.getBoundingClientRect().top;
     var until = performance.now() + (windowMs || 1500);
     var released = false;
@@ -246,9 +253,13 @@ window.noHoldScroll = function (id, windowMs) {
             return;
         }
         var delta = el.getBoundingClientRect().top - startTop;
-        // 'instant' because the page sets scroll-behavior: smooth - an animated correction would
-        // still be running when the next frame measures, and each frame would chase the last.
-        if (Math.abs(delta) >= 1) window.scrollBy({ top: delta, left: 0, behavior: 'instant' });
+        if (Math.abs(delta) >= 1) {
+            // scrollTop assignment rather than scrollBy: scroll-behavior: smooth is set on
+            // html/body, and an animated correction would still be running when the next frame
+            // measures, so each frame would chase the last one instead of settling.
+            if (box) box.scrollTop += delta;
+            else window.scrollBy({ top: delta, left: 0, behavior: 'instant' });
+        }
         requestAnimationFrame(tick);
     }
     requestAnimationFrame(tick);
