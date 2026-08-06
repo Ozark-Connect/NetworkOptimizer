@@ -57,6 +57,7 @@ let lastData = null;
 let lastEvents = [];
 let chartEls = {};
 let markResizeTimer = null;
+let lastMarkSignature = null;
 
 function baseOpts(height, yTitle, yFormatter, extra) {
     return {
@@ -205,14 +206,22 @@ const MARK_COLLISION_PX = 24;
 
 // Milliseconds per pixel of plot, taken from the chart's own geometry rather than from the
 // requested range: gridWidth excludes the y-axis gutter, and minX/maxX are the extents
-// ApexCharts actually drew, including its own padding. Every chart on the tab is the same
-// width, so this is measured once and reused, which also guarantees the folds line up
-// vertically across Temperature, CPU, Memory and the custom charts instead of each chart
-// clustering to its own slightly different answer.
+// ApexCharts actually drew, including its own padding. Every chart on the tab shares a width
+// and an x-window, so the first one that can answer speaks for all of them - which also
+// guarantees the folds line up vertically instead of each chart clustering to its own
+// slightly different answer.
+//
+// Asking every chart rather than only the temperature one matters: alignedPoints returns an
+// empty series when a field is null throughout, so a site whose switch temperatures never
+// arrive has an empty temperature chart - and reading geometry from that alone would silently
+// disable folding on the CPU and Memory charts, which are exactly the ones carrying marks.
 function markMsPerPx() {
-    const g = tempChart?.w?.globals;
-    if (!g || !(g.gridWidth > 0) || !(g.maxX > g.minX)) return null;
-    return (g.maxX - g.minX) / g.gridWidth;
+    for (const [chart] of chartEntries()) {
+        const g = chart?.w?.globals;
+        if (!g || !(g.gridWidth > 0) || !(g.maxX > g.minX)) continue;
+        return (g.maxX - g.minX) / g.gridWidth;
+    }
+    return null;
 }
 
 // Colour and glyph both come from the worst thing in the cluster so they can never disagree:
@@ -274,18 +283,28 @@ function annotationTooltip(cluster) {
         + `<div class="chart-annotation-list">${rows}</div>`;
 }
 
-// Labels come back in the order the annotations went in, which is how each mark finds its
-// own text. The attribute is all that is needed: App.razor rescans for [data-tooltip] and
-// initializes Tippy on anything new, which is how the other dynamically drawn badges work.
+// ApexCharts stamps each label with rel="<index into the annotation array>", so each cluster is
+// matched to its own label by that rather than by trusting NodeList order.
+//
+// Setting the attribute is all that is needed to get a tooltip: App.razor rescans for
+// [data-tooltip] and initializes Tippy on anything new, which is how the other dynamically
+// drawn badges work.
 function tagAnnotationTooltips(el, clusters) {
     if (!el) return;
-    el.querySelectorAll('.apexcharts-xaxis-annotation-label').forEach((label, i) => {
-        const cluster = clusters[i];
-        if (!cluster) return;
+    clusters.forEach((cluster, i) => {
+        const label = el.querySelector(`.apexcharts-xaxis-annotation-label[rel='${i}']`);
+        if (!label) return;
         label.setAttribute('data-tooltip', annotationTooltip(cluster));
         label.setAttribute('data-tooltip-interactive', '');
         label.style.cursor = 'help';
     });
+}
+
+// Each redraw replaces the label elements, so the Tippy instances bound to the outgoing ones
+// have to go with them - otherwise a 5s poll leaves an orphan per mark per tick.
+function destroyAnnotationTooltips(el) {
+    if (!el) return;
+    el.querySelectorAll('.apexcharts-xaxis-annotation-label').forEach(label => label._tippy?.destroy());
 }
 
 function applyAnnotations() {
@@ -293,6 +312,15 @@ function applyAnnotations() {
     // drops its marks without a refetch, the same way it drops its line.
     const visible = lastEvents.filter(e => visibility[e.mac] !== false);
     const clusters = clusterMarks(visible);
+
+    // A poll usually returns the same events over the same geometry, and redrawing then costs a
+    // full annotation teardown - and a Tippy rebuild - for no visible change. The signature
+    // covers what the marks are drawn FROM, so a new event, a badge toggle or a resize still
+    // gets through.
+    const signature = JSON.stringify([markMsPerPx(), clusters.map(c => [c.at, c.marks.length])]);
+    if (signature === lastMarkSignature) return;
+    lastMarkSignature = signature;
+
     const surface = chartSurfaceColor();
     const xaxis = clusters.map(cluster => {
         const lead = dominantMark(cluster.marks);
@@ -305,7 +333,12 @@ function applyAnnotations() {
             label: {
                 text: cluster.marks.length > 1 ? `${glyph}${cluster.marks.length}` : glyph,
                 borderColor: color,
+                // ApexCharts' own stylesheet puts pointer-events: none on every annotation
+                // label, which would leave these unhoverable and the tooltips dead. The class
+                // is concatenated onto theirs, not swapped for it, so app.css can win on
+                // specificity without !important.
                 style: {
+                    cssClass: 'chart-event-mark',
                     color,
                     background: surface,
                     fontSize: '11px',
@@ -317,6 +350,7 @@ function applyAnnotations() {
 
     for (const [chart, el] of chartEntries()) {
         if (!chart) continue;
+        destroyAnnotationTooltips(el);
         // Wrapped rather than chained directly: the labels only exist once the update has
         // rendered, and updateOptions is not promise-returning in every ApexCharts build.
         Promise.resolve(chart.updateOptions({ annotations: { xaxis } }, false, false))
@@ -709,6 +743,7 @@ export function unmount() {
     visibility = {};
     lastData = null;
     lastEvents = [];
+    lastMarkSignature = null;
     currentRangeHours = 1;
     windowOffset = 0;
     isCustomRange = false;

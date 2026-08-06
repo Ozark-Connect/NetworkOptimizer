@@ -100,10 +100,15 @@ public static class DeviceHealthChartEndpoints
                 });
             }
 
-            var events = await BuildAnnotationsAsync(influx, db, targets
+            // Grouped rather than ToDictionary'd: two Fabric targets can carry the same DeviceMac,
+            // and a duplicate key would throw out of the whole response - charts included, not
+            // just the marks.
+            var macsByNormalized = targets
                 .Where(t => !string.IsNullOrEmpty(t.DeviceMac))
-                .ToDictionary(t => NormalizeMac(t.DeviceMac!), t => t.DeviceMac!),
-                queryFrom, queryTo, ct);
+                .GroupBy(t => NormalizeMac(t.DeviceMac!))
+                .ToDictionary(g => g.Key, g => g.First().DeviceMac!);
+
+            var events = await BuildAnnotationsAsync(influx, db, macsByNormalized, queryFrom, queryTo, ct);
 
             return Results.Ok(new { devices = result, customFields = customFieldDefs, events });
         });
@@ -156,9 +161,12 @@ public static class DeviceHealthChartEndpoints
         var events = new List<(DateTime At, object Payload)>();
         if (macsByNormalized.Count == 0) return new List<object>();
 
-        // Reboots. Influx holds one record per boot in the long-term bucket, so this reaches as
-        // far back as the chart's 30d preset does.
-        var reboots = await influx.QueryDeviceRebootsInRangeAsync(from, to, ct);
+        // Reboots. Influx holds these in the long-term bucket, so this reaches as far back as the
+        // chart's 30d preset does - but "one record per boot" is the intent, not the reality, so
+        // the raw rows are collapsed to one mark per boot first.
+        var reboots = CollapseToOneRecordPerBoot(
+            await influx.QueryDeviceRebootsInRangeAsync(from, to, ct));
+
         foreach (var reboot in reboots)
         {
             if (!macsByNormalized.TryGetValue(NormalizeMac(reboot.DeviceMac), out var mac)) continue;
@@ -204,10 +212,15 @@ public static class DeviceHealthChartEndpoints
             if (AlertTypesCoveredElsewhere.Contains(alert.EventType)) continue;
             if (!macsByNormalized.TryGetValue(NormalizeMac(alert.DeviceId!), out var mac)) continue;
 
-            events.Add((alert.TriggeredAt, new
+            // TriggeredAt is written as UtcNow but comes back from SQLite as Unspecified, and "o"
+            // on an Unspecified value emits no zone - which the browser then reads as LOCAL time,
+            // putting every alert mark hours away from the event it describes.
+            var triggeredAtUtc = DateTime.SpecifyKind(alert.TriggeredAt, DateTimeKind.Utc);
+
+            events.Add((triggeredAtUtc, new
             {
                 mac,
-                time = alert.TriggeredAt.ToString("o"),
+                time = triggeredAtUtc.ToString("o"),
                 kind = "alert",
                 severity = alert.Severity switch
                 {
@@ -224,6 +237,65 @@ public static class DeviceHealthChartEndpoints
         }
 
         return events.OrderBy(e => e.At).Select(e => e.Payload).ToList();
+    }
+
+    /// <summary>
+    /// Two reboot records this far apart describe the same boot. Matches the tolerance
+    /// DeviceRebootTracker itself uses to decide whether a device is still on the boot it
+    /// last saw, so the chart and the tracker agree on what "one boot" means.
+    /// </summary>
+    private static readonly TimeSpan BootMatchTolerance = TimeSpan.FromMinutes(5);
+
+    /// <summary>
+    /// Collapses the stored reboot records to one per boot.
+    ///
+    /// A boot is supposed to occupy a single point, rewritten in place when it is re-probed. In
+    /// practice one boot can hold several: on the NAS site, 77 stored records over 90 days
+    /// describe 11 real boots, in bursts spanning under a second, carrying different classifier
+    /// versions and sometimes contradicting each other on the category. That is a write-path
+    /// defect and it is not fixed here; the read side just has to stop reporting one restart as
+    /// nine, which is what the reboot-reason display already gets for free by taking only the
+    /// latest record per device.
+    ///
+    /// The survivor is the one classified by the newest rules, since a bumped classifier means
+    /// the older records were re-probed precisely because their verdict was not trusted; ties go
+    /// to the latest instant, which is what the tracker's own seed query picks.
+    /// </summary>
+    internal static List<MonitoringInfluxClient.DeviceRebootPoint> CollapseToOneRecordPerBoot(
+        IReadOnlyList<MonitoringInfluxClient.DeviceRebootPoint> records)
+    {
+        var kept = new List<MonitoringInfluxClient.DeviceRebootPoint>();
+
+        foreach (var group in records.GroupBy(r => NormalizeMac(r.DeviceMac)))
+        {
+            MonitoringInfluxClient.DeviceRebootPoint? best = null;
+            // Measured from the boot the cluster opened with, not from whichever record is
+            // currently winning it - otherwise the window slides forward with every swap and a
+            // long enough run of records would swallow a genuinely separate restart.
+            DateTime clusterStart = default;
+
+            foreach (var record in group.OrderBy(r => r.BootedAt))
+            {
+                if (best is not null && record.BootedAt - clusterStart <= BootMatchTolerance)
+                {
+                    if (record.ClassifierVersion > best.ClassifierVersion
+                        || (record.ClassifierVersion == best.ClassifierVersion
+                            && record.BootedAt >= best.BootedAt))
+                    {
+                        best = record;
+                    }
+                    continue;
+                }
+
+                if (best is not null) kept.Add(best);
+                best = record;
+                clusterStart = record.BootedAt;
+            }
+
+            if (best is not null) kept.Add(best);
+        }
+
+        return kept;
     }
 
     /// <summary>

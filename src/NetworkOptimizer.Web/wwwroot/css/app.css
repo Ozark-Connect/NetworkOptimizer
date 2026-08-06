@@ -7335,6 +7335,12 @@ a.path-hop.hop-clickable:hover {
     max-width: 360px;
 }
 
+/* ApexCharts sets pointer-events: none on every annotation label, which leaves the event marks
+   unhoverable and their tooltips dead. Two classes beat their one, so no !important needed. */
+.apexcharts-xaxis-annotation-label.chart-event-mark {
+    pointer-events: auto;
+}
+
 /* Folded chart event marks list every event it covers, so it scrolls rather than truncates */
 .chart-annotation-list {
     max-height: 12rem;
