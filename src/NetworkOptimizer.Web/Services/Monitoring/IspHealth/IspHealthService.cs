@@ -66,6 +66,8 @@ public class IspHealthService
     private volatile int _configuredWindowHours;
     /// <summary>Connected agents, for naming the boxes a policy route might steer. Null in tests.</summary>
     private readonly AgentTunnelRegistry? _tunnelRegistry;
+    /// <summary>Resolves which box actually probes the unassigned targets. Null in tests.</summary>
+    private readonly AgentProbeResultSink? _probeSink;
 
     public IspHealthService(
         MonitoringInfluxRegistry influxRegistry,
@@ -75,10 +77,12 @@ public class IspHealthService
         PhysicalLinkResolver physicalLinkResolver,
         ILogger<IspHealthService> logger,
         AgentTunnelRegistry? tunnelRegistry = null,
+        AgentProbeResultSink? probeSink = null,
         string siteSlug = SiteManagementService.DefaultSiteSlug,
         string? wanInterface = null)
     {
         _tunnelRegistry = tunnelRegistry;
+        _probeSink = probeSink;
         _siteSlug = string.IsNullOrEmpty(siteSlug) ? SiteManagementService.DefaultSiteSlug : siteSlug;
         _isDefault = _siteSlug == SiteManagementService.DefaultSiteSlug;
         _scopedWanKey = string.IsNullOrWhiteSpace(wanInterface)
@@ -2056,6 +2060,21 @@ public class IspHealthService
                 _logger.LogDebug(
                     "Routed-probe vantage: {Count} unpinned target(s), but no all-destinations route "
                     + "names any of this site's {Hosts} probing box(es)", unpinnedCount, hosts.Count);
+                return;
+            }
+
+            // The route has to pin the box that ACTUALLY probes these targets. A route steering the
+            // server says nothing about an agent's probes, and binding the vantage to the wrong box
+            // is worse than saying nothing: a target whose vantage names an agent that is not the
+            // one asking gets pushed to nobody, so it would stop being probed entirely.
+            var collector = _probeSink == null ? null : await _probeSink.GetCollectorAgentIdAsync(_siteSlug, ct);
+            if (plan.AgentId != collector)
+            {
+                _logger.LogDebug(
+                    "Routed-probe vantage: the route pins {Pinned}, but {Collector} probes the unpinned "
+                    + "targets - the route says nothing about those probes",
+                    plan.AgentId?.ToString() ?? "the server",
+                    collector?.ToString() ?? "the server");
                 return;
             }
 

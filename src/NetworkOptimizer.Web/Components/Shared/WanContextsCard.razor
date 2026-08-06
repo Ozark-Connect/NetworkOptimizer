@@ -1026,8 +1026,14 @@
             // The route names a MAC, so it says WHICH box is steered. It only justifies this
             // vantage's targets when that box is the one this vantage probes from - a route
             // pinning the server says nothing about an agent's probes, or the reverse.
+            // The route has to pin the box this vantage probes from AND the box that currently
+            // probes the unpinned targets. Either mismatch and the route is evidence about some
+            // other box's traffic, not about the readings being re-filed.
             var routePin = loadBalances ? await RoutePinnedProbeAsync(vantage.WanInterface!) : null;
-            var routePinsThisVantage = routePin != null && routePin.AgentId == vantage.AgentId;
+            var collector = await ProbeSink.GetCollectorAgentIdAsync(SiteCtx.Slug);
+            var routePinsThisVantage = routePin != null
+                && routePin.AgentId == vantage.AgentId
+                && routePin.AgentId == collector;
             if (!NetworkOptimizer.Web.Services.Monitoring.PrimaryWanVantageAdoption
                     .ShouldAdopt(loadBalances, routePinsThisVantage))
             {
