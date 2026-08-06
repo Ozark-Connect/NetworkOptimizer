@@ -344,8 +344,8 @@ async function ensurePonChartsMounted() {
     ponErrChart = new ApexCharts(ponErrEl, { ...baseOpts(160, 'errors', fmtCount), series: [], colors: PALETTE });
     ponGemChart = new ApexCharts(ponGemEl, { ...baseOpts(160, 'frames', fmtCount), series: [], colors: PALETTE });
     ponHostChart = new ApexCharts(ponHostEl, { ...baseOpts(160, 'errors', fmtCount), series: [], colors: PALETTE });
+    // No ponGem: GEM Frames takes no marks, so the layer never needs to reach it.
     chartEls.ponErr = ponErrEl;
-    chartEls.ponGem = ponGemEl;
     chartEls.ponHost = ponHostEl;
     await Promise.all([ponErrChart.render(), ponGemChart.render(), ponHostChart.render()]);
     // These arrive after the first draw, so they start with no marks on them.

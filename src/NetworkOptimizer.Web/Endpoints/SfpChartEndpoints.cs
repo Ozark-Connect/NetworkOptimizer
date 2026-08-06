@@ -157,8 +157,12 @@ public static class SfpChartEndpoints
             var eq = pair.IndexOf('=');
             if (eq <= 0 || pair[..eq] != "sfp") continue;
 
+            // Compared verbatim, NOT lower-cased: the agent builds this value with the same
+            // expression ModuleKey uses, which lower-cases the MAC but leaves the port name as
+            // the device spells it. Lower-casing the whole thing here would silently stop
+            // matching the moment a port name carried an upper-case character.
             var value = Uri.UnescapeDataString(pair[(eq + 1)..]);
-            return string.IsNullOrEmpty(value) ? null : value.ToLowerInvariant();
+            return string.IsNullOrEmpty(value) ? null : value;
         }
 
         return null;
