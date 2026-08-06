@@ -13,7 +13,7 @@
         @if (ShowScopeFilter)
         {
             <div class="time-range-selector wan-selector @(_wanChoices.Count > 3 ? "wan-selector-many" : "")" @onclick:stopPropagation>
-                <button class="time-btn @(LanScope || AllSelected ? "active" : "")"
+                <button class="time-btn @(LanScope || AllScope ? "active" : "")"
                         @onclick="PickLanAsync" @onclick:stopPropagation>LAN</button>
                 @foreach (var w in _wanChoices)
                 {
@@ -26,7 +26,7 @@
                         {<span class="wan-pill-token">@wp.WanToken</span>}
                     </button>
                 }
-                @if (!AllSelected)
+                @if (!AllScope)
                 {
                     <button class="time-btn wan-all-btn"
                             @onclick="() => PickWanAsync(AllWansKey)" @onclick:stopPropagation>All</button>
@@ -476,7 +476,7 @@
     /// </summary>
     private IReadOnlyList<MonitoringTargetType> AvailableTypes() => LanScope
         ? new[] { MonitoringTargetType.Fabric, MonitoringTargetType.Custom }
-        : AllSelected
+        : AllScope
             ? new[] { MonitoringTargetType.Fabric, MonitoringTargetType.AccessIsp, MonitoringTargetType.Transit,
                 MonitoringTargetType.InternetService, MonitoringTargetType.Custom }
             : new[] { MonitoringTargetType.AccessIsp, MonitoringTargetType.Transit,
@@ -504,7 +504,8 @@
         // a WAN is the opposite. Only All carries both.
         if (LanScope)
             return ordered.Where(NetworkOptimizer.Web.Services.Monitoring.LocalTargetResolver.IsLocal);
-        if (_wanChoices.Count <= 1 || AllSelected || SelectedWanKeys.Count == 0) return ordered;
+        if (AllScope) return ordered;
+        if (_wanChoices.Count <= 1 || SelectedWanKeys.Count == 0) return ordered;
         ordered = ordered.Where(t => !NetworkOptimizer.Web.Services.Monitoring.LocalTargetResolver.IsLocal(t));
         var primaryKey = _wanChoices.FirstOrDefault(w => w.IsPrimary)?.Key;
         return ordered.Where(t => NetworkOptimizer.Storage.Models.MonitoringTarget.IsUnpinned(t.WanInterface)
@@ -579,6 +580,13 @@
 
     /// <summary>Scoped to this network rather than to a WAN; the WAN pills go unlit.</summary>
     [Parameter] public bool LanScope { get; set; }
+
+    /// <summary>
+    /// Whether the page is on the explicit All scope. Not the same as every WAN happening to be
+    /// selected: All asks for the whole site and takes the LAN with it, a hand-built selection
+    /// asks for exactly the WANs in it.
+    /// </summary>
+    [Parameter] public bool AllScope { get; set; }
     [Parameter] public EventCallback OnLanSelected { get; set; }
 
     /// <summary>

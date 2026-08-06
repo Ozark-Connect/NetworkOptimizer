@@ -517,7 +517,7 @@
                 {
                     <div class="time-range-selector wan-selector @(_wanOptions.Count > 3 ? "wan-selector-many" : "")"
                          data-tooltip="@(_showWanCompareHint ? _wanCompareHint : null)" data-tooltip-hover-only>
-                        <button class="time-btn @(_lanScope || AllWansSelected ? "active" : "")"
+                        <button class="time-btn @(_lanScope || _allScope ? "active" : "")"
                                 @onclick="SelectLanScopeAsync"
                                 data-tooltip="This network's own devices and targets - not reached over any WAN"
                                 data-tooltip-hover-only>LAN</button>
@@ -530,7 +530,7 @@
                             }@(wp.Name ?? w.Label)@if (wp.WanToken != null && wp.Name != null)
                             {<span class="wan-pill-token">@wp.WanToken</span>}</button>
                         }
-                        @if (!AllWansSelected)
+                        @if (!_allScope)
                         {
                             <button class="time-btn wan-all-btn" @onclick="SelectAllWansAsync">All</button>
                         }
@@ -659,7 +659,7 @@
         <div id="latency-targets" style="margin-top: 1.5rem;">
             <LatencyTargetsCard @ref="_latencyTargetsCard" Targets="_targets" WanContexts="_wanContexts" PrimaryWanLabel="@PrimaryWanProseLabel()"
                                  SelectedWanKeys="_selectedWanKeys" OnWanSelected="OnTargetsWanSelectedAsync"
-                                 LanScope="_lanScope" OnLanSelected="SelectLanScopeAsync"
+                                 LanScope="_lanScope" AllScope="_allScope" OnLanSelected="SelectLanScopeAsync"
                                  OnTargetsChanged="OnTargetsChanged" />
         </div>
 
@@ -1947,7 +1947,14 @@
     /// </summary>
     private string NpScopeKey => SiteCtx.ScopeStorageKey("npAnalysisScope");
     private const string LanScopeToken = "lan";
+    private const string AllScopeToken = "all";
     private bool _lanScope;
+    /// <summary>
+    /// Set by the All pill and by nothing else. Selecting every WAN by hand lands on the same set
+    /// of keys without being the same request: All asks for the whole site, the WANs included and
+    /// the LAN with them, where picking WANs one at a time asks for exactly those.
+    /// </summary>
+    private bool _allScope;
     private string SharedWanScopeKey => SiteCtx.ScopeStorageKey("monitoringWanScope");
 
     /// <summary>Solo-selected wan key, or the primary while comparing / unscoped.</summary>
@@ -1979,13 +1986,16 @@
     {
         if (_lanScope) return;
         _lanScope = true;
+        _allScope = false;
         await ApplyWanSelectionAsync(persist: true);
     }
 
     private async Task OnWanPillClickAsync(string key, MouseEventArgs e)
     {
-        // Picking a WAN is always a move off the LAN, whichever WAN it is.
+        // Picking a WAN is always a move off the LAN, whichever WAN it is - and off All, even when
+        // the WANs that end up selected are all of them.
         _lanScope = false;
+        _allScope = false;
         if (e.CtrlKey || e.MetaKey)
         {
             // Toggle into/out of the comparison set; never empty the set.
@@ -2020,7 +2030,8 @@
             {
                 await JS.InvokeVoidAsync("localStorage.setItem", NpWanSetKey, string.Join(",", _selectedWanKeys));
                 // Stored apart from the WAN set so the set never holds a value ISP Health cannot read.
-                await JS.InvokeVoidAsync("localStorage.setItem", NpScopeKey, _lanScope ? LanScopeToken : "wan");
+                await JS.InvokeVoidAsync("localStorage.setItem", NpScopeKey,
+                    _lanScope ? LanScopeToken : _allScope ? AllScopeToken : "wan");
                 await JS.InvokeVoidAsync("localStorage.setItem", SharedWanScopeKey, FocusedWanKeyOrNull ?? "");
                 // persist:true is the user's own pick - the link and the restore both pass false - so
                 // this is the moment the link's WAN stops describing what is on screen.
@@ -2088,12 +2099,15 @@
     private async Task SelectAllWansAsync()
     {
         _lanScope = false;
+        _allScope = true;
         _selectedWanKeys = new HashSet<string>(_wanOptions.Select(w => w.Key), StringComparer.OrdinalIgnoreCase);
         await ApplyWanSelectionAsync(persist: true);
     }
 
     private async Task ResetWanFilterAsync()
     {
+        _lanScope = false;
+        _allScope = false;
         _selectedWanKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { _primaryWanKey };
         await ApplyWanSelectionAsync(persist: true);
     }
@@ -2177,7 +2191,7 @@
                 // LAN is a scope of its own, not a WAN: the chart shows what is on this network and
                 // offers only the categories that can fill it.
                 lan = _lanScope,
-                all = !_lanScope && AllWansSelected,
+                all = _allScope,
             };
         return System.Text.Json.JsonSerializer.Serialize(scope);
     }
@@ -2415,6 +2429,7 @@
             _lanScope = string.IsNullOrEmpty(storedScope)
                 ? string.IsNullOrEmpty(stored)
                 : string.Equals(storedScope, LanScopeToken, StringComparison.OrdinalIgnoreCase);
+            _allScope = string.Equals(storedScope, AllScopeToken, StringComparison.OrdinalIgnoreCase);
             if (!string.IsNullOrEmpty(stored))
             {
                 var keys = stored.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
