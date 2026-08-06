@@ -368,6 +368,10 @@ public class AgentProbeResultSink
             // The MATCHED address, not the agent's own reported one: the site's target for the
             // gateway carries the address the console knows it by, which is not necessarily the
             // address the agent named itself with.
+            // TODO(#1106): this one needs the matched ADDRESS, not a yes/no, so the durable
+            // per-agent overload does not drop in - it would have to persist the address too.
+            // Same exposure as the others: no console, no match, and the gateway's own target is
+            // handed back to the agent that sits on it.
             var selfAddress = await _onGatewayDetector.MatchGatewayAddressAsync(
                 connection.SiteSlug, connection.HostAddresses, ct);
             var skippedSelf = 0;
@@ -514,6 +518,7 @@ public class AgentProbeResultSink
         if (unbound.Count == 0) return false;
 
         // Asked only when there is something to heal: it can await a console round trip.
+        // TODO(#1106): a yes/no, so the durable per-agent overload does drop in here.
         if (await _onGatewayDetector.MatchGatewayAddressAsync(
                 connection.SiteSlug, connection.HostAddresses, ct) == null)
             return false;

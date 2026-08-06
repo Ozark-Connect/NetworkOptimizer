@@ -3601,7 +3601,7 @@
                                                                 @if (_upgradeCommandAgentId == agent.Id)
                                                                 {
                                                                     <div class="agent-upgrade-cmd">
-                                                                        @if (AgentOnGateway(site.Id))
+                                                                        @if (AgentOnGateway(agent.Id))
                                                                         {
                                                                             <p class="form-help">On the UniFi gateway - enrollment is preserved, only the binary updates:</p>
                                                                             <CopyableCommand Text="@GatewayUpgradeCommand()" Tooltip="Copy the gateway upgrade command" />
@@ -4428,8 +4428,7 @@
                 await LoadSshViaAgentAsync(site);
                 await LoadAgentCoversSiteAsync(site);
                 await LoadClientSpeedTestTargetAsync(site);
-                _agentOnGateway[site.Id] = !site.IsDefault
-                    && await OnGatewayDetector.IsAgentOnGatewayAsync(site.Slug);
+                await LoadAgentsOnGatewayAsync(site);
                 _collectorAgentIds[site.Slug] = await ProbeSink.GetCollectorAgentIdAsync(site.Slug);
             }
         }
@@ -4546,7 +4545,7 @@
     // example when no agent has reported in.
     private string ClientSpeedTestPlaceholder(Site site)
     {
-        if (AgentOnGateway(site.Id))
+        if (SiteHasGatewayAgent(site.Id))
             return "none - the agent runs on the UniFi gateway; enter a separate box hosting the speed test";
         var lanIp = AgentsFor(site.Id)
             .Where(a => a.Enabled && !string.IsNullOrEmpty(a.LanIp) && TunnelRegistry.IsReachable(a))
@@ -4562,16 +4561,56 @@
             : "e.g. 192.168.1.50 or https://speed.example.com";
     }
 
-    // The site's agent runs on the UniFi gateway itself (per AgentOnGatewayDetector),
-    // loaded when the site's agent panel expands.
+    // Which agents run on the UniFi gateway itself, keyed by AGENT id and loaded when the site's
+    // agent panel expands. Per agent rather than per site because a site with several agents has
+    // one gateway and only one of them may be sitting on it, and because the site-level verdict
+    // (AgentOnGatewayDetector.IsAgentOnGatewayAsync) answers false for the default site by
+    // contract - a contract its speed-test consumers rely on, so this asks the per-address
+    // question instead and a main-site gateway agent is recognized as one.
     private readonly Dictionary<int, bool> _agentOnGateway = new();
 
     // Which agent currently collects for each site, keyed by slug. Derived rather than configured,
     // and asked of the same code the push path acts on so the page cannot claim otherwise.
     private readonly Dictionary<string, int?> _collectorAgentIds = new();
 
-    private bool AgentOnGateway(int siteId) =>
-        _agentOnGateway.TryGetValue(siteId, out var onGateway) && onGateway;
+    private bool AgentOnGateway(int agentId) =>
+        _agentOnGateway.TryGetValue(agentId, out var onGateway) && onGateway;
+
+    // Any of the site's agents on the gateway - for the questions that are about the SITE rather
+    // than one agent row.
+    // TODO(#1106): its one caller wants a narrower question than ANY. The placeholder mirrors what a
+    // blank override resolves to, and SiteSpeedTestTargetResolver resolves against ONE agent, so a
+    // site with a gateway agent and a real-box agent makes the two disagree. Secondary sites only:
+    // the main site does not render the field.
+    private bool SiteHasGatewayAgent(int siteId) =>
+        AgentsFor(siteId).Any(a => AgentOnGateway(a.Id));
+
+    /// <summary>
+    /// Resolves each of the site's agents against the site's gateway addresses. The live tunnel
+    /// reports every address its host holds, which is the reliable answer; an agent with no open
+    /// tunnel falls back to its last known LAN IP, since an outdated agent - exactly the one whose
+    /// upgrade command this drives - may well be the one that is down.
+    /// <para>
+    /// Never blocks on the site's UniFi Console. The addresses to compare against come from it, and
+    /// on an agent site it reconnects through the agent's own tunnel, so this panel routinely opens
+    /// ahead of it - but a site whose console is broken or unconfigured is exactly where an
+    /// operator goes to fix it, and it has to stay responsive. The detector answers from its
+    /// persisted verdict meanwhile.
+    /// </para>
+    /// </summary>
+    private async Task LoadAgentsOnGatewayAsync(Site site)
+    {
+        var connections = TunnelRegistry.GetForSite(site.Slug);
+        var resolved = await Task.WhenAll(AgentsFor(site.Id).Select(async agent =>
+        {
+            var candidates = connections.FirstOrDefault(c => c.AgentId == agent.Id)?.HostAddresses;
+            if (candidates is not { Count: > 0 })
+                candidates = string.IsNullOrEmpty(agent.LanIp) ? Array.Empty<string>() : new[] { agent.LanIp! };
+            return (agent.Id, OnGateway: await OnGatewayDetector.IsAgentOnGatewayAsync(site.Slug, agent.Id, candidates));
+        }));
+        foreach (var (agentId, onGateway) in resolved)
+            _agentOnGateway[agentId] = onGateway;
+    }
 
     private async Task LoadClientSpeedTestTargetAsync(Site site)
         => _clientSpeedTestTarget[site.Id] = (await SiteConfig.GetAsync(site.Slug)).ClientSpeedTestTarget;

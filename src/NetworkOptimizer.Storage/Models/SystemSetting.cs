@@ -63,6 +63,12 @@ public static class SystemSettingKeys
     // connection comes back up.
     public const string AgentOnGateway = "agent.on_gateway";
 
+    // Per-AGENT counterpart of the above, for the questions that are about one agent rather than
+    // the site: a site has one gateway and only one of its agents may be sitting on it. Serves the
+    // same purpose - a verdict that survives a restart, so the answer is right before the site's
+    // console (which on an agent site reconnects through the agent's own tunnel) is back up.
+    public static string AgentOnGatewayFor(int agentId) => $"agent.on_gateway.{agentId}";
+
     // UI preferences (legacy - no longer used)
     public const string SponsorshipBannerDismissed = "ui.sponsorship_banner_dismissed";
 

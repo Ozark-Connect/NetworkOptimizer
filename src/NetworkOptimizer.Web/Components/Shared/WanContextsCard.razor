@@ -701,6 +701,11 @@
             foreach (var connection in TunnelRegistry.GetForSite(SiteCtx.Slug))
             {
                 if (connection.SupportsSourceBind != true) continue;
+                // TODO(#1106): use the durable per-agent overload
+                // IsAgentOnGatewayAsync(slug, agentId, candidates) instead. This resolves live and
+                // has no persisted verdict, so a console that is not up yet - the norm on an agent
+                // site, where it reconnects through the agent's own tunnel - reads as "not on the
+                // gateway" and offers source-address binding where interface binding belongs.
                 if (await OnGatewayDetector.MatchGatewayAddressAsync(SiteCtx.Slug, connection.HostAddresses) != null)
                     byInterface.Add(connection.AgentId);
                 else
