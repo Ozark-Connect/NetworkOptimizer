@@ -577,7 +577,7 @@ async function loadHistory() {
             download: p.downloadBps,
             upload: p.uploadBps,
             rtt: p.rttMs,
-            loss: p.lossPercent ?? 0,
+            loss: p.lossPercent,
         }));
         // Advance the live-sample watermark past the reloaded history so the
         // next pollLive can't append a sample older than the last history
@@ -693,7 +693,9 @@ async function pollLive() {
             time: sampleTime,
             download: d.downloadBps,
             upload: d.uploadBps,
-            loss: d.lossPercent ?? 0,
+            // Null, not zero: no fresh reading is a gap in the series, and plotting it as 0%
+            // drew a healthy connection through an outage that had stopped reporting.
+            loss: d.lossPercent,
             rtt: d.rttMs,
         });
         buffer = buffer.filter(p => p.time >= cutoff);
@@ -774,7 +776,7 @@ async function backfillHistory() {
             download: p.downloadBps,
             upload: p.uploadBps,
             rtt: p.rttMs,
-            loss: p.lossPercent ?? 0,
+            loss: p.lossPercent,
         }));
     } catch { return 0; }
     // Bail if the mount changed or we left live mode while fetching.

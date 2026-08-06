@@ -1635,7 +1635,13 @@ public class AgentProbeResultSink
         // yet its context's results are still the only measurement that WAN has. Asking the steering
         // question here threw away every result from a gateway vantage the moment it was given an
         // interface to bind.
-        if (!agentCoversPrimary && !await AgentOwnsAnyContextAsync(connection, ct)) return;
+        if (!agentCoversPrimary && !await AgentOwnsAnyContextAsync(connection, ct))
+        {
+            _logger.LogDebug(
+                "Dropped a batch of {Count} result(s) from agent {Id}: the main site collects for itself and this agent owns no WAN context",
+                batch.Results.Count, connection.AgentId);
+            return;
+        }
 
         await using var db = _siteDbFactory.CreateForSite(connection.SiteSlug, isDefault);
         var ids = batch.Results.Select(r => r.TargetId).Distinct().ToList();
@@ -1652,6 +1658,15 @@ public class AgentProbeResultSink
         // configures itself from that site's MonitoringSettings on first use.
         var influx = _influxRegistry.GetFor(connection.SiteSlug);
         if (!influx.IsConfigured) await influx.ReconfigureAsync(ct);
+        // The latency writes below no-op silently on an unconfigured client, so a batch arriving
+        // while the site's Influx settings are unreadable - the buffered backlog being the first
+        // thing an agent sends after a restart - is swallowed with nothing to show for it. Say so;
+        // the batch still runs, because the live caches and alerting do not depend on Influx and
+        // are worth having either way.
+        if (!influx.IsConfigured)
+            _logger.LogWarning(
+                "{Count} result(s) from agent {Id} (site {Slug}) will not be stored: the site's InfluxDB client is not configured",
+                batch.Results.Count, connection.AgentId, connection.SiteSlug);
         var liveStats = _liveStatsRegistry.GetFor(connection.SiteSlug);
         var discarded = 0;
 

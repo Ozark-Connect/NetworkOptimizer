@@ -24,6 +24,13 @@ public class MonitoringLiveStats
     private List<(string TargetId, MonitoringTargetType TargetType, string? WanInterface)>? _ispTransitTargets;
     private DateTime _ispTransitTargetsCacheTime;
     private static readonly TimeSpan TargetCacheTtl = TimeSpan.FromSeconds(30);
+
+    /// <summary>
+    /// How old a target's last probe reading may be and still be plotted as live. Half again the
+    /// slowest poll interval a target can be given (60 s), so one missed cycle rides through and
+    /// the next expires the reading rather than letting it stand in for a current one.
+    /// </summary>
+    public static readonly TimeSpan LiveReadingMaxAge = TimeSpan.FromSeconds(90);
     private readonly Lock _targetCacheLock = new();
 
     private readonly SiteDbContextFactory? _siteDbFactory;
@@ -376,7 +383,7 @@ public class MonitoringLiveStats
     /// its own returns nothing rather than borrowing the primary's numbers and presenting them as
     /// its own.
     /// </param>
-    public async Task<(double? MeanRttMs, double MeanLossPercent)> GetMeanIspTransitLiveAsync(
+    public async Task<(double? MeanRttMs, double? MeanLossPercent)> GetMeanIspTransitLiveAsync(
         CancellationToken ct = default,
         string? wanInterface = null,
         bool isPrimary = false)
@@ -402,10 +409,18 @@ public class MonitoringLiveStats
         var transitRtts = new List<double>();
         var transitLosses = new List<double>();
 
+        // A reading is only evidence while it is current. A target that stops reporting - which is
+        // exactly what some failures look like, rather than a reported 100% loss - otherwise keeps
+        // presenting its last good reading forever, and the card reads healthy through an outage.
+        // Observed on a WAN whose ISP targets went quiet under a blackhole while its transit
+        // targets kept reporting: transit showed the true 100% loss, the ISP rows showed the RTT
+        // and 0% loss they had carried before it started.
+        var stale = DateTime.UtcNow - LiveReadingMaxAge;
+
         foreach (var t in targets)
         {
             var st = GetTargetStats(t.TargetId);
-            if (st == null) continue;
+            if (st == null || st.LastUpdate < stale) continue;
 
             if (t.TargetType == MonitoringTargetType.AccessIsp)
             {
@@ -420,20 +435,21 @@ public class MonitoringLiveStats
         }
 
         var ispRtt = ispRtts.Count > 0 ? ispRtts.Average() : (double?)null;
-        var ispLoss = ispLosses.Count > 0 ? ispLosses.Average() : 0.0;
+        var ispLoss = ispLosses.Count > 0 ? ispLosses.Average() : (double?)null;
         var transitRtt = transitRtts.Count > 0 ? transitRtts.Average() : (double?)null;
-        var transitLoss = transitLosses.Count > 0 ? transitLosses.Average() : 0.0;
+        var transitLoss = transitLosses.Count > 0 ? transitLosses.Average() : (double?)null;
 
         double? meanRtt;
         if (ispRtt != null && transitRtt != null)
             meanRtt = (ispRtt.Value + transitRtt.Value) / 2;
         else meanRtt = ispRtt ?? transitRtt;
 
-        double meanLoss = 0;
-        if (ispLosses.Count > 0 && transitLosses.Count > 0)
-            meanLoss = (ispLoss + transitLoss) / 2;
-        else if (ispLosses.Count > 0) meanLoss = ispLoss;
-        else if (transitLosses.Count > 0) meanLoss = transitLoss;
+        // Null, never zero, when nothing fresh reported: no reading is not the same claim as no
+        // loss, and the zero read as a healthy connection during an outage.
+        double? meanLoss;
+        if (ispLoss != null && transitLoss != null)
+            meanLoss = (ispLoss.Value + transitLoss.Value) / 2;
+        else meanLoss = ispLoss ?? transitLoss;
 
         return (meanRtt, meanLoss);
     }

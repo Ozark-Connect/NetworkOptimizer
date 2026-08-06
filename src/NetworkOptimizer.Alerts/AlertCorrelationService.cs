@@ -37,6 +37,65 @@ public class AlertCorrelationService
     }
 
     /// <summary>
+    /// Re-derives the status of the incident an alert belongs to from the statuses of every alert
+    /// in that incident, and persists it when it changed. No-op for an uncorrelated alert. Shared
+    /// by the UI's acknowledge/resolve actions and by the pipeline's automatic resolution.
+    /// </summary>
+    /// <summary>
+    /// Re-derives many incidents at once: one read for the incidents, one for every alert on them,
+    /// and one save. Doing it per incident costs two round trips and a commit each, which is what
+    /// the bulk buttons still paid after the alerts themselves were batched - a few hundred alerts
+    /// usually means nearly as many incidents, since most incidents hold one alert.
+    /// </summary>
+    public static async Task RecalculateIncidentStatusesAsync(
+        IReadOnlyCollection<int> incidentIds,
+        IAlertRepository repository,
+        CancellationToken cancellationToken = default)
+    {
+        if (incidentIds.Count == 0) return;
+
+        var incidents = await repository.GetIncidentsByIdsAsync(incidentIds, cancellationToken);
+        if (incidents.Count == 0) return;
+
+        var alertsByIncident = (await repository.GetAlertsByIncidentIdsAsync(incidentIds, cancellationToken))
+            .GroupBy(a => a.IncidentId!.Value)
+            .ToDictionary(g => g.Key, g => g.ToList());
+
+        var changed = new List<AlertIncident>();
+        foreach (var incident in incidents)
+        {
+            if (!alertsByIncident.TryGetValue(incident.Id, out var alerts)) continue;
+            var (status, resolvedAt) = DeriveIncidentStatus(alerts);
+            if (status == incident.Status) continue;
+            incident.Status = status;
+            incident.ResolvedAt = resolvedAt;
+            changed.Add(incident);
+        }
+
+        await repository.UpdateIncidentsAsync(changed, cancellationToken);
+    }
+
+    public static async Task RecalculateIncidentStatusAsync(
+        AlertHistoryEntry alert,
+        IAlertRepository repository,
+        CancellationToken cancellationToken = default)
+    {
+        if (!alert.IncidentId.HasValue) return;
+
+        var incident = await repository.GetIncidentAsync(alert.IncidentId.Value, cancellationToken);
+        if (incident == null) return;
+
+        var incidentAlerts = await repository.GetAlertsByIncidentIdAsync(incident.Id, cancellationToken);
+        var (newStatus, resolvedAt) = DeriveIncidentStatus(incidentAlerts);
+
+        if (newStatus == incident.Status) return;
+
+        incident.Status = newStatus;
+        incident.ResolvedAt = resolvedAt;
+        await repository.UpdateIncidentAsync(incident, cancellationToken);
+    }
+
+    /// <summary>
     /// Derive a correlation key from an alert event.
     /// Events with the same key within the correlation window will be grouped.
     /// </summary>

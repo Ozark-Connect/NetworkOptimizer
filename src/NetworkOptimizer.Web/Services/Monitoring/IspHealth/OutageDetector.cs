@@ -196,7 +196,7 @@ public static class OutageDetector
     /// regional endpoints of one provider, all reached over that provider's network, count once.
     /// An unattributed destination falls back to its name - its own network, the safe reading.
     /// </summary>
-    private static string NetworkKey(Hop h) =>
+    internal static string NetworkKey(Hop h) =>
         h.AsnLabel ?? (h.AsnNumber > 0 ? $"AS{h.AsnNumber}" : h.Name);
 
     private static OutageEvent BuildPartialEvent(
@@ -315,7 +315,7 @@ public static class OutageDetector
     /// real access-ISP outage), partials require a hop untouched in the window (intermittent
     /// 60%-loss buckets are not "reachable").
     /// </summary>
-    private static (string? LastReachableHop, string? BrokenNetwork) AttributeBreak(
+    internal static (string? LastReachableHop, string? BrokenNetwork) AttributeBreak(
         IEnumerable<Hop> wanHops, Func<Hop, bool> judged, Func<Hop, bool> isClean, Func<Hop, bool> isBroken)
     {
         var rows = wanHops.Where(judged).ToList();

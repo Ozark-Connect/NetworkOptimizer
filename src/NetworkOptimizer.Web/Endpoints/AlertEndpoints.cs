@@ -95,6 +95,11 @@ public static class AlertEndpoints
         });
 
         // --- Incidents ---
+        // TODO: takes the newest `limit` incidents whatever their status, so a caller wanting the
+        // unresolved ones cannot get at them once that many newer ones have been resolved - the
+        // trap the Incidents tab was in until it moved to GetUnresolvedIncidentsAsync. Give this a
+        // status filter applied in SQL. Left as-is for now because changing what the resource
+        // returns by default would change it for anyone already reading it.
         read.MapGet("/api/alerts/incidents", async (IAlertRepository repo, int limit = 50) =>
             Results.Ok(await repo.GetIncidentsAsync(limit)));
 
