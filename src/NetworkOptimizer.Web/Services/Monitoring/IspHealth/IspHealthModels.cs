@@ -696,8 +696,16 @@ public class AsnSeries
     public bool IsDestination { get; init; }
 }
 
-/// <summary>Load classification of one aggregate window.</summary>
-public record LoadWindow(bool IsIdle, bool IsLoadedDown, bool IsLoadedUp);
+/// <summary>
+/// Load classification of one aggregate window. The Classified* pair is the rates' verdict before
+/// isolated runs were demoted; only dilation reads it, as its opposite-direction barrier.
+/// </summary>
+public record LoadWindow(
+    bool IsIdle,
+    bool IsLoadedDown,
+    bool IsLoadedUp,
+    bool ClassifiedLoadedDown = false,
+    bool ClassifiedLoadedUp = false);
 
 /// <summary>A WAN throughput point joined into load classification.</summary>
 public record ThroughputSample(DateTime Time, double? DownloadBps, double? UploadBps);

@@ -677,6 +677,45 @@ public class IspHealthScorerTests
         factor.Score.Should().Be(70);
     }
 
+    /// <summary>Loss pool holding one series that is clean except for lossy probes at the given times.</summary>
+    private static IspHealthInputs WithLossyProbesUnderDownLoad(params int[] minutesIntoDownLoad)
+    {
+        var inputs = BuildInputs();
+        var series = TestSeries.Flat(TestSeries.Start, Day, 1.5, 0.3, 0);
+        foreach (var m in minutesIntoDownLoad)
+        {
+            var at = LoadedDownStart.AddMinutes(m);
+            series = series.WithSegment(at, at.AddMinutes(1), 1.5, 0.3, 20);
+        }
+        inputs.LossPoolSeries.Clear();
+        inputs.LossPoolSeries.Add(series);
+        return inputs;
+    }
+
+    private static string LoadedLossValueText(IspHealthInputs inputs) =>
+        new IspHealthScorer(Options).Score(inputs, Gpon)
+            .AccessDimension.Factors.Single(f => f.Name == "Loaded Loss").ValueText ?? "";
+
+    [Fact]
+    public void One_lossy_probe_in_one_load_episode_does_not_make_a_loaded_loss_rate()
+    {
+        // A five-ping probe quantizes to 20% steps, so a single dropped ping is the smallest thing
+        // the pool can see - and the credibility weighting concentrates it instead of diluting it.
+        LoadedLossValueText(WithLossyProbesUnderDownLoad(30)).Should().StartWith("n/a down");
+    }
+
+    [Fact]
+    public void A_second_lossy_probe_makes_it_a_rate()
+    {
+        LoadedLossValueText(WithLossyProbesUnderDownLoad(30, 90)).Should().NotStartWith("n/a down");
+    }
+
+    [Fact]
+    public void A_clean_loaded_pool_still_reports_zero_rather_than_going_quiet()
+    {
+        LoadedLossValueText(WithLossyProbesUnderDownLoad()).Should().StartWith("0% down");
+    }
+
     [Fact]
     public void Renormalizes_when_expected_speeds_missing()
     {

@@ -260,6 +260,16 @@ public class IspHealthOptions
     /// <summary>Minimum loaded samples per direction for the loaded factors to score that direction.</summary>
     public int MinLoadedSamples { get; set; } = 5;
 
+    /// <summary>
+    /// Probes that must have SEEN loss before loaded loss reports a rate, when the pool covers fewer
+    /// than <see cref="LoadedLossMinEpisodes"/> episodes. <see cref="MinLoadedSamples"/> counts
+    /// samples, which are overwhelmingly zeros, so it passes on a single lossy probe.
+    /// </summary>
+    public int LoadedLossMinLossyProbes { get; set; } = 2;
+
+    /// <summary>Load episodes that let a single lossy probe stand: several dilute it, one does not.</summary>
+    public int LoadedLossMinEpisodes { get; set; } = 2;
+
     /// <summary>Aggregate window in minutes for chart series.</summary>
     public int AggregateWindowMinutes { get; set; } = 1;
 

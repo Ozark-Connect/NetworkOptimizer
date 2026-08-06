@@ -408,8 +408,8 @@ public class IspHealthScorer
         double? down = null, up = null;
         if (loadWindows.Count > 0)
         {
-            down = LoadedLatencyDelta(inputs, loadWindows, w => w.IsLoadedDown, w => w.IsLoadedUp, upstream: false);
-            up = LoadedLatencyDelta(inputs, loadWindows, w => w.IsLoadedUp, w => w.IsLoadedDown, upstream: true);
+            down = LoadedLatencyDelta(inputs, loadWindows, w => w.IsLoadedDown, w => w.ClassifiedLoadedUp, upstream: false);
+            up = LoadedLatencyDelta(inputs, loadWindows, w => w.IsLoadedUp, w => w.ClassifiedLoadedDown, upstream: true);
         }
 
         bool downFromSpeedTest = false, upFromSpeedTest = false;
@@ -1182,8 +1182,10 @@ public class IspHealthScorer
             }, false);
         }
 
-        var downLoss = LoadedMeanLoss(inputs, lossPool, loadWindows, w => w.IsLoadedDown, w => w.IsLoadedUp, upstream: false);
-        var upLoss = LoadedMeanLoss(inputs, lossPool, loadWindows, w => w.IsLoadedUp, w => w.IsLoadedDown, upstream: true);
+        var downLoss = LoadedMeanLoss(inputs, lossPool, loadWindows, w => w.IsLoadedDown, w => w.ClassifiedLoadedUp,
+            upstream: false, direction: "down", out var downThin);
+        var upLoss = LoadedMeanLoss(inputs, lossPool, loadWindows, w => w.IsLoadedUp, w => w.ClassifiedLoadedDown,
+            upstream: true, direction: "up", out var upThin);
 
         var scores = new List<double>();
         if (downLoss.HasValue) scores.Add(ScoreLossBand(downLoss.Value, profile.LoadedLossDownLowPct, profile.LoadedLossDownHighPct));
@@ -1194,7 +1196,11 @@ public class IspHealthScorer
             {
                 Name = "Loaded Loss",
                 Weight = _options.LoadedLossWeight,
-                Description = "The line was never under sustained load during the window."
+                // Two different silences: nothing loaded the line, versus something did and a
+                // single probe caught a single drop.
+                Description = downThin || upThin
+                    ? "The line was under load too briefly to measure loss - a single dropped probe is not a rate."
+                    : "The line was never under sustained load during the window."
             }, false);
         }
 
@@ -1234,8 +1240,11 @@ public class IspHealthScorer
         Dictionary<DateTime, LoadWindow> loadWindows,
         Func<LoadWindow, bool> directionSelector,
         Func<LoadWindow, bool> oppositeSelector,
-        bool upstream)
+        bool upstream,
+        string direction,
+        out bool thinEvidence)
     {
+        thinEvidence = false;
         var loaded = DilateLoadedWindows(loadWindows, directionSelector, oppositeSelector);
         var samples = lossPool.SelectMany(series => series)
             .Where(s => s.LossPercent.HasValue && !InOutage(s.Time)
@@ -1243,26 +1252,67 @@ public class IspHealthScorer
             .Select(s => (s.Time, Value: _gatewayFloor.Apply(s.LossPercent!.Value, s.Time)))
             .ToList();
         var losses = samples.Select(s => s.Value).ToList();
-        // Loaded loss rests on however many samples happen to fall inside the loaded windows, and on
-        // a long window the rate series is aggregated far coarser than LoadWindowSeconds, so that set
-        // can be small enough for a few dark samples to set the whole figure. Log what it was built
-        // from - a mean over a handful of samples is a very different claim from one over thousands.
-        _logger?.LogDebug(
-            "ISP Health: loaded loss pool {Count} sample(s) from {Windows} loaded window key(s), {Dark} at/above 99% ({Mean}% mean)",
-            losses.Count, loaded.Count, losses.Count(l => l >= 99.0),
-            losses.Count > 0 ? losses.Average().ToString("0.##", CultureInfo.InvariantCulture) : "n/a");
-        if (losses.Count < _options.MinLoadedSamples) return null;
+
         // Same credibility rules as loaded latency: a sustained saturation says far more about
         // behavior under load than a two-second burst that may not even have been load, and recent
         // evidence outranks old evidence of the same kind. A weighted MEAN rather than a median,
         // because loss is a rate - most samples are zero even on a bad line, and a median over
         // them reports zero however bad the rest are.
         var loadWeight = BuildLoadWeighting(inputs, upstream, loaded);
-        return SeriesStats.WeightedMean(samples
+        var weighted = samples
             .Select(s => (s.Value,
-                SeriesStats.RecencyWeight(inputs.WindowEnd - s.Time, _options.LoadedLatencyRecencyHalfLifeHours)
+                Weight: SeriesStats.RecencyWeight(inputs.WindowEnd - s.Time, _options.LoadedLatencyRecencyHalfLifeHours)
                     * loadWeight(s.Time)))
-            .ToList()) ?? losses.Average();
+            .ToList();
+        var weightedMean = SeriesStats.WeightedMean(weighted);
+
+        var lossy = losses.Count(l => l > 0);
+        // Counted at the RATE series' own spacing, not LoadWindowSeconds. On a long window the rates
+        // are aggregated coarser than the window, so loaded keys are never adjacent and one six-hour
+        // saturation counts as hundreds of episodes.
+        var episodes = SeriesStats
+            .LoadEpisodeStarts(loaded, RateSampleSeconds(inputs))
+            .Values.Distinct().Count();
+        // Both means, because the reported one is the WEIGHTED one: the raw mean alone read 0.63%
+        // for a figure the panel showed as 2.1%. The heaviest sample's weight share explains that
+        // gap - it says when the credibility weighting handed one sample the whole answer.
+        if (_logger?.IsEnabled(LogLevel.Debug) == true)
+        {
+            var totalWeight = 0.0;
+            var topWeight = 0.0;
+            foreach (var (_, w) in weighted)
+            {
+                if (w <= 0) continue;
+                totalWeight += w;
+                if (w > topWeight) topWeight = w;
+            }
+            _logger.LogDebug(
+                "ISP Health: loaded loss {Direction} pool {Count} sample(s) from {Windows} loaded window key(s) over "
+                + "{Episodes} episode(s), {Lossy} with loss, {Dark} at/above 99%; {Mean}% raw mean -> {Weighted}% "
+                + "weighted, heaviest sample holds {Share}% of the weight",
+                direction, losses.Count, loaded.Count, episodes, lossy, losses.Count(l => l >= 99.0),
+                losses.Count > 0 ? losses.Average().ToString("0.##", CultureInfo.InvariantCulture) : "n/a",
+                weightedMean?.ToString("0.##", CultureInfo.InvariantCulture) ?? "n/a",
+                (totalWeight > 0 ? topWeight / totalWeight * 100 : 0).ToString("0.#", CultureInfo.InvariantCulture));
+        }
+
+        if (losses.Count < _options.MinLoadedSamples) return null;
+
+        // A rate needs more than one observation. A five-ping probe quantizes to 20% steps, so one
+        // dropped ping in one scheduled speed test can otherwise be the entire figure - and the
+        // weighting concentrates it rather than diluting it. Silent only when there IS uncorroborated
+        // loss; a pool with none still reports 0%, which is a real measurement.
+        if (lossy > 0 && lossy < _options.LoadedLossMinLossyProbes && episodes < _options.LoadedLossMinEpisodes)
+        {
+            _logger?.LogDebug(
+                "ISP Health: loaded loss {Direction} not graded - {Lossy} probe(s) with loss across {Episodes} "
+                + "load episode(s), needs {NeedLossy} probe(s) or {NeedEpisodes} episode(s)",
+                direction, lossy, episodes, _options.LoadedLossMinLossyProbes, _options.LoadedLossMinEpisodes);
+            thinEvidence = true;
+            return null;
+        }
+
+        return weightedMean ?? losses.Average();
     }
 
     /// <summary>
@@ -1274,6 +1324,11 @@ public class IspHealthScorer
     /// never crosses into a window loaded in the OPPOSITE direction, so a speed test's download
     /// tail does not bleed into its upload phase. Idle classification is unaffected (this builds a
     /// loaded set only), keeping the baseline a clean uncongested floor.
+    /// <para>
+    /// The barrier tests the CLASSIFIED flags. A speed test phase is one or two windows, so the
+    /// shorter phase is routinely demoted as an isolated run - and demotion cleared the very flag
+    /// the barrier reads, letting the surviving phase dilate straight through it.
+    /// </para>
     /// </summary>
     // Loaded window keys per direction for the current report. Both lists are filled on the first
     // request from a single pass, since the dilation asks for them four times.
@@ -2534,11 +2589,38 @@ public class IspHealthScorer
         var loss = false;
         if (loadWindows.Count > 0)
         {
-            var downLoss = LoadedMeanLoss(inputs, inputs.LossPoolSeries, loadWindows, w => w.IsLoadedDown, w => w.IsLoadedUp, upstream: false);
-            var upLoss = LoadedMeanLoss(inputs, inputs.LossPoolSeries, loadWindows, w => w.IsLoadedUp, w => w.IsLoadedDown, upstream: true);
+            var downLoss = LoadedMeanLoss(inputs, inputs.LossPoolSeries, loadWindows, w => w.IsLoadedDown,
+                w => w.ClassifiedLoadedUp, upstream: false, direction: "down", out _);
+            var upLoss = LoadedMeanLoss(inputs, inputs.LossPoolSeries, loadWindows, w => w.IsLoadedUp,
+                w => w.ClassifiedLoadedDown, upstream: true, direction: "up", out _);
             loss = downLoss > profile.LoadedLossDownHighPct || upLoss > profile.LoadedLossUpHighPct;
         }
         return (latency, loss);
+    }
+
+    // Cached for the current report: the four loaded-factor passes all want it, and the series runs
+    // to five figures.
+    private int? _rateSampleSeconds;
+
+    /// <summary>Median spacing of the WAN rate series, floored at the load window.</summary>
+    private int RateSampleSeconds(IspHealthInputs inputs)
+    {
+        if (_rateSampleSeconds is { } cached) return cached;
+
+        var floor = Math.Max(1, _options.LoadWindowSeconds);
+        var rates = inputs.WanRates;
+        if (rates.Count < 2) return (_rateSampleSeconds = floor).Value;
+
+        var gaps = new List<double>(rates.Count - 1);
+        for (var i = 1; i < rates.Count; i++)
+        {
+            var gap = (rates[i].Time - rates[i - 1].Time).TotalSeconds;
+            if (gap > 0) gaps.Add(gap);
+        }
+        gaps.Sort();
+        var median = SeriesStats.MedianSorted(gaps);
+        _rateSampleSeconds = median is > 0 ? Math.Max(floor, (int)Math.Round(median.Value)) : floor;
+        return _rateSampleSeconds.Value;
     }
 
     private DateTime FloorToWindow(DateTime time) =>
