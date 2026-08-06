@@ -277,19 +277,61 @@ public static class MonitoringChartEndpoints
             // 5s window - and SNMP polls get delayed exactly under load, so loss
             // spikes vanished from the chart precisely when they mattered.
             var rttSorted = rttData.OrderBy(p => p.Time).ToList();
+            var wanSorted = wanData.OrderBy(w => w.Time).ToList();
+
+            // Rows come from the throughput series, so a span with no throughput point had no row
+            // at all - and took its latency and loss down with it. The gateway's SNMP counters are
+            // collected by whoever collects for the site, and on a site that leaves collection to
+            // the server there is nothing to buffer them: a server restart leaves a real hole in
+            // throughput while the agent's probe results replay into it perfectly. The chart drew
+            // the hole across every series, so backfilled latency and loss were invisible.
+            //
+            // Latency points landing in such a hole get a row of their own, with no throughput on
+            // it. Only in a hole: a point with throughput either side of it within a couple of
+            // sample intervals still rides that throughput point, so ordinary operation keeps
+            // exactly the rows it had and the throughput line does not turn dotted. Both series
+            // are already in hand - this adds no query.
+            var holeTolerance = TimeSpan.FromSeconds(Math.Max(sampleIntervalSeconds * 2, 10));
+            var orphanTimes = new List<DateTime>();
+            if (wanSorted.Count == 0)
+            {
+                orphanTimes.AddRange(rttSorted.Select(p => p.Time));
+            }
+            else
+            {
+                var wi = 0;
+                foreach (var p in rttSorted)
+                {
+                    while (wi + 1 < wanSorted.Count && wanSorted[wi + 1].Time <= p.Time) wi++;
+                    var nearest = (p.Time - wanSorted[wi].Time).Duration();
+                    if (wi + 1 < wanSorted.Count)
+                    {
+                        var next = (wanSorted[wi + 1].Time - p.Time).Duration();
+                        if (next < nearest) nearest = next;
+                    }
+                    if (nearest > holeTolerance) orphanTimes.Add(p.Time);
+                }
+            }
+
+            var rows = wanSorted
+                .Select(w => (Time: w.Time, Down: (double?)w.DownloadBps, Up: (double?)w.UploadBps))
+                .Concat(orphanTimes.Select(t => (Time: t, Down: (double?)null, Up: (double?)null)))
+                .OrderBy(r => r.Time)
+                .ToList();
+
             var ri = 0;
             MonitoringInfluxClient.LatencyPoint? lastRtt = null;
 
-            var points = wanData.OrderBy(w => w.Time).Select(w =>
+            var points = rows.Select(r =>
             {
-                while (ri < rttSorted.Count && rttSorted[ri].Time <= w.Time)
+                while (ri < rttSorted.Count && rttSorted[ri].Time <= r.Time)
                     lastRtt = rttSorted[ri++];
 
                 return new
                 {
-                    time = w.Time.ToString("o"),
-                    downloadBps = w.DownloadBps,
-                    uploadBps = w.UploadBps,
+                    time = r.Time.ToString("o"),
+                    downloadBps = r.Down,
+                    uploadBps = r.Up,
                     rttMs = lastRtt?.RttAvgMs,
                     lossPercent = lastRtt?.LossPercent,
                 };

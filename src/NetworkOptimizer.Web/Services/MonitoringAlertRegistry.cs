@@ -44,8 +44,12 @@ public class MonitoringAlertRegistry : ISiteScopedRegistry
             // Wrap the shared bus so every event these per-site evaluators publish is
             // stamped with this site's slug, routing it to the site's rules and channels.
             var bus = new SiteAlertEventBus(_serviceProvider.GetRequiredService<IAlertEventBus>(), s);
+            // The WAN outage evaluator is fed by the target evaluator (which suppresses
+            // per-target events for the WAN categories in its favor), so it is created first
+            // and handed in rather than exposed on the bundle.
+            var wanOutages = ActivatorUtilities.CreateInstance<WanOutageEvaluator>(_serviceProvider, s, bus);
             return new SiteAlertEvaluators(
-                ActivatorUtilities.CreateInstance<MonitoringAlertEvaluator>(_serviceProvider, s, bus),
+                ActivatorUtilities.CreateInstance<MonitoringAlertEvaluator>(_serviceProvider, s, bus, wanOutages),
                 ActivatorUtilities.CreateInstance<DeviceHealthAlertEvaluator>(_serviceProvider, s, bus),
                 ActivatorUtilities.CreateInstance<SfpAlertEvaluator>(_serviceProvider, s, bus),
                 ActivatorUtilities.CreateInstance<CableModemAlertEvaluator>(_serviceProvider, s, bus),

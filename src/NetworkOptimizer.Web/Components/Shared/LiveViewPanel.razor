@@ -98,7 +98,7 @@ else
                 }
             </div>
             @{ var ispTarget = ScopedTargetStats(MonitoringTargetType.AccessIsp, meanAcrossTargets: false); }
-            <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => NavigationManager.NavigateTo("/monitoring?tab=performance&category=AccessIsp"))">
+            <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => JumpToAnalysis("AccessIsp"))">
                 @if (LiveWan.IsComparing)
                 {
                     <div class="stat-value stat-value-stacked">
@@ -114,7 +114,7 @@ else
                 }
                 <div class="stat-label">ISP RTT</div>
             </div>
-            <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => NavigationManager.NavigateTo("/monitoring?tab=performance&category=AccessIsp"))">
+            <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => JumpToAnalysis("AccessIsp"))">
                 @if (LiveWan.IsComparing)
                 {
                     <div class="stat-value stat-value-stacked">
@@ -131,7 +131,7 @@ else
                 <div class="stat-label">ISP Loss</div>
             </div>
             @{ var transitTarget = ScopedTargetStats(MonitoringTargetType.Transit, meanAcrossTargets: true); }
-            <div class="monitoring-stat-card clickable-stat-card stat-card-no-minheight" @onclick="@(() => NavigationManager.NavigateTo("/monitoring?tab=performance&category=Transit"))">
+            <div class="monitoring-stat-card clickable-stat-card stat-card-no-minheight" @onclick="@(() => JumpToAnalysis("Transit"))">
                 @if (LiveWan.IsComparing)
                 {
                     <div class="stat-value stat-value-stacked">
@@ -147,7 +147,7 @@ else
                 }
                 <div class="stat-label">Transit RTT</div>
             </div>
-            <div class="monitoring-stat-card clickable-stat-card stat-card-no-minheight" @onclick="@(() => NavigationManager.NavigateTo("/monitoring?tab=performance&category=Transit"))">
+            <div class="monitoring-stat-card clickable-stat-card stat-card-no-minheight" @onclick="@(() => JumpToAnalysis("Transit"))">
                 @if (LiveWan.IsComparing)
                 {
                     <div class="stat-value stat-value-stacked">
@@ -686,22 +686,44 @@ else
         return (s?.RttAvgMs, s?.LossPercent ?? 0);
     }
 
+    /// <summary>
+    /// Opens Latency and Packet Loss on what these tiles are showing, carrying the WAN selection
+    /// across. On the Monitoring page the tiles jump within the page, which keeps the filter by
+    /// staying put; from the Dashboard the same tiles navigate, and without the WAN on the link
+    /// the destination opened unfiltered - showing every WAN's targets after a click on one WAN's
+    /// tile. Mirrors Monitoring's own JumpToAnalysis: the whole selection, so a comparison of two
+    /// WANs arrives as that same comparison.
+    /// </summary>
+    private void JumpToAnalysis(string category)
+    {
+        NavigationManager.NavigateTo(
+            $"/monitoring?tab=performance&category={category}{LiveWan.QueryFragment()}");
+    }
+
     private (double? rtt, double loss) GetBestTargetStats(MonitoringTargetType type)
     {
         var targets = _targets.Where(t => t.TargetType == type && t.Enabled).ToList();
         if (targets.Count == 0) return (null, 0);
         double? bestRtt = null;
         double bestLoss = 0;
+        var losses = new List<double>();
+        var freshAfter = DateTime.UtcNow - Services.MonitoringLiveStats.LiveReadingMaxAge;
         foreach (var t in targets)
         {
             var st = LiveStats.GetTargetStats(t.TargetId);
-            if (st?.RttAvgMs != null && (bestRtt == null || st.RttAvgMs.Value < bestRtt.Value))
+            // Current readings only - a target that stopped reporting must not keep presenting
+            // the reading it carried before it went quiet.
+            if (st == null || st.LastUpdate < freshAfter) continue;
+            losses.Add(st.LossPercent);
+            if (st.RttAvgMs != null && (bestRtt == null || st.RttAvgMs.Value < bestRtt.Value))
             {
                 bestRtt = st.RttAvgMs;
                 bestLoss = st.LossPercent;
             }
         }
-        return (bestRtt, bestLoss);
+        // Nothing answered, so there is no nearest hop to read loss off; the mean of what did
+        // report is the honest figure, and 0% would read as a healthy connection mid-outage.
+        return (bestRtt, bestRtt == null ? (losses.Count > 0 ? losses.Average() : 0) : bestLoss);
     }
 
 
@@ -764,7 +786,9 @@ else
                 foreach (var t in targets)
                 {
                     var st = LiveStats.GetTargetStats(t.TargetId);
-                    if (st == null) continue;
+                    // A reading only counts while it is current: a target that stops reporting
+                    // otherwise keeps presenting the reading it carried before it went quiet.
+                    if (st == null || st.LastUpdate < DateTime.UtcNow - Services.MonitoringLiveStats.LiveReadingMaxAge) continue;
                     losses.Add(st.LossPercent);
                     if (st.RttAvgMs == null) continue;
                     rtts.Add(st.RttAvgMs.Value);
@@ -777,7 +801,12 @@ else
                 // Transit reads as the mean of its hops; the access ISP reads as its nearest clean
                 // hop. Same choice the single-WAN tiles have always made, kept per WAN.
                 rtt = meanAcrossTargets ? (rtts.Count > 0 ? rtts.Average() : null) : best;
-                loss = meanAcrossTargets ? (losses.Count > 0 ? losses.Average() : 0) : bestLoss;
+                // With no hop answering there is no nearest hop to read loss off, and taking it
+                // from one anyway left the tile reporting that hop's last loss - 0% - through an
+                // outage where every hop was dark. Fall back to the mean of what did report.
+                loss = meanAcrossTargets || best == null
+                    ? (losses.Count > 0 ? losses.Average() : 0)
+                    : bestLoss;
             }
             var label = NetworkOptimizer.UniFi.GatewayWanHelper.SplitWanLabel(
                 wan.Label, NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey(wan.Key)).WanToken ?? wan.Label;

@@ -334,6 +334,41 @@ public class AlertRepository : IAlertRepository
         }
     }
 
+    public async Task<(List<AlertHistoryEntry> Items, int Total)> GetAlertHistoryPageAsync(
+        int skip,
+        int take,
+        string? source = null,
+        AlertSeverity? minSeverity = null,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var query = _context.AlertHistory.AsNoTracking().AsQueryable();
+
+            if (!string.IsNullOrEmpty(source))
+                query = query.Where(a => a.Source == source);
+
+            if (minSeverity.HasValue)
+                query = query.Where(a => a.Severity >= minSeverity.Value);
+
+            // Counted against the same filters, before paging: the page controls need to know how
+            // much there is, not how much this page holds.
+            var total = await query.CountAsync(cancellationToken);
+            var items = await query
+                .OrderByDescending(a => a.TriggeredAt)
+                .Skip(Math.Max(0, skip))
+                .Take(Math.Max(1, take))
+                .ToListAsync(cancellationToken);
+
+            return (items, total);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get a page of alert history");
+            throw;
+        }
+    }
+
     public async Task<AlertHistoryEntry?> GetAlertAsync(int id, CancellationToken cancellationToken = default)
     {
         try
@@ -395,6 +430,148 @@ public class AlertRepository : IAlertRepository
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to get alerts for incident {IncidentId}", incidentId);
+            throw;
+        }
+    }
+
+    public async Task<List<AlertIncident>> GetIncidentsByIdsAsync(
+        IReadOnlyCollection<int> incidentIds, CancellationToken cancellationToken = default)
+    {
+        if (incidentIds.Count == 0) return [];
+        var ids = incidentIds.ToList();
+        return await _context.AlertIncidents
+            .Where(i => ids.Contains(i.Id))
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<List<AlertHistoryEntry>> GetAlertsByIncidentIdsAsync(
+        IReadOnlyCollection<int> incidentIds, CancellationToken cancellationToken = default)
+    {
+        if (incidentIds.Count == 0) return [];
+        var ids = incidentIds.ToList();
+        return await _context.AlertHistory
+            .AsNoTracking()
+            .Where(a => a.IncidentId != null && ids.Contains(a.IncidentId.Value))
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task UpdateIncidentsAsync(
+        IReadOnlyCollection<AlertIncident> incidents, CancellationToken cancellationToken = default)
+    {
+        if (incidents.Count == 0) return;
+        try
+        {
+            // Callers pass either the tracked rows from GetIncidentsByIdsAsync or detached copies
+            // the page is holding, so each is attached unless this very instance is already
+            // tracked. The tracked set is read once: scanning it per incident is the quadratic
+            // walk these batch methods exist to avoid.
+            var tracked = _context.ChangeTracker.Entries<AlertIncident>()
+                .GroupBy(e => e.Entity.Id)
+                .ToDictionary(g => g.Key, g => g.First());
+
+            foreach (var incident in incidents)
+            {
+                if (tracked.TryGetValue(incident.Id, out var entry))
+                {
+                    if (ReferenceEquals(entry.Entity, incident)) continue;
+                    entry.State = EntityState.Detached;
+                }
+                _context.AlertIncidents.Update(incident);
+            }
+
+            // One commit for the lot rather than one per incident.
+            await _context.SaveChangesAsync(cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to update {Count} incident(s)", incidents.Count);
+            throw;
+        }
+    }
+
+    public async Task<int> SetAlertStatusAsync(
+        IReadOnlyCollection<int> alertIds,
+        AlertStatus status,
+        DateTime timestamp,
+        CancellationToken cancellationToken = default)
+    {
+        if (alertIds.Count == 0) return 0;
+
+        try
+        {
+            var ids = alertIds.ToList();
+            var rows = await _context.AlertHistory
+                .Where(a => ids.Contains(a.Id))
+                .ToListAsync(cancellationToken);
+
+            foreach (var row in rows)
+            {
+                row.Status = status;
+                if (status == AlertStatus.Acknowledged) row.AcknowledgedAt = timestamp;
+                else if (status == AlertStatus.Resolved) row.ResolvedAt = timestamp;
+            }
+
+            // One commit for the lot. Per-alert saves meant a SQLite transaction each, and the
+            // tracked graph grew every iteration, so a few hundred alerts turned a button press
+            // into hundreds of fsyncs and a quadratic walk of the change tracker.
+            await _context.SaveChangesAsync(cancellationToken);
+            _logger.LogInformation("Set {Count} alert(s) to {Status}", rows.Count, status);
+            return rows.Count;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to set {Count} alert(s) to {Status}", alertIds.Count, status);
+            throw;
+        }
+    }
+
+    public Task<List<AlertHistoryEntry>> ResolveActiveAlertsAnyDeviceAsync(
+        IReadOnlyCollection<string> eventTypes,
+        CancellationToken cancellationToken = default) =>
+        ResolveActiveAlertsCoreAsync(eventTypes, "", anyDevice: true, cancellationToken);
+
+    public Task<List<AlertHistoryEntry>> ResolveActiveAlertsAsync(
+        IReadOnlyCollection<string> eventTypes,
+        string deviceId,
+        CancellationToken cancellationToken = default) =>
+        ResolveActiveAlertsCoreAsync(eventTypes, deviceId, anyDevice: false, cancellationToken);
+
+    private async Task<List<AlertHistoryEntry>> ResolveActiveAlertsCoreAsync(
+        IReadOnlyCollection<string> eventTypes,
+        string deviceId,
+        bool anyDevice,
+        CancellationToken cancellationToken)
+    {
+        if (eventTypes.Count == 0 || (!anyDevice && string.IsNullOrEmpty(deviceId)))
+            return [];
+
+        try
+        {
+            // Tracked on purpose: these rows are read to be written back in the same call.
+            var types = eventTypes.ToList();
+            var open = await _context.AlertHistory
+                .Where(a => a.Status == AlertStatus.Active
+                    && (anyDevice || a.DeviceId == deviceId)
+                    && types.Contains(a.EventType))
+                .ToListAsync(cancellationToken);
+
+            if (open.Count == 0)
+                return [];
+
+            var resolvedAt = DateTime.UtcNow;
+            foreach (var alert in open)
+            {
+                alert.Status = AlertStatus.Resolved;
+                alert.ResolvedAt = resolvedAt;
+            }
+
+            await _context.SaveChangesAsync(cancellationToken);
+            _logger.LogInformation("Resolved {Count} active alert(s) for {DeviceId}", open.Count, deviceId);
+            return open;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to resolve active alerts for {DeviceId}", deviceId);
             throw;
         }
     }
@@ -462,6 +639,25 @@ public class AlertRepository : IAlertRepository
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to get alert incidents");
+            throw;
+        }
+    }
+
+    public async Task<List<AlertIncident>> GetUnresolvedIncidentsAsync(
+        int limit = 50, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            return await _context.AlertIncidents
+                .AsNoTracking()
+                .Where(i => i.Status != AlertStatus.Resolved)
+                .OrderByDescending(i => i.LastTriggeredAt)
+                .Take(limit)
+                .ToListAsync(cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get unresolved alert incidents");
             throw;
         }
     }

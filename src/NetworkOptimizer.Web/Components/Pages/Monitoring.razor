@@ -1897,6 +1897,12 @@
     private string _primaryWanKey = NetworkOptimizer.UniFi.GatewayWanHelper.DefaultWanKey;
     private bool _wanSelectionRestored;
 
+    /// <summary>
+    /// A link named a WAN before the WAN options had loaded, so it could not be resolved yet and
+    /// is applied as soon as they arrive. Without it the link was simply lost on those loads.
+    /// </summary>
+    private bool _linkWanAwaitingOptions;
+
     // The modifier that adds a WAN to the comparison set, named the way the reader's own keyboard
     // names it - telling a Mac user to Ctrl-click is telling them to open a context menu. Ctrl
     // until the browser says otherwise, so the hint is never blank on the first paint.
@@ -2179,6 +2185,10 @@
         _selectedWanKeys.RemoveWhere(k => !_wanOptions.Any(o => o.Key.Equals(k, StringComparison.OrdinalIgnoreCase)));
         if (_selectedWanKeys.Count == 0)
             _selectedWanKeys.Add(_primaryWanKey);
+        // A link that arrived before this point resolved nothing and was waiting on it. Applying
+        // it here rather than leaving it to the next mount is what makes a deep link land on its
+        // WAN every time instead of most of the time.
+        await ApplyPendingLinkWanAsync();
     }
 
     /// <summary>Restores the persisted WAN selection once localStorage is reachable.</summary>
@@ -2270,10 +2280,33 @@
     /// </summary>
     private async Task ApplyLinkWanSelectionAsync()
     {
-        if (!_wanOptionsLoaded) return;
-        if (!_multiWanUiVisible || _wanOptions.Count <= 1) return;
-        if (string.IsNullOrWhiteSpace(WanParam) || !LinkNarrowsWanFilter) return;
-        if (_appliedLinkWanKey == LinkWanKey) return;
+        // The options answer the question this needs answered, and the mount that calls this runs
+        // once - so returning here without remembering the link dropped it for the rest of the
+        // visit, and the stored filter that was read a line earlier stood instead. Whether that
+        // happened came down to which finished first, so the same link kept or lost its WAN from
+        // one load to the next. The flag lets the load itself finish the job.
+        if (string.IsNullOrWhiteSpace(WanParam) || !LinkNarrowsWanFilter)
+        {
+            _linkWanAwaitingOptions = false;
+            return;
+        }
+        if (_appliedLinkWanKey == LinkWanKey)
+        {
+            _linkWanAwaitingOptions = false;
+            return;
+        }
+        // Nothing to resolve against yet. The mount that calls this runs once, so returning
+        // without remembering the link dropped it for the rest of the visit and left the stored
+        // filter - read a line earlier - standing in its place. Whether that happened came down
+        // to which finished first, so the same link kept or lost its WAN from one load to the
+        // next. The flag holds it until the answers arrive.
+        if (!_wanOptionsLoaded || !_multiWanUiVisible)
+        {
+            _linkWanAwaitingOptions = true;
+            return;
+        }
+        _linkWanAwaitingOptions = false;
+        if (_wanOptions.Count <= 1) return;
 
         var keys = ResolveLinkWanKeys(WanParam);
         // Stamped before the resolve is judged: the link has been CONSIDERED either way, and the
@@ -3393,12 +3426,26 @@
         if (_wanContexts.Count > 0)
         {
             _multiWanUiVisible = true;
+            await ApplyPendingLinkWanAsync();
             return;
         }
         if (_wanCountChecked) return;
         _wanCountChecked = true;
         try { _multiWanUiVisible = (await PathView.GetWansAsync()).Count > 1; }
         catch { _multiWanUiVisible = false; }
+        await ApplyPendingLinkWanAsync();
+    }
+
+    /// <summary>
+    /// Applies a link's WAN that arrived before the page could resolve it - the WAN options or the
+    /// multi-WAN answer landing after the mount that first tried. Cheap and idempotent: it does
+    /// nothing unless a link is actually waiting.
+    /// </summary>
+    private async Task ApplyPendingLinkWanAsync()
+    {
+        if (!_linkWanAwaitingOptions) return;
+        await ApplyLinkWanSelectionAsync();
+        await InvokeAsync(StateHasChanged);
     }
 
     /// <summary>
@@ -3427,15 +3474,6 @@
     private const string LiveAtToken = "live";
 
     /// <summary>
-    /// The live WAN selection as a ?wan= value - the whole set rather than just the focus, so a
-    /// comparison of two WANs arrives at the other tab as that same comparison.
-    /// </summary>
-    private string LiveWanQueryValue() =>
-        LiveWan.AllSelected
-            ? Services.Monitoring.LiveWanScope.AllWansToken
-            : string.Join(",", LiveWan.SelectedKeys);
-
-    /// <summary>
     /// Opens Latency and Packet Loss on what the Live tab is showing: the same instant, the
     /// category for the thing being watched, and the WAN selection carried across. The analysis
     /// view's own saved filter survives untouched - navigateToTime stashes what it replaces and
@@ -3449,10 +3487,8 @@
             : LiveAtToken;
         // LAN targets are not reached over any one WAN, so that jump asks for all of them rather
         // than narrowing the analysis to whichever WAN the tiles happened to be showing.
-        var wan = category == FabricCategory
-            ? Services.Monitoring.LiveWanScope.AllWansToken
-            : LiveWanQueryValue();
-        var wanQuery = LiveWan.HasChoice && wan.Length > 0 ? $"&wan={Uri.EscapeDataString(wan)}" : "";
+        var wanQuery = LiveWan.QueryFragment(
+            category == FabricCategory ? Services.Monitoring.LiveWanScope.AllWansToken : null);
         NavigationManager.NavigateTo($"/monitoring?tab=performance&category={category}&at={at}{wanQuery}");
     }
 
@@ -4635,16 +4671,24 @@
         // Pick the target with the lowest RTT (nearest ISP infrastructure).
         double? bestRtt = null;
         double bestLoss = 0;
+        var freshLosses = new List<double>();
+        var freshAfter = DateTime.UtcNow - Services.MonitoringLiveStats.LiveReadingMaxAge;
         foreach (var t in targets)
         {
             var s = LiveStats.GetTargetStats(t.TargetId);
-            if (s?.RttAvgMs != null && (bestRtt == null || s.RttAvgMs.Value < bestRtt.Value))
+            // Current readings only - a target that stopped reporting must not keep presenting
+            // the reading it carried before it went quiet.
+            if (s == null || s.LastUpdate < freshAfter) continue;
+            freshLosses.Add(s.LossPercent);
+            if (s.RttAvgMs != null && (bestRtt == null || s.RttAvgMs.Value < bestRtt.Value))
             {
                 bestRtt = s.RttAvgMs;
                 bestLoss = s.LossPercent;
             }
         }
-        return (bestRtt, bestLoss);
+        // Nothing answered, so there is no nearest hop to read loss off; the mean of what did
+        // report is the honest figure, and 0% would read as a healthy connection mid-outage.
+        return (bestRtt, bestRtt == null ? (freshLosses.Count > 0 ? freshLosses.Average() : 0) : bestLoss);
     }
 
 
@@ -4731,10 +4775,13 @@
                 var losses = new List<double>();
                 double? best = null;
                 double bestLoss = 0;
+                var freshAfter = DateTime.UtcNow - Services.MonitoringLiveStats.LiveReadingMaxAge;
                 foreach (var t in targets)
                 {
                     var st = LiveStats.GetTargetStats(t.TargetId);
-                    if (st == null) continue;
+                    // A reading only counts while it is current: a target that stops reporting
+                    // otherwise keeps presenting the reading it carried before it went quiet.
+                    if (st == null || st.LastUpdate < freshAfter) continue;
                     losses.Add(st.LossPercent);
                     if (st.RttAvgMs == null) continue;
                     rtts.Add(st.RttAvgMs.Value);
@@ -4747,7 +4794,12 @@
                 // Transit reads as the mean of its hops; the access ISP reads as its nearest clean
                 // hop. Same choice the single-WAN tiles have always made, kept per WAN.
                 rtt = meanAcrossTargets ? (rtts.Count > 0 ? rtts.Average() : null) : best;
-                loss = meanAcrossTargets ? (losses.Count > 0 ? losses.Average() : 0) : bestLoss;
+                // With no hop answering there is no nearest hop to read loss off, and taking it
+                // from one anyway left the tile reporting that hop's last loss - 0% - through an
+                // outage where every hop was dark. Fall back to the mean of what did report.
+                loss = meanAcrossTargets || best == null
+                    ? (losses.Count > 0 ? losses.Average() : 0)
+                    : bestLoss;
             }
             rows.Add((WanRowLabel(wan), rtt, loss));
         }

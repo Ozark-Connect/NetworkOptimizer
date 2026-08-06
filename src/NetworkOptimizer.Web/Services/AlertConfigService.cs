@@ -65,10 +65,26 @@ public interface IAlertConfigService
     [AuditAction(AuditActions.AlertRuleChanged, TargetType = "alert")]
     Task UpdateAlertAsync(AlertHistoryEntry alert);
 
+    /// <summary>
+    /// Sets many alerts to one status in a single round trip. What the bulk buttons use: updating
+    /// them one at a time is a database commit each, and slows to a crawl on a few hundred alerts.
+    /// </summary>
+    [RequireRole(Roles.Operator)]
+    [AuditAction(AuditActions.AlertRuleChanged, TargetType = "alert")]
+    Task<int> SetAlertStatusAsync(IReadOnlyCollection<int> alertIds, AlertStatus status, DateTime timestamp);
+
     /// <summary>Saves an incident's state, which the alert list edits alongside its alerts.</summary>
     [RequireRole(Roles.Operator)]
     [AuditAction(AuditActions.AlertRuleChanged, TargetType = "incident")]
     Task UpdateIncidentAsync(AlertIncident incident);
+
+    /// <summary>
+    /// Saves several incidents in one round trip. What the bulk incident buttons use: saving them
+    /// one at a time is a database commit each.
+    /// </summary>
+    [RequireRole(Roles.Operator)]
+    [AuditAction(AuditActions.AlertRuleChanged, TargetType = "incident")]
+    Task UpdateIncidentsAsync(IReadOnlyCollection<AlertIncident> incidents);
 
     /// <summary>Runs a scheduled task immediately. Returns false when it could not be started.</summary>
     [RequireRole(Roles.Operator)]
@@ -121,10 +137,28 @@ public sealed class AlertConfigService : IAlertConfigService
     }
 
     /// <inheritdoc />
+    public async Task<int> SetAlertStatusAsync(IReadOnlyCollection<int> alertIds, AlertStatus status, DateTime timestamp)
+    {
+        var changed = await _alerts.SetAlertStatusAsync(alertIds, status, timestamp);
+        // One audit entry for the action, not one per alert: the bulk buttons are a single
+        // deliberate act and the count is what makes it readable afterwards.
+        _auditContext.SetTarget($"{changed} alert(s)", status.ToString());
+        _auditContext.SetDetails(new { Status = status.ToString(), Count = changed, Timestamp = timestamp });
+        return changed;
+    }
+
+    /// <inheritdoc />
     public async Task UpdateIncidentAsync(AlertIncident incident)
     {
         await _alerts.UpdateIncidentAsync(incident);
         _auditContext.SetTarget(incident.Id.ToString(), incident.Title);
+    }
+
+    /// <inheritdoc />
+    public async Task UpdateIncidentsAsync(IReadOnlyCollection<AlertIncident> incidents)
+    {
+        await _alerts.UpdateIncidentsAsync(incidents);
+        _auditContext.SetTarget($"{incidents.Count} incident(s)", "bulk");
     }
 
     /// <inheritdoc />
@@ -292,20 +326,6 @@ public sealed class AlertConfigService : IAlertConfigService
         return alert;
     }
 
-    private async Task RecalculateIncidentStatusAsync(AlertHistoryEntry alert)
-    {
-        if (!alert.IncidentId.HasValue) return;
-
-        var incident = await _alerts.GetIncidentAsync(alert.IncidentId.Value);
-        if (incident == null) return;
-
-        var incidentAlerts = await _alerts.GetAlertsByIncidentIdAsync(incident.Id);
-        var (newStatus, resolvedAt) = AlertCorrelationService.DeriveIncidentStatus(incidentAlerts);
-
-        if (newStatus == incident.Status) return;
-
-        incident.Status = newStatus;
-        incident.ResolvedAt = resolvedAt;
-        await _alerts.UpdateIncidentAsync(incident);
-    }
+    private Task RecalculateIncidentStatusAsync(AlertHistoryEntry alert)
+        => AlertCorrelationService.RecalculateIncidentStatusAsync(alert, _alerts);
 }

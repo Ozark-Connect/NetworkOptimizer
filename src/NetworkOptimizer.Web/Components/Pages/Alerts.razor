@@ -713,6 +713,14 @@
         @* ========== Active Alerts Tab ========== *@
         @if (_activeTab == "active")
         {
+            @* Outside the empty/non-empty split below: held alerts must always be reachable, and
+               inside the else they were unreachable exactly when the list was empty. *@
+            @if (PendingAlertCount > 0)
+            {
+                <button class="btn btn-sm btn-secondary alert-pending-pill" @onclick="ApplyPendingAlerts">
+                    @PendingAlertCount new @(PendingAlertCount == 1 ? "alert" : "alerts") - show
+                </button>
+            }
             @if (_unresolvedAlerts.Count == 0)
             {
                 <div class="empty-state">
@@ -730,18 +738,24 @@
                         <div class="alert-group-actions">
                             @if (_canOperate)
                             {
-                            <button class="btn btn-sm btn-secondary" @onclick="AcknowledgeAllActive">Acknowledge All</button>
+                            <button class="btn btn-sm btn-secondary" @onclick="AcknowledgeAllActive" disabled="@_bulkBusy">
+                                @if (_bulkBusy) { <span class="spinner spinner-sm"></span> }
+                                <text>Acknowledge All</text>
+                            </button>
                             }
                             @if (_canOperate)
                             {
-                            <button class="btn btn-sm btn-primary" @onclick="ResolveAllActive">Resolve All</button>
+                            <button class="btn btn-sm btn-primary" @onclick="ResolveAllActive" disabled="@_bulkBusy">
+                                @if (_bulkBusy) { <span class="spinner spinner-sm"></span> }
+                                <text>Resolve All</text>
+                            </button>
                             }
                         </div>
                     </div>
                     <div class="alert-list">
                         @foreach (var alert in _unresolvedAlerts.Where(a => a.Status == AlertStatus.Active))
                         {
-                            <div class="alert-item @GetSeverityClass(alert.Severity)">
+                            <div class="alert-item @GetSeverityClass(alert.Severity)" @key="alert.Id">
                                 <div class="alert-icon">@((MarkupString)GetSeverityIcon(alert.Severity))</div>
                                 <div class="alert-content">
                                     <div class="alert-header">
@@ -775,7 +789,7 @@
                                     }
                                     @if (_canOperate)
                                     {
-                                    <button class="btn btn-sm btn-secondary" @onclick="() => AcknowledgeAlert(alert)">
+                                    <button class="btn btn-sm btn-tertiary" @onclick="() => AcknowledgeAlert(alert)">
                                         Acknowledge
                                     </button>
                                     }
@@ -798,14 +812,17 @@
                         <div class="alert-group-actions">
                             @if (_canOperate)
                             {
-                            <button class="btn btn-sm btn-primary" @onclick="ResolveAllAcknowledged">Resolve All</button>
+                            <button class="btn btn-sm btn-primary" @onclick="ResolveAllAcknowledged" disabled="@_bulkBusy">
+                                @if (_bulkBusy) { <span class="spinner spinner-sm"></span> }
+                                <text>Resolve Acknowledged</text>
+                            </button>
                             }
                         </div>
                     </div>
                     <div class="alert-list">
                         @foreach (var alert in _unresolvedAlerts.Where(a => a.Status == AlertStatus.Acknowledged))
                         {
-                            <div class="alert-item @GetSeverityClass(alert.Severity)">
+                            <div class="alert-item @GetSeverityClass(alert.Severity)" @key="alert.Id">
                                 <div class="alert-icon">@((MarkupString)GetSeverityIcon(alert.Severity))</div>
                                 <div class="alert-content">
                                     <div class="alert-header">
@@ -860,7 +877,7 @@
                     <div class="history-filters">
                         <div class="filter-group">
                             <label class="filter-label">Source:</label>
-                            <select class="filter-select" @bind="_historySourceFilter" @bind:after="LoadHistory">
+                            <select class="filter-select" @bind="_historySourceFilter" @bind:after="ReloadHistoryFromFirstPage">
                                 <option value="">All Sources</option>
                                 <option value="audit">Audit</option>
                                 <option value="device">Device</option>
@@ -872,7 +889,7 @@
                         </div>
                         <div class="filter-group">
                             <label class="filter-label">Min Severity:</label>
-                            <select class="filter-select" @bind="_historySeverityFilter" @bind:after="LoadHistory">
+                            <select class="filter-select" @bind="_historySeverityFilter" @bind:after="ReloadHistoryFromFirstPage">
                                 <option value="">All</option>
                                 <option value="Info">Info</option>
                                 <option value="Warning">Warning</option>
@@ -937,6 +954,18 @@
                             </tbody>
                         </table>
                     </div>
+                    @if (_historyTotal > HistoryPageSize)
+                    {
+                        <div class="pagination history-pagination">
+                            <button class="btn btn-sm btn-secondary" disabled="@(_historyPage == 0)"
+                                    @onclick="() => GoToHistoryPage(_historyPage - 1)">Prev</button>
+                            <span class="pagination-info">
+                                Page @(_historyPage + 1) of @HistoryPageCount (@_historyTotal alerts)
+                            </span>
+                            <button class="btn btn-sm btn-secondary" disabled="@(_historyPage >= HistoryPageCount - 1)"
+                                    @onclick="() => GoToHistoryPage(_historyPage + 1)">Next</button>
+                        </div>
+                    }
                 </div>
             }
         }
@@ -1117,6 +1146,13 @@
         @* ========== Incidents Tab ========== *@
         @if (_activeTab == "incidents")
         {
+            @* Outside the empty/non-empty split, for the same reason as the alerts pill. *@
+            @if (PendingIncidentCount > 0)
+            {
+                <button class="btn btn-sm btn-secondary alert-pending-pill" @onclick="ApplyPendingIncidents">
+                    @PendingIncidentCount new @(PendingIncidentCount == 1 ? "incident" : "incidents") - show
+                </button>
+            }
             @if (!_incidents.Any(i => i.Status != AlertStatus.Resolved))
             {
                 <div class="empty-state">
@@ -1133,18 +1169,24 @@
                         {
                             @if (_canOperate)
                             {
-                            <button class="btn btn-sm btn-secondary" @onclick="AcknowledgeAllIncidents">Acknowledge All</button>
+                            <button class="btn btn-sm btn-secondary" @onclick="AcknowledgeAllIncidents" disabled="@_bulkBusy">
+                                @if (_bulkBusy) { <span class="spinner spinner-sm"></span> }
+                                <text>Acknowledge All</text>
+                            </button>
                             }
                         }
                         @if (_canOperate)
                         {
-                        <button class="btn btn-sm btn-primary" @onclick="ResolveAllIncidents">Resolve All</button>
+                        <button class="btn btn-sm btn-primary" @onclick="ResolveAllIncidents" disabled="@_bulkBusy">
+                            @if (_bulkBusy) { <span class="spinner spinner-sm"></span> }
+                            <text>Resolve All</text>
+                        </button>
                         }
                     </div>
                 </div>
                 @foreach (var incident in _incidents.Where(i => i.Status != AlertStatus.Resolved))
                 {
-                    <div class="card" style="margin-bottom: 1rem;">
+                    <div class="card" style="margin-bottom: 1rem;" @key="incident.Id">
                         <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
                             <div style="display: flex; align-items: center; gap: 0.75rem;">
                                 <span class="severity-badge @GetSeverityBadgeClass(incident.Severity)">
@@ -1711,6 +1753,9 @@
                         <div @onclick='() => SelectEventType("monitoring.target_offline")'><code>monitoring.target_offline</code> <span>Probe target went offline</span></div>
                         <div @onclick='() => SelectEventType("monitoring.target_recovered")'><code>monitoring.target_recovered</code> <span>Probe target came back online</span></div>
                         <div @onclick='() => SelectEventType("monitoring.target_sustained_loss")'><code>monitoring.target_sustained_loss</code> <span>Sustained packet loss detected</span></div>
+                        <div @onclick='() => SelectEventType("monitoring.wan_outage")'><code>monitoring.wan_outage</code> <span>Internet down on a WAN - one alert per outage instead of one per target</span></div>
+                        <div @onclick='() => SelectEventType("monitoring.wan_outage_partial")'><code>monitoring.wan_outage_partial</code> <span>Partial internet outage on a WAN - some destinations unreachable while the connection still passes traffic</span></div>
+                        <div @onclick='() => SelectEventType("monitoring.wan_recovered")'><code>monitoring.wan_recovered</code> <span>A WAN's internet connection is back</span></div>
                         <div @onclick='() => SelectEventType("monitoring.sfp_rx_power")'><code>monitoring.sfp_rx_power</code> <span>SFP/PON RX power below threshold</span></div>
                         <div @onclick='() => SelectEventType("monitoring.sfp_tx_power")'><code>monitoring.sfp_tx_power</code> <span>SFP/PON TX power above threshold</span></div>
                         <div @onclick='() => SelectEventType("monitoring.sfp_temperature")'><code>monitoring.sfp_temperature</code> <span>SFP temperature above threshold</span></div>
@@ -1831,6 +1876,55 @@
     private int _newWanFrequency = 1440;
     private int _newLanFrequency = 1440;
     private bool _creatingSchedule;
+
+    /// <summary>
+    /// A bulk acknowledge or resolve is running. All five bulk buttons share it: they act on the
+    /// same lists, so a second press while one is in flight would work from a set that is already
+    /// being written.
+    /// </summary>
+    private bool _bulkBusy;
+
+    /// <summary>
+    /// Alerts and incidents the poll has found but has NOT put on screen. The list only changes
+    /// when the user says so: entries arrive newest-first, so folding them in unprompted pushes
+    /// everything down - past the row someone was reading, or under the button they were about to
+    /// press. Held here instead, counted in a pill they can take when they are ready.
+    /// </summary>
+    private List<AlertHistoryEntry>? _pendingAlerts;
+    private List<AlertIncident>? _pendingIncidents;
+
+    /// <summary>
+    /// How many held entries are new to the list on screen, which is what the pill offers. Counted
+    /// against a set rather than by scanning the visible list per held entry: this is read on every
+    /// render, and the pairwise form is quadratic in the size of a list that reaches the hundreds.
+    /// </summary>
+    private int PendingAlertCount
+    {
+        get
+        {
+            if (_pendingAlerts is null) return 0;
+            var shown = _unresolvedAlerts.Select(a => a.Id).ToHashSet();
+            return _pendingAlerts.Count(p => !shown.Contains(p.Id));
+        }
+    }
+
+    private int PendingIncidentCount
+    {
+        get
+        {
+            if (_pendingIncidents is null) return 0;
+            var shown = _incidents.Select(i => i.Id).ToHashSet();
+            return _pendingIncidents.Count(p => !shown.Contains(p.Id));
+        }
+    }
+
+    /// <summary>
+    /// Whether a refresh may redraw the list without interrupting anything: no bulk action in
+    /// flight, and no modal or inline edit open on top of it.
+    /// </summary>
+    private bool SafeToRedraw =>
+        !_bulkBusy && !_showEventTypeKey
+        && !_editingWanScheduleId.HasValue && !_editingLanScheduleId.HasValue;
     private int? _editingWanScheduleId;
     private int? _editingLanScheduleId;
     private string? _scheduleMessage;
@@ -2135,8 +2229,13 @@
             {
                 await InvokeAsync(async () =>
                 {
+                    // The alert and incident lists are read into a holding buffer and only take
+                    // the screen when the user asks (see PendingAlertCount). Everything else here
+                    // is a whole-panel redraw with nothing to lose its place.
                     if (_activeTab == "active")
-                        await LoadActiveAlerts();
+                        await PollUnresolvedAlertsAsync();
+                    else if (_activeTab == "incidents")
+                        await PollIncidentsAsync();
                     else if (_activeTab == "schedule")
                         await LoadSchedules();
                     else if (_activeTab == "data-usage")
@@ -2372,6 +2471,8 @@
         try
         {
             _unresolvedAlerts = await AlertRepository.GetUnresolvedAlertsAsync();
+            // This read IS the list now, so nothing the poll was holding is still pending.
+            _pendingAlerts = null;
         }
         catch (Exception ex)
         {
@@ -2389,13 +2490,54 @@
                 severity = s;
 
             var source = string.IsNullOrEmpty(_historySourceFilter) ? null : _historySourceFilter;
-            _historyAlerts = await AlertRepository.GetAlertHistoryAsync(200, source, severity);
+            // A filter change re-reads from the first page: page 4 of the old filter is a
+            // different set of alerts, and usually past the end of the new one.
+            if (_historyPage < 0) _historyPage = 0;
+            var (items, total) = await AlertRepository.GetAlertHistoryPageAsync(
+                _historyPage * HistoryPageSize, HistoryPageSize, source, severity);
+            // A page that has fallen off the end (the filter narrowed, or alerts aged out) steps
+            // back to the last one that exists rather than showing nothing.
+            if (items.Count == 0 && total > 0 && _historyPage > 0)
+            {
+                _historyPage = Math.Max(0, (total - 1) / HistoryPageSize);
+                (items, total) = await AlertRepository.GetAlertHistoryPageAsync(
+                    _historyPage * HistoryPageSize, HistoryPageSize, source, severity);
+            }
+            _historyAlerts = items;
+            _historyTotal = total;
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error loading alert history");
             _historyAlerts = [];
+            _historyTotal = 0;
         }
+    }
+
+    private const int HistoryPageSize = 50;
+
+    /// <summary>Zero-based page the History tab is showing.</summary>
+    private int _historyPage;
+
+    /// <summary>How many alerts the current filters match, across every page.</summary>
+    private int _historyTotal;
+
+    private int HistoryPageCount => _historyTotal == 0 ? 1 : (_historyTotal + HistoryPageSize - 1) / HistoryPageSize;
+
+    private async Task GoToHistoryPage(int page)
+    {
+        var last = HistoryPageCount - 1;
+        var target = Math.Clamp(page, 0, last);
+        if (target == _historyPage) return;
+        _historyPage = target;
+        await LoadHistory();
+    }
+
+    /// <summary>Filter changes start again from the first page.</summary>
+    private async Task ReloadHistoryFromFirstPage()
+    {
+        _historyPage = 0;
+        await LoadHistory();
     }
 
     private async Task LoadRules()
@@ -2411,11 +2553,69 @@
         }
     }
 
+    /// <summary>
+    /// Reads the unresolved alerts on the poll without disturbing the list on screen. A first
+    /// load, or one where nothing new turned up, is applied straight away - there is nothing to
+    /// push down. Anything genuinely new waits behind the pill.
+    /// </summary>
+    private async Task PollUnresolvedAlertsAsync()
+    {
+        if (!SafeToRedraw) return;
+        try
+        {
+            var latest = await AlertRepository.GetUnresolvedAlertsAsync();
+            var shown = _unresolvedAlerts.Select(a => a.Id).ToHashSet();
+            var isNew = latest.Any(p => !shown.Contains(p.Id));
+            _pendingAlerts = latest;
+            // Held back only when there is a list to disturb. Nothing new pushes nothing down, and
+            // an EMPTY list has nothing to push either - withholding there just left the tab
+            // reading All Clear with the alerts parked out of sight.
+            if (!isNew || _unresolvedAlerts.Count == 0) ApplyPendingAlerts();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Polling unresolved alerts failed; the list on screen stands");
+        }
+    }
+
+    private async Task PollIncidentsAsync()
+    {
+        if (!SafeToRedraw) return;
+        try
+        {
+            var latest = await AlertRepository.GetUnresolvedIncidentsAsync();
+            var shown = _incidents.Select(i => i.Id).ToHashSet();
+            var isNew = latest.Any(p => !shown.Contains(p.Id));
+            _pendingIncidents = latest;
+            if (!isNew || _incidents.Count == 0) ApplyPendingIncidents();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Polling incidents failed; the list on screen stands");
+        }
+    }
+
+    /// <summary>Puts the held read on screen - what the pill does.</summary>
+    private void ApplyPendingAlerts()
+    {
+        if (_pendingAlerts is null) return;
+        _unresolvedAlerts = _pendingAlerts;
+        _pendingAlerts = null;
+    }
+
+    private void ApplyPendingIncidents()
+    {
+        if (_pendingIncidents is null) return;
+        _incidents = _pendingIncidents;
+        _pendingIncidents = null;
+    }
+
     private async Task LoadIncidents()
     {
         try
         {
-            _incidents = await AlertRepository.GetIncidentsAsync();
+            _incidents = await AlertRepository.GetUnresolvedIncidentsAsync();
+            _pendingIncidents = null;
         }
         catch (Exception ex)
         {
@@ -2460,27 +2660,35 @@
 
     private async Task AcknowledgeAllActive()
     {
+        if (_bulkBusy) return;
+        _bulkBusy = true;
         try
         {
             var active = _unresolvedAlerts.Where(a => a.Status == AlertStatus.Active).ToList();
             var now = DateTime.UtcNow;
+            await AlertConfig.SetAlertStatusAsync(active.Select(a => a.Id).ToList(), AlertStatus.Acknowledged, now);
             foreach (var alert in active)
             {
                 alert.Status = AlertStatus.Acknowledged;
                 alert.AcknowledgedAt = now;
-                await AlertConfig.UpdateAlertAsync(alert);
-                await RecalculateIncidentStatusAsync(alert);
             }
+            await RecalculateIncidentsOnceAsync(active);
             await LoadActiveAlerts();
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error acknowledging all active alerts");
         }
+        finally
+        {
+            _bulkBusy = false;
+        }
     }
 
     private async Task ResolveAllActive()
     {
+        if (_bulkBusy) return;
+        _bulkBusy = true;
         try
         {
             // Everything unresolved, not just what is still Active. Acknowledge All moves the whole
@@ -2490,41 +2698,69 @@
             // read this way.
             var active = _unresolvedAlerts.Where(a => a.Status != AlertStatus.Resolved).ToList();
             var now = DateTime.UtcNow;
+            await AlertConfig.SetAlertStatusAsync(active.Select(a => a.Id).ToList(), AlertStatus.Resolved, now);
             foreach (var alert in active)
             {
                 alert.Status = AlertStatus.Resolved;
                 alert.ResolvedAt = now;
-                await AlertConfig.UpdateAlertAsync(alert);
-                await RecalculateIncidentStatusAsync(alert);
             }
+            await RecalculateIncidentsOnceAsync(active);
             await LoadActiveAlerts();
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error resolving all active alerts");
         }
+        finally
+        {
+            _bulkBusy = false;
+        }
     }
 
     private async Task ResolveAllAcknowledged()
     {
+        if (_bulkBusy) return;
+        _bulkBusy = true;
         try
         {
-            // Same reasoning: whichever section's Resolve All you press, it clears the unresolved list.
-            var acknowledged = _unresolvedAlerts.Where(a => a.Status != AlertStatus.Resolved).ToList();
+            // This section's button, and this section's alerts. Resolve All in the Active section
+            // above still takes the whole unresolved list, so acknowledging everything and then
+            // resolving in one go is still one press - which is what the wider scope here was for
+            // before the button said which alerts it meant.
+            var acknowledged = _unresolvedAlerts.Where(a => a.Status == AlertStatus.Acknowledged).ToList();
             var now = DateTime.UtcNow;
+            await AlertConfig.SetAlertStatusAsync(acknowledged.Select(a => a.Id).ToList(), AlertStatus.Resolved, now);
             foreach (var alert in acknowledged)
             {
                 alert.Status = AlertStatus.Resolved;
                 alert.ResolvedAt = now;
-                await AlertConfig.UpdateAlertAsync(alert);
-                await RecalculateIncidentStatusAsync(alert);
             }
+            await RecalculateIncidentsOnceAsync(acknowledged);
             await LoadActiveAlerts();
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error resolving all acknowledged alerts");
         }
+        finally
+        {
+            _bulkBusy = false;
+        }
+    }
+
+    /// <summary>
+    /// Re-derives each affected incident's status ONCE, after the alerts have been written.
+    /// Recalculating per alert re-read the incident and every alert on it for each of its members,
+    /// so a list where twenty alerts shared one incident did that work twenty times - and every
+    /// read and write is its own SQLite transaction, which is what made Resolve All crawl.
+    /// </summary>
+    private async Task RecalculateIncidentsOnceAsync(IReadOnlyList<AlertHistoryEntry> resolved)
+    {
+        var incidentIds = resolved.Where(a => a.IncidentId.HasValue)
+            .Select(a => a.IncidentId!.Value)
+            .Distinct()
+            .ToList();
+        await AlertCorrelationService.RecalculateIncidentStatusesAsync(incidentIds, AlertRepository);
     }
 
     private async Task RecalculateIncidentStatusAsync(AlertHistoryEntry alert)
@@ -2593,22 +2829,24 @@
 
     private async Task AcknowledgeAllIncidents()
     {
+        if (_bulkBusy) return;
+        _bulkBusy = true;
         try
         {
             var now = DateTime.UtcNow;
-            foreach (var incident in _incidents.Where(i => i.Status == AlertStatus.Active).ToList())
-            {
-                var alerts = await AlertRepository.GetAlertsByIncidentIdAsync(incident.Id);
-                foreach (var alert in alerts.Where(a => a.Status == AlertStatus.Active))
-                {
-                    alert.Status = AlertStatus.Acknowledged;
-                    alert.AcknowledgedAt = now;
-                    await AlertConfig.UpdateAlertAsync(alert);
-                }
-
+            // Every incident's alerts are gathered first and written in one go: a save per alert
+            // is a database commit per alert, which is what made these buttons crawl on a site
+            // with a few hundred of them.
+            var incidents = _incidents.Where(i => i.Status == AlertStatus.Active).ToList();
+            var incidentIds = incidents.Select(i => i.Id).ToList();
+            var alertIds = (await AlertRepository.GetAlertsByIncidentIdsAsync(incidentIds))
+                .Where(a => a.Status == AlertStatus.Active)
+                .Select(a => a.Id)
+                .ToList();
+            await AlertConfig.SetAlertStatusAsync(alertIds, AlertStatus.Acknowledged, now);
+            foreach (var incident in incidents)
                 incident.Status = AlertStatus.Acknowledged;
-                await AlertConfig.UpdateIncidentAsync(incident);
-            }
+            await AlertConfig.UpdateIncidentsAsync(incidents);
             await LoadIncidents();
             await LoadActiveAlerts();
         }
@@ -2616,33 +2854,43 @@
         {
             Logger.LogError(ex, "Error acknowledging all incidents");
         }
+        finally
+        {
+            _bulkBusy = false;
+        }
     }
 
     private async Task ResolveAllIncidents()
     {
+        if (_bulkBusy) return;
+        _bulkBusy = true;
         try
         {
             var now = DateTime.UtcNow;
-            foreach (var incident in _incidents.Where(i => i.Status != AlertStatus.Resolved).ToList())
+            // Same as Acknowledge All Incidents: gather every incident's alerts, write them once.
+            var incidents = _incidents.Where(i => i.Status != AlertStatus.Resolved).ToList();
+            var incidentIds = incidents.Select(i => i.Id).ToList();
+            var alertIds = (await AlertRepository.GetAlertsByIncidentIdsAsync(incidentIds))
+                .Where(a => a.Status != AlertStatus.Resolved)
+                .Select(a => a.Id)
+                .ToList();
+            await AlertConfig.SetAlertStatusAsync(alertIds, AlertStatus.Resolved, now);
+            foreach (var incident in incidents)
             {
-                var alerts = await AlertRepository.GetAlertsByIncidentIdAsync(incident.Id);
-                foreach (var alert in alerts.Where(a => a.Status != AlertStatus.Resolved))
-                {
-                    alert.Status = AlertStatus.Resolved;
-                    alert.ResolvedAt = now;
-                    await AlertConfig.UpdateAlertAsync(alert);
-                }
-
                 incident.Status = AlertStatus.Resolved;
                 incident.ResolvedAt = now;
-                await AlertConfig.UpdateIncidentAsync(incident);
             }
+            await AlertConfig.UpdateIncidentsAsync(incidents);
             await LoadIncidents();
             await LoadActiveAlerts();
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error resolving all incidents");
+        }
+        finally
+        {
+            _bulkBusy = false;
         }
     }
 
