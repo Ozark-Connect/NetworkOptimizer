@@ -223,6 +223,11 @@ public class MonitoringAlertEvaluator
         };
         var at = new DateTimeOffset(DateTime.SpecifyKind(firedAt, DateTimeKind.Utc)).ToUnixTimeMilliseconds();
         var url = $"/monitoring?tab=performance&category={category}&at={at}";
+        // A LAN target is not reached over any one WAN, so it asks for all of them rather than
+        // arriving narrowed to whichever WAN the analysis filter happened to be left on - the same
+        // choice the page's own LAN jump makes. A stamped target names its WAN.
+        if (target.TargetType == MonitoringTargetType.Fabric)
+            return $"{url}&wan={LiveWanScope.AllWansToken}";
         return string.IsNullOrEmpty(target.WanInterface)
             ? url
             : $"{url}&wan={Uri.EscapeDataString(target.WanInterface)}";
