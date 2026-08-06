@@ -15,6 +15,7 @@
 @inject AgentProbeResultSink ProbeSink
 @inject SiteAgentCoverage AgentCoverage
 @inject Microsoft.JSInterop.IJSRuntime JS
+@inject UniFiConnectionService Connection
 
 <div class="card">
     <div class="card-header card-header-collapsible" @onclick="ToggleCollapse">
@@ -1016,8 +1017,9 @@
             // yes, so nothing is adopted on a guess.
             var loadBalances = await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions
                 .AnyAsync(db.WanProfiles, p => p.SiteLoadBalances == true);
+            var routePins = loadBalances && await RoutePinsThisServerToAsync(vantage.WanInterface!);
             if (!NetworkOptimizer.Web.Services.Monitoring.PrimaryWanVantageAdoption
-                    .ShouldAdopt(loadBalances, routePinsProbesToPrimary: false))
+                    .ShouldAdopt(loadBalances, routePins))
                 return;
 
             // The card's per-vantage target count reflects the move as soon as the form closes,
@@ -1029,6 +1031,40 @@
         {
             // Adoption is a convenience on top of a vantage that has already been saved; failing
             // it must not fail the save the user asked for.
+        }
+    }
+
+    /// <summary>
+    /// Whether a policy route sends everything this server emits out the given WAN. That is the
+    /// only thing that makes an unpinned probe attributable on a load-balancing site, where it
+    /// otherwise took whichever WAN the balancer picked. Best effort: any gap and the answer is no.
+    /// </summary>
+    private async Task<bool> RoutePinsThisServerToAsync(string wanInterface)
+    {
+        try
+        {
+            var api = Connection.Client;
+            if (api == null) return false;
+
+            var routes = await api.GetTrafficRoutesAsync();
+            if (routes.Count == 0) return false;
+
+            var probeIp = NetworkOptimizer.Core.Helpers.NetworkUtilities
+                .GetAllLocalIpAddresses().FirstOrDefault();
+            var clients = await api.GetClientsAsync();
+            var mac = NetworkOptimizer.Web.Services.Monitoring.PinnedProbeContextBuilder
+                .MacForAddress(clients, probeIp);
+            var plan = NetworkOptimizer.Web.Services.Monitoring.PinnedProbeContextBuilder
+                .Build(routes, await Connection.GetNetworksAsync(), probeIp, mac);
+
+            return plan != null && string.Equals(
+                NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(plan.WanInterface),
+                NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(wanInterface),
+                StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false;
         }
     }
 

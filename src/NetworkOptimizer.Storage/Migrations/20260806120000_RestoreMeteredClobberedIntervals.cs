@@ -27,6 +27,11 @@ namespace NetworkOptimizer.Storage.Migrations
             // AccessTechnology: 6=FixedWireless, 7=Satellite, 8=Cellular - the technologies
             // MeteredProbePolicy assumes are metered. A DataCapGb above zero is the operator
             // saying so outright.
+            //
+            // The metered WAN must hold a VANTAGE. Only a vantage-bound run could reach targets
+            // that were not its own, so a site without one - every single-WAN install - never had
+            // the bug. Slowing its own unpinned targets is the budget working, and undoing that
+            // would be the repair causing the damage.
             migrationBuilder.Sql(@"
 UPDATE MonitoringTargets
 SET PollIntervalSeconds = CASE
@@ -52,9 +57,13 @@ WHERE WanInterface IS NULL
   AND TargetType <> 0
   AND PollIntervalSeconds IN (30, 60)
   AND EXISTS (
-        SELECT 1 FROM WanDataUsageConfigs WHERE DataCapGb > 0
-        UNION ALL
-        SELECT 1 FROM WanDiscoveryContexts WHERE AccessTechnology IN (6, 7, 8)
+        SELECT 1 FROM WanContexts c
+        WHERE c.WanInterface IS NOT NULL AND c.WanInterface <> ''
+          AND (EXISTS (SELECT 1 FROM WanDataUsageConfigs d
+                       WHERE lower(d.WanKey) = lower(c.WanInterface) AND d.DataCapGb > 0)
+            OR EXISTS (SELECT 1 FROM WanDiscoveryContexts w
+                       WHERE lower(w.WanInterface) = lower(c.WanInterface)
+                         AND w.AccessTechnology IN (6, 7, 8)))
   );");
 
             // Then name what the absent WAN meant: not pinned to one. Runs AFTER the restore,
