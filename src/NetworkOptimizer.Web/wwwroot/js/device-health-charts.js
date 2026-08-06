@@ -56,6 +56,7 @@ let isInViewport = true;
 let lastData = null;
 let lastEvents = [];
 let chartEls = {};
+let markResizeTimer = null;
 
 function baseOpts(height, yTitle, yFormatter, extra) {
     return {
@@ -193,26 +194,96 @@ function chartEntries() {
     ];
 }
 
-function annotationTooltip(mark) {
-    const device = deviceMeta.find(d => d.mac === mark.mac);
-    const when = new Date(mark.time).toLocaleString(undefined,
+const SEVERITY_RANK = { info: 0, warning: 1, critical: 2 };
+
+// Two marks closer together than this overlap into an unreadable smear - the label box is
+// about 20px wide once padded. Folding at that distance is what keeps a flapping device from
+// laying a solid row of glyphs across the 30d view, and it bounds the mark count at
+// plotWidth/24 however many events land in the window. Nothing is dropped: a folded event is
+// still listed in its cluster's tooltip.
+const MARK_COLLISION_PX = 24;
+
+// Milliseconds per pixel of plot, taken from the chart's own geometry rather than from the
+// requested range: gridWidth excludes the y-axis gutter, and minX/maxX are the extents
+// ApexCharts actually drew, including its own padding. Every chart on the tab is the same
+// width, so this is measured once and reused, which also guarantees the folds line up
+// vertically across Temperature, CPU, Memory and the custom charts instead of each chart
+// clustering to its own slightly different answer.
+function markMsPerPx() {
+    const g = tempChart?.w?.globals;
+    if (!g || !(g.gridWidth > 0) || !(g.maxX > g.minX)) return null;
+    return (g.maxX - g.minX) / g.gridWidth;
+}
+
+// Colour and glyph both come from the worst thing in the cluster so they can never disagree:
+// a fold containing one kernel panic reads as a panic, not as the routine restart next to it.
+function dominantMark(marks) {
+    return marks.reduce((worst, m) =>
+        (SEVERITY_RANK[m.severity] ?? 0) > (SEVERITY_RANK[worst.severity] ?? 0) ? m : worst);
+}
+
+// Events arrive time-ordered from the endpoint, so one pass does it. The gap is measured from
+// the cluster's FIRST member, not its last, so the mark stays anchored where the run started
+// rather than drifting rightward as the cluster absorbs more.
+function clusterMarks(marks) {
+    const msPerPx = markMsPerPx();
+    // No geometry yet (first paint, or a range with no series to scale) means no clustering,
+    // which is the pre-fold behaviour rather than a guess.
+    if (msPerPx == null) return marks.map(m => ({ at: new Date(m.time).getTime(), marks: [m] }));
+
+    const gapMs = MARK_COLLISION_PX * msPerPx;
+    const clusters = [];
+    for (const mark of marks) {
+        const at = new Date(mark.time).getTime();
+        const open = clusters[clusters.length - 1];
+        if (open && at - open.at <= gapMs) open.marks.push(mark);
+        else clusters.push({ at, marks: [mark] });
+    }
+    return clusters;
+}
+
+function markTime(time) {
+    return new Date(time).toLocaleString(undefined,
         { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-    const lines = [`<strong>${escapeHtml(mark.title)}</strong>`];
-    if (device) lines.push(escapeHtml(device.name));
-    lines.push(escapeHtml(when));
-    if (mark.detail) lines.push(escapeHtml(mark.detail));
-    return lines.join('<br>');
+}
+
+function deviceNameFor(mac) {
+    return deviceMeta.find(d => d.mac === mac)?.name;
+}
+
+function annotationTooltip(cluster) {
+    if (cluster.marks.length === 1) {
+        const mark = cluster.marks[0];
+        const device = deviceNameFor(mark.mac);
+        const lines = [`<strong>${escapeHtml(mark.title)}</strong>`];
+        if (device) lines.push(escapeHtml(device));
+        lines.push(escapeHtml(markTime(mark.time)));
+        if (mark.detail) lines.push(escapeHtml(mark.detail));
+        return lines.join('<br>');
+    }
+
+    // Every member is listed. The list scrolls rather than truncating, because a folded event
+    // that is neither on the chart nor in the tooltip is simply lost.
+    const rows = cluster.marks.map(mark => {
+        const device = deviceNameFor(mark.mac);
+        return `<div><span class="chart-annotation-time">${escapeHtml(markTime(mark.time))}</span> `
+            + `${escapeHtml(mark.title)}${device ? ` - ${escapeHtml(device)}` : ''}</div>`;
+    }).join('');
+
+    return `<strong>${cluster.marks.length} events</strong>`
+        + `<div class="chart-annotation-list">${rows}</div>`;
 }
 
 // Labels come back in the order the annotations went in, which is how each mark finds its
 // own text. The attribute is all that is needed: App.razor rescans for [data-tooltip] and
 // initializes Tippy on anything new, which is how the other dynamically drawn badges work.
-function tagAnnotationTooltips(el, marks) {
+function tagAnnotationTooltips(el, clusters) {
     if (!el) return;
     el.querySelectorAll('.apexcharts-xaxis-annotation-label').forEach((label, i) => {
-        const mark = marks[i];
-        if (!mark) return;
-        label.setAttribute('data-tooltip', annotationTooltip(mark));
+        const cluster = clusters[i];
+        if (!cluster) return;
+        label.setAttribute('data-tooltip', annotationTooltip(cluster));
+        label.setAttribute('data-tooltip-interactive', '');
         label.style.cursor = 'help';
     });
 }
@@ -220,16 +291,19 @@ function tagAnnotationTooltips(el, marks) {
 function applyAnnotations() {
     // Filtering here rather than server-side keeps the badge toggles instant: hiding a device
     // drops its marks without a refetch, the same way it drops its line.
-    const marks = lastEvents.filter(e => visibility[e.mac] !== false);
+    const visible = lastEvents.filter(e => visibility[e.mac] !== false);
+    const clusters = clusterMarks(visible);
     const surface = chartSurfaceColor();
-    const xaxis = marks.map(mark => {
-        const color = eventColor(mark.severity);
+    const xaxis = clusters.map(cluster => {
+        const lead = dominantMark(cluster.marks);
+        const color = eventColor(lead.severity);
+        const glyph = EVENT_GLYPH[lead.kind] || EVENT_GLYPH.alert;
         return {
-            x: new Date(mark.time).getTime(),
+            x: cluster.at,
             borderColor: color,
             strokeDashArray: 4,
             label: {
-                text: EVENT_GLYPH[mark.kind] || EVENT_GLYPH.alert,
+                text: cluster.marks.length > 1 ? `${glyph}${cluster.marks.length}` : glyph,
                 borderColor: color,
                 style: {
                     color,
@@ -246,9 +320,16 @@ function applyAnnotations() {
         // Wrapped rather than chained directly: the labels only exist once the update has
         // rendered, and updateOptions is not promise-returning in every ApexCharts build.
         Promise.resolve(chart.updateOptions({ annotations: { xaxis } }, false, false))
-            .then(() => tagAnnotationTooltips(el, marks))
+            .then(() => tagAnnotationTooltips(el, clusters))
             .catch(e => console.warn('Device health annotations failed to draw', e));
     }
+}
+
+// A narrower plot fits fewer marks before they collide, so the folds have to be recomputed.
+// Debounced because ApexCharts is redrawing on the same events, and left to settle after it.
+function onMarkResize() {
+    clearTimeout(markResizeTimer);
+    markResizeTimer = setTimeout(applyAnnotations, 200);
 }
 
 const fmtCustom = v => v != null ? (Number.isInteger(v) ? v.toLocaleString() : v.toFixed(2)) : '-';
@@ -585,6 +666,8 @@ export async function mount(elId) {
         popover.classList.remove('open');
     });
 
+    window.addEventListener('resize', onMarkResize);
+
     visibilityObserver = new IntersectionObserver(([entry]) => {
         const was = isVisible();
         isInViewport = entry.isIntersecting;
@@ -609,6 +692,9 @@ export function soloDevice(mac) {
 
 export function unmount() {
     stopPoll();
+    window.removeEventListener('resize', onMarkResize);
+    clearTimeout(markResizeTimer);
+    markResizeTimer = null;
     if (visibilityObserver) { visibilityObserver.disconnect(); visibilityObserver = null; }
     if (fetchController) { fetchController.abort(); fetchController = null; }
     if (tempChart) { tempChart.destroy(); tempChart = null; }

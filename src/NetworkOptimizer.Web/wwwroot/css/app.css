@@ -7335,6 +7335,17 @@ a.path-hop.hop-clickable:hover {
     max-width: 360px;
 }
 
+/* Folded chart event marks list every event it covers, so it scrolls rather than truncates */
+.chart-annotation-list {
+    max-height: 12rem;
+    overflow-y: auto;
+    margin-top: 0.25rem;
+}
+
+.chart-annotation-time {
+    color: var(--text-muted);
+}
+
 /* ============================================
    Login Page Styles
    ============================================ */
