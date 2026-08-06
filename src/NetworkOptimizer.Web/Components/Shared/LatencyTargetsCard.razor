@@ -467,16 +467,9 @@
     }
 
     /// <summary>
-    /// Pins the card where it is on screen across a filter change. The pills pick the chart series
-    /// above this card too, and the statistics table listing them grows or shrinks by rows - which
-    /// slides the card, and the pill the user is about to press next, out from under the cursor.
-    /// <para>
-    /// Only while the card is already open, which is the same test collapse-reveal.js makes before
-    /// it follows an expansion - and it sees these clicks despite the stopPropagation on the pills,
-    /// because it listens in the capture phase. A filter click on a CLOSED card opens it, and that
-    /// scroll belongs to the reveal: it moves the view DOWN to show what just appeared, where this
-    /// would pin the header where it already was and pull against it the whole way.
-    /// </para>
+    /// Holds the card still across a filter change: the pills also pick the chart series above it,
+    /// and the statistics table there grows or shrinks by rows, sliding the pill out from under the
+    /// cursor. Not while collapsed - the click opens the card, and collapse-reveal.js scrolls that.
     /// </summary>
     private async Task HoldPositionAsync()
     {
