@@ -1017,9 +1017,13 @@
             // yes, so nothing is adopted on a guess.
             var loadBalances = await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions
                 .AnyAsync(db.WanProfiles, p => p.SiteLoadBalances == true);
-            var routePins = loadBalances && await RoutePinsThisServerToAsync(vantage.WanInterface!);
+            // The route names a MAC, so it says WHICH box is steered. It only justifies this
+            // vantage's targets when that box is the one this vantage probes from - a route
+            // pinning the server says nothing about an agent's probes, or the reverse.
+            var routePin = loadBalances ? await RoutePinnedProbeAsync(vantage.WanInterface!) : null;
+            var routePinsThisVantage = routePin != null && routePin.AgentId == vantage.AgentId;
             if (!NetworkOptimizer.Web.Services.Monitoring.PrimaryWanVantageAdoption
-                    .ShouldAdopt(loadBalances, routePins))
+                    .ShouldAdopt(loadBalances, routePinsThisVantage))
                 return;
 
             // The card's per-vantage target count reflects the move as soon as the form closes,
@@ -1035,37 +1039,56 @@
     }
 
     /// <summary>
-    /// Whether a policy route sends everything this server emits out the given WAN. That is the
-    /// only thing that makes an unpinned probe attributable on a load-balancing site, where it
-    /// otherwise took whichever WAN the balancer picked. Best effort: any gap and the answer is no.
+    /// Whether a policy route sends everything one of this site's probing boxes emits out the
+    /// given WAN. That is the only thing that makes an unpinned probe attributable on a
+    /// load-balancing site, where it otherwise took whichever WAN the balancer picked. Best
+    /// effort: any gap and the answer is no.
     /// </summary>
-    private async Task<bool> RoutePinsThisServerToAsync(string wanInterface)
+    private async Task<NetworkOptimizer.Web.Services.Monitoring.PinnedProbeContextBuilder.Plan?>
+        RoutePinnedProbeAsync(string wanInterface)
     {
         try
         {
             var api = Connection.Client;
-            if (api == null) return false;
+            if (api == null) return null;
 
             var routes = await api.GetTrafficRoutesAsync();
-            if (routes.Count == 0) return false;
+            if (routes.Count == 0) return null;
 
-            var probeIp = NetworkOptimizer.Core.Helpers.NetworkUtilities
-                .GetAllLocalIpAddresses().FirstOrDefault();
-            var clients = await api.GetClientsAsync();
-            var mac = NetworkOptimizer.Web.Services.Monitoring.PinnedProbeContextBuilder
-                .MacForAddress(clients, probeIp);
-            var plan = NetworkOptimizer.Web.Services.Monitoring.PinnedProbeContextBuilder
-                .Build(routes, await Connection.GetNetworksAsync(), probeIp, mac);
+            var plan = NetworkOptimizer.Web.Services.Monitoring.PinnedProbeContextBuilder.Build(
+                routes,
+                await Connection.GetNetworksAsync(),
+                await api.GetClientsAsync(),
+                ProbeHosts());
 
             return plan != null && string.Equals(
                 NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(plan.WanInterface),
                 NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(wanInterface),
-                StringComparison.OrdinalIgnoreCase);
+                StringComparison.OrdinalIgnoreCase)
+                ? plan
+                : null;
         }
         catch
         {
-            return false;
+            return null;
         }
+    }
+
+    /// <summary>
+    /// Every box that probes for this site: its connected agents, each on the address it announced,
+    /// and the server on its own. A route names a MAC, so enumerating the candidates is what lets
+    /// the match say WHICH box is steered rather than only that one is.
+    /// </summary>
+    private List<NetworkOptimizer.Web.Services.Monitoring.PinnedProbeContextBuilder.ProbeHost> ProbeHosts()
+    {
+        var hosts = TunnelRegistry.GetForSite(SiteCtx.Slug)
+            .Where(c => !string.IsNullOrWhiteSpace(c.LanIp))
+            .Select(c => new NetworkOptimizer.Web.Services.Monitoring.PinnedProbeContextBuilder
+                .ProbeHost(c.AgentId, c.LanIp))
+            .ToList();
+        hosts.Add(new NetworkOptimizer.Web.Services.Monitoring.PinnedProbeContextBuilder.ProbeHost(
+            null, NetworkOptimizer.Core.Helpers.NetworkUtilities.GetAllLocalIpAddresses().FirstOrDefault()));
+        return hosts;
     }
 
     private async Task DeleteContextAsync(int contextId)
