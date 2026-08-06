@@ -5,6 +5,7 @@ import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=4';
 import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=8';
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=4';
+import { createMarkLayer } from './chart-event-marks.js?v=1';
 
 // A device answers SNMP but can still miss a single field on a poll - a temperature or
 // memory OID that times out is written as no value rather than a zero, so the row arrives
@@ -53,6 +54,9 @@ let visibility = {};
 let visibilityObserver = null;
 let isInViewport = true;
 let lastData = null;
+let lastEvents = [];
+let chartEls = {};
+let markResizeTimer = null;
 
 function baseOpts(height, yTitle, yFormatter, extra) {
     return {
@@ -169,6 +173,32 @@ function updateVisibility() {
             else chart.hideSeries(d.name);
         }
     });
+    applyAnnotations();
+}
+
+// Every chart on the tab paired with the element it rendered into, which is what the mark
+// layer needs to reach the annotation labels it draws.
+function chartEntries() {
+    return [
+        [tempChart, chartEls.temp],
+        [cpuChart, chartEls.cpu],
+        [memChart, chartEls.mem],
+        ...Object.keys(customCharts).map(k => [customCharts[k], chartEls[`custom:${k}`]]),
+    ];
+}
+
+const markLayer = createMarkLayer({ charts: chartEntries });
+
+function applyAnnotations() {
+    markLayer.apply(lastEvents, visibility);
+}
+
+
+// A narrower plot fits fewer marks before they collide, so the folds have to be recomputed.
+// Debounced because ApexCharts is redrawing on the same events, and left to settle after it.
+function onMarkResize() {
+    clearTimeout(markResizeTimer);
+    markResizeTimer = setTimeout(applyAnnotations, 200);
 }
 
 const fmtCustom = v => v != null ? (Number.isInteger(v) ? v.toLocaleString() : v.toFixed(2)) : '-';
@@ -179,6 +209,8 @@ async function loadAndUpdate() {
     deviceMeta = data.devices.map(d => ({
         name: d.name, mac: d.mac, color: hashColor(d.name),
     }));
+    // Set before updateVisibility below, which is what draws the marks.
+    lastEvents = data.events || [];
     const makeSeries = (field) => data.devices.map(d => ({
         name: d.name,
         color: hashColor(d.name),
@@ -211,6 +243,7 @@ async function syncCustomCharts(container, devices, defs) {
         if (!newKeys.has(key)) {
             customCharts[key].destroy();
             delete customCharts[key];
+            delete chartEls[`custom:${key}`];
         }
     }
 
@@ -241,6 +274,7 @@ async function syncCustomCharts(container, devices, defs) {
             });
             await chart.render();
             customCharts[def.fieldName] = chart;
+            chartEls[`custom:${def.fieldName}`] = chartDiv;
         }
     }
 
@@ -434,6 +468,8 @@ export async function mount(elId) {
     if (cpuChart) { cpuChart.destroy(); cpuChart = null; }
     if (memChart) { memChart.destroy(); memChart = null; }
 
+    chartEls = { temp: tempEl, cpu: cpuEl, mem: memEl };
+
     tempChart = new ApexCharts(tempEl, { ...baseOpts(200, '°C', v => v != null ? v.toFixed(0) + ' °C' : ''), series: [], colors: PALETTE });
     cpuChart = new ApexCharts(cpuEl, {
         ...baseOpts(200, 'CPU %', v => v != null ? v.toFixed(0) + '%' : ''),
@@ -499,6 +535,8 @@ export async function mount(elId) {
         popover.classList.remove('open');
     });
 
+    window.addEventListener('resize', onMarkResize);
+
     visibilityObserver = new IntersectionObserver(([entry]) => {
         const was = isVisible();
         isInViewport = entry.isIntersecting;
@@ -523,6 +561,9 @@ export function soloDevice(mac) {
 
 export function unmount() {
     stopPoll();
+    window.removeEventListener('resize', onMarkResize);
+    clearTimeout(markResizeTimer);
+    markResizeTimer = null;
     if (visibilityObserver) { visibilityObserver.disconnect(); visibilityObserver = null; }
     if (fetchController) { fetchController.abort(); fetchController = null; }
     if (tempChart) { tempChart.destroy(); tempChart = null; }
@@ -531,10 +572,13 @@ export function unmount() {
     for (const chart of Object.values(customCharts)) chart.destroy();
     customCharts = {};
     customFieldDefs = [];
+    chartEls = {};
     containerId = null;
     deviceMeta = [];
     visibility = {};
     lastData = null;
+    lastEvents = [];
+    markLayer.reset();
     currentRangeHours = 1;
     windowOffset = 0;
     isCustomRange = false;

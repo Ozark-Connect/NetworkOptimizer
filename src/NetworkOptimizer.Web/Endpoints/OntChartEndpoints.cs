@@ -1,3 +1,6 @@
+using System.Text.Json;
+using Microsoft.EntityFrameworkCore;
+using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Services;
 using NetworkOptimizer.Web.Services;
 using NetworkOptimizer.Web.Services.Authorization;
@@ -20,6 +23,8 @@ public static class OntChartEndpoints
         group.MapGet("/api/monitoring/ont-chart", async (
             MonitoringInfluxClient influx,
             OntMonitorService ontService,
+            SiteDbContextFactory siteDbFactory,
+            SiteContextService siteContext,
             int? rangeHours,
             DateTime? from,
             DateTime? to,
@@ -83,10 +88,82 @@ public static class OntChartEndpoints
                     label = name,
                     data = items,
                 };
-            });
+            }).ToList();
 
-            return Results.Ok(new { devices = result });
+            // Only the ONTs that actually became a series can be marked. An event keyed to
+            // anything else would pass the chart's visibility filter, which treats an unknown key
+            // as visible, and draw a mark belonging to no line on the plot.
+            var chartedOnts = data.Keys
+                .Where(nameMap.ContainsKey)
+                .ToDictionary(id => id, id => nameMap[id]);
+
+            var events = await BuildOntEventsAsync(siteDbFactory, siteContext, chartedOnts, queryFrom, queryTo, ct);
+
+            return Results.Ok(new { devices = result, events });
         });
+    }
+
+    /// <summary>
+    /// Marks for the charted ONTs over the same window as the series.
+    ///
+    /// ONT alerts carry their config id in the event context, which is the same id the series is
+    /// keyed by, so the match needs nothing else. Attached ONTs drop out for free: this tab only
+    /// charts standalone configs, so an attached one matches no series and its alerts stay on SFP
+    /// Stats where its charts are.
+    /// </summary>
+    private static async Task<List<object>> BuildOntEventsAsync(
+        SiteDbContextFactory siteDbFactory,
+        SiteContextService siteContext,
+        Dictionary<string, string> chartedOnts,
+        DateTime from,
+        DateTime to,
+        CancellationToken ct)
+    {
+        if (chartedOnts.Count == 0) return new List<object>();
+
+        await using var db = siteDbFactory.CreateForSite(siteContext.Slug, siteContext.IsDefault);
+
+        var alerts = await db.AlertHistory.AsNoTracking()
+            .Where(a => a.ContextJson != null && a.TriggeredAt >= from && a.TriggeredAt <= to
+                && ChartEventMarks.OntEventTypes.Contains(a.EventType))
+            .Select(a => new { a.EventType, a.Severity, a.Title, a.Message, a.DeviceName, a.ContextJson, a.TriggeredAt })
+            .ToListAsync(ct);
+
+        var events = new List<(DateTime At, object Payload)>();
+        foreach (var alert in alerts)
+        {
+            string? ontId = null;
+            try
+            {
+                var context = JsonSerializer.Deserialize<Dictionary<string, string>>(alert.ContextJson!);
+                context?.TryGetValue("ont_id", out ontId);
+            }
+            catch (JsonException)
+            {
+                // A context we cannot read costs one mark, not the whole tab.
+                continue;
+            }
+
+            if (string.IsNullOrEmpty(ontId) || !chartedOnts.TryGetValue(ontId, out var ontName)) continue;
+
+            // Written as UtcNow but read back from SQLite as Unspecified, and "o" on an
+            // Unspecified value emits no zone - which the browser then reads as local time.
+            var triggeredAtUtc = DateTime.SpecifyKind(alert.TriggeredAt, DateTimeKind.Utc);
+
+            events.Add((triggeredAtUtc, new
+            {
+                key = ontId,
+                device = ontName,
+                time = triggeredAtUtc.ToString("o"),
+                kind = "alert",
+                severity = ChartEventMarks.Severity(alert.Severity),
+                title = ChartEventMarks.OntEventLabel(alert.Title, alert.DeviceName),
+                detail = alert.Message,
+            }));
+        }
+
+        // The mark layer folds by proximity, which assumes time order.
+        return events.OrderBy(e => e.At).Select(e => e.Payload).ToList();
     }
 
     private static long? Delta(long? cur, long? prev) =>

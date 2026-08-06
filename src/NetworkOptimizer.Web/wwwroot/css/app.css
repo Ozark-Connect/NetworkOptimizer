@@ -7335,6 +7335,75 @@ a.path-hop.hop-clickable:hover {
     max-width: 360px;
 }
 
+/* ApexCharts sets pointer-events: none on every annotation label, which leaves the event marks
+   unhoverable and their tooltips dead. Listed per container on purpose: ISP Health, latency and
+   the WAN live chart draw annotations too and must keep the library's behaviour, so a card earns
+   the unlock by being added here. The id also wins on specificity without !important. */
+#device-health-charts-container .apexcharts-xaxis-annotation-label.chart-event-mark,
+#sfp-charts-container .apexcharts-xaxis-annotation-label.chart-event-mark,
+#ont-charts-container .apexcharts-xaxis-annotation-label.chart-event-mark {
+    pointer-events: auto;
+}
+
+/* Chart event mark tooltips. Scoped to the tooltip rather than the chart card because Tippy
+   renders the popper on document.body, outside the container entirely. Rows themselves reuse
+   .device-tooltip-row / .device-tooltip-label, so a mark reads like the speed test and Wi-Fi
+   tooltips do. */
+.tippy-box[data-theme~='custom'] .chart-mark-title {
+    font-weight: 600;
+    font-size: 0.9rem;
+    margin-bottom: 0.35rem;
+    color: var(--text-primary);
+}
+
+/* Semi-bold on the mark tooltips only. The shared .device-tooltip-label stays at its own weight
+   so the speed test and Wi-Fi tooltips are untouched. */
+.tippy-box[data-theme~='custom'] .chart-mark-row .device-tooltip-label {
+    font-weight: 600;
+}
+
+/* Detail is prose rather than a value, so it wraps under its label instead of being squeezed
+   into the value column beside it. */
+.tippy-box[data-theme~='custom'] .chart-mark-detail {
+    display: block;
+    margin-top: 0.3rem;
+}
+
+/* A fold names every event it covers, so the list scrolls rather than truncating. */
+.tippy-box[data-theme~='custom'] .chart-mark-list {
+    max-height: 12rem;
+    overflow-y: auto;
+    margin-top: 0.35rem;
+    border-top: 1px solid var(--border-color);
+    padding-top: 0.35rem;
+}
+
+.tippy-box[data-theme~='custom'] .chart-mark-item {
+    display: flex;
+    gap: 0.5rem;
+    font-size: 0.8rem;
+    padding: 0.15rem 0;
+}
+
+.tippy-box[data-theme~='custom'] .chart-mark-item-time {
+    color: var(--text-muted);
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+
+.tippy-box[data-theme~='custom'] .chart-mark-item-body {
+    display: flex;
+    flex-direction: column;
+}
+
+.tippy-box[data-theme~='custom'] .chart-mark-item-title {
+    color: var(--text-primary);
+}
+
+.tippy-box[data-theme~='custom'] .chart-mark-item-where {
+    color: var(--text-secondary);
+}
+
 /* ============================================
    Login Page Styles
    ============================================ */

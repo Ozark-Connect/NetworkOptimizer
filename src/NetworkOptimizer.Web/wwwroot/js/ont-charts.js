@@ -5,6 +5,7 @@ import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=4';
 import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=8';
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=4';
+import { createMarkLayer } from './chart-event-marks.js?v=1';
 
 const PALETTE = window.Apex?.colors || ['#4269d0', '#efb118', '#ff725c', '#6cc5b0', '#3ca951', '#ff8ab7'];
 const _esc = document.createElement('span');
@@ -27,6 +28,9 @@ let customTo = null;
 let containerId = null;
 let fetchController = null;
 let deviceMeta = [];
+let lastEvents = [];
+let chartEls = {};
+let markResizeTimer = null;
 let visibility = {};
 let visibilityObserver = null;
 let isInViewport = true;
@@ -145,7 +149,34 @@ function renderBadges(container) {
     renderFilterReset(el, isFiltered(visibility), () => { visibility = {}; updateVisibility(); renderBadges(container); });
 }
 
+// Every chart on the tab paired with the element it rendered into, which is what the mark layer
+// needs to reach the annotation labels it draws. The errors chart is created lazily, so the
+// pairs are built on demand rather than captured once.
+function chartEntries() {
+    return [
+        [powerChart, chartEls.power],
+        [tempChart, chartEls.temp],
+        [errorsChart, chartEls.errors],
+    ].filter(([chart]) => chart);
+}
+
+const markLayer = createMarkLayer({ charts: chartEntries });
+
+function applyAnnotations() {
+    markLayer.apply(lastEvents, visibility);
+}
+
+// A narrower plot fits fewer marks before they collide, so the folds have to be recomputed.
+// Debounced because ApexCharts is redrawing on the same events, and left to settle after it.
+function onMarkResize() {
+    clearTimeout(markResizeTimer);
+    markResizeTimer = setTimeout(applyAnnotations, 200);
+}
+
 function updateVisibility() {
+    // Ahead of the single-ONT short-circuit below: the marks are drawn whether or not there is
+    // more than one series to show and hide.
+    applyAnnotations();
     if (deviceMeta.length <= 1) return;
     deviceMeta.forEach(m => {
         const vis = visibility[m.id] !== false;
@@ -172,6 +203,8 @@ async function loadAndUpdate() {
     deviceMeta = data.devices.map((d, i) => ({
         id: d.id, label: d.label, color: PALETTE[i % PALETTE.length],
     }));
+    // Set before updateVisibility below, which is what draws the marks.
+    lastEvents = data.events || [];
 
     const powerSeries = [];
     const tempSeries = [];
@@ -231,7 +264,11 @@ async function ensureErrorsChartMounted() {
     const errorsEl = container?.querySelector('.ont-errors-chart');
     if (!errorsEl) return;
     errorsChart = new ApexCharts(errorsEl, { ...baseOpts(160, 'errors', fmtCount), series: [], colors: PALETTE });
+    chartEls.errors = errorsEl;
     await errorsChart.render();
+    // It arrives after the first draw, so it starts with no marks on it.
+    markLayer.reset();
+    applyAnnotations();
 }
 
 async function updateErrorsChart(data) {
@@ -434,6 +471,8 @@ export async function mount(elId) {
     const tempEl = container.querySelector('.ont-temp-chart');
     if (!powerEl || !tempEl) return;
 
+    chartEls = { power: powerEl, temp: tempEl };
+
     if (powerChart) { powerChart.destroy(); powerChart = null; }
     if (tempChart) { tempChart.destroy(); tempChart = null; }
     if (errorsChart) { errorsChart.destroy(); errorsChart = null; }
@@ -500,6 +539,8 @@ export async function mount(elId) {
         popover.classList.remove('open');
     });
 
+    window.addEventListener('resize', onMarkResize);
+
     visibilityObserver = new IntersectionObserver(([entry]) => {
         const was = isVisible();
         isInViewport = entry.isIntersecting;
@@ -522,6 +563,9 @@ export function soloDevice(deviceId) {
 
 export function unmount() {
     stopPoll();
+    window.removeEventListener('resize', onMarkResize);
+    clearTimeout(markResizeTimer);
+    markResizeTimer = null;
     if (visibilityObserver) { visibilityObserver.disconnect(); visibilityObserver = null; }
     if (fetchController) { fetchController.abort(); fetchController = null; }
     if (powerChart) { powerChart.destroy(); powerChart = null; }
@@ -531,7 +575,10 @@ export function unmount() {
     deviceMeta = [];
     visibility = {};
     errorsSeriesByDevice = {};
+    chartEls = {};
     lastData = null;
+    lastEvents = [];
+    markLayer.reset();
     currentRangeHours = 24;
     windowOffset = 0;
     isCustomRange = false;
