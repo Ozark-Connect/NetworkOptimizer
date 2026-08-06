@@ -1893,14 +1893,30 @@
     private List<AlertHistoryEntry>? _pendingAlerts;
     private List<AlertIncident>? _pendingIncidents;
 
-    /// <summary>How many held entries are new to the list on screen, which is what the pill offers.</summary>
-    private int PendingAlertCount => _pendingAlerts is null
-        ? 0
-        : _pendingAlerts.Count(p => !_unresolvedAlerts.Any(a => a.Id == p.Id));
+    /// <summary>
+    /// How many held entries are new to the list on screen, which is what the pill offers. Counted
+    /// against a set rather than by scanning the visible list per held entry: this is read on every
+    /// render, and the pairwise form is quadratic in the size of a list that reaches the hundreds.
+    /// </summary>
+    private int PendingAlertCount
+    {
+        get
+        {
+            if (_pendingAlerts is null) return 0;
+            var shown = _unresolvedAlerts.Select(a => a.Id).ToHashSet();
+            return _pendingAlerts.Count(p => !shown.Contains(p.Id));
+        }
+    }
 
-    private int PendingIncidentCount => _pendingIncidents is null
-        ? 0
-        : _pendingIncidents.Count(p => !_incidents.Any(i => i.Id == p.Id));
+    private int PendingIncidentCount
+    {
+        get
+        {
+            if (_pendingIncidents is null) return 0;
+            var shown = _incidents.Select(i => i.Id).ToHashSet();
+            return _pendingIncidents.Count(p => !shown.Contains(p.Id));
+        }
+    }
 
     /// <summary>
     /// Whether a refresh may redraw the list without interrupting anything: no bulk action in
@@ -2548,7 +2564,8 @@
         try
         {
             var latest = await AlertRepository.GetUnresolvedAlertsAsync();
-            var isNew = latest.Any(p => !_unresolvedAlerts.Any(a => a.Id == p.Id));
+            var shown = _unresolvedAlerts.Select(a => a.Id).ToHashSet();
+            var isNew = latest.Any(p => !shown.Contains(p.Id));
             _pendingAlerts = latest;
             // Held back only when there is a list to disturb. Nothing new pushes nothing down, and
             // an EMPTY list has nothing to push either - withholding there just left the tab
@@ -2567,7 +2584,8 @@
         try
         {
             var latest = await AlertRepository.GetUnresolvedIncidentsAsync();
-            var isNew = latest.Any(p => !_incidents.Any(i => i.Id == p.Id));
+            var shown = _incidents.Select(i => i.Id).ToHashSet();
+            var isNew = latest.Any(p => !shown.Contains(p.Id));
             _pendingIncidents = latest;
             if (!isNew || _incidents.Count == 0) ApplyPendingIncidents();
         }
