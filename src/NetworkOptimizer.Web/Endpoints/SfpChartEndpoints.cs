@@ -121,7 +121,7 @@ public static class SfpChartEndpoints
     };
 
     /// <summary>
-    /// ONT alerts for a module attached to an SFP. These mark the PON charts only: they describe
+    /// ONT alerts for a module attached to an SFP. Most mark the PON charts only: they describe
     /// the PON layer, not the optics the power and temperature charts plot.
     /// </summary>
     private static readonly HashSet<string> OntEventTypes = new(StringComparer.OrdinalIgnoreCase)
@@ -133,6 +133,19 @@ public static class SfpChartEndpoints
         "ont.fec_errors",
         "ont.hec_errors",
     };
+
+    /// <summary>
+    /// The exception to that: a PON link going down is the one ONT condition worth seeing while
+    /// reading the optics, since it is what the RX and TX traces are usually being checked
+    /// against.
+    /// </summary>
+    private const string PonLinkDownEventType = "ont.pon_link_down";
+
+    /// <summary>Marks every chart on the tab.</summary>
+    private const string ScopeAll = "all";
+
+    /// <summary>Marks the PON charts alone.</summary>
+    private const string ScopePon = "pon";
 
     /// <summary>Module identity used by both the series and the marks: device MAC plus port.</summary>
     private static string ModuleKey(string deviceMac, string portName) =>
@@ -181,7 +194,16 @@ public static class SfpChartEndpoints
         if (!string.IsNullOrEmpty(ontName) && label.StartsWith(ontName + " ", StringComparison.OrdinalIgnoreCase))
             label = label[(ontName.Length + 1)..];
 
-        return label.Length > 0 ? char.ToUpperInvariant(label[0]) + label[1..] : title;
+        if (label.Length == 0) return title;
+        label = char.ToUpperInvariant(label[0]) + label[1..];
+
+        // The ONT copy words this one the other way round from every other mark. Normalized here
+        // rather than at the source so the alert itself keeps the wording it has always had, and
+        // only the mark is brought into line. Everything else the ONT titles produce - "RX power
+        // low", "PON link down", the error spikes - already matches.
+        return label.Equals("Temperature high", StringComparison.OrdinalIgnoreCase)
+            ? "High temperature"
+            : label;
     }
 
     /// <summary>
@@ -236,7 +258,7 @@ public static class SfpChartEndpoints
             events.Add((triggeredAtUtc, new
             {
                 key,
-                scope = "sfp",
+                scope = ScopeAll,
                 device = module.Device,
                 port = module.Port,
                 time = triggeredAtUtc.ToString("o"),
@@ -268,7 +290,9 @@ public static class SfpChartEndpoints
             events.Add((triggeredAtUtc, new
             {
                 key,
-                scope = "pon",
+                scope = alert.EventType.Equals(PonLinkDownEventType, StringComparison.OrdinalIgnoreCase)
+                    ? ScopeAll
+                    : ScopePon,
                 device = module.Device,
                 port = module.Port,
                 time = triggeredAtUtc.ToString("o"),

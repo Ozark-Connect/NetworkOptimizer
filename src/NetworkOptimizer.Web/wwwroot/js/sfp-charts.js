@@ -165,19 +165,20 @@ function opticsChartEntries() {
     ].filter(([chart]) => chart);
 }
 
+// GEM Frames is deliberately absent. It plots per-interval frame counts whose shape is the
+// traffic itself, so a mark on it reads as a comment on throughput rather than on the link.
 function ponChartEntries() {
     return [
         [ponErrChart, chartEls.ponErr],
-        [ponGemChart, chartEls.ponGem],
         [ponHostChart, chartEls.ponHost],
     ].filter(([chart]) => chart);
 }
 
 // Two layers rather than one, because the two chart groups do not mark the same events. The
-// optics charts plot what the module's own transceiver reports, so they carry the SFP alerts
-// alone; the PON charts plot the link riding over it, where an ONT's own alerts are the most
-// useful thing on the page - and the SFP alerts still belong there too, since an RX power dip is
-// often the explanation for the BIP errors beside it.
+// server says which is which: an event scoped 'pon' describes the link riding over the module
+// and stays on the PON charts, while everything scoped 'all' - the SFP alerts, and a PON link
+// going down - is worth seeing while reading the optics too. The PON charts carry both, since an
+// RX power dip is often the explanation for the BIP errors beside it.
 const opticsMarkLayer = createMarkLayer({ charts: opticsChartEntries });
 const ponMarkLayer = createMarkLayer({ charts: ponChartEntries });
 
@@ -347,7 +348,7 @@ async function ensurePonChartsMounted() {
     chartEls.ponGem = ponGemEl;
     chartEls.ponHost = ponHostEl;
     await Promise.all([ponErrChart.render(), ponGemChart.render(), ponHostChart.render()]);
-    // These three arrive after the first draw, so they start with no marks on them.
+    // These arrive after the first draw, so they start with no marks on them.
     ponMarkLayer.reset();
     applyAnnotations();
 }
