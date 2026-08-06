@@ -1,4 +1,4 @@
-/* ============================================
+﻿/* ============================================
    Network Optimizer - Main Stylesheet
    Modern, dark-mode friendly design
    ============================================ */
@@ -550,6 +550,12 @@ h1:focus {
     }
 }
 
+.time-window-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+}
+
 .wan-selector .wan-filter-reset {
     position: static;
     margin-left: 0.15rem;
@@ -572,15 +578,9 @@ h1:focus {
         margin: 0;
     }
 
-    #latency-charts-container .monitoring-chart-header {
-        position: relative;
-    }
-
     #latency-charts-container .monitoring-chart-header > .monitoring-jump-btn {
-        position: absolute;
         top: -0.2rem;
         right: -0.2rem;
-        margin: 0;
     }
 }
 
@@ -15684,8 +15684,15 @@ a.affected-client:hover {
     color: var(--text-primary);
 }
 
-.monitoring-chart-header > .monitoring-jump-btn {
-    padding-right: 0.1rem;
+#latency-charts-container .monitoring-chart-header {
+    position: relative;
+}
+
+#latency-charts-container .monitoring-chart-header > .monitoring-jump-btn {
+    position: absolute;
+    top: 0.75rem;
+    right: 0.75rem;
+    margin: 0;
 }
 
 .live-view-jump-row {

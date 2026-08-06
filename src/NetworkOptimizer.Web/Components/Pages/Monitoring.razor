@@ -549,7 +549,7 @@
                         <button class="time-btn" data-category="InternetService">Internet</button>
                         <button class="time-btn" data-category="Custom">Custom</button>
                     </div>
-                    <div style="display: flex; align-items: center; gap: 0.75rem;">
+                    <div class="time-window-controls">
                     <button class="time-btn" data-shift="back" data-tooltip="Shift window back">&#x25C0;</button>
                     <div class="time-range-selector" style="position: relative;">
                         <button class="time-btn" data-range="0">15m</button>
@@ -678,36 +678,38 @@
             <div class="card-header monitoring-chart-header">
                 <h2 class="card-title">Device Health</h2>
                 <div class="chart-header-controls">
-                    <button class="time-btn" data-shift="back" data-tooltip="Shift window back">&#x25C0;</button>
-                    <div class="time-range-selector" style="position: relative;">
-                        <button class="time-btn" data-range="0">15m</button>
-                        <button class="time-btn active" data-range="1">1h</button>
-                        <button class="time-btn" data-range="6">6h</button>
-                        <button class="time-btn" data-range="24">24h</button>
-                        <button class="time-btn" data-range="168">7d</button>
-                        <button class="time-btn" data-range="720">30d</button>
-                        <button class="time-btn custom-range-btn" data-action="custom-range" data-tooltip="Custom date range" data-tooltip-hover-only>
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-                        </button>
-                        <div class="custom-range-popover" data-popover="custom-range">
-                            <div class="custom-range-form">
-                                <div class="custom-range-title">Custom Range</div>
-                                <div class="custom-range-field">
-                                    <label>From</label>
-                                    <input type="datetime-local" data-input="from" class="custom-range-input" />
-                                </div>
-                                <div class="custom-range-field">
-                                    <label>To</label>
-                                    <input type="datetime-local" data-input="to" class="custom-range-input" />
-                                </div>
-                                <div class="custom-range-actions">
-                                    <button class="btn btn-sm btn-secondary" data-action="cancel-custom">Cancel</button>
-                                    <button class="btn btn-sm btn-primary" data-action="apply-custom">Apply</button>
+                    <div class="time-window-controls">
+                        <button class="time-btn" data-shift="back" data-tooltip="Shift window back">&#x25C0;</button>
+                        <div class="time-range-selector" style="position: relative;">
+                            <button class="time-btn" data-range="0">15m</button>
+                            <button class="time-btn active" data-range="1">1h</button>
+                            <button class="time-btn" data-range="6">6h</button>
+                            <button class="time-btn" data-range="24">24h</button>
+                            <button class="time-btn" data-range="168">7d</button>
+                            <button class="time-btn" data-range="720">30d</button>
+                            <button class="time-btn custom-range-btn" data-action="custom-range" data-tooltip="Custom date range" data-tooltip-hover-only>
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                            </button>
+                            <div class="custom-range-popover" data-popover="custom-range">
+                                <div class="custom-range-form">
+                                    <div class="custom-range-title">Custom Range</div>
+                                    <div class="custom-range-field">
+                                        <label>From</label>
+                                        <input type="datetime-local" data-input="from" class="custom-range-input" />
+                                    </div>
+                                    <div class="custom-range-field">
+                                        <label>To</label>
+                                        <input type="datetime-local" data-input="to" class="custom-range-input" />
+                                    </div>
+                                    <div class="custom-range-actions">
+                                        <button class="btn btn-sm btn-secondary" data-action="cancel-custom">Cancel</button>
+                                        <button class="btn btn-sm btn-primary" data-action="apply-custom">Apply</button>
+                                    </div>
                                 </div>
                             </div>
                         </div>
+                        <button class="time-btn" data-shift="forward" data-tooltip="Shift window forward">&#x25B6;</button>
                     </div>
-                    <button class="time-btn" data-shift="forward" data-tooltip="Shift window forward">&#x25B6;</button>
                 </div>
             </div>
             <div class="card-body">
@@ -811,36 +813,38 @@
             <div class="card-header monitoring-chart-header">
                 <h2 class="card-title">SFP Diagnostics</h2>
                 <div class="chart-header-controls">
-                    <button class="time-btn" data-shift="back" data-tooltip="Shift window back">&#x25C0;</button>
-                    <div class="time-range-selector" style="position: relative;">
-                        <button class="time-btn" data-range="0">15m</button>
-                        <button class="time-btn" data-range="1">1h</button>
-                        <button class="time-btn" data-range="6">6h</button>
-                        <button class="time-btn active" data-range="24">24h</button>
-                        <button class="time-btn" data-range="168">7d</button>
-                        <button class="time-btn" data-range="720">30d</button>
-                        <button class="time-btn custom-range-btn" data-action="custom-range" data-tooltip="Custom date range" data-tooltip-hover-only>
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-                        </button>
-                        <div class="custom-range-popover" data-popover="custom-range">
-                            <div class="custom-range-form">
-                                <div class="custom-range-title">Custom Range</div>
-                                <div class="custom-range-field">
-                                    <label>From</label>
-                                    <input type="datetime-local" data-input="from" class="custom-range-input" />
-                                </div>
-                                <div class="custom-range-field">
-                                    <label>To</label>
-                                    <input type="datetime-local" data-input="to" class="custom-range-input" />
-                                </div>
-                                <div class="custom-range-actions">
-                                    <button class="btn btn-sm btn-secondary" data-action="cancel-custom">Cancel</button>
-                                    <button class="btn btn-sm btn-primary" data-action="apply-custom">Apply</button>
+                    <div class="time-window-controls">
+                        <button class="time-btn" data-shift="back" data-tooltip="Shift window back">&#x25C0;</button>
+                        <div class="time-range-selector" style="position: relative;">
+                            <button class="time-btn" data-range="0">15m</button>
+                            <button class="time-btn" data-range="1">1h</button>
+                            <button class="time-btn" data-range="6">6h</button>
+                            <button class="time-btn active" data-range="24">24h</button>
+                            <button class="time-btn" data-range="168">7d</button>
+                            <button class="time-btn" data-range="720">30d</button>
+                            <button class="time-btn custom-range-btn" data-action="custom-range" data-tooltip="Custom date range" data-tooltip-hover-only>
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                            </button>
+                            <div class="custom-range-popover" data-popover="custom-range">
+                                <div class="custom-range-form">
+                                    <div class="custom-range-title">Custom Range</div>
+                                    <div class="custom-range-field">
+                                        <label>From</label>
+                                        <input type="datetime-local" data-input="from" class="custom-range-input" />
+                                    </div>
+                                    <div class="custom-range-field">
+                                        <label>To</label>
+                                        <input type="datetime-local" data-input="to" class="custom-range-input" />
+                                    </div>
+                                    <div class="custom-range-actions">
+                                        <button class="btn btn-sm btn-secondary" data-action="cancel-custom">Cancel</button>
+                                        <button class="btn btn-sm btn-primary" data-action="apply-custom">Apply</button>
+                                    </div>
                                 </div>
                             </div>
                         </div>
+                        <button class="time-btn" data-shift="forward" data-tooltip="Shift window forward">&#x25B6;</button>
                     </div>
-                    <button class="time-btn" data-shift="forward" data-tooltip="Shift window forward">&#x25B6;</button>
                 </div>
             </div>
             <div class="card-body">
@@ -1018,36 +1022,38 @@
             <div class="card-header monitoring-chart-header">
                 <h2 class="card-title">Cable Modem Signal History</h2>
                 <div class="chart-header-controls">
-                    <button class="time-btn" data-shift="back" data-tooltip="Shift window back">&#x25C0;</button>
-                    <div class="time-range-selector" style="position: relative;">
-                        <button class="time-btn" data-range="0">15m</button>
-                        <button class="time-btn" data-range="1">1h</button>
-                        <button class="time-btn" data-range="6">6h</button>
-                        <button class="time-btn active" data-range="24">24h</button>
-                        <button class="time-btn" data-range="168">7d</button>
-                        <button class="time-btn" data-range="720">30d</button>
-                        <button class="time-btn custom-range-btn" data-action="custom-range" data-tooltip="Custom date range" data-tooltip-hover-only>
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-                        </button>
-                        <div class="custom-range-popover" data-popover="custom-range">
-                            <div class="custom-range-form">
-                                <div class="custom-range-title">Custom Range</div>
-                                <div class="custom-range-field">
-                                    <label>From</label>
-                                    <input type="datetime-local" data-input="from" class="custom-range-input" />
-                                </div>
-                                <div class="custom-range-field">
-                                    <label>To</label>
-                                    <input type="datetime-local" data-input="to" class="custom-range-input" />
-                                </div>
-                                <div class="custom-range-actions">
-                                    <button class="btn btn-sm btn-secondary" data-action="cancel-custom">Cancel</button>
-                                    <button class="btn btn-sm btn-primary" data-action="apply-custom">Apply</button>
+                    <div class="time-window-controls">
+                        <button class="time-btn" data-shift="back" data-tooltip="Shift window back">&#x25C0;</button>
+                        <div class="time-range-selector" style="position: relative;">
+                            <button class="time-btn" data-range="0">15m</button>
+                            <button class="time-btn" data-range="1">1h</button>
+                            <button class="time-btn" data-range="6">6h</button>
+                            <button class="time-btn active" data-range="24">24h</button>
+                            <button class="time-btn" data-range="168">7d</button>
+                            <button class="time-btn" data-range="720">30d</button>
+                            <button class="time-btn custom-range-btn" data-action="custom-range" data-tooltip="Custom date range" data-tooltip-hover-only>
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                            </button>
+                            <div class="custom-range-popover" data-popover="custom-range">
+                                <div class="custom-range-form">
+                                    <div class="custom-range-title">Custom Range</div>
+                                    <div class="custom-range-field">
+                                        <label>From</label>
+                                        <input type="datetime-local" data-input="from" class="custom-range-input" />
+                                    </div>
+                                    <div class="custom-range-field">
+                                        <label>To</label>
+                                        <input type="datetime-local" data-input="to" class="custom-range-input" />
+                                    </div>
+                                    <div class="custom-range-actions">
+                                        <button class="btn btn-sm btn-secondary" data-action="cancel-custom">Cancel</button>
+                                        <button class="btn btn-sm btn-primary" data-action="apply-custom">Apply</button>
+                                    </div>
                                 </div>
                             </div>
                         </div>
+                        <button class="time-btn" data-shift="forward" data-tooltip="Shift window forward">&#x25B6;</button>
                     </div>
-                    <button class="time-btn" data-shift="forward" data-tooltip="Shift window forward">&#x25B6;</button>
                     <SiteAdminOnly>
                         <a href="/settings#cable-modem" class="tooltip-icon settings-link" data-tooltip="Cable Modem settings">
                         <img src="/images/gear.svg" alt="" style="width:16px;height:16px;" />
@@ -1149,36 +1155,38 @@
             <div class="card-header monitoring-chart-header">
                 <h2 class="card-title">ONT Signal History</h2>
                 <div class="chart-header-controls">
-                    <button class="time-btn" data-shift="back" data-tooltip="Shift window back">&#x25C0;</button>
-                    <div class="time-range-selector" style="position: relative;">
-                        <button class="time-btn" data-range="0">15m</button>
-                        <button class="time-btn" data-range="1">1h</button>
-                        <button class="time-btn" data-range="6">6h</button>
-                        <button class="time-btn active" data-range="24">24h</button>
-                        <button class="time-btn" data-range="168">7d</button>
-                        <button class="time-btn" data-range="720">30d</button>
-                        <button class="time-btn custom-range-btn" data-action="custom-range" data-tooltip="Custom date range" data-tooltip-hover-only>
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-                        </button>
-                        <div class="custom-range-popover" data-popover="custom-range">
-                            <div class="custom-range-form">
-                                <div class="custom-range-title">Custom Range</div>
-                                <div class="custom-range-field">
-                                    <label>From</label>
-                                    <input type="datetime-local" data-input="from" class="custom-range-input" />
-                                </div>
-                                <div class="custom-range-field">
-                                    <label>To</label>
-                                    <input type="datetime-local" data-input="to" class="custom-range-input" />
-                                </div>
-                                <div class="custom-range-actions">
-                                    <button class="btn btn-sm btn-secondary" data-action="cancel-custom">Cancel</button>
-                                    <button class="btn btn-sm btn-primary" data-action="apply-custom">Apply</button>
+                    <div class="time-window-controls">
+                        <button class="time-btn" data-shift="back" data-tooltip="Shift window back">&#x25C0;</button>
+                        <div class="time-range-selector" style="position: relative;">
+                            <button class="time-btn" data-range="0">15m</button>
+                            <button class="time-btn" data-range="1">1h</button>
+                            <button class="time-btn" data-range="6">6h</button>
+                            <button class="time-btn active" data-range="24">24h</button>
+                            <button class="time-btn" data-range="168">7d</button>
+                            <button class="time-btn" data-range="720">30d</button>
+                            <button class="time-btn custom-range-btn" data-action="custom-range" data-tooltip="Custom date range" data-tooltip-hover-only>
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                            </button>
+                            <div class="custom-range-popover" data-popover="custom-range">
+                                <div class="custom-range-form">
+                                    <div class="custom-range-title">Custom Range</div>
+                                    <div class="custom-range-field">
+                                        <label>From</label>
+                                        <input type="datetime-local" data-input="from" class="custom-range-input" />
+                                    </div>
+                                    <div class="custom-range-field">
+                                        <label>To</label>
+                                        <input type="datetime-local" data-input="to" class="custom-range-input" />
+                                    </div>
+                                    <div class="custom-range-actions">
+                                        <button class="btn btn-sm btn-secondary" data-action="cancel-custom">Cancel</button>
+                                        <button class="btn btn-sm btn-primary" data-action="apply-custom">Apply</button>
+                                    </div>
                                 </div>
                             </div>
                         </div>
+                        <button class="time-btn" data-shift="forward" data-tooltip="Shift window forward">&#x25B6;</button>
                     </div>
-                    <button class="time-btn" data-shift="forward" data-tooltip="Shift window forward">&#x25B6;</button>
                     <SiteAdminOnly>
                         <a href="/settings#ont-monitoring" class="tooltip-icon settings-link" data-tooltip="ONT monitoring settings">
                         <img src="/images/gear.svg" alt="" style="width:16px;height:16px;" />
@@ -1304,36 +1312,38 @@
             <div class="card-header monitoring-chart-header">
                 <h2 class="card-title">Cellular Signal History</h2>
                 <div class="chart-header-controls">
-                    <button class="time-btn" data-shift="back" data-tooltip="Shift window back">&#x25C0;</button>
-                    <div class="time-range-selector" style="position: relative;">
-                        <button class="time-btn" data-range="0">15m</button>
-                        <button class="time-btn" data-range="1">1h</button>
-                        <button class="time-btn" data-range="6">6h</button>
-                        <button class="time-btn active" data-range="24">24h</button>
-                        <button class="time-btn" data-range="168">7d</button>
-                        <button class="time-btn" data-range="720">30d</button>
-                        <button class="time-btn custom-range-btn" data-action="custom-range" data-tooltip="Custom date range" data-tooltip-hover-only>
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-                        </button>
-                        <div class="custom-range-popover" data-popover="custom-range">
-                            <div class="custom-range-form">
-                                <div class="custom-range-title">Custom Range</div>
-                                <div class="custom-range-field">
-                                    <label>From</label>
-                                    <input type="datetime-local" data-input="from" class="custom-range-input" />
-                                </div>
-                                <div class="custom-range-field">
-                                    <label>To</label>
-                                    <input type="datetime-local" data-input="to" class="custom-range-input" />
-                                </div>
-                                <div class="custom-range-actions">
-                                    <button class="btn btn-sm btn-secondary" data-action="cancel-custom">Cancel</button>
-                                    <button class="btn btn-sm btn-primary" data-action="apply-custom">Apply</button>
+                    <div class="time-window-controls">
+                        <button class="time-btn" data-shift="back" data-tooltip="Shift window back">&#x25C0;</button>
+                        <div class="time-range-selector" style="position: relative;">
+                            <button class="time-btn" data-range="0">15m</button>
+                            <button class="time-btn" data-range="1">1h</button>
+                            <button class="time-btn" data-range="6">6h</button>
+                            <button class="time-btn active" data-range="24">24h</button>
+                            <button class="time-btn" data-range="168">7d</button>
+                            <button class="time-btn" data-range="720">30d</button>
+                            <button class="time-btn custom-range-btn" data-action="custom-range" data-tooltip="Custom date range" data-tooltip-hover-only>
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                            </button>
+                            <div class="custom-range-popover" data-popover="custom-range">
+                                <div class="custom-range-form">
+                                    <div class="custom-range-title">Custom Range</div>
+                                    <div class="custom-range-field">
+                                        <label>From</label>
+                                        <input type="datetime-local" data-input="from" class="custom-range-input" />
+                                    </div>
+                                    <div class="custom-range-field">
+                                        <label>To</label>
+                                        <input type="datetime-local" data-input="to" class="custom-range-input" />
+                                    </div>
+                                    <div class="custom-range-actions">
+                                        <button class="btn btn-sm btn-secondary" data-action="cancel-custom">Cancel</button>
+                                        <button class="btn btn-sm btn-primary" data-action="apply-custom">Apply</button>
+                                    </div>
                                 </div>
                             </div>
                         </div>
+                        <button class="time-btn" data-shift="forward" data-tooltip="Shift window forward">&#x25B6;</button>
                     </div>
-                    <button class="time-btn" data-shift="forward" data-tooltip="Shift window forward">&#x25B6;</button>
                     <SiteAdminOnly>
                         <a href="/settings#cellular-modem" class="tooltip-icon settings-link" data-tooltip="Cellular Modem settings">
                         <img src="/images/gear.svg" alt="" style="width:16px;height:16px;" />
@@ -1409,36 +1419,38 @@
             <div class="card-header monitoring-chart-header">
                 <h2 class="card-title">Starlink Terminal History</h2>
                 <div class="chart-header-controls">
-                    <button class="time-btn" data-shift="back" data-tooltip="Shift window back">&#x25C0;</button>
-                    <div class="time-range-selector" style="position: relative;">
-                        <button class="time-btn" data-range="0">15m</button>
-                        <button class="time-btn" data-range="1">1h</button>
-                        <button class="time-btn" data-range="6">6h</button>
-                        <button class="time-btn active" data-range="24">24h</button>
-                        <button class="time-btn" data-range="168">7d</button>
-                        <button class="time-btn" data-range="720">30d</button>
-                        <button class="time-btn custom-range-btn" data-action="custom-range" data-tooltip="Custom date range" data-tooltip-hover-only>
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-                        </button>
-                        <div class="custom-range-popover" data-popover="custom-range">
-                            <div class="custom-range-form">
-                                <div class="custom-range-title">Custom Range</div>
-                                <div class="custom-range-field">
-                                    <label>From</label>
-                                    <input type="datetime-local" data-input="from" class="custom-range-input" />
-                                </div>
-                                <div class="custom-range-field">
-                                    <label>To</label>
-                                    <input type="datetime-local" data-input="to" class="custom-range-input" />
-                                </div>
-                                <div class="custom-range-actions">
-                                    <button class="btn btn-sm btn-secondary" data-action="cancel-custom">Cancel</button>
-                                    <button class="btn btn-sm btn-primary" data-action="apply-custom">Apply</button>
+                    <div class="time-window-controls">
+                        <button class="time-btn" data-shift="back" data-tooltip="Shift window back">&#x25C0;</button>
+                        <div class="time-range-selector" style="position: relative;">
+                            <button class="time-btn" data-range="0">15m</button>
+                            <button class="time-btn" data-range="1">1h</button>
+                            <button class="time-btn" data-range="6">6h</button>
+                            <button class="time-btn active" data-range="24">24h</button>
+                            <button class="time-btn" data-range="168">7d</button>
+                            <button class="time-btn" data-range="720">30d</button>
+                            <button class="time-btn custom-range-btn" data-action="custom-range" data-tooltip="Custom date range" data-tooltip-hover-only>
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                            </button>
+                            <div class="custom-range-popover" data-popover="custom-range">
+                                <div class="custom-range-form">
+                                    <div class="custom-range-title">Custom Range</div>
+                                    <div class="custom-range-field">
+                                        <label>From</label>
+                                        <input type="datetime-local" data-input="from" class="custom-range-input" />
+                                    </div>
+                                    <div class="custom-range-field">
+                                        <label>To</label>
+                                        <input type="datetime-local" data-input="to" class="custom-range-input" />
+                                    </div>
+                                    <div class="custom-range-actions">
+                                        <button class="btn btn-sm btn-secondary" data-action="cancel-custom">Cancel</button>
+                                        <button class="btn btn-sm btn-primary" data-action="apply-custom">Apply</button>
+                                    </div>
                                 </div>
                             </div>
                         </div>
+                        <button class="time-btn" data-shift="forward" data-tooltip="Shift window forward">&#x25B6;</button>
                     </div>
-                    <button class="time-btn" data-shift="forward" data-tooltip="Shift window forward">&#x25B6;</button>
                     <SiteAdminOnly>
                         <a href="/settings#starlink" class="tooltip-icon settings-link" data-tooltip="Starlink settings">
                         <img src="/images/gear.svg" alt="" style="width:16px;height:16px;" />
