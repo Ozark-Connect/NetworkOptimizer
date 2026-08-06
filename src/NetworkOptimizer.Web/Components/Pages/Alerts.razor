@@ -1803,6 +1803,19 @@
                     </div>
                 </div>
                 <div>
+                    <h4 class="event-type-group-header">Starlink</h4>
+                    <div class="event-type-key-list">
+                        <div @onclick='() => SelectEventType("starlink.dish_alert")'><code>starlink.dish_alert</code> <span>Dish reporting a fault or out of service</span></div>
+                        <div @onclick='() => SelectEventType("starlink.obstructed")'><code>starlink.obstructed</code> <span>Sky view blocked or signal persistently low</span></div>
+                        <div @onclick='() => SelectEventType("starlink.alignment_drift")'><code>starlink.alignment_drift</code> <span>Dish pointing away from where it normally sits</span></div>
+                        <div @onclick='() => SelectEventType("starlink.eth_speed_degraded")'><code>starlink.eth_speed_degraded</code> <span>Ethernet link negotiated below its usual speed</span></div>
+                        <div @onclick='() => SelectEventType("starlink.outage_burst")'><code>starlink.outage_burst</code> <span>Dish outage seconds piling up over a day</span></div>
+                        <div @onclick='() => SelectEventType("starlink.service_restricted")'><code>starlink.service_restricted</code> <span>Service became rate limited</span></div>
+                        <div @onclick='() => SelectEventType("starlink.recovered")'><code>starlink.recovered</code> <span>A dish condition cleared</span></div>
+                        <div @onclick='() => SelectEventType("starlink.*")'><code>starlink.*</code> <span>All Starlink events</span></div>
+                    </div>
+                </div>
+                <div>
                     <h4 class="event-type-group-header">WAN Data Usage</h4>
                     <div class="event-type-key-list">
                         <div @onclick='() => SelectEventType("wan.data_usage_warning")'><code>wan.data_usage_warning</code> <span>Monthly data cap approaching</span></div>

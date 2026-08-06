@@ -128,8 +128,8 @@ public class AlertProcessingService : BackgroundService
         var repository = scope.ServiceProvider.GetRequiredService<IAlertRepository>();
 
         // Close whatever this event supersedes before any rule is consulted, so an install with
-        // no rule for the recovery event still gets its outage alerts closed.
-        await ResolveSupersededWanAlertsAsync(alertEvent, repository, cancellationToken);
+        // no rule for the recovery event still gets its open alerts closed.
+        await ResolveSupersededAlertsAsync(alertEvent, repository, cancellationToken);
 
         var siteKey = alertEvent.SiteSlug ?? "";
         var rules = await GetRulesAsync(repository, siteKey, cancellationToken);
@@ -164,7 +164,7 @@ public class AlertProcessingService : BackgroundService
         }
     }
 
-    // --- WAN outage alerts: an open/close family, unlike the rest of the alert catalog ---
+    // --- WAN outage alerts: one of two open/close families, unlike the rest of the alert catalog ---
     //
     // The three monitoring.wan_* event types maintain at most one open alert per (WAN, kind).
     // A WAN raises a partial outage while part of the path out is unreachable but traffic still
@@ -175,7 +175,8 @@ public class AlertProcessingService : BackgroundService
     // than stacking a second open alert on the same WAN.
     //
     // Per-target monitoring alerts (monitoring.target_offline and friends) have no such pairing and
-    // stay open until a user resolves them, so this closing step applies to the WAN family only.
+    // stay open until a user resolves them, so this closing step applies to the two families that
+    // do: monitoring.wan_* here and starlink.* below.
 
     internal const string WanOutageEventType = "monitoring.wan_outage";
     internal const string WanOutagePartialEventType = "monitoring.wan_outage_partial";
@@ -220,17 +221,66 @@ public class AlertProcessingService : BackgroundService
         return targets;
     }
 
+    // --- Starlink dish alerts: the other open/close family ---
+    //
+    // The dish poll keeps at most one open alert per (dish, condition). A condition that is
+    // already alerting republishes only on new evidence, and a starlink.recovered event names the
+    // condition it closes in its context, so a dish that clears its obstruction keeps whatever
+    // other alert it still has open.
+
+    internal const string StarlinkRecoveredEventType = "starlink.recovered";
+
     /// <summary>
-    /// Closes the open WAN outage alerts this event supersedes and re-derives the status of any
-    /// incident they belonged to. Failures are logged and swallowed: resolution is housekeeping and
-    /// must never stop the event from being processed into an alert.
+    /// Context key on a starlink.recovered event naming the event type it closes. Written by
+    /// StarlinkAlertEvaluator.RecoveredTypeKey, which lives in the Web project and so cannot be
+    /// shared with this one; the two must stay in step.
     /// </summary>
-    internal async Task ResolveSupersededWanAlertsAsync(
+    internal const string StarlinkRecoveredTypeKey = "recovered_type";
+
+    private const string StarlinkEventPrefix = "starlink.";
+
+    /// <summary>
+    /// Which open Starlink alerts an incoming starlink.* event closes. A recovery closes the one
+    /// condition it names on that dish; any other Starlink event supersedes the open alert of its
+    /// own type on the same dish, which is what keeps one condition to one open alert. Empty for
+    /// every event outside the family, and for one carrying no dish.
+    /// </summary>
+    internal static List<(string[] EventTypes, string? DeviceId)> GetStarlinkAlertsToResolve(
+        string eventType, string? deviceId, IReadOnlyDictionary<string, string>? context)
+    {
+        var targets = new List<(string[] EventTypes, string? DeviceId)>();
+        var dishId = deviceId?.Trim();
+        if (string.IsNullOrEmpty(dishId) || !eventType.StartsWith(StarlinkEventPrefix, StringComparison.Ordinal))
+            return targets;
+
+        if (eventType == StarlinkRecoveredEventType)
+        {
+            if (context != null
+                && context.TryGetValue(StarlinkRecoveredTypeKey, out var recovered)
+                && !string.IsNullOrWhiteSpace(recovered))
+            {
+                targets.Add(([recovered], dishId));
+            }
+            return targets;
+        }
+
+        targets.Add(([eventType], dishId));
+        return targets;
+    }
+
+    /// <summary>
+    /// Closes the open alerts this event supersedes and re-derives the status of any incident they
+    /// belonged to. Failures are logged and swallowed: resolution is housekeeping and must never
+    /// stop the event from being processed into an alert.
+    /// </summary>
+    internal async Task ResolveSupersededAlertsAsync(
         AlertEvent alertEvent,
         IAlertRepository repository,
         CancellationToken cancellationToken)
     {
         var targets = GetWanAlertsToResolve(alertEvent.EventType, alertEvent.DeviceId);
+        targets.AddRange(GetStarlinkAlertsToResolve(
+            alertEvent.EventType, alertEvent.DeviceId, alertEvent.Context));
         if (targets.Count == 0)
             return;
 
@@ -244,7 +294,7 @@ public class AlertProcessingService : BackgroundService
                 if (resolved.Count == 0)
                     continue;
 
-                _logger.LogDebug("Closed {Count} open WAN alert(s) for {DeviceId} on {EventType}",
+                _logger.LogDebug("Closed {Count} open alert(s) for {DeviceId} on {EventType}",
                     resolved.Count, deviceId, alertEvent.EventType);
 
                 foreach (var alert in resolved)
@@ -253,7 +303,7 @@ public class AlertProcessingService : BackgroundService
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to close open WAN alerts for event {EventType} ({DeviceId})",
+            _logger.LogWarning(ex, "Failed to close open alerts for event {EventType} ({DeviceId})",
                 alertEvent.EventType, alertEvent.DeviceId);
         }
     }

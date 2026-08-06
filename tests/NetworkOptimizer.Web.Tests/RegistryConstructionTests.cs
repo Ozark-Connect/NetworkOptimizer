@@ -41,6 +41,7 @@ public class RegistryConstructionTests
         { typeof(CableModemMonitorService), new[] { typeof(string) } },
         { typeof(OntMonitorService), new[] { typeof(string) } },
         { typeof(CellularModemService), new[] { typeof(string), typeof(UniFiSshService), typeof(List<ICellularModemProvider>) } },
+        { typeof(StarlinkMonitorService), new[] { typeof(string), typeof(List<IStarlinkProvider>) } },
         // IspHealthRegistry
         { typeof(PhysicalLinkResolver), new[] { typeof(string) } },
         { typeof(IspHealthService), new[] { typeof(string), typeof(PhysicalLinkResolver) } },
@@ -51,6 +52,7 @@ public class RegistryConstructionTests
         { typeof(CableModemAlertEvaluator), new[] { typeof(string), typeof(SiteAlertEventBus) } },
         { typeof(OntAlertEvaluator), new[] { typeof(string), typeof(SiteAlertEventBus) } },
         { typeof(CellularAlertEvaluator), new[] { typeof(string), typeof(SiteAlertEventBus) } },
+        { typeof(StarlinkAlertEvaluator), new[] { typeof(string), typeof(SiteAlertEventBus) } },
         // MonitoringCollectionRegistry
         { typeof(MonitoringCollectionAgent), new[] { typeof(string) } },
         // MonitoringInfluxRegistry / MonitoringLiveStatsRegistry

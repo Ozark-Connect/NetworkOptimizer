@@ -1044,6 +1044,7 @@ using (var scope = app.Services.CreateScope())
                 AlertRuleAutoEnable.EnableFreshlySeeded(siteDb, "cable_modem", siteSeededPatterns, () => siteDb.CmConfigurations.Any());
                 AlertRuleAutoEnable.EnableFreshlySeeded(siteDb, "ont", siteSeededPatterns, () => siteDb.OntConfigurations.Any());
                 AlertRuleAutoEnable.EnableFreshlySeeded(siteDb, "cellular", siteSeededPatterns, () => siteDb.ModemConfigurations.Any());
+                AlertRuleAutoEnable.EnableFreshlySeeded(siteDb, "starlink", siteSeededPatterns, () => siteDb.StarlinkConfigurations.Any());
             }
 
             if (NetworkOptimizer.Core.FeatureFlags.SchedulingEnabled && !siteDb.ScheduledTasks.Any())
@@ -1120,6 +1121,7 @@ using (var scope = app.Services.CreateScope())
             AlertRuleAutoEnable.EnableFreshlySeeded(db, "cable_modem", seededPatterns, () => db.CmConfigurations.Any());
             AlertRuleAutoEnable.EnableFreshlySeeded(db, "ont", seededPatterns, () => db.OntConfigurations.Any());
             AlertRuleAutoEnable.EnableFreshlySeeded(db, "cellular", seededPatterns, () => db.ModemConfigurations.Any());
+            AlertRuleAutoEnable.EnableFreshlySeeded(db, "starlink", seededPatterns, () => db.StarlinkConfigurations.Any());
         }
     }
 
