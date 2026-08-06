@@ -245,7 +245,8 @@ reset_docker() {
 
     # Clear password via docker exec
     msg_info "Clearing admin password..."
-    run_sql "UPDATE AdminSettings SET Password = NULL, Enabled = 0;"
+    docker exec "$CONTAINER" sqlite3 /app/data/network_optimizer.db \
+        "UPDATE AdminSettings SET Password = NULL, Enabled = 0;"
     msg_ok "Password cleared"
 
     # Restart container
@@ -402,7 +403,6 @@ reset_linux() {
         echo "Use --data-dir to specify the correct data directory."
         exit 1
     fi
-    DB_PATH="$db_path"
     msg_ok "Database found: $db_path"
 
     # Detect install directory from systemd or running process
@@ -490,6 +490,56 @@ reset_linux() {
 }
 
 # =============================================================================
+# Apply the regenerated password to the Identity admin account
+# =============================================================================
+# Sign-in reads AspNetUsers.PasswordHash, and the app only copies the legacy password
+# across when the admin account does not exist yet. So on an install that has already
+# migrated, clearing AdminSettings alone regenerates and prints a password that is then
+# refused at the login page. Copy the freshly generated hash across ourselves.
+#
+# The hash is copied, never re-derived, so this needs no crypto and no plaintext. It is
+# written in the old dotted PBKDF2 format, which the app still accepts and quietly
+# upgrades on first sign-in.
+#
+# The account is updated, never deleted: deleting it cannot be undone and would take the
+# admin's site memberships and roles with it.
+sync_identity_admin() {
+    # Older installs have no Identity tables - there the legacy row is the whole story and
+    # the reset above is already complete.
+    local has_identity
+    has_identity=$(run_sql "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='AspNetUsers';" 2>/dev/null || echo "0")
+    if [[ "$has_identity" != "1" ]]; then
+        return 0
+    fi
+
+    # The app writes the new hash while it starts; wait for it rather than race it.
+    local legacy_hash="" deadline=$((SECONDS + 20))
+    while [[ $SECONDS -lt $deadline ]]; do
+        legacy_hash=$(run_sql "SELECT ifnull(Password,'') FROM AdminSettings LIMIT 1;" 2>/dev/null || echo "")
+        if [[ -n "$legacy_hash" ]]; then
+            break
+        fi
+        sleep 1
+    done
+
+    if [[ -z "$legacy_hash" ]]; then
+        msg_warn "Could not read the regenerated password; the admin account was left unchanged."
+        return 1
+    fi
+
+    msg_info "Applying the new password to the admin account..."
+    run_sql "UPDATE AspNetUsers
+                SET PasswordHash = '${legacy_hash}',
+                    PasswordIsTemporary = 1,
+                    IsEnabled = 1,
+                    LockoutEnd = NULL,
+                    AccessFailedCount = 0,
+                    SecurityStamp = lower(hex(randomblob(16)))
+              WHERE NormalizedUserName = 'ADMIN';" >/dev/null
+    msg_ok "Admin account updated"
+}
+
+# =============================================================================
 # Warn about settings that refuse the new password even after a successful reset
 # =============================================================================
 # The reset only restores the password. Two other settings can still turn the login
@@ -523,6 +573,7 @@ warn_about_blockers() {
 show_result() {
     local password="$1"
 
+    sync_identity_admin || true
     warn_about_blockers
 
     if [[ -n "$password" ]]; then
