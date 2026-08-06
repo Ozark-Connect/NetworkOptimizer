@@ -126,13 +126,27 @@ if (-not $sqlite3) {
 Write-Host "sqlite3:           $sqlite3Path" -ForegroundColor Green
 Write-Host ""
 
+# Set by Invoke-Sql so a caller that cannot tolerate a failed write can tell. Errors are
+# swallowed rather than thrown because some of these run against tables an older install
+# predates, and a missing table exits sqlite3 non-zero - which PowerShell 7.4+ turns into a
+# terminating error under $ErrorActionPreference = 'Stop'. Swallowing keeps that from aborting
+# a reset that has already succeeded; the flag keeps it from being mistaken for success.
+$script:SqlSucceeded = $true
+
 function Invoke-Sql {
     param([string]$Query)
-    # Some of these run against tables an older install predates. A missing table exits sqlite3
-    # non-zero, which PowerShell 7.4+ turns into a terminating error under
-    # $ErrorActionPreference = 'Stop' - so swallow it rather than abort a reset that has
-    # already succeeded.
-    try { & $sqlite3Path $dbPath $Query 2>$null } catch { }
+    $script:SqlSucceeded = $true
+    try {
+        # The app may be running and writing; wait for our turn rather than fail instantly
+        # with "database is locked". Set through .timeout rather than "PRAGMA busy_timeout =
+        # ...", which returns the new value as a result row and would prepend 15000 to the
+        # output of every query that reads one back.
+        $output = & $sqlite3Path -cmd ".timeout 15000" $dbPath $Query 2>$null
+        if ($LASTEXITCODE -ne 0) { $script:SqlSucceeded = $false }
+        $output
+    } catch {
+        $script:SqlSucceeded = $false
+    }
 }
 
 # Sign-in reads AspNetUsers.PasswordHash, and the app only copies the legacy password across
@@ -175,6 +189,11 @@ UPDATE AspNetUsers
        SecurityStamp = lower(hex(randomblob(16)))
  WHERE NormalizedUserName = 'ADMIN';
 "@ | Out-Null
+    if (-not $script:SqlSucceeded) {
+        Write-Host " FAILED." -ForegroundColor Red
+        Write-Host "The password below will NOT work. Re-run this script to try again." -ForegroundColor Red
+        return
+    }
     Write-Host " done." -ForegroundColor Green
 }
 
@@ -242,10 +261,11 @@ if ($svcObj.Status -eq 'Running') {
 # Clear admin password
 # =============================================================================
 Write-Host "Clearing admin password..." -NoNewline
-& $sqlite3Path $dbPath "UPDATE AdminSettings SET Password = NULL, Enabled = 0;"
+& $sqlite3Path -cmd ".timeout 15000" $dbPath "UPDATE AdminSettings SET Password = NULL, Enabled = 0;"
 if ($LASTEXITCODE -ne 0) {
     Write-Host " FAILED." -ForegroundColor Red
-    Write-Host "sqlite3 returned exit code $LASTEXITCODE"
+    Write-Host "sqlite3 returned exit code $LASTEXITCODE - the database may be busy."
+    Write-Host "Nothing was changed. Wait a moment and run this script again."
     exit 1
 }
 Write-Host " done." -ForegroundColor Green

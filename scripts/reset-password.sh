@@ -52,11 +52,20 @@ DB_PATH=""                  # resolved by the native modes
 DOCKER_DB_PATH="/app/data/network_optimizer.db"
 
 # Runs one statement against the application database, whichever way this mode reaches it.
+#
+# The app is usually running and writing while we do this - the Docker path never stops the
+# container at all - so an unqualified write loses a coin toss against the app's own
+# transaction and dies with "database is locked". busy_timeout makes sqlite wait for its turn
+# instead of failing instantly, which is the difference between a reset that works and one the
+# operator has to keep re-running.
+#
+# Set through .timeout rather than "PRAGMA busy_timeout = ...", which returns the new value as
+# a result row and would prepend 15000 to the output of every query that reads one back.
 run_sql() {
     if [[ "$MODE" == "docker" ]]; then
-        docker exec "$CONTAINER" sqlite3 "$DOCKER_DB_PATH" "$1"
+        docker exec "$CONTAINER" sqlite3 -cmd ".timeout 15000" "$DOCKER_DB_PATH" "$1"
     else
-        sqlite3 "$DB_PATH" "$1"
+        sqlite3 -cmd ".timeout 15000" "$DB_PATH" "$1"
     fi
 }
 
@@ -245,8 +254,11 @@ reset_docker() {
 
     # Clear password via docker exec
     msg_info "Clearing admin password..."
-    docker exec "$CONTAINER" sqlite3 /app/data/network_optimizer.db \
-        "UPDATE AdminSettings SET Password = NULL, Enabled = 0;"
+    if ! run_sql "UPDATE AdminSettings SET Password = NULL, Enabled = 0;"; then
+        msg_error "Could not clear the password - the database is busy."
+        msg_error "Nothing was changed. Wait a moment and run this script again."
+        exit 1
+    fi
     msg_ok "Password cleared"
 
     # Restart container
@@ -324,7 +336,11 @@ reset_macos() {
 
     # Clear password
     msg_info "Clearing admin password..."
-    run_sql "UPDATE AdminSettings SET Password = NULL, Enabled = 0;"
+    if ! run_sql "UPDATE AdminSettings SET Password = NULL, Enabled = 0;"; then
+        msg_error "Could not clear the password - the database is busy."
+        msg_error "Nothing was changed. Wait a moment and run this script again."
+        exit 1
+    fi
     msg_ok "Password cleared"
 
     # Start service
@@ -444,7 +460,11 @@ reset_linux() {
 
     # Clear password
     msg_info "Clearing admin password..."
-    run_sql "UPDATE AdminSettings SET Password = NULL, Enabled = 0;"
+    if ! run_sql "UPDATE AdminSettings SET Password = NULL, Enabled = 0;"; then
+        msg_error "Could not clear the password - the database is busy."
+        msg_error "Nothing was changed. Wait a moment and run this script again."
+        exit 1
+    fi
     msg_ok "Password cleared"
 
     # Start service
@@ -528,14 +548,22 @@ sync_identity_admin() {
     fi
 
     msg_info "Applying the new password to the admin account..."
-    run_sql "UPDATE AspNetUsers
-                SET PasswordHash = '${legacy_hash}',
-                    PasswordIsTemporary = 1,
-                    IsEnabled = 1,
-                    LockoutEnd = NULL,
-                    AccessFailedCount = 0,
-                    SecurityStamp = lower(hex(randomblob(16)))
-              WHERE NormalizedUserName = 'ADMIN';" >/dev/null
+    # Checked explicitly rather than left to set -e: this function is called as part of an
+    # || list, which switches errexit off for everything inside it, so a failed write would
+    # otherwise fall straight through to the success message and print a password that does
+    # not work - the one outcome this whole script exists to avoid.
+    if ! run_sql "UPDATE AspNetUsers
+                     SET PasswordHash = '${legacy_hash}',
+                         PasswordIsTemporary = 1,
+                         IsEnabled = 1,
+                         LockoutEnd = NULL,
+                         AccessFailedCount = 0,
+                         SecurityStamp = lower(hex(randomblob(16)))
+                   WHERE NormalizedUserName = 'ADMIN';" >/dev/null; then
+        msg_error "Could not update the admin account."
+        msg_error "The password below will NOT work. Re-run this script to try again."
+        return 1
+    fi
     msg_ok "Admin account updated"
 }
 
