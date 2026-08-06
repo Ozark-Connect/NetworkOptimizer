@@ -57,29 +57,20 @@ public static class LocalTargetResolver
         try
         {
             // A literal answers itself; only a name needs asking.
-            if (!IPAddress.TryParse(name, out var literal))
-            {
-                var answers = await Dns.GetHostAddressesAsync(name, ct);
-                // IPv4 first. Locality is judged on the RFC1918 ranges, so an AAAA answer taken
-                // just because DNS listed it first would be judged by a rule that cannot see it.
-                literal = answers.FirstOrDefault(a => a.AddressFamily == AddressFamily.InterNetwork)
-                    ?? answers.FirstOrDefault();
-            }
+            var answers = IPAddress.TryParse(name, out var literal)
+                ? new[] { literal }
+                : await Dns.GetHostAddressesAsync(name, ct);
 
-            // "::" and "0.0.0.0" are what a resolver hands back when the name expanded to
-            // something with no address of its own - a search-domain suffix that exists but
-            // answers nothing. They parse as addresses and are not any host, so judging them
-            // would quietly file a LAN device as reached over a WAN.
-            if (literal is null || literal.Equals(IPAddress.Any) || literal.Equals(IPAddress.IPv6Any))
+            var chosen = NetworkUtilities.SelectUsableAddress(answers);
+            if (chosen is null)
             {
                 logger?.LogDebug(
-                    "Local check: {Address} did not resolve to a usable address ({Answer}), so whether it "
-                    + "is local is still unknown", address, literal?.ToString() ?? "no answer");
+                    "Local check: {Address} did not resolve to a usable address, so whether it is local "
+                    + "is still unknown", address);
                 return (null, null);
             }
 
-            var ip = literal.ToString();
-            return (NetworkUtilities.IsPrivateIpAddress(literal), ip);
+            return (NetworkUtilities.IsPrivateIpAddress(chosen), chosen.ToString());
         }
         catch (Exception ex)
         {

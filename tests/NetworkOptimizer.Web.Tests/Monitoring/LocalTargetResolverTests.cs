@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Web.Services.Monitoring;
 using Xunit;
@@ -64,7 +64,8 @@ public class LocalTargetResolverTests
     /// <summary>
     /// A search domain that exists but answers nothing hands back the unspecified address. It
     /// parses as an address and is not any host, so settling on it would file a LAN device as
-    /// reached over a WAN - exactly what a bare hostname did on a real deployment.
+    /// reached over a WAN. Which of several answers gets picked is NetworkUtilities'
+    /// SelectUsableAddress; this only pins that an unusable one never settles anything.
     /// </summary>
     [Theory]
     [InlineData("::")]
