@@ -1,4 +1,5 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Storage.Models;
 
@@ -38,27 +39,36 @@ public static class LocalTargetResolver
         || (isLocal ?? NetworkUtilities.IsPrivateIpAddress(address ?? string.Empty));
 
     /// <summary>
-    /// Resolves one address to a local/not-local answer, or null when DNS cannot say. Never
-    /// throws: an unanswerable name leaves the target unresolved rather than wrongly settled.
+    /// Resolves one address to a local/not-local answer and the address it answered on, or nulls
+    /// when DNS cannot say. Never throws: an unanswerable name leaves the target unresolved rather
+    /// than wrongly settled. The resolved IP comes back so callers can say WHY in a log - a wrong
+    /// verdict is almost always a surprising IP rather than a bad rule.
     /// </summary>
     /// <param name="address">The target's address, a literal or a hostname.</param>
+    /// <param name="logger">Optional, for reporting a lookup that failed outright.</param>
     /// <param name="ct">Cancellation.</param>
-    public static async Task<bool?> ResolveAsync(string? address, CancellationToken ct = default)
+    public static async Task<(bool? IsLocal, string? ResolvedIp)> ResolveAsync(
+        string? address, ILogger? logger = null, CancellationToken ct = default)
     {
-        if (string.IsNullOrWhiteSpace(address)) return null;
+        if (string.IsNullOrWhiteSpace(address)) return (null, null);
         try
         {
             var (ip, _) = await ReverseDnsCache.ResolveAsync(address.Trim(), ct);
             // ResolveAsync hands back the address unchanged when it could not resolve it, so a
             // name that answered nothing must not be judged as though it were an address.
-            if (string.IsNullOrEmpty(ip)
-                || (!System.Net.IPAddress.TryParse(ip, out _)))
-                return null;
-            return NetworkUtilities.IsPrivateIpAddress(ip);
+            if (string.IsNullOrEmpty(ip) || !System.Net.IPAddress.TryParse(ip, out _))
+            {
+                logger?.LogDebug(
+                    "Local check: {Address} did not resolve to an address, so whether it is local is still unknown",
+                    address);
+                return (null, null);
+            }
+            return (NetworkUtilities.IsPrivateIpAddress(ip), ip);
         }
-        catch
+        catch (Exception ex)
         {
-            return null;
+            logger?.LogDebug(ex, "Local check: looking up {Address} failed; leaving it unresolved", address);
+            return (null, null);
         }
     }
 
@@ -68,7 +78,8 @@ public static class LocalTargetResolver
     /// </summary>
     /// <param name="db">The site's database.</param>
     /// <param name="ct">Cancellation.</param>
-    public static async Task<int> SweepUnresolvedAsync(NetworkOptimizerDbContext db, CancellationToken ct = default)
+    public static async Task<int> SweepUnresolvedAsync(
+        NetworkOptimizerDbContext db, ILogger? logger = null, CancellationToken ct = default)
     {
         var pending = await db.MonitoringTargets
             .Where(t => t.IsLocal == null)
@@ -81,10 +92,17 @@ public static class LocalTargetResolver
         foreach (var target in pending)
         {
             if (ct.IsCancellationRequested) break;
-            var answer = await ResolveAsync(target.Address, ct);
+            var (answer, ip) = await ResolveAsync(target.Address, logger, ct);
             if (answer == null) continue;
             target.IsLocal = answer;
             settled++;
+            // Per target, because this is the moment a target changes which side of the LAN/WAN
+            // line it falls on - and that decides where it appears, whether a vantage may adopt
+            // it, and whether a metered WAN may slow it. A count alone cannot answer "why is this
+            // one over there".
+            logger?.LogInformation(
+                "Local check: {Name} ({Address}) resolved to {Ip} - {Verdict}",
+                target.Name, target.Address, ip, answer.Value ? "on this network" : "reached over a WAN");
         }
         return settled;
     }

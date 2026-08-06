@@ -55,7 +55,10 @@ public class MonitoringTargetService : IMonitoringTargetService
         var (asnNumber, asnName) = await ResolveAsnAsync(spec.TargetType, address);
         // Settled once, here, while the user is waiting anyway. A failure leaves it unresolved
         // rather than guessed - the sweep will try again, and readers fall back meanwhile.
-        var isLocal = await Monitoring.LocalTargetResolver.ResolveAsync(address, ct);
+        var (isLocal, resolvedIp) = await Monitoring.LocalTargetResolver.ResolveAsync(address, _logger, ct);
+        if (isLocal != null)
+            _logger.LogInformation("Local check: {Name} ({Address}) resolved to {Ip} - {Verdict}",
+                name, address, resolvedIp, isLocal.Value ? "on this network" : "reached over a WAN");
 
         // Manual Transit/Access ISP adds are user-provided upstream hops the tracer didn't
         // find. Tag them UserProvided so upstream change-detection treats them as curated

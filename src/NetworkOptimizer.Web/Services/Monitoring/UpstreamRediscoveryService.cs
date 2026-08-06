@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Storage.Models;
 
@@ -125,7 +125,7 @@ public class UpstreamRediscoveryService : BackgroundService
         // A batch at a time, nulls only, so it costs nothing once a site is settled.
         try
         {
-            var settled = await LocalTargetResolver.SweepUnresolvedAsync(db, ct);
+            var settled = await LocalTargetResolver.SweepUnresolvedAsync(db, _logger, ct);
             if (settled > 0)
             {
                 await db.SaveChangesAsync(ct);
