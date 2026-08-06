@@ -7340,7 +7340,8 @@ a.path-hop.hop-clickable:hover {
    the WAN live chart draw annotations too and must keep the library's behaviour, so a card earns
    the unlock by being added here. The id also wins on specificity without !important. */
 #device-health-charts-container .apexcharts-xaxis-annotation-label.chart-event-mark,
-#sfp-charts-container .apexcharts-xaxis-annotation-label.chart-event-mark {
+#sfp-charts-container .apexcharts-xaxis-annotation-label.chart-event-mark,
+#ont-charts-container .apexcharts-xaxis-annotation-label.chart-event-mark {
     pointer-events: auto;
 }
 

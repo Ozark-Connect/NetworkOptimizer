@@ -1,6 +1,5 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
-using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Services;
 using NetworkOptimizer.Web.Services;
@@ -121,20 +120,6 @@ public static class SfpChartEndpoints
     };
 
     /// <summary>
-    /// ONT alerts for a module attached to an SFP. Most mark the PON charts only: they describe
-    /// the PON layer, not the optics the power and temperature charts plot.
-    /// </summary>
-    private static readonly HashSet<string> OntEventTypes = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "ont.rx_power_low",
-        "ont.high_temperature",
-        "ont.pon_link_down",
-        "ont.bip_errors",
-        "ont.fec_errors",
-        "ont.hec_errors",
-    };
-
-    /// <summary>
     /// The exception to that: a PON link going down is the one ONT condition worth seeing while
     /// reading the optics, since it is what the RX and TX traces are usually being checked
     /// against.
@@ -179,32 +164,6 @@ public static class SfpChartEndpoints
         return null;
     }
 
-    /// <summary>
-    /// Short label for an ONT mark: the alert's own title with the ONT name and any site suffix
-    /// taken off the ends, since the tooltip carries the module on its own rows. Derived from the
-    /// stored copy rather than reworded, so the two cannot drift.
-    /// </summary>
-    private static string OntEventLabel(string title, string? ontName)
-    {
-        var label = title;
-
-        var siteSuffix = label.LastIndexOf(" (site ", StringComparison.Ordinal);
-        if (siteSuffix > 0 && label.EndsWith(')')) label = label[..siteSuffix];
-
-        if (!string.IsNullOrEmpty(ontName) && label.StartsWith(ontName + " ", StringComparison.OrdinalIgnoreCase))
-            label = label[(ontName.Length + 1)..];
-
-        if (label.Length == 0) return title;
-        label = char.ToUpperInvariant(label[0]) + label[1..];
-
-        // The ONT copy words this one the other way round from every other mark. Normalized here
-        // rather than at the source so the alert itself keeps the wording it has always had, and
-        // only the mark is brought into line. Everything else the ONT titles produce - "RX power
-        // low", "PON link down", the error spikes - already matches.
-        return label.Equals("Temperature high", StringComparison.OrdinalIgnoreCase)
-            ? "High temperature"
-            : label;
-    }
 
     /// <summary>
     /// Marks for the charted modules over the same window as the series.
@@ -263,12 +222,7 @@ public static class SfpChartEndpoints
                 port = module.Port,
                 time = triggeredAtUtc.ToString("o"),
                 kind = "alert",
-                severity = alert.Severity switch
-                {
-                    AlertSeverity.Critical or AlertSeverity.Error => "critical",
-                    AlertSeverity.Warning => "warning",
-                    _ => "info",
-                },
+                severity = ChartEventMarks.Severity(alert.Severity),
                 title = SfpEventLabel(alert.EventType, alert.Title),
                 detail = TrimTrailingLocation(alert.Message, module.Device, module.Port),
             }));
@@ -276,7 +230,7 @@ public static class SfpChartEndpoints
 
         var ontAlerts = await db.AlertHistory.AsNoTracking()
             .Where(a => a.SourceUrl != null && a.TriggeredAt >= from && a.TriggeredAt <= to
-                && OntEventTypes.Contains(a.EventType))
+                && ChartEventMarks.OntEventTypes.Contains(a.EventType))
             .Select(a => new { a.EventType, a.Severity, a.Title, a.Message, a.DeviceName, a.SourceUrl, a.TriggeredAt })
             .ToListAsync(ct);
 
@@ -297,13 +251,8 @@ public static class SfpChartEndpoints
                 port = module.Port,
                 time = triggeredAtUtc.ToString("o"),
                 kind = "alert",
-                severity = alert.Severity switch
-                {
-                    AlertSeverity.Critical or AlertSeverity.Error => "critical",
-                    AlertSeverity.Warning => "warning",
-                    _ => "info",
-                },
-                title = OntEventLabel(alert.Title, alert.DeviceName),
+                severity = ChartEventMarks.Severity(alert.Severity),
+                title = ChartEventMarks.OntEventLabel(alert.Title, alert.DeviceName),
                 detail = alert.Message,
             }));
         }
