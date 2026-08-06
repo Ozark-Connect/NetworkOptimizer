@@ -2313,7 +2313,13 @@
         // the first round trip looked right, and every one after it read back the primary. The
         // narrowing is released and the stored set re-read when the charts remount; until then
         // there is nothing here worth adopting against.
-        if (_linkNarrowedWanSelection) return;
+        // Checked as well as the flag, because the flag is only set once the link has been APPLIED.
+        // Apply defers itself until the WAN options load, and the restore that reaches here runs
+        // ahead of it either way, so on a load where the options are not ready yet the flag is
+        // still false while a narrowing link sits on the URL - and this collapsed the scope the
+        // link was about to set, then persisted it. Which one won came down to what finished
+        // first. While a link is narrowing, this has nothing to adopt against, applied or not.
+        if (_linkNarrowedWanSelection || LinkNarrowsWanFilter) return;
         try
         {
             var shared = await JS.InvokeAsync<string?>("localStorage.getItem", SharedWanScopeKey);
