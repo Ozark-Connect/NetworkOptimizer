@@ -643,6 +643,25 @@ public class AlertRepository : IAlertRepository
         }
     }
 
+    public async Task<List<AlertIncident>> GetUnresolvedIncidentsAsync(
+        int limit = 50, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            return await _context.AlertIncidents
+                .AsNoTracking()
+                .Where(i => i.Status != AlertStatus.Resolved)
+                .OrderByDescending(i => i.LastTriggeredAt)
+                .Take(limit)
+                .ToListAsync(cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get unresolved alert incidents");
+            throw;
+        }
+    }
+
     public async Task<AlertIncident?> GetIncidentAsync(int id, CancellationToken cancellationToken = default)
     {
         try

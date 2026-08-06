@@ -54,6 +54,13 @@ public interface IAlertRepository
     Task<List<AlertIncident>> GetIncidentsByIdsAsync(IReadOnlyCollection<int> incidentIds, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// The incidents that are not resolved, newest first. Filtered in SQL rather than by the
+    /// caller: taking the newest N and filtering afterwards hides an unresolved incident the
+    /// moment N newer ones have been resolved, which on a busy site is permanent.
+    /// </summary>
+    Task<List<AlertIncident>> GetUnresolvedIncidentsAsync(int limit = 50, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Every alert belonging to any of these incidents, in one query. Re-deriving a few hundred
     /// incidents one at a time is two round trips each, which is the bulk buttons' remaining cost
     /// once the alerts themselves are written together.

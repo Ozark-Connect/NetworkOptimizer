@@ -2566,7 +2566,7 @@
         if (!SafeToRedraw) return;
         try
         {
-            var latest = await AlertRepository.GetIncidentsAsync();
+            var latest = await AlertRepository.GetUnresolvedIncidentsAsync();
             var isNew = latest.Any(p => !_incidents.Any(i => i.Id == p.Id));
             _pendingIncidents = latest;
             if (!isNew || _incidents.Count == 0) ApplyPendingIncidents();
@@ -2596,7 +2596,7 @@
     {
         try
         {
-            _incidents = await AlertRepository.GetIncidentsAsync();
+            _incidents = await AlertRepository.GetUnresolvedIncidentsAsync();
             _pendingIncidents = null;
         }
         catch (Exception ex)
