@@ -2,9 +2,9 @@
 // Same control pattern as latency-charts.js and device-health-charts.js.
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
-import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=5';
+import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=6';
 import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=9';
-import { renderFilterReset, isFiltered } from './chart-filter.js?v=4';
+import { renderFilterReset, isFiltered } from './chart-filter.js?v=5';
 import { createMarkLayer } from './chart-event-marks.js?v=1';
 
 const PALETTE = window.Apex?.colors || ['#7EB26D', '#EAB839', '#6ED0E0', '#EF843C', '#E24D42', '#1F78C1'];

@@ -567,6 +567,18 @@ h1:focus {
     margin-left: 0.15rem;
 }
 
+.stats-name-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+}
+
+.stats-name-head .wan-filter-reset {
+    position: static;
+    padding: 0 0.15rem;
+}
+
 @media (max-width: 768px) {
     .monitoring-chart-header:has(.time-range-selector):has(.settings-link) {
         position: relative;

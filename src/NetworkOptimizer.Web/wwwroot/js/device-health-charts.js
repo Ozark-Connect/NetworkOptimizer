@@ -2,9 +2,9 @@
 // filter badges, poll interval scaling) into a shared module so latency-charts,
 // device-health-charts, and future chart sets share one implementation.
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
-import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=5';
+import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=6';
 import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=9';
-import { renderFilterReset, isFiltered } from './chart-filter.js?v=4';
+import { renderFilterReset, isFiltered } from './chart-filter.js?v=5';
 import { createMarkLayer } from './chart-event-marks.js?v=1';
 
 // A device answers SNMP but can still miss a single field on a poll - a temperature or

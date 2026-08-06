@@ -2,8 +2,8 @@
 // at the current map scrubber position (or live), renders them via the shared
 // renderStatsTable(), and exposes selectDevice() so a map double-click can
 // isolate a single switch/gateway.
-import { renderStatsTable as renderTable } from './chart-stats.js?v=5';
-import { renderFilterReset } from './chart-filter.js?v=4';
+import { renderStatsTable as renderTable } from './chart-stats.js?v=6';
+import { renderFilterReset } from './chart-filter.js?v=5';
 
 const _esc = document.createElement('span');
 function escapeHtml(s) { _esc.textContent = s == null ? '' : String(s); return _esc.innerHTML; }
@@ -338,6 +338,8 @@ function renderTableNow(showAll) {
             key: 'mac',
             visibility: () => visibility,
             resetVisibility: clearTabFilter,
+            // This one filters device cards, not chart series, so the clear says so.
+            resetLabel: 'Clear filter',
             // Hide filtered devices entirely (showAllRows=false), not grey them out,
             // matching the pill behaviour; re-enable via the pills.
             onChanged: () => { savePrefs(); renderBadges(); renderTableNow(false); },

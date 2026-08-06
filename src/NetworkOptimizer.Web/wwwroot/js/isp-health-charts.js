@@ -4,7 +4,7 @@
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=9';
-import { renderFilterReset, isFiltered } from './chart-filter.js?v=4';
+import { renderFilterReset, isFiltered } from './chart-filter.js?v=5';
 
 const PALETTE = ['#2ba89a', '#3b82f6', '#a78bfa', '#ef5858', '#f59e0b', '#10b981'];
 const POLL_MS = 60000;

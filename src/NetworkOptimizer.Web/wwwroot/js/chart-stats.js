@@ -1,3 +1,5 @@
+import { isFiltered, FILTER_RESET_SVG } from './chart-filter.js?v=5';
+
 const _esc = document.createElement('span');
 function escapeHtml(s) { _esc.textContent = s; return _esc.innerHTML; }
 
@@ -59,6 +61,19 @@ export function renderStatsTable(el, container, opts) {
         return `<th data-sort-col="${i}"${classes ? ` class="${classes}"` : ''}>${col.header}${arrow}</th>`;
     }).join('');
 
+    // The clear sits in the name column's header, at its right edge. Only while something is
+    // actually filtered out: always-on would be a permanently dead button on the common case, the
+    // same rule the chip rows follow. Drawn inline rather than through renderFilterReset, whose
+    // placement is measured against chips this header does not have.
+    const showReset = !!filter && isFiltered(filter.visibility());
+    // Wording follows the caller: eight of these tables filter chart series, the port stats table
+    // filters device cards, and calling those series would name something that is not on screen.
+    const resetLabel = filter?.resetLabel ?? 'Clear series filter';
+    const nameHead = showReset
+        ? `<span class="stats-name-head">${nameHeader}<button type="button" class="wan-filter-reset"
+            aria-label="${escapeHtml(resetLabel)}" data-tooltip="${escapeHtml(resetLabel)}">${FILTER_RESET_SVG}</button></span>`
+        : nameHeader;
+
     const rowsHtml = sorted.map(r => {
         const filtered = r.visible === false;
         const cls = filtered ? ' class="stats-row-filtered"' : '';
@@ -77,7 +92,7 @@ export function renderStatsTable(el, container, opts) {
         <div class="table-responsive">
         <table class="data-table" style="font-size:0.8125rem">
             <thead><tr>
-                <th>${nameHeader}</th>
+                <th>${nameHead}</th>
                 ${headers}
             </tr></thead>
             <tbody>${rowsHtml}</tbody>
@@ -110,6 +125,14 @@ export function renderStatsTable(el, container, opts) {
     if (filter && !el._filterDelegated) {
         el._filterDelegated = true;
         el.addEventListener('click', (e) => {
+            // Ahead of the sort guard: the clear lives in a header cell, so a click on it is a
+            // click in a th, and it must not be read as a request to sort by that column.
+            if (e.target.closest('.wan-filter-reset')) {
+                e.stopPropagation();
+                filter.resetVisibility();
+                filter.onChanged(container);
+                return;
+            }
             if (e.target.closest('th[data-sort-col]')) return;
             const td = e.target.closest('[data-stat-id]');
             if (!td) return;
