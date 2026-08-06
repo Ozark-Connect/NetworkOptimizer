@@ -39,6 +39,9 @@ let badgesEl = null;
 const _escSpan = document.createElement('span');
 function escapeHtml(v) { _escSpan.textContent = v ?? ''; return _escSpan.innerHTML; }
 let lastEvents = [];
+// The full series set from the last poll, so a chip click can redraw the chart from it without
+// going back to the server.
+let lastSeries = [];
 
 function buildOpts() {
     return {
@@ -214,9 +217,9 @@ async function loadAndUpdate() {
 
         lastEvents = json.events || [];
         chart.updateOptions({ annotations: buildAnnotations(lastEvents) }, false, false);
-        // Preserve the user's drag-zoom; a series refresh while zoomed would snap back
-        // updateSeries resets per-series visibility, so re-apply after every refresh.
-        if (!isZoomed) { chart.updateSeries(series, false); applySeriesVisibility(); }
+        lastSeries = series;
+        // Preserve the user's drag-zoom; a series refresh while zoomed would snap back.
+        if (!isZoomed) applySeriesVisibility();
     } catch (e) {
         if (e.name !== 'AbortError') console.warn('isp-health chart load failed', e);
     }
@@ -224,12 +227,12 @@ async function loadAndUpdate() {
 
 function applySeriesVisibility() {
     if (!chart) return;
-    asnMeta.forEach(m => {
-        if (seriesVisibility[m.name] === false) chart.hideSeries(m.name);
-        else chart.showSeries(m.name);
-    });
+    // One update carrying just the series that should be drawn. This used to call
+    // hideSeries/showSeries per ASN, and each of those is a full redraw, so isolating one provider
+    // on a path with several cost a redraw for every chip it changed.
+    chart.updateSeries(lastSeries.filter(x => seriesVisibility[x.name] !== false), false);
 
-    // hideSeries/showSeries redraw against the default axis range, so a chip click threw away a
+    // Redrawing resets the axis range, so a chip click threw away a
     // drag-zoom - you would zoom into an event, isolate the provider you wanted to look at, and
     // land back on the whole window. Filtering and zooming are answers to the same question here,
     // so they have to survive each other. Re-applied rather than prevented, because the library

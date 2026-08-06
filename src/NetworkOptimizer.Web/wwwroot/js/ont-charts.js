@@ -2,7 +2,7 @@
 // Same control pattern as cellular-charts.js.
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
-import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=4';
+import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=5';
 import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=9';
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=4';
 import { createMarkLayer } from './chart-event-marks.js?v=1';
@@ -18,7 +18,6 @@ let powerChart = null;
 let tempChart = null;
 // FEC/BIP error-delta chart; its section stays hidden unless some ONT reports the counters.
 let errorsChart = null;
-let errorsSeriesByDevice = {};
 let pollTimer = null;
 let currentRangeHours = 24;
 let windowOffset = 0;
@@ -173,28 +172,48 @@ function onMarkResize() {
     markResizeTimer = setTimeout(applyAnnotations, 200);
 }
 
-function updateVisibility() {
-    // Ahead of the single-ONT short-circuit below: the marks are drawn whether or not there is
-    // more than one series to show and hide.
-    applyAnnotations();
-    if (deviceMeta.length <= 1) return;
-    deviceMeta.forEach(m => {
-        const vis = visibility[m.id] !== false;
-        try {
-            if (powerChart) {
-                if (vis) { powerChart.showSeries(m.label + ' RX'); powerChart.showSeries(m.label + ' TX'); }
-                else { powerChart.hideSeries(m.label + ' RX'); powerChart.hideSeries(m.label + ' TX'); }
-            }
-            if (tempChart) {
-                if (vis) tempChart.showSeries(m.label);
-                else tempChart.hideSeries(m.label);
-            }
-            const es = errorsSeriesByDevice[m.id];
-            if (errorsChart && es) {
-                es.forEach(n => vis ? errorsChart.showSeries(n) : errorsChart.hideSeries(n));
-            }
-        } catch (_) {}
+// RX, TX and temperature each get their own color per ONT, so the three charts stay readable
+// side by side. Indexed by the ONT's place in the full list, so filtering never re-colors a line.
+const COLOR_SETS = [
+    { rx: PALETTE[0], tx: PALETTE[4], temp: PALETTE[1] },
+    { rx: PALETTE[6], tx: PALETTE[3], temp: PALETTE[11] },
+    { rx: PALETTE[10], tx: PALETTE[18], temp: PALETTE[13] },
+];
+
+// Draws exactly the ONTs that should be on screen, in one update per chart.
+//
+// This used to call showSeries/hideSeries per ONT per series, and each of those is a full redraw.
+function drawSeries() {
+    const all = lastData?.devices || [];
+    const devices = all.filter(d => visibility[d.id] !== false);
+    const powerSeries = [];
+    const tempSeries = [];
+    // Positional, so rebuilt against the ONTs actually drawn: RX solid, TX dashed.
+    const powerDash = [];
+    devices.forEach(d => {
+        const c = COLOR_SETS[all.indexOf(d) % COLOR_SETS.length];
+        const pts = d.data || [];
+        powerSeries.push({ name: d.label + ' RX', color: c.rx, data: alignedPoints(pts, p => p.rx) });
+        powerSeries.push({ name: d.label + ' TX', color: c.tx, data: alignedPoints(pts, p => p.tx) });
+        powerDash.push(0);
+        powerDash.push(5);
+        tempSeries.push({ name: d.label, color: c.temp, data: alignedPoints(pts, p => p.temp) });
     });
+    if (powerChart) {
+        powerChart.updateOptions({ stroke: { curve: 'smooth', width: 2, dashArray: powerDash } }, false, false);
+        powerChart.updateSeries(powerSeries, false);
+    }
+    if (tempChart) tempChart.updateSeries(tempSeries, false);
+}
+
+function updateVisibility() {
+    applyAnnotations();
+    // No single-ONT short-circuit: this is the draw path now, not just the toggle path, so the one
+    // ONT on a single-ONT site would never be plotted at all.
+    drawSeries();
+    // Fire-and-forget: it mounts the chart on first use. Kept off the synchronous path so a chart
+    // error can never break chip re-rendering.
+    updateErrorsChart().catch(() => {});
 }
 
 async function loadAndUpdate() {
@@ -206,45 +225,9 @@ async function loadAndUpdate() {
     // Set before updateVisibility below, which is what draws the marks.
     lastEvents = data.events || [];
 
-    const powerSeries = [];
-    const tempSeries = [];
-    const COLOR_SETS = [
-        { rx: PALETTE[0], tx: PALETTE[4], temp: PALETTE[1] },
-        { rx: PALETTE[6], tx: PALETTE[3], temp: PALETTE[11] },
-        { rx: PALETTE[10], tx: PALETTE[18], temp: PALETTE[13] },
-    ];
-    data.devices.forEach((d, i) => {
-        const c = COLOR_SETS[i % COLOR_SETS.length];
-        const pts = d.data || [];
-        powerSeries.push({
-            name: d.label + ' RX',
-            color: c.rx,
-            data: alignedPoints(pts, p => p.rx),
-        });
-        powerSeries.push({
-            name: d.label + ' TX',
-            color: c.tx,
-            data: alignedPoints(pts, p => p.tx),
-        });
-        tempSeries.push({
-            name: d.label,
-            color: c.temp,
-            data: alignedPoints(pts, p => p.temp),
-        });
-    });
-
-    const powerDash = [];
-    data.devices.forEach(() => { powerDash.push(0); powerDash.push(5); });
-    if (powerChart) {
-        powerChart.updateOptions({ stroke: { curve: 'smooth', width: 2, dashArray: powerDash } }, false, false);
-        powerChart.updateSeries(powerSeries, false);
-    }
-    if (tempChart) tempChart.updateSeries(tempSeries, false);
-    // Never let an errors-chart failure abort the rest of the refresh (badges, stats table).
-    try { await updateErrorsChart(data); } catch (_) {}
-
-    updateVisibility();
+    // Before updateVisibility, which draws from it.
     lastData = data;
+    updateVisibility();
     const container = document.getElementById(containerId);
     if (container) {
         renderBadges(container);
@@ -271,31 +254,29 @@ async function ensureErrorsChartMounted() {
     applyAnnotations();
 }
 
-async function updateErrorsChart(data) {
+async function updateErrorsChart() {
     const container = document.getElementById(containerId);
     const section = container?.querySelector('.ont-errors-section');
     if (!section) return;
-    const withErrors = (data.devices || []).filter(d =>
+    const reporting = (lastData?.devices || []).filter(d =>
         (d.data || []).some(p => p.fec != null || p.bip != null));
-    if (!withErrors.length) {
+    // The section appears when ANY ONT reports errors, filtered or not - it is a property of the
+    // hardware, so it must not come and go as the chips are clicked. Only its series are filtered.
+    if (!reporting.length) {
         section.style.display = 'none';
-        errorsSeriesByDevice = {};
         return;
     }
     await ensureErrorsChartMounted();
     if (!errorsChart) return;
     section.style.display = '';
 
-    errorsSeriesByDevice = {};
+    const withErrors = reporting.filter(d => visibility[d.id] !== false);
     const series = [];
     withErrors.forEach(d => {
         const pts = d.data || [];
-        const s = [
+        series.push(
             { name: `${d.label} FEC`, data: alignedPoints(pts, p => p.fec) },
-            { name: `${d.label} BIP`, data: alignedPoints(pts, p => p.bip) },
-        ];
-        errorsSeriesByDevice[d.id] = s.map(x => x.name);
-        series.push(...s);
+            { name: `${d.label} BIP`, data: alignedPoints(pts, p => p.bip) });
     });
     errorsChart.updateSeries(series, false);
 }
@@ -574,7 +555,6 @@ export function unmount() {
     containerId = null;
     deviceMeta = [];
     visibility = {};
-    errorsSeriesByDevice = {};
     chartEls = {};
     lastData = null;
     lastEvents = [];

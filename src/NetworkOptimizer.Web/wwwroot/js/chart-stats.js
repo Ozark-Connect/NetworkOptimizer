@@ -118,15 +118,26 @@ export function renderStatsTable(el, container, opts) {
             const key = filter.key;
             const vis = filter.visibility();
 
+            // A row may speak for more than itself - the same host measured over several WANs is
+            // one thing the user is watching, split across rows only because the WANs are being
+            // compared. groupOf says which ids move together; without it a row speaks for itself.
+            // Compared as strings throughout: the id comes off a data attribute, so it is always a
+            // string, while meta keys are whatever the caller holds (a numeric target id, here).
+            const ids = (filter.groupOf ? filter.groupOf(id) : [id]).map(String);
+            const inGroup = new Set(ids);
+            const groupVisible = ids.some(i => vis[i] !== false);
+
             if (e.ctrlKey || e.metaKey) {
-                vis[id] = vis[id] === false ? undefined : false;
+                ids.forEach(i => { vis[i] = groupVisible ? false : undefined; });
             } else {
                 const allVis = meta.every(m => vis[m[key]] !== false);
-                const onlyThis = vis[id] !== false
-                    && meta.filter(m => m[key] !== id).every(m => vis[m[key]] === false);
+                const onlyThis = groupVisible
+                    && meta.filter(m => !inGroup.has(String(m[key]))).every(m => vis[m[key]] === false);
                 if (onlyThis) { filter.resetVisibility(); }
-                else if (allVis) { meta.forEach(m => { vis[m[key]] = m[key] === id; }); }
-                else { vis[id] = vis[id] === false; }
+                else if (allVis) { meta.forEach(m => { vis[m[key]] = inGroup.has(String(m[key])); }); }
+                // Flip it: assigning the state back to itself leaves a hidden row hidden, so the
+                // click after a solo did nothing at all.
+                else { ids.forEach(i => { vis[i] = !groupVisible; }); }
             }
             filter.onChanged(container);
         });

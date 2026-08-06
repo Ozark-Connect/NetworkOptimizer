@@ -2,7 +2,7 @@
 // filter badges, poll interval scaling) into a shared module so latency-charts,
 // device-health-charts, and future chart sets share one implementation.
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
-import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=4';
+import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=5';
 import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=9';
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=4';
 import { createMarkLayer } from './chart-event-marks.js?v=1';
@@ -163,16 +163,33 @@ function renderBadges(container) {
     renderFilterReset(el, isFiltered(visibility), () => { visibility = {}; updateVisibility(); renderBadges(container); });
 }
 
+// Draws exactly the devices that should be on screen, in one update per chart.
+//
+// This used to call showSeries/hideSeries per device on every chart, and each of those is a full
+// redraw - so one chip click cost a redraw per device it changed, on each of temp, CPU, memory and
+// every custom chart. Colors are hashed off the device name, so filtering never re-colors a line.
+function drawSeries() {
+    const devices = (lastData?.devices || []).filter(d => visibility[d.mac] !== false);
+    const makeSeries = (field) => devices.map(d => ({
+        name: d.name,
+        color: hashColor(d.name),
+        data: alignedPoints(d.data || [], p => p[field], 'time', GAP_BRIDGE_MS),
+    }));
+    if (tempChart) tempChart.updateSeries(makeSeries('temp'), false);
+    if (cpuChart) cpuChart.updateSeries(makeSeries('cpu'), false);
+    if (memChart) memChart.updateSeries(makeSeries('mem'), false);
+    for (const [field, chart] of Object.entries(customCharts)) {
+        if (!chart) continue;
+        chart.updateSeries(devices.map(d => ({
+            name: d.name,
+            color: hashColor(d.name),
+            data: (d.custom?.[field] || []).map(p => ({ x: new Date(p.time).getTime(), y: p.value })),
+        })), false);
+    }
+}
+
 function updateVisibility() {
-    deviceMeta.forEach(d => {
-        const vis = visibility[d.mac] !== false;
-        const allCharts = [tempChart, cpuChart, memChart, ...Object.values(customCharts)];
-        for (const chart of allCharts) {
-            if (!chart) continue;
-            if (vis) chart.showSeries(d.name);
-            else chart.hideSeries(d.name);
-        }
-    });
+    drawSeries();
     applyAnnotations();
 }
 
@@ -211,21 +228,13 @@ async function loadAndUpdate() {
     }));
     // Set before updateVisibility below, which is what draws the marks.
     lastEvents = data.events || [];
-    const makeSeries = (field) => data.devices.map(d => ({
-        name: d.name,
-        color: hashColor(d.name),
-        data: alignedPoints(d.data || [], p => p[field], 'time', GAP_BRIDGE_MS),
-    }));
-    if (tempChart) tempChart.updateSeries(makeSeries('temp'), false);
-    if (cpuChart) cpuChart.updateSeries(makeSeries('cpu'), false);
-    if (memChart) memChart.updateSeries(makeSeries('mem'), false);
-
     const newDefs = data.customFields || [];
     const container = document.getElementById(containerId);
+    // Before updateVisibility, which draws from it.
+    lastData = data;
     if (container) await syncCustomCharts(container, data.devices, newDefs);
 
     updateVisibility();
-    lastData = data;
     if (container) {
         renderBadges(container);
         renderStatsTable(container);

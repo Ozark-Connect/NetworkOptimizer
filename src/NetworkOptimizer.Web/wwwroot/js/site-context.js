@@ -218,3 +218,38 @@ window.noScrollTo = function (id, block) {
     if (!el) return;
     el.scrollIntoView({ behavior: 'smooth', block: block || 'start' });
 };
+
+// Holds an element at the same place on screen while something ABOVE it changes height, for a
+// control the user is about to press again. Filtering the Latency Targets bar re-picks the chart
+// series above it, and the statistics table that grows or shrinks with them drags the whole card -
+// pills included - out from under the cursor. What the user is looking at is the fixed point here,
+// not the scroll offset, so the page moves to keep the element still rather than the other way
+// round. Scroll-anchoring the browser does on its own stops at the first layout; the table settles
+// over several, once the new series have loaded, so this watches for a window.
+window.noHoldScroll = function (id, windowMs) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    var startTop = el.getBoundingClientRect().top;
+    var until = performance.now() + (windowMs || 1500);
+    var released = false;
+    function release() { released = true; }
+    // The user's own scroll wins outright - they have just moved the fixed point themselves. Only
+    // input events, never 'scroll', which our own compensation raises.
+    window.addEventListener('wheel', release, { passive: true });
+    window.addEventListener('touchmove', release, { passive: true });
+    window.addEventListener('keydown', release);
+    function tick(now) {
+        if (released || now >= until) {
+            window.removeEventListener('wheel', release);
+            window.removeEventListener('touchmove', release);
+            window.removeEventListener('keydown', release);
+            return;
+        }
+        var delta = el.getBoundingClientRect().top - startTop;
+        // 'instant' because the page sets scroll-behavior: smooth - an animated correction would
+        // still be running when the next frame measures, and each frame would chase the last.
+        if (Math.abs(delta) >= 1) window.scrollBy({ top: delta, left: 0, behavior: 'instant' });
+        requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
+};

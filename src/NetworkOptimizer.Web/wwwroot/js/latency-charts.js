@@ -5,7 +5,7 @@
 // device-health-charts, and future chart sets share one implementation.
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
-import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=4';
+import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=5';
 import { valueSortedTooltip, tooltipHeld } from './chart-tooltip.js?v=9';
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=4';
 import { downloadColor, uploadColor } from './chart-colors.js?v=2';
@@ -554,6 +554,10 @@ function renderStatsTable(container, showAll) {
         ],
         filter: { meta: () => targetMeta, key: 'id', visibility: () => visibility,
             resetVisibility: () => { visibility = {}; },
+            // The same host over two WANs is one series to the user - they are comparing the WANs,
+            // not choosing between them - so its rows toggle together, exactly as the chip above
+            // does. Outside a comparison every group holds one id and this changes nothing.
+            groupOf: (id) => badgeGroups().find(g => g.ids.some(i => String(i) === String(id)))?.ids ?? [id],
             onChanged: (c) => { updateChartVisibility(); renderBadges(c); renderStatsTable(c, true); } },
     });
 }

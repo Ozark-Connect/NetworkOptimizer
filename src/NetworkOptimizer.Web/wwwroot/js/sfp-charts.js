@@ -2,7 +2,7 @@
 // Same control pattern as latency-charts.js and device-health-charts.js.
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
-import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=4';
+import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=5';
 import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=9';
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=4';
 import { createMarkLayer } from './chart-event-marks.js?v=1';
@@ -194,18 +194,37 @@ function onMarkResize() {
     markResizeTimer = setTimeout(applyAnnotations, 200);
 }
 
-function updateVisibility() {
-    moduleMeta.forEach(m => {
-        const vis = visibility[m.id] !== false;
-        if (powerChart) {
-            if (vis) { powerChart.showSeries(`${m.label} RX`); powerChart.showSeries(`${m.label} TX`); }
-            else { powerChart.hideSeries(`${m.label} RX`); powerChart.hideSeries(`${m.label} TX`); }
-        }
-        if (tempChart) {
-            if (vis) tempChart.showSeries(m.label);
-            else tempChart.hideSeries(m.label);
-        }
+// Draws exactly the modules that should be on screen, in one update per chart.
+//
+// This used to call showSeries/hideSeries per module, and each of those is a full redraw - so a
+// chip click cost one redraw per module it changed, and going from everything to one cost as many
+// as there are modules. Colors come from moduleMeta, which holds each module's palette slot from
+// the full list, so filtering never re-colors what stays on screen.
+function drawSeries() {
+    const modules = (lastData?.modules || []).filter(m => visibility[m.id] !== false);
+    const powerSeries = [];
+    const tSeries = [];
+    // Dash patterns are positional, so they are rebuilt against the series actually drawn: RX
+    // solid, TX dashed, per module.
+    const powerDash = [];
+    modules.forEach(m => {
+        const color = moduleMeta.find(x => x.id === m.id)?.color || PALETTE[0];
+        const pts = m.data || [];
+        powerSeries.push({ name: `${m.label} RX`, color: color, data: alignedPoints(pts, p => p.rx) });
+        powerSeries.push({ name: `${m.label} TX`, color: color, data: alignedPoints(pts, p => p.tx) });
+        powerDash.push(0);
+        powerDash.push(5);
+        tSeries.push({ name: m.label, color: color, data: alignedPoints(pts, p => p.temp) });
     });
+    if (powerChart) {
+        powerChart.updateOptions({ stroke: { curve: 'smooth', width: 2, dashArray: powerDash } }, false, false);
+        powerChart.updateSeries(powerSeries, false);
+    }
+    if (tempChart) tempChart.updateSeries(tSeries, false);
+}
+
+function updateVisibility() {
+    drawSeries();
     applyAnnotations();
     // Fire-and-forget: rebuilds the PON charts/section for the selected modules. Kept
     // off the synchronous path so a chart error can never break chip re-rendering.
@@ -265,40 +284,12 @@ async function loadAndUpdate() {
     // Set before updateVisibility below, which is what draws the marks.
     lastEvents = data.events || [];
 
-    const powerSeries = [];
-    const tSeries = [];
-    data.modules.forEach((m, i) => {
-        const color = PALETTE[i % PALETTE.length];
-        const pts = m.data || [];
-        powerSeries.push({
-            name: `${m.label} RX`,
-            color: color,
-            data: alignedPoints(pts, p => p.rx),
-        });
-        powerSeries.push({
-            name: `${m.label} TX`,
-            color: color,
-            data: alignedPoints(pts, p => p.tx),
-        });
-        tSeries.push({
-            name: m.label,
-            color: color,
-            data: alignedPoints(pts, p => p.temp),
-        });
-    });
-
-    const powerDash = [];
-    data.modules.forEach(() => { powerDash.push(0); powerDash.push(5); });
-    if (powerChart) {
-        powerChart.updateOptions({ stroke: { curve: 'smooth', width: 2, dashArray: powerDash } }, false, false);
-        powerChart.updateSeries(powerSeries, false);
-    }
-    if (tempChart) tempChart.updateSeries(tSeries, false);
     // Never let a PON chart failure abort the rest of the refresh (badges, stats table).
     try { await updatePonCharts(data); } catch (_) {}
 
-    updateVisibility();
+    // Before updateVisibility, which draws from it.
     lastData = data;
+    updateVisibility();
     const container = document.getElementById(containerId);
     if (container) {
         renderBadges(container);

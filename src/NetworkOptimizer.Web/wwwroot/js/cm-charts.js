@@ -2,7 +2,7 @@
 // Same control pattern as cellular-charts.js.
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
-import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=4';
+import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=5';
 import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=9';
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=4';
 
@@ -146,26 +146,40 @@ function renderBadges(container) {
     renderFilterReset(el, isFiltered(visibility), () => { visibility = {}; updateVisibility(); renderBadges(container); });
 }
 
+// Downstream, upstream and the two error counts each get their own color per modem, so the four
+// charts stay readable side by side. Indexed by the modem's place in the full list, so filtering
+// never re-colors a line.
+const COLOR_SETS = [
+    { ds: PALETTE[0], us: PALETTE[4], uncorr: PALETTE[2], corr: PALETTE[1] },
+    { ds: PALETTE[6], us: PALETTE[3], uncorr: PALETTE[12], corr: PALETTE[11] },
+    { ds: PALETTE[10], us: PALETTE[18], uncorr: PALETTE[19], corr: PALETTE[13] },
+];
+
+// Draws exactly the modems that should be on screen, in one update per chart.
+//
+// This used to call showSeries/hideSeries per modem per series, and each of those is a full
+// redraw. No single-modem short-circuit: this is the draw path now, not just the toggle path.
 function updateVisibility() {
-    if (deviceMeta.length <= 1) return;
-    deviceMeta.forEach(m => {
-        const vis = visibility[m.id] !== false;
-        [dsPowerChart, dsSnrChart, usPowerChart].forEach(chart => {
-            if (!chart) return;
-            try { if (vis) chart.showSeries(m.label); else chart.hideSeries(m.label); } catch (_) {}
-        });
-        if (errorsChart) {
-            try {
-                if (vis) {
-                    errorsChart.showSeries(m.label + ' Uncorrectable');
-                    errorsChart.showSeries(m.label + ' Correctable');
-                } else {
-                    errorsChart.hideSeries(m.label + ' Uncorrectable');
-                    errorsChart.hideSeries(m.label + ' Correctable');
-                }
-            } catch (_) {}
-        }
+    const all = lastData?.devices || [];
+    const devices = all.filter(d => visibility[d.id] !== false);
+    const dsPowerSeries = [];
+    const dsSnrSeries = [];
+    const usPowerSeries = [];
+    const errorsSeries = [];
+    devices.forEach(d => {
+        const c = COLOR_SETS[all.indexOf(d) % COLOR_SETS.length];
+        const pts = d.data || [];
+        dsPowerSeries.push({ name: d.label, color: c.ds, data: alignedPoints(pts, p => p.dsPower) });
+        dsSnrSeries.push({ name: d.label, color: c.ds, data: alignedPoints(pts, p => p.dsSnr) });
+        usPowerSeries.push({ name: d.label, color: c.us, data: alignedPoints(pts, p => p.usPower) });
+        errorsSeries.push(
+            { name: d.label + ' Uncorrectable', color: c.uncorr, data: alignedPoints(pts, p => p.uncorrDelta) },
+            { name: d.label + ' Correctable', color: c.corr, data: alignedPoints(pts, p => p.corrDelta) });
     });
+    if (dsPowerChart) dsPowerChart.updateSeries(dsPowerSeries, false);
+    if (dsSnrChart) dsSnrChart.updateSeries(dsSnrSeries, false);
+    if (usPowerChart) usPowerChart.updateSeries(usPowerSeries, false);
+    if (errorsChart) errorsChart.updateSeries(errorsSeries, false);
 }
 
 async function loadAndUpdate() {
@@ -175,52 +189,9 @@ async function loadAndUpdate() {
         id: d.id, label: d.label, color: PALETTE[i % PALETTE.length],
     }));
 
-    const dsPowerSeries = [];
-    const dsSnrSeries = [];
-    const usPowerSeries = [];
-    const errorsSeries = [];
-    const COLOR_SETS = [
-        { ds: PALETTE[0], us: PALETTE[4], uncorr: PALETTE[2], corr: PALETTE[1] },
-        { ds: PALETTE[6], us: PALETTE[3], uncorr: PALETTE[12], corr: PALETTE[11] },
-        { ds: PALETTE[10], us: PALETTE[18], uncorr: PALETTE[19], corr: PALETTE[13] },
-    ];
-    data.devices.forEach((d, i) => {
-        const c = COLOR_SETS[i % COLOR_SETS.length];
-        const pts = d.data || [];
-        dsPowerSeries.push({
-            name: d.label,
-            color: c.ds,
-            data: alignedPoints(pts, p => p.dsPower),
-        });
-        dsSnrSeries.push({
-            name: d.label,
-            color: c.ds,
-            data: alignedPoints(pts, p => p.dsSnr),
-        });
-        usPowerSeries.push({
-            name: d.label,
-            color: c.us,
-            data: alignedPoints(pts, p => p.usPower),
-        });
-        errorsSeries.push({
-            name: d.label + ' Uncorrectable',
-            color: c.uncorr,
-            data: alignedPoints(pts, p => p.uncorrDelta),
-        });
-        errorsSeries.push({
-            name: d.label + ' Correctable',
-            color: c.corr,
-            data: alignedPoints(pts, p => p.corrDelta),
-        });
-    });
-
-    if (dsPowerChart) dsPowerChart.updateSeries(dsPowerSeries, false);
-    if (dsSnrChart) dsSnrChart.updateSeries(dsSnrSeries, false);
-    if (usPowerChart) usPowerChart.updateSeries(usPowerSeries, false);
-    if (errorsChart) errorsChart.updateSeries(errorsSeries, false);
-
-    updateVisibility();
+    // Before updateVisibility, which draws from it.
     lastData = data;
+    updateVisibility();
     const container = document.getElementById(containerId);
     if (container) {
         renderBadges(container);
