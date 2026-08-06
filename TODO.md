@@ -1224,7 +1224,7 @@ Separately, the comparison set itself is narrow, and this one stands on its own 
 
 - [ ] `ResolveGatewayIpsAsync` takes exactly one LAN address, because `ResolveGatewayLanIpAsync` is
   `FirstOrDefault()` over the corporate networks. A multi-VLAN gateway contributes its default LAN
-  and nothing else - on the Honeybee gateway that is 2 of the 6 addresses the box actually holds.
+  and nothing else - on a gateway with a handful of VLANs that is 2 of the 6 addresses it holds.
   An agent reporting `local_ips` (2.6.0+) always hits one of the two, but an older single-address
   agent matches only if it named one of them. `NetworkInfo.Gateway` is already mapped for EVERY
   network in `UniFiConnectionService` and `UniFiDiscovery`, so the full set is there for the taking.
