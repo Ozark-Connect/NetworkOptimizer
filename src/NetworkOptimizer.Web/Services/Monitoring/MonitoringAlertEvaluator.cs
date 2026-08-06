@@ -155,7 +155,7 @@ public class MonitoringAlertEvaluator
         DeviceId = target.DeviceMac,
         DeviceName = target.Name,
         DeviceIp = target.Address,
-        SourceUrl = "/monitoring?tab=performance",
+        SourceUrl = TargetSourceUrl(target, DateTime.UtcNow),
         Tags = ["monitoring", target.TargetType.ToString().ToLowerInvariant()],
         Context = new Dictionary<string, string>
         {
@@ -176,7 +176,7 @@ public class MonitoringAlertEvaluator
         DeviceName = target.Name,
         DeviceIp = target.Address,
         MetricValue = result.RttAvgMs,
-        SourceUrl = "/monitoring?tab=performance",
+        SourceUrl = TargetSourceUrl(target, DateTime.UtcNow),
         Tags = ["monitoring", target.TargetType.ToString().ToLowerInvariant()],
         Context = new Dictionary<string, string>
         {
@@ -197,7 +197,7 @@ public class MonitoringAlertEvaluator
         DeviceIp = target.Address,
         MetricValue = avgLossPercent,
         ThresholdValue = SustainedLossThresholdPercent,
-        SourceUrl = "/monitoring?tab=performance",
+        SourceUrl = TargetSourceUrl(target, DateTime.UtcNow),
         Tags = ["monitoring", "packet-loss", target.TargetType.ToString().ToLowerInvariant()],
         Context = new Dictionary<string, string>
         {
@@ -205,6 +205,28 @@ public class MonitoringAlertEvaluator
             ["target_type"] = target.TargetType.ToString()
         }
     };
+
+    /// <summary>
+    /// Where the alert takes you: the Network Performance chart, on this target's own category
+    /// and parked at the moment the alert fired, rather than the tab's default view of now. The
+    /// analysis page reads all three from the link. WAN-scoped targets carry their WAN too, so a
+    /// secondary WAN's alert does not open on the primary's chart.
+    /// </summary>
+    private static string TargetSourceUrl(MonitoringTarget target, DateTime firedAt)
+    {
+        var category = target.TargetType switch
+        {
+            MonitoringTargetType.Fabric => "Fabric",
+            MonitoringTargetType.AccessIsp => "AccessIsp",
+            MonitoringTargetType.Transit => "Transit",
+            _ => "Custom"
+        };
+        var at = new DateTimeOffset(DateTime.SpecifyKind(firedAt, DateTimeKind.Utc)).ToUnixTimeMilliseconds();
+        var url = $"/monitoring?tab=performance&category={category}&at={at}";
+        return string.IsNullOrEmpty(target.WanInterface)
+            ? url
+            : $"{url}&wan={Uri.EscapeDataString(target.WanInterface)}";
+    }
 
     /// <summary>
     /// WAN/access-ISP/transit failures are user-impacting and rate as Critical. Fabric

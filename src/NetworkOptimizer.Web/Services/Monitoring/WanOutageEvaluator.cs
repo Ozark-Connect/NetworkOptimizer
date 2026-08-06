@@ -380,7 +380,11 @@ public class WanOutageEvaluator
             Message = message,
             DeviceId = info.WanKey,
             DeviceName = info.Label,
-            SourceUrl = "/monitoring?tab=performance",
+            // Opens on this WAN's own chart at the moment the outage started, rather than the
+            // tab's default view of now: by the time anyone follows the link the window that
+            // shows what happened has usually scrolled off the live view.
+            SourceUrl = WanSourceUrl(info.WanKey, total ? "AccessIsp" : "InternetService",
+                state.EpisodeStart ?? now),
             Tags = ["monitoring", "wan-outage"],
             Context = BuildContext(info, verdict, state.EpisodeStart, breakAt)
         };
@@ -398,7 +402,9 @@ public class WanOutageEvaluator
             Message = $"Targets on {info.Label} are answering again. The outage lasted {duration}.",
             DeviceId = info.WanKey,
             DeviceName = info.Label,
-            SourceUrl = "/monitoring?tab=performance",
+            // Parked at the START of the outage, not the recovery: what someone following a
+            // recovery wants to see is the episode that just ended.
+            SourceUrl = WanSourceUrl(info.WanKey, "AccessIsp", state.EpisodeStart ?? now),
             Tags = ["monitoring", "wan-outage"],
             Context = new Dictionary<string, string>
             {
@@ -425,7 +431,8 @@ public class WanOutageEvaluator
             Message = $"Every WAN ({string.Join(", ", labels)}) has been failing all of its monitored targets for {duration}. The site looks offline.",
             DeviceId = RollupDeviceId,
             DeviceName = "All WANs",
-            SourceUrl = "/monitoring?tab=performance",
+            // Every WAN is out, so this one spans them all rather than naming one.
+            SourceUrl = $"/monitoring?tab=performance&category=AccessIsp&at={new DateTimeOffset(DateTime.SpecifyKind(_rollupSince ?? now, DateTimeKind.Utc)).ToUnixTimeMilliseconds()}&wan={Services.Monitoring.LiveWanScope.AllWansToken}",
             Tags = ["monitoring", "wan-outage"],
             Context = new Dictionary<string, string>
             {
@@ -453,6 +460,17 @@ public class WanOutageEvaluator
         if (breakAt != null) context["break_at"] = breakAt;
         if (since != null) context["since"] = since.Value.ToString("o", CultureInfo.InvariantCulture);
         return context;
+    }
+
+    /// <summary>
+    /// The Network Performance chart, scoped to one WAN and parked at an instant. The analysis
+    /// page reads the category, the WAN and the timestamp from the link, so following an alert
+    /// lands on the evidence rather than on whatever the tab happens to show now.
+    /// </summary>
+    private static string WanSourceUrl(string wanKey, string category, DateTime at)
+    {
+        var ms = new DateTimeOffset(DateTime.SpecifyKind(at, DateTimeKind.Utc)).ToUnixTimeMilliseconds();
+        return $"/monitoring?tab=performance&category={category}&at={ms}&wan={Uri.EscapeDataString(wanKey)}";
     }
 
     private static string Humanize(TimeSpan duration)
