@@ -3,6 +3,7 @@
 @using NetworkOptimizer.Storage.Models
 @using NetworkOptimizer.Web.Services
 @using NetworkOptimizer.Web.Services.Monitoring.IspHealth
+@using static NetworkOptimizer.Web.Services.Monitoring.MonitoringLinks
 @using NetworkOptimizer.Core.Enums
 @implements IDisposable
 @inject MonitoringLiveStats LiveStats
@@ -98,7 +99,7 @@ else
                 }
             </div>
             @{ var ispTarget = ScopedTargetStats(MonitoringTargetType.AccessIsp, meanAcrossTargets: false); }
-            <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => JumpToAnalysis("AccessIsp"))">
+            <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => JumpToAnalysis(AccessIspCategory))">
                 @if (LiveWan.IsComparing)
                 {
                     <div class="stat-value stat-value-stacked">
@@ -114,7 +115,7 @@ else
                 }
                 <div class="stat-label">ISP RTT</div>
             </div>
-            <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => JumpToAnalysis("AccessIsp"))">
+            <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => JumpToAnalysis(AccessIspCategory))">
                 @if (LiveWan.IsComparing)
                 {
                     <div class="stat-value stat-value-stacked">
@@ -131,7 +132,7 @@ else
                 <div class="stat-label">ISP Loss</div>
             </div>
             @{ var transitTarget = ScopedTargetStats(MonitoringTargetType.Transit, meanAcrossTargets: true); }
-            <div class="monitoring-stat-card clickable-stat-card stat-card-no-minheight" @onclick="@(() => JumpToAnalysis("Transit"))">
+            <div class="monitoring-stat-card clickable-stat-card stat-card-no-minheight" @onclick="@(() => JumpToAnalysis(TransitCategory))">
                 @if (LiveWan.IsComparing)
                 {
                     <div class="stat-value stat-value-stacked">
@@ -147,7 +148,7 @@ else
                 }
                 <div class="stat-label">Transit RTT</div>
             </div>
-            <div class="monitoring-stat-card clickable-stat-card stat-card-no-minheight" @onclick="@(() => JumpToAnalysis("Transit"))">
+            <div class="monitoring-stat-card clickable-stat-card stat-card-no-minheight" @onclick="@(() => JumpToAnalysis(TransitCategory))">
                 @if (LiveWan.IsComparing)
                 {
                     <div class="stat-value stat-value-stacked">
@@ -700,9 +701,7 @@ else
         // which pass the moment they are frozen at. Without the token the destination fell back to
         // its saved window, so a click on a tile showing what is happening right now could land on
         // some earlier stretch of the day.
-        var at = NetworkOptimizer.Web.Services.Monitoring.MonitoringLinks.LiveAtToken;
-        NavigationManager.NavigateTo(
-            $"/monitoring?tab=performance&category={category}&at={at}{LiveWan.QueryFragment()}");
+        NavigationManager.NavigateTo(Analysis(category, LiveAtToken, LiveWan));
     }
 
     private (double? rtt, double loss) GetBestTargetStats(MonitoringTargetType type)

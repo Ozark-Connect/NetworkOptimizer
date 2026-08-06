@@ -16,6 +16,7 @@
 @using NetworkOptimizer.Web.Services.Authorization
 @inject IAuthorizationService Authz
 @using NetworkOptimizer.Web.Components.Shared.Monitoring
+@using static NetworkOptimizer.Web.Services.Monitoring.MonitoringLinks
 @using NetworkOptimizer.Web.Services.Monitoring.IspHealth
 @using NetworkOptimizer.Storage.Models
 @using NetworkOptimizer.Core.Enums
@@ -3544,20 +3545,10 @@
     /// put it in comparison mode, one line pair per WAN.
     /// </summary>
     // ─── Cross-tab jumps: watch a moment, or analyze it ───
-
-    // The category tokens the chart module and its header buttons use. Named here because the
-    // jumps have to reason about two of them: LAN and Custom targets are not reached over any one
-    // WAN, so those views span every WAN rather than carrying a filter across.
-    private const string FabricCategory = "Fabric";
-    private const string AccessIspCategory = "AccessIsp";
-    private const string CustomCategory = "Custom";
-    private const string TransitCategory = "Transit";
-
-    /// <summary>
-    /// The <c>?at=</c> value meaning "it was live, not parked" - the analysis lands on a trailing
-    /// window instead of one frozen at the click.
-    /// </summary>
-    private const string LiveAtToken = "live";
+    // The category tokens and the live marker come from MonitoringLinks, via the using static at
+    // the top of this file. They were declared here as well, and the dashboard's copy of these
+    // tiles spelled them as bare literals - three spellings of the same strings, which is how the
+    // two Live surfaces drifted apart in the first place.
 
     /// <summary>
     /// Opens Latency and Packet Loss on what the Live tab is showing: the same instant, the
@@ -3568,14 +3559,12 @@
     /// </summary>
     private void JumpToAnalysis(string category)
     {
+        // The one thing that legitimately differs between the two Live surfaces: these tiles can be
+        // parked on an instant, so they carry it. The dashboard's cannot, and always say live.
         var at = _mapHistoricAt is { } parkedAt
             ? new DateTimeOffset(parkedAt.ToUniversalTime()).ToUnixTimeMilliseconds().ToString()
             : LiveAtToken;
-        // LAN targets are not reached over any one WAN, so that jump asks for all of them rather
-        // than narrowing the analysis to whichever WAN the tiles happened to be showing.
-        var wanQuery = LiveWan.QueryFragment(
-            category == FabricCategory ? Services.Monitoring.LiveWanScope.AllWansToken : null);
-        NavigationManager.NavigateTo($"/monitoring?tab=performance&category={category}&at={at}{wanQuery}");
+        NavigationManager.NavigateTo(Analysis(category, at, LiveWan));
     }
 
     private sealed record LatencyChartView(string AtIso, string Category);

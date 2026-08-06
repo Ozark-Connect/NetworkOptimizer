@@ -30,27 +30,24 @@ public static class MonitoringLinks
     /// LAN and Custom targets are not reached over any one WAN, so those views ask for all of them
     /// rather than narrowing to whichever WAN the tiles happened to be showing.
     /// </para>
+    /// <para>
+    /// The WAN fragment is asked of the scope rather than rebuilt here. This method once took the
+    /// selection apart and reassembled it, which drifted from the scope's own rule: it emitted a
+    /// filter whenever a key was selected, where the scope emits one only when the site has a
+    /// choice worth carrying. Two spellings of one rule is what this class exists to prevent, so
+    /// it does not get to keep a second copy of that one either.
+    /// </para>
     /// </summary>
     /// <param name="category">Chart category to open.</param>
     /// <param name="at">A Unix-ms instant, or <see cref="LiveAtToken"/>.</param>
-    /// <param name="selectedWanKeys">The WANs on screen. Empty on a single-WAN site.</param>
-    /// <param name="allSelected">Whether that selection is every WAN the site has.</param>
-    /// <param name="lanScope">
-    /// Whether the source view was scoped to the LAN. Those readings are not any one WAN's, so the
-    /// destination is asked for all of them rather than for a WAN the user was not looking at.
-    /// </param>
-    public static string Analysis(
-        string category, string at, IReadOnlyCollection<string> selectedWanKeys, bool allSelected,
-        bool lanScope = false)
+    /// <param name="wanScope">The WAN selection on screen, which writes its own query fragment.</param>
+    public static string Analysis(string category, string at, LiveWanScope wanScope)
     {
-        var wan = category is FabricCategory or CustomCategory || allSelected || lanScope
+        var spansEveryWan = category is FabricCategory or CustomCategory
             ? LiveWanScope.AllWansToken
-            : string.Join(",", selectedWanKeys);
-
-        var wanQuery = selectedWanKeys.Count > 0 && wan.Length > 0
-            ? $"&wan={Uri.EscapeDataString(wan)}"
-            : "";
-        return $"/monitoring?tab=performance&category={category}&at={at}{wanQuery}";
+            : null;
+        return $"/monitoring?tab=performance&category={category}&at={at}"
+            + wanScope.QueryFragment(spansEveryWan);
     }
 
     /// <summary>
