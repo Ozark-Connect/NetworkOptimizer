@@ -75,12 +75,11 @@ public static class PrimaryWanVantageAdoption
     }
 
     /// <summary>
-    /// Whether a target measures something on this network rather than out through a WAN. A
-    /// private address never leaves the LAN, whatever the target's type says.
+    /// Whether a target measures something on this network rather than out through a WAN. Answered
+    /// by <see cref="LocalTargetResolver"/>, which prefers what was resolved and settled for this
+    /// target over what its address happens to look like.
     /// </summary>
-    public static bool IsLanTarget(MonitoringTarget target) =>
-        target.TargetType == MonitoringTargetType.Fabric
-        || NetworkUtilities.IsPrivateIpAddress(target.Address ?? string.Empty);
+    public static bool IsLanTarget(MonitoringTarget target) => LocalTargetResolver.IsLocal(target);
 
     /// <summary>
     /// Whether this vantage measures the site's primary WAN, which is the only one whose unpinned

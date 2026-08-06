@@ -106,6 +106,18 @@ public class MonitoringTarget
     public const string UnpinnedWan = "unpinned";
 
     /// <summary>
+    /// Whether this target sits on the local network, resolved rather than guessed from the text of
+    /// <see cref="Address"/>.
+    /// <para>
+    /// An address typed as a hostname says nothing on its own - "cloudkey.local" and
+    /// "speedtest.example.net" read the same - so it is resolved once and the answer kept. Null
+    /// means nobody has been able to resolve it yet, and readers fall back to testing the address
+    /// itself, which is right for a literal IP and silent for everything else.
+    /// </para>
+    /// </summary>
+    public bool? IsLocal { get; set; }
+
+    /// <summary>
     /// Whether a WanInterface names no WAN. Null counts: rows predating the marker carry it, and
     /// every reader must treat the two the same.
     /// </summary>

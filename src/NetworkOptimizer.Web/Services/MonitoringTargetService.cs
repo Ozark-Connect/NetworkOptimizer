@@ -53,6 +53,9 @@ public class MonitoringTargetService : IMonitoringTargetService
             throw new MonitoringTargetValidationException("Address must be a valid IP or hostname.");
 
         var (asnNumber, asnName) = await ResolveAsnAsync(spec.TargetType, address);
+        // Settled once, here, while the user is waiting anyway. A failure leaves it unresolved
+        // rather than guessed - the sweep will try again, and readers fall back meanwhile.
+        var isLocal = await Monitoring.LocalTargetResolver.ResolveAsync(address, ct);
 
         // Manual Transit/Access ISP adds are user-provided upstream hops the tracer didn't
         // find. Tag them UserProvided so upstream change-detection treats them as curated
@@ -78,7 +81,8 @@ public class MonitoringTargetService : IMonitoringTargetService
             VantagePoint = "server",
             CreatedAt = DateTime.UtcNow,
             AsnNumber = asnNumber,
-            AsnName = asnName
+            AsnName = asnName,
+            IsLocal = isLocal
         };
 
         // Same stamping the reassign path uses, so a target carries both keys from its first poll:

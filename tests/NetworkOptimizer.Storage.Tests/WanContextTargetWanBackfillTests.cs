@@ -1,4 +1,5 @@
 ﻿using FluentAssertions;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
@@ -49,16 +50,25 @@ public class WanContextTargetWanBackfillTests : IDisposable
         return new NetworkOptimizerDbContext(options);
     }
 
-    private static MonitoringTarget Target(string targetId, string address, int? contextId, string? wanInterface) => new()
-    {
-        TargetId = targetId,
-        Name = targetId,
-        Address = address,
-        TargetType = MonitoringTargetType.Custom,
-        ProbeMode = ProbeMode.Icmp,
-        WanContextId = contextId,
-        WanInterface = wanInterface,
-    };
+    /// <summary>
+    /// Seeds through raw SQL rather than the entity, naming only the columns that exist at the
+    /// migration under test. Inserting via EF would use the CURRENT model, so every column added
+    /// to MonitoringTargets afterwards would break these - which is the opposite of what a
+    /// migration test should be sensitive to.
+    /// </summary>
+    private static void SeedTarget(NetworkOptimizerDbContext context, string targetId, string address,
+        int? contextId, string? wanInterface) =>
+        context.Database.ExecuteSqlRaw(
+            "INSERT INTO MonitoringTargets (TargetId, Name, Address, TargetType, ProbeMode, "
+            + "WanContextId, WanInterface, VantagePoint, PollIntervalSeconds, PingCount, Enabled, "
+            + "AutoDiscovered, CreatedAt) VALUES (@id, @id, @addr, 4, 0, @ctx, @wan, 'server', 10, 5, "
+            + "1, 0, datetime('now'))",
+            new SqliteParameter("@id", targetId),
+            new SqliteParameter("@addr", address),
+            new SqliteParameter("@ctx", (object?)contextId ?? DBNull.Value),
+            new SqliteParameter("@wan", (object?)wanInterface ?? DBNull.Value));
+
+
 
     [Fact]
     public void Backfill_GivesAContextsTargetsTheContextsWan()
@@ -70,8 +80,8 @@ public class WanContextTargetWanBackfillTests : IDisposable
             context.WanContexts.Add(new WanContext { Id = 1, Name = "backup-wan", WanInterface = "wan2", ProbeSourceIp = "198.51.100.7" });
             // Assigned to the context but never given a WAN, and assigned but stamped with the
             // primary's WAN by a discovery that predates per-WAN contexts.
-            context.MonitoringTargets.Add(Target("t-unstamped", "203.0.113.1", contextId: 1, wanInterface: null));
-            context.MonitoringTargets.Add(Target("t-wrong-wan", "203.0.113.2", contextId: 1, wanInterface: "wan"));
+            SeedTarget(context, "t-unstamped", "203.0.113.1", contextId: 1, wanInterface: null);
+            SeedTarget(context, "t-wrong-wan", "203.0.113.2", contextId: 1, wanInterface: "wan");
             context.SaveChanges();
         }
 
@@ -93,8 +103,8 @@ public class WanContextTargetWanBackfillTests : IDisposable
         {
             context.GetService<IMigrator>().Migrate(PreBackfillMigration);
 
-            context.MonitoringTargets.Add(Target("t-primary", "203.0.113.3", contextId: null, wanInterface: "wan"));
-            context.MonitoringTargets.Add(Target("t-manual", "203.0.113.4", contextId: null, wanInterface: null));
+            SeedTarget(context, "t-primary", "203.0.113.3", contextId: null, wanInterface: "wan");
+            SeedTarget(context, "t-manual", "203.0.113.4", contextId: null, wanInterface: null);
             context.SaveChanges();
         }
 
@@ -118,7 +128,7 @@ public class WanContextTargetWanBackfillTests : IDisposable
             context.GetService<IMigrator>().Migrate(PreBackfillMigration);
 
             context.WanContexts.Add(new WanContext { Id = 2, Name = "legacy", ProbeSourceIp = "198.51.100.8" });
-            context.MonitoringTargets.Add(Target("t-legacy", "203.0.113.5", contextId: 2, wanInterface: "wan"));
+            SeedTarget(context, "t-legacy", "203.0.113.5", contextId: 2, wanInterface: "wan");
             context.SaveChanges();
         }
 
