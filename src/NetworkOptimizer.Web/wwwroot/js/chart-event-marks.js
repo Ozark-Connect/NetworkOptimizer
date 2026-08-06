@@ -37,8 +37,8 @@ function formatTime(time, opts) {
 }
 
 function row(label, value) {
-    return `<div class="device-tooltip-row"><span class="device-tooltip-label">${label}:</span> `
-        + `${escapeHtml(value)}</div>`;
+    return `<div class="device-tooltip-row chart-mark-row">`
+        + `<span class="device-tooltip-label">${label}:</span> ${escapeHtml(value)}</div>`;
 }
 
 // Colour and glyph both come from the worst event in the fold so they can never disagree: a
@@ -56,7 +56,7 @@ function singleTooltip(mark) {
     // Detail is prose, not a value, so it wraps full width under its own label rather than
     // being squeezed into the value column beside it.
     if (mark.detail) {
-        rows.push(`<div class="device-tooltip-row chart-mark-detail">`
+        rows.push(`<div class="device-tooltip-row chart-mark-row chart-mark-detail">`
             + `<span class="device-tooltip-label">Detail:</span> ${escapeHtml(mark.detail)}</div>`);
     }
     return rows.join('');

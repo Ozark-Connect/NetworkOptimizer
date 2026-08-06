@@ -120,9 +120,69 @@ public static class SfpChartEndpoints
         "monitoring.sfp_tx_power",
     };
 
+    /// <summary>
+    /// ONT alerts for a module attached to an SFP. These mark the PON charts only: they describe
+    /// the PON layer, not the optics the power and temperature charts plot.
+    /// </summary>
+    private static readonly HashSet<string> OntEventTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "ont.rx_power_low",
+        "ont.high_temperature",
+        "ont.pon_link_down",
+        "ont.bip_errors",
+        "ont.fec_errors",
+        "ont.hec_errors",
+    };
+
     /// <summary>Module identity used by both the series and the marks: device MAC plus port.</summary>
     private static string ModuleKey(string deviceMac, string portName) =>
         $"{deviceMac.Replace("-", ":").ToLowerInvariant()}:{portName}";
+
+    /// <summary>
+    /// The module an ONT alert belongs to, read from the link the alert already carries.
+    ///
+    /// ONT alerts identify themselves by ont_id, which says nothing about which SFP the ONT is
+    /// attached to - but the collection agent sets SourceUrl to that module's deep link precisely
+    /// because attached ONTs surface on SFP Stats. That also makes this the right discriminator
+    /// rather than a shortcut: a standalone ONT gets a <c>tab=ont</c> link instead and is left
+    /// alone, which is what should happen on a tab about SFP modules.
+    /// </summary>
+    private static string? ModuleKeyFromSourceUrl(string? sourceUrl)
+    {
+        if (string.IsNullOrEmpty(sourceUrl)) return null;
+
+        var queryStart = sourceUrl.IndexOf('?');
+        if (queryStart < 0) return null;
+
+        foreach (var pair in sourceUrl[(queryStart + 1)..].Split('&', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var eq = pair.IndexOf('=');
+            if (eq <= 0 || pair[..eq] != "sfp") continue;
+
+            var value = Uri.UnescapeDataString(pair[(eq + 1)..]);
+            return string.IsNullOrEmpty(value) ? null : value.ToLowerInvariant();
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Short label for an ONT mark: the alert's own title with the ONT name and any site suffix
+    /// taken off the ends, since the tooltip carries the module on its own rows. Derived from the
+    /// stored copy rather than reworded, so the two cannot drift.
+    /// </summary>
+    private static string OntEventLabel(string title, string? ontName)
+    {
+        var label = title;
+
+        var siteSuffix = label.LastIndexOf(" (site ", StringComparison.Ordinal);
+        if (siteSuffix > 0 && label.EndsWith(')')) label = label[..siteSuffix];
+
+        if (!string.IsNullOrEmpty(ontName) && label.StartsWith(ontName + " ", StringComparison.OrdinalIgnoreCase))
+            label = label[(ontName.Length + 1)..];
+
+        return label.Length > 0 ? char.ToUpperInvariant(label[0]) + label[1..] : title;
+    }
 
     /// <summary>
     /// Marks for the charted modules over the same window as the series.
@@ -176,6 +236,7 @@ public static class SfpChartEndpoints
             events.Add((triggeredAtUtc, new
             {
                 key,
+                scope = "sfp",
                 device = module.Device,
                 port = module.Port,
                 time = triggeredAtUtc.ToString("o"),
@@ -188,6 +249,38 @@ public static class SfpChartEndpoints
                 },
                 title = SfpEventLabel(alert.EventType, alert.Title),
                 detail = TrimTrailingLocation(alert.Message, module.Device, module.Port),
+            }));
+        }
+
+        var ontAlerts = await db.AlertHistory.AsNoTracking()
+            .Where(a => a.SourceUrl != null && a.TriggeredAt >= from && a.TriggeredAt <= to
+                && OntEventTypes.Contains(a.EventType))
+            .Select(a => new { a.EventType, a.Severity, a.Title, a.Message, a.DeviceName, a.SourceUrl, a.TriggeredAt })
+            .ToListAsync(ct);
+
+        foreach (var alert in ontAlerts)
+        {
+            var key = ModuleKeyFromSourceUrl(alert.SourceUrl);
+            if (key is null || !modulesById.TryGetValue(key, out var module)) continue;
+
+            var triggeredAtUtc = DateTime.SpecifyKind(alert.TriggeredAt, DateTimeKind.Utc);
+
+            events.Add((triggeredAtUtc, new
+            {
+                key,
+                scope = "pon",
+                device = module.Device,
+                port = module.Port,
+                time = triggeredAtUtc.ToString("o"),
+                kind = "alert",
+                severity = alert.Severity switch
+                {
+                    AlertSeverity.Critical or AlertSeverity.Error => "critical",
+                    AlertSeverity.Warning => "warning",
+                    _ => "info",
+                },
+                title = OntEventLabel(alert.Title, alert.DeviceName),
+                detail = alert.Message,
             }));
         }
 

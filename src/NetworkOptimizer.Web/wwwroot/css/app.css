@@ -7355,6 +7355,12 @@ a.path-hop.hop-clickable:hover {
     color: var(--text-primary);
 }
 
+/* Semi-bold on the mark tooltips only. The shared .device-tooltip-label stays at its own weight
+   so the speed test and Wi-Fi tooltips are untouched. */
+.tippy-box[data-theme~='custom'] .chart-mark-row .device-tooltip-label {
+    font-weight: 600;
+}
+
 /* Detail is prose rather than a value, so it wraps under its label instead of being squeezed
    into the value column beside it. */
 .tippy-box[data-theme~='custom'] .chart-mark-detail {

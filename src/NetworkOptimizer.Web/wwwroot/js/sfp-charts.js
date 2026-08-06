@@ -158,20 +158,32 @@ function renderBadges(container) {
 // Every chart on the tab paired with the element it rendered into, which is what the mark
 // layer needs to reach the annotation labels it draws. The PON charts are created lazily, so
 // the pairs are built on demand rather than captured once.
-function chartEntries() {
+function opticsChartEntries() {
     return [
         [powerChart, chartEls.power],
         [tempChart, chartEls.temp],
+    ].filter(([chart]) => chart);
+}
+
+function ponChartEntries() {
+    return [
         [ponErrChart, chartEls.ponErr],
         [ponGemChart, chartEls.ponGem],
         [ponHostChart, chartEls.ponHost],
     ].filter(([chart]) => chart);
 }
 
-const markLayer = createMarkLayer({ charts: chartEntries });
+// Two layers rather than one, because the two chart groups do not mark the same events. The
+// optics charts plot what the module's own transceiver reports, so they carry the SFP alerts
+// alone; the PON charts plot the link riding over it, where an ONT's own alerts are the most
+// useful thing on the page - and the SFP alerts still belong there too, since an RX power dip is
+// often the explanation for the BIP errors beside it.
+const opticsMarkLayer = createMarkLayer({ charts: opticsChartEntries });
+const ponMarkLayer = createMarkLayer({ charts: ponChartEntries });
 
 function applyAnnotations() {
-    markLayer.apply(lastEvents, visibility);
+    opticsMarkLayer.apply(lastEvents.filter(e => e.scope !== 'pon'), visibility);
+    ponMarkLayer.apply(lastEvents, visibility);
 }
 
 // A narrower plot fits fewer marks before they collide, so the folds have to be recomputed.
@@ -336,7 +348,7 @@ async function ensurePonChartsMounted() {
     chartEls.ponHost = ponHostEl;
     await Promise.all([ponErrChart.render(), ponGemChart.render(), ponHostChart.render()]);
     // These three arrive after the first draw, so they start with no marks on them.
-    markLayer.reset();
+    ponMarkLayer.reset();
     applyAnnotations();
 }
 
@@ -663,7 +675,8 @@ export function unmount() {
     chartEls = {};
     lastData = null;
     lastEvents = [];
-    markLayer.reset();
+    opticsMarkLayer.reset();
+    ponMarkLayer.reset();
     currentRangeHours = 24;
     windowOffset = 0;
     isCustomRange = false;

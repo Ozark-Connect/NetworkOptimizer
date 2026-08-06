@@ -377,6 +377,31 @@ all - it is collected and never shown. Either surface it or drop the field.
 
 ## Monitoring
 
+### Device reboot records: one boot writes several points
+One restart can leave up to nine stored records instead of the one the design intends. Measured on
+the NAS site 2026-08-05: **77 records over 90 days describe 11 real boots**, a 7x inflation. Every
+duplicate burst spans under a second (min 0.737s, median 0.801s, max 0.980s), and the records inside
+a burst carry different `classifier_version` values (2, 3, 4, 6, 7, and one blank) and sometimes
+contradict each other on the category - the same boot stored as both `CommandedReboot` and
+`FirmwareUpgrade`. Nine devices, eleven boots in ninety days: nothing is flapping, so this is ours.
+
+Invisible until now because every reader took the latest record per device.
+`QueryLatestDeviceRebootsAsync` collapses with `last()`, so the Uptime tooltip and the tracker's own
+seed only ever saw one. The Device Health event marks were the first thing to read the full range,
+and reported one restart as nine.
+
+`DeviceRebootTracker.StoreAsync` already tries to prevent exactly this: `_storedBootAt` reuses the
+timestamp a boot is already stored under so a re-probe **overwrites** the point instead of landing
+beside it, and `BootMatchTolerance` is five minutes against sub-second drift. It is demonstrably not
+holding. Worth establishing before changing anything: whether the surviving duplicates are historical
+(accumulated across classifier bumps before the mitigation shipped) or still being written, since
+several v7 records inside one burst suggest the latter and would point at a live race rather than a
+backlog.
+
+Not fixed by the chart work. `DeviceHealthChartEndpoints.CollapseToOneRecordPerBoot` folds the records
+on read, keeping the one classified by the newest rules, so the marks are correct while the stored
+data is not. Any fix here should also decide whether to clean up what is already written.
+
 ### PON supplemental counters: wrap-aware deltas (SFP Stats)
 The augmented PON provider's frame/allocation counters (GEM tx/rx, LAN frames, allocations) are 32-bit
 on the ONT and wrap (~4.29B unsigned, or ~2.15B if signed). Every path handles the wrap **safely**
