@@ -470,10 +470,19 @@
     /// Pins the card where it is on screen across a filter change. The pills pick the chart series
     /// above this card too, and the statistics table listing them grows or shrinks by rows - which
     /// slides the card, and the pill the user is about to press next, out from under the cursor.
-    /// Filter changes only: expanding the card is a move TO it, and belongs at the top of the page.
+    /// <para>
+    /// Only while the card is already open, which is the same test collapse-reveal.js makes before
+    /// it follows an expansion - and it sees these clicks despite the stopPropagation on the pills,
+    /// because it listens in the capture phase. A filter click on a CLOSED card opens it, and that
+    /// scroll belongs to the reveal: it moves the view DOWN to show what just appeared, where this
+    /// would pin the header where it already was and pull against it the whole way.
+    /// </para>
     /// </summary>
-    private async Task HoldPositionAsync() =>
+    private async Task HoldPositionAsync()
+    {
+        if (_collapsed) return;
         await JS.InvokeVoidAsync("noHoldScroll", "latency-targets");
+    }
 
     /// <summary>
     /// Drops a type filter the new scope cannot show. Done here rather than in the pill handlers
