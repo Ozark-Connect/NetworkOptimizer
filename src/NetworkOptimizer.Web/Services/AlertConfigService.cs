@@ -78,6 +78,14 @@ public interface IAlertConfigService
     [AuditAction(AuditActions.AlertRuleChanged, TargetType = "incident")]
     Task UpdateIncidentAsync(AlertIncident incident);
 
+    /// <summary>
+    /// Saves several incidents in one round trip. What the bulk incident buttons use: saving them
+    /// one at a time is a database commit each.
+    /// </summary>
+    [RequireRole(Roles.Operator)]
+    [AuditAction(AuditActions.AlertRuleChanged, TargetType = "incident")]
+    Task UpdateIncidentsAsync(IReadOnlyCollection<AlertIncident> incidents);
+
     /// <summary>Runs a scheduled task immediately. Returns false when it could not be started.</summary>
     [RequireRole(Roles.Operator)]
     [AuditAction(AuditActions.ScheduleChanged, TargetType = "schedule")]
@@ -144,6 +152,13 @@ public sealed class AlertConfigService : IAlertConfigService
     {
         await _alerts.UpdateIncidentAsync(incident);
         _auditContext.SetTarget(incident.Id.ToString(), incident.Title);
+    }
+
+    /// <inheritdoc />
+    public async Task UpdateIncidentsAsync(IReadOnlyCollection<AlertIncident> incidents)
+    {
+        await _alerts.UpdateIncidentsAsync(incidents);
+        _auditContext.SetTarget($"{incidents.Count} incident(s)", "bulk");
     }
 
     /// <inheritdoc />

@@ -426,8 +426,25 @@ public class AlertRepository : IAlertRepository
         if (incidents.Count == 0) return;
         try
         {
-            // The rows come back tracked from GetIncidentsByIdsAsync, so this is one commit for
-            // the lot rather than one per incident.
+            // Callers pass either the tracked rows from GetIncidentsByIdsAsync or detached copies
+            // the page is holding, so each is attached unless this very instance is already
+            // tracked. The tracked set is read once: scanning it per incident is the quadratic
+            // walk these batch methods exist to avoid.
+            var tracked = _context.ChangeTracker.Entries<AlertIncident>()
+                .GroupBy(e => e.Entity.Id)
+                .ToDictionary(g => g.Key, g => g.First());
+
+            foreach (var incident in incidents)
+            {
+                if (tracked.TryGetValue(incident.Id, out var entry))
+                {
+                    if (ReferenceEquals(entry.Entity, incident)) continue;
+                    entry.State = EntityState.Detached;
+                }
+                _context.AlertIncidents.Update(incident);
+            }
+
+            // One commit for the lot rather than one per incident.
             await _context.SaveChangesAsync(cancellationToken);
         }
         catch (Exception ex)
