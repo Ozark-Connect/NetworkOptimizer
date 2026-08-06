@@ -316,7 +316,9 @@ function renderBadges(container) {
                 } else if (allVis) {
                     targetMeta.forEach(t => visibility[t.id] = inGroup.has(t.id));
                 } else {
-                    group.ids.forEach(id => { visibility[id] = groupVisible; });
+                    // Flip it: assigning the state back to itself leaves a hidden host hidden, so
+                    // the click after a solo did nothing at all.
+                    group.ids.forEach(id => { visibility[id] = !groupVisible; });
                 }
             }
 
