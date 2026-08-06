@@ -77,6 +77,11 @@ public static class IdentityRegistration
         // One-release belt-and-suspenders: verify any still-legacy-format hash and flag it for rehash.
         services.AddScoped<IPasswordHasher<ApplicationUser>, LegacyFallbackPasswordHasher>();
 
+        // The bootstrap reads the first-run password AdminAuthService generates moments earlier, so
+        // the two must share one instance. The host registers it already; this is for leaner
+        // containers (tests) that pull in identity without the rest of the admin-auth wiring.
+        services.TryAddSingleton<AdminAuthCache>();
+
         services.AddScoped<IIdentityBootstrapService, IdentityBootstrapService>();
         services.AddScoped<IIdentitySignInService, IdentitySignInService>();
         // Reads ungated (the login page and every authorization check need them before, or without,

@@ -1,10 +1,10 @@
 using System.Text;
+using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Sqm;
 using NetworkOptimizer.Sqm.Models;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Web.Services.Ssh;
 using SqmConfig = NetworkOptimizer.Sqm.Models.SqmConfiguration;
-using NetworkOptimizer.Core.Helpers;
 
 namespace NetworkOptimizer.Web.Services;
 
@@ -24,6 +24,15 @@ public class SqmDeploymentService : ISqmDeploymentService
     // Gateway paths
     private const string OnBootDir = "/data/on_boot.d";
     private const string SqmDir = "/data/sqm";
+
+    // The boot script installs its dependencies inline on a first deploy: it adds the
+    // Ookla packagecloud repo (which runs its own apt-get update and fetches a GPG key),
+    // then apt-get installs speedtest, bc and jq. On a cold apt cache or a slow WAN that
+    // runs well past the 30 second default, so give it room rather than tearing down a
+    // deployment that is still working. Re-deploys skip the whole block and finish fast.
+    // Five minutes is comfortably clear of a slow first install without leaving the page
+    // sitting on a boot script that has genuinely wedged.
+    private static readonly TimeSpan BootScriptTimeout = TimeSpan.FromMinutes(5);
 
     public SqmDeploymentService(
         ILogger<SqmDeploymentService> logger,
@@ -410,7 +419,8 @@ public class SqmDeploymentService : ISqmDeploymentService
             // Step 4: Run the boot script to set up everything
             steps.Add("Running boot script (installs deps, creates scripts, configures cron)...");
             var setupResult = await RunCommandAsync(
-                $"chmod +x {OnBootDir}/{bootScriptName} && {OnBootDir}/{bootScriptName}");
+                $"chmod +x {OnBootDir}/{bootScriptName} && {OnBootDir}/{bootScriptName}",
+                BootScriptTimeout);
 
             if (!setupResult.success)
             {

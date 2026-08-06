@@ -48,6 +48,26 @@ DATA_DIR=""
 FORCE=false
 TIMEOUT=60
 HEALTH_URL="http://localhost:8042/api/health"
+DB_PATH=""                  # resolved by the native modes
+DOCKER_DB_PATH="/app/data/network_optimizer.db"
+
+# Runs one statement against the application database, whichever way this mode reaches it.
+#
+# The app is usually running and writing while we do this - the Docker path never stops the
+# container at all - so an unqualified write loses a coin toss against the app's own
+# transaction and dies with "database is locked". busy_timeout makes sqlite wait for its turn
+# instead of failing instantly, which is the difference between a reset that works and one the
+# operator has to keep re-running.
+#
+# Set through .timeout rather than "PRAGMA busy_timeout = ...", which returns the new value as
+# a result row and would prepend 15000 to the output of every query that reads one back.
+run_sql() {
+    if [[ "$MODE" == "docker" ]]; then
+        docker exec "$CONTAINER" sqlite3 -cmd ".timeout 15000" "$DOCKER_DB_PATH" "$1"
+    else
+        sqlite3 -cmd ".timeout 15000" "$DB_PATH" "$1"
+    fi
+}
 
 # =============================================================================
 # Parse Arguments
@@ -234,8 +254,11 @@ reset_docker() {
 
     # Clear password via docker exec
     msg_info "Clearing admin password..."
-    docker exec "$CONTAINER" sqlite3 /app/data/network_optimizer.db \
-        "UPDATE AdminSettings SET Password = NULL, Enabled = 0;"
+    if ! run_sql "UPDATE AdminSettings SET Password = NULL, Enabled = 0;"; then
+        msg_error "Could not clear the password - the database is busy."
+        msg_error "Nothing was changed. Wait a moment and run this script again."
+        exit 1
+    fi
     msg_ok "Password cleared"
 
     # Restart container
@@ -266,6 +289,7 @@ reset_macos() {
     local plist="$HOME/Library/LaunchAgents/net.ozarkconnect.networkoptimizer.plist"
     local db_dir="${DATA_DIR:-$HOME/Library/Application Support/NetworkOptimizer}"
     local db_path="$db_dir/network_optimizer.db"
+    DB_PATH="$db_path"
 
     # Detect install directory from plist WorkingDirectory or running process
     local install_dir=""
@@ -312,7 +336,11 @@ reset_macos() {
 
     # Clear password
     msg_info "Clearing admin password..."
-    sqlite3 "$db_path" "UPDATE AdminSettings SET Password = NULL, Enabled = 0;"
+    if ! run_sql "UPDATE AdminSettings SET Password = NULL, Enabled = 0;"; then
+        msg_error "Could not clear the password - the database is busy."
+        msg_error "Nothing was changed. Wait a moment and run this script again."
+        exit 1
+    fi
     msg_ok "Password cleared"
 
     # Start service
@@ -432,7 +460,11 @@ reset_linux() {
 
     # Clear password
     msg_info "Clearing admin password..."
-    sqlite3 "$db_path" "UPDATE AdminSettings SET Password = NULL, Enabled = 0;"
+    if ! run_sql "UPDATE AdminSettings SET Password = NULL, Enabled = 0;"; then
+        msg_error "Could not clear the password - the database is busy."
+        msg_error "Nothing was changed. Wait a moment and run this script again."
+        exit 1
+    fi
     msg_ok "Password cleared"
 
     # Start service
@@ -478,10 +510,99 @@ reset_linux() {
 }
 
 # =============================================================================
+# Apply the regenerated password to the Identity admin account
+# =============================================================================
+# Sign-in reads AspNetUsers.PasswordHash, and the app only copies the legacy password
+# across when the admin account does not exist yet. So on an install that has already
+# migrated, clearing AdminSettings alone regenerates and prints a password that is then
+# refused at the login page. Copy the freshly generated hash across ourselves.
+#
+# The hash is copied, never re-derived, so this needs no crypto and no plaintext. It is
+# written in the old dotted PBKDF2 format, which the app still accepts and quietly
+# upgrades on first sign-in.
+#
+# The account is updated, never deleted: deleting it cannot be undone and would take the
+# admin's site memberships and roles with it.
+sync_identity_admin() {
+    # Older installs have no Identity tables - there the legacy row is the whole story and
+    # the reset above is already complete.
+    local has_identity
+    has_identity=$(run_sql "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='AspNetUsers';" 2>/dev/null || echo "0")
+    if [[ "$has_identity" != "1" ]]; then
+        return 0
+    fi
+
+    # The app writes the new hash while it starts; wait for it rather than race it.
+    local legacy_hash="" deadline=$((SECONDS + 20))
+    while [[ $SECONDS -lt $deadline ]]; do
+        legacy_hash=$(run_sql "SELECT ifnull(Password,'') FROM AdminSettings LIMIT 1;" 2>/dev/null || echo "")
+        if [[ -n "$legacy_hash" ]]; then
+            break
+        fi
+        sleep 1
+    done
+
+    if [[ -z "$legacy_hash" ]]; then
+        msg_warn "Could not read the regenerated password; the admin account was left unchanged."
+        return 1
+    fi
+
+    msg_info "Applying the new password to the admin account..."
+    # Checked explicitly rather than left to set -e: this function is called as part of an
+    # || list, which switches errexit off for everything inside it, so a failed write would
+    # otherwise fall straight through to the success message and print a password that does
+    # not work - the one outcome this whole script exists to avoid.
+    if ! run_sql "UPDATE AspNetUsers
+                     SET PasswordHash = '${legacy_hash}',
+                         PasswordIsTemporary = 1,
+                         IsEnabled = 1,
+                         LockoutEnd = NULL,
+                         AccessFailedCount = 0,
+                         SecurityStamp = lower(hex(randomblob(16)))
+                   WHERE NormalizedUserName = 'ADMIN';" >/dev/null; then
+        msg_error "Could not update the admin account."
+        msg_error "The password below will NOT work. Re-run this script to try again."
+        return 1
+    fi
+    msg_ok "Admin account updated"
+}
+
+# =============================================================================
+# Warn about settings that refuse the new password even after a successful reset
+# =============================================================================
+# The reset only restores the password. Two other settings can still turn the login
+# away, and from the login page both look exactly like a wrong password - so say so
+# here rather than leave someone retyping a password that was never the problem.
+# Neither is changed automatically: one would weaken the install's SSO policy, the
+# other would throw away an MFA enrollment.
+warn_about_blockers() {
+    local sso_only mfa_on
+
+    sso_only=$(run_sql "SELECT Value FROM SystemSettings WHERE Key = 'auth.local_login_disabled';" 2>/dev/null || echo "")
+    if [[ "$sso_only" == "true" ]]; then
+        echo ""
+        msg_warn "Local logins are disabled on this install (single sign-on only)."
+        msg_warn "The password below will be refused until an administrator re-enables"
+        msg_warn "local login, or you restart with NETOPT_RECOVERY=1 to bypass it once."
+    fi
+
+    mfa_on=$(run_sql "SELECT TwoFactorEnabled FROM AspNetUsers WHERE NormalizedUserName = 'ADMIN';" 2>/dev/null || echo "")
+    if [[ "$mfa_on" == "1" ]]; then
+        echo ""
+        msg_warn "The admin account has two-factor authentication enabled."
+        msg_warn "You will still be asked for your authenticator code after signing in."
+        msg_warn "Use a saved recovery code if you no longer have the authenticator."
+    fi
+}
+
+# =============================================================================
 # Display Result
 # =============================================================================
 show_result() {
     local password="$1"
+
+    sync_identity_admin || true
+    warn_about_blockers
 
     if [[ -n "$password" ]]; then
         echo -e "${GN}===================================${CL}"
