@@ -41,6 +41,19 @@ public class TourPredicateResolver
     /// </summary>
     public const string SmartQueues = "smart-queues";
 
+    /// <summary>
+    /// The site has more than one enabled WAN, so the per-WAN filters and comparisons exist to be
+    /// shown. A single-WAN site renders no WAN selector at all, so a step spotlighting one has
+    /// nothing to point at and must be filtered out BEFORE the driver navigates.
+    /// </summary>
+    public const string MultiWan = "multi-wan";
+
+    /// <summary>
+    /// The site has a Starlink terminal configured. Without one the dish alerts describe hardware
+    /// the user does not own, which is worse than saying nothing.
+    /// </summary>
+    public const string Starlink = "starlink";
+
     private readonly SiteManagementService _siteManagement;
     private readonly GatewaySshRegistry _gatewaySshRegistry;
     private readonly SiteConnectionRegistry _siteConnections;
@@ -131,6 +144,8 @@ public class TourPredicateResolver
         var ispHealthSites = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var sqmSites = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var smartQueuesSites = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var multiWanSites = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var starlinkSites = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var site in sites)
         {
             try
@@ -172,6 +187,26 @@ public class TourPredicateResolver
             {
                 _logger.LogDebug(ex, "Tour predicate {Predicate} evaluation failed for site {Slug}", SmartQueues, site.Slug);
             }
+
+            try
+            {
+                if (await HasMultipleWansAsync(site.Slug))
+                    multiWanSites.Add(site.Slug);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Tour predicate {Predicate} evaluation failed for site {Slug}", MultiWan, site.Slug);
+            }
+
+            try
+            {
+                if (await HasStarlinkAsync(site.Slug, site.IsDefault))
+                    starlinkSites.Add(site.Slug);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Tour predicate {Predicate} evaluation failed for site {Slug}", Starlink, site.Slug);
+            }
         }
         if (gatewaySshSites.Count > 0)
             qualifying[GatewaySsh] = gatewaySshSites;
@@ -181,6 +216,10 @@ public class TourPredicateResolver
             qualifying[SqmEnabled] = sqmSites;
         if (smartQueuesSites.Count > 0)
             qualifying[SmartQueues] = smartQueuesSites;
+        if (multiWanSites.Count > 0)
+            qualifying[MultiWan] = multiWanSites;
+        if (starlinkSites.Count > 0)
+            qualifying[Starlink] = starlinkSites;
 
         return new PredicateContext
         {
@@ -218,6 +257,35 @@ public class TourPredicateResolver
     {
         using var db = _siteDbFactory.CreateForSite(slug, isDefault);
         return await db.SqmWanConfigurations.AsNoTracking().AnyAsync(c => c.Enabled);
+    }
+
+    /// <summary>
+    /// Whether the site has more than one enabled WAN. Asked of the console, because that is what
+    /// populates the WAN filter bars this step points at - a predicate reading anything else can
+    /// disagree with what is on screen. WanProfiles in particular cannot answer it: rows are written
+    /// as a side effect of computing an ISP Health report, so a site whose second WAN has never been
+    /// graded has no row for it, while a WAN since removed keeps the one it had.
+    /// Affordable for the same reason the Smart Queues check is: predicates resolve only for a tour
+    /// that is actually due. A site that is not connected does not qualify.
+    /// </summary>
+    private async Task<bool> HasMultipleWansAsync(string slug)
+    {
+        var connection = _siteConnections.GetFor(slug);
+        if (!connection.IsConnected || connection.Client == null)
+            return false;
+
+        var wans = await connection.Client.GetWanConfigsAsync();
+        return wans.Count(w => w.Enabled) > 1;
+    }
+
+    /// <summary>
+    /// Whether the site has an enabled Starlink terminal. A disabled one is a dish the user has
+    /// stopped monitoring, and its alerts would describe hardware they are no longer watching.
+    /// </summary>
+    private async Task<bool> HasStarlinkAsync(string slug, bool isDefault)
+    {
+        using var db = _siteDbFactory.CreateForSite(slug, isDefault);
+        return await db.StarlinkConfigurations.AsNoTracking().AnyAsync(c => c.Enabled);
     }
 
     /// <summary>

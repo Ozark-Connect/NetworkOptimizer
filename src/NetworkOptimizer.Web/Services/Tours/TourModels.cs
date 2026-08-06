@@ -75,6 +75,23 @@ public class TourStep
     [JsonPropertyName("listLabel")]
     public string? ListLabel { get; set; }
 
+    /// <summary>
+    /// Keeps this step out of the offer modal's list while still walking the user through it. For
+    /// the second half of a feature that takes two stops to show: the pair is one idea, and giving
+    /// it two bullets spends twice the space of anything else on the list, which is capped at six.
+    /// </summary>
+    [JsonPropertyName("hideFromList")]
+    public bool HideFromList { get; set; }
+
+    /// <summary>
+    /// Narrows the spotlight to the row inside <see cref="Selector"/> whose text contains this,
+    /// and scrolls to it. For a list whose rows depend on the user's own configuration: the anchor
+    /// can only sit on the list, while the useful target is one row in it. Absent text is not a
+    /// failure - the step falls back to spotlighting the anchor itself.
+    /// </summary>
+    [JsonPropertyName("matchText")]
+    public string? MatchText { get; set; }
+
     [JsonPropertyName("body")]
     public string Body { get; set; } = "";
 

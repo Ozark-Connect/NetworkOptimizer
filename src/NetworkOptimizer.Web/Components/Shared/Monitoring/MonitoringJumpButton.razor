@@ -2,7 +2,7 @@
    analysis view for what is on screen, the eye plays back the moment the analysis is framing.
    One component so the two directions cannot drift apart in glyph, hit area, or tooltip mode. *@
 <button type="button" class="monitoring-jump-btn" @onclick="OnClick" @onclick:stopPropagation
-        aria-label="@Tooltip" data-tooltip="@Tooltip" data-tooltip-hover-only>
+        aria-label="@Tooltip" data-tooltip="@Tooltip" data-tooltip-hover-only data-tour="@Tour">
     @if (Icon == JumpIcon.Analyze)
     {
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -27,4 +27,10 @@
     [Parameter] public JumpIcon Icon { get; set; }
     [Parameter] public string Tooltip { get; set; } = "";
     [Parameter] public EventCallback OnClick { get; set; }
+
+    /// <summary>
+    /// Guided-tour anchor for this button, when a step spotlights it. Null on the instances no tour
+    /// points at, and Blazor omits the attribute entirely then.
+    /// </summary>
+    [Parameter] public string? Tour { get; set; }
 }

@@ -721,9 +721,11 @@
                     @PendingAlertCount new @(PendingAlertCount == 1 ? "alert" : "alerts") - show
                 </button>
             }
+            @* The guided tour anchors on whichever of these two actually renders - they are mutually
+               exclusive, so the selector always finds exactly one and no wrapper element is needed. *@
             @if (_unresolvedAlerts.Count == 0)
             {
-                <div class="empty-state">
+                <div class="empty-state" data-tour="active-alerts">
                     <div class="no-alerts-icon">&#10003;</div>
                     <h3>All Clear</h3>
                     <p>No active alerts at this time.</p>
@@ -752,7 +754,7 @@
                             }
                         </div>
                     </div>
-                    <div class="alert-list">
+                    <div class="alert-list" data-tour="active-alerts">
                         @foreach (var alert in _unresolvedAlerts.Where(a => a.Status == AlertStatus.Active))
                         {
                             <div class="alert-item @GetSeverityClass(alert.Severity)" @key="alert.Id">
@@ -819,7 +821,7 @@
                             }
                         </div>
                     </div>
-                    <div class="alert-list">
+                    <div class="alert-list" data-tour="active-alerts">
                         @foreach (var alert in _unresolvedAlerts.Where(a => a.Status == AlertStatus.Acknowledged))
                         {
                             <div class="alert-item @GetSeverityClass(alert.Severity)" @key="alert.Id">
@@ -973,7 +975,7 @@
         @* ========== Rules Tab ========== *@
         @if (_activeTab == "rules")
         {
-            <div class="card">
+            <div class="card" data-tour="alert-rules">
                 <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
                     <h2 class="card-title">Alert Rules</h2>
                     @if (_canConfigure)

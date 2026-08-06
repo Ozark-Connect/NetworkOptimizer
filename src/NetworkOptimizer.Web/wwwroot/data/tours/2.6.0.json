@@ -2,17 +2,73 @@
   "id": "2.6.0",
   "kind": "whats-new",
   "title": "What's new in v2.6.0",
-  "summary": "Config Optimizer now catches Smart Queues that UniFi Network never actually turned on.",
+  "summary": "Every WAN gets its own health score, and its own alerts.",
   "steps": [
+    {
+      "id": "multi-wan-monitoring",
+      "level": "major",
+      "url": "/monitoring?tab=live",
+      "selector": "[data-tour=\"live-wan-filter\"]",
+      "title": "Multi-WAN monitoring",
+      "listLabel": "Every WAN watched, graded and probed on its own",
+      "body": "Your WANs are already here, each with its own live throughput. Give one a vantage and it gets its own targets, upstream characterization and ISP Health score.",
+      "placement": "bottom",
+      "optional": true,
+      "requires": ["multi-wan"]
+    },
+    {
+      "id": "jump-to-analysis",
+      "level": "minor",
+      "url": "/monitoring?tab=live",
+      "selector": "[data-tour=\"jump-to-analysis\"]",
+      "title": "Any moment, either view",
+      "listLabel": "Jump from any moment on the timeline straight to the charts",
+      "body": "Park the timeline on the moment you care about, then hit the magnifier to open **Latency & Packet Loss** framed on that exact instant.",
+      "placement": "bottom"
+    },
+    {
+      "id": "jump-to-live",
+      "level": "minor",
+      "url": "/monitoring?tab=performance",
+      "selector": "[data-tour=\"jump-to-live\"]",
+      "title": "And back again",
+      "hideFromList": true,
+      "body": "This icon does the reverse: it takes the moment you are analyzing and plays it back on **Live View**.",
+      "placement": "bottom"
+    },
+    {
+      "id": "wan-outage-alerts",
+      "level": "major",
+      "url": "/alerts?tab=active",
+      "selector": "[data-tour=\"active-alerts\"]",
+      "title": "WAN outage alerts",
+      "listLabel": "Knows whether your line dropped or something upstream did",
+      "badge": "improved",
+      "body": "Every target on the WAN is weighed together, so an outage arrives as one confirmed alert that says whether the link itself went or only part of the path beyond it.",
+      "placement": "top",
+      "requires": ["isp-health"]
+    },
+    {
+      "id": "starlink-alerts",
+      "level": "minor",
+      "url": "/alerts?tab=rules",
+      "selector": "[data-tour=\"alert-rules\"]",
+      "matchText": "Starlink",
+      "title": "Starlink alerts",
+      "listLabel": "Obstruction, aim drift and outages, straight from the dish",
+      "body": "Obstruction climbing, a dish no longer pointed where it needs to be, outages with the cause the dish reports, even on a backup nothing else is watching. Turn them on under **Rules**.",
+      "placement": "top",
+      "requires": ["starlink"]
+    },
     {
       "id": "smart-queues-not-shaping",
       "level": "minor",
       "url": "/config-optimizer",
       "selector": "[data-tour=\"performance-suggestions\"]",
       "title": "Smart Queues check",
-      "listLabel": "Smart Queues that UniFi Network never actually turned on",
+      "listLabel": "Smart Queues (SQM) that UniFi Network never actually turned on",
       "badge": "improved",
-      "body": "UniFi Network can leave Smart Queues switched on with no shaper actually running. **Analyze** now catches that and tells you how to fix it.",
+      "body": "Smart Queues (SQM) can read as on in UniFi Network while no shaper is running on your gateway. **Analyze** now catches that and tells you how to fix it.",
       "placement": "top",
       "requires": ["smart-queues"]
     }

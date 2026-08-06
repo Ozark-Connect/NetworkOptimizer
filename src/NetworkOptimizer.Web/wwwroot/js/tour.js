@@ -42,6 +42,34 @@ window.noTour = (function () {
         return clicked;
     }
 
+    // Narrows a spotlight from a list to the row that actually mentions something. An anchor can
+    // only be placed on markup that always exists, but the interesting target is often one row
+    // among many, and which rows exist depends on the user's own configuration. Falls back to the
+    // anchor whenever the text is absent, so a step never fails over wording it hoped to find.
+    function narrowToText(anchor, text) {
+        if (!anchor || !text) return anchor;
+        const needle = text.toLowerCase();
+        const hits = Array.from(anchor.querySelectorAll('*')).filter(e =>
+            e.offsetParent !== null && (e.textContent || '').toLowerCase().includes(needle));
+        if (!hits.length) return anchor;
+
+        // Ancestors precede their descendants in document order, so the hits that contain no
+        // other hit are the words themselves; the first of those is the earliest match on the
+        // page. Spotlighting the words alone reads too tightly, so climb to the row holding
+        // them, stopping at the anchor.
+        const innermost = hits.find(e => !hits.some(o => o !== e && e.contains(o))) || hits[0];
+        let row = innermost;
+        while (row && row !== anchor) {
+            const tag = row.tagName.toLowerCase();
+            const cls = (row.className || '').toString().toLowerCase();
+            if (tag === 'tr' || tag === 'li' || cls.includes('row') || cls.includes('item')) return row;
+            row = row.parentElement;
+        }
+        return innermost.parentElement && innermost.parentElement !== anchor
+            ? innermost.parentElement
+            : innermost;
+    }
+
     function waitFor(selector, timeoutMs, opened) {
         return new Promise(resolve => {
             const started = Date.now();
@@ -252,9 +280,11 @@ window.noTour = (function () {
             // Shared with position() so a section opened during the wait is not reopened after,
             // and so the once-per-step rule spans the whole step rather than just the wait.
             const opened = new Set();
-            const el = await waitFor(opts.selector, opts.waitMs || 8000, opened);
+            const anchor = await waitFor(opts.selector, opts.waitMs || 8000, opened);
             if (gen !== generation) return 'stale';
-            if (!el) return 'missing';
+            if (!anchor) return 'missing';
+
+            const el = narrowToText(anchor, opts.matchText);
 
             await ensureInView(el);
             if (gen !== generation) return 'stale';

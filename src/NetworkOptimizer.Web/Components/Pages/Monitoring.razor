@@ -283,6 +283,7 @@
             {
                 @* Separate scope from the analysis selectors on purpose - watching a WAN here must not move them. *@
                 <div class="time-range-selector wan-selector wan-selector-standalone wan-selector-on-page @(LiveWan.Options.Count > 3 ? "wan-selector-many" : "")"
+                     data-tour="live-wan-filter"
                      data-tooltip="@(_showWanCompareHint ? _wanCompareHint : null)" data-tooltip-hover-only>
                     @foreach (var w in LiveWan.Options)
                     {
@@ -303,6 +304,7 @@
             }
                 <MonitoringJumpButton Icon="MonitoringJumpButton.JumpIcon.Analyze"
                                       Tooltip="Analyze this moment in Latency &amp; Packet Loss"
+                                      Tour="jump-to-analysis"
                                       OnClick="() => JumpToAnalysis(AccessIspCategory)" />
             </div>
         <!-- Top stat cards: WAN rates, ISP Health score, ISP/Transit mean RTT/loss -->
@@ -578,6 +580,7 @@
                 </div>
                 <MonitoringJumpButton Icon="MonitoringJumpButton.JumpIcon.Watch"
                                       Tooltip="Watch this moment in Live View"
+                                      Tour="jump-to-live"
                                       OnClick="JumpToLiveAsync" />
             </div>
             <div class="card-body">
