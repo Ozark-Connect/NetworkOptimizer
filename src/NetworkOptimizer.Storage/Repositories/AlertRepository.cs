@@ -334,6 +334,41 @@ public class AlertRepository : IAlertRepository
         }
     }
 
+    public async Task<(List<AlertHistoryEntry> Items, int Total)> GetAlertHistoryPageAsync(
+        int skip,
+        int take,
+        string? source = null,
+        AlertSeverity? minSeverity = null,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var query = _context.AlertHistory.AsNoTracking().AsQueryable();
+
+            if (!string.IsNullOrEmpty(source))
+                query = query.Where(a => a.Source == source);
+
+            if (minSeverity.HasValue)
+                query = query.Where(a => a.Severity >= minSeverity.Value);
+
+            // Counted against the same filters, before paging: the page controls need to know how
+            // much there is, not how much this page holds.
+            var total = await query.CountAsync(cancellationToken);
+            var items = await query
+                .OrderByDescending(a => a.TriggeredAt)
+                .Skip(Math.Max(0, skip))
+                .Take(Math.Max(1, take))
+                .ToListAsync(cancellationToken);
+
+            return (items, total);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get a page of alert history");
+            throw;
+        }
+    }
+
     public async Task<AlertHistoryEntry?> GetAlertAsync(int id, CancellationToken cancellationToken = default)
     {
         try

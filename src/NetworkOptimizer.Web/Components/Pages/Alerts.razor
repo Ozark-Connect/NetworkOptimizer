@@ -875,7 +875,7 @@
                     <div class="history-filters">
                         <div class="filter-group">
                             <label class="filter-label">Source:</label>
-                            <select class="filter-select" @bind="_historySourceFilter" @bind:after="LoadHistory">
+                            <select class="filter-select" @bind="_historySourceFilter" @bind:after="ReloadHistoryFromFirstPage">
                                 <option value="">All Sources</option>
                                 <option value="audit">Audit</option>
                                 <option value="device">Device</option>
@@ -887,7 +887,7 @@
                         </div>
                         <div class="filter-group">
                             <label class="filter-label">Min Severity:</label>
-                            <select class="filter-select" @bind="_historySeverityFilter" @bind:after="LoadHistory">
+                            <select class="filter-select" @bind="_historySeverityFilter" @bind:after="ReloadHistoryFromFirstPage">
                                 <option value="">All</option>
                                 <option value="Info">Info</option>
                                 <option value="Warning">Warning</option>
@@ -952,6 +952,18 @@
                             </tbody>
                         </table>
                     </div>
+                    @if (_historyTotal > HistoryPageSize)
+                    {
+                        <div class="pagination">
+                            <button class="btn btn-sm btn-secondary" disabled="@(_historyPage == 0)"
+                                    @onclick="() => GoToHistoryPage(_historyPage - 1)">Prev</button>
+                            <span class="pagination-info">
+                                Page @(_historyPage + 1) of @HistoryPageCount (@_historyTotal alerts)
+                            </span>
+                            <button class="btn btn-sm btn-secondary" disabled="@(_historyPage >= HistoryPageCount - 1)"
+                                    @onclick="() => GoToHistoryPage(_historyPage + 1)">Next</button>
+                        </div>
+                    }
                 </div>
             }
         }
@@ -2459,13 +2471,54 @@
                 severity = s;
 
             var source = string.IsNullOrEmpty(_historySourceFilter) ? null : _historySourceFilter;
-            _historyAlerts = await AlertRepository.GetAlertHistoryAsync(200, source, severity);
+            // A filter change re-reads from the first page: page 4 of the old filter is a
+            // different set of alerts, and usually past the end of the new one.
+            if (_historyPage < 0) _historyPage = 0;
+            var (items, total) = await AlertRepository.GetAlertHistoryPageAsync(
+                _historyPage * HistoryPageSize, HistoryPageSize, source, severity);
+            // A page that has fallen off the end (the filter narrowed, or alerts aged out) steps
+            // back to the last one that exists rather than showing nothing.
+            if (items.Count == 0 && total > 0 && _historyPage > 0)
+            {
+                _historyPage = Math.Max(0, (total - 1) / HistoryPageSize);
+                (items, total) = await AlertRepository.GetAlertHistoryPageAsync(
+                    _historyPage * HistoryPageSize, HistoryPageSize, source, severity);
+            }
+            _historyAlerts = items;
+            _historyTotal = total;
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error loading alert history");
             _historyAlerts = [];
+            _historyTotal = 0;
         }
+    }
+
+    private const int HistoryPageSize = 50;
+
+    /// <summary>Zero-based page the History tab is showing.</summary>
+    private int _historyPage;
+
+    /// <summary>How many alerts the current filters match, across every page.</summary>
+    private int _historyTotal;
+
+    private int HistoryPageCount => _historyTotal == 0 ? 1 : (_historyTotal + HistoryPageSize - 1) / HistoryPageSize;
+
+    private async Task GoToHistoryPage(int page)
+    {
+        var last = HistoryPageCount - 1;
+        var target = Math.Clamp(page, 0, last);
+        if (target == _historyPage) return;
+        _historyPage = target;
+        await LoadHistory();
+    }
+
+    /// <summary>Filter changes start again from the first page.</summary>
+    private async Task ReloadHistoryFromFirstPage()
+    {
+        _historyPage = 0;
+        await LoadHistory();
     }
 
     private async Task LoadRules()

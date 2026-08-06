@@ -29,6 +29,14 @@ public interface IAlertRepository
     Task UpdateAlertAsync(AlertHistoryEntry alert, CancellationToken cancellationToken = default);
     Task<List<AlertHistoryEntry>> GetActiveAlertsAsync(CancellationToken cancellationToken = default);
     Task<List<AlertHistoryEntry>> GetAlertHistoryAsync(int limit = 100, string? source = null, AlertSeverity? minSeverity = null, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// One page of alert history, newest first, with the total the filters match so the caller can
+    /// say how many pages there are. Paged in SQL: the history of a site that has been running a
+    /// while is far more than a page, and the flat take showed only its newest slice with nothing
+    /// to say the rest existed.
+    /// </summary>
+    Task<(List<AlertHistoryEntry> Items, int Total)> GetAlertHistoryPageAsync(int skip, int take, string? source = null, AlertSeverity? minSeverity = null, CancellationToken cancellationToken = default);
     Task<AlertHistoryEntry?> GetAlertAsync(int id, CancellationToken cancellationToken = default);
     Task<List<AlertHistoryEntry>> GetAlertsForDigestAsync(DateTime since, CancellationToken cancellationToken = default);
     Task<List<AlertHistoryEntry>> GetUnresolvedAlertsAsync(CancellationToken cancellationToken = default);
