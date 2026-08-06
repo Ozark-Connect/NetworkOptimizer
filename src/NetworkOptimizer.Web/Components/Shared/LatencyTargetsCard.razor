@@ -103,9 +103,15 @@
                     {
                         <tr>
                             <td colspan="@VisibleColumnCount" class="latency-targets-empty">
+                                @* Names both things the reader narrowed by, since either one alone
+                                   leaves the other looking like the reason. *@
                                 @(LanScope
-                                    ? "No targets on this network yet."
-                                    : "No targets for this WAN.")
+                                    ? (_typeFilter != null
+                                        ? "No targets of this type on this network."
+                                        : "No targets on this network yet.")
+                                    : (_typeFilter != null
+                                        ? "No targets of this type for this WAN."
+                                        : "No targets for this WAN."))
                             </td>
                         </tr>
                     }
