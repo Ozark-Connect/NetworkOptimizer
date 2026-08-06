@@ -69,7 +69,7 @@
                         <th>Address</th>
                         @if (WanContexts.Count > 0)
                         {
-                            <th>WAN</th>
+                            <th>WAN / Path</th>
                         }
                         <th>Interval</th>
                         <th>Latest</th>
@@ -240,7 +240,7 @@
                     @if (WanContexts.Count > 0)
                     {
                         <div class="form-group">
-                            <label class="form-label">WAN</label>
+                            <label class="form-label">WAN / Path</label>
                             <select class="form-control" @bind="_newTargetWanContextId">
                                 <option value="">Default path</option>
                                 @foreach (var wc in WanContexts)
