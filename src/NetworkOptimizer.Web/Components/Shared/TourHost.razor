@@ -20,7 +20,7 @@
                 <p class="tour-modal-summary">@_offer.Summary</p>
             }
             <ul class="tour-modal-steps">
-                @foreach (var step in _offer.Steps.Take(6))
+                @foreach (var step in _offer.Steps.Where(s => !s.Step.HideFromList).Take(6))
                 {
                     <li>
                         @(step.Step.ListLabel ?? step.Step.Title)
@@ -30,9 +30,10 @@
                         }
                     </li>
                 }
-                @if (_offer.Steps.Count > 6)
+                @{ var listedSteps = _offer.Steps.Count(s => !s.Step.HideFromList); }
+                @if (listedSteps > 6)
                 {
-                    <li>and @(_offer.Steps.Count - 6) more</li>
+                    <li>and @(listedSteps - 6) more</li>
                 }
             </ul>
             <p class="tour-modal-meta">
@@ -286,6 +287,7 @@
             var result = await SafeJsAsync<string>("noTour.showStep", _selfRef, new
             {
                 selector = resolved.Step.Selector,
+                matchText = resolved.Step.MatchText,
                 title = resolved.Step.Title,
                 body = resolved.Step.Body,
                 placement = resolved.Step.Placement,
