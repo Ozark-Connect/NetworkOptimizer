@@ -1,9 +1,12 @@
 using System.Collections.Concurrent;
+using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Monitoring.Models;
 using NetworkOptimizer.Monitoring.Providers;
 using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Services;
+using NetworkOptimizer.UniFi;
+using NetworkOptimizer.Web.Services.Monitoring;
 
 namespace NetworkOptimizer.Web.Services;
 
@@ -21,9 +24,36 @@ public sealed class StarlinkMonitorService : IDisposable
     /// <summary>How often the obstruction sky map is refreshed; it changes slowly and is a ~60 KB payload.</summary>
     private static readonly TimeSpan ObstructionMapRefresh = TimeSpan.FromMinutes(5);
 
+    /// <summary>
+    /// How far back the alerting baselines look. Seven days is long enough that a re-aim or a
+    /// cable change is followed rather than flagged, and short enough that the median still
+    /// describes how the dish is behaving now.
+    /// </summary>
+    private static readonly TimeSpan BaselineWindow = TimeSpan.FromDays(7);
+
+    /// <summary>How often the baselines are recomputed. They move over days, so this is a cheap once-per-poll-cycle read at worst.</summary>
+    private static readonly TimeSpan BaselineRefresh = TimeSpan.FromHours(6);
+
+    /// <summary>
+    /// Aggregation the baseline query asks Influx for. Fifteen minutes gives ~670 points over the
+    /// window, plenty for a stable median without pulling every raw sample across the wire.
+    /// </summary>
+    private static readonly TimeSpan BaselineAggregate = TimeSpan.FromMinutes(15);
+
+    /// <summary>
+    /// Alignment samples needed in the window before its median is worth comparing against. A
+    /// fresh install has none, and the drift alert stays disabled rather than baselining off three
+    /// readings taken while the dish was still settling.
+    /// </summary>
+    private const int MinBaselineSamples = 24;
+
+    /// <summary>How long a resolved WAN binding is reused. It only changes when someone renames a WAN or adds a dish.</summary>
+    private static readonly TimeSpan WanBindingTtl = TimeSpan.FromMinutes(30);
+
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly SiteTunnelRouting _tunnelRouting;
     private readonly MonitoringInfluxClient _influx;
+    private readonly StarlinkAlertEvaluator _alertEvaluator;
     private readonly ILogger<StarlinkMonitorService> _logger;
     private readonly Dictionary<string, IStarlinkProvider> _providers;
     private readonly Timer _pollingTimer;
@@ -31,7 +61,11 @@ public sealed class StarlinkMonitorService : IDisposable
 
     private readonly ConcurrentDictionary<int, StarlinkStats> _statsCache = new();
     private readonly ConcurrentDictionary<int, StarlinkObstructionMap> _obstructionMapCache = new();
+    private readonly ConcurrentDictionary<int, DishBaseline> _baselines = new();
     private volatile bool _hasPrimedOnce;
+
+    private string? _wanLabel;
+    private DateTime _wanLabelLoadedAt = DateTime.MinValue;
 
     private bool _isPolling;
 
@@ -47,6 +81,7 @@ public sealed class StarlinkMonitorService : IDisposable
         IEnumerable<IStarlinkProvider> providers,
         SiteTunnelRouting tunnelRouting,
         MonitoringInfluxRegistry influxRegistry,
+        MonitoringAlertRegistry alertRegistry,
         ILogger<StarlinkMonitorService> logger,
         string siteSlug = SiteManagementService.DefaultSiteSlug)
     {
@@ -55,6 +90,7 @@ public sealed class StarlinkMonitorService : IDisposable
         _siteSlug = string.IsNullOrEmpty(siteSlug) ? SiteManagementService.DefaultSiteSlug : siteSlug;
         Active = _siteSlug == SiteManagementService.DefaultSiteSlug;
         _influx = influxRegistry.GetFor(_siteSlug);
+        _alertEvaluator = alertRegistry.GetFor(_siteSlug).Starlink;
         _logger = logger;
         _providers = providers.ToDictionary(p => p.ProviderKey, StringComparer.OrdinalIgnoreCase);
 
@@ -164,6 +200,7 @@ public sealed class StarlinkMonitorService : IDisposable
 
         _statsCache.TryRemove(id, out _);
         _obstructionMapCache.TryRemove(id, out _);
+        _baselines.TryRemove(id, out _);
     }
 
     /// <summary>
@@ -253,6 +290,7 @@ public sealed class StarlinkMonitorService : IDisposable
                 {
                     _statsCache[config.Id] = stats;
                     WriteToInflux(config, stats);
+                    await EvaluateAlertsAsync(config, stats);
                     await RefreshObstructionMapAsync(provider, context, config.Id);
                 }
             }
@@ -266,6 +304,123 @@ public sealed class StarlinkMonitorService : IDisposable
             _logger.LogWarning(ex, "Error polling Starlink terminal {Name} ({Id})", config.Name, config.Id);
             await UpdateConfigErrorAsync(config.Id, ex.Message);
         }
+    }
+
+    /// <summary>
+    /// Hands this poll to the alert evaluator along with the two things it cannot derive from a
+    /// single reading: the dish's own long-run baselines, and which WAN it serves. Failures here
+    /// are logged and swallowed - alerting must never cost a poll its stats, its chart point, or
+    /// its sky map.
+    /// </summary>
+    private async Task EvaluateAlertsAsync(StarlinkConfiguration config, StarlinkStats stats)
+    {
+        try
+        {
+            var baseline = await GetBaselineAsync(config.Id);
+            await _alertEvaluator.EvaluateAsync(
+                config.Id,
+                config.Name,
+                stats,
+                ComputeAlignmentOffsetDeg(stats),
+                baseline.AlignmentMedianDeg,
+                baseline.EthCapableMbps,
+                await ResolveWanLabelAsync());
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Starlink alert evaluation failed for {Name} ({Id})", config.Name, config.Id);
+        }
+    }
+
+    /// <summary>
+    /// The dish's own long-run behavior, from the series already in Influx: the median boresight
+    /// offset it normally sits at, and the fastest Ethernet speed it has been seen to negotiate.
+    /// Both are self-calibrating by design - a hand-aimed fixed dish is several degrees off ideal
+    /// from day one and works perfectly there, so drift is judged against where this dish sits
+    /// rather than against where one ideally would.
+    ///
+    /// <para>
+    /// Reads the LONGTERM bucket, which is where <c>QueryStarlinkAsync</c> looks. An install with
+    /// no Influx, or a dish with too little history, comes back empty and simply leaves the two
+    /// rules that need a baseline disabled.
+    /// </para>
+    /// </summary>
+    private async Task<DishBaseline> GetBaselineAsync(int configId)
+    {
+        if (_baselines.TryGetValue(configId, out var cached) &&
+            DateTime.UtcNow - cached.ComputedAt < BaselineRefresh)
+        {
+            return cached;
+        }
+
+        var to = DateTime.UtcNow;
+        var series = await _influx.QueryStarlinkAsync(
+            to - BaselineWindow, to, configId.ToString(), BaselineAggregate);
+        var points = series.Values.FirstOrDefault() ?? new List<MonitoringInfluxClient.StarlinkPoint>();
+
+        var offsets = points
+            .Where(p => p.AlignmentOffsetDeg.HasValue)
+            .Select(p => p.AlignmentOffsetDeg!.Value)
+            .OrderBy(v => v)
+            .ToList();
+        double? median = offsets.Count >= MinBaselineSamples
+            ? offsets.Count % 2 == 1
+                ? offsets[offsets.Count / 2]
+                : (offsets[offsets.Count / 2 - 1] + offsets[offsets.Count / 2]) / 2.0
+            : null;
+
+        var speeds = points.Where(p => p.EthSpeedMbps > 0).Select(p => p.EthSpeedMbps!.Value).ToList();
+        int? capable = speeds.Count > 0 ? speeds.Max() : null;
+
+        var baseline = new DishBaseline(median, capable, to);
+        _baselines[configId] = baseline;
+        return baseline;
+    }
+
+    /// <summary>
+    /// Best-effort binding of the dish to a WAN, so its alerts carry the same label everything
+    /// else uses for that connection. Binds only when the answer is unambiguous: exactly one WAN
+    /// that <see cref="StarlinkWanDetector"/> recognizes, and exactly one dish configured to sit
+    /// behind it. With two dishes, or two Starlink WANs, nothing in the data says which serves
+    /// which, and a confidently wrong WAN name on an alert is worse than none - the alerts then
+    /// name the dish instead and fire regardless.
+    /// </summary>
+    private async Task<string?> ResolveWanLabelAsync()
+    {
+        if (DateTime.UtcNow - _wanLabelLoadedAt < WanBindingTtl) return _wanLabel;
+
+        try
+        {
+            using var scope = CreateSiteScope();
+            var db = scope.ServiceProvider.GetRequiredService<NetworkOptimizerDbContext>();
+
+            var dishCount = await db.StarlinkConfigurations.CountAsync(c => c.Enabled);
+            var matches = dishCount == 1
+                ? await db.WanProfiles.AsNoTracking()
+                    .Select(p => new { p.WanNetworkgroup, p.Name })
+                    .ToListAsync()
+                : [];
+
+            var starlinkWans = matches
+                .Where(p => StarlinkWanDetector.IsStarlinkWan(p.Name))
+                .ToList();
+
+            _wanLabel = starlinkWans.Count == 1
+                ? GatewayWanHelper.FormatWanLabel(
+                    starlinkWans[0].Name,
+                    GatewayWanHelper.WanIndexFromKey(
+                        GatewayWanHelper.WanInterfaceKeyFromKey(starlinkWans[0].WanNetworkgroup)),
+                    null, null)
+                : null;
+        }
+        catch (Exception ex)
+        {
+            // Keep whatever was resolved last: a failed lookup should cost the label, not the alert.
+            _logger.LogDebug(ex, "Could not resolve the Starlink WAN binding for site {Site}", _siteSlug);
+        }
+
+        _wanLabelLoadedAt = DateTime.UtcNow;
+        return _wanLabel;
     }
 
     private async Task RefreshObstructionMapAsync(
@@ -447,4 +602,13 @@ public sealed class StarlinkMonitorService : IDisposable
     {
         _pollingTimer.Dispose();
     }
+
+    /// <summary>
+    /// One dish's long-run behavior, as the alert rules that cannot judge from a single reading
+    /// need it. Null members mean "not enough history", which disables the rule that reads them.
+    /// </summary>
+    /// <param name="AlignmentMedianDeg">Median boresight offset over the baseline window, degrees.</param>
+    /// <param name="EthCapableMbps">Fastest Ethernet speed seen over the baseline window, Mbps.</param>
+    /// <param name="ComputedAt">When this was computed, for the refresh interval.</param>
+    private sealed record DishBaseline(double? AlignmentMedianDeg, int? EthCapableMbps, DateTime ComputedAt);
 }

@@ -26,6 +26,7 @@ public class MonitoringAlertRegistry : ISiteScopedRegistry
         CableModemAlertEvaluator CableModem,
         OntAlertEvaluator Ont,
         CellularAlertEvaluator Cellular,
+        StarlinkAlertEvaluator Starlink,
         DeviceRebootAlertEvaluator DeviceReboot,
         DeviceStateAlertEvaluator DeviceState);
 
@@ -55,6 +56,7 @@ public class MonitoringAlertRegistry : ISiteScopedRegistry
                 ActivatorUtilities.CreateInstance<CableModemAlertEvaluator>(_serviceProvider, s, bus),
                 ActivatorUtilities.CreateInstance<OntAlertEvaluator>(_serviceProvider, s, bus),
                 ActivatorUtilities.CreateInstance<CellularAlertEvaluator>(_serviceProvider, s, bus),
+                ActivatorUtilities.CreateInstance<StarlinkAlertEvaluator>(_serviceProvider, s, bus),
                 ActivatorUtilities.CreateInstance<DeviceRebootAlertEvaluator>(_serviceProvider, s, bus),
                 ActivatorUtilities.CreateInstance<DeviceStateAlertEvaluator>(_serviceProvider, s, bus));
         });

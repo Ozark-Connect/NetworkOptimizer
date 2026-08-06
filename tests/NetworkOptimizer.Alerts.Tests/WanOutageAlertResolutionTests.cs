@@ -133,14 +133,14 @@ public class WanOutageAlertResolutionTests
 
     #endregion
 
-    #region ResolveSupersededWanAlertsAsync
+    #region ResolveSupersededAlertsAsync
 
     [Fact]
-    public async Task ResolveSupersededWanAlertsAsync_TotalOutage_ResolvesOnlyThatWansPartial()
+    public async Task ResolveSupersededAlertsAsync_TotalOutage_ResolvesOnlyThatWansPartial()
     {
         var evt = CreateEvent("monitoring.wan_outage", "wan2");
 
-        await _service.ResolveSupersededWanAlertsAsync(evt, _repository.Object, CancellationToken.None);
+        await _service.ResolveSupersededAlertsAsync(evt, _repository.Object, CancellationToken.None);
 
         _resolveCalls.Should().ContainSingle();
         _resolveCalls[0].DeviceId.Should().Be("wan2");
@@ -148,11 +148,11 @@ public class WanOutageAlertResolutionTests
     }
 
     [Fact]
-    public async Task ResolveSupersededWanAlertsAsync_Recovery_ResolvesOutagePartialAndRollup()
+    public async Task ResolveSupersededAlertsAsync_Recovery_ResolvesOutagePartialAndRollup()
     {
         var evt = CreateEvent("monitoring.wan_recovered", "wan2");
 
-        await _service.ResolveSupersededWanAlertsAsync(evt, _repository.Object, CancellationToken.None);
+        await _service.ResolveSupersededAlertsAsync(evt, _repository.Object, CancellationToken.None);
 
         _resolveCalls.Should().HaveCount(2);
         _resolveCalls.Select(c => c.DeviceId).Should().Equal("wan2", "all-wans");
@@ -161,11 +161,11 @@ public class WanOutageAlertResolutionTests
     }
 
     [Fact]
-    public async Task ResolveSupersededWanAlertsAsync_NeverTouchesAnotherWansAlerts()
+    public async Task ResolveSupersededAlertsAsync_NeverTouchesAnotherWansAlerts()
     {
         var evt = CreateEvent("monitoring.wan_recovered", "wan2");
 
-        await _service.ResolveSupersededWanAlertsAsync(evt, _repository.Object, CancellationToken.None);
+        await _service.ResolveSupersededAlertsAsync(evt, _repository.Object, CancellationToken.None);
 
         // Only this WAN and the site rollup - "wan" and "wan3" keep their open alerts, and the
         // repository handed in is already pinned to the event's site, so other sites are untouched.
@@ -173,11 +173,11 @@ public class WanOutageAlertResolutionTests
     }
 
     [Fact]
-    public async Task ResolveSupersededWanAlertsAsync_EventOutsideTheWanFamily_ResolvesNothing()
+    public async Task ResolveSupersededAlertsAsync_EventOutsideTheWanFamily_ResolvesNothing()
     {
         var evt = CreateEvent("monitoring.target_offline", "wan2");
 
-        await _service.ResolveSupersededWanAlertsAsync(evt, _repository.Object, CancellationToken.None);
+        await _service.ResolveSupersededAlertsAsync(evt, _repository.Object, CancellationToken.None);
 
         _resolveCalls.Should().BeEmpty();
         _repository.Verify(r => r.ResolveActiveAlertsAsync(
@@ -185,7 +185,7 @@ public class WanOutageAlertResolutionTests
     }
 
     [Fact]
-    public async Task ResolveSupersededWanAlertsAsync_ResolvedAlertInIncident_RecalculatesIncidentStatus()
+    public async Task ResolveSupersededAlertsAsync_ResolvedAlertInIncident_RecalculatesIncidentStatus()
     {
         var resolved = new AlertHistoryEntry
         {
@@ -203,7 +203,7 @@ public class WanOutageAlertResolutionTests
             .ReturnsAsync(new List<AlertHistoryEntry> { resolved });
 
         var evt = CreateEvent("monitoring.wan_outage", "wan2");
-        await _service.ResolveSupersededWanAlertsAsync(evt, _repository.Object, CancellationToken.None);
+        await _service.ResolveSupersededAlertsAsync(evt, _repository.Object, CancellationToken.None);
 
         incident.Status.Should().Be(AlertStatus.Resolved);
         incident.ResolvedAt.Should().NotBeNull();
@@ -211,7 +211,7 @@ public class WanOutageAlertResolutionTests
     }
 
     [Fact]
-    public async Task ResolveSupersededWanAlertsAsync_IncidentStillHasActiveAlerts_LeavesIncidentOpen()
+    public async Task ResolveSupersededAlertsAsync_IncidentStillHasActiveAlerts_LeavesIncidentOpen()
     {
         var resolved = new AlertHistoryEntry
         {
@@ -229,14 +229,14 @@ public class WanOutageAlertResolutionTests
             .ReturnsAsync(new List<AlertHistoryEntry> { resolved, new() { Id = 6, Status = AlertStatus.Active } });
 
         var evt = CreateEvent("monitoring.wan_outage", "wan2");
-        await _service.ResolveSupersededWanAlertsAsync(evt, _repository.Object, CancellationToken.None);
+        await _service.ResolveSupersededAlertsAsync(evt, _repository.Object, CancellationToken.None);
 
         incident.Status.Should().Be(AlertStatus.Active);
         _repository.Verify(r => r.UpdateIncidentAsync(It.IsAny<AlertIncident>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
-    public async Task ResolveSupersededWanAlertsAsync_RepositoryThrows_DoesNotPropagate()
+    public async Task ResolveSupersededAlertsAsync_RepositoryThrows_DoesNotPropagate()
     {
         _repository
             .Setup(r => r.ResolveActiveAlertsAsync(
@@ -245,7 +245,7 @@ public class WanOutageAlertResolutionTests
 
         var evt = CreateEvent("monitoring.wan_recovered", "wan2");
 
-        var act = async () => await _service.ResolveSupersededWanAlertsAsync(evt, _repository.Object, CancellationToken.None);
+        var act = async () => await _service.ResolveSupersededAlertsAsync(evt, _repository.Object, CancellationToken.None);
 
         await act.Should().NotThrowAsync();
     }

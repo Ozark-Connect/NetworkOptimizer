@@ -477,6 +477,80 @@ public static class DefaultAlertRules
             Source = "cellular",
             MinSeverity = AlertSeverity.Warning,
             CooldownSeconds = 3600 // 1 hour
+        },
+
+        // --- Starlink dish (disabled until user configures a dish) ---
+        // Severity here does NOT follow the per-WAN outage table, which rates a backup's troubles
+        // lower. Starlink is usually the backup, and a backup that nothing else monitors is
+        // discovered broken at the moment it is needed - so its problems keep real severity.
+        new AlertRule
+        {
+            // The dish's own verdict on itself: its alert codes, a self-test that started failing,
+            // and being taken out of service. Warning, or Critical when it publishes as disabled.
+            Name = "Starlink: Dish Fault",
+            IsEnabled = false,
+            EventTypePattern = "starlink.dish_alert",
+            Source = "starlink",
+            MinSeverity = AlertSeverity.Warning,
+            CooldownSeconds = 1800 // 30 minutes - the evaluator only republishes on new evidence
+        },
+        new AlertRule
+        {
+            Name = "Starlink: Obstructed",
+            IsEnabled = false,
+            EventTypePattern = "starlink.obstructed",
+            Source = "starlink",
+            MinSeverity = AlertSeverity.Warning,
+            CooldownSeconds = 3600 // 1 hour
+        },
+        new AlertRule
+        {
+            // Nobody can act on this twice in a day: it needs somebody to physically re-aim the dish.
+            Name = "Starlink: Alignment Drift",
+            IsEnabled = false,
+            EventTypePattern = "starlink.alignment_drift",
+            Source = "starlink",
+            MinSeverity = AlertSeverity.Warning,
+            CooldownSeconds = 86400 // 24 hours
+        },
+        new AlertRule
+        {
+            Name = "Starlink: Ethernet Speed Degraded",
+            IsEnabled = false,
+            EventTypePattern = "starlink.eth_speed_degraded",
+            Source = "starlink",
+            MinSeverity = AlertSeverity.Warning,
+            CooldownSeconds = 3600 // 1 hour
+        },
+        new AlertRule
+        {
+            // The metric is outage seconds per day, so a shorter cooldown would say the same thing twice.
+            Name = "Starlink: Repeated Outages",
+            IsEnabled = false,
+            EventTypePattern = "starlink.outage_burst",
+            Source = "starlink",
+            MinSeverity = AlertSeverity.Warning,
+            CooldownSeconds = 86400 // 24 hours
+        },
+        new AlertRule
+        {
+            // Info on purpose: crossing into a rate limit is a change worth a quiet note, not a
+            // fault, and this rule has to match the Info the evaluator publishes.
+            Name = "Starlink: Service Rate Limited",
+            IsEnabled = false,
+            EventTypePattern = "starlink.service_restricted",
+            Source = "starlink",
+            MinSeverity = AlertSeverity.Info,
+            CooldownSeconds = 3600 // 1 hour
+        },
+        new AlertRule
+        {
+            Name = "Starlink: Recovered",
+            IsEnabled = false,
+            EventTypePattern = "starlink.recovered",
+            Source = "starlink",
+            MinSeverity = AlertSeverity.Info,
+            CooldownSeconds = 60 // 1 minute - recoveries are paired with the alert they close
         }
     ];
 }
