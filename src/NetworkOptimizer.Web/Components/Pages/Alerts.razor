@@ -713,6 +713,14 @@
         @* ========== Active Alerts Tab ========== *@
         @if (_activeTab == "active")
         {
+            @* Outside the empty/non-empty split below: held alerts must always be reachable, and
+               inside the else they were unreachable exactly when the list was empty. *@
+            @if (PendingAlertCount > 0)
+            {
+                <button class="btn btn-sm btn-secondary alert-pending-pill" @onclick="ApplyPendingAlerts">
+                    @PendingAlertCount new @(PendingAlertCount == 1 ? "alert" : "alerts") - show
+                </button>
+            }
             @if (_unresolvedAlerts.Count == 0)
             {
                 <div class="empty-state">
@@ -723,12 +731,6 @@
             }
             else
             {
-                @if (PendingAlertCount > 0)
-                {
-                    <button class="btn btn-sm btn-secondary alert-pending-pill" @onclick="ApplyPendingAlerts">
-                        @PendingAlertCount new @(PendingAlertCount == 1 ? "alert" : "alerts") - show
-                    </button>
-                }
                 @if (_unresolvedAlerts.Any(a => a.Status == AlertStatus.Active))
                 {
                     <div class="alert-group-header">
@@ -1144,6 +1146,13 @@
         @* ========== Incidents Tab ========== *@
         @if (_activeTab == "incidents")
         {
+            @* Outside the empty/non-empty split, for the same reason as the alerts pill. *@
+            @if (PendingIncidentCount > 0)
+            {
+                <button class="btn btn-sm btn-secondary alert-pending-pill" @onclick="ApplyPendingIncidents">
+                    @PendingIncidentCount new @(PendingIncidentCount == 1 ? "incident" : "incidents") - show
+                </button>
+            }
             @if (!_incidents.Any(i => i.Status != AlertStatus.Resolved))
             {
                 <div class="empty-state">
@@ -1175,12 +1184,6 @@
                         }
                     </div>
                 </div>
-                @if (PendingIncidentCount > 0)
-                {
-                    <button class="btn btn-sm btn-secondary alert-pending-pill" @onclick="ApplyPendingIncidents">
-                        @PendingIncidentCount new @(PendingIncidentCount == 1 ? "incident" : "incidents") - show
-                    </button>
-                }
                 @foreach (var incident in _incidents.Where(i => i.Status != AlertStatus.Resolved))
                 {
                     <div class="card" style="margin-bottom: 1rem;" @key="incident.Id">
@@ -2547,9 +2550,10 @@
             var latest = await AlertRepository.GetUnresolvedAlertsAsync();
             var isNew = latest.Any(p => !_unresolvedAlerts.Any(a => a.Id == p.Id));
             _pendingAlerts = latest;
-            // Nothing new to push the list down: take the read as-is so acknowledged states and
-            // removals still keep up on their own.
-            if (!isNew) ApplyPendingAlerts();
+            // Held back only when there is a list to disturb. Nothing new pushes nothing down, and
+            // an EMPTY list has nothing to push either - withholding there just left the tab
+            // reading All Clear with the alerts parked out of sight.
+            if (!isNew || _unresolvedAlerts.Count == 0) ApplyPendingAlerts();
         }
         catch (Exception ex)
         {
@@ -2565,7 +2569,7 @@
             var latest = await AlertRepository.GetIncidentsAsync();
             var isNew = latest.Any(p => !_incidents.Any(i => i.Id == p.Id));
             _pendingIncidents = latest;
-            if (!isNew) ApplyPendingIncidents();
+            if (!isNew || _incidents.Count == 0) ApplyPendingIncidents();
         }
         catch (Exception ex)
         {
