@@ -29,6 +29,7 @@ public sealed class IdentityBootstrapService : IIdentityBootstrapService
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly RoleManager<ApplicationRole> _roleManager;
     private readonly IAuditLogger _audit;
+    private readonly AdminAuthCache _adminAuthCache;
     private readonly ILogger<IdentityBootstrapService> _logger;
 
     public IdentityBootstrapService(
@@ -37,6 +38,7 @@ public sealed class IdentityBootstrapService : IIdentityBootstrapService
         UserManager<ApplicationUser> userManager,
         RoleManager<ApplicationRole> roleManager,
         IAuditLogger audit,
+        AdminAuthCache adminAuthCache,
         ILogger<IdentityBootstrapService> logger)
     {
         _authDbFactory = authDbFactory;
@@ -44,6 +46,7 @@ public sealed class IdentityBootstrapService : IIdentityBootstrapService
         _userManager = userManager;
         _roleManager = roleManager;
         _audit = audit;
+        _adminAuthCache = adminAuthCache;
         _logger = logger;
     }
 
@@ -115,10 +118,12 @@ public sealed class IdentityBootstrapService : IIdentityBootstrapService
         if (BreakGlass.IsRecoveryMode && !admin.IsEnabled)
             await ReenableAdminForRecoveryAsync(admin);
 
-        // Existing admin: only the live APP_PASSWORD override re-syncs an already-migrated account,
-        // so a changed env var takes effect on restart. Transcoded DB/auto-gen hashes are one-time.
-        if (credential.Source == CredentialSource.Environment)
-            await ResyncEnvPasswordAsync(admin, credential.Plaintext!);
+        // Existing admin: re-sync only from a credential that is authoritative *this* boot, so a
+        // changed env var takes effect on restart and a cleared password row still resets the login.
+        // A transcoded DB/auto-gen hash that was merely read back is one-time and must not re-apply,
+        // or every boot would overwrite a password since set through Identity.
+        if (credential.Source is CredentialSource.Environment or CredentialSource.FirstRunReset)
+            await ResyncPlaintextPasswordAsync(admin, credential);
     }
 
     private async Task CreateAdminAsync(AdminCredential credential)
@@ -133,10 +138,11 @@ public sealed class IdentityBootstrapService : IIdentityBootstrapService
         };
 
         IdentityResult result;
-        if (credential.Source == CredentialSource.Environment)
+        if (credential.Plaintext is not null)
         {
-            // Plaintext available (env var) - let Identity hash it at full strength.
-            result = await _userManager.CreateAsync(admin, credential.Plaintext!);
+            // Plaintext available (env var, or a password generated this boot) - let Identity
+            // hash it at full strength.
+            result = await _userManager.CreateAsync(admin, credential.Plaintext);
         }
         else
         {
@@ -195,25 +201,56 @@ public sealed class IdentityBootstrapService : IIdentityBootstrapService
             details: new { reenabled = true }));
     }
 
-    private async Task ResyncEnvPasswordAsync(ApplicationUser admin, string envPassword)
+    private async Task ResyncPlaintextPasswordAsync(ApplicationUser admin, AdminCredential credential)
     {
-        if (await _userManager.CheckPasswordAsync(admin, envPassword))
+        var password = credential.Plaintext!;
+        var fromEnv = credential.Source == CredentialSource.Environment;
+
+        if (await _userManager.CheckPasswordAsync(admin, password))
             return; // already in sync
 
         var token = await _userManager.GeneratePasswordResetTokenAsync(admin);
-        var result = await _userManager.ResetPasswordAsync(admin, token, envPassword);
-        if (result.Succeeded)
+        var result = await _userManager.ResetPasswordAsync(admin, token, password);
+        if (!result.Succeeded)
         {
-            admin.PasswordIsTemporary = false;
-            await _userManager.UpdateAsync(admin);
+            _logger.LogError(
+                "Identity bootstrap: failed to re-sync the admin password from {Source}: {Errors}",
+                fromEnv ? "APP_PASSWORD" : "the regenerated first-run password", Describe(result));
+            return;
+        }
+
+        admin.PasswordIsTemporary = credential.IsTemporary;
+
+        if (!fromEnv)
+        {
+            // A reset is worth nothing if the account is then refused for some other reason, and an
+            // operator who has lost the password has usually been failing sign-ins to find that out.
+            admin.LockoutEnd = null;
+            admin.AccessFailedCount = 0;
+        }
+
+        // ResetPasswordAsync has already rotated the security stamp, so existing sessions are gone.
+        await _userManager.UpdateAsync(admin);
+
+        if (fromEnv)
+        {
             _logger.LogWarning(
                 "Identity bootstrap: APP_PASSWORD differs from the stored admin hash; the env var wins " +
                 "and the admin password was reset to it. Unset APP_PASSWORD to manage the password in-app.");
+            return;
         }
-        else
-        {
-            _logger.LogError("Identity bootstrap: failed to re-sync admin password from APP_PASSWORD: {Errors}", Describe(result));
-        }
+
+        _logger.LogWarning(
+            "Identity bootstrap: the stored admin password was cleared, so the regenerated first-run " +
+            "password above was applied to the admin account and its lockout was cleared.");
+
+        // Only the reset path is audited. The env var re-syncing on boot is existing behaviour and
+        // stays silent; auditing it here would be an unrelated change to a path nobody asked about.
+        _audit.Log(AuditEventBuilder.From(
+            CallerInfo.System("password-reset"),
+            AuditCategories.Auth, AuditActions.PasswordReset, AuditOutcomes.Success,
+            targetType: "user", targetId: admin.Id, targetName: admin.UserName,
+            details: new { source = credential.Source.ToString() }));
     }
 
     /// <summary>Resolves the effective local admin credential, or null when there is none to seed.</summary>
@@ -223,6 +260,13 @@ public sealed class IdentityBootstrapService : IIdentityBootstrapService
         var envPassword = Environment.GetEnvironmentVariable("APP_PASSWORD");
         if (!string.IsNullOrEmpty(envPassword))
             return AdminCredential.FromEnvironment(envPassword);
+
+        // A password generated moments ago by AdminAuthService means the stored one was absent:
+        // a first run, or scripts/reset-password.* having cleared it. That password has just been
+        // printed to the log as the way back in, so it outranks the hash now sitting in the row.
+        var firstRunPassword = _adminAuthCache.ConsumeFirstRunPassword();
+        if (!string.IsNullOrEmpty(firstRunPassword))
+            return AdminCredential.FromFirstRunReset(firstRunPassword);
 
         await using var mainDb = await _mainDbFactory.CreateDbContextAsync(cancellationToken);
         var settings = await mainDb.AdminSettings.AsNoTracking().FirstOrDefaultAsync(cancellationToken);
@@ -243,6 +287,7 @@ public sealed class IdentityBootstrapService : IIdentityBootstrapService
     {
         Environment,
         LegacyHash,
+        FirstRunReset,
     }
 
     private sealed record AdminCredential(
@@ -253,5 +298,9 @@ public sealed class IdentityBootstrapService : IIdentityBootstrapService
 
         public static AdminCredential FromLegacyHash(string v3Hash, bool isTemporary)
             => new(CredentialSource.LegacyHash, null, v3Hash, isTemporary);
+
+        /// <summary>A password auto-generated this boot because none was stored; always temporary.</summary>
+        public static AdminCredential FromFirstRunReset(string plaintext)
+            => new(CredentialSource.FirstRunReset, plaintext, null, IsTemporary: true);
     }
 }

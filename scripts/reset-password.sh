@@ -48,6 +48,17 @@ DATA_DIR=""
 FORCE=false
 TIMEOUT=60
 HEALTH_URL="http://localhost:8042/api/health"
+DB_PATH=""                  # resolved by the native modes
+DOCKER_DB_PATH="/app/data/network_optimizer.db"
+
+# Runs one statement against the application database, whichever way this mode reaches it.
+run_sql() {
+    if [[ "$MODE" == "docker" ]]; then
+        docker exec "$CONTAINER" sqlite3 "$DOCKER_DB_PATH" "$1"
+    else
+        sqlite3 "$DB_PATH" "$1"
+    fi
+}
 
 # =============================================================================
 # Parse Arguments
@@ -234,8 +245,7 @@ reset_docker() {
 
     # Clear password via docker exec
     msg_info "Clearing admin password..."
-    docker exec "$CONTAINER" sqlite3 /app/data/network_optimizer.db \
-        "UPDATE AdminSettings SET Password = NULL, Enabled = 0;"
+    run_sql "UPDATE AdminSettings SET Password = NULL, Enabled = 0;"
     msg_ok "Password cleared"
 
     # Restart container
@@ -266,6 +276,7 @@ reset_macos() {
     local plist="$HOME/Library/LaunchAgents/net.ozarkconnect.networkoptimizer.plist"
     local db_dir="${DATA_DIR:-$HOME/Library/Application Support/NetworkOptimizer}"
     local db_path="$db_dir/network_optimizer.db"
+    DB_PATH="$db_path"
 
     # Detect install directory from plist WorkingDirectory or running process
     local install_dir=""
@@ -312,7 +323,7 @@ reset_macos() {
 
     # Clear password
     msg_info "Clearing admin password..."
-    sqlite3 "$db_path" "UPDATE AdminSettings SET Password = NULL, Enabled = 0;"
+    run_sql "UPDATE AdminSettings SET Password = NULL, Enabled = 0;"
     msg_ok "Password cleared"
 
     # Start service
@@ -391,6 +402,7 @@ reset_linux() {
         echo "Use --data-dir to specify the correct data directory."
         exit 1
     fi
+    DB_PATH="$db_path"
     msg_ok "Database found: $db_path"
 
     # Detect install directory from systemd or running process
@@ -432,7 +444,7 @@ reset_linux() {
 
     # Clear password
     msg_info "Clearing admin password..."
-    sqlite3 "$db_path" "UPDATE AdminSettings SET Password = NULL, Enabled = 0;"
+    run_sql "UPDATE AdminSettings SET Password = NULL, Enabled = 0;"
     msg_ok "Password cleared"
 
     # Start service
@@ -478,10 +490,40 @@ reset_linux() {
 }
 
 # =============================================================================
+# Warn about settings that refuse the new password even after a successful reset
+# =============================================================================
+# The reset only restores the password. Two other settings can still turn the login
+# away, and from the login page both look exactly like a wrong password - so say so
+# here rather than leave someone retyping a password that was never the problem.
+# Neither is changed automatically: one would weaken the install's SSO policy, the
+# other would throw away an MFA enrollment.
+warn_about_blockers() {
+    local sso_only mfa_on
+
+    sso_only=$(run_sql "SELECT Value FROM SystemSettings WHERE Key = 'auth.local_login_disabled';" 2>/dev/null || echo "")
+    if [[ "$sso_only" == "true" ]]; then
+        echo ""
+        msg_warn "Local logins are disabled on this install (single sign-on only)."
+        msg_warn "The password below will be refused until an administrator re-enables"
+        msg_warn "local login, or you restart with NETOPT_RECOVERY=1 to bypass it once."
+    fi
+
+    mfa_on=$(run_sql "SELECT TwoFactorEnabled FROM AspNetUsers WHERE NormalizedUserName = 'ADMIN';" 2>/dev/null || echo "")
+    if [[ "$mfa_on" == "1" ]]; then
+        echo ""
+        msg_warn "The admin account has two-factor authentication enabled."
+        msg_warn "You will still be asked for your authenticator code after signing in."
+        msg_warn "Use a saved recovery code if you no longer have the authenticator."
+    fi
+}
+
+# =============================================================================
 # Display Result
 # =============================================================================
 show_result() {
     local password="$1"
+
+    warn_about_blockers
 
     if [[ -n "$password" ]]; then
         echo -e "${GN}===================================${CL}"

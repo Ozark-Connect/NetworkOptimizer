@@ -38,4 +38,21 @@ public class AdminAuthCache
     /// <summary>Forces the next access to refresh (e.g. after the password is changed).</summary>
     public void Invalidate()
         => _entry = _entry with { RefreshedAt = DateTime.MinValue };
+
+    private string? _firstRunPassword;
+
+    /// <summary>
+    /// Hands the just-generated first-run password to the Identity bootstrap, which runs
+    /// immediately after the first resolve and needs the plaintext to reset the <c>admin</c>
+    /// account's own hash. Held in memory only, and only until it is read once.
+    /// </summary>
+    public void PublishFirstRunPassword(string password)
+        => Interlocked.Exchange(ref _firstRunPassword, password);
+
+    /// <summary>
+    /// Takes the first-run password published during this boot, clearing it so it is never
+    /// handed out twice. Null when this boot did not generate one.
+    /// </summary>
+    public string? ConsumeFirstRunPassword()
+        => Interlocked.Exchange(ref _firstRunPassword, null);
 }

@@ -126,6 +126,38 @@ if (-not $sqlite3) {
 Write-Host "sqlite3:           $sqlite3Path" -ForegroundColor Green
 Write-Host ""
 
+function Invoke-Sql {
+    param([string]$Query)
+    # Only used for the advisory checks below, against tables an older install predates. A missing
+    # table exits sqlite3 non-zero, which PowerShell 7.4+ turns into a terminating error under
+    # $ErrorActionPreference = 'Stop' - so swallow it and report nothing rather than abort a reset
+    # that has already succeeded.
+    try { & $sqlite3Path $dbPath $Query 2>$null } catch { }
+}
+
+# The reset only restores the password. Two other settings can still turn the login away,
+# and from the login page both look exactly like a wrong password - so say so here rather
+# than leave someone retyping a password that was never the problem. Neither is changed
+# automatically: one would weaken the install's SSO policy, the other would throw away an
+# MFA enrollment.
+function Write-BlockerWarnings {
+    $ssoOnly = Invoke-Sql "SELECT Value FROM SystemSettings WHERE Key = 'auth.local_login_disabled';"
+    if ($ssoOnly -eq 'true') {
+        Write-Host ""
+        Write-Host "WARNING: Local logins are disabled on this install (single sign-on only)." -ForegroundColor Yellow
+        Write-Host "         The password below will be refused until an administrator re-enables" -ForegroundColor Yellow
+        Write-Host "         local login, or you restart with NETOPT_RECOVERY=1 to bypass it once." -ForegroundColor Yellow
+    }
+
+    $mfaOn = Invoke-Sql "SELECT TwoFactorEnabled FROM AspNetUsers WHERE NormalizedUserName = 'ADMIN';"
+    if ($mfaOn -eq '1') {
+        Write-Host ""
+        Write-Host "WARNING: The admin account has two-factor authentication enabled." -ForegroundColor Yellow
+        Write-Host "         You will still be asked for your authenticator code after signing in." -ForegroundColor Yellow
+        Write-Host "         Use a saved recovery code if you no longer have the authenticator." -ForegroundColor Yellow
+    }
+}
+
 # =============================================================================
 # Confirm with user
 # =============================================================================
@@ -229,6 +261,8 @@ if (Test-Path $logFile) {
         }
     }
 }
+
+Write-BlockerWarnings
 
 if ($password) {
     Write-Host "===================================" -ForegroundColor Green

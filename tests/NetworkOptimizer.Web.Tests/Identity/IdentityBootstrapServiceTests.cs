@@ -133,6 +133,154 @@ public sealed class IdentityBootstrapServiceTests : IDisposable
         (await roleManager.RoleExistsAsync(Roles.Admin)).Should().BeTrue();
     }
 
+    /// <summary>
+    /// The first run on a brand-new install: nothing stored, so the password is generated and the
+    /// admin account is created straight from the plaintext. This one goes through Identity's
+    /// password validators, so a generated password that broke the policy would leave the install
+    /// with no admin account at all - the worst outcome available on this path.
+    /// </summary>
+    [Fact]
+    public async Task FirstRun_WithNoStoredCredential_CreatesAWorkingAdminFromTheGeneratedPassword()
+    {
+        // No AdminSettings row at all, exactly like a fresh install.
+        await using var provider = BuildProvider();
+
+        const string generated = "Generated-First-Run-7";
+        provider.GetRequiredService<AdminAuthCache>().PublishFirstRunPassword(generated);
+        await RunBootstrapAsync(provider);
+
+        using var scope = provider.CreateScope();
+        var users = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+        var admin = await users.FindByNameAsync(IdentityBootstrapService.AdminUserName);
+
+        admin.Should().NotBeNull("a failed create would leave a fresh install with no way in");
+        (await users.CheckPasswordAsync(admin!, generated)).Should().BeTrue();
+        (await users.IsInRoleAsync(admin!, Roles.Admin)).Should().BeTrue();
+        admin!.PasswordIsTemporary.Should().BeTrue();
+        admin.IsEnabled.Should().BeTrue();
+    }
+
+    /// <summary>
+    /// An upgrading install brings whatever password it already had, which predates the account
+    /// policy and need not satisfy it. The seed copies the transcoded hash and calls the overload
+    /// that runs only the user validators, so the policy is never evaluated and nobody is locked
+    /// out by the cutover. If this ever starts validating, short legacy passwords stop migrating.
+    /// </summary>
+    [Fact]
+    public async Task LegacyPasswordThatBreaksThePolicy_StillMigratesAndSignsIn()
+    {
+        // Too short and no digit: rejected outright if it were ever put through the validators.
+        const string weakPassword = "abc";
+        await SeedLegacyAdminSettingsAsync(new PasswordHasher().HashPassword(weakPassword), enabled: true);
+
+        await using var provider = BuildProvider();
+        await RunBootstrapAsync(provider);
+
+        using var scope = provider.CreateScope();
+        var users = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+        var admin = await users.FindByNameAsync(IdentityBootstrapService.AdminUserName);
+
+        admin.Should().NotBeNull("an upgrade must never lock the operator out over password strength");
+        (await users.CheckPasswordAsync(admin!, weakPassword)).Should().BeTrue();
+        (await users.IsInRoleAsync(admin!, Roles.Admin)).Should().BeTrue();
+    }
+
+    /// <summary>
+    /// The reset scripts clear the stored password so startup regenerates one and prints it. Once an
+    /// admin account exists, only re-applying that password to the account makes the printed one the
+    /// real login - without it the scripts hand out a password that is silently refused.
+    /// </summary>
+    [Fact]
+    public async Task RegeneratedFirstRunPassword_ResetsAnAlreadySeededAdmin()
+    {
+        const string oldPassword = "Original-Pass-42";
+        await SeedLegacyAdminSettingsAsync(new PasswordHasher().HashPassword(oldPassword), enabled: true);
+
+        await using var provider = BuildProvider();
+        await RunBootstrapAsync(provider);
+
+        // The operator has been failing sign-ins, so the account is locked out too.
+        using (var scope = provider.CreateScope())
+        {
+            var users = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+            var locked = await users.FindByNameAsync(IdentityBootstrapService.AdminUserName);
+            locked!.LockoutEnd = DateTimeOffset.UtcNow.AddMinutes(5);
+            locked.AccessFailedCount = 5;
+            await users.UpdateAsync(locked);
+        }
+
+        // Act: reset-password.* cleared the row, so AdminAuthService generated and printed this one.
+        const string resetPassword = "Regenerated-Pass-99";
+        provider.GetRequiredService<AdminAuthCache>().PublishFirstRunPassword(resetPassword);
+        await RunBootstrapAsync(provider);
+
+        using (var scope = provider.CreateScope())
+        {
+            var users = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+            var admin = await users.FindByNameAsync(IdentityBootstrapService.AdminUserName);
+
+            (await users.CheckPasswordAsync(admin!, resetPassword)).Should().BeTrue(
+                "the password the reset printed is the one that must now work");
+            (await users.CheckPasswordAsync(admin!, oldPassword)).Should().BeFalse(
+                "the password that was reset away must stop working");
+            admin!.PasswordIsTemporary.Should().BeTrue("a generated password still needs replacing");
+            admin.LockoutEnd.Should().BeNull("a reset is worthless if the account stays locked out");
+            admin.AccessFailedCount.Should().Be(0);
+        }
+    }
+
+    /// <summary>
+    /// A stored hash that was only read back must not re-apply on later boots, or every restart
+    /// would overwrite whatever password the user has since set through Identity.
+    /// </summary>
+    [Fact]
+    public async Task StoredLegacyHash_DoesNotOverwriteALaterPasswordOnReboot()
+    {
+        await SeedLegacyAdminSettingsAsync(new PasswordHasher().HashPassword("Seeded-Pass-42"), enabled: true);
+
+        await using var provider = BuildProvider();
+        await RunBootstrapAsync(provider);
+
+        const string chosenPassword = "Chosen-In-App-77";
+        using (var scope = provider.CreateScope())
+        {
+            var users = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+            var admin = await users.FindByNameAsync(IdentityBootstrapService.AdminUserName);
+            var token = await users.GeneratePasswordResetTokenAsync(admin!);
+            (await users.ResetPasswordAsync(admin!, token, chosenPassword)).Succeeded.Should().BeTrue();
+        }
+
+        await RunBootstrapAsync(provider); // reboot, legacy row untouched
+
+        using (var scope = provider.CreateScope())
+        {
+            var users = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+            var admin = await users.FindByNameAsync(IdentityBootstrapService.AdminUserName);
+            (await users.CheckPasswordAsync(admin!, chosenPassword)).Should().BeTrue();
+        }
+    }
+
+    /// <summary>
+    /// The generated password is applied through Identity now, which enforces the account policy -
+    /// so it has to satisfy RequireDigit. Drawing uniformly from the alphabet leaves roughly one in
+    /// twelve with no digit at all, which would fail the reset it is meant to perform.
+    /// </summary>
+    [Fact]
+    public void GeneratedFirstRunPassword_AlwaysSatisfiesThePasswordPolicy()
+    {
+        var generate = typeof(AdminAuthService).GetMethod(
+            "GenerateSecurePassword",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+        generate.Should().NotBeNull("the first-run password generator is expected on AdminAuthService");
+
+        for (var i = 0; i < 500; i++)
+        {
+            var password = (string)generate!.Invoke(null, null)!;
+            password.Length.Should().BeGreaterThanOrEqualTo(8);
+            password.Any(char.IsDigit).Should().BeTrue("Identity's RequireDigit rejects the rest");
+        }
+    }
+
     private static async Task RunBootstrapAsync(ServiceProvider provider)
     {
         using var scope = provider.CreateScope();
