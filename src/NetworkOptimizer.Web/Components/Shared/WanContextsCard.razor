@@ -1105,6 +1105,16 @@
                     : $"pinned to {plan.WanInterface} via agent {plan.AgentId?.ToString() ?? "server"}"
                       + $", kill switch {(plan.KillSwitchEnabled ? "on" : "off")}");
 
+            // Last, because it is the only question here that can cost a console round trip: a
+            // gateway-resident agent binds its own probe source, so a route naming it is a
+            // coincidence rather than the steering this looks for.
+            if (plan != null && await OnGatewayDetector.IsIpOnGatewayAsync(SiteCtx.Slug, plan.MatchedLanIp))
+            {
+                Log.LogDebug("Policy-route check: {Ip} is the gateway itself, which binds its own probe source",
+                    plan.MatchedLanIp);
+                return null;
+            }
+
             return plan != null && string.Equals(
                 NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(plan.WanInterface),
                 NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(wanInterface),

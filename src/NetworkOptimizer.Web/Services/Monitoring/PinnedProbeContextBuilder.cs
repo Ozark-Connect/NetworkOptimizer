@@ -28,7 +28,13 @@ public static class PinnedProbeContextBuilder
     /// targets pushed to nobody.
     /// </param>
     /// <param name="KillSwitchEnabled">False means a failover re-routes while the stamp stays put.</param>
-    public sealed record Plan(string WanInterface, string ContextName, int? AgentId, bool KillSwitchEnabled);
+    /// <param name="MatchedLanIp">
+    /// The address of the box the route named. Carried so a caller can run its one expensive
+    /// question - is this box the gateway itself? - against a single host, after the cheap
+    /// in-memory matching has already settled which one it is.
+    /// </param>
+    public sealed record Plan(
+        string WanInterface, string ContextName, int? AgentId, bool KillSwitchEnabled, string? MatchedLanIp);
 
     /// <summary>
     /// The vantage to create for whichever probing box a route pins, or null when none is pinned.
@@ -65,7 +71,7 @@ public static class PinnedProbeContextBuilder
 
             var key = GatewayWanHelper.WanInterfaceKeyFromKey(network.WanNetworkgroup);
             var label = string.IsNullOrWhiteSpace(network.Name) ? key : network.Name;
-            return new Plan(key, label, host.AgentId, pin.KillSwitchEnabled);
+            return new Plan(key, label, host.AgentId, pin.KillSwitchEnabled, host.LanIp);
         }
 
         return null;

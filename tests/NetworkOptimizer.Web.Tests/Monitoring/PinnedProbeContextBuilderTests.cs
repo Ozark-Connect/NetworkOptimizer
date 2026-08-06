@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using NetworkOptimizer.UniFi;
 using NetworkOptimizer.UniFi.Models;
 using NetworkOptimizer.Web.Services.Monitoring;
@@ -53,6 +53,7 @@ public class PinnedProbeContextBuilderTests
 
         plan.Should().NotBeNull();
         plan!.AgentId.Should().Be(7);
+        plan.MatchedLanIp.Should().Be("192.0.2.20");
         plan.WanInterface.Should().Be("wan2");
         plan.ContextName.Should().Be("Cable");
     }
@@ -69,6 +70,7 @@ public class PinnedProbeContextBuilderTests
             });
 
         plan!.AgentId.Should().BeNull();
+        plan.MatchedLanIp.Should().Be("192.0.2.10");
     }
 
     [Fact]

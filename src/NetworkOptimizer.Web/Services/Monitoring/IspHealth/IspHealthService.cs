@@ -68,6 +68,8 @@ public class IspHealthService
     private readonly AgentTunnelRegistry? _tunnelRegistry;
     /// <summary>Resolves which box actually probes the unassigned targets. Null in tests.</summary>
     private readonly AgentProbeResultSink? _probeSink;
+    /// <summary>Tells a gateway-resident agent from one on the LAN. Null in tests.</summary>
+    private readonly AgentOnGatewayDetector? _onGatewayDetector;
 
     public IspHealthService(
         MonitoringInfluxRegistry influxRegistry,
@@ -78,11 +80,13 @@ public class IspHealthService
         ILogger<IspHealthService> logger,
         AgentTunnelRegistry? tunnelRegistry = null,
         AgentProbeResultSink? probeSink = null,
+        AgentOnGatewayDetector? onGatewayDetector = null,
         string siteSlug = SiteManagementService.DefaultSiteSlug,
         string? wanInterface = null)
     {
         _tunnelRegistry = tunnelRegistry;
         _probeSink = probeSink;
+        _onGatewayDetector = onGatewayDetector;
         _siteSlug = string.IsNullOrEmpty(siteSlug) ? SiteManagementService.DefaultSiteSlug : siteSlug;
         _isDefault = _siteSlug == SiteManagementService.DefaultSiteSlug;
         _scopedWanKey = string.IsNullOrWhiteSpace(wanInterface)
@@ -2075,6 +2079,18 @@ public class IspHealthService
                     + "targets - the route says nothing about those probes",
                     plan.AgentId?.ToString() ?? "the server",
                     collector?.ToString() ?? "the server");
+                return;
+            }
+
+            // Last, because it is the only question here that can cost a console round trip: a
+            // gateway-resident agent binds its probe source directly and needs no policy route, so
+            // a route appearing to name it is a coincidence rather than the steering we are after.
+            if (_onGatewayDetector != null
+                && await _onGatewayDetector.IsIpOnGatewayAsync(_siteSlug, plan.MatchedLanIp, ct))
+            {
+                _logger.LogDebug(
+                    "Routed-probe vantage: {Ip} is the gateway itself, which binds its own probe source - "
+                    + "no policy route needed or believed", plan.MatchedLanIp);
                 return;
             }
 
