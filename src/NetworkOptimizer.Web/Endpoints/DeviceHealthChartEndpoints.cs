@@ -106,7 +106,7 @@ public static class DeviceHealthChartEndpoints
             var macsByNormalized = targets
                 .Where(t => !string.IsNullOrEmpty(t.DeviceMac))
                 .GroupBy(t => NormalizeMac(t.DeviceMac!))
-                .ToDictionary(g => g.Key, g => g.First().DeviceMac!);
+                .ToDictionary(g => g.Key, g => (Key: g.First().DeviceMac!, Name: g.First().Name));
 
             var events = await BuildAnnotationsAsync(influx, db, macsByNormalized, queryFrom, queryTo, ct);
 
@@ -141,8 +141,10 @@ public static class DeviceHealthChartEndpoints
     /// <param name="influx">Time-series client, source of the reboot records.</param>
     /// <param name="db">Site database, source of the device-scoped alert history.</param>
     /// <param name="macsByNormalized">
-    /// Charted devices, keyed by normalized MAC so both sources can be matched against them, with
-    /// the target's own MAC spelling as the value - that is the key the chart filters on.
+    /// Charted devices, keyed by normalized MAC so both sources can be matched against them. The
+    /// value carries the series key the chart filters on (the target's own MAC spelling) and the
+    /// device's display name, which rides down with each event so the mark layer never has to
+    /// look a series up.
     /// </param>
     /// <param name="from">Window start.</param>
     /// <param name="to">Window end.</param>
@@ -150,7 +152,7 @@ public static class DeviceHealthChartEndpoints
     private static async Task<List<object>> BuildAnnotationsAsync(
         MonitoringInfluxClient influx,
         NetworkOptimizerDbContext db,
-        Dictionary<string, string> macsByNormalized,
+        Dictionary<string, (string Key, string Name)> macsByNormalized,
         DateTime from,
         DateTime to,
         CancellationToken ct)
@@ -169,12 +171,13 @@ public static class DeviceHealthChartEndpoints
 
         foreach (var reboot in reboots)
         {
-            if (!macsByNormalized.TryGetValue(NormalizeMac(reboot.DeviceMac), out var mac)) continue;
+            if (!macsByNormalized.TryGetValue(NormalizeMac(reboot.DeviceMac), out var series)) continue;
 
             var unexpected = UnexpectedRebootCategories.Contains(reboot.Category);
             events.Add((reboot.BootedAt, new
             {
-                mac,
+                key = series.Key,
+                device = series.Name,
                 time = reboot.BootedAt.ToString("o"),
                 kind = "reboot",
                 severity = unexpected ? "warning" : "info",
@@ -195,7 +198,7 @@ public static class DeviceHealthChartEndpoints
         var macCandidates = macsByNormalized
             .SelectMany(kvp => new[]
             {
-                kvp.Value, kvp.Value.ToLowerInvariant(), kvp.Value.ToUpperInvariant(),
+                kvp.Value.Key, kvp.Value.Key.ToLowerInvariant(), kvp.Value.Key.ToUpperInvariant(),
                 kvp.Key, kvp.Key.ToUpperInvariant(),
             })
             .Distinct(StringComparer.Ordinal)
@@ -210,7 +213,7 @@ public static class DeviceHealthChartEndpoints
         foreach (var alert in alerts)
         {
             if (AlertTypesCoveredElsewhere.Contains(alert.EventType)) continue;
-            if (!macsByNormalized.TryGetValue(NormalizeMac(alert.DeviceId!), out var mac)) continue;
+            if (!macsByNormalized.TryGetValue(NormalizeMac(alert.DeviceId!), out var series)) continue;
 
             // TriggeredAt is written as UtcNow but comes back from SQLite as Unspecified, and "o"
             // on an Unspecified value emits no zone - which the browser then reads as LOCAL time,
@@ -219,7 +222,8 @@ public static class DeviceHealthChartEndpoints
 
             events.Add((triggeredAtUtc, new
             {
-                mac,
+                key = series.Key,
+                device = series.Name,
                 time = triggeredAtUtc.ToString("o"),
                 kind = "alert",
                 severity = alert.Severity switch

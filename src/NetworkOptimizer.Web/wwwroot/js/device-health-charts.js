@@ -5,7 +5,7 @@ import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=4';
 import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=8';
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=4';
-import { eventColor, chartSurfaceColor } from './chart-colors.js?v=2';
+import { createMarkLayer } from './chart-event-marks.js?v=1';
 
 // A device answers SNMP but can still miss a single field on a poll - a temperature or
 // memory OID that times out is written as no value rather than a zero, so the row arrives
@@ -57,7 +57,6 @@ let lastData = null;
 let lastEvents = [];
 let chartEls = {};
 let markResizeTimer = null;
-let lastMarkSignature = null;
 
 function baseOpts(height, yTitle, yFormatter, extra) {
     return {
@@ -177,15 +176,8 @@ function updateVisibility() {
     applyAnnotations();
 }
 
-// Marks on the time axis for things that happened to a charted device: restarts, and the
-// device's own alerts. The glyph says which kind it is and the colour says how bad, so the
-// two read independently - a planned firmware restart and a panic are both ↻, in different
-// colours, which is the distinction the operator is actually scanning for.
-const EVENT_GLYPH = { reboot: '↻', alert: '⚠' };
-
-// Every chart on the tab paired with the element it rendered into. ApexCharts draws annotation
-// labels as SVG text, and the tooltip is attached by walking that SVG afterwards, so the
-// element is needed as well as the instance.
+// Every chart on the tab paired with the element it rendered into, which is what the mark
+// layer needs to reach the annotation labels it draws.
 function chartEntries() {
     return [
         [tempChart, chartEls.temp],
@@ -195,169 +187,12 @@ function chartEntries() {
     ];
 }
 
-const SEVERITY_RANK = { info: 0, warning: 1, critical: 2 };
-
-// Two marks closer together than this overlap into an unreadable smear - the label box is
-// about 20px wide once padded. Folding at that distance is what keeps a flapping device from
-// laying a solid row of glyphs across the 30d view, and it bounds the mark count at
-// plotWidth/24 however many events land in the window. Nothing is dropped: a folded event is
-// still listed in its cluster's tooltip.
-const MARK_COLLISION_PX = 24;
-
-// Milliseconds per pixel of plot, taken from the chart's own geometry rather than from the
-// requested range: gridWidth excludes the y-axis gutter, and minX/maxX are the extents
-// ApexCharts actually drew, including its own padding. Every chart on the tab shares a width
-// and an x-window, so the first one that can answer speaks for all of them - which also
-// guarantees the folds line up vertically instead of each chart clustering to its own
-// slightly different answer.
-//
-// Asking every chart rather than only the temperature one matters: alignedPoints returns an
-// empty series when a field is null throughout, so a site whose switch temperatures never
-// arrive has an empty temperature chart - and reading geometry from that alone would silently
-// disable folding on the CPU and Memory charts, which are exactly the ones carrying marks.
-function markMsPerPx() {
-    for (const [chart] of chartEntries()) {
-        const g = chart?.w?.globals;
-        if (!g || !(g.gridWidth > 0) || !(g.maxX > g.minX)) continue;
-        return (g.maxX - g.minX) / g.gridWidth;
-    }
-    return null;
-}
-
-// Colour and glyph both come from the worst thing in the cluster so they can never disagree:
-// a fold containing one kernel panic reads as a panic, not as the routine restart next to it.
-function dominantMark(marks) {
-    return marks.reduce((worst, m) =>
-        (SEVERITY_RANK[m.severity] ?? 0) > (SEVERITY_RANK[worst.severity] ?? 0) ? m : worst);
-}
-
-// Events arrive time-ordered from the endpoint, so one pass does it. The gap is measured from
-// the cluster's FIRST member, not its last, so the mark stays anchored where the run started
-// rather than drifting rightward as the cluster absorbs more.
-function clusterMarks(marks) {
-    const msPerPx = markMsPerPx();
-    // No geometry yet (first paint, or a range with no series to scale) means no clustering,
-    // which is the pre-fold behaviour rather than a guess.
-    if (msPerPx == null) return marks.map(m => ({ at: new Date(m.time).getTime(), marks: [m] }));
-
-    const gapMs = MARK_COLLISION_PX * msPerPx;
-    const clusters = [];
-    for (const mark of marks) {
-        const at = new Date(mark.time).getTime();
-        const open = clusters[clusters.length - 1];
-        if (open && at - open.at <= gapMs) open.marks.push(mark);
-        else clusters.push({ at, marks: [mark] });
-    }
-    return clusters;
-}
-
-function markTime(time) {
-    return new Date(time).toLocaleString(undefined,
-        { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-}
-
-function deviceNameFor(mac) {
-    return deviceMeta.find(d => d.mac === mac)?.name;
-}
-
-function annotationTooltip(cluster) {
-    if (cluster.marks.length === 1) {
-        const mark = cluster.marks[0];
-        const device = deviceNameFor(mark.mac);
-        const lines = [`<strong>${escapeHtml(mark.title)}</strong>`];
-        if (device) lines.push(escapeHtml(device));
-        lines.push(escapeHtml(markTime(mark.time)));
-        if (mark.detail) lines.push(escapeHtml(mark.detail));
-        return lines.join('<br>');
-    }
-
-    // Every member is listed. The list scrolls rather than truncating, because a folded event
-    // that is neither on the chart nor in the tooltip is simply lost.
-    const rows = cluster.marks.map(mark => {
-        const device = deviceNameFor(mark.mac);
-        return `<div><span class="chart-annotation-time">${escapeHtml(markTime(mark.time))}</span> `
-            + `${escapeHtml(mark.title)}${device ? ` - ${escapeHtml(device)}` : ''}</div>`;
-    }).join('');
-
-    return `<strong>${cluster.marks.length} events</strong>`
-        + `<div class="chart-annotation-list">${rows}</div>`;
-}
-
-// ApexCharts stamps each label with rel="<index into the annotation array>", so each cluster is
-// matched to its own label by that rather than by trusting NodeList order.
-//
-// Setting the attribute is all that is needed to get a tooltip: App.razor rescans for
-// [data-tooltip] and initializes Tippy on anything new, which is how the other dynamically
-// drawn badges work.
-function tagAnnotationTooltips(el, clusters) {
-    if (!el) return;
-    clusters.forEach((cluster, i) => {
-        const label = el.querySelector(`.apexcharts-xaxis-annotation-label[rel='${i}']`);
-        if (!label) return;
-        label.setAttribute('data-tooltip', annotationTooltip(cluster));
-        label.setAttribute('data-tooltip-interactive', '');
-        label.style.cursor = 'help';
-    });
-}
-
-// Each redraw replaces the label elements, so the Tippy instances bound to the outgoing ones
-// have to go with them - otherwise a 5s poll leaves an orphan per mark per tick.
-function destroyAnnotationTooltips(el) {
-    if (!el) return;
-    el.querySelectorAll('.apexcharts-xaxis-annotation-label').forEach(label => label._tippy?.destroy());
-}
+const markLayer = createMarkLayer({ charts: chartEntries });
 
 function applyAnnotations() {
-    // Filtering here rather than server-side keeps the badge toggles instant: hiding a device
-    // drops its marks without a refetch, the same way it drops its line.
-    const visible = lastEvents.filter(e => visibility[e.mac] !== false);
-    const clusters = clusterMarks(visible);
-
-    // A poll usually returns the same events over the same geometry, and redrawing then costs a
-    // full annotation teardown - and a Tippy rebuild - for no visible change. The signature
-    // covers what the marks are drawn FROM, so a new event, a badge toggle or a resize still
-    // gets through.
-    const signature = JSON.stringify([markMsPerPx(), clusters.map(c => [c.at, c.marks.length])]);
-    if (signature === lastMarkSignature) return;
-    lastMarkSignature = signature;
-
-    const surface = chartSurfaceColor();
-    const xaxis = clusters.map(cluster => {
-        const lead = dominantMark(cluster.marks);
-        const color = eventColor(lead.severity);
-        const glyph = EVENT_GLYPH[lead.kind] || EVENT_GLYPH.alert;
-        return {
-            x: cluster.at,
-            borderColor: color,
-            strokeDashArray: 4,
-            label: {
-                text: cluster.marks.length > 1 ? `${glyph}${cluster.marks.length}` : glyph,
-                borderColor: color,
-                // ApexCharts' own stylesheet puts pointer-events: none on every annotation
-                // label, which would leave these unhoverable and the tooltips dead. The class
-                // is concatenated onto theirs, not swapped for it, so app.css can win on
-                // specificity without !important.
-                style: {
-                    cssClass: 'chart-event-mark',
-                    color,
-                    background: surface,
-                    fontSize: '11px',
-                    padding: { left: 4, right: 4, top: 2, bottom: 2 },
-                },
-            },
-        };
-    });
-
-    for (const [chart, el] of chartEntries()) {
-        if (!chart) continue;
-        destroyAnnotationTooltips(el);
-        // Wrapped rather than chained directly: the labels only exist once the update has
-        // rendered, and updateOptions is not promise-returning in every ApexCharts build.
-        Promise.resolve(chart.updateOptions({ annotations: { xaxis } }, false, false))
-            .then(() => tagAnnotationTooltips(el, clusters))
-            .catch(e => console.warn('Device health annotations failed to draw', e));
-    }
+    markLayer.apply(lastEvents, visibility);
 }
+
 
 // A narrower plot fits fewer marks before they collide, so the folds have to be recomputed.
 // Debounced because ApexCharts is redrawing on the same events, and left to settle after it.
@@ -743,7 +578,7 @@ export function unmount() {
     visibility = {};
     lastData = null;
     lastEvents = [];
-    lastMarkSignature = null;
+    markLayer.reset();
     currentRangeHours = 1;
     windowOffset = 0;
     isCustomRange = false;

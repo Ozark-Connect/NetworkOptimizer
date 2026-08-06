@@ -7342,17 +7342,57 @@ a.path-hop.hop-clickable:hover {
     pointer-events: auto;
 }
 
-/* Tooltip content for a folded mark. Scoped to the tooltip rather than the card because Tippy
-   renders the popper on document.body, outside the chart container entirely. The list scrolls
-   because a fold names every event it covers. */
-.tippy-box[data-theme~='custom'] .chart-annotation-list {
-    max-height: 12rem;
-    overflow-y: auto;
-    margin-top: 0.25rem;
+/* Chart event mark tooltips. Scoped to the tooltip rather than the chart card because Tippy
+   renders the popper on document.body, outside the container entirely. Rows themselves reuse
+   .device-tooltip-row / .device-tooltip-label, so a mark reads like the speed test and Wi-Fi
+   tooltips do. */
+.tippy-box[data-theme~='custom'] .chart-mark-title {
+    font-weight: 600;
+    font-size: 0.9rem;
+    margin-bottom: 0.35rem;
+    color: var(--text-primary);
 }
 
-.tippy-box[data-theme~='custom'] .chart-annotation-time {
+/* Detail is prose rather than a value, so it wraps under its label instead of being squeezed
+   into the value column beside it. */
+.tippy-box[data-theme~='custom'] .chart-mark-detail {
+    display: block;
+    margin-top: 0.3rem;
+}
+
+/* A fold names every event it covers, so the list scrolls rather than truncating. */
+.tippy-box[data-theme~='custom'] .chart-mark-list {
+    max-height: 12rem;
+    overflow-y: auto;
+    margin-top: 0.35rem;
+    border-top: 1px solid var(--border-color);
+    padding-top: 0.35rem;
+}
+
+.tippy-box[data-theme~='custom'] .chart-mark-item {
+    display: flex;
+    gap: 0.5rem;
+    font-size: 0.8rem;
+    padding: 0.15rem 0;
+}
+
+.tippy-box[data-theme~='custom'] .chart-mark-item-time {
     color: var(--text-muted);
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+
+.tippy-box[data-theme~='custom'] .chart-mark-item-body {
+    display: flex;
+    flex-direction: column;
+}
+
+.tippy-box[data-theme~='custom'] .chart-mark-item-title {
+    color: var(--text-primary);
+}
+
+.tippy-box[data-theme~='custom'] .chart-mark-item-where {
+    color: var(--text-secondary);
 }
 
 /* ============================================
