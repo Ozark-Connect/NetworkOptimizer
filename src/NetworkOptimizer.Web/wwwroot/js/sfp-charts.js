@@ -5,6 +5,7 @@ import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=4';
 import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=8';
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=4';
+import { createMarkLayer } from './chart-event-marks.js?v=1';
 
 const PALETTE = window.Apex?.colors || ['#7EB26D', '#EAB839', '#6ED0E0', '#EF843C', '#E24D42', '#1F78C1'];
 const _esc = document.createElement('span');
@@ -36,6 +37,9 @@ let visibility = {};
 let visibilityObserver = null;
 let isInViewport = true;
 let lastData = null;
+let lastEvents = [];
+let chartEls = {};
+let markResizeTimer = null;
 
 function baseOpts(height, yTitle, yFormatter, extra) {
     const base = {
@@ -151,6 +155,32 @@ function renderBadges(container) {
     renderFilterReset(el, isFiltered(visibility), () => { visibility = {}; updateVisibility(); renderBadges(container); renderStatsTable(container, false); });
 }
 
+// Every chart on the tab paired with the element it rendered into, which is what the mark
+// layer needs to reach the annotation labels it draws. The PON charts are created lazily, so
+// the pairs are built on demand rather than captured once.
+function chartEntries() {
+    return [
+        [powerChart, chartEls.power],
+        [tempChart, chartEls.temp],
+        [ponErrChart, chartEls.ponErr],
+        [ponGemChart, chartEls.ponGem],
+        [ponHostChart, chartEls.ponHost],
+    ].filter(([chart]) => chart);
+}
+
+const markLayer = createMarkLayer({ charts: chartEntries });
+
+function applyAnnotations() {
+    markLayer.apply(lastEvents, visibility);
+}
+
+// A narrower plot fits fewer marks before they collide, so the folds have to be recomputed.
+// Debounced because ApexCharts is redrawing on the same events, and left to settle after it.
+function onMarkResize() {
+    clearTimeout(markResizeTimer);
+    markResizeTimer = setTimeout(applyAnnotations, 200);
+}
+
 function updateVisibility() {
     moduleMeta.forEach(m => {
         const vis = visibility[m.id] !== false;
@@ -163,6 +193,7 @@ function updateVisibility() {
             else tempChart.hideSeries(m.label);
         }
     });
+    applyAnnotations();
     // Fire-and-forget: rebuilds the PON charts/section for the selected modules. Kept
     // off the synchronous path so a chart error can never break chip re-rendering.
     refreshPonSection();
@@ -218,6 +249,8 @@ async function loadAndUpdate() {
     moduleMeta = data.modules.map((m, i) => ({
         id: m.id, label: m.label, color: PALETTE[i % PALETTE.length],
     }));
+    // Set before updateVisibility below, which is what draws the marks.
+    lastEvents = data.events || [];
 
     const powerSeries = [];
     const tSeries = [];
@@ -298,7 +331,13 @@ async function ensurePonChartsMounted() {
     ponErrChart = new ApexCharts(ponErrEl, { ...baseOpts(160, 'errors', fmtCount), series: [], colors: PALETTE });
     ponGemChart = new ApexCharts(ponGemEl, { ...baseOpts(160, 'frames', fmtCount), series: [], colors: PALETTE });
     ponHostChart = new ApexCharts(ponHostEl, { ...baseOpts(160, 'errors', fmtCount), series: [], colors: PALETTE });
+    chartEls.ponErr = ponErrEl;
+    chartEls.ponGem = ponGemEl;
+    chartEls.ponHost = ponHostEl;
     await Promise.all([ponErrChart.render(), ponGemChart.render(), ponHostChart.render()]);
+    // These three arrive after the first draw, so they start with no marks on them.
+    markLayer.reset();
+    applyAnnotations();
 }
 
 async function updatePonCharts(data) {
@@ -492,6 +531,8 @@ export async function mount(elId) {
     const tempEl = container.querySelector('.sfp-temp-chart');
     if (!powerEl || !tempEl) return;
 
+    chartEls = { power: powerEl, temp: tempEl };
+
     if (powerChart) { powerChart.destroy(); powerChart = null; }
     if (tempChart) { tempChart.destroy(); tempChart = null; }
     if (ponErrChart) { ponErrChart.destroy(); ponErrChart = null; }
@@ -561,6 +602,8 @@ export async function mount(elId) {
         popover.classList.remove('open');
     });
 
+    window.addEventListener('resize', onMarkResize);
+
     visibilityObserver = new IntersectionObserver(([entry]) => {
         const was = isVisible();
         isInViewport = entry.isIntersecting;
@@ -603,6 +646,9 @@ export function soloModule(id) {
 
 export function unmount() {
     stopPoll();
+    window.removeEventListener('resize', onMarkResize);
+    clearTimeout(markResizeTimer);
+    markResizeTimer = null;
     if (visibilityObserver) { visibilityObserver.disconnect(); visibilityObserver = null; }
     if (fetchController) { fetchController.abort(); fetchController = null; }
     if (powerChart) { powerChart.destroy(); powerChart = null; }
@@ -614,7 +660,10 @@ export function unmount() {
     moduleMeta = [];
     visibility = {};
     ponCapableModules = [];
+    chartEls = {};
     lastData = null;
+    lastEvents = [];
+    markLayer.reset();
     currentRangeHours = 24;
     windowOffset = 0;
     isCustomRange = false;
