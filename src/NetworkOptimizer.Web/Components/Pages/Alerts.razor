@@ -723,6 +723,12 @@
             }
             else
             {
+                @if (PendingAlertCount > 0)
+                {
+                    <button class="btn btn-sm btn-secondary alert-pending-pill" @onclick="ApplyPendingAlerts">
+                        @PendingAlertCount new @(PendingAlertCount == 1 ? "alert" : "alerts") - show
+                    </button>
+                }
                 @if (_unresolvedAlerts.Any(a => a.Status == AlertStatus.Active))
                 {
                     <div class="alert-group-header">
@@ -747,7 +753,7 @@
                     <div class="alert-list">
                         @foreach (var alert in _unresolvedAlerts.Where(a => a.Status == AlertStatus.Active))
                         {
-                            <div class="alert-item @GetSeverityClass(alert.Severity)">
+                            <div class="alert-item @GetSeverityClass(alert.Severity)" @key="alert.Id">
                                 <div class="alert-icon">@((MarkupString)GetSeverityIcon(alert.Severity))</div>
                                 <div class="alert-content">
                                     <div class="alert-header">
@@ -814,7 +820,7 @@
                     <div class="alert-list">
                         @foreach (var alert in _unresolvedAlerts.Where(a => a.Status == AlertStatus.Acknowledged))
                         {
-                            <div class="alert-item @GetSeverityClass(alert.Severity)">
+                            <div class="alert-item @GetSeverityClass(alert.Severity)" @key="alert.Id">
                                 <div class="alert-icon">@((MarkupString)GetSeverityIcon(alert.Severity))</div>
                                 <div class="alert-content">
                                     <div class="alert-header">
@@ -1157,9 +1163,15 @@
                         }
                     </div>
                 </div>
+                @if (PendingIncidentCount > 0)
+                {
+                    <button class="btn btn-sm btn-secondary alert-pending-pill" @onclick="ApplyPendingIncidents">
+                        @PendingIncidentCount new @(PendingIncidentCount == 1 ? "incident" : "incidents") - show
+                    </button>
+                }
                 @foreach (var incident in _incidents.Where(i => i.Status != AlertStatus.Resolved))
                 {
-                    <div class="card" style="margin-bottom: 1rem;">
+                    <div class="card" style="margin-bottom: 1rem;" @key="incident.Id">
                         <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
                             <div style="display: flex; align-items: center; gap: 0.75rem;">
                                 <span class="severity-badge @GetSeverityBadgeClass(incident.Severity)">
@@ -1856,6 +1868,32 @@
     /// being written.
     /// </summary>
     private bool _bulkBusy;
+
+    /// <summary>
+    /// Alerts and incidents the poll has found but has NOT put on screen. The list only changes
+    /// when the user says so: entries arrive newest-first, so folding them in unprompted pushes
+    /// everything down - past the row someone was reading, or under the button they were about to
+    /// press. Held here instead, counted in a pill they can take when they are ready.
+    /// </summary>
+    private List<AlertHistoryEntry>? _pendingAlerts;
+    private List<AlertIncident>? _pendingIncidents;
+
+    /// <summary>How many held entries are new to the list on screen, which is what the pill offers.</summary>
+    private int PendingAlertCount => _pendingAlerts is null
+        ? 0
+        : _pendingAlerts.Count(p => !_unresolvedAlerts.Any(a => a.Id == p.Id));
+
+    private int PendingIncidentCount => _pendingIncidents is null
+        ? 0
+        : _pendingIncidents.Count(p => !_incidents.Any(i => i.Id == p.Id));
+
+    /// <summary>
+    /// Whether a refresh may redraw the list without interrupting anything: no bulk action in
+    /// flight, and no modal or inline edit open on top of it.
+    /// </summary>
+    private bool SafeToRedraw =>
+        !_bulkBusy && !_showEventTypeKey
+        && !_editingWanScheduleId.HasValue && !_editingLanScheduleId.HasValue;
     private int? _editingWanScheduleId;
     private int? _editingLanScheduleId;
     private string? _scheduleMessage;
@@ -2160,8 +2198,13 @@
             {
                 await InvokeAsync(async () =>
                 {
+                    // The alert and incident lists are read into a holding buffer and only take
+                    // the screen when the user asks (see PendingAlertCount). Everything else here
+                    // is a whole-panel redraw with nothing to lose its place.
                     if (_activeTab == "active")
-                        await LoadActiveAlerts();
+                        await PollUnresolvedAlertsAsync();
+                    else if (_activeTab == "incidents")
+                        await PollIncidentsAsync();
                     else if (_activeTab == "schedule")
                         await LoadSchedules();
                     else if (_activeTab == "data-usage")
@@ -2397,6 +2440,8 @@
         try
         {
             _unresolvedAlerts = await AlertRepository.GetUnresolvedAlertsAsync();
+            // This read IS the list now, so nothing the poll was holding is still pending.
+            _pendingAlerts = null;
         }
         catch (Exception ex)
         {
@@ -2436,11 +2481,66 @@
         }
     }
 
+    /// <summary>
+    /// Reads the unresolved alerts on the poll without disturbing the list on screen. A first
+    /// load, or one where nothing new turned up, is applied straight away - there is nothing to
+    /// push down. Anything genuinely new waits behind the pill.
+    /// </summary>
+    private async Task PollUnresolvedAlertsAsync()
+    {
+        if (!SafeToRedraw) return;
+        try
+        {
+            var latest = await AlertRepository.GetUnresolvedAlertsAsync();
+            var isNew = latest.Any(p => !_unresolvedAlerts.Any(a => a.Id == p.Id));
+            _pendingAlerts = latest;
+            // Nothing new to push the list down: take the read as-is so acknowledged states and
+            // removals still keep up on their own.
+            if (!isNew) ApplyPendingAlerts();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Polling unresolved alerts failed; the list on screen stands");
+        }
+    }
+
+    private async Task PollIncidentsAsync()
+    {
+        if (!SafeToRedraw) return;
+        try
+        {
+            var latest = await AlertRepository.GetIncidentsAsync();
+            var isNew = latest.Any(p => !_incidents.Any(i => i.Id == p.Id));
+            _pendingIncidents = latest;
+            if (!isNew) ApplyPendingIncidents();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Polling incidents failed; the list on screen stands");
+        }
+    }
+
+    /// <summary>Puts the held read on screen - what the pill does.</summary>
+    private void ApplyPendingAlerts()
+    {
+        if (_pendingAlerts is null) return;
+        _unresolvedAlerts = _pendingAlerts;
+        _pendingAlerts = null;
+    }
+
+    private void ApplyPendingIncidents()
+    {
+        if (_pendingIncidents is null) return;
+        _incidents = _pendingIncidents;
+        _pendingIncidents = null;
+    }
+
     private async Task LoadIncidents()
     {
         try
         {
             _incidents = await AlertRepository.GetIncidentsAsync();
+            _pendingIncidents = null;
         }
         catch (Exception ex)
         {

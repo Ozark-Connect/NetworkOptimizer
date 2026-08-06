@@ -2116,6 +2116,12 @@ a.stat-card-link:active {
     }
 }
 
+/* Offers a poll's findings without moving the list underneath the reader. */
+.alert-pending-pill {
+    display: block;
+    margin: 0 auto 1rem;
+}
+
 .no-alerts {
     text-align: center;
     padding: 2rem;
