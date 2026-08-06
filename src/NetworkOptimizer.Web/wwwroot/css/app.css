@@ -7336,19 +7336,22 @@ a.path-hop.hop-clickable:hover {
 }
 
 /* ApexCharts sets pointer-events: none on every annotation label, which leaves the event marks
-   unhoverable and their tooltips dead. Two classes beat their one, so no !important needed. */
-.apexcharts-xaxis-annotation-label.chart-event-mark {
+   unhoverable and their tooltips dead. Confined to the Device Health card so annotations on any
+   other chart keep the library's behaviour; the id also wins on specificity without !important. */
+#device-health-charts-container .apexcharts-xaxis-annotation-label.chart-event-mark {
     pointer-events: auto;
 }
 
-/* Folded chart event marks list every event it covers, so it scrolls rather than truncates */
-.chart-annotation-list {
+/* Tooltip content for a folded mark. Scoped to the tooltip rather than the card because Tippy
+   renders the popper on document.body, outside the chart container entirely. The list scrolls
+   because a fold names every event it covers. */
+.tippy-box[data-theme~='custom'] .chart-annotation-list {
     max-height: 12rem;
     overflow-y: auto;
     margin-top: 0.25rem;
 }
 
-.chart-annotation-time {
+.tippy-box[data-theme~='custom'] .chart-annotation-time {
     color: var(--text-muted);
 }
 
