@@ -69,13 +69,23 @@ public class StarlinkAlertEvaluator
     /// How long a condition must hold before an obstruction alert opens, and how long its clear
     /// condition must hold before one closes. Obstruction is momentary by design - the dish loses
     /// a satellite behind a branch and picks up another - so a window is mandatory here, not a
-    /// nicety.
+    /// nicety. It costs little on <c>FractionObstructed</c>, which is already a long rolling
+    /// average and cannot spike and recover inside the window, and does the real work on
+    /// <c>IsSnrPersistentlyLow</c>, which is a bare boolean that can.
+    ///
+    /// <para>
+    /// The same rolling average means RECOVERY lags: when the branch finally comes down the
+    /// fraction decays over hours, so the alert closes long after the sky cleared. That is the
+    /// metric's nature rather than a bug, and shortening the window would not change it.
+    /// </para>
     /// </summary>
     private static readonly TimeSpan ObstructionSustain = TimeSpan.FromMinutes(15);
 
     /// <summary>
     /// Obstruction fraction an open alert has to fall back under to close. Set below the raise
-    /// bar so a dish sitting right at 2% does not alternate between alert and recovery.
+    /// bar so a dish sitting right at 2% does not alternate between alert and recovery. There is
+    /// room for both: the reference dish runs at a median 0.06% obstructed and never exceeded
+    /// 0.1% in 30 days, so the raise bar sits some twenty times above anything healthy.
     /// </summary>
     private const double ObstructionClearFraction = StarlinkHealthThresholds.ObstructionFractionPoor * 0.75;
 
@@ -101,18 +111,43 @@ public class StarlinkAlertEvaluator
     /// </summary>
     private static readonly TimeSpan AlignmentSampleWindow = TimeSpan.FromHours(1);
 
-    /// <summary>Samples needed in the window before a median means anything. Five covers a dish polled every 5 minutes.</summary>
+    /// <summary>
+    /// Samples needed in the window before a median means anything. The reference dish lands about
+    /// 730 points a day, one every two minutes, so an hour holds around thirty and this floor is
+    /// only ever reached while the window is filling or after a gap in polling.
+    /// </summary>
     private const int MinAlignmentSamples = 5;
 
     /// <summary>
     /// Attitude uncertainty above which the dish does not know where it is pointing, so a computed
-    /// drift is measuring its confusion rather than its aim. An uncertainty of half the trigger
-    /// already makes the two indistinguishable, hence 1 degree. Sustained high uncertainty is a GPS
-    /// or IMU problem in its own right; it is not alerted here.
+    /// drift is measuring its confusion rather than its aim.
+    ///
+    /// <para>
+    /// Set from the reference dish's own 30 day distribution, because the intuitive value is badly
+    /// wrong. A healthy dish is nowhere near certain of its attitude: p50 0.70, p95 1.49, p99 1.83,
+    /// max 2.71 degrees. A bar anywhere near the 2 degree drift trigger would gate out most healthy
+    /// samples, and since a gated poll stalls the sustain, the drift alert would never survive its
+    /// 30 minute window - it would be dead rather than quiet. Four degrees sits about 1.5x the
+    /// observed maximum, so ordinary operation never gates and only genuine confusion does.
+    /// </para>
+    ///
+    /// <para>
+    /// The gate earns its place: mean uncertainty rises monotonically with how far the offset has
+    /// strayed from its median (0.77 within 0.15 degrees, 0.90 to 0.3, 1.10 to 0.6, 1.19 beyond),
+    /// so the excursions this rule must not mistake for movement do come with the dish saying it is
+    /// less sure. Note that uncertainty is NOT the noise on the computed offset, which is far
+    /// tighter (98% of readings within 0.27 degrees of the median) - it is the dish's own stated
+    /// confidence, and it is conservative. Sustained high uncertainty is a GPS or IMU problem in
+    /// its own right; it is not alerted here.
+    /// </para>
     /// </summary>
-    private const double AttitudeUncertaintyMaxDeg = 1.0;
+    private const double AttitudeUncertaintyMaxDeg = 4.0;
 
-    /// <summary>Rolling window the outage-burst rule sums the dish's own outage seconds over.</summary>
+    /// <summary>
+    /// Rolling window the outage-burst rule sums the dish's own outage seconds over. The bar it is
+    /// summed against has room: the reference dish logged between 1 and 31 seconds of outage a day
+    /// over 30 days, a median of 13, against a 300 second bar.
+    /// </summary>
     private static readonly TimeSpan OutageWindow = TimeSpan.FromDays(1);
 
     /// <summary>Outage seconds per day an open burst alert has to fall back under to close.</summary>
@@ -126,17 +161,31 @@ public class StarlinkAlertEvaluator
     private static readonly TimeSpan EthSpeedSustain = TimeSpan.FromMinutes(5);
 
     /// <summary>
-    /// Dish alert codes a healthy terminal reports as a matter of course. Each is a state, not a
-    /// fault, and each would otherwise alert continuously:
+    /// Dish alert codes that describe a state rather than a fault, and so must never raise one.
     /// <list type="bullet">
-    /// <item><c>install_pending</c> - continuous for the whole 7 day reference window on a dish with nothing wrong.</item>
+    /// <item>
+    /// <c>install_pending</c> - MEASURED. The only code the reference dish raised in 30 days, and
+    /// it raised it continuously while nothing was wrong. Without this entry the product would
+    /// alert on day one and never stop, which is the failure this whole list exists to prevent.
+    /// </item>
     /// <item><c>is_heating</c> - the dish heating itself in cold weather, which is it working.</item>
     /// <item><c>is_power_save_idle</c> - a power-save setting the owner chose.</item>
     /// <item><c>roaming</c> - a service mode, and mobility is deliberately never treated as a fault here.</item>
     /// <item><c>obstruction_map_reset</c> - housekeeping after a move or reboot, not damage.</item>
     /// </list>
-    /// Everything else the dish raises is passed through verbatim: these are SpaceX's own
-    /// judgment about its hardware, and translating them would only lose information.
+    /// Only the first is measured; the other four are judged on what the code means, since nothing
+    /// has been observed raising them. Everything else the dish reports is passed through verbatim:
+    /// these are SpaceX's own judgment about its own hardware, and translating them would only lose
+    /// what a search for the exact string turns up.
+    ///
+    /// <para>
+    /// The reference dish is fixed-tilt, motorless and permanently rate restricted, and raised
+    /// NOTHING else across 30 days - which is real evidence that codes like
+    /// <c>mast_not_near_vertical</c>, <c>motors_stuck</c> and <c>low_motor_current</c> are not
+    /// simply always-on for that class of install, and so belong outside this list. If some other
+    /// hardware or firmware does report a code continuously while healthy, the symptom is one
+    /// alert per app restart on that install, and the fix is an entry here.
+    /// </para>
     /// </summary>
     private static readonly HashSet<string> BenignDishAlerts = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -479,8 +528,8 @@ public class StarlinkAlertEvaluator
             Source = "starlink",
             Severity = AlertSeverity.Warning,
             Title = $"{subject.Label} dish alignment has drifted{_siteSuffix}",
-            Message = $"The dish is pointing {drift:0.#} degrees away from where it has been sitting " +
-                      $"({current:0.#} degrees off its target, against a long-run {baseline:0.#}), and has held there " +
+            Message = $"The dish is pointing {drift:0.#} degrees further from its ideal aim than it normally does " +
+                      $"({current:0.#} degrees off ideal now, against a long-run {baseline:0.#}), and has held there " +
                       $"for {FormatDuration(AlignmentSustain)}. A fixed mount does not correct itself, so this needs re-aiming by hand.",
             DeviceId = subject.DeviceId,
             DeviceName = subject.Label,

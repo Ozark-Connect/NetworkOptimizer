@@ -163,6 +163,11 @@ public sealed class StarlinkMonitorService : IDisposable
         var repo = scope.ServiceProvider.GetRequiredService<IStarlinkRepository>();
         await repo.SaveStarlinkConfigurationAsync(config);
 
+        // Adding or disabling a dish changes whether the WAN binding is unambiguous, so the
+        // cached answer is dropped rather than left to age out and label a second dish with the
+        // first one's WAN.
+        InvalidateWanBinding();
+
         if (isNew)
             await AlertRuleAutoEnable.EnableBySourceAsync(scope, "starlink", _logger);
     }
@@ -177,6 +182,8 @@ public sealed class StarlinkMonitorService : IDisposable
         using var scope = CreateSiteScope();
         var repo = scope.ServiceProvider.GetRequiredService<IStarlinkRepository>();
         await repo.SetStarlinkEnabledAsync(id, enabled);
+
+        InvalidateWanBinding();
     }
 
     /// <summary>
@@ -201,7 +208,11 @@ public sealed class StarlinkMonitorService : IDisposable
         _statsCache.TryRemove(id, out _);
         _obstructionMapCache.TryRemove(id, out _);
         _baselines.TryRemove(id, out _);
+        InvalidateWanBinding();
     }
+
+    /// <summary>Forces the next poll to re-resolve which WAN the dish sits behind.</summary>
+    private void InvalidateWanBinding() => _wanLabelLoadedAt = DateTime.MinValue;
 
     /// <summary>
     /// Test connectivity to a terminal using the configured provider.
@@ -369,6 +380,10 @@ public sealed class StarlinkMonitorService : IDisposable
                 : (offsets[offsets.Count / 2 - 1] + offsets[offsets.Count / 2]) / 2.0
             : null;
 
+        // The maximum is the right statistic: eth_speed_mbps is the NEGOTIATED rate, so it cannot
+        // read higher than the link actually reached, and a dish that has ever done 1000 is
+        // 1000-capable. A genuine permanent downgrade (the dish moved onto a 100 Mbps segment for
+        // good) alerts until the old speed ages out of the window, then stops on its own.
         var speeds = points.Where(p => p.EthSpeedMbps > 0).Select(p => p.EthSpeedMbps!.Value).ToList();
         int? capable = speeds.Count > 0 ? speeds.Max() : null;
 

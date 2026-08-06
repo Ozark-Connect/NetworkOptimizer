@@ -40,9 +40,10 @@ public class StarlinkAlertEvaluatorTests
 
     /// <summary>
     /// A reading from a dish with nothing wrong, matching what the reference dish actually
-    /// reports: a benign standing alert code, a self-test that has always failed, a permanent
-    /// rate limit on both directions, mobility class Mobile on a bolted-down dish, and a gigabit
-    /// Ethernet link.
+    /// reports over 30 days: a benign standing alert code and no other, a self-test that has
+    /// always failed, a permanent rate limit on both directions, mobility class Mobile on a
+    /// bolted-down dish, a constant gigabit Ethernet link, a median 0.06% obstructed, and the
+    /// median 0.70 degrees of attitude uncertainty a healthy dish carries.
     /// </summary>
     private static StarlinkStats Healthy() => new()
     {
@@ -55,9 +56,9 @@ public class StarlinkAlertEvaluatorTests
         MobilityClass = "Mobile",
         SoftwareUpdateState = "Idle",
         EthSpeedMbps = 1000,
-        FractionObstructed = 0.0001,
+        FractionObstructed = 0.0006,
         IsSnrPersistentlyLow = false,
-        AttitudeUncertaintyDeg = 0.2,
+        AttitudeUncertaintyDeg = 0.70,
     };
 
     private ValueTask Feed(StarlinkStats stats, double? alignmentOffsetDeg = null,
@@ -362,6 +363,37 @@ public class StarlinkAlertEvaluatorTests
         }
 
         Of("starlink.alignment_drift").Should().BeEmpty();
+    }
+
+    /// <summary>
+    /// A healthy dish is nowhere near certain of its attitude - the reference dish runs p50 0.70,
+    /// p95 1.49, p99 1.83 degrees of uncertainty over 30 days - so the gate must sit above that
+    /// whole range. An earlier 1 degree bar gated out most healthy polls, and because a gated poll
+    /// stalls the sustain, the drift alert could never hold its 30 minute window: the rule was
+    /// dead rather than quiet. This pins the gate open across the real healthy distribution.
+    /// </summary>
+    [Theory]
+    [InlineData(0.70)]
+    [InlineData(1.49)]
+    [InlineData(1.83)]
+    [InlineData(2.71)]
+    public async Task RealDriftAtHealthyAttitudeUncertainty_StillAlerts(double uncertaintyDeg)
+    {
+        var dish = Healthy();
+        dish.AttitudeUncertaintyDeg = uncertaintyDeg;
+
+        for (var i = 0; i < 60; i++)
+        {
+            await Feed(dish, alignmentOffsetDeg: 3.69, baselineDeg: 3.69);
+            _time.Advance(TimeSpan.FromMinutes(1));
+        }
+        for (var i = 0; i < 120; i++)
+        {
+            await Feed(dish, alignmentOffsetDeg: 6.5, baselineDeg: 3.69);
+            _time.Advance(TimeSpan.FromMinutes(1));
+        }
+
+        Of("starlink.alignment_drift").Should().ContainSingle();
     }
 
     [Fact]
