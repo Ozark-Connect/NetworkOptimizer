@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Web.Services.Monitoring;
@@ -64,13 +64,17 @@ public class PrimaryWanVantageAdoptionTests
             Target("unpinned", MonitoringTarget.UnpinnedWan),
             Target("gateway", MonitoringTarget.UnpinnedWan, type: MonitoringTargetType.Fabric),
             Target("other-wan", "wan3"),
+            // Stamped by the primary's own discovery but never given a vantage: reads as
+            // "Default path" in the list exactly like an unpinned row, so it belongs here too.
+            Target("primary-stamped", "wan"),
             Target("already-assigned", MonitoringTarget.UnpinnedWan, contextId: 9));
         await db.SaveChangesAsync();
 
-        (await PrimaryWanVantageAdoption.AdoptUnpinnedTargetsAsync(db, vantage)).Should().Be(2);
+        (await PrimaryWanVantageAdoption.AdoptUnpinnedTargetsAsync(db, vantage)).Should().Be(3);
         await db.SaveChangesAsync();
 
         var byId = await db.MonitoringTargets.ToDictionaryAsync(t => t.TargetId);
+        byId["primary-stamped"].WanContextId.Should().Be(7);
         byId["legacy-null"].WanContextId.Should().Be(7);
         byId["legacy-null"].WanInterface.Should().Be("wan");
         byId["unpinned"].WanContextId.Should().Be(7);
@@ -79,8 +83,44 @@ public class PrimaryWanVantageAdoptionTests
         byId["gateway"].WanContextId.Should().BeNull();
         byId["gateway"].WanInterface.Should().Be(MonitoringTarget.UnpinnedWan);
         byId["other-wan"].WanInterface.Should().Be("wan3");
+        byId["other-wan"].WanContextId.Should().BeNull();
         byId["already-assigned"].WanContextId.Should().Be(9);
     }
+
+    /// <summary>
+    /// A hand-added target on a private address is a LAN measurement whatever its type says, so a
+    /// WAN vantage must not claim it - its latency never crossed that WAN.
+    /// </summary>
+    [Fact]
+    public async Task Leaves_custom_targets_that_point_at_the_lan()
+    {
+        await using var db = NewDb();
+        var vantage = new WanContext { Id = 7, Name = "Fiber", WanInterface = "wan" };
+        db.MonitoringTargets.AddRange(
+            Lan("controller", "192.168.42.5"),
+            Lan("nas", "10.0.0.9"),
+            Lan("private-172", "172.20.1.4"),
+            Target("public-vps", MonitoringTarget.UnpinnedWan));
+        await db.SaveChangesAsync();
+
+        (await PrimaryWanVantageAdoption.AdoptUnpinnedTargetsAsync(db, vantage)).Should().Be(1);
+        await db.SaveChangesAsync();
+
+        var byId = await db.MonitoringTargets.ToDictionaryAsync(t => t.TargetId);
+        byId["public-vps"].WanContextId.Should().Be(7);
+        byId["controller"].WanContextId.Should().BeNull();
+        byId["nas"].WanContextId.Should().BeNull();
+        byId["private-172"].WanContextId.Should().BeNull();
+    }
+
+    private static MonitoringTarget Lan(string id, string address) => new()
+    {
+        TargetId = id,
+        Name = id,
+        Address = address,
+        TargetType = MonitoringTargetType.Custom,
+        WanInterface = MonitoringTarget.UnpinnedWan
+    };
 
     [Fact]
     public async Task Adopts_nothing_for_a_vantage_that_was_never_saved()

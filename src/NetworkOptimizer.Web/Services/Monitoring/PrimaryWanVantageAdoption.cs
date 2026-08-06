@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.UniFi;
 
@@ -30,10 +31,18 @@ public static class PrimaryWanVantageAdoption
         !siteLoadBalances || routePinsProbesToPrimary;
 
     /// <summary>
-    /// Moves every unpinned target onto this vantage. Returns how many moved. Caller saves.
+    /// Moves every unpinned target that actually leaves by a WAN onto this vantage. Returns how
+    /// many moved. Caller saves.
     /// <para>
-    /// Fabric is left alone: it never leaves the LAN, so no WAN describes it and a vantage would
-    /// only narrow which agent probes it.
+    /// LAN targets are left alone, and there are two kinds. Fabric is the discovered gateway,
+    /// switches and APs. The other is a hand-added target pointing at a private address - a
+    /// controller, a NAS, anything on the same network - which is every bit as much a LAN
+    /// measurement even though its type says Custom. Neither traverses a WAN, so filing them under
+    /// one would say their latency is that WAN's.
+    /// </para>
+    /// <para>
+    /// A LAN host named by hostname rather than address is not recognised here and will be
+    /// adopted; the address is all this has to go on.
     /// </para>
     /// </summary>
     /// <param name="db">The site's database.</param>
@@ -44,17 +53,34 @@ public static class PrimaryWanVantageAdoption
     {
         if (vantage.Id == 0 || string.IsNullOrEmpty(vantage.WanInterface)) return 0;
 
-        var unpinned = await db.MonitoringTargets
-            .Where(t => t.WanContextId == null
-                && t.TargetType != MonitoringTargetType.Fabric
-                && (t.WanInterface == null || t.WanInterface == MonitoringTarget.UnpinnedWan))
-            .ToListAsync(ct);
+        // Two kinds of row belong to this vantage, and nothing on screen told them apart: one that
+        // names no WAN, and one the primary's own discovery already stamped with this WAN but
+        // never gave a vantage. Both read as "Default path" in the target list, because that
+        // control shows the CONTEXT; taking only the first left the other sitting there looking
+        // identical and untouched.
+        var vantageKey = GatewayWanHelper.WanInterfaceKeyFromKey(vantage.WanInterface!);
+        var unpinned = (await db.MonitoringTargets
+            .Where(t => t.WanContextId == null && t.TargetType != MonitoringTargetType.Fabric)
+            .ToListAsync(ct))
+            .Where(t => !IsLanTarget(t)
+                && (MonitoringTarget.IsUnpinned(t.WanInterface)
+                    || string.Equals(GatewayWanHelper.WanInterfaceKeyFromKey(t.WanInterface!),
+                        vantageKey, StringComparison.OrdinalIgnoreCase)))
+            .ToList();
 
         foreach (var target in unpinned)
             WanContextTargetStamping.ApplyAssignment(target, vantage.Id, vantage.WanInterface);
 
         return unpinned.Count;
     }
+
+    /// <summary>
+    /// Whether a target measures something on this network rather than out through a WAN. A
+    /// private address never leaves the LAN, whatever the target's type says.
+    /// </summary>
+    public static bool IsLanTarget(MonitoringTarget target) =>
+        target.TargetType == MonitoringTargetType.Fabric
+        || NetworkUtilities.IsPrivateIpAddress(target.Address ?? string.Empty);
 
     /// <summary>
     /// Whether this vantage measures the site's primary WAN, which is the only one whose unpinned
