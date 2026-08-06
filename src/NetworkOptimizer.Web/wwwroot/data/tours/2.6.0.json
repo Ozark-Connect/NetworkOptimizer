@@ -71,6 +71,18 @@
       "body": "Smart Queues (SQM) can read as on in UniFi Network while no shaper is running on your gateway. **Analyze** now catches that and tells you how to fix it.",
       "placement": "top",
       "requires": ["smart-queues"]
+    },
+    {
+      "id": "device-event-marks",
+      "level": "minor",
+      "url": "/monitoring?tab=devices",
+      "selector": "[data-tour=\"device-health-events\"]",
+      "title": "Restarts and alerts, on the charts",
+      "listLabel": "See what happened to a device right where its numbers changed",
+      "badge": "improved",
+      "body": "Marks on **Device Health** show every restart and alert. Hover one for the reason - power loss, a firmware upgrade, a crash or kernel panic - and **SFP Stats** and **ONT Stats** carry their own. (Check **7d** or **30d** to see recent restarts or firmware upgrades.)",
+      "placement": "bottom",
+      "optional": true
     }
   ]
 }

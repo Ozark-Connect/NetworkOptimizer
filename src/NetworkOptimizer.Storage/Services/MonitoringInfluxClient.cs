@@ -1207,6 +1207,57 @@ from(bucket: ""{_longtermBucket}"")
         return results;
     }
 
+    /// <summary>
+    /// Every reboot record whose boot instant falls inside a window, for all devices.
+    ///
+    /// The sibling <see cref="QueryLatestDeviceRebootsAsync"/> collapses to one row per device
+    /// because it only cares about the boot each device is running now. Charting wants the
+    /// opposite: every boot in the window, so a device that restarted three times shows three
+    /// marks. Absolute range bounds rather than a lookback, since the chart window can be a
+    /// historic one that does not end at now.
+    /// </summary>
+    /// <param name="from">Window start.</param>
+    /// <param name="to">Window end.</param>
+    /// <param name="ct">Cancellation token.</param>
+    public async Task<IReadOnlyList<DeviceRebootPoint>> QueryDeviceRebootsInRangeAsync(
+        DateTime from,
+        DateTime to,
+        CancellationToken ct = default)
+    {
+        if (!IsConfigured || string.IsNullOrEmpty(_longtermBucket))
+            return Array.Empty<DeviceRebootPoint>();
+
+        var flux = $@"
+from(bucket: ""{_longtermBucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""events"")
+  |> filter(fn: (r) => r.event_type == ""{DeviceRebootEventType}"")
+  |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
+";
+        var results = new List<DeviceRebootPoint>();
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            var deviceMac = record.GetValueByKey("device_mac") as string ?? "";
+            if (deviceMac.Length == 0) continue;
+
+            results.Add(new DeviceRebootPoint
+            {
+                DeviceMac = deviceMac,
+                Category = record.GetValueByKey("reason_category") as string ?? "",
+                Summary = record.GetValueByKey("reason_summary") as string ?? "",
+                Detail = record.GetValueByKey("detail") as string,
+                Source = record.GetValueByKey("reason_source") as string ?? "",
+                FirmwareVersion = record.GetValueByKey("firmware_version") as string,
+                ClassifierVersion = (int)(AsDoubleOrNull(record.GetValueByKey("classifier_version")) ?? 0),
+                BootedAt = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow),
+            });
+        }
+        // Same pivot caveat as the sibling query: the Flux result is not globally ordered.
+        results.Sort((a, b) => a.BootedAt.CompareTo(b.BootedAt));
+
+        return results;
+    }
+
     // ---- Read API (Flux queries) ----
 
     /// <summary>

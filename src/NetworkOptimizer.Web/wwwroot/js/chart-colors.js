@@ -10,3 +10,12 @@ function resolve(name, fallback) {
 
 export const downloadColor = () => resolve('--speed-download-color', '#2E79C4');
 export const uploadColor = () => resolve('--speed-upload-color', '#24bc70');
+
+// Event annotation colors, by the severity the server assigns each mark. Muted is deliberate
+// for the info tier: a planned restart should read as background, not as something to chase.
+export const eventColor = (severity) =>
+    severity === 'critical' ? resolve('--danger-color', '#ee6368')
+        : severity === 'warning' ? resolve('--warning-color', '#e79613')
+            : resolve('--text-muted', '#5c5c66');
+
+export const chartSurfaceColor = () => resolve('--bg-tertiary', '#232326');
