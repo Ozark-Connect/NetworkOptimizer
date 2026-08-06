@@ -166,6 +166,10 @@ public class AgentOnGatewayDetector
         if (candidates.Count == 0)
             return hasCached && cached.OnGateway;
 
+        // TODO(#1106): the FIRST resolve for an agent has no verdict to fall back on, so if the
+        // console cannot answer at that moment this returns a no and the caller renders it. It
+        // self-corrects on the next ask (the refresh persists), and in practice only a page parked
+        // through a server restart sees it, so it is low severity rather than none.
         var refresh = StartOrJoinAgentRefresh(siteSlug, agentId, candidates);
         if (hasCached)
             return cached.OnGateway;
@@ -386,6 +390,12 @@ public class AgentOnGatewayDetector
             foreach (var port in device.PortTable ?? new())
                 AddHostIp(hostIps, port.Ip);
         }
+        // TODO(#1106): this takes ONE LAN address - ResolveGatewayLanIpAsync is FirstOrDefault()
+        // over the corporate networks - so a multi-VLAN gateway contributes its default LAN and
+        // nothing else (a real case: 2 of the 6 addresses the box holds). Harmless for an agent
+        // reporting local_ips, since one of those will hit, but an older single-address agent
+        // matches only if it happened to name one of the two. NetworkInfo.Gateway is already
+        // mapped for EVERY network in UniFiConnectionService / UniFiDiscovery and closes it.
         try
         {
             var lanIp = await Monitoring.SnmpDeviceRules.ResolveGatewayLanIpAsync(client, ct);
