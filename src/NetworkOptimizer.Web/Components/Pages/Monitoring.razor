@@ -2510,6 +2510,10 @@
     private long? _pendingAtMs;
     private string? _armedAtUri;
 
+    /// <summary>The URL whose ?investigate= has already run, so the parameter left in the address
+    /// bar cannot re-run the search on an unrelated URL change.</summary>
+    private string? _armedInvestigateUri;
+
     /// <summary>The instant a link asked for, while the timeline is still sitting on it.</summary>
     private long? _linkedInstantMs;
 
@@ -2796,10 +2800,15 @@
             _scrollToWanContextsPending = true;
         }
 
-        // Deep link from the ISP Health loss factors straight into investigation
-        if (_activeTab == "performance" && _pendingInvestigateParam == null
+        // Deep link from the ISP Health loss factors into investigation. Armed by the NAVIGATION
+        // that carried it, like the linked instant below: ?investigate= stays in the address bar
+        // while the investigation is on screen, so arming on every re-supply re-ran the search
+        // whenever anything else touched the URL - a drag-zoom drops ?at=/?wan= and did exactly
+        // that, reframing the chart over the range the user had just drawn.
+        if (_activeTab == "performance" && NavigationManager.Uri != _armedInvestigateUri
             && (InvestigateParam == "packet-loss" || InvestigateParam == "loaded-loss"))
         {
+            _armedInvestigateUri = NavigationManager.Uri;
             _pendingInvestigateParam = InvestigateParam;
         }
 
@@ -4200,8 +4209,10 @@
         if (stripped == NavigationManager.Uri) return;
         // The URL is about to change, which re-arms the linked instant unless the arm moves with it -
         // a WAN change would then seek them back to the link's moment. _pendingAtMs is deliberately
-        // left as it stands: this is not a statement about time.
+        // left as it stands: this is not a statement about time. The investigation arm moves too -
+        // the URL changed, the search did not.
         _armedAtUri = stripped;
+        if (_armedInvestigateUri != null) _armedInvestigateUri = stripped;
         NavigationManager.NavigateTo(stripped, forceLoad: false, replace: true);
     }
 
@@ -4217,8 +4228,10 @@
         if (stripped == current) return;
         // Armed against the new URL first, or being re-supplied under it would arm a fresh seek
         // and pull them straight back to where they just left. Set even when only the WAN was
-        // dropped, since the URL still changed and would otherwise re-arm the instant.
+        // dropped, since the URL still changed and would otherwise re-arm the instant. Same for the
+        // investigation: this call is how a drag-zoom reaches the URL.
         _armedAtUri = stripped;
+        if (_armedInvestigateUri != null) _armedInvestigateUri = stripped;
         if (!string.IsNullOrWhiteSpace(AtParam)) _pendingAtMs = null;
         NavigationManager.NavigateTo(stripped, forceLoad: false, replace: true);
     }
