@@ -1,4 +1,4 @@
-@* TODO: Continue extracting Monitoring cards into standalone Razor components.
+﻿@* TODO: Continue extracting Monitoring cards into standalone Razor components.
    LatencyTargetsCard and SfpModulesCard are done. Remaining candidates:
    - Live View stat cards → MonitoringStatCards
    - Monitoring Status / Setup card → MonitoringSetupCard
@@ -2379,7 +2379,8 @@
 
     /// <summary>The WAN a target's data describes: its stamped key, or the primary when unstamped.</summary>
     private string TargetWanKey(MonitoringTarget t) =>
-        string.IsNullOrEmpty(t.WanInterface) ? _primaryWanKey : t.WanInterface!.ToLowerInvariant();
+        NetworkOptimizer.Storage.Models.MonitoringTarget.IsUnpinned(t.WanInterface)
+            ? _primaryWanKey : t.WanInterface!.ToLowerInvariant();
     private System.Threading.Timer? _liveRefreshTimer;
     private System.Threading.Timer? _dataRefreshTimer;
     private DotNetObjectReference<Monitoring>? _mapDotNetRef;
@@ -4704,7 +4705,7 @@
     /// </summary>
     private List<MonitoringTarget> TargetsForWan(MonitoringTargetType type, string wanKey, bool isPrimary) =>
         _targets.Where(t => t.TargetType == type && t.Enabled)
-            .Where(t => string.IsNullOrEmpty(t.WanInterface)
+            .Where(t => NetworkOptimizer.Storage.Models.MonitoringTarget.IsUnpinned(t.WanInterface)
                 ? isPrimary
                 : string.Equals(
                     NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(t.WanInterface!),

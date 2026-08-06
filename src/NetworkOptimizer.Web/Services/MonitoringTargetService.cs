@@ -81,17 +81,20 @@ public class MonitoringTargetService : IMonitoringTargetService
             AsnName = asnName
         };
 
-        // Same stamping the reassign path uses, so a target created against a WAN context carries
-        // both keys from its first poll: the context that routes the probe and the WAN the readings
-        // are filed under.
+        // Same stamping the reassign path uses, so a target carries both keys from its first poll:
+        // the context that routes the probe and the WAN the readings are filed under. Added against
+        // no context it is unpinned and says so - the probe will leave by the box's own route, and
+        // that is a fact about the target rather than a gap in the record.
+        string? contextWanInterface = null;
         if (spec.WanContextId is int newContextId)
         {
             await using var contextDb = CreateDb();
             var context = await contextDb.WanContexts.FindAsync(new object?[] { newContextId }, ct);
             if (context == null)
                 throw new MonitoringTargetValidationException("That WAN context no longer exists.");
-            Monitoring.WanContextTargetStamping.ApplyAssignment(entity, newContextId, context.WanInterface);
+            contextWanInterface = context.WanInterface;
         }
+        Monitoring.WanContextTargetStamping.ApplyAssignment(entity, spec.WanContextId, contextWanInterface);
 
         await using (var db = CreateDb())
         {
@@ -177,7 +180,8 @@ public class MonitoringTargetService : IMonitoringTargetService
         // The context's WAN rides along with the assignment: WanContextId routes the probes and
         // WanInterface says which WAN the data describes, and every per-WAN reader scopes on the
         // latter - an assignment that moved only the routing would keep grading the data under
-        // the old WAN. Moving back to the primary clears both (see WanContextTargetStamping).
+        // the old WAN. Moving off a context makes it unpinned, which is a stated value (see
+        // WanContextTargetStamping).
         string? contextWanInterface = null;
         if (wanContextId is int contextId)
         {

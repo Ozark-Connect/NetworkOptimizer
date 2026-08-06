@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using NetworkOptimizer.Alerts.Events;
 using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Monitoring.Probes;
@@ -228,9 +228,9 @@ public class MonitoringAlertEvaluator
         // choice the page's own LAN jump makes. A stamped target names its WAN.
         if (target.TargetType == MonitoringTargetType.Fabric)
             return $"{url}&wan={LiveWanScope.AllWansToken}";
-        return string.IsNullOrEmpty(target.WanInterface)
+        return MonitoringTarget.IsUnpinned(target.WanInterface)
             ? url
-            : $"{url}&wan={Uri.EscapeDataString(target.WanInterface)}";
+            : $"{url}&wan={Uri.EscapeDataString(target.WanInterface!)}";
     }
 
     /// <summary>

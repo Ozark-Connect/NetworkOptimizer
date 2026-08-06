@@ -89,7 +89,8 @@ public class MonitoringPathView
             .Where(t => t.TargetType == MonitoringTargetType.AccessIsp
                         && t.Enabled
                         && (t.WanInterface == resolvedWanInterface
-                            || (isPrimary && t.WanInterface == null)))
+                            || (isPrimary && (t.WanInterface == null
+                                || t.WanInterface == MonitoringTarget.UnpinnedWan))))
             .OrderBy(t => t.Id)
             .ToListAsync(ct);
 
@@ -131,7 +132,8 @@ public class MonitoringPathView
             var transitRows = await db.MonitoringTargets.AsNoTracking()
                 .Where(t => t.TargetType == MonitoringTargetType.Transit
                             && t.Enabled
-                            && (t.WanInterface == resolvedWanInterface || t.WanInterface == null))
+                            && (t.WanInterface == resolvedWanInterface || t.WanInterface == null
+                                || t.WanInterface == MonitoringTarget.UnpinnedWan))
                 .OrderBy(t => t.AsnNumber)
                 .ToListAsync(ct);
 

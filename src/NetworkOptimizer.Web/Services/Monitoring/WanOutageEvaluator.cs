@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using System.Globalization;
 using NetworkOptimizer.Alerts.Events;
 using NetworkOptimizer.Core.Enums;
@@ -143,7 +143,7 @@ public class WanOutageEvaluator
         await RefreshContextAsync(now, fresh, ct);
 
         var byWan = fresh
-            .GroupBy(t => string.IsNullOrEmpty(t.Target.WanInterface)
+            .GroupBy(t => MonitoringTarget.IsUnpinned(t.Target.WanInterface)
                 ? _context.PrimaryWanKey
                 : GatewayWanHelper.WanInterfaceKeyFromKey(t.Target.WanInterface!),
                 StringComparer.OrdinalIgnoreCase)

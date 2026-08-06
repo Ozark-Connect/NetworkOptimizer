@@ -1,4 +1,4 @@
-@using NetworkOptimizer.Web.Components.Shared.Monitoring
+﻿@using NetworkOptimizer.Web.Components.Shared.Monitoring
 @using Microsoft.EntityFrameworkCore
 @using NetworkOptimizer.Storage.Models
 @using NetworkOptimizer.Web.Services
@@ -734,7 +734,7 @@ else
     /// </summary>
     private List<MonitoringTarget> TargetsForWan(MonitoringTargetType type, string wanKey, bool isPrimary) =>
         _targets.Where(t => t.TargetType == type && t.Enabled)
-            .Where(t => string.IsNullOrEmpty(t.WanInterface)
+            .Where(t => NetworkOptimizer.Storage.Models.MonitoringTarget.IsUnpinned(t.WanInterface)
                 ? isPrimary
                 : string.Equals(
                     NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(t.WanInterface!),

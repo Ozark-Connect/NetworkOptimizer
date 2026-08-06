@@ -89,12 +89,33 @@ public class MonitoringTarget
     public DiscoveryMethod? DiscoveryMethod { get; set; }
 
     /// <summary>
-    /// Which WAN this target was discovered against. Null for fabric and custom
-    /// targets that aren't tied to a specific WAN. The upstream tracer always sets
-    /// this on access-ISP and transit targets.
+    /// The WAN whose path this target measures, or <see cref="UnpinnedWan"/> when the probe is not
+    /// bound to one.
+    /// <para>
+    /// Unpinned is a real answer, not a missing one. A probe that leaves by the box's own route
+    /// measures the primary on a failover site and no single WAN at all on one that load balances,
+    /// so the honest record is that it was not pinned - readers decide what that is worth for the
+    /// site in front of them. This used to be NULL, which readers had to interpret as "the
+    /// primary", and one of them read it as "belongs to whatever WAN is asking" and let a metered
+    /// secondary slow every hand-added target on the site.
+    /// </para>
     /// </summary>
     [MaxLength(50)]
     public string? WanInterface { get; set; }
+
+    /// <summary>
+    /// The <see cref="WanInterface"/> value meaning "this probe was not pinned to a WAN". A real
+    /// stored value rather than an absence, so the meaning is stated instead of inferred.
+    /// </summary>
+    public const string UnpinnedWan = "unpinned";
+
+    /// <summary>
+    /// Whether a WanInterface names no particular WAN. Null and empty count: rows written before
+    /// the sentinel existed carry NULL, and every reader must treat them identically to it.
+    /// </summary>
+    public static bool IsUnpinned(string? wanInterface) =>
+        string.IsNullOrEmpty(wanInterface)
+        || string.Equals(wanInterface, UnpinnedWan, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Multi-WAN monitoring context this target belongs to (loose reference to

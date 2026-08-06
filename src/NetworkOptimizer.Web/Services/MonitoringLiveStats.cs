@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Services;
@@ -398,7 +398,7 @@ public class MonitoringLiveStats
             ? GatewayWanHelper.DefaultWanKey
             : GatewayWanHelper.WanInterfaceKeyFromKey(wanInterface!);
         var primaryScope = isPrimary || string.IsNullOrEmpty(wanInterface);
-        targets = targets.Where(t => string.IsNullOrEmpty(t.WanInterface)
+        targets = targets.Where(t => MonitoringTarget.IsUnpinned(t.WanInterface)
             ? primaryScope
             : string.Equals(GatewayWanHelper.WanInterfaceKeyFromKey(t.WanInterface!), key,
                 StringComparison.OrdinalIgnoreCase))

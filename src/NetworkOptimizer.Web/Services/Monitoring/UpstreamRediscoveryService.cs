@@ -625,7 +625,8 @@ public class UpstreamRediscoveryService : BackgroundService
                     || t.TargetType == MonitoringTargetType.Transit
                     || t.TargetType == MonitoringTargetType.InternetService)
                 && (t.DiscoveryMethod == DiscoveryMethod.UserProvided
-                    ? (t.WanInterface == wanInterface || t.WanInterface == null || t.WanInterface == "")
+                    ? (t.WanInterface == wanInterface || t.WanInterface == null || t.WanInterface == ""
+                        || t.WanInterface == MonitoringTarget.UnpinnedWan)
                     : t.WanInterface == wanInterface))
             .ToListAsync(ct);
 

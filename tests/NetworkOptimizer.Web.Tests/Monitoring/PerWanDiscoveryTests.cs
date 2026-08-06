@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Storage.Models;
@@ -218,7 +218,7 @@ public class PerWanDiscoveryTests
         await db.SaveChangesAsync();
 
         await UpstreamTracerService.UpsertTargetAsync(
-            db, Hop("198.51.100.1"), "wan2", wanContextId: 4, default, primaryWanKey: "wan");
+            db, Hop("198.51.100.1"), "wan2", wanContextId: 4, default, isUnboundRun: false);
         await db.SaveChangesAsync();
 
         var primaryRow = await db.MonitoringTargets.SingleAsync(t => t.TargetId == "access-198.51.100.1");
@@ -249,7 +249,7 @@ public class PerWanDiscoveryTests
         await db.SaveChangesAsync();
 
         await UpstreamTracerService.UpsertTargetAsync(
-            db, Hop("198.51.100.1"), "wan", wanContextId: null, default, primaryWanKey: "wan");
+            db, Hop("198.51.100.1"), "wan", wanContextId: null, default, isUnboundRun: true);
         await db.SaveChangesAsync();
 
         var target = await db.MonitoringTargets.SingleAsync();
@@ -273,19 +273,17 @@ public class PerWanDiscoveryTests
     /// hand-added targets and slow every one of them to its own cadence.
     /// </summary>
     [Theory]
-    [InlineData(null, "wan3", "wan", false)]   // a secondary's run does not own the primary's rows
-    [InlineData(null, "wan", "wan", true)]     // the primary's own run does
-    [InlineData(null, "wan1", "wan", true)]    // and the wan1 alias is the same primary
-    [InlineData(null, "wan", "wan1", true)]    // normalized on the primary key's side too
-    [InlineData(null, "wan3", "wan3", true)]   // a metered WAN that IS the primary owns them
-    [InlineData(null, "wan3", null, false)]    // unresolvable primary falls back to the default key
-    [InlineData(null, "wan", null, true)]
-    [InlineData("wan", "wan3", "wan", false)]  // an explicit stamp still wins on its own terms
-    [InlineData("wan3", "wan3", "wan", true)]
-    public void OwnsTargetRow_TreatsAnUnstampedRowAsThePrimarysAlone(
-        string? rowWan, string runWan, string? primaryWanKey, bool expected)
+    [InlineData(null, "wan3", false, false)]   // a bound (context) run never owns an unstamped row
+    [InlineData(null, "wan", false, false)]    // not even when its WAN is the conventional first one
+    [InlineData(null, "wan", true, true)]      // the unbound run - the primary's - does
+    [InlineData(null, "wan3", true, true)]     // on a WAN3-primary site too: no key is consulted
+    [InlineData("wan", "wan3", false, false)]  // an explicit stamp is judged on its own terms
+    [InlineData("wan3", "wan3", false, true)]
+    [InlineData("wan1", "wan", false, true)]   // the wan1 alias is the same WAN
+    public void OwnsTargetRow_GivesUnstampedRowsToTheUnboundRunAlone(
+        string? rowWan, string runWan, bool isUnboundRun, bool expected)
     {
-        UpstreamTracerService.OwnsTargetRow(rowWan, runWan, primaryWanKey).Should().Be(expected);
+        UpstreamTracerService.OwnsTargetRow(rowWan, runWan, isUnboundRun).Should().Be(expected);
     }
 
     /// <summary>
@@ -307,7 +305,7 @@ public class PerWanDiscoveryTests
         };
 
         var repaced = UpstreamTracerService.SelectTargetsToRepace(
-            targets, pollIntervalSeconds: 60, wanInterface: "wan3", primaryWanKey: "wan");
+            targets, pollIntervalSeconds: 60, wanInterface: "wan3", isUnboundRun: false);
 
         repaced.Select(t => t.Name).Should().BeEquivalentTo("Cellular first hop");
     }
@@ -326,7 +324,7 @@ public class PerWanDiscoveryTests
         };
 
         var repaced = UpstreamTracerService.SelectTargetsToRepace(
-            targets, pollIntervalSeconds: 60, wanInterface: "wan", primaryWanKey: "wan");
+            targets, pollIntervalSeconds: 60, wanInterface: "wan", isUnboundRun: true);
 
         repaced.Select(t => t.Name).Should().BeEquivalentTo("Public resolver", "First hop");
     }

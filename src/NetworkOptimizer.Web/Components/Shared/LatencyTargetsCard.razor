@@ -1,4 +1,4 @@
-@using NetworkOptimizer.Storage.Models
+﻿@using NetworkOptimizer.Storage.Models
 @using Microsoft.EntityFrameworkCore
 @inject MonitoringLiveStats LiveStats
 @inject SiteContextService SiteCtx
@@ -446,7 +446,7 @@
         var ordered = Targets.OrderBy(t => t.TargetType).ThenBy(t => t.Name);
         if (_wanChoices.Count <= 1 || AllSelected || SelectedWanKeys.Count == 0) return ordered;
         var primaryKey = _wanChoices.FirstOrDefault(w => w.IsPrimary)?.Key;
-        return ordered.Where(t => string.IsNullOrEmpty(t.WanInterface)
+        return ordered.Where(t => NetworkOptimizer.Storage.Models.MonitoringTarget.IsUnpinned(t.WanInterface)
             ? primaryKey != null && SelectedWanKeys.Contains(primaryKey)
             : SelectedWanKeys.Any(k => string.Equals(
                 NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(k),

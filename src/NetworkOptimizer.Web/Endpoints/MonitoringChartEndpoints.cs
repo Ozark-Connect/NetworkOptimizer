@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Services;
@@ -242,7 +242,7 @@ public static class MonitoringChartEndpoints
                     : NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(wan!);
                 var wanIsPrimary = string.Equals(wanKey,
                     NetworkOptimizer.UniFi.GatewayWanHelper.DefaultWanKey, StringComparison.OrdinalIgnoreCase);
-                targets = targets.Where(t => string.IsNullOrEmpty(t.WanInterface)
+                targets = targets.Where(t => NetworkOptimizer.Storage.Models.MonitoringTarget.IsUnpinned(t.WanInterface)
                     ? wanIsPrimary
                     : string.Equals(NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(t.WanInterface!),
                         wanKey, StringComparison.OrdinalIgnoreCase))

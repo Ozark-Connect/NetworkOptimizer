@@ -72,13 +72,23 @@ WHERE WanInterface IS NULL
         UNION ALL
         SELECT 1 FROM WanDiscoveryContexts WHERE AccessTechnology IN (6, 7, 8)
   );");
+
+            // Then say what the absent WAN meant, rather than leaving every reader to infer it.
+            // A target with no WAN is one whose probe is not pinned to a WAN - it leaves by the
+            // box's own route, which measures the primary on a failover site and no single WAN on
+            // one that load balances. Runs AFTER the restore above, which keys on NULL.
+            migrationBuilder.Sql(@"
+UPDATE MonitoringTargets SET WanInterface = 'unpinned'
+WHERE WanInterface IS NULL OR WanInterface = '';");
         }
 
         protected override void Down(MigrationBuilder migrationBuilder)
         {
-            // Deliberately empty. The intervals this repairs were lost before it ran, so there is
-            // no prior state to put back - re-slowing every restored row to a cadence it may never
-            // have had would be a second guess, not a rollback.
+            // The intervals this repairs were lost before it ran, so there is no prior state to
+            // put back - re-slowing every restored row to a cadence it may never have had would be
+            // a second guess, not a rollback. The unpinned marker does reverse cleanly.
+            migrationBuilder.Sql(@"
+UPDATE MonitoringTargets SET WanInterface = NULL WHERE WanInterface = 'unpinned';");
         }
     }
 }

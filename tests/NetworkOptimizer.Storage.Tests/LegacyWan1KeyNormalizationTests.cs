@@ -167,7 +167,10 @@ public class LegacyWan1KeyNormalizationTests : IDisposable
 
             context.WanDiscoveryContexts.Single().WanInterface.Should().Be("wan2");
             context.MonitoringTargets.Single(t => t.TargetId == "access-wan2").WanInterface.Should().Be("wan2");
-            context.MonitoringTargets.Single(t => t.TargetId == "access-unstamped").WanInterface.Should().BeNull();
+            // Normalization leaves it alone, as this test asserts; the later unpinned migration
+            // then names it, which is what it now reads as instead of NULL.
+            context.MonitoringTargets.Single(t => t.TargetId == "access-unstamped").WanInterface
+                .Should().Be(MonitoringTarget.UnpinnedWan);
         }
     }
 
