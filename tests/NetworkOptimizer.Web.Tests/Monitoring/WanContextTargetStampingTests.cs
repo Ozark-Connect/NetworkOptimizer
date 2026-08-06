@@ -153,10 +153,8 @@ public class WanContextTargetStampingTests : IDisposable
     [Fact]
     public async Task A_single_wan_target_that_was_never_assigned_stays_untouched()
     {
-        // Every row on a single-WAN install: no context to move to, nothing to stamp, and the
-        // no-change path must not write an audit event either. Seeded straight to the row rather
-        // than through the migration, so its WAN stays exactly as seeded - the point of the test
-        // is that a no-op assignment writes NOTHING, not what the stored value happens to be.
+        // A no-op assignment must write NOTHING - not the stamp, not an audit event. Seeded
+        // directly rather than through the migration, so the WAN stays exactly as seeded.
         var targetId = await SeedTargetAsync("custom-hop");
 
         (await Targets().SetWanContextAsync(targetId, null)).Should().BeTrue();
@@ -253,19 +251,15 @@ public class WanContextTargetStampingTests : IDisposable
         target.WanContextId.Should().Be(7);
         target.WanInterface.Should().Be("wan2");
 
-        // The context id clears on the way back, but the WAN does not go blank. Nothing binds the
-        // probe to a WAN any more, and saying so is a different claim from saying nothing: on a
-        // load-balancing site there IS no WAN this measures, and naming one would invent it.
+        // The context id clears, but the WAN does not go blank: unpinned is a claim, and on a
+        // load-balancing site it is the only true one.
         WanContextTargetStamping.ApplyAssignment(target, null, "wan2");
         target.WanContextId.Should().BeNull();
         target.WanInterface.Should().Be(MonitoringTarget.UnpinnedWan);
         MonitoringTarget.IsUnpinned(target.WanInterface).Should().BeTrue();
     }
 
-    /// <summary>
-    /// Rows written before the sentinel existed carry NULL and must read identically to it, or an
-    /// upgrade that has not yet run the backfill would drop them out of every per-WAN view.
-    /// </summary>
+    /// <summary>Rows predating the marker carry NULL and must read the same, or they vanish from every per-WAN view.</summary>
     [Theory]
     [InlineData(null, true)]
     [InlineData("", true)]

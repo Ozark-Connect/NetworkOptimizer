@@ -8,13 +8,10 @@ namespace NetworkOptimizer.Web.Services.Monitoring;
 /// <see cref="MonitoringTarget.WanInterface"/> (which WAN the data describes - the key every
 /// per-WAN reader scopes on) moving together at runtime.
 /// <para>
-/// Every target states its WAN, including the ones bound to none: those carry
-/// <see cref="MonitoringTarget.UnpinnedWan"/> rather than NULL. An absent value had to be
-/// interpreted, and the interpretations disagreed - most readers took it for the primary, which is
-/// only true on a failover site, while the one governing discovery writes took it for "belongs to
-/// whatever WAN is asking", which let a metered secondary slow every hand-added target on the
-/// site. Naming the state removes the inference without inventing an attribution no load-balancing
-/// site could honestly make.
+/// Targets bound to no WAN carry <see cref="MonitoringTarget.UnpinnedWan"/>, not NULL. An absent
+/// value got interpreted, and the readers disagreed: most took it for the primary, while the one
+/// governing discovery writes took it for "belongs to whatever WAN is asking" and let a metered
+/// secondary slow every hand-added target on the site.
 /// </para>
 /// </summary>
 public static class WanContextTargetStamping
@@ -30,15 +27,14 @@ public static class WanContextTargetStamping
         MonitoringTarget target, int? wanContextId, string? contextWanInterface)
     {
         target.WanContextId = wanContextId;
-        // A context that names no WAN says no more about attribution than no context at all does -
-        // one exists on every install that predates the WAN column - so both land on unpinned
-        // rather than on a null this column no longer carries.
+        // A context naming no WAN (one exists on every pre-WAN-column install) says no more than
+        // no context does, so both land on unpinned.
         target.WanInterface = wanContextId == null
             ? MonitoringTarget.UnpinnedWan
             : Pinned(contextWanInterface);
     }
 
-    /// <summary>The WAN key to store, or the unpinned marker when there is nothing to store.</summary>
+    /// <summary>The WAN key to store, or the unpinned marker when there is none.</summary>
     private static string Pinned(string? wanInterface) =>
         string.IsNullOrEmpty(wanInterface) ? MonitoringTarget.UnpinnedWan : wanInterface;
 
@@ -56,9 +52,8 @@ public static class WanContextTargetStamping
     }
 
     /// <summary>
-    /// Moves a deleted context's targets back to unpinned: nothing binds their probes to a WAN any
-    /// more, and a row keeping the dead context's WAN would stay filed under a WAN nothing probes
-    /// for it. Caller saves.
+    /// Moves a deleted context's targets back to unpinned - nothing binds their probes any more,
+    /// and keeping the dead context's WAN would file them under one nothing probes. Caller saves.
     /// </summary>
     /// <param name="db">The site's database.</param>
     /// <param name="wanContextId">The context being deleted.</param>

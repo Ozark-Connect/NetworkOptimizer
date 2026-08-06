@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
@@ -167,8 +167,7 @@ public class LegacyWan1KeyNormalizationTests : IDisposable
 
             context.WanDiscoveryContexts.Single().WanInterface.Should().Be("wan2");
             context.MonitoringTargets.Single(t => t.TargetId == "access-wan2").WanInterface.Should().Be("wan2");
-            // Normalization leaves it alone, as this test asserts; the later unpinned migration
-            // then names it, which is what it now reads as instead of NULL.
+            // Normalization leaves it alone; the later unpinned migration then names it.
             context.MonitoringTargets.Single(t => t.TargetId == "access-unstamped").WanInterface
                 .Should().Be(MonitoringTarget.UnpinnedWan);
         }

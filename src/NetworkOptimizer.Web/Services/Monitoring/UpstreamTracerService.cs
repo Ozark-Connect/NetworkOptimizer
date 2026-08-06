@@ -2510,8 +2510,7 @@ public class UpstreamTracerService
         // context says who probes them. Setting them together is what closes the gap where a
         // context's targets had a context but no WAN, so no per-WAN reader could find them.
         var wanContextId = _binding?.WanContextId;
-        // Which WAN owns the rows that carry no stamp at all. They are the PRIMARY's, so a run
-        // for any other WAN must leave them alone - see OwnsTargetRow.
+        // Unpinned rows are the unbound run's alone - see OwnsTargetRow.
         var isUnboundRun = _binding == null;
 
         // What this WAN's probing costs. Targets are created at the plan's cadence, and on a
@@ -2836,15 +2835,10 @@ public class UpstreamTracerService
     }
 
     /// <summary>
-    /// The targets a metered WAN's commit slows to its own cadence: rows this WAN actually owns
-    /// that are still probing faster than the plan allows.
-    /// <para>
-    /// Ownership is the whole of it. The rows are read site-wide because cadence is not indexed by
-    /// WAN, so without it a metered WAN reaches every target on the site - including unstamped
-    /// rows, which belong to the primary, and LAN targets, whose traffic never touches this WAN's
-    /// data plan at all. Fabric is excluded because it never leaves the WAN, and anything already
-    /// slower than the plan is a deliberate choice of the operator's.
-    /// </para>
+    /// The targets a metered WAN's commit slows: rows it owns that still probe faster than the
+    /// plan. Cadence is not indexed by WAN, so the read is site-wide and ownership is the only
+    /// thing keeping a metered WAN off other WANs' targets - and off LAN ones, which never touch
+    /// its data plan. Fabric never leaves the WAN; anything already slower is the operator's call.
     /// </summary>
     internal static List<MonitoringTarget> SelectTargetsToRepace(
         IEnumerable<MonitoringTarget> candidates, int pollIntervalSeconds, string wanInterface, bool isUnboundRun) =>
@@ -2855,25 +2849,17 @@ public class UpstreamTracerService
             .ToList();
 
     /// <summary>
-    /// Whether a target row belongs to the WAN a discovery run is committing for.
-    /// <para>
-    /// An UNSTAMPED row is a primary-WAN measurement, not a free-for-all. That is the convention
-    /// every other per-WAN reader already follows (MonitoringLiveStats, WanOutageEvaluator, the
-    /// chart endpoints, TargetsForWan) and the one <see cref="WanContextTargetStamping"/> writes:
-    /// moving a target back to the primary CLEARS the stamp. Reading unstamped as "owned by
-    /// whichever WAN happens to be committing" let a metered WAN's run adopt the primary's
-    /// hand-added targets and slow every one of them to its own cadence.
-    /// </para>
+    /// Whether a target row belongs to the WAN this discovery run is committing for. Reading an
+    /// unpinned row as "owned by whichever WAN is committing" let a metered secondary adopt the
+    /// site's hand-added targets and slow every one of them.
     /// </summary>
-    /// <param name="rowWanInterface">The row's WAN stamp, or null/empty for a not-yet-stamped row.</param>
+    /// <param name="rowWanInterface">The row's WAN, or unpinned.</param>
     /// <param name="wanInterface">The WAN this run is committing for.</param>
     /// <param name="isUnboundRun">
-    /// Whether this is the unbound run - the instance with no <see cref="WanProbeBinding"/>, which
-    /// is the primary's and the one that wrote every unstamped row there is. Identity, not
-    /// inference: a secondary WAN can only be traced through a context (the registry exposes
-    /// nothing else), so a bound run is never the primary's and never owns an unstamped row. This
-    /// deliberately does not resolve the primary WAN KEY, which is unknowable without a console
-    /// and is not "wan" - any WAN group can hold the primary role.
+    /// Whether this run has no <see cref="WanProbeBinding"/>, which is the only thing that owns
+    /// unpinned rows. Identity, not inference: a secondary is only ever traced through a context,
+    /// so a bound run is never the unpinned probes'. Deliberately avoids resolving a primary WAN
+    /// key, which no console-free path can know and which is not "wan" - any group holds the role.
     /// </param>
     internal static bool OwnsTargetRow(string? rowWanInterface, string wanInterface, bool isUnboundRun = true)
     {

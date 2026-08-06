@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Core.Enums;
@@ -83,8 +83,7 @@ public class MonitoringTargetService : IMonitoringTargetService
 
         // Same stamping the reassign path uses, so a target carries both keys from its first poll:
         // the context that routes the probe and the WAN the readings are filed under. Added against
-        // no context it is unpinned and says so - the probe will leave by the box's own route, and
-        // that is a fact about the target rather than a gap in the record.
+        // no context, it is unpinned and says so.
         string? contextWanInterface = null;
         if (spec.WanContextId is int newContextId)
         {
@@ -180,8 +179,7 @@ public class MonitoringTargetService : IMonitoringTargetService
         // The context's WAN rides along with the assignment: WanContextId routes the probes and
         // WanInterface says which WAN the data describes, and every per-WAN reader scopes on the
         // latter - an assignment that moved only the routing would keep grading the data under
-        // the old WAN. Moving off a context makes it unpinned, which is a stated value (see
-        // WanContextTargetStamping).
+        // the old WAN. Moving off a context makes it unpinned (see WanContextTargetStamping).
         string? contextWanInterface = null;
         if (wanContextId is int contextId)
         {

@@ -89,40 +89,25 @@ public class MonitoringTarget
     public DiscoveryMethod? DiscoveryMethod { get; set; }
 
     /// <summary>
-    /// The WAN whose path this target measures, or <see cref="UnpinnedWan"/> when the probe is not
-    /// bound to one.
+    /// The WAN this target measures, or <see cref="UnpinnedWan"/> when the probe is pinned to none
+    /// - which measures the primary under failover and no single WAN under load balancing.
     /// <para>
-    /// Unpinned is a real answer, not a missing one. A probe that leaves by the box's own route
-    /// measures the primary on a failover site and no single WAN at all on one that load balances,
-    /// so the honest record is that it was not pinned - readers decide what that is worth for the
-    /// site in front of them. This used to be NULL, which readers had to interpret as "the
-    /// primary", and one of them read it as "belongs to whatever WAN is asking" and let a metered
-    /// secondary slow every hand-added target on the site.
-    /// </para>
-    /// <para>
-    /// A pinned value states which WAN the probe was STEERED down, which is not the same as a
-    /// guarantee it went that way. Where the steering is policy routing on the gateway rather than
-    /// a source binding on the box itself - any on-LAN agent or the server probing an off-box WAN -
-    /// the policy has somewhere else to send the traffic when that WAN fails, and it does. For the
-    /// length of a failover those readings describe whichever WAN carried them while still filed
-    /// under the one that was meant to. Only a kill switch on the policy would prevent it, at the
-    /// cost of the site losing the probes entirely whenever the WAN is down, which is a poor trade
-    /// to make for monitoring alone. Treat a pinned stamp as intent, and read per-WAN latency
-    /// across a known outage with that in mind.
+    /// A pinned value is intent, not proof. An on-gateway agent binds its probe source, so its
+    /// stamp always holds - which is why multi-WAN monitoring steers users onto one. Steering an
+    /// on-LAN agent or the server takes gateway policy routing instead, and that re-routes when its
+    /// WAN drops, so a failover window reads as the pinned WAN's latency when it is another's.
+    /// Short of a kill switch on the policy, which costs the site its probes for the whole outage.
     /// </para>
     /// </summary>
     [MaxLength(50)]
     public string? WanInterface { get; set; }
 
-    /// <summary>
-    /// The <see cref="WanInterface"/> value meaning "this probe was not pinned to a WAN". A real
-    /// stored value rather than an absence, so the meaning is stated instead of inferred.
-    /// </summary>
+    /// <summary>The <see cref="WanInterface"/> meaning "not pinned to a WAN" - stated, not inferred.</summary>
     public const string UnpinnedWan = "unpinned";
 
     /// <summary>
-    /// Whether a WanInterface names no particular WAN. Null and empty count: rows written before
-    /// the sentinel existed carry NULL, and every reader must treat them identically to it.
+    /// Whether a WanInterface names no WAN. Null counts: rows predating the marker carry it, and
+    /// every reader must treat the two the same.
     /// </summary>
     public static bool IsUnpinned(string? wanInterface) =>
         string.IsNullOrEmpty(wanInterface)

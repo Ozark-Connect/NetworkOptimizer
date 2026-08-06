@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
@@ -103,9 +103,7 @@ public class WanContextTargetWanBackfillTests : IDisposable
             MigrationSafety.MigrateWithFriendlyErrors(context);
 
             context.MonitoringTargets.Single(t => t.TargetId == "t-primary").WanInterface.Should().Be("wan");
-            // Still not reconciled against any context - but no longer NULL: a later migration
-            // names the state, because a probe bound to no WAN is a fact worth recording rather
-            // than an absence every reader has to interpret for itself.
+            // Still unreconciled, but no longer NULL: a later migration names the state.
             context.MonitoringTargets.Single(t => t.TargetId == "t-manual").WanInterface
                 .Should().Be(MonitoringTarget.UnpinnedWan);
         }

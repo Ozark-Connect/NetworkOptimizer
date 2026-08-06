@@ -5,33 +5,17 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace NetworkOptimizer.Storage.Migrations
 {
     /// <summary>
-    /// Restores the poll intervals a metered WAN's discovery commit overwrote on targets that
-    /// were never its to touch.
+    /// Repairs the poll intervals a metered WAN's commit overwrote on targets that were never its
+    /// to touch (it owned every unpinned row, not just its own - fixed in
+    /// UpstreamTracerService.OwnsTargetRow), then names the unpinned state instead of leaving it
+    /// NULL for each reader to interpret.
     /// <para>
-    /// A commit for a metered WAN slows the targets already on that WAN to the plan's cadence, so
-    /// a link just declared metered does not keep paying for 10s probing. It selected those rows
-    /// through an ownership test that read an UNSTAMPED row (no WanInterface) as owned by whatever
-    /// WAN happened to be committing, rather than by the primary. On a multi-WAN site every
-    /// hand-added target that had never been assigned to a WAN context was therefore adopted by
-    /// the metered WAN's run and slowed with it - Access ISP, Transit, Custom and Internet alike,
-    /// down to LAN targets that cost the metered link nothing. The ownership test is fixed in
-    /// UpstreamTracerService.OwnsTargetRow; this repairs the rows it already rewrote.
-    /// </para>
-    /// <para>
-    /// The original cadences were never recorded anywhere, so they are inferred. Only the two
-    /// intervals a metered plan can produce are treated as suspect (30s at rung 1, 60s at rung 2),
-    /// and only on sites that actually have a metered WAN - nowhere else could the overwrite have
-    /// run. A private address goes back to the default, since no WAN's data plan has any claim on
-    /// LAN traffic. Everything else takes the most common cadence among targets of its own type
-    /// that are still probing faster than a metered plan allows, which is exactly the set that
-    /// escaped: rows carrying a WAN stamp, on WANs that are not metered. With no such sibling to
-    /// learn from, the default stands in.
-    /// </para>
-    /// <para>
-    /// A target deliberately set to 30s or 60s by hand, on a site with a metered WAN, and never
-    /// assigned to a WAN context, is indistinguishable from a clobbered one and will be sped up.
-    /// That is the accepted cost of repairing the rest: it is a poll interval, it is visible in
-    /// Latency Targets, and it is one click to set back.
+    /// The original cadences were never recorded, so they are inferred: only the two intervals a
+    /// metered plan produces are suspect (30s at rung 1, 60s at rung 2), and only on sites with a
+    /// metered WAN. Private addresses go back to the default - no data plan has a claim on LAN
+    /// traffic - and the rest take the modal cadence of their own type among rows still faster than
+    /// a metered plan allows, which is exactly the set that escaped. A hand-set 30s or 60s target
+    /// is indistinguishable from a clobbered one and gets sped up; that is the cost of the repair.
     /// </para>
     /// </summary>
     public partial class RestoreMeteredClobberedIntervals : Migration
@@ -73,10 +57,8 @@ WHERE WanInterface IS NULL
         SELECT 1 FROM WanDiscoveryContexts WHERE AccessTechnology IN (6, 7, 8)
   );");
 
-            // Then say what the absent WAN meant, rather than leaving every reader to infer it.
-            // A target with no WAN is one whose probe is not pinned to a WAN - it leaves by the
-            // box's own route, which measures the primary on a failover site and no single WAN on
-            // one that load balances. Runs AFTER the restore above, which keys on NULL.
+            // Then name what the absent WAN meant: not pinned to one. Runs AFTER the restore,
+            // which keys on NULL.
             migrationBuilder.Sql(@"
 UPDATE MonitoringTargets SET WanInterface = 'unpinned'
 WHERE WanInterface IS NULL OR WanInterface = '';");
@@ -84,9 +66,9 @@ WHERE WanInterface IS NULL OR WanInterface = '';");
 
         protected override void Down(MigrationBuilder migrationBuilder)
         {
-            // The intervals this repairs were lost before it ran, so there is no prior state to
-            // put back - re-slowing every restored row to a cadence it may never have had would be
-            // a second guess, not a rollback. The unpinned marker does reverse cleanly.
+            // The intervals were lost before this ran, so there is nothing to put back - re-slowing
+            // every row to a cadence it may never have had is a second guess, not a rollback. The
+            // unpinned marker does reverse cleanly.
             migrationBuilder.Sql(@"
 UPDATE MonitoringTargets SET WanInterface = NULL WHERE WanInterface = 'unpinned';");
         }

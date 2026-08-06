@@ -199,10 +199,9 @@ public class PerWanDiscoveryTests
     }
 
     /// <summary>
-    /// A secondary WAN's run does NOT take over an unstamped row: unstamped means the primary's,
-    /// so the row stays where it is and this WAN gets its own twin - the same outcome as when the
-    /// row carries an explicit stamp (see the twinning test above). Adopting it instead is what
-    /// let a metered secondary claim the primary's hand-added targets wholesale.
+    /// A bound run does not take over an unpinned row - it twins, exactly as it would for a row
+    /// stamped with another WAN. Adopting instead is what let a metered secondary claim the site's
+    /// hand-added targets wholesale.
     /// </summary>
     [Fact]
     public async Task ContextRun_TwinsRatherThanAdoptingThePrimarysUnstampedRow()
@@ -231,9 +230,8 @@ public class PerWanDiscoveryTests
     }
 
     /// <summary>
-    /// The primary's own run still adopts an unstamped row rather than twinning it. This is the
-    /// single-WAN upgrade path - every legacy row predates stamping - and re-running discovery on
-    /// such an install must not leave it with two rows per hop.
+    /// The unbound run still adopts an unpinned row rather than twinning: the single-WAN upgrade
+    /// path, where re-running discovery must not leave two rows per hop.
     /// </summary>
     [Fact]
     public async Task PrimaryRun_AdoptsARowThatHasNoWanYet()
@@ -267,11 +265,7 @@ public class PerWanDiscoveryTests
         UpstreamTracerService.OwnsTargetRow(rowWan, runWan).Should().Be(expected);
     }
 
-    /// <summary>
-    /// An unstamped row is the PRIMARY WAN's, not everyone's. Reading it as adoptable by whichever
-    /// WAN happened to be committing is what let a metered secondary claim the primary's
-    /// hand-added targets and slow every one of them to its own cadence.
-    /// </summary>
+    /// <summary>Unpinned rows belong to the unbound run alone, whatever WAN is committing.</summary>
     [Theory]
     [InlineData(null, "wan3", false, false)]   // a bound (context) run never owns an unstamped row
     [InlineData(null, "wan", false, false)]    // not even when its WAN is the conventional first one
@@ -286,10 +280,7 @@ public class PerWanDiscoveryTests
         UpstreamTracerService.OwnsTargetRow(rowWan, runWan, isUnboundRun).Should().Be(expected);
     }
 
-    /// <summary>
-    /// The reported bug, pinned end to end: a metered secondary WAN commits, and every target the
-    /// primary owns keeps the cadence its operator chose. Only the metered WAN's own rows slow.
-    /// </summary>
+    /// <summary>The reported bug: a metered secondary commits and slows only its own rows.</summary>
     [Fact]
     public void SelectTargetsToRepace_LeavesEveryWanButTheMeteredOneAlone()
     {
@@ -310,10 +301,7 @@ public class PerWanDiscoveryTests
         repaced.Select(t => t.Name).Should().BeEquivalentTo("Cellular first hop");
     }
 
-    /// <summary>
-    /// The same commit on a single-WAN site, where the metered link IS the primary: its unstamped
-    /// rows are its own, and slowing them is the whole point of the budget.
-    /// </summary>
+    /// <summary>Single-WAN: the unbound run's unpinned rows are its own, and slowing them is the point.</summary>
     [Fact]
     public void SelectTargetsToRepace_StillSlowsUnstampedRowsWhenThePrimaryIsTheMeteredWan()
     {

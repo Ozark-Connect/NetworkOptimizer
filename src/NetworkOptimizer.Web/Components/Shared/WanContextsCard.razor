@@ -1,4 +1,4 @@
-@using Microsoft.AspNetCore.Authorization
+﻿@using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.Components.Authorization
 @using Microsoft.EntityFrameworkCore
 @using NetworkOptimizer.Storage.Models
@@ -1000,9 +1000,8 @@
             await using var db = CreateDb();
             var row = await db.WanContexts.FindAsync(contextId);
             if (row == null) return;
-            // The reference is loose (no FK): move the context's targets back to unpinned before
-            // removing it - BOTH keys, so no row stays stamped with a WAN nothing probes for it
-            // any more (see WanContextTargetStamping).
+            // The reference is loose (no FK): move the context's targets back to unpinned first,
+            // so no row keeps a WAN nothing probes for it (see WanContextTargetStamping).
             await NetworkOptimizer.Web.Services.Monitoring.WanContextTargetStamping
                 .ReleaseContextTargetsAsync(db, contextId);
             db.WanContexts.Remove(row);
