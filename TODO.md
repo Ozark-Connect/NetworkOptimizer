@@ -1197,3 +1197,45 @@ Later defers it for the whole install, and a new user added later never sees any
 - [ ] Move the offer/defer state per user, keeping the install-level version stamps where they are -
   `FirstSeenVersion` is a fact about the install, but "has this person been offered 2.5.0" is a fact
   about the person.
+
+## Agent-on-gateway detection: finish the cleanup (#1106)
+
+`AgentOnGatewayDetector` now has two ways to answer "does this agent run on the UniFi gateway", and
+only one of them is durable.
+
+- `IsAgentOnGatewayAsync(slug)` and `IsAgentOnGatewayAsync(slug, agentId, candidates)` seed from a
+  persisted verdict before refreshing, and keep the last answer when the console cannot be reached.
+- `MatchGatewayAddressAsync` / `IsIpOnGatewayAsync` resolve live with no memory. The addresses to
+  compare against come from the site's UniFi Console, which on an agent site reconnects through that
+  agent's own tunnel, so a caller that asks too early gets a silent no.
+
+Severity is low. In practice the live path is only wrong if someone is parked on the page across a
+Network Optimizer server restart - every later ask resolves and persists. Worth tidying because the
+two primitives look interchangeable and are not, not because it is hurting anyone.
+
+- [ ] `WanContextsCard.LoadBindCapableAgentsAsync` - move to the per-agent overload. Wrong answer
+  offers source-address binding where interface binding belongs.
+- [ ] `MonitoringTools` probe-vantage list - same, mislabels the vantage.
+- [ ] `AgentProbeResultSink` unbound-context healing - a yes/no, so the overload drops straight in.
+- [ ] `AgentProbeResultSink` self-target skipping - needs the matched ADDRESS rather than a yes/no,
+  so it needs the overload to persist the address too, or to stay as it is.
+
+One caller has the right primitive but asks the wrong question of it:
+
+- [ ] `Settings.ClientSpeedTestPlaceholder` asks `SiteHasGatewayAgent`, which is true when ANY of the
+  site's agents is on the gateway. Its job is to mirror what a blank override resolves to, and
+  `SiteSpeedTestTargetResolver` resolves against ONE agent - the most-recently-seen reachable one. A
+  site with a gateway agent and a real-box agent makes them disagree: the placeholder says "none,
+  enter a separate box" while the resolver points at the box. Ask the resolver's question rather than
+  `Any`. Not a regression - the site-level verdict it replaced picked whichever agent enrollment
+  answered with, so that site was already a coin flip - and the main site never renders the field at
+  all, so this is secondary sites only.
+
+Separately, the comparison set itself is narrow, and this one stands on its own merits:
+
+- [ ] `ResolveGatewayIpsAsync` takes exactly one LAN address, because `ResolveGatewayLanIpAsync` is
+  `FirstOrDefault()` over the corporate networks. A multi-VLAN gateway contributes its default LAN
+  and nothing else - on a gateway with a handful of VLANs that is 2 of the 6 addresses it holds.
+  An agent reporting `local_ips` (2.6.0+) always hits one of the two, but an older single-address
+  agent matches only if it named one of them. `NetworkInfo.Gateway` is already mapped for EVERY
+  network in `UniFiConnectionService` and `UniFiDiscovery`, so the full set is there for the taking.
