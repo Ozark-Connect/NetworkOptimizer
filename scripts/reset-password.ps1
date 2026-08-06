@@ -126,6 +126,81 @@ if (-not $sqlite3) {
 Write-Host "sqlite3:           $sqlite3Path" -ForegroundColor Green
 Write-Host ""
 
+function Invoke-Sql {
+    param([string]$Query)
+    # Some of these run against tables an older install predates. A missing table exits sqlite3
+    # non-zero, which PowerShell 7.4+ turns into a terminating error under
+    # $ErrorActionPreference = 'Stop' - so swallow it rather than abort a reset that has
+    # already succeeded.
+    try { & $sqlite3Path $dbPath $Query 2>$null } catch { }
+}
+
+# Sign-in reads AspNetUsers.PasswordHash, and the app only copies the legacy password across
+# when the admin account does not exist yet. So on an install that has already migrated,
+# clearing AdminSettings alone regenerates and prints a password that is then refused at the
+# login page. Copy the freshly generated hash across ourselves.
+#
+# The hash is copied, never re-derived, so this needs no crypto and no plaintext. It is written
+# in the old dotted PBKDF2 format, which the app still accepts and quietly upgrades on first
+# sign-in. The account is updated, never deleted: deleting it cannot be undone and would take
+# the admin's site memberships and roles with it.
+function Sync-IdentityAdmin {
+    $hasIdentity = Invoke-Sql "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='AspNetUsers';"
+    if ($hasIdentity -ne '1') {
+        return   # pre-Identity install: the legacy row is the whole story
+    }
+
+    # The app writes the new hash while it starts; wait for it rather than race it.
+    $legacyHash = $null
+    $deadline = (Get-Date).AddSeconds(20)
+    while ((Get-Date) -lt $deadline) {
+        $legacyHash = Invoke-Sql "SELECT ifnull(Password,'') FROM AdminSettings LIMIT 1;"
+        if ($legacyHash) { break }
+        Start-Sleep -Seconds 1
+    }
+
+    if (-not $legacyHash) {
+        Write-Host "WARNING: Could not read the regenerated password; the admin account was left unchanged." -ForegroundColor Yellow
+        return
+    }
+
+    Write-Host "Applying the new password to the admin account..." -NoNewline
+    Invoke-Sql @"
+UPDATE AspNetUsers
+   SET PasswordHash = '$legacyHash',
+       PasswordIsTemporary = 1,
+       IsEnabled = 1,
+       LockoutEnd = NULL,
+       AccessFailedCount = 0,
+       SecurityStamp = lower(hex(randomblob(16)))
+ WHERE NormalizedUserName = 'ADMIN';
+"@ | Out-Null
+    Write-Host " done." -ForegroundColor Green
+}
+
+# The reset only restores the password. Two other settings can still turn the login away,
+# and from the login page both look exactly like a wrong password - so say so here rather
+# than leave someone retyping a password that was never the problem. Neither is changed
+# automatically: one would weaken the install's SSO policy, the other would throw away an
+# MFA enrollment.
+function Write-BlockerWarnings {
+    $ssoOnly = Invoke-Sql "SELECT Value FROM SystemSettings WHERE Key = 'auth.local_login_disabled';"
+    if ($ssoOnly -eq 'true') {
+        Write-Host ""
+        Write-Host "WARNING: Local logins are disabled on this install (single sign-on only)." -ForegroundColor Yellow
+        Write-Host "         The password below will be refused until an administrator re-enables" -ForegroundColor Yellow
+        Write-Host "         local login, or you restart with NETOPT_RECOVERY=1 to bypass it once." -ForegroundColor Yellow
+    }
+
+    $mfaOn = Invoke-Sql "SELECT TwoFactorEnabled FROM AspNetUsers WHERE NormalizedUserName = 'ADMIN';"
+    if ($mfaOn -eq '1') {
+        Write-Host ""
+        Write-Host "WARNING: The admin account has two-factor authentication enabled." -ForegroundColor Yellow
+        Write-Host "         You will still be asked for your authenticator code after signing in." -ForegroundColor Yellow
+        Write-Host "         Use a saved recovery code if you no longer have the authenticator." -ForegroundColor Yellow
+    }
+}
+
 # =============================================================================
 # Confirm with user
 # =============================================================================
@@ -217,6 +292,10 @@ Write-Host ""
 $logDir = Join-Path $InstallDir "logs"
 $today = (Get-Date).ToString("yyyyMMdd")
 $logFile = Join-Path $logDir "networkoptimizer-$today.log"
+
+Sync-IdentityAdmin
+Write-BlockerWarnings
+Write-Host ""
 
 $password = $null
 if (Test-Path $logFile) {
