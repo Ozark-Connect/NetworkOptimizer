@@ -5415,8 +5415,18 @@
             catch { }
         }
 
-        // Latency charts - Performance tab only
+        // Settled before the charts mount, and kept running while it settles - a cold load reaches
+        // here before the WAN options do, and Apply defers itself until they land.
         if (_activeTab == "performance" && _monitoringReady && !_latencyChartsMounted)
+        {
+            ReleaseLinkWanSelection();
+            await RestoreWanSelectionAsync();
+            await ApplyLinkWanSelectionAsync();
+        }
+
+        // Latency charts - Performance tab only
+        if (_activeTab == "performance" && _monitoringReady && !_latencyChartsMounted
+            && LinkWanScopeSettled)
         {
             _latencyChartsMounted = true;
             try
@@ -5432,15 +5442,9 @@
                     await JS.InvokeVoidAsync("__netoptSetLatencyRef", _latencyDotNetRef);
                 }
                 catch { }
-                // Read the stored selection BEFORE mounting so the scope rides in with the mount
-                // call: pushing it afterwards races the module import, and a remount would
-                // otherwise come back unfiltered. A single-WAN site passes null and the module
-                // renders exactly as it always has. The stored selection is read BEFORE the
-                // link's, because the link only narrows to a WAN the saved filter does not already
-                // show - and it cannot know that until the saved one is in hand.
-                ReleaseLinkWanSelection();
-                await RestoreWanSelectionAsync();
-                await ApplyLinkWanSelectionAsync();
+                // The scope rides in with mount() - never pushed after. window.__latencyCharts is
+                // only set once the dynamic import resolves, so setWanScope lands on an undefined
+                // and is dropped by its own null-check. Settled just above, for that reason.
                 var postMount = "";
                 if (!string.IsNullOrEmpty(_preSelectCategory))
                 {
