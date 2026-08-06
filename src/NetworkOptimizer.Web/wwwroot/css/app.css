@@ -556,6 +556,12 @@ h1:focus {
     gap: 0.25rem;
 }
 
+@media (max-width: 768px) {
+    .time-window-controls .time-btn[data-shift] {
+        padding: 0.5rem;
+    }
+}
+
 .wan-selector .wan-filter-reset {
     position: static;
     margin-left: 0.15rem;
@@ -578,10 +584,6 @@ h1:focus {
         margin: 0;
     }
 
-    #latency-charts-container .monitoring-chart-header > .monitoring-jump-btn {
-        top: -0.2rem;
-        right: -0.2rem;
-    }
 }
 
 .card-header-collapsible {
@@ -15693,6 +15695,13 @@ a.affected-client:hover {
     top: 0.75rem;
     right: 0.75rem;
     margin: 0;
+}
+
+@media (max-width: 768px) {
+    #latency-charts-container .monitoring-chart-header > .monitoring-jump-btn {
+        top: -0.2rem;
+        right: -0.2rem;
+    }
 }
 
 .live-view-jump-row {

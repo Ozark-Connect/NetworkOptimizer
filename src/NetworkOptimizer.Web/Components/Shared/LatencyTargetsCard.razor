@@ -453,8 +453,19 @@
     {
         // Filtering a list that is closed changes something the user cannot see, so open it.
         _collapsed = false;
-        if (_typeFilter is MonitoringTargetType t && !AvailableTypes().Contains(t)) _typeFilter = null;
         if (OnWanSelected.HasDelegate) await OnWanSelected.InvokeAsync(key);
+    }
+
+    /// <summary>
+    /// Drops a type filter the new scope cannot show. Done here rather than in the pill handlers
+    /// because those run before the parent has changed the scope, so they would test the type
+    /// against the list it is leaving - a Fabric filter surviving into a WAN scope leaves the row
+    /// with nothing active and the table with nothing in it.
+    /// </summary>
+    protected override void OnParametersSet()
+    {
+        if (_typeFilter is MonitoringTargetType t && !AvailableTypes().Contains(t))
+            _typeFilter = null;
     }
 
     private async Task PickLanAsync()
