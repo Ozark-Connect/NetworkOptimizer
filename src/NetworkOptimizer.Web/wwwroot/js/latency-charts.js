@@ -57,9 +57,16 @@ let wanScope = null;
 // Dash patterns by WAN order: primary solid, then visibly distinct patterns per extra WAN.
 const WAN_DASH_PATTERNS = [0, 6, 2, 9];
 
+// The server's marker for a target whose probe is pinned to no WAN. Null means the same thing on
+// rows written before the marker existed, so both are treated as unpinned here.
+const UNPINNED_WAN = 'unpinned';
+
 function effectiveWanKey(t) {
-    // Unstamped targets are primary-path measurements (same rule as the server side).
-    return (t.wanInterface || wanScope?.primaryKey || 'wan').toLowerCase();
+    // Unpinned targets are primary-path measurements (same rule as the server side). Checked
+    // rather than relying on a falsy value: the marker is a real string, so `||` alone would take
+    // it for a WAN key, match no selected pill, and drop every LAN target off the chart.
+    const wan = t.wanInterface && t.wanInterface.toLowerCase() !== UNPINNED_WAN ? t.wanInterface : null;
+    return (wan || wanScope?.primaryKey || 'wan').toLowerCase();
 }
 
 function wanComparisonActive() {

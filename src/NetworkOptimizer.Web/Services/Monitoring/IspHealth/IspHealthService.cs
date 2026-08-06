@@ -1475,9 +1475,9 @@ public class IspHealthService
         List<MonitoringTarget> targets, string wanKey, bool includeUnassigned) =>
         // Keys normalized ("wan1" == "wan"): legacy installs stamped rows with the wan1 alias,
         // and an unnormalized comparison would silently drop them from their own report.
-        targets.Where(t => string.IsNullOrEmpty(t.WanInterface)
+        targets.Where(t => MonitoringTarget.IsUnpinned(t.WanInterface)
                 ? includeUnassigned
-                : string.Equals(GatewayWanHelper.WanInterfaceKeyFromKey(t.WanInterface),
+                : string.Equals(GatewayWanHelper.WanInterfaceKeyFromKey(t.WanInterface!),
                     GatewayWanHelper.WanInterfaceKeyFromKey(wanKey), StringComparison.OrdinalIgnoreCase))
             .ToList();
 

@@ -103,7 +103,7 @@
                                     <SiteOperatorOnly>
                                         <select class="cadence-select"
                                             @onchange="(e) => UpdateWanContextAsync(t.Id, e)">
-                                        <option value="" selected="@(t.WanContextId == null)">Not pinned to a WAN</option>
+                                        <option value="" selected="@(t.WanContextId == null)">Default WAN path</option>
                                         @foreach (var wc in WanContexts)
                                         {
                                             <option value="@wc.Id" selected="@(t.WanContextId == wc.Id)">@wc.Name</option>
@@ -244,7 +244,7 @@
                             <select class="form-control" @bind="_newTargetWanContextId">
                                 @if (!PrimaryWanHasVantage)
                                 {
-                                    <option value="">Not pinned to a WAN</option>
+                                    <option value="">Default WAN path</option>
                                 }
                                 @foreach (var wc in WanContexts)
                                 {
