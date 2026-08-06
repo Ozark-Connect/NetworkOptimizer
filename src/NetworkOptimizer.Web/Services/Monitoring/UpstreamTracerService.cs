@@ -2662,9 +2662,12 @@ public class UpstreamTracerService
             var repaced = SelectTargetsToRepace(
                 candidates, probePlan.PollIntervalSeconds, wanInterface, isUnboundRun);
             foreach (var target in repaced) target.PollIntervalSeconds = probePlan.PollIntervalSeconds;
-            if (repaced.Count > 0)
-                _logger.LogInformation("Metered WAN {Wan}: slowed {Count} existing target(s) to {Interval}s",
-                    wanInterface, repaced.Count, probePlan.PollIntervalSeconds);
+            // Logged even at zero: the count is how an operator confirms this WAN reached only its
+            // own rows, which is the whole of the fix. Silence would look the same as not running.
+            _logger.LogInformation(
+                "Metered WAN {Wan} ({Unbound}): slowed {Count} of {Considered} faster target(s) to {Interval}s",
+                wanInterface, isUnboundRun ? "unbound run, owns unpinned rows" : "bound run, its own rows only",
+                repaced.Count, candidates.Count, probePlan.PollIntervalSeconds);
         }
 
         await db.SaveChangesAsync(ct);

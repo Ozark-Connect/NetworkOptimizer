@@ -16,6 +16,7 @@
 @inject SiteAgentCoverage AgentCoverage
 @inject Microsoft.JSInterop.IJSRuntime JS
 @inject UniFiConnectionService Connection
+@inject ILogger<WanContextsCard> Log
 
 <div class="card">
     <div class="card-header card-header-collapsible" @onclick="ToggleCollapse">
@@ -1011,7 +1012,12 @@
             var primary = _wans.FirstOrDefault(w => w.IsPrimary)?.WanInterface;
             if (!NetworkOptimizer.Web.Services.Monitoring.PrimaryWanVantageAdoption
                     .MeasuresPrimaryWan(vantage, primary))
+            {
+                Log.LogDebug(
+                    "Vantage adoption: '{Name}' measures {Wan}, site primary is {Primary} - not adopting",
+                    vantage.Name, vantage.WanInterface, primary ?? "(unknown)");
                 return;
+            }
 
             // SiteLoadBalances is null until a connected console has answered; unknown is not a
             // yes, so nothing is adopted on a guess.
@@ -1024,17 +1030,31 @@
             var routePinsThisVantage = routePin != null && routePin.AgentId == vantage.AgentId;
             if (!NetworkOptimizer.Web.Services.Monitoring.PrimaryWanVantageAdoption
                     .ShouldAdopt(loadBalances, routePinsThisVantage))
+            {
+                Log.LogDebug(
+                    "Vantage adoption: '{Name}' measures the primary, but the site load balances and "
+                    + "no policy route pins its probes there (route found: {Found}, pins agent: {PinAgent}, "
+                    + "vantage agent: {VantageAgent}) - not adopting",
+                    vantage.Name, routePin != null,
+                    routePin?.AgentId?.ToString() ?? "(server/none)",
+                    vantage.AgentId?.ToString() ?? "(server)");
                 return;
+            }
 
             // The card's per-vantage target count reflects the move as soon as the form closes,
             // so the outcome is already on screen without a message for it.
-            await NetworkOptimizer.Web.Services.Monitoring.PrimaryWanVantageAdoption
+            var moved = await NetworkOptimizer.Web.Services.Monitoring.PrimaryWanVantageAdoption
                 .AdoptUnpinnedTargetsAsync(db, vantage);
+            Log.LogInformation(
+                "Vantage adoption: '{Name}' ({Wan}) took {Count} unpinned target(s); site {Mode}",
+                vantage.Name, vantage.WanInterface, moved,
+                loadBalances ? "load balances and a policy route pins them" : "fails over");
         }
-        catch
+        catch (Exception ex)
         {
             // Adoption is a convenience on top of a vantage that has already been saved; failing
             // it must not fail the save the user asked for.
+            Log.LogWarning(ex, "Vantage adoption failed for '{Name}'; the vantage itself was saved", vantage.Name);
         }
     }
 
@@ -1050,16 +1070,34 @@
         try
         {
             var api = Connection.Client;
-            if (api == null) return null;
+            if (api == null)
+            {
+                Log.LogDebug("Policy-route check: no console connection, so no route can be read");
+                return null;
+            }
 
             var routes = await api.GetTrafficRoutesAsync();
-            if (routes.Count == 0) return null;
+            if (routes.Count == 0)
+            {
+                Log.LogDebug("Policy-route check: the site has no traffic routes");
+                return null;
+            }
+
+            var hosts = ProbeHosts();
+            Log.LogDebug("Policy-route check: {Count} route(s) against {Hosts} probing box(es): {Addresses}",
+                routes.Count, hosts.Count,
+                string.Join(", ", hosts.Select(h => $"{h.LanIp ?? "(no address)"}=>{(h.AgentId?.ToString() ?? "server")}")));
 
             var plan = NetworkOptimizer.Web.Services.Monitoring.PinnedProbeContextBuilder.Build(
                 routes,
                 await Connection.GetNetworksAsync(),
                 await api.GetClientsAsync(),
-                ProbeHosts());
+                hosts);
+            Log.LogDebug("Policy-route check: {Result}",
+                plan == null
+                    ? "no enabled all-destinations route names any of them"
+                    : $"pinned to {plan.WanInterface} via agent {plan.AgentId?.ToString() ?? "server"}"
+                      + $", kill switch {(plan.KillSwitchEnabled ? "on" : "off")}");
 
             return plan != null && string.Equals(
                 NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(plan.WanInterface),
@@ -1068,8 +1106,9 @@
                 ? plan
                 : null;
         }
-        catch
+        catch (Exception ex)
         {
+            Log.LogDebug(ex, "Policy-route check failed; treating this vantage as unproven");
             return null;
         }
     }
@@ -1101,10 +1140,13 @@
             if (row == null) return;
             // The reference is loose (no FK): move the context's targets back to unpinned first,
             // so no row keeps a WAN nothing probes for it (see WanContextTargetStamping).
-            await NetworkOptimizer.Web.Services.Monitoring.WanContextTargetStamping
+            var released = await NetworkOptimizer.Web.Services.Monitoring.WanContextTargetStamping
                 .ReleaseContextTargetsAsync(db, contextId);
             db.WanContexts.Remove(row);
             await db.SaveChangesAsync();
+            Log.LogInformation(
+                "Deleted vantage '{Name}' ({Wan}); {Count} target(s) went back to unpinned",
+                row.Name, row.WanInterface ?? "(no WAN)", released);
             await RepushProbeConfigAsync();
             await OnChanged.InvokeAsync();
         }
