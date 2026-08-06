@@ -5,6 +5,7 @@ import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=4';
 import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=8';
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=4';
+import { eventColor, chartSurfaceColor } from './chart-colors.js?v=2';
 
 // A device answers SNMP but can still miss a single field on a poll - a temperature or
 // memory OID that times out is written as no value rather than a zero, so the row arrives
@@ -53,6 +54,8 @@ let visibility = {};
 let visibilityObserver = null;
 let isInViewport = true;
 let lastData = null;
+let lastEvents = [];
+let chartEls = {};
 
 function baseOpts(height, yTitle, yFormatter, extra) {
     return {
@@ -169,6 +172,83 @@ function updateVisibility() {
             else chart.hideSeries(d.name);
         }
     });
+    applyAnnotations();
+}
+
+// Marks on the time axis for things that happened to a charted device: restarts, and the
+// device's own alerts. The glyph says which kind it is and the colour says how bad, so the
+// two read independently - a planned firmware restart and a panic are both ↻, in different
+// colours, which is the distinction the operator is actually scanning for.
+const EVENT_GLYPH = { reboot: '↻', alert: '⚠' };
+
+// Every chart on the tab paired with the element it rendered into. ApexCharts draws annotation
+// labels as SVG text, and the tooltip is attached by walking that SVG afterwards, so the
+// element is needed as well as the instance.
+function chartEntries() {
+    return [
+        [tempChart, chartEls.temp],
+        [cpuChart, chartEls.cpu],
+        [memChart, chartEls.mem],
+        ...Object.keys(customCharts).map(k => [customCharts[k], chartEls[`custom:${k}`]]),
+    ];
+}
+
+function annotationTooltip(mark) {
+    const device = deviceMeta.find(d => d.mac === mark.mac);
+    const when = new Date(mark.time).toLocaleString(undefined,
+        { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    const lines = [`<strong>${escapeHtml(mark.title)}</strong>`];
+    if (device) lines.push(escapeHtml(device.name));
+    lines.push(escapeHtml(when));
+    if (mark.detail) lines.push(escapeHtml(mark.detail));
+    return lines.join('<br>');
+}
+
+// Labels come back in the order the annotations went in, which is how each mark finds its
+// own text. The attribute is all that is needed: App.razor rescans for [data-tooltip] and
+// initializes Tippy on anything new, which is how the other dynamically drawn badges work.
+function tagAnnotationTooltips(el, marks) {
+    if (!el) return;
+    el.querySelectorAll('.apexcharts-xaxis-annotation-label').forEach((label, i) => {
+        const mark = marks[i];
+        if (!mark) return;
+        label.setAttribute('data-tooltip', annotationTooltip(mark));
+        label.style.cursor = 'help';
+    });
+}
+
+function applyAnnotations() {
+    // Filtering here rather than server-side keeps the badge toggles instant: hiding a device
+    // drops its marks without a refetch, the same way it drops its line.
+    const marks = lastEvents.filter(e => visibility[e.mac] !== false);
+    const surface = chartSurfaceColor();
+    const xaxis = marks.map(mark => {
+        const color = eventColor(mark.severity);
+        return {
+            x: new Date(mark.time).getTime(),
+            borderColor: color,
+            strokeDashArray: 4,
+            label: {
+                text: EVENT_GLYPH[mark.kind] || EVENT_GLYPH.alert,
+                borderColor: color,
+                style: {
+                    color,
+                    background: surface,
+                    fontSize: '11px',
+                    padding: { left: 4, right: 4, top: 2, bottom: 2 },
+                },
+            },
+        };
+    });
+
+    for (const [chart, el] of chartEntries()) {
+        if (!chart) continue;
+        // Wrapped rather than chained directly: the labels only exist once the update has
+        // rendered, and updateOptions is not promise-returning in every ApexCharts build.
+        Promise.resolve(chart.updateOptions({ annotations: { xaxis } }, false, false))
+            .then(() => tagAnnotationTooltips(el, marks))
+            .catch(e => console.warn('Device health annotations failed to draw', e));
+    }
 }
 
 const fmtCustom = v => v != null ? (Number.isInteger(v) ? v.toLocaleString() : v.toFixed(2)) : '-';
@@ -179,6 +259,8 @@ async function loadAndUpdate() {
     deviceMeta = data.devices.map(d => ({
         name: d.name, mac: d.mac, color: hashColor(d.name),
     }));
+    // Set before updateVisibility below, which is what draws the marks.
+    lastEvents = data.events || [];
     const makeSeries = (field) => data.devices.map(d => ({
         name: d.name,
         color: hashColor(d.name),
@@ -211,6 +293,7 @@ async function syncCustomCharts(container, devices, defs) {
         if (!newKeys.has(key)) {
             customCharts[key].destroy();
             delete customCharts[key];
+            delete chartEls[`custom:${key}`];
         }
     }
 
@@ -241,6 +324,7 @@ async function syncCustomCharts(container, devices, defs) {
             });
             await chart.render();
             customCharts[def.fieldName] = chart;
+            chartEls[`custom:${def.fieldName}`] = chartDiv;
         }
     }
 
@@ -434,6 +518,8 @@ export async function mount(elId) {
     if (cpuChart) { cpuChart.destroy(); cpuChart = null; }
     if (memChart) { memChart.destroy(); memChart = null; }
 
+    chartEls = { temp: tempEl, cpu: cpuEl, mem: memEl };
+
     tempChart = new ApexCharts(tempEl, { ...baseOpts(200, '°C', v => v != null ? v.toFixed(0) + ' °C' : ''), series: [], colors: PALETTE });
     cpuChart = new ApexCharts(cpuEl, {
         ...baseOpts(200, 'CPU %', v => v != null ? v.toFixed(0) + '%' : ''),
@@ -531,10 +617,12 @@ export function unmount() {
     for (const chart of Object.values(customCharts)) chart.destroy();
     customCharts = {};
     customFieldDefs = [];
+    chartEls = {};
     containerId = null;
     deviceMeta = [];
     visibility = {};
     lastData = null;
+    lastEvents = [];
     currentRangeHours = 1;
     windowOffset = 0;
     isCustomRange = false;
