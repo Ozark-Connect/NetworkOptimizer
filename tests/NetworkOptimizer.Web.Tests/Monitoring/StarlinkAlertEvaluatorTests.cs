@@ -307,8 +307,12 @@ public class StarlinkAlertEvaluatorTests
             _time.Advance(TimeSpan.FromMinutes(1));
         }
 
-        Of("starlink.obstructed").Should().ContainSingle()
-            .Which.Context["snr_persistently_low"].Should().Be("true");
+        var evt = Of("starlink.obstructed").Should().ContainSingle().Subject;
+        evt.Context["snr_persistently_low"].Should().Be("true");
+        // The obstruction fraction is healthy here, so quoting it against the poor-obstruction
+        // threshold would read as "0.0006 against 0.02" beside a message about low signal.
+        evt.MetricValue.Should().BeNull();
+        evt.ThresholdValue.Should().BeNull();
     }
 
     [Fact]

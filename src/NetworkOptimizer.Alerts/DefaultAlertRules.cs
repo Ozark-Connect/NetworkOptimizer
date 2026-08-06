@@ -483,6 +483,23 @@ public static class DefaultAlertRules
         // Severity here does NOT follow the per-WAN outage table, which rates a backup's troubles
         // lower. Starlink is usually the backup, and a backup that nothing else monitors is
         // discovered broken at the moment it is needed - so its problems keep real severity.
+        //
+        // EVERY rule in this block carries NO cooldown, which is deliberate and load-bearing.
+        // Two reasons:
+        //
+        //  1. It would silently drop the alert that replaces a superseded one. These types keep
+        //     one open alert per (dish, condition) by having a re-publish supersede its own
+        //     predecessor, and AlertProcessingService resolves the old row BEFORE rules are
+        //     consulted. Cooldown keys are per (site, rule, device), so a replacement shares the
+        //     key of the alert it just closed: an obstruction escalating Warning -> Critical
+        //     inside the cooldown would resolve the Warning and then have the Critical suppressed,
+        //     leaving a critically obstructed dish with no open alert at all. The WAN outage family
+        //     is immune only because a total supersedes a PARTIAL - a different rule, a different
+        //     key.
+        //  2. It is redundant anyway. StarlinkAlertEvaluator publishes on state changes only, and
+        //     is where the real throttling lives: sustain windows and hysteresis on the gated
+        //     conditions, "new evidence only" on the dish's own codes, and edge-triggering on
+        //     restriction. Nothing here can produce a stream to damp.
         new AlertRule
         {
             // The dish's own verdict on itself: its alert codes, a self-test that started failing,
@@ -492,7 +509,7 @@ public static class DefaultAlertRules
             EventTypePattern = "starlink.dish_alert",
             Source = "starlink",
             MinSeverity = AlertSeverity.Warning,
-            CooldownSeconds = 1800 // 30 minutes - the evaluator only republishes on new evidence
+            CooldownSeconds = 0 // republishes only when a new code appears or it goes out of service
         },
         new AlertRule
         {
@@ -501,17 +518,16 @@ public static class DefaultAlertRules
             EventTypePattern = "starlink.obstructed",
             Source = "starlink",
             MinSeverity = AlertSeverity.Warning,
-            CooldownSeconds = 3600 // 1 hour
+            CooldownSeconds = 0 // 15 minute sustain to open, and at most one escalation per episode
         },
         new AlertRule
         {
-            // Nobody can act on this twice in a day: it needs somebody to physically re-aim the dish.
             Name = "Starlink: Alignment Drift",
             IsEnabled = false,
             EventTypePattern = "starlink.alignment_drift",
             Source = "starlink",
             MinSeverity = AlertSeverity.Warning,
-            CooldownSeconds = 86400 // 24 hours
+            CooldownSeconds = 0 // opens once per episode; it cannot raise again without recovering first
         },
         new AlertRule
         {
@@ -520,17 +536,16 @@ public static class DefaultAlertRules
             EventTypePattern = "starlink.eth_speed_degraded",
             Source = "starlink",
             MinSeverity = AlertSeverity.Warning,
-            CooldownSeconds = 3600 // 1 hour
+            CooldownSeconds = 0 // 5 minute sustain to open, then once per episode
         },
         new AlertRule
         {
-            // The metric is outage seconds per day, so a shorter cooldown would say the same thing twice.
             Name = "Starlink: Repeated Outages",
             IsEnabled = false,
             EventTypePattern = "starlink.outage_burst",
             Source = "starlink",
             MinSeverity = AlertSeverity.Warning,
-            CooldownSeconds = 86400 // 24 hours
+            CooldownSeconds = 0 // opens once when the rolling day crosses the bar, closes when it drops back
         },
         new AlertRule
         {
@@ -541,16 +556,19 @@ public static class DefaultAlertRules
             EventTypePattern = "starlink.service_restricted",
             Source = "starlink",
             MinSeverity = AlertSeverity.Info,
-            CooldownSeconds = 3600 // 1 hour
+            CooldownSeconds = 0 // edge-triggered; a permanently restricted dish never publishes at all
         },
         new AlertRule
         {
+            // Unlike every other recovery rule, this one type closes SIX different conditions and
+            // they all share the dish's device id - so a cooldown here would swallow the second
+            // condition's recovery whenever two clear together.
             Name = "Starlink: Recovered",
             IsEnabled = false,
             EventTypePattern = "starlink.recovered",
             Source = "starlink",
             MinSeverity = AlertSeverity.Info,
-            CooldownSeconds = 60 // 1 minute - recoveries are paired with the alert they close
+            CooldownSeconds = 0
         }
     ];
 }

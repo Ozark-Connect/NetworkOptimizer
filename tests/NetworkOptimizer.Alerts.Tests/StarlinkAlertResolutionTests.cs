@@ -131,6 +131,25 @@ public class StarlinkAlertResolutionTests
         _resolveCalls.Select(c => c.DeviceId).Should().Equal("starlink:3");
     }
 
+    /// <summary>
+    /// Every Starlink rule must ship with no cooldown, and this is not a style preference.
+    /// A re-published condition supersedes its own open alert, and the resolution runs BEFORE
+    /// rules are consulted - while the cooldown key is per (site, rule, device), which a
+    /// replacement shares with the alert it just closed. Give any of these a cooldown and an
+    /// obstruction escalating Warning -> Critical inside it resolves the Warning and has the
+    /// Critical suppressed, leaving a critically obstructed dish with no open alert.
+    /// </summary>
+    [Fact]
+    public void EveryStarlinkRule_ShipsWithNoCooldown()
+    {
+        var starlink = DefaultAlertRules.GetDefaults()
+            .Where(r => r.Source == "starlink")
+            .ToList();
+
+        starlink.Should().NotBeEmpty();
+        starlink.Should().OnlyContain(r => r.CooldownSeconds == 0);
+    }
+
     [Fact]
     public async Task ResolveSupersededAlertsAsync_RepositoryThrows_DoesNotPropagate()
     {

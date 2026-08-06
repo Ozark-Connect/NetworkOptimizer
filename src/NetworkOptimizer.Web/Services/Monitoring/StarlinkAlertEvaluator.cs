@@ -259,12 +259,26 @@ public class StarlinkAlertEvaluator
         var now = _time.GetUtcNow().UtcDateTime;
         var subject = new DishSubject(starlinkId, dishName, wanLabel);
 
-        await CheckDishAlerts(state, subject, stats, ct);
-        await CheckObstruction(state, subject, stats, now, ct);
-        await CheckAlignmentDrift(state, subject, stats, alignmentOffsetDeg, alignmentBaselineDeg, now, ct);
-        await CheckEthSpeed(state, subject, stats, ethCapableMbps, now, ct);
-        await CheckOutageBurst(state, subject, stats, now, ct);
-        await CheckServiceRestriction(state, subject, stats, ct);
+        // One evaluation per dish at a time. The timer poll is single-flighted against itself, but
+        // the Starlink Stats panel calls PollStarlinkAsync directly (Refresh, moving between
+        // terminals, first paint on an empty cache) and that path has no such guard - so two polls
+        // of the SAME dish can be in flight together. This state is not thread-safe: the sample
+        // windows are plain Queues, whose concurrent Enqueue/Dequeue corrupts their internal
+        // indices rather than merely racing. A lock cannot span the awaits, hence the semaphore.
+        await state.Gate.WaitAsync(ct);
+        try
+        {
+            await CheckDishAlerts(state, subject, stats, ct);
+            await CheckObstruction(state, subject, stats, now, ct);
+            await CheckAlignmentDrift(state, subject, stats, alignmentOffsetDeg, alignmentBaselineDeg, now, ct);
+            await CheckEthSpeed(state, subject, stats, ethCapableMbps, now, ct);
+            await CheckOutageBurst(state, subject, stats, now, ct);
+            await CheckServiceRestriction(state, subject, stats, ct);
+        }
+        finally
+        {
+            state.Gate.Release();
+        }
     }
 
     // --- starlink.dish_alert -----------------------------------------------------------------
@@ -417,7 +431,8 @@ public class StarlinkAlertEvaluator
 
         state.ObstructionCritical = critical;
 
-        var reason = snrLow && fraction >= StarlinkHealthThresholds.ObstructionFractionPoor
+        var fractionTripped = fraction >= StarlinkHealthThresholds.ObstructionFractionPoor;
+        var reason = snrLow && fractionTripped
             ? $"The dish has been {FormatPercent(fraction)} obstructed and reports persistently low signal"
             : snrLow
                 ? "The dish reports persistently low signal"
@@ -436,8 +451,11 @@ public class StarlinkAlertEvaluator
                       "Something in its view of the sky is cutting satellites off; the obstruction map on Starlink Stats shows where.",
             DeviceId = subject.DeviceId,
             DeviceName = subject.Label,
-            MetricValue = fraction,
-            ThresholdValue = StarlinkHealthThresholds.ObstructionFractionPoor,
+            // Only when the fraction is what tripped it. On an SNR-only alert the obstruction
+            // fraction is healthy, and pairing that number with the poor-obstruction threshold
+            // would render as "0.0006 against 0.02" beside a message about low signal.
+            MetricValue = fractionTripped ? fraction : null,
+            ThresholdValue = fractionTripped ? StarlinkHealthThresholds.ObstructionFractionPoor : null,
             SourceUrl = subject.SourceUrl,
             Tags = ["starlink", "obstruction"],
             Context = subject.Context(new Dictionary<string, string>
@@ -874,6 +892,13 @@ public class StarlinkAlertEvaluator
 
     private sealed class DishState
     {
+        /// <summary>
+        /// Serializes evaluation of this dish, since nothing below is thread-safe and a UI-driven
+        /// poll can overlap the timer's. Never disposed: a dish's state lives as long as the
+        /// evaluator, and the semaphore is uncontended in the ordinary single-poll case.
+        /// </summary>
+        public readonly SemaphoreSlim Gate = new(1, 1);
+
         /// <summary>Codes the currently open dish_alert was raised for, so a standing set does not republish.</summary>
         public HashSet<string> OpenDishAlertCodes = new(StringComparer.OrdinalIgnoreCase);
 
