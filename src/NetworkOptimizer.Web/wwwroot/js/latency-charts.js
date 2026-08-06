@@ -6,7 +6,7 @@
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=4';
-import { valueSortedTooltip, tooltipHeld } from './chart-tooltip.js?v=8';
+import { valueSortedTooltip, tooltipHeld } from './chart-tooltip.js?v=9';
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=4';
 import { downloadColor, uploadColor } from './chart-colors.js?v=2';
 
@@ -282,13 +282,13 @@ function renderBadges(container) {
     const el = container.querySelector('.latency-filter-badges');
     if (el) el.dataset.tour = 'chart-series-filter';
     if (!el) return;
-    if (targetMeta.length <= 1) { el.innerHTML = ''; return; }
+    if (badgeGroups().length <= 1) { el.innerHTML = ''; return; }
 
-    el.innerHTML = targetMeta.map(t => {
-        const vis = visibility[t.id] !== false;
-        return `<button class="wan-filter-badge ${vis ? 'active' : 'inactive'}" data-target="${t.id}">
-            <span class="wan-badge-dot" style="background-color: ${t.color}"></span>
-            <span>${escapeHtml(t.name)}</span>
+    el.innerHTML = badgeGroups().map(g => {
+        const vis = g.ids.some(id => visibility[id] !== false);
+        return `<button class="wan-filter-badge ${vis ? 'active' : 'inactive'}" data-target="${escapeHtml(g.key)}">
+            <span class="wan-badge-dot" style="background-color: ${g.color}"></span>
+            <span>${escapeHtml(g.key)}</span>
         </button>`;
     }).join('');
 
@@ -297,21 +297,26 @@ function renderBadges(container) {
         el.addEventListener('click', (e) => {
             const btn = e.target.closest('button[data-target]');
             if (!btn) return;
-            const tid = btn.dataset.target;
+            const key = btn.dataset.target;
+            const groups = badgeGroups();
+            const group = groups.find(g => g.key === key);
+            if (!group) return;
+            const inGroup = new Set(group.ids);
+            const groupVisible = group.ids.some(id => visibility[id] !== false);
 
             if (e.ctrlKey || e.metaKey) {
-                visibility[tid] = visibility[tid] === false ? undefined : false;
+                group.ids.forEach(id => { visibility[id] = groupVisible ? false : undefined; });
             } else {
                 const allVis = targetMeta.every(t => visibility[t.id] !== false);
-                const onlyThis = visibility[tid] !== false
-                    && targetMeta.filter(t => t.id !== tid).every(t => visibility[t.id] === false);
+                const onlyThis = groupVisible
+                    && targetMeta.filter(t => !inGroup.has(t.id)).every(t => visibility[t.id] === false);
 
                 if (onlyThis) {
                     visibility = {};
                 } else if (allVis) {
-                    targetMeta.forEach(t => visibility[t.id] = t.id === tid);
+                    targetMeta.forEach(t => visibility[t.id] = inGroup.has(t.id));
                 } else {
-                    visibility[tid] = visibility[tid] === false;
+                    group.ids.forEach(id => { visibility[id] = groupVisible; });
                 }
             }
 
@@ -328,6 +333,19 @@ function renderBadges(container) {
         renderBadges(container);
         if (lastFetchData) renderStatsTable(container, false);
     });
+}
+
+// One entry per host, in the order its series first appear, carrying every series id that host
+// owns. Keyed on the raw name because that is what decides the colour - two rows sharing a colour
+// are the same host over different WANs, and the badge speaks for both.
+function badgeGroups() {
+    const byHost = new Map();
+    targetMeta.forEach(t => {
+        const key = t.hostName ?? t.name;
+        if (!byHost.has(key)) byHost.set(key, { key, color: t.color, ids: [] });
+        byHost.get(key).ids.push(t.id);
+    });
+    return [...byHost.values()];
 }
 
 function updateChartVisibility() {
@@ -437,6 +455,7 @@ async function loadAndUpdate() {
     targetMeta = scopedTargets.map(t => ({
         id: t.targetId,
         name: wanDisplayName(t),
+        hostName: t.name,
         color: hashColor(t.name),
     }));
 

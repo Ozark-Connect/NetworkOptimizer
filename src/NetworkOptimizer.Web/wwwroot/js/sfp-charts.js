@@ -1,9 +1,9 @@
-// SFP DDM time-series charts: RX/TX power, temperature, voltage.
+﻿// SFP DDM time-series charts: RX/TX power, temperature, voltage.
 // Same control pattern as latency-charts.js and device-health-charts.js.
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=4';
-import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=8';
+import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=9';
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=4';
 import { createMarkLayer } from './chart-event-marks.js?v=1';
 

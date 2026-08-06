@@ -1,9 +1,9 @@
-// External ONT signal time-series charts: RX/TX Power, Temperature, OLT RX Power.
+﻿// External ONT signal time-series charts: RX/TX Power, Temperature, OLT RX Power.
 // Same control pattern as cellular-charts.js.
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=4';
-import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=8';
+import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=9';
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=4';
 import { createMarkLayer } from './chart-event-marks.js?v=1';
 
