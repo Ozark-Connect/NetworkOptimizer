@@ -484,7 +484,8 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase, IUwnSpeedTestService
     /// the numbers resemble.
     /// <para>
     /// Two answers, both about the box that actually ran the test - this server, or the site's
-    /// agent. A vantage bound to that box names its WAN outright. Failing that, a site that fails
+    /// agent. A single vantage on that side names its WAN outright; several means several boxes,
+    /// and which one ran the test is not knowable from here. Failing that, a site that fails
     /// over sends everything unpinned out its primary, which is true except for the length of an
     /// outage. A load-balancing site gets neither, because there the WAN genuinely was whichever
     /// the balancer picked and only the gateway could have seen it.
@@ -502,12 +503,19 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase, IUwnSpeedTestService
 
             // A vantage names the WAN its box probes over, which is the same box and the same
             // path this test took. Scoped to whoever ran it: a vantage bound to an agent says
-            // nothing about a test this server ran, or the other way round.
+            // nothing about a test this server ran, or the other way round. Only one candidate
+            // may answer - two agent-bound vantages are two boxes on two WANs, and we cannot
+            // tell from here which of them ran the test, so guessing would name a WAN at random.
             var vantages = await EntityFrameworkQueryableExtensions.ToListAsync(
                 db.WanContexts.AsNoTracking().Where(c => c.WanInterface != null && c.WanInterface != ""), ct);
-            var owning = viaAgent
-                ? vantages.FirstOrDefault(c => c.AgentId != null)
-                : vantages.FirstOrDefault(c => c.AgentId == null);
+            var candidates = vantages.Where(c => viaAgent ? c.AgentId != null : c.AgentId == null).ToList();
+            if (candidates.Count > 1)
+            {
+                Logger.LogDebug(
+                    "WAN attribution: {Count} vantages sit on the {Runner} side, so none of them identifies this test",
+                    candidates.Count, viaAgent ? "agent" : "server");
+            }
+            var owning = candidates.Count == 1 ? candidates[0] : null;
             if (owning?.WanInterface is string vantageWan)
             {
                 var group = GatewayWanHelper.WanNetworkGroupFromKey(vantageWan);
