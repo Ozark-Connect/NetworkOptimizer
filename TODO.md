@@ -1220,6 +1220,17 @@ two primitives look interchangeable and are not, not because it is hurting anyon
 - [ ] `AgentProbeResultSink` self-target skipping - needs the matched ADDRESS rather than a yes/no,
   so it needs the overload to persist the address too, or to stay as it is.
 
+One caller has the right primitive but asks the wrong question of it:
+
+- [ ] `Settings.ClientSpeedTestPlaceholder` asks `SiteHasGatewayAgent`, which is true when ANY of the
+  site's agents is on the gateway. Its job is to mirror what a blank override resolves to, and
+  `SiteSpeedTestTargetResolver` resolves against ONE agent - the most-recently-seen reachable one. A
+  site with a gateway agent and a real-box agent makes them disagree: the placeholder says "none,
+  enter a separate box" while the resolver points at the box. Ask the resolver's question rather than
+  `Any`. Not a regression - the site-level verdict it replaced picked whichever agent enrollment
+  answered with, so that site was already a coin flip - and the main site never renders the field at
+  all, so this is secondary sites only.
+
 Separately, the comparison set itself is narrow, and this one stands on its own merits:
 
 - [ ] `ResolveGatewayIpsAsync` takes exactly one LAN address, because `ResolveGatewayLanIpAsync` is

@@ -4578,6 +4578,10 @@
 
     // Any of the site's agents on the gateway - for the questions that are about the SITE rather
     // than one agent row.
+    // TODO(#1106): its one caller wants a narrower question than ANY. The placeholder mirrors what a
+    // blank override resolves to, and SiteSpeedTestTargetResolver resolves against ONE agent, so a
+    // site with a gateway agent and a real-box agent makes the two disagree. Secondary sites only:
+    // the main site does not render the field.
     private bool SiteHasGatewayAgent(int siteId) =>
         AgentsFor(siteId).Any(a => AgentOnGateway(a.Id));
 

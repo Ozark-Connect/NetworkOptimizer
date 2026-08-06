@@ -170,6 +170,11 @@ public class AgentOnGatewayDetector
         // console cannot answer at that moment this returns a no and the caller renders it. It
         // self-corrects on the next ask (the refresh persists), and in practice only a page parked
         // through a server restart sees it, so it is low severity rather than none.
+        // Every agent enrolled before this key existed gets one pass through that window too: the
+        // site-level verdict persists under AgentOnGateway and nothing reads it back under the
+        // per-agent key. Backfilling it is not worth building - the site-level row does not record
+        // WHICH agent it was about, so it is only unambiguous on a single-agent site, and the main
+        // site (the one this overload exists for) never persisted a row at all.
         var refresh = StartOrJoinAgentRefresh(siteSlug, agentId, candidates);
         if (hasCached)
             return cached.OnGateway;
