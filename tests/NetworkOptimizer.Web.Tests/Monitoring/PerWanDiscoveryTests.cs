@@ -199,8 +199,14 @@ public class PerWanDiscoveryTests
             .Should().Be("access-198.51.100.1@wan2");
     }
 
+    /// <summary>
+    /// A secondary WAN's run does NOT take over an unstamped row: unstamped means the primary's,
+    /// so the row stays where it is and this WAN gets its own twin - the same outcome as when the
+    /// row carries an explicit stamp (see the twinning test above). Adopting it instead is what
+    /// let a metered secondary claim the primary's hand-added targets wholesale.
+    /// </summary>
     [Fact]
-    public async Task ContextRun_AdoptsARowThatHasNoWanYet()
+    public async Task ContextRun_TwinsRatherThanAdoptingThePrimarysUnstampedRow()
     {
         await using var db = NewDb();
         db.MonitoringTargets.Add(new MonitoringTarget
@@ -212,16 +218,47 @@ public class PerWanDiscoveryTests
         });
         await db.SaveChangesAsync();
 
-        await UpstreamTracerService.UpsertTargetAsync(db, Hop("198.51.100.1"), "wan2", wanContextId: 4, default);
+        await UpstreamTracerService.UpsertTargetAsync(
+            db, Hop("198.51.100.1"), "wan2", wanContextId: 4, default, primaryWanKey: "wan");
+        await db.SaveChangesAsync();
+
+        var primaryRow = await db.MonitoringTargets.SingleAsync(t => t.TargetId == "access-198.51.100.1");
+        primaryRow.WanInterface.Should().BeNull();
+        primaryRow.WanContextId.Should().BeNull();
+
+        var twin = await db.MonitoringTargets.SingleAsync(t => t.TargetId == "access-198.51.100.1@wan2");
+        twin.WanInterface.Should().Be("wan2");
+        twin.WanContextId.Should().Be(4);
+    }
+
+    /// <summary>
+    /// The primary's own run still adopts an unstamped row rather than twinning it. This is the
+    /// single-WAN upgrade path - every legacy row predates stamping - and re-running discovery on
+    /// such an install must not leave it with two rows per hop.
+    /// </summary>
+    [Fact]
+    public async Task PrimaryRun_AdoptsARowThatHasNoWanYet()
+    {
+        await using var db = NewDb();
+        db.MonitoringTargets.Add(new MonitoringTarget
+        {
+            TargetId = "access-198.51.100.1",
+            Name = "First hop",
+            Address = "198.51.100.1",
+            TargetType = MonitoringTargetType.AccessIsp,
+        });
+        await db.SaveChangesAsync();
+
+        await UpstreamTracerService.UpsertTargetAsync(
+            db, Hop("198.51.100.1"), "wan", wanContextId: null, default, primaryWanKey: "wan");
         await db.SaveChangesAsync();
 
         var target = await db.MonitoringTargets.SingleAsync();
-        target.WanInterface.Should().Be("wan2");
-        target.WanContextId.Should().Be(4);
+        target.WanInterface.Should().Be("wan");
     }
 
     [Theory]
-    [InlineData(null, "wan", true)]      // never stamped - adoptable, which is every legacy row
+    [InlineData(null, "wan", true)]      // never stamped - the primary's, and this IS the primary
     [InlineData("", "wan", true)]
     [InlineData("wan", "wan", true)]
     [InlineData("WAN", "wan", true)]     // the WAN key's case is not a different WAN
@@ -230,6 +267,80 @@ public class PerWanDiscoveryTests
     {
         UpstreamTracerService.OwnsTargetRow(rowWan, runWan).Should().Be(expected);
     }
+
+    /// <summary>
+    /// An unstamped row is the PRIMARY WAN's, not everyone's. Reading it as adoptable by whichever
+    /// WAN happened to be committing is what let a metered secondary claim the primary's
+    /// hand-added targets and slow every one of them to its own cadence.
+    /// </summary>
+    [Theory]
+    [InlineData(null, "wan3", "wan", false)]   // a secondary's run does not own the primary's rows
+    [InlineData(null, "wan", "wan", true)]     // the primary's own run does
+    [InlineData(null, "wan1", "wan", true)]    // and the wan1 alias is the same primary
+    [InlineData(null, "wan", "wan1", true)]    // normalized on the primary key's side too
+    [InlineData(null, "wan3", "wan3", true)]   // a metered WAN that IS the primary owns them
+    [InlineData(null, "wan3", null, false)]    // unresolvable primary falls back to the default key
+    [InlineData(null, "wan", null, true)]
+    [InlineData("wan", "wan3", "wan", false)]  // an explicit stamp still wins on its own terms
+    [InlineData("wan3", "wan3", "wan", true)]
+    public void OwnsTargetRow_TreatsAnUnstampedRowAsThePrimarysAlone(
+        string? rowWan, string runWan, string? primaryWanKey, bool expected)
+    {
+        UpstreamTracerService.OwnsTargetRow(rowWan, runWan, primaryWanKey).Should().Be(expected);
+    }
+
+    /// <summary>
+    /// The reported bug, pinned end to end: a metered secondary WAN commits, and every target the
+    /// primary owns keeps the cadence its operator chose. Only the metered WAN's own rows slow.
+    /// </summary>
+    [Fact]
+    public void SelectTargetsToRepace_LeavesEveryWanButTheMeteredOneAlone()
+    {
+        var targets = new List<MonitoringTarget>
+        {
+            Target("YELCOT speedtest", MonitoringTargetType.AccessIsp, wan: null, interval: 10),
+            Target("CloudKey", MonitoringTargetType.Custom, wan: null, interval: 10),
+            Target("Cox handoff", MonitoringTargetType.Transit, wan: "wan", interval: 15),
+            Target("Starlink hop", MonitoringTargetType.AccessIsp, wan: "wan2", interval: 15),
+            Target("Cellular hop", MonitoringTargetType.AccessIsp, wan: "wan3", interval: 10),
+            Target("Gateway", MonitoringTargetType.Fabric, wan: "wan3", interval: 5),
+            Target("Already slow", MonitoringTargetType.Custom, wan: "wan3", interval: 120),
+        };
+
+        var repaced = UpstreamTracerService.SelectTargetsToRepace(
+            targets, pollIntervalSeconds: 60, wanInterface: "wan3", primaryWanKey: "wan");
+
+        repaced.Select(t => t.Name).Should().BeEquivalentTo("Cellular hop");
+    }
+
+    /// <summary>
+    /// The same commit on a single-WAN site, where the metered link IS the primary: its unstamped
+    /// rows are its own, and slowing them is the whole point of the budget.
+    /// </summary>
+    [Fact]
+    public void SelectTargetsToRepace_StillSlowsUnstampedRowsWhenThePrimaryIsTheMeteredWan()
+    {
+        var targets = new List<MonitoringTarget>
+        {
+            Target("NextDNS", MonitoringTargetType.InternetService, wan: null, interval: 10),
+            Target("First hop", MonitoringTargetType.AccessIsp, wan: "wan", interval: 10),
+        };
+
+        var repaced = UpstreamTracerService.SelectTargetsToRepace(
+            targets, pollIntervalSeconds: 60, wanInterface: "wan", primaryWanKey: "wan");
+
+        repaced.Select(t => t.Name).Should().BeEquivalentTo("NextDNS", "First hop");
+    }
+
+    private static MonitoringTarget Target(string name, MonitoringTargetType type, string? wan, int interval) => new()
+    {
+        TargetId = $"custom-{name.Replace(' ', '-')}",
+        Name = name,
+        Address = "192.0.2.1",
+        TargetType = type,
+        WanInterface = wan,
+        PollIntervalSeconds = interval
+    };
 
     [Fact]
     public void ContextsDueForDiscovery_SkipsAContextThatHasNoWanYet()

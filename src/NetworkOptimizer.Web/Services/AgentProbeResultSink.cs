@@ -542,13 +542,9 @@ public class AgentProbeResultSink
         return healed;
     }
 
-    private static async Task<string?> ResolvePersistedPrimaryWanKeyAsync(
+    private static Task<string?> ResolvePersistedPrimaryWanKeyAsync(
         NetworkOptimizerDbContext db, CancellationToken ct)
-    {
-        var group = (await db.WanProfiles.AsNoTracking()
-            .FirstOrDefaultAsync(w => w.IsPrimary == true, ct))?.WanNetworkgroup;
-        return string.IsNullOrEmpty(group) ? null : GatewayWanHelper.WanInterfaceKeyFromKey(group);
-    }
+        => Monitoring.PrimaryWanResolver.ResolveKeyAsync(db, ct);
 
     /// <summary>
     /// Whether a context measures the primary WAN. False when the primary is unknown: an agent is
