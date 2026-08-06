@@ -747,6 +747,23 @@ someone wants a covered main site whose speed tests all stay on the server:
 - [ ] Surface it in the UI. Both switches are file-level today (`agent.json`, plus the installer's
       `--lan-speed-test`), which is fine for an operator and not something to document to users.
 
+### Tell a main site agent to stop probing when coverage is switched off
+The push path refuses to send targets to a main-site agent that is not covering the site, so an
+agent that WAS covering keeps its last-known targets and goes on probing them indefinitely. It gets
+corrected only when coverage is switched back on (a push resumes) or the agent restarts.
+
+No data harm since the write path now discards those results, and reaching it at all takes toggling
+coverage off with an agent mid-probe, so this is wasted pings on an edge case rather than a bug.
+
+The obvious fix is unsafe as written and was deliberately not done:
+
+- [ ] Pushing an empty target list would turn a transiently false coverage read on a HEALTHY site
+      (cache miss, database hiccup) into a cleared target list and a real data gap. Today the same
+      transient just skips a push and the agent carries on. Any fix has to tell "not covering" apart
+      from "could not determine" before it is allowed to clear anything.
+- [ ] Consider instead an explicit stand-down message the agent acknowledges, so the server knows
+      the agent stopped rather than inferring it from an absence.
+
 ## Distribution
 
 ### ISO/OVA Image for MSP Deployment
