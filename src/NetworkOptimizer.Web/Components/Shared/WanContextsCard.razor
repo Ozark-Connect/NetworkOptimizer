@@ -964,7 +964,7 @@
             }
             else
             {
-                db.WanContexts.Add(new WanContext
+                var created = new WanContext
                 {
                     Name = name,
                     Description = string.IsNullOrWhiteSpace(_newDescription) ? null : _newDescription.Trim(),
@@ -973,7 +973,10 @@
                     WanInterface = wanInterface,
                     InterfaceName = string.IsNullOrEmpty(interfaceName) ? null : interfaceName,
                     CreatedAt = DateTime.UtcNow,
-                });
+                };
+                db.WanContexts.Add(created);
+                await db.SaveChangesAsync();
+                await AdoptUnpinnedTargetsIfPrimaryAsync(db, created);
             }
             await db.SaveChangesAsync();
 
@@ -989,6 +992,43 @@
         finally
         {
             _saving = false;
+        }
+    }
+
+    /// <summary>
+    /// Hands a new primary-WAN vantage the targets that were probing that WAN unpinned. They are
+    /// the same measurements; without this they stay in a bucket the vantage's own report cannot
+    /// see. Only where unpinned honestly meant this WAN - a failover site always, a load-balancing
+    /// one never, because there the probe took whichever WAN the balancer picked.
+    /// </summary>
+    private async Task AdoptUnpinnedTargetsIfPrimaryAsync(
+        NetworkOptimizer.Storage.Models.NetworkOptimizerDbContext db,
+        NetworkOptimizer.Storage.Models.WanContext vantage)
+    {
+        try
+        {
+            var primary = _wans.FirstOrDefault(w => w.IsPrimary)?.WanInterface;
+            if (!NetworkOptimizer.Web.Services.Monitoring.PrimaryWanVantageAdoption
+                    .MeasuresPrimaryWan(vantage, primary))
+                return;
+
+            // SiteLoadBalances is null until a connected console has answered; unknown is not a
+            // yes, so nothing is adopted on a guess.
+            var loadBalances = await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions
+                .AnyAsync(db.WanProfiles, p => p.SiteLoadBalances == true);
+            if (!NetworkOptimizer.Web.Services.Monitoring.PrimaryWanVantageAdoption
+                    .ShouldAdopt(loadBalances, routePinsProbesToPrimary: false))
+                return;
+
+            // The card's per-vantage target count reflects the move as soon as the form closes,
+            // so the outcome is already on screen without a message for it.
+            await NetworkOptimizer.Web.Services.Monitoring.PrimaryWanVantageAdoption
+                .AdoptUnpinnedTargetsAsync(db, vantage);
+        }
+        catch
+        {
+            // Adoption is a convenience on top of a vantage that has already been saved; failing
+            // it must not fail the save the user asked for.
         }
     }
 

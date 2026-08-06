@@ -103,7 +103,7 @@
                                     <SiteOperatorOnly>
                                         <select class="cadence-select"
                                             @onchange="(e) => UpdateWanContextAsync(t.Id, e)">
-                                        <option value="" selected="@(t.WanContextId == null)">@PrimaryWanLabel</option>
+                                        <option value="" selected="@(t.WanContextId == null)">Not pinned to a WAN</option>
                                         @foreach (var wc in WanContexts)
                                         {
                                             <option value="@wc.Id" selected="@(t.WanContextId == wc.Id)">@wc.Name</option>
@@ -242,7 +242,10 @@
                         <div class="form-group">
                             <label class="form-label">WAN</label>
                             <select class="form-control" @bind="_newTargetWanContextId">
-                                <option value="">@PrimaryWanLabel</option>
+                                @if (!PrimaryWanHasVantage)
+                                {
+                                    <option value="">Not pinned to a WAN</option>
+                                }
                                 @foreach (var wc in WanContexts)
                                 {
                                     <option value="@wc.Id">@wc.Name</option>
@@ -514,6 +517,18 @@
     private int _newTargetPort = 443;
     private int _newTargetInterval = 10;
     private string _newTargetWanContextId = "";
+
+    /// <summary>
+    /// Whether a vantage already measures the primary WAN. When one does, "not pinned" stops being
+    /// offered for a new target: the two would name the same WAN while the pinned one says it
+    /// solidly, and the operator has no way to tell which they picked.
+    /// </summary>
+    private bool PrimaryWanHasVantage =>
+        _wanChoices.FirstOrDefault(w => w.IsPrimary)?.Key is { } primaryKey
+        && WanContexts.Any(c => !string.IsNullOrEmpty(c.WanInterface)
+            && string.Equals(
+                NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(c.WanInterface!),
+                primaryKey, StringComparison.OrdinalIgnoreCase));
     private bool _revealAddForm;
     private bool _ringAddForm;
     private string? _addTargetError;
