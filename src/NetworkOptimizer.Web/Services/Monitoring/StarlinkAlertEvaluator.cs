@@ -312,7 +312,7 @@ public class StarlinkAlertEvaluator
             "Starlink {Dish} alerting: wan={Wan} obstruction={Obstruction} snrLow={SnrLow} " +
             "align={Current}/{Baseline}deg drift={Drift} samples={Samples} uncertainty={Uncertainty}{Gated} " +
             "eth={Eth}/{Capable}Mbps outages24h={Outage}s restricted={Restricted} open=[{Open}]",
-            subject.DishName,
+            subject.ShortName,
             subject.WanLabel ?? "unbound",
             Show(stats.FractionObstructed),
             stats.IsSnrPersistentlyLow?.ToString() ?? "n/a",
@@ -327,6 +327,34 @@ public class StarlinkAlertEvaluator
             Show(state.OutageSamples.Sum(s => s.Seconds)),
             state.WasRestricted?.ToString() ?? "n/a",
             open.Count == 0 ? "none" : string.Join(",", open));
+    }
+
+    /// <summary>
+    /// Drops a leading or trailing "Starlink" from a name, so wording that already says Starlink
+    /// does not say it twice. Both ends matter: our own templates put the word in front, so
+    /// "Starlink Roof" and "Roof Starlink" double up identically.
+    ///
+    /// <para>
+    /// A name that is nothing BUT "Starlink" - a plausible thing to call your only dish - strips to
+    /// nothing, and falls back to a generic noun rather than leaving a hole in the sentence.
+    /// </para>
+    ///
+    /// <para>
+    /// The word is left alone anywhere else in the name. "My Starlink Dish" still reads a little
+    /// redundant, but cutting from the middle mangles names far more often than it tidies them.
+    /// </para>
+    /// </summary>
+    private static string WithoutStarlinkMention(string name, string fallback)
+    {
+        const string word = "Starlink";
+        var trimmed = name.Trim();
+
+        if (trimmed.StartsWith(word, StringComparison.OrdinalIgnoreCase))
+            trimmed = trimmed[word.Length..].TrimStart(' ', '-', ':');
+        else if (trimmed.EndsWith(word, StringComparison.OrdinalIgnoreCase))
+            trimmed = trimmed[..^word.Length].TrimEnd(' ', '-', ':');
+
+        return trimmed.Length == 0 ? fallback : trimmed;
     }
 
     /// <summary>A number for the diagnostic line, or "n/a" where the dish reported none.</summary>
@@ -410,7 +438,7 @@ public class StarlinkAlertEvaluator
         var codeList = string.Join(", ", codes);
         var sentences = new List<string>();
         if (disabled)
-            sentences.Add($"Starlink has taken {subject.Label} out of service (disablement code {disablement}).");
+            sentences.Add($"Starlink has taken {subject.ShortLabel} out of service (disablement code {disablement}).");
         if (codes.Count > 0)
             sentences.Add($"The dish reports: {codeList}.");
         if (state.SelfTestRegressed)
@@ -418,7 +446,7 @@ public class StarlinkAlertEvaluator
         var message = string.Join(" ", sentences);
 
         _logger.LogDebug("Starlink dish {Name} reporting {Codes} (disablement {Disablement})",
-            subject.DishName, codeList, disablement);
+            subject.ShortName, codeList, disablement);
 
         await _eventBus.PublishAsync(new AlertEvent
         {
@@ -491,7 +519,7 @@ public class StarlinkAlertEvaluator
                 : $"The dish has been {FormatPercent(fraction)} obstructed";
 
         _logger.LogDebug("Starlink dish {Name} obstructed: fraction={Fraction} snrLow={SnrLow}",
-            subject.DishName, fraction, snrLow);
+            subject.ShortName, fraction, snrLow);
 
         await _eventBus.PublishAsync(new AlertEvent
         {
@@ -590,7 +618,7 @@ public class StarlinkAlertEvaluator
         if (transition != GateTransition.Opened) return;
 
         _logger.LogDebug("Starlink dish {Name} alignment drifted: current={Current} baseline={Baseline}",
-            subject.DishName, current, baseline);
+            subject.ShortName, current, baseline);
 
         await _eventBus.PublishAsync(new AlertEvent
         {
@@ -647,7 +675,7 @@ public class StarlinkAlertEvaluator
         if (transition != GateTransition.Opened) return;
 
         _logger.LogDebug("Starlink dish {Name} Ethernet negotiated {Current} Mbps against {Capable} Mbps",
-            subject.DishName, current, capable);
+            subject.ShortName, current, capable);
 
         await _eventBus.PublishAsync(new AlertEvent
         {
@@ -702,7 +730,7 @@ public class StarlinkAlertEvaluator
 
         var cause = string.IsNullOrWhiteSpace(stats.LastOutageCause) ? null : stats.LastOutageCause;
         _logger.LogDebug("Starlink dish {Name} outage burst: {Seconds}s in the last day (last cause {Cause})",
-            subject.DishName, total, cause);
+            subject.ShortName, total, cause);
 
         await _eventBus.PublishAsync(new AlertEvent
         {
@@ -766,7 +794,7 @@ public class StarlinkAlertEvaluator
                 up == null ? null : $"uplink {up}",
             }.Where(r => r != null));
 
-            _logger.LogDebug("Starlink dish {Name} entered a restricted state: {Reasons}", subject.DishName, reasons);
+            _logger.LogDebug("Starlink dish {Name} entered a restricted state: {Reasons}", subject.ShortName, reasons);
 
             await _eventBus.PublishAsync(new AlertEvent
             {
@@ -803,7 +831,7 @@ public class StarlinkAlertEvaluator
     private ValueTask PublishRecovered(DishSubject subject, string recoveredType, string what, string detail,
         CancellationToken ct)
     {
-        _logger.LogDebug("Starlink dish {Name} recovered from {Type}", subject.DishName, recoveredType);
+        _logger.LogDebug("Starlink dish {Name} recovered from {Type}", subject.ShortName, recoveredType);
 
         return _eventBus.PublishAsync(new AlertEvent
         {
@@ -881,6 +909,21 @@ public class StarlinkAlertEvaluator
     private readonly record struct DishSubject(int Id, string DishName, string? WanLabel)
     {
         public string Label => string.IsNullOrWhiteSpace(WanLabel) ? DishName : WanLabel!;
+
+        /// <summary>
+        /// <see cref="Label"/> for the few sentences whose own wording already says Starlink.
+        /// Dishes and Starlink WANs are commonly named "Starlink Roof" or just "Starlink", which
+        /// would otherwise render as "Starlink has taken Starlink Roof out of service".
+        /// <para>
+        /// Only for those. Titles keep the full name: a title is often all that reaches a
+        /// notification channel, and trimming the service out of it would lose what the alert is
+        /// even about.
+        /// </para>
+        /// </summary>
+        public string ShortLabel => WithoutStarlinkMention(Label, "the dish");
+
+        /// <summary>The dish's own name for log templates that already open with "Starlink".</summary>
+        public string ShortName => WithoutStarlinkMention(DishName, "dish");
 
         public string DeviceId => $"{DeviceIdPrefix}{Id}";
 

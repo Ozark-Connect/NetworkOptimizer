@@ -669,6 +669,28 @@ public class StarlinkAlertEvaluatorTests
         evt.Context["dish_name"].Should().Be(DishName);
     }
 
+    /// <summary>
+    /// Dishes get called "Starlink Roof", "Roof Starlink", or just "Starlink", and the
+    /// out-of-service sentence opens with the word itself - so the name is trimmed there and only
+    /// there. Titles keep the full name: a title is often all that reaches a notification channel.
+    /// </summary>
+    [Theory]
+    [InlineData("Starlink Roof", "Starlink has taken Roof out of service")]
+    [InlineData("Roof Starlink", "Starlink has taken Roof out of service")]
+    [InlineData("Starlink", "Starlink has taken the dish out of service")]
+    [InlineData("Dishy McFlatface", "Starlink has taken Dishy McFlatface out of service")]
+    public async Task OutOfServiceSentence_DoesNotSayStarlinkTwice(string dishName, string expected)
+    {
+        var stats = Healthy();
+        stats.DisablementCode = "NoActiveAccount";
+
+        await _evaluator.EvaluateAsync(DishId, dishName, stats);
+
+        var evt = Of("starlink.dish_alert").Should().ContainSingle().Subject;
+        evt.Message.Should().Contain(expected);
+        evt.Title.Should().StartWith(dishName, "the title keeps the name whole");
+    }
+
     [Fact]
     public async Task WithAWanBinding_TheAlertNamesTheWan()
     {
