@@ -696,8 +696,13 @@ else
     /// </summary>
     private void JumpToAnalysis(string category)
     {
+        // Always live: these tiles have no parked instant to carry, unlike the Monitoring tab's own,
+        // which pass the moment they are frozen at. Without the token the destination fell back to
+        // its saved window, so a click on a tile showing what is happening right now could land on
+        // some earlier stretch of the day.
+        var at = NetworkOptimizer.Web.Services.Monitoring.MonitoringLinks.LiveAtToken;
         NavigationManager.NavigateTo(
-            $"/monitoring?tab=performance&category={category}{LiveWan.QueryFragment()}");
+            $"/monitoring?tab=performance&category={category}&at={at}{LiveWan.QueryFragment()}");
     }
 
     private (double? rtt, double loss) GetBestTargetStats(MonitoringTargetType type)
