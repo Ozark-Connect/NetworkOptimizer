@@ -151,19 +151,15 @@ APP_PASSWORD=your_secure_password
 
 ### Reset Admin Password
 
-If you've forgotten your password or need to reset it:
+If you've forgotten your password or need to reset it, use the reset script:
 
 ```bash
-# Clear the password from the database
-docker exec network-optimizer sqlite3 /app/data/network_optimizer.db "UPDATE AdminSettings SET Password = NULL;"
-
-# Restart to trigger auto-generated password
-cd /path/to/network-optimizer/docker
-docker compose up -d
-
-# View the new auto-generated password
-docker logs network-optimizer 2>&1 | grep -A5 "AUTO-GENERATED"
+curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/reset-password.sh | bash
 ```
+
+It auto-detects your container, clears the password, restarts, and prints the new temporary password. On Windows, run `scripts/reset-password.ps1` from an elevated prompt instead.
+
+See the [Deployment Guide](DEPLOYMENT.md#reset-admin-password) for the manual fallback.
 
 ## Configuration
 
