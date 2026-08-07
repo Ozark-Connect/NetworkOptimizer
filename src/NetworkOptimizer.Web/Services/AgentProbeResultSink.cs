@@ -460,16 +460,23 @@ public class AgentProbeResultSink
 
     /// <summary>
     /// Which agent currently collects for a site, for display. Same answer the push path acts on,
-    /// asked from one place so the page cannot disagree with what is actually happening. Null when
-    /// no agent is connected.
+    /// asked from one place so the page cannot disagree with what is actually happening.
+    /// <para>
+    /// Null when no agent is connected, and null on a default site whose agent does not cover
+    /// collection - there the agent is an ADDITIONAL vantage and this server does the collecting,
+    /// so naming an agent would claim a handover that never happened. The push path gates on the
+    /// same question before choosing an unassigned owner; this used to skip it and answer with
+    /// whichever agent happened to be connected.
+    /// </para>
     /// </summary>
     public async Task<int?> GetCollectorAgentIdAsync(string siteSlug, CancellationToken ct = default)
     {
         var connected = _tunnelRegistry.GetForSite(siteSlug).Select(c => c.AgentId).ToList();
         if (connected.Count == 0) return null;
+        var isDefault = siteSlug == SiteManagementService.DefaultSiteSlug;
+        if (isDefault && !await _agentCoverage.CoversAsync(siteSlug)) return null;
         try
         {
-            var isDefault = siteSlug == SiteManagementService.DefaultSiteSlug;
             await using var db = _siteDbFactory.CreateForSite(siteSlug, isDefault);
             var contexts = await db.WanContexts.AsNoTracking().ToListAsync(ct);
             var primaryWanKey = await ResolvePersistedPrimaryWanKeyAsync(db, ct);

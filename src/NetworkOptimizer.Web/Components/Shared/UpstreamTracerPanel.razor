@@ -773,7 +773,11 @@
             if (choices.Any(c => c.Key == key)) continue;
             choices.Add(new TracerWanChoice(key, LabelFor(key, ctx.Name), IsPrimary: false, Context: ctx));
         }
-        _wanChoices = choices.Count > 1 ? choices : new List<TracerWanChoice>();
+        // WAN order, not the order the vantages came back in - those are read by name, which put
+        // these pills out of sequence against every other WAN bar on the page.
+        _wanChoices = choices.Count > 1
+            ? choices.OrderBy(c => NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey(c.Key)).ToList()
+            : new List<TracerWanChoice>();
         _selectedTracerWanKey = primaryKey;
     }
 

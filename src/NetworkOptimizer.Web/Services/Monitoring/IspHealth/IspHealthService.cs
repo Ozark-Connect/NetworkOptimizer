@@ -64,6 +64,12 @@ public class IspHealthService
     // Configured target window (hours), cached from MonitoringSettings on each auto-compute so the
     // dashboard tile and tab can read it without a DB hit. 0 until the first auto-compute runs.
     private volatile int _configuredWindowHours;
+    /// <summary>Connected agents, for naming the boxes a policy route might steer. Null in tests.</summary>
+    private readonly AgentTunnelRegistry? _tunnelRegistry;
+    /// <summary>Resolves which box actually probes the unassigned targets. Null in tests.</summary>
+    private readonly AgentProbeResultSink? _probeSink;
+    /// <summary>Tells a gateway-resident agent from one on the LAN. Null in tests.</summary>
+    private readonly AgentOnGatewayDetector? _onGatewayDetector;
 
     public IspHealthService(
         MonitoringInfluxRegistry influxRegistry,
@@ -72,9 +78,15 @@ public class IspHealthService
         SiteConnectionRegistry siteConnections,
         PhysicalLinkResolver physicalLinkResolver,
         ILogger<IspHealthService> logger,
+        AgentTunnelRegistry? tunnelRegistry = null,
+        AgentProbeResultSink? probeSink = null,
+        AgentOnGatewayDetector? onGatewayDetector = null,
         string siteSlug = SiteManagementService.DefaultSiteSlug,
         string? wanInterface = null)
     {
+        _tunnelRegistry = tunnelRegistry;
+        _probeSink = probeSink;
+        _onGatewayDetector = onGatewayDetector;
         _siteSlug = string.IsNullOrEmpty(siteSlug) ? SiteManagementService.DefaultSiteSlug : siteSlug;
         _isDefault = _siteSlug == SiteManagementService.DefaultSiteSlug;
         _scopedWanKey = string.IsNullOrWhiteSpace(wanInterface)
@@ -1463,9 +1475,9 @@ public class IspHealthService
         List<MonitoringTarget> targets, string wanKey, bool includeUnassigned) =>
         // Keys normalized ("wan1" == "wan"): legacy installs stamped rows with the wan1 alias,
         // and an unnormalized comparison would silently drop them from their own report.
-        targets.Where(t => string.IsNullOrEmpty(t.WanInterface)
+        targets.Where(t => MonitoringTarget.IsUnpinned(t.WanInterface)
                 ? includeUnassigned
-                : string.Equals(GatewayWanHelper.WanInterfaceKeyFromKey(t.WanInterface),
+                : string.Equals(GatewayWanHelper.WanInterfaceKeyFromKey(t.WanInterface!),
                     GatewayWanHelper.WanInterfaceKeyFromKey(wanKey), StringComparison.OrdinalIgnoreCase))
             .ToList();
 
@@ -2002,6 +2014,139 @@ public class IspHealthService
     }
 
     /// <summary>
+    /// Creates the vantage a policy route already justifies, and hands it the unpinned targets it
+    /// describes.
+    /// <para>
+    /// Load-balancing sites only. There an unpinned probe took whichever WAN the balancer picked,
+    /// so its readings belong to no WAN - unless the operator steered that box down one on the
+    /// gateway, which is an attribution that exists and only we were missing. The route names a
+    /// MAC, so the vantage binds to the box it actually pins rather than to a guess.
+    /// </para>
+    /// <para>
+    /// Short-circuits once a vantage covers the pinned WAN, which makes it idempotent: the first
+    /// run creates it and every later one finds it and stops. Best effort in every direction - any
+    /// gap and the targets stay unpinned, which is still the truthful answer here. Caller saves.
+    /// </para>
+    /// </summary>
+    private async Task CreateVantageForRoutedProbesAsync(
+        NetworkOptimizerDbContext db, IReadOnlyList<NetworkInfo> networks, CancellationToken ct)
+    {
+        try
+        {
+            // Belt and braces on top of the load-balance flag: a site with one WAN has nothing to
+            // balance across, so whatever that flag says, an unpinned probe there took the only
+            // WAN there is. Never let a mis-resolved flag mint a vantage on a single-WAN site.
+            var wanCount = networks.Count(n => n.IsWan && n.Enabled);
+            if (wanCount < 2)
+            {
+                _logger.LogDebug(
+                    "Routed-probe vantage: site has {Count} enabled WAN(s); nothing to attribute", wanCount);
+                return;
+            }
+
+            var unpinnedCount = await db.MonitoringTargets.CountAsync(
+                t => t.WanContextId == null
+                    && t.TargetType != MonitoringTargetType.Fabric
+                    && (t.WanInterface == null || t.WanInterface == MonitoringTarget.UnpinnedWan), ct);
+            if (unpinnedCount == 0) return;
+
+            var api = _connectionService.Client;
+            if (api == null) return;
+
+            var routes = await api.GetTrafficRoutesAsync(ct);
+            if (routes.Count == 0) return;
+
+            var hosts = ProbeHosts();
+            var plan = PinnedProbeContextBuilder.Build(
+                routes, networks, await api.GetClientsAsync(ct), hosts);
+            if (plan == null)
+            {
+                _logger.LogDebug(
+                    "Routed-probe vantage: {Count} unpinned target(s), but no all-destinations route "
+                    + "names any of this site's {Hosts} probing box(es)", unpinnedCount, hosts.Count);
+                return;
+            }
+
+            // The route has to pin the box that ACTUALLY probes these targets. A route steering the
+            // server says nothing about an agent's probes, and binding the vantage to the wrong box
+            // is worse than saying nothing: a target whose vantage names an agent that is not the
+            // one asking gets pushed to nobody, so it would stop being probed entirely.
+            var collector = _probeSink == null ? null : await _probeSink.GetCollectorAgentIdAsync(_siteSlug, ct);
+            if (plan.AgentId != collector)
+            {
+                _logger.LogDebug(
+                    "Routed-probe vantage: the route pins {Pinned}, but {Collector} probes the unpinned "
+                    + "targets - the route says nothing about those probes",
+                    plan.AgentId?.ToString() ?? "the server",
+                    collector?.ToString() ?? "the server");
+                return;
+            }
+
+            // Last, because it is the only question here that can cost a console round trip: a
+            // gateway-resident agent binds its probe source directly and needs no policy route, so
+            // a route appearing to name it is a coincidence rather than the steering we are after.
+            if (_onGatewayDetector != null
+                && await _onGatewayDetector.IsIpOnGatewayAsync(_siteSlug, plan.MatchedLanIp, ct))
+            {
+                _logger.LogDebug(
+                    "Routed-probe vantage: {Ip} is the gateway itself, which binds its own probe source - "
+                    + "no policy route needed or believed", plan.MatchedLanIp);
+                return;
+            }
+
+            // Already covered: nothing to create, and nothing to adopt that the existing vantage
+            // did not already take.
+            var existing = await db.WanContexts.FirstOrDefaultAsync(
+                c => c.WanInterface == plan.WanInterface, ct);
+            if (existing != null)
+            {
+                _logger.LogDebug(
+                    "Routed-probe vantage: '{Name}' already covers {Wan}; leaving it alone",
+                    existing.Name, plan.WanInterface);
+                return;
+            }
+
+            var vantage = new WanContext
+            {
+                Name = plan.ContextName,
+                Description = "Created automatically: a policy route sends this site's probes out this WAN.",
+                AgentId = plan.AgentId,
+                WanInterface = plan.WanInterface,
+                CreatedAt = DateTime.UtcNow,
+            };
+            db.WanContexts.Add(vantage);
+            await db.SaveChangesAsync(ct);
+
+            var moved = await PrimaryWanVantageAdoption.AdoptUnpinnedTargetsAsync(db, vantage, ct);
+            _logger.LogInformation(
+                "Routed-probe vantage: created '{Name}' for {Wan} (agent {Agent}, kill switch {Kill}) "
+                + "and gave it {Count} unpinned target(s)",
+                vantage.Name, plan.WanInterface, plan.AgentId?.ToString() ?? "server",
+                plan.KillSwitchEnabled ? "on" : "off", moved);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not check whether a policy route routes this site's probes");
+        }
+    }
+
+    /// <summary>
+    /// Every box that probes for this site: its connected agents on the addresses they announced,
+    /// and the server on its own. A route names a MAC, so the candidates are what let a match say
+    /// WHICH box is steered rather than only that one is.
+    /// </summary>
+    private List<PinnedProbeContextBuilder.ProbeHost> ProbeHosts()
+    {
+        var hosts = (_tunnelRegistry?.GetForSite(_siteSlug) ?? new List<AgentTunnelConnection>())
+            .Where(c => !string.IsNullOrWhiteSpace(c.LanIp))
+            .Select(c => new PinnedProbeContextBuilder.ProbeHost(c.AgentId, c.LanIp))
+            .ToList();
+        hosts.Add(new PinnedProbeContextBuilder.ProbeHost(
+            null, NetworkUtilities.GetAllLocalIpAddresses().FirstOrDefault()));
+        return hosts;
+    }
+
+    /// <summary>
     /// Stores this WAN's expected speeds so they outlive the console connection. One row per WAN
     /// group; a rename changes the display name, not the identity.
     /// </summary>
@@ -2066,6 +2211,13 @@ public class IspHealthService
                 }
                 row.IsPrimary = string.Equals(row.WanNetworkgroup, primaryGroup, StringComparison.OrdinalIgnoreCase);
                 row.SiteLoadBalances = loadBalances;
+
+                // Only where the attribution is genuinely lost. A failover site's unpinned probes
+                // already read as the primary, so there is nothing to recover and no vantage worth
+                // creating; a load-balancing site's took whichever WAN the balancer picked, and a
+                // policy route is the only thing that can say which.
+                if (loadBalances)
+                    await CreateVantageForRoutedProbesAsync(db, networks, ct);
             }
             await db.SaveChangesAsync(ct);
         }

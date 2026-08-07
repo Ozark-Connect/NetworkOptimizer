@@ -1,7 +1,6 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Core.Enums;
-using NetworkOptimizer.Storage;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Web.Services;
 using NetworkOptimizer.Web.Services.Monitoring;
@@ -199,8 +198,13 @@ public class PerWanDiscoveryTests
             .Should().Be("access-198.51.100.1@wan2");
     }
 
+    /// <summary>
+    /// A bound run does not take over an unpinned row - it twins, exactly as it would for a row
+    /// stamped with another WAN. Adopting instead is what let a metered secondary claim the site's
+    /// hand-added targets wholesale.
+    /// </summary>
     [Fact]
-    public async Task ContextRun_AdoptsARowThatHasNoWanYet()
+    public async Task ContextRun_TwinsRatherThanAdoptingThePrimarysUnstampedRow()
     {
         await using var db = NewDb();
         db.MonitoringTargets.Add(new MonitoringTarget
@@ -212,16 +216,46 @@ public class PerWanDiscoveryTests
         });
         await db.SaveChangesAsync();
 
-        await UpstreamTracerService.UpsertTargetAsync(db, Hop("198.51.100.1"), "wan2", wanContextId: 4, default);
+        await UpstreamTracerService.UpsertTargetAsync(
+            db, Hop("198.51.100.1"), "wan2", wanContextId: 4, default, isUnboundRun: false);
+        await db.SaveChangesAsync();
+
+        var primaryRow = await db.MonitoringTargets.SingleAsync(t => t.TargetId == "access-198.51.100.1");
+        primaryRow.WanInterface.Should().BeNull();
+        primaryRow.WanContextId.Should().BeNull();
+
+        var twin = await db.MonitoringTargets.SingleAsync(t => t.TargetId == "access-198.51.100.1@wan2");
+        twin.WanInterface.Should().Be("wan2");
+        twin.WanContextId.Should().Be(4);
+    }
+
+    /// <summary>
+    /// The unbound run still adopts an unpinned row rather than twinning: the single-WAN upgrade
+    /// path, where re-running discovery must not leave two rows per hop.
+    /// </summary>
+    [Fact]
+    public async Task PrimaryRun_AdoptsARowThatHasNoWanYet()
+    {
+        await using var db = NewDb();
+        db.MonitoringTargets.Add(new MonitoringTarget
+        {
+            TargetId = "access-198.51.100.1",
+            Name = "First hop",
+            Address = "198.51.100.1",
+            TargetType = MonitoringTargetType.AccessIsp,
+        });
+        await db.SaveChangesAsync();
+
+        await UpstreamTracerService.UpsertTargetAsync(
+            db, Hop("198.51.100.1"), "wan", wanContextId: null, default, isUnboundRun: true);
         await db.SaveChangesAsync();
 
         var target = await db.MonitoringTargets.SingleAsync();
-        target.WanInterface.Should().Be("wan2");
-        target.WanContextId.Should().Be(4);
+        target.WanInterface.Should().Be("wan");
     }
 
     [Theory]
-    [InlineData(null, "wan", true)]      // never stamped - adoptable, which is every legacy row
+    [InlineData(null, "wan", true)]      // never stamped - the primary's, and this IS the primary
     [InlineData("", "wan", true)]
     [InlineData("wan", "wan", true)]
     [InlineData("WAN", "wan", true)]     // the WAN key's case is not a different WAN
@@ -230,6 +264,68 @@ public class PerWanDiscoveryTests
     {
         UpstreamTracerService.OwnsTargetRow(rowWan, runWan).Should().Be(expected);
     }
+
+    /// <summary>Unpinned rows belong to the unbound run alone, whatever WAN is committing.</summary>
+    [Theory]
+    [InlineData(null, "wan3", false, false)]   // a bound (context) run never owns an unstamped row
+    [InlineData(null, "wan", false, false)]    // not even when its WAN is the conventional first one
+    [InlineData(null, "wan", true, true)]      // the unbound run - the primary's - does
+    [InlineData(null, "wan3", true, true)]     // on a WAN3-primary site too: no key is consulted
+    [InlineData("wan", "wan3", false, false)]  // an explicit stamp is judged on its own terms
+    [InlineData("wan3", "wan3", false, true)]
+    [InlineData("wan1", "wan", false, true)]   // the wan1 alias is the same WAN
+    public void OwnsTargetRow_GivesUnstampedRowsToTheUnboundRunAlone(
+        string? rowWan, string runWan, bool isUnboundRun, bool expected)
+    {
+        UpstreamTracerService.OwnsTargetRow(rowWan, runWan, isUnboundRun).Should().Be(expected);
+    }
+
+    /// <summary>The reported bug: a metered secondary commits and slows only its own rows.</summary>
+    [Fact]
+    public void SelectTargetsToRepace_LeavesEveryWanButTheMeteredOneAlone()
+    {
+        var targets = new List<MonitoringTarget>
+        {
+            Target("ISP speedtest", MonitoringTargetType.AccessIsp, wan: null, interval: 10),
+            Target("LAN controller", MonitoringTargetType.Custom, wan: null, interval: 10),
+            Target("Transit handoff", MonitoringTargetType.Transit, wan: "wan", interval: 15),
+            Target("Satellite first hop", MonitoringTargetType.AccessIsp, wan: "wan2", interval: 15),
+            Target("Cellular first hop", MonitoringTargetType.AccessIsp, wan: "wan3", interval: 10),
+            Target("Gateway", MonitoringTargetType.Fabric, wan: "wan3", interval: 5),
+            Target("Already slow", MonitoringTargetType.Custom, wan: "wan3", interval: 120),
+        };
+
+        var repaced = UpstreamTracerService.SelectTargetsToRepace(
+            targets, pollIntervalSeconds: 60, wanInterface: "wan3", isUnboundRun: false);
+
+        repaced.Select(t => t.Name).Should().BeEquivalentTo("Cellular first hop");
+    }
+
+    /// <summary>Single-WAN: the unbound run's unpinned rows are its own, and slowing them is the point.</summary>
+    [Fact]
+    public void SelectTargetsToRepace_StillSlowsUnstampedRowsWhenThePrimaryIsTheMeteredWan()
+    {
+        var targets = new List<MonitoringTarget>
+        {
+            Target("Public resolver", MonitoringTargetType.InternetService, wan: null, interval: 10),
+            Target("First hop", MonitoringTargetType.AccessIsp, wan: "wan", interval: 10),
+        };
+
+        var repaced = UpstreamTracerService.SelectTargetsToRepace(
+            targets, pollIntervalSeconds: 60, wanInterface: "wan", isUnboundRun: true);
+
+        repaced.Select(t => t.Name).Should().BeEquivalentTo("Public resolver", "First hop");
+    }
+
+    private static MonitoringTarget Target(string name, MonitoringTargetType type, string? wan, int interval) => new()
+    {
+        TargetId = $"custom-{name.Replace(' ', '-')}",
+        Name = name,
+        Address = "192.0.2.1",
+        TargetType = type,
+        WanInterface = wan,
+        PollIntervalSeconds = interval
+    };
 
     [Fact]
     public void ContextsDueForDiscovery_SkipsAContextThatHasNoWanYet()

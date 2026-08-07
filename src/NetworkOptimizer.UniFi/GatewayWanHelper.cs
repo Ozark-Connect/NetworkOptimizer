@@ -157,6 +157,41 @@ public static class GatewayWanHelper
     }
 
     /// <summary>
+    /// The name a WAN should be shown under, from what the console reports for it.
+    /// <para>
+    /// The network's own name wins - it is the one someone typed. A stock "Internet 2" is not
+    /// that, so the port's name answers next, and only when the port has been renamed: "Port 5"
+    /// is no more a name than "Internet 2" is. Null when neither is real, which leaves the
+    /// caller with the plain "WANn" that <see cref="FormatWanLabel"/> already produces.
+    /// </para>
+    /// <para>
+    /// Here rather than at each call site because the precedence was being decided separately in
+    /// several of them, and one had it backwards - the port name shadowed the network's, so every
+    /// site that had not renamed its port showed "Port 5" where its WAN's name should be.
+    /// </para>
+    /// </summary>
+    /// <param name="networkName">The WAN network's configured name, if any.</param>
+    /// <param name="portName">The front-panel port's name, if any.</param>
+    public static string? ResolveWanName(string? networkName, string? portName)
+    {
+        if (!IsPlaceholderWanName(networkName)) return networkName!.Trim();
+        if (!IsPlaceholderWanName(portName)) return portName!.Trim();
+        return null;
+    }
+
+    /// <summary>
+    /// Whether a name is a stock label rather than one someone chose: a generic WAN name
+    /// ("Internet 2", "WAN3"), a default port label ("SFP+ 2"), or nothing at all.
+    /// <para>
+    /// Both halves matter and neither alone is enough - a WAN can arrive carrying either kind of
+    /// placeholder, so testing for one lets the other through as though it were a real name.
+    /// </para>
+    /// </summary>
+    public static bool IsPlaceholderWanName(string? name) =>
+        Core.Helpers.DisplayFormatters.IsGenericWanName(name)
+        || InterfaceLabelResolver.IsDefaultPortName(name);
+
+    /// <summary>
     /// Builds a human-readable WAN label from up to four identifiers
     /// (e.g. "Acme Fiber WAN1 (eth6 - Port 7)"), degrading gracefully when any
     /// piece is missing so it never emits empty parentheses, doubled spaces, or

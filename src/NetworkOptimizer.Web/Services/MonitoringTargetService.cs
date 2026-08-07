@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Core.Enums;
@@ -53,6 +53,12 @@ public class MonitoringTargetService : IMonitoringTargetService
             throw new MonitoringTargetValidationException("Address must be a valid IP or hostname.");
 
         var (asnNumber, asnName) = await ResolveAsnAsync(spec.TargetType, address);
+        // Settled once, here, while the user is waiting anyway. A failure leaves it unresolved
+        // rather than guessed - the sweep will try again, and readers fall back meanwhile.
+        var (isLocal, resolvedIp) = await Monitoring.LocalTargetResolver.ResolveAsync(address, _logger, ct);
+        if (isLocal != null)
+            _logger.LogInformation("Local check: {Name} ({Address}) resolved to {Ip} - {Verdict}",
+                name, address, resolvedIp, isLocal.Value ? "on this network" : "reached over a WAN");
 
         // Manual Transit/Access ISP adds are user-provided upstream hops the tracer didn't
         // find. Tag them UserProvided so upstream change-detection treats them as curated
@@ -78,20 +84,23 @@ public class MonitoringTargetService : IMonitoringTargetService
             VantagePoint = "server",
             CreatedAt = DateTime.UtcNow,
             AsnNumber = asnNumber,
-            AsnName = asnName
+            AsnName = asnName,
+            IsLocal = isLocal
         };
 
-        // Same stamping the reassign path uses, so a target created against a WAN context carries
-        // both keys from its first poll: the context that routes the probe and the WAN the readings
-        // are filed under.
+        // Same stamping the reassign path uses, so a target carries both keys from its first poll:
+        // the context that routes the probe and the WAN the readings are filed under. Added against
+        // no context, it is unpinned and says so.
+        string? contextWanInterface = null;
         if (spec.WanContextId is int newContextId)
         {
             await using var contextDb = CreateDb();
             var context = await contextDb.WanContexts.FindAsync(new object?[] { newContextId }, ct);
             if (context == null)
                 throw new MonitoringTargetValidationException("That WAN context no longer exists.");
-            Monitoring.WanContextTargetStamping.ApplyAssignment(entity, newContextId, context.WanInterface);
+            contextWanInterface = context.WanInterface;
         }
+        Monitoring.WanContextTargetStamping.ApplyAssignment(entity, spec.WanContextId, contextWanInterface);
 
         await using (var db = CreateDb())
         {
@@ -177,7 +186,7 @@ public class MonitoringTargetService : IMonitoringTargetService
         // The context's WAN rides along with the assignment: WanContextId routes the probes and
         // WanInterface says which WAN the data describes, and every per-WAN reader scopes on the
         // latter - an assignment that moved only the routing would keep grading the data under
-        // the old WAN. Moving back to the primary clears both (see WanContextTargetStamping).
+        // the old WAN. Moving off a context makes it unpinned (see WanContextTargetStamping).
         string? contextWanInterface = null;
         if (wanContextId is int contextId)
         {

@@ -1,4 +1,4 @@
-using System.Text.RegularExpressions;
+﻿using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Core.Helpers;
@@ -2510,6 +2510,8 @@ public class UpstreamTracerService
         // context says who probes them. Setting them together is what closes the gap where a
         // context's targets had a context but no WAN, so no per-WAN reader could find them.
         var wanContextId = _binding?.WanContextId;
+        // Unpinned rows are the unbound run's alone - see OwnsTargetRow.
+        var isUnboundRun = _binding == null;
 
         // What this WAN's probing costs. Targets are created at the plan's cadence, and on a
         // metered WAN the ones already here are slowed to match - a link that has just been
@@ -2538,14 +2540,14 @@ public class UpstreamTracerService
         foreach (var hop in State.AccessHops.Where(h => h.Enabled))
         {
             _logger.LogDebug("Commit access hop: id={TargetId} label='{Label}' addr={Address}", hop.TargetId, hop.Label, hop.Address);
-            await UpsertTargetAsync(db, hop, wanInterface, wanContextId, ct, probePlan.PollIntervalSeconds);
+            await UpsertTargetAsync(db, hop, wanInterface, wanContextId, ct, probePlan.PollIntervalSeconds, isUnboundRun);
         }
         foreach (var hop in State.AccessHops.Where(h => !h.Enabled))
         {
             // With per-WAN twin rows an address can have several rows; pause only the one this
             // WAN owns (another WAN's row - and its measuring - is that WAN's to manage).
             var existing = (await db.MonitoringTargets.Where(t => t.Address == hop.Address).ToListAsync(ct))
-                .FirstOrDefault(t => OwnsTargetRow(t.WanInterface, wanInterface));
+                .FirstOrDefault(t => OwnsTargetRow(t.WanInterface, wanInterface, isUnboundRun));
             if (existing != null)
             {
                 existing.Enabled = false;
@@ -2558,7 +2560,7 @@ public class UpstreamTracerService
             _logger.LogDebug("Commit transit: id={TargetId} label='{Label}' addr={Address} method={Method}",
                 transit.TargetId, transit.Label, transit.HopAddress ?? transit.PathProxyTarget, transit.Method);
             await UpsertTransitTargetAsync(db, transit, wanInterface, wanContextId, ct,
-                pollIntervalSeconds: probePlan.PollIntervalSeconds);
+                pollIntervalSeconds: probePlan.PollIntervalSeconds, isUnboundRun: isUnboundRun);
         }
         foreach (var transit in State.TransitAsns.Where(t => !t.Enabled))
         {
@@ -2569,14 +2571,14 @@ public class UpstreamTracerService
             if (transit.Method == DiscoveryMethod.PathProxy)
             {
                 await UpsertTransitTargetAsync(db, transit, wanInterface, wanContextId, ct, enabled: false,
-                    pollIntervalSeconds: probePlan.PollIntervalSeconds);
+                    pollIntervalSeconds: probePlan.PollIntervalSeconds, isUnboundRun: isUnboundRun);
                 continue;
             }
             var addr = transit.HopAddress ?? transit.PathProxyTarget;
             if (string.IsNullOrEmpty(addr)) continue;
             // Same per-WAN row selection as the access-hop pause above.
             var existing = (await db.MonitoringTargets.Where(t => t.Address == addr).ToListAsync(ct))
-                .FirstOrDefault(t => OwnsTargetRow(t.WanInterface, wanInterface));
+                .FirstOrDefault(t => OwnsTargetRow(t.WanInterface, wanInterface, isUnboundRun));
             if (existing != null)
             {
                 existing.Enabled = false;
@@ -2653,15 +2655,19 @@ public class UpstreamTracerService
         // already slower than the plan, which is a deliberate choice of the operator's.
         if (probePlan.Rung > 0)
         {
-            var repaced = await db.MonitoringTargets
+            var candidates = await db.MonitoringTargets
                 .Where(t => t.TargetType != MonitoringTargetType.Fabric
                     && t.PollIntervalSeconds < probePlan.PollIntervalSeconds)
                 .ToListAsync(ct);
-            repaced = repaced.Where(t => OwnsTargetRow(t.WanInterface, wanInterface)).ToList();
+            var repaced = SelectTargetsToRepace(
+                candidates, probePlan.PollIntervalSeconds, wanInterface, isUnboundRun);
             foreach (var target in repaced) target.PollIntervalSeconds = probePlan.PollIntervalSeconds;
-            if (repaced.Count > 0)
-                _logger.LogInformation("Metered WAN {Wan}: slowed {Count} existing target(s) to {Interval}s",
-                    wanInterface, repaced.Count, probePlan.PollIntervalSeconds);
+            // Logged even at zero: the count is how an operator confirms this WAN reached only its
+            // own rows, which is the whole of the fix. Silence would look the same as not running.
+            _logger.LogInformation(
+                "Metered WAN {Wan} ({Unbound}): slowed {Count} of {Considered} faster target(s) to {Interval}s",
+                wanInterface, isUnboundRun ? "unbound run, owns unpinned rows" : "bound run, its own rows only",
+                repaced.Count, candidates.Count, probePlan.PollIntervalSeconds);
         }
 
         await db.SaveChangesAsync(ct);
@@ -2831,15 +2837,44 @@ public class UpstreamTracerService
             .FirstOrDefault();
     }
 
-    internal static bool OwnsTargetRow(string? rowWanInterface, string wanInterface)
-        => string.IsNullOrEmpty(rowWanInterface)
-           // Normalized ("wan1" == "wan"): legacy rows stamped with the wan1 alias are the SAME
-           // WAN as a "wan" run, not a rival - unnormalized, every re-run on such an install
-           // would twin its own targets.
-           || string.Equals(
-               NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(rowWanInterface),
-               NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(wanInterface),
-               StringComparison.OrdinalIgnoreCase);
+    /// <summary>
+    /// The targets a metered WAN's commit slows: rows it owns that still probe faster than the
+    /// plan. Cadence is not indexed by WAN, so the read is site-wide and ownership is the only
+    /// thing keeping a metered WAN off other WANs' targets - and off LAN ones, which never touch
+    /// its data plan. Fabric never leaves the WAN; anything already slower is the operator's call.
+    /// </summary>
+    internal static List<MonitoringTarget> SelectTargetsToRepace(
+        IEnumerable<MonitoringTarget> candidates, int pollIntervalSeconds, string wanInterface, bool isUnboundRun) =>
+        candidates
+            .Where(t => t.TargetType != MonitoringTargetType.Fabric
+                && t.PollIntervalSeconds < pollIntervalSeconds
+                && OwnsTargetRow(t.WanInterface, wanInterface, isUnboundRun))
+            .ToList();
+
+    /// <summary>
+    /// Whether a target row belongs to the WAN this discovery run is committing for. Reading an
+    /// unpinned row as "owned by whichever WAN is committing" let a metered secondary adopt the
+    /// site's hand-added targets and slow every one of them.
+    /// </summary>
+    /// <param name="rowWanInterface">The row's WAN, or unpinned.</param>
+    /// <param name="wanInterface">The WAN this run is committing for.</param>
+    /// <param name="isUnboundRun">
+    /// Whether this run has no <see cref="WanProbeBinding"/>, which is the only thing that owns
+    /// unpinned rows. Identity, not inference: a secondary is only ever traced through a context,
+    /// so a bound run is never the unpinned probes'. Deliberately avoids resolving a primary WAN
+    /// key, which no console-free path can know and which is not "wan" - any group holds the role.
+    /// </param>
+    internal static bool OwnsTargetRow(string? rowWanInterface, string wanInterface, bool isUnboundRun = true)
+    {
+        if (MonitoringTarget.IsUnpinned(rowWanInterface)) return isUnboundRun;
+        // Normalized ("wan1" == "wan"): legacy rows stamped with the wan1 alias are the SAME
+        // WAN as a "wan" run, not a rival - unnormalized, every re-run on such an install
+        // would twin its own targets.
+        return string.Equals(
+            NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(rowWanInterface!),
+            NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(wanInterface),
+            StringComparison.OrdinalIgnoreCase);
+    }
 
     /// <summary>
     /// The WAN-qualified target id for this WAN's twin of a host another WAN's discovery already
@@ -2864,7 +2899,9 @@ public class UpstreamTracerService
     /// <param name="wanInterface">WAN this discovery ran against.</param>
     /// <param name="wanContextId">Context this run belongs to, or null for the primary run.</param>
     /// <param name="ct">Cancellation.</param>
-    internal static async Task UpsertTargetAsync(NetworkOptimizerDbContext db, AccessHopCandidate hop, string wanInterface, int? wanContextId, CancellationToken ct, int pollIntervalSeconds = MeteredProbePolicy.DefaultIntervalSeconds)
+    /// <param name="pollIntervalSeconds">Cadence new rows are created at.</param>
+    /// <param name="isUnboundRun">Whether this is the unbound (primary) run - see OwnsTargetRow.</param>
+    internal static async Task UpsertTargetAsync(NetworkOptimizerDbContext db, AccessHopCandidate hop, string wanInterface, int? wanContextId, CancellationToken ct, int pollIntervalSeconds = MeteredProbePolicy.DefaultIntervalSeconds, bool isUnboundRun = true)
     {
         // UniFi's WAN SLA probe targets (1.1.1.1 / 8.8.8.8) are public DNS resolvers, not
         // ISP first-mile infrastructure. They never belong as an Access ISP target; drop any
@@ -2886,9 +2923,9 @@ public class UpstreamTracerService
         var rows = await db.MonitoringTargets
             .Where(t => t.TargetId == hop.TargetId || t.TargetId == twinId || t.Address == hop.Address)
             .ToListAsync(ct);
-        var existing = rows.FirstOrDefault(t => t.TargetId == hop.TargetId && OwnsTargetRow(t.WanInterface, wanInterface))
+        var existing = rows.FirstOrDefault(t => t.TargetId == hop.TargetId && OwnsTargetRow(t.WanInterface, wanInterface, isUnboundRun))
             ?? rows.FirstOrDefault(t => t.TargetId == twinId)
-            ?? rows.FirstOrDefault(t => OwnsTargetRow(t.WanInterface, wanInterface));
+            ?? rows.FirstOrDefault(t => OwnsTargetRow(t.WanInterface, wanInterface, isUnboundRun));
         var claimedByOtherWan = existing == null && rows.Count > 0;
         if (existing == null)
         {
@@ -2948,7 +2985,9 @@ public class UpstreamTracerService
     /// <param name="wanContextId">Context this run belongs to, or null for the primary run.</param>
     /// <param name="ct">Cancellation.</param>
     /// <param name="enabled">Whether the target is committed enabled (a declined path-end is saved paused).</param>
-    internal static async Task UpsertTransitTargetAsync(NetworkOptimizerDbContext db, TransitAsnCandidate transit, string wanInterface, int? wanContextId, CancellationToken ct, bool enabled = true, int pollIntervalSeconds = MeteredProbePolicy.DefaultIntervalSeconds)
+    /// <param name="pollIntervalSeconds">Cadence new rows are created at.</param>
+    /// <param name="isUnboundRun">Whether this is the unbound (primary) run - see OwnsTargetRow.</param>
+    internal static async Task UpsertTransitTargetAsync(NetworkOptimizerDbContext db, TransitAsnCandidate transit, string wanInterface, int? wanContextId, CancellationToken ct, bool enabled = true, int pollIntervalSeconds = MeteredProbePolicy.DefaultIntervalSeconds, bool isUnboundRun = true)
     {
         if (transit.Method == DiscoveryMethod.Unresolved || string.IsNullOrEmpty(transit.TargetId)) return;
 
@@ -2964,9 +3003,9 @@ public class UpstreamTracerService
             .Where(t => t.TargetId == transit.TargetId || t.TargetId == twinId
                 || (address != null && t.Address == address))
             .ToListAsync(ct);
-        var existing = rows.FirstOrDefault(t => t.TargetId == transit.TargetId && OwnsTargetRow(t.WanInterface, wanInterface))
+        var existing = rows.FirstOrDefault(t => t.TargetId == transit.TargetId && OwnsTargetRow(t.WanInterface, wanInterface, isUnboundRun))
             ?? rows.FirstOrDefault(t => t.TargetId == twinId)
-            ?? rows.FirstOrDefault(t => OwnsTargetRow(t.WanInterface, wanInterface));
+            ?? rows.FirstOrDefault(t => OwnsTargetRow(t.WanInterface, wanInterface, isUnboundRun));
         var claimedByOtherWan = existing == null && rows.Count > 0;
         if (existing == null)
         {

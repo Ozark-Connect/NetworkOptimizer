@@ -16,6 +16,21 @@
  */
 const RESERVED_CLASS = 'wan-filter-badges-reserved';
 
+/**
+ * The standard clear-filter glyph: funnel with an X. Stroked, currentColor, 24 viewBox - the same
+ * idiom as the X icons already in the app, so it inherits hover colour for free.
+ *
+ * Exported because the stats tables draw the same control into a table header, where the measured
+ * placement below has nothing to measure. Sharing the markup is the point: one control on two
+ * surfaces must not become two drawings of it.
+ */
+export const FILTER_RESET_SVG =
+    '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+    + 'stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+    + '<path d="M3 5h14l-5.25 6.2V17l-3.5 1.75v-7.55z"/>'
+    + '<path d="m16.5 16.5 4.5 4.5m0-4.5-4.5 4.5"/>'
+    + '</svg>';
+
 /// Do the two rectangles share any area at all.
 function collides(btn, chips) {
     const b = btn.getBoundingClientRect();
@@ -83,14 +98,7 @@ export function renderFilterReset(container, isFiltered, onReset, label = 'Clear
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'wan-filter-reset';
-    // The standard clear-filter glyph: funnel with an X. Stroked, currentColor, 24 viewBox -
-    // the same idiom as the X icons already in the app, so it inherits hover colour for free.
-    btn.innerHTML =
-        '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
-        + 'stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
-        + '<path d="M3 5h14l-5.25 6.2V17l-3.5 1.75v-7.55z"/>'
-        + '<path d="m16.5 16.5 4.5 4.5m0-4.5-4.5 4.5"/>'
-        + '</svg>';
+    btn.innerHTML = FILTER_RESET_SVG;
     btn.setAttribute('aria-label', label);
     btn.setAttribute('data-tooltip', label);
     btn.addEventListener('click', (e) => {

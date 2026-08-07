@@ -1,10 +1,10 @@
-// Cellular modem signal time-series charts: RSRP, SNR, Signal Quality.
+﻿// Cellular modem signal time-series charts: RSRP, SNR, Signal Quality.
 // Same control pattern as sfp-charts.js and device-health-charts.js.
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
-import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=4';
-import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=8';
-import { renderFilterReset, isFiltered } from './chart-filter.js?v=4';
+import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=6';
+import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=10';
+import { renderFilterReset, isFiltered } from './chart-filter.js?v=5';
 
 const PALETTE = window.Apex?.colors || ['#4269d0', '#efb118', '#ff725c', '#6cc5b0', '#3ca951', '#ff8ab7'];
 const _esc = document.createElement('span');
@@ -137,15 +137,22 @@ function renderBadges(container) {
     renderFilterReset(el, isFiltered(visibility), () => { visibility = {}; updateVisibility(); renderBadges(container); });
 }
 
+// Draws exactly the modems that should be on screen, in one update per chart.
+//
+// This used to call showSeries/hideSeries per modem on each of the four charts, and every one of
+// those is a full redraw. Colors come from modemMeta, which holds each modem's palette slot from
+// the full list, so filtering never re-colors what stays on screen.
 function updateVisibility() {
-    modemMeta.forEach(m => {
-        const vis = visibility[m.id] !== false;
-        [rsrpChart, rsrqChart, snrChart, qualityChart].forEach(chart => {
-            if (!chart) return;
-            if (vis) chart.showSeries(m.label);
-            else chart.hideSeries(m.label);
-        });
-    });
+    const modems = (lastData?.modems || []).filter(m => visibility[m.id] !== false);
+    const seriesOf = (pick) => modems.map(m => ({
+        name: m.label,
+        color: modemMeta.find(x => x.id === m.id)?.color || PALETTE[0],
+        data: alignedPoints(m.data || [], pick),
+    }));
+    if (rsrpChart) rsrpChart.updateSeries(seriesOf(p => p.rsrp), false);
+    if (rsrqChart) rsrqChart.updateSeries(seriesOf(p => p.rsrq), false);
+    if (snrChart) snrChart.updateSeries(seriesOf(p => p.snr), false);
+    if (qualityChart) qualityChart.updateSeries(seriesOf(p => p.quality), false);
 }
 
 async function loadAndUpdate() {
@@ -155,42 +162,9 @@ async function loadAndUpdate() {
         id: m.id, label: m.label, color: PALETTE[i % PALETTE.length],
     }));
 
-    const rsrpSeries = [];
-    const rsrqSeries = [];
-    const snrSeries = [];
-    const qualitySeries = [];
-    data.modems.forEach((m, i) => {
-        const color = PALETTE[i % PALETTE.length];
-        const pts = m.data || [];
-        rsrpSeries.push({
-            name: m.label,
-            color,
-            data: alignedPoints(pts, p => p.rsrp),
-        });
-        rsrqSeries.push({
-            name: m.label,
-            color,
-            data: alignedPoints(pts, p => p.rsrq),
-        });
-        snrSeries.push({
-            name: m.label,
-            color,
-            data: alignedPoints(pts, p => p.snr),
-        });
-        qualitySeries.push({
-            name: m.label,
-            color,
-            data: alignedPoints(pts, p => p.quality),
-        });
-    });
-
-    if (rsrpChart) rsrpChart.updateSeries(rsrpSeries, false);
-    if (rsrqChart) rsrqChart.updateSeries(rsrqSeries, false);
-    if (snrChart) snrChart.updateSeries(snrSeries, false);
-    if (qualityChart) qualityChart.updateSeries(qualitySeries, false);
-
-    updateVisibility();
+    // Before updateVisibility, which draws from it.
     lastData = data;
+    updateVisibility();
     const container = document.getElementById(containerId);
     if (container) {
         renderBadges(container);

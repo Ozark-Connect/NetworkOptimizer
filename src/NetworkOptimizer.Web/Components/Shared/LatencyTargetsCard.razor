@@ -1,5 +1,6 @@
-@using NetworkOptimizer.Storage.Models
+﻿@using NetworkOptimizer.Storage.Models
 @using Microsoft.EntityFrameworkCore
+@using NetworkOptimizer.Web.Components.Shared.Monitoring
 @inject MonitoringLiveStats LiveStats
 @inject SiteContextService SiteCtx
 @inject NetworkOptimizer.Web.Services.Monitoring.ProbeExecutorFactory ExecutorFactory
@@ -10,12 +11,16 @@
 <div class="card">
     <div class="card-header card-header-collapsible" @onclick="ToggleCollapse">
         <h2 class="card-title">Latency Targets</h2>
-        @if (_wanChoices.Count > 1)
+        @if (ShowScopeFilter)
         {
             <div class="time-range-selector wan-selector @(_wanChoices.Count > 3 ? "wan-selector-many" : "")" @onclick:stopPropagation>
+                <button class="time-btn @(LanScope || ShowingAll ? "active" : "")"
+                        @onclick="PickLanAsync" @onclick:stopPropagation>LAN</button>
                 @foreach (var w in _wanChoices)
                 {
-                    <button class="time-btn @(!AllSelected && SelectedWanKeys.Contains(w.Key) ? "active" : "")"
+                    @* All lights every pill: it shows every WAN, and on a single-WAN site the
+                       parent has no option list to fill the selection from. *@
+                    <button class="time-btn @(!LanScope && (ShowingAll || SelectedWanKeys.Contains(w.Key)) ? "active" : "")"
                             @onclick="() => PickWanAsync(w.Key)" @onclick:stopPropagation>
                         @{
                             var wp = NetworkOptimizer.UniFi.GatewayWanHelper.SplitWanLabel(
@@ -24,8 +29,26 @@
                         {<span class="wan-pill-token">@wp.WanToken</span>}
                     </button>
                 }
-                <button class="time-btn wan-all-btn @(AllSelected ? "active" : "")"
-                        @onclick="() => PickWanAsync(AllWansKey)" @onclick:stopPropagation>All</button>
+                @if (!ShowingAll)
+                {
+                    <button class="time-btn wan-all-btn"
+                            @onclick="() => PickWanAsync(AllWansKey)" @onclick:stopPropagation>All</button>
+                }
+                @if (ScopeIsNarrowed)
+                {
+                    <WanFilterResetButton OnReset="ResetScopeAsync" />
+                }
+            </div>
+            @* Narrows the rows the scope already chose. Hidden on mobile: the scope row alone
+               already wraps there, and the Type column still says what each row is. *@
+            <div class="time-range-selector lt-type-filter hide-mobile" @onclick:stopPropagation>
+                @foreach (var t in AvailableTypes())
+                {
+                    <button class="time-btn @(_typeFilter == t ? "active" : "")"
+                            @onclick="() => PickTypeAsync(t)" @onclick:stopPropagation>@TypeFilterLabel(t)</button>
+                }
+                <button class="time-btn @(_typeFilter == null ? "active" : "")"
+                        @onclick="() => PickTypeAsync(null)" @onclick:stopPropagation>All</button>
             </div>
         }
         <div style="display: flex; align-items: center; gap: 0.5rem;">
@@ -69,7 +92,7 @@
                         <th>Address</th>
                         @if (WanContexts.Count > 0)
                         {
-                            <th>WAN</th>
+                            <th>WAN / Path</th>
                         }
                         <th>Interval</th>
                         <th>Latest</th>
@@ -82,7 +105,15 @@
                     {
                         <tr>
                             <td colspan="@VisibleColumnCount" class="latency-targets-empty">
-                                No targets for this WAN.
+                                @* Names both things the reader narrowed by, since either one alone
+                                   leaves the other looking like the reason. *@
+                                @(LanScope
+                                    ? (_typeFilter != null
+                                        ? "No targets of this type on this network."
+                                        : "No targets on this network yet.")
+                                    : (_typeFilter != null
+                                        ? "No targets of this type for this WAN."
+                                        : "No targets for this WAN."))
                             </td>
                         </tr>
                     }
@@ -92,7 +123,7 @@
                         <tr id="latency-target-@t.Id" class="@(t.Enabled ? "" : "latency-target-paused")">
                             <td>
                                 <span class="status-badge @TargetTypeBadgeClass(t.TargetType)">
-                                    @t.TargetType.ToDisplayName()
+                                    @TargetTypeBadgeLabel(t.TargetType)
                                 </span>
                             </td>
                             <td>@t.Name</td>
@@ -103,7 +134,7 @@
                                     <SiteOperatorOnly>
                                         <select class="cadence-select"
                                             @onchange="(e) => UpdateWanContextAsync(t.Id, e)">
-                                        <option value="" selected="@(t.WanContextId == null)">@PrimaryWanLabel</option>
+                                        <option value="" selected="@(t.WanContextId == null)">Default path</option>
                                         @foreach (var wc in WanContexts)
                                         {
                                             <option value="@wc.Id" selected="@(t.WanContextId == wc.Id)">@wc.Name</option>
@@ -240,9 +271,9 @@
                     @if (WanContexts.Count > 0)
                     {
                         <div class="form-group">
-                            <label class="form-label">WAN</label>
+                            <label class="form-label">WAN / Path</label>
                             <select class="form-control" @bind="_newTargetWanContextId">
-                                <option value="">@PrimaryWanLabel</option>
+                                <option value="">Default path</option>
                                 @foreach (var wc in WanContexts)
                                 {
                                     <option value="@wc.Id">@wc.Name</option>
@@ -296,6 +327,10 @@
 </div>
 
 <style>
+    .lt-type-filter {
+        margin: 0 0.5rem;
+    }
+
     .lt-intro {
         display: flex;
         align-items: flex-start;
@@ -416,23 +451,105 @@
     /// rest of the tab reads and needs nothing else to remember it.
     /// </summary>
     /// <summary>
-    /// Whether the selection this card can act on is "everything". True when every WAN is selected,
-    /// and also when NONE of them is: the tab's WAN bar offers WANs this card has no pill for - one
-    /// with no context and so no targets of its own - and filtering a list to a WAN it cannot show
-    /// leaves an empty table with no lit pill to explain it. All is the honest reading of a
-    /// selection this list has nothing to say about.
+    /// Whether the scope is holding a COMPARISON, the only state a clear undoes. One WAN alone, or
+    /// the LAN alone, is the view the user switched to rather than a filter over it - see the same
+    /// rule on the tab's own WAN bar. All counts: it is every WAN at once, and it takes the place of
+    /// the All pill once that pill has nothing left to offer.
     /// </summary>
-    private bool AllSelected =>
-        _wanChoices.Count > 1
-        && (_wanChoices.All(w => SelectedWanKeys.Contains(w.Key))
-            || !_wanChoices.Any(w => SelectedWanKeys.Contains(w.Key)));
+    /// <para>
+    /// Never on a single-WAN site: there the All pill is on screen whenever anything is narrowed,
+    /// and it already restores the whole list - a clear beside it would be the same button twice.
+    /// </para>
+    private bool ScopeIsNarrowed =>
+        !SingleWan && (AllScope || (!LanScope && SelectedWanKeys.Count > 1));
+
+    /// <summary>Whether the site has one WAN, where LAN and WAN are the only real split.</summary>
+    private bool SingleWan => _wanChoices.Count == 1;
+
+    /// <summary>
+    /// Whether the list is showing everything: All outright, or nothing picked - which is where a
+    /// single-WAN site starts, and what VisibleTargets already treats as unfiltered. On a multi-WAN
+    /// site the parent always seeds a selection, so this is exactly AllScope there.
+    /// </summary>
+    private bool ShowingAll => AllScope || (!LanScope && SelectedWanKeys.Count == 0);
+
+    /// <summary>Back to one WAN - the primary, matching what the tab's own clear returns to.</summary>
+    private async Task ResetScopeAsync()
+    {
+        var primary = _wanChoices.FirstOrDefault(w => w.IsPrimary) ?? _wanChoices.FirstOrDefault();
+        if (primary != null) await PickWanAsync(primary.Key);
+    }
 
     private async Task PickWanAsync(string key)
     {
+        await HoldPositionAsync();
         // Filtering a list that is closed changes something the user cannot see, so open it.
         _collapsed = false;
         if (OnWanSelected.HasDelegate) await OnWanSelected.InvokeAsync(key);
     }
+
+    /// <summary>
+    /// Holds the card still across a filter change: the pills also pick the chart series above it,
+    /// and the statistics table there grows or shrinks by rows, sliding the pill out from under the
+    /// cursor. Not while collapsed - the click opens the card, and collapse-reveal.js scrolls that.
+    /// </summary>
+    private async Task HoldPositionAsync()
+    {
+        if (_collapsed) return;
+        await JS.InvokeVoidAsync("noHoldScroll", "latency-targets");
+    }
+
+    /// <summary>
+    /// Drops a type filter the new scope cannot show. Done here rather than in the pill handlers
+    /// because those run before the parent has changed the scope, so they would test the type
+    /// against the list it is leaving - a Fabric filter surviving into a WAN scope leaves the row
+    /// with nothing active and the table with nothing in it.
+    /// </summary>
+    protected override void OnParametersSet()
+    {
+        if (_typeFilter is MonitoringTargetType t && !AvailableTypes().Contains(t))
+            _typeFilter = null;
+    }
+
+    private async Task PickLanAsync()
+    {
+        await HoldPositionAsync();
+        _collapsed = false;
+        if (OnLanSelected.HasDelegate) await OnLanSelected.InvokeAsync();
+    }
+
+    private async Task PickTypeAsync(MonitoringTargetType? type)
+    {
+        await HoldPositionAsync();
+        _typeFilter = type;
+        _collapsed = false;
+    }
+
+    /// <summary>
+    /// The types the current scope can actually contain. The LAN holds this network's own devices
+    /// and the targets pointed at it; a WAN holds neither, because neither leaves by one.
+    /// </summary>
+    private IReadOnlyList<MonitoringTargetType> AvailableTypes() => LanScope
+        ? new[] { MonitoringTargetType.Fabric, MonitoringTargetType.Custom }
+        : AllScope
+            ? new[] { MonitoringTargetType.Fabric, MonitoringTargetType.AccessIsp, MonitoringTargetType.Transit,
+                MonitoringTargetType.InternetService, MonitoringTargetType.Custom }
+            : new[] { MonitoringTargetType.AccessIsp, MonitoringTargetType.Transit,
+                MonitoringTargetType.InternetService, MonitoringTargetType.Custom };
+
+    /// <summary>
+    /// The Type column's badge. Access ISP is shortened to the name the filter pill above it uses,
+    /// which is also the widest label the column has to carry.
+    /// </summary>
+    private static string TargetTypeBadgeLabel(MonitoringTargetType type) =>
+        type == MonitoringTargetType.AccessIsp ? "ISP" : type.ToDisplayName();
+
+    private static string TypeFilterLabel(MonitoringTargetType type) => type switch
+    {
+        MonitoringTargetType.AccessIsp => "ISP",
+        MonitoringTargetType.InternetService => "Internet",
+        _ => type.ToDisplayName(),
+    };
 
     /// <summary>
     /// The rows for the WANs on screen. A target with no WAN of its own belongs to the primary, the
@@ -443,10 +560,17 @@
 
     private IEnumerable<MonitoringTarget> VisibleTargets()
     {
-        var ordered = Targets.OrderBy(t => t.TargetType).ThenBy(t => t.Name);
-        if (_wanChoices.Count <= 1 || AllSelected || SelectedWanKeys.Count == 0) return ordered;
+        IEnumerable<MonitoringTarget> ordered = Targets.OrderBy(t => t.TargetType).ThenBy(t => t.Name);
+        if (_typeFilter is MonitoringTargetType wanted) ordered = ordered.Where(t => t.TargetType == wanted);
+        // The LAN is what sits on this network, whatever WAN a row happens to be stamped with, and
+        // a WAN is the opposite. Only All carries both.
+        if (LanScope)
+            return ordered.Where(NetworkOptimizer.Web.Services.Monitoring.LocalTargetResolver.IsLocal);
+        if (AllScope) return ordered;
+        if (_wanChoices.Count == 0 || SelectedWanKeys.Count == 0) return ordered;
+        ordered = ordered.Where(t => !NetworkOptimizer.Web.Services.Monitoring.LocalTargetResolver.IsLocal(t));
         var primaryKey = _wanChoices.FirstOrDefault(w => w.IsPrimary)?.Key;
-        return ordered.Where(t => string.IsNullOrEmpty(t.WanInterface)
+        return ordered.Where(t => NetworkOptimizer.Storage.Models.MonitoringTarget.IsUnpinned(t.WanInterface)
             ? primaryKey != null && SelectedWanKeys.Contains(primaryKey)
             : SelectedWanKeys.Any(k => string.Equals(
                 NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(k),
@@ -477,7 +601,13 @@
             if (choices.Any(c => string.Equals(c.Key, key, StringComparison.OrdinalIgnoreCase))) continue;
             choices.Add(new WanChoice(key, WanLabelFor(liveWans, key, ctx.Name), IsPrimary: false));
         }
-        _wanChoices = choices.Count > 1 ? choices : new List<WanChoice>();
+        // WAN order, not the order the vantages came back in - those are read by name, which put
+        // these pills out of sequence against every other WAN bar on the page.
+        //
+        // The single choice is KEPT. A site with one WAN still has a LAN worth separating from it,
+        // and dropping it left that site a LAN pill with nothing to sit beside.
+        _wanChoices = choices
+            .OrderBy(c => NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey(c.Key)).ToList();
     }
 
     private static string WanLabelFor(
@@ -514,6 +644,26 @@
     private int _newTargetPort = 443;
     private int _newTargetInterval = 10;
     private string _newTargetWanContextId = "";
+    private MonitoringTargetType? _typeFilter;
+
+    /// <summary>Scoped to this network rather than to a WAN; the WAN pills go unlit.</summary>
+    [Parameter] public bool LanScope { get; set; }
+
+    /// <summary>
+    /// Whether the page is on the explicit All scope. Not the same as every WAN happening to be
+    /// selected: All asks for the whole site and takes the LAN with it, a hand-built selection
+    /// asks for exactly the WANs in it.
+    /// </summary>
+    [Parameter] public bool AllScope { get; set; }
+    [Parameter] public EventCallback OnLanSelected { get; set; }
+
+    /// <summary>
+    /// The scope row shows once there is more than one WAN, or as soon as there is anything on the
+    /// LAN to separate out - a single-WAN site still benefits from telling the two apart.
+    /// </summary>
+    private bool ShowScopeFilter => _wanChoices.Count > 1
+        || Targets.Any(NetworkOptimizer.Web.Services.Monitoring.LocalTargetResolver.IsLocal);
+
     private bool _revealAddForm;
     private bool _ringAddForm;
     private string? _addTargetError;
@@ -600,6 +750,7 @@
     {
         _showAddTarget = true;
         _revealAddForm = true;
+        PreselectWanFromScope();
     }
 
     /// <summary>
@@ -613,6 +764,26 @@
         _showAddTarget = true;
         _revealAddForm = true;
         _ringAddForm = true;
+        PreselectWanFromScope();
+    }
+
+    /// <summary>
+    /// Opens the form on the WAN the list is already filtered to, when a vantage measures it.
+    /// Adding a target while looking at one WAN almost always means adding it to that WAN, and
+    /// leaving the field on the default path meant the new row vanished from the very view it was
+    /// added in. Only for a single WAN in scope: LAN and All are not one WAN, and a hand-built
+    /// selection of several does not name one either.
+    /// </summary>
+    private void PreselectWanFromScope()
+    {
+        _newTargetWanContextId = "";
+        if (LanScope || AllScope || SelectedWanKeys.Count != 1) return;
+
+        var key = NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(SelectedWanKeys.First());
+        var vantage = WanContexts.FirstOrDefault(c => !string.IsNullOrEmpty(c.WanInterface)
+            && string.Equals(NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(c.WanInterface!),
+                key, StringComparison.OrdinalIgnoreCase));
+        if (vantage != null) _newTargetWanContextId = vantage.Id.ToString();
     }
 
     protected override async Task OnParametersSetAsync() => await LoadWanChoicesAsync();

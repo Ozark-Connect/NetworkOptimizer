@@ -1,3 +1,5 @@
+import { isFiltered, FILTER_RESET_SVG } from './chart-filter.js?v=5';
+
 const _esc = document.createElement('span');
 function escapeHtml(s) { _esc.textContent = s; return _esc.innerHTML; }
 
@@ -59,6 +61,19 @@ export function renderStatsTable(el, container, opts) {
         return `<th data-sort-col="${i}"${classes ? ` class="${classes}"` : ''}>${col.header}${arrow}</th>`;
     }).join('');
 
+    // The clear sits in the name column's header, at its right edge. Only while something is
+    // actually filtered out: always-on would be a permanently dead button on the common case, the
+    // same rule the chip rows follow. Drawn inline rather than through renderFilterReset, whose
+    // placement is measured against chips this header does not have.
+    const showReset = !!filter && isFiltered(filter.visibility());
+    // Wording follows the caller: eight of these tables filter chart series, the port stats table
+    // filters device cards, and calling those series would name something that is not on screen.
+    const resetLabel = filter?.resetLabel ?? 'Clear series filter';
+    const nameHead = showReset
+        ? `<span class="stats-name-head">${nameHeader}<button type="button" class="wan-filter-reset"
+            aria-label="${escapeHtml(resetLabel)}" data-tooltip="${escapeHtml(resetLabel)}">${FILTER_RESET_SVG}</button></span>`
+        : nameHeader;
+
     const rowsHtml = sorted.map(r => {
         const filtered = r.visible === false;
         const cls = filtered ? ' class="stats-row-filtered"' : '';
@@ -77,7 +92,7 @@ export function renderStatsTable(el, container, opts) {
         <div class="table-responsive">
         <table class="data-table" style="font-size:0.8125rem">
             <thead><tr>
-                <th>${nameHeader}</th>
+                <th>${nameHead}</th>
                 ${headers}
             </tr></thead>
             <tbody>${rowsHtml}</tbody>
@@ -110,6 +125,14 @@ export function renderStatsTable(el, container, opts) {
     if (filter && !el._filterDelegated) {
         el._filterDelegated = true;
         el.addEventListener('click', (e) => {
+            // Ahead of the sort guard: the clear lives in a header cell, so a click on it is a
+            // click in a th, and it must not be read as a request to sort by that column.
+            if (e.target.closest('.wan-filter-reset')) {
+                e.stopPropagation();
+                filter.resetVisibility();
+                filter.onChanged(container);
+                return;
+            }
             if (e.target.closest('th[data-sort-col]')) return;
             const td = e.target.closest('[data-stat-id]');
             if (!td) return;
@@ -118,15 +141,26 @@ export function renderStatsTable(el, container, opts) {
             const key = filter.key;
             const vis = filter.visibility();
 
+            // A row may speak for more than itself - the same host measured over several WANs is
+            // one thing the user is watching, split across rows only because the WANs are being
+            // compared. groupOf says which ids move together; without it a row speaks for itself.
+            // Compared as strings throughout: the id comes off a data attribute, so it is always a
+            // string, while meta keys are whatever the caller holds (a numeric target id, here).
+            const ids = (filter.groupOf ? filter.groupOf(id) : [id]).map(String);
+            const inGroup = new Set(ids);
+            const groupVisible = ids.some(i => vis[i] !== false);
+
             if (e.ctrlKey || e.metaKey) {
-                vis[id] = vis[id] === false ? undefined : false;
+                ids.forEach(i => { vis[i] = groupVisible ? false : undefined; });
             } else {
                 const allVis = meta.every(m => vis[m[key]] !== false);
-                const onlyThis = vis[id] !== false
-                    && meta.filter(m => m[key] !== id).every(m => vis[m[key]] === false);
+                const onlyThis = groupVisible
+                    && meta.filter(m => !inGroup.has(String(m[key]))).every(m => vis[m[key]] === false);
                 if (onlyThis) { filter.resetVisibility(); }
-                else if (allVis) { meta.forEach(m => { vis[m[key]] = m[key] === id; }); }
-                else { vis[id] = vis[id] === false; }
+                else if (allVis) { meta.forEach(m => { vis[m[key]] = inGroup.has(String(m[key])); }); }
+                // Flip it: assigning the state back to itself leaves a hidden row hidden, so the
+                // click after a solo did nothing at all.
+                else { ids.forEach(i => { vis[i] = !groupVisible; }); }
             }
             filter.onChanged(container);
         });

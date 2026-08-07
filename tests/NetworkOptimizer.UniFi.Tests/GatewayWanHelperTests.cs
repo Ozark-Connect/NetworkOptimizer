@@ -177,4 +177,52 @@ public class GatewayWanHelperTests
         GatewayWanHelper.EnumerateWanInterfaces(Device("""{ "type": "ucg" }""")).Should().BeEmpty();
         GatewayWanHelper.EnumerateWanInterfaces(Device("""{ "wan1": "not-an-object" }""")).Should().BeEmpty();
     }
+
+    // The network's own name wins; the port answers only when the network name is stock and the
+    // port has actually been renamed.
+    [Theory]
+    [InlineData("Acme Fiber", "Port 5", "Acme Fiber")]
+    [InlineData("Acme Fiber", "Uplink", "Acme Fiber")]
+    [InlineData("Internet 2", "Uplink", "Uplink")]
+    [InlineData("Internet", "Uplink", "Uplink")]
+    [InlineData("WAN2", "Uplink", "Uplink")]
+    [InlineData(null, "Uplink", "Uplink")]
+    [InlineData("  Acme Fiber  ", "Port 5", "Acme Fiber")]
+    public void ResolveWanName_prefers_the_network_name(string? network, string? port, string expected)
+    {
+        GatewayWanHelper.ResolveWanName(network, port).Should().Be(expected);
+    }
+
+    // A port placeholder in the NETWORK slot is still a placeholder - checking only for a generic
+    // WAN name there let "SFP+ 2" through as though someone had chosen it.
+    [Theory]
+    [InlineData("SFP+ 2", "Acme Fiber", "Acme Fiber")]
+    [InlineData("Port 5", null, null)]
+    public void ResolveWanName_rejects_a_port_placeholder_in_either_slot(
+        string? network, string? port, string? expected)
+    {
+        GatewayWanHelper.ResolveWanName(network, port).Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("Internet 2", true)]
+    [InlineData("WAN3", true)]
+    [InlineData("SFP+ 2", true)]
+    [InlineData(null, true)]
+    [InlineData("", true)]
+    [InlineData("Acme Fiber", false)]
+    public void IsPlaceholderWanName_covers_both_kinds(string? name, bool expected)
+    {
+        GatewayWanHelper.IsPlaceholderWanName(name).Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("Internet 2", "Port 5")]
+    [InlineData("Internet 2", null)]
+    [InlineData(null, null)]
+    [InlineData("", "")]
+    public void ResolveWanName_is_null_when_neither_is_a_real_name(string? network, string? port)
+    {
+        GatewayWanHelper.ResolveWanName(network, port).Should().BeNull();
+    }
 }
