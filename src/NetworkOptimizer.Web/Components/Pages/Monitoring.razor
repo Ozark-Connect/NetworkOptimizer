@@ -2038,7 +2038,14 @@
                 // this is the moment the link's WAN stops describing what is on screen.
                 ClearLinkedWan();
             }
-            await JS.InvokeVoidAsync("eval", $"window.__latencyCharts?.setWanScope({WanScopeJson()});");
+            // Held rather than dropped when the module is not there yet: window.__latencyCharts is
+            // assigned inside the mount's own import, so a plain ?. swallowed every push that beat
+            // it - which on a cold load is the link's WAN. The mount drains it.
+            await JS.InvokeVoidAsync("eval",
+                "(window.__netoptSetWanScope ||= function (s) {"
+                + " if (window.__latencyCharts) window.__latencyCharts.setWanScope(s);"
+                + " else window.__netoptPendingWanScope = s; })("
+                + WanScopeJson() + ");");
         }
         catch { /* circuit going away, or charts not mounted yet - the mount push covers it */ }
         _discoveryWanKey = FirstSelectedWanKey();
@@ -5467,8 +5474,12 @@
                     _preSelectAtMs = null;
                     _preSelectTrailing = false;
                 }
+                // Drains any scope that arrived while the import was still in flight - see the shim
+                // in ApplyWanSelectionAsync. Before postMount, so framing uses the right scope.
                 await JS.InvokeVoidAsync("eval",
-                    $"(async () => {{ const m = await import('{chartsUrl}'); window.__latencyCharts = m; await m.mount('latency-charts-container', {WanScopeJson()}, '{DefaultChartCategory()}'); {postMount} }})();");
+                    $"(async () => {{ const m = await import('{chartsUrl}'); window.__latencyCharts = m; await m.mount('latency-charts-container', {WanScopeJson()}, '{DefaultChartCategory()}'); "
+                    + "if (window.__netoptPendingWanScope !== undefined) { m.setWanScope(window.__netoptPendingWanScope); window.__netoptPendingWanScope = undefined; } "
+                    + $"{postMount} }})();");
                 // The link's WAN is applied above, so a deep-linked investigation held back at the
                 // top of this method can run now. Done here rather than left to the next render:
                 // the apply does not always raise one, and waiting for an unrelated render is the
@@ -5480,7 +5491,7 @@
         else if (_activeTab != "performance" && _latencyChartsMounted)
         {
             _latencyChartsMounted = false;
-            try { await JS.InvokeVoidAsync("eval", "window.__latencyCharts?.unmount();"); }
+            try { await JS.InvokeVoidAsync("eval", "window.__latencyCharts?.unmount(); window.__netoptPendingWanScope = undefined;"); }
             catch { }
             // The flaky-LAN advisory is tied to the live chart, so clear it when the chart leaves.
             _lanFlakyCategoryActive = false;
