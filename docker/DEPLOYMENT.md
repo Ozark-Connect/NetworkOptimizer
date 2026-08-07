@@ -480,6 +480,27 @@ Restart Caddy:
 sudo systemctl reload caddy
 ```
 
+### Speed Test Server Tuning
+
+Enable BBR congestion control on any host serving the speed test over the internet. The default (CUBIC) backs off hard on the small amount of loss normal to a long path, so it under-reports throughput the link can actually deliver. BBR paces on measured bandwidth and RTT instead. On a LAN-only speed test it makes little difference.
+
+This is a host setting, not a container one. The container shares the host's network stack, so setting it on the host covers the speed test. It mainly moves the download number, since that is the direction the server sends.
+
+```bash
+# Available? (kernel 4.9+)
+sysctl net.ipv4.tcp_available_congestion_control
+
+# Enable BBR with fair queueing, persisted across reboots
+cat >/etc/sysctl.d/99-bbr.conf <<'EOF'
+net.core.default_qdisc = fq
+net.ipv4.tcp_congestion_control = bbr
+EOF
+sysctl --system
+
+# Verify
+sysctl net.ipv4.tcp_congestion_control net.core.default_qdisc
+```
+
 ### Firewall Configuration
 
 #### UFW (Ubuntu/Debian)
