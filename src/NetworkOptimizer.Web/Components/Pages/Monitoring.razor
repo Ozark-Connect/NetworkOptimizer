@@ -2332,6 +2332,7 @@
             _lanScope = false;
             _allScope = false;
             _selectedWanKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { focus };
+            Logger.LogDebug("WANsel: ADOPT set [{Focus}] apply={Apply}", focus, apply);
             if (apply) await ApplyWanSelectionAsync(persist: true);
         }
         catch { /* no interop yet - the stored set stands */ }
@@ -2409,6 +2410,7 @@
         _lanScope = false;
         _selectedWanKeys = new HashSet<string>(keys, StringComparer.OrdinalIgnoreCase);
         _allScope = _wanOptions.Count > 1 && _wanOptions.All(w => _selectedWanKeys.Contains(w.Key));
+        Logger.LogDebug("WANsel: LINK set [{Keys}] all={All}", string.Join(",", _selectedWanKeys), _allScope);
         await ApplyWanSelectionAsync(persist: false);
     }
 
@@ -2463,6 +2465,8 @@
             await AdoptSharedWanFocusAsync(apply: false);
         }
         catch { }
+        Logger.LogDebug("WANsel: RESTORE set [{Keys}] lan={Lan} all={All}",
+            string.Join(",", _selectedWanKeys), _lanScope, _allScope);
         await ApplyWanSelectionAsync(persist: false);
     }
 
@@ -3651,6 +3655,7 @@
 
     private async Task OnLiveWanChangedAsync()
     {
+        Logger.LogDebug("WANsel: LiveWan changed applyingLink={Applying} wan={Wan}", _applyingLinkWan, WanParam);
         // Not while the link itself is being applied: that fires this same callback, and stripping
         // there would be the clear-on-arrival that cost a navigation per jump.
         if (!_applyingLinkWan) ClearLinkedWan();
@@ -4171,6 +4176,8 @@
 
         var stripped = SiteContextService.RemoveQueryParam(NavigationManager.Uri, "wan");
         if (stripped == NavigationManager.Uri) return;
+        Logger.LogDebug("WANsel: STRIP wan={Wan} applied={Applied} selected=[{Keys}]",
+            WanParam, _appliedLinkWanKey, string.Join(",", _selectedWanKeys));
         // The URL is about to change, which re-arms the linked instant unless the arm moves with it -
         // a WAN change would then seek them back to the link's moment. _pendingAtMs is deliberately
         // left as it stands: this is not a statement about time.
