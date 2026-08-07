@@ -1,6 +1,6 @@
 #!/bin/bash
 # Install Network Optimizer natively on macOS
-# Usage: ./scripts/install-macos-native.sh
+# Usage: ./scripts/install-macos-native.sh [--upgrade-nginx]
 #
 # This script:
 # 1. Installs prerequisites via Homebrew
@@ -8,8 +8,28 @@
 # 3. Signs binaries for macOS
 # 4. Sets up OpenSpeedTest with nginx for browser-based speed testing
 # 5. Creates launchd service for auto-start
+#
+# Options:
+#   --upgrade-nginx  Also upgrade Homebrew's nginx. Off by default - see the note
+#                    at the brew step for why this is opt-in.
 
 set -e
+
+UPGRADE_NGINX=false
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --upgrade-nginx) UPGRADE_NGINX=true; shift ;;
+        -h|--help)
+            echo "Usage: ./scripts/install-macos-native.sh [--upgrade-nginx]"
+            echo ""
+            echo "  --upgrade-nginx  Also upgrade Homebrew's nginx. Off by default: that"
+            echo "                   nginx may serve other sites on this Mac, and"
+            echo "                   upgrading it restarts them."
+            exit 0 ;;
+        *) echo "Unknown option: $1" >&2; exit 1 ;;
+    esac
+done
 
 # Refuse to run as root - everything installs to $HOME, root is never needed
 if [ "$(id -u)" = "0" ]; then
@@ -205,6 +225,14 @@ eval "$($BREW_PREFIX/bin/brew shellenv)"
 echo "Installing required packages..."
 brew install sshpass iperf3 nginx go 2>/dev/null || true
 
+# brew install no-ops on an already-installed formula, so nginx never moves on a
+# re-run. Upgrading it stays opt-in because Homebrew's nginx is shared - it may also
+# be fronting a reverse proxy or other sites here, and an upgrade restarts them.
+if [ "$UPGRADE_NGINX" = true ]; then
+    echo "Upgrading nginx (--upgrade-nginx)..."
+    brew upgrade nginx 2>/dev/null || true
+fi
+
 # Check for .NET SDK
 if ! command -v dotnet &> /dev/null; then
     echo "Installing .NET SDK..."
@@ -217,10 +245,16 @@ else
     brew upgrade dotnet 2>/dev/null || true
 fi
 
-# Verify .NET version
+# Verify .NET version. The floor is read from the csproj, never written here: a
+# literal goes stale the moment the target framework moves, and then lets an SDK
+# too old to build the app pass the check.
+REQUIRED_DOTNET=$(sed -n 's|.*<TargetFramework>net\([0-9][0-9]*\)\.[0-9][0-9]*</TargetFramework>.*|\1|p' \
+    "$REPO_ROOT/src/NetworkOptimizer.Web/NetworkOptimizer.Web.csproj" | head -1)
+REQUIRED_DOTNET="${REQUIRED_DOTNET:-10}"
+
 DOTNET_VERSION=$(dotnet --version 2>/dev/null | cut -d. -f1)
-if [ "$DOTNET_VERSION" -lt 8 ]; then
-    echo "Warning: .NET $DOTNET_VERSION detected. Network Optimizer requires .NET 8 or later."
+if [ -n "$DOTNET_VERSION" ] && [ "$DOTNET_VERSION" -lt "$REQUIRED_DOTNET" ]; then
+    echo "Warning: .NET $DOTNET_VERSION detected. Network Optimizer requires .NET $REQUIRED_DOTNET or later."
     echo "Updating .NET SDK..."
     brew upgrade dotnet || brew install dotnet
 fi
