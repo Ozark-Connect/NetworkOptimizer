@@ -677,6 +677,158 @@ public class IspHealthScorerTests
         factor.Score.Should().Be(70);
     }
 
+    /// <summary>Loss pool holding one series that is clean except for lossy probes at the given times.</summary>
+    private static IspHealthInputs WithLossyProbesUnderDownLoad(params int[] minutesIntoDownLoad)
+    {
+        var inputs = BuildInputs();
+        var series = TestSeries.Flat(TestSeries.Start, Day, 1.5, 0.3, 0);
+        foreach (var m in minutesIntoDownLoad)
+        {
+            var at = LoadedDownStart.AddMinutes(m);
+            series = series.WithSegment(at, at.AddMinutes(1), 1.5, 0.3, 20);
+        }
+        inputs.LossPoolSeries.Clear();
+        inputs.LossPoolSeries.Add(series);
+        return inputs;
+    }
+
+    private static string LoadedLossValueText(IspHealthInputs inputs) =>
+        new IspHealthScorer(Options).Score(inputs, Gpon)
+            .AccessDimension.Factors.Single(f => f.Name == "Loaded Loss").ValueText ?? "";
+
+    [Fact]
+    public void One_lossy_probe_in_one_load_episode_does_not_make_a_loaded_loss_rate()
+    {
+        // A five-ping probe quantizes to 20% steps, so a single dropped ping is the smallest thing
+        // the pool can see - and the credibility weighting concentrates it instead of diluting it.
+        LoadedLossValueText(WithLossyProbesUnderDownLoad(30)).Should().StartWith("n/a down");
+    }
+
+    [Fact]
+    public void A_second_lossy_probe_makes_it_a_rate()
+    {
+        LoadedLossValueText(WithLossyProbesUnderDownLoad(30, 90)).Should().NotStartWith("n/a down");
+    }
+
+    [Fact]
+    public void A_clean_loaded_pool_still_reports_zero_rather_than_going_quiet()
+    {
+        LoadedLossValueText(WithLossyProbesUnderDownLoad()).Should().StartWith("0% down");
+    }
+
+    [Fact]
+    public void A_direction_that_never_reported_costs_the_factor_half_its_weight()
+    {
+        // Absence of evidence should cost influence rather than re-centre the factor on whichever
+        // direction did report, which it kept full weight to do.
+        var both = new IspHealthScorer(Options).Score(WithLossyProbesUnderDownLoad(), Gpon)
+            .AccessDimension.Factors.Single(f => f.Name == "Loaded Loss");
+        both.Weight.Should().BeApproximately(Options.LoadedLossWeight, 1e-9);
+
+        var oneSided = WithLossyProbesUnderDownLoad();
+        // Strip the upload load so only downstream has a pool to grade.
+        for (var i = 0; i < oneSided.WanRates.Count; i++)
+        {
+            var r = oneSided.WanRates[i];
+            if (r.Time >= LoadedUpStart && r.Time < LoadedUpEnd)
+                oneSided.WanRates[i] = r with { UploadBps = 5_000_000 };
+        }
+
+        var factor = new IspHealthScorer(Options).Score(oneSided, Gpon)
+            .AccessDimension.Factors.Single(f => f.Name == "Loaded Loss");
+        factor.ValueText.Should().EndWith("n/a up");
+        factor.Weight.Should().BeApproximately(Options.LoadedLossWeight / 2, 1e-9);
+    }
+
+    [Fact]
+    public void A_gated_direction_says_so_rather_than_reading_like_it_was_never_loaded()
+    {
+        var factor = new IspHealthScorer(Options).Score(WithLossyProbesUnderDownLoad(30), Gpon)
+            .AccessDimension.Factors.Single(f => f.Name == "Loaded Loss");
+
+        factor.ValueText.Should().StartWith("n/a down");
+        factor.Description.Should().EndWith(
+            "Downstream is not graded - one dropped probe in a single load episode is not a rate.");
+    }
+
+    [Fact]
+    public void Loaded_loss_names_the_bands_it_actually_scored_against()
+    {
+        var factor = new IspHealthScorer(Options).Score(WithLossyProbesUnderDownLoad(), Gpon)
+            .AccessDimension.Factors.Single(f => f.Name == "Loaded Loss");
+
+        factor.ValueText.Should().Be("0% down, 0% up");
+        factor.Description.Should().Be(
+            "Packet loss while the line is under load vs the 1% to 2% downstream and 0.5% to 1.5% upstream bands for GPON.");
+    }
+
+    // ─── Speed-test shaped load: a short download phase handing straight over to an upload phase,
+    // which is what a scheduled WAN speed test looks like and where end-stamped probes were landing
+    // in the wrong phase. Rates every 7 s so each phase is its own run of loaded windows. ───
+
+    private const int Ws = 7;
+
+    /// <summary>Two back-to-back down-then-up saturations an hour apart, on a 1000/1000 plan.</summary>
+    private static List<ThroughputSample> SpeedTestShapedRates(DateTime start, int count, params DateTime[] tests)
+    {
+        var rates = new List<ThroughputSample>();
+        for (var i = 0; i < count; i++)
+        {
+            var t = start.AddSeconds(i * Ws);
+            double down = 2_000_000, up = 2_000_000;
+            foreach (var test in tests)
+            {
+                var into = (t - test).TotalSeconds;
+                if (into >= 0 && into < 3 * Ws) down = 900_000_000;
+                else if (into >= 3 * Ws && into < 6 * Ws) up = 900_000_000;
+            }
+            rates.Add(new ThroughputSample(t, down, up));
+        }
+        return rates;
+    }
+
+    [Fact]
+    public void A_probe_finishing_just_past_the_handover_belongs_to_the_phase_it_measured()
+    {
+        // The reported bug. Loss arrives ALREADY aggregated onto the same grid as the rates, so a
+        // probe that ran under the download saturation but completed just after the last download
+        // window closed is stamped on the FIRST UPLOAD window - and was scored as upload loss.
+        var start = TestSeries.Start;
+        var testA = start.AddMinutes(10);
+        var testB = start.AddMinutes(70);
+        var rates = SpeedTestShapedRates(start, 1200, testA, testB);
+
+        var lossy = new[] { testA, testB }.Select(t => t.AddSeconds(3 * Ws)).ToHashSet();
+        var probes = new List<LatencySample>();
+        for (var i = 0; i < 1200; i++)
+        {
+            var t = start.AddSeconds(i * Ws);
+            probes.Add(new LatencySample(t, 2.0, 2.3, 0.3, lossy.Contains(t) ? 20 : 0));
+        }
+
+        var inputs = new IspHealthInputs
+        {
+            WindowStart = start,
+            WindowEnd = start.AddSeconds(1200 * Ws),
+            FirstHopSeries = probes,
+            AccessHopSeries = new List<List<LatencySample>> { probes },
+            LossPoolSeries = new List<List<LatencySample>> { probes },
+            WanRates = rates,
+            ExpectedDownloadMbps = 1000,
+            ExpectedUploadMbps = 1000,
+            ExpectedSpeedSource = "UniFi Network",
+            WanSpeedTests = new List<SpeedTestSample> { new(testA, 980, 980) }
+        };
+
+        var value = new IspHealthScorer(Options).Score(inputs, Gpon)
+            .AccessDimension.Factors.Single(f => f.Name == "Loaded Loss").ValueText ?? "";
+
+        // The sample straddles the handover and the aggregation has lost which probe sat where, so
+        // both phases carry it - but download must no longer read a flat zero while upload owns all
+        // of it, which is what the end-stamp binning produced.
+        value.Should().NotStartWith("0% down", "the probes ran under the download saturation");
+    }
+
     [Fact]
     public void Renormalizes_when_expected_speeds_missing()
     {

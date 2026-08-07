@@ -260,6 +260,34 @@ public class IspHealthOptions
     /// <summary>Minimum loaded samples per direction for the loaded factors to score that direction.</summary>
     public int MinLoadedSamples { get; set; } = 5;
 
+    /// <summary>
+    /// Probes that must have SEEN loss before loaded loss reports a rate, when the pool covers fewer
+    /// than <see cref="LoadedLossMinEpisodes"/> episodes. <see cref="MinLoadedSamples"/> counts
+    /// samples, which are overwhelmingly zeros, so it passes on a single lossy probe.
+    /// </summary>
+    public int LoadedLossMinLossyProbes { get; set; } = 2;
+
+    /// <summary>Load episodes that let a single lossy probe stand: several dilute it, one does not.</summary>
+    public int LoadedLossMinEpisodes { get; set; } = 2;
+
+    /// <summary>
+    /// Nominal seconds a loss probe spends measuring - the standard burst is five pings a second
+    /// apart. Used as the floor for the interval a probe is matched on; the series' own cadence
+    /// wins when it is coarser.
+    /// </summary>
+    public int LoadedProbeSpanSeconds { get; set; } = 5;
+
+    /// <summary>Ceiling on a sample's span, so a very coarse series cannot claim minutes of load.</summary>
+    public int LoadedProbeSpanMaxSeconds { get; set; } = 120;
+
+    /// <summary>
+    /// How much of a sample's interval must have run under load before it counts for that direction
+    /// at all. Deliberately well under a half: a sample straddling a speed test's handover genuinely
+    /// measured both phases, and the aggregation has already lost which probe sat where, so it joins
+    /// both pools weighted by how much of it each phase covered rather than being assigned outright.
+    /// </summary>
+    public double LoadedOverlapMinFraction { get; set; } = 0.25;
+
     /// <summary>Aggregate window in minutes for chart series.</summary>
     public int AggregateWindowMinutes { get; set; } = 1;
 

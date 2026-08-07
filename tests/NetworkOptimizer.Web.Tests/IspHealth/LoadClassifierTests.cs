@@ -104,6 +104,26 @@ public class LoadClassifierTests
     }
 
     [Fact]
+    public void Demotion_clears_the_live_flag_but_never_the_classified_one()
+    {
+        // Dilation's opposite-direction barrier reads the classified pair, so a demoted phase still
+        // stops the surviving phase from dilating into it.
+        var ws = Options.LoadWindowSeconds;
+        var rates = new List<ThroughputSample>
+        {
+            new(TestSeries.Start, 10_000_000, 1_000_000),
+            new(TestSeries.Start.AddSeconds(ws), 900_000_000, 2_000_000),
+            new(TestSeries.Start.AddSeconds(ws * 2), 10_000_000, 1_000_000)
+        };
+
+        var windows = LoadClassifier.Classify(rates, expectedDownloadMbps: 1000, expectedUploadMbps: 100, Options);
+
+        var demoted = windows[windows.Keys.OrderBy(k => k).ToList()[1]];
+        demoted.IsLoadedDown.Should().BeFalse();
+        demoted.ClassifiedLoadedDown.Should().BeTrue();
+    }
+
+    [Fact]
     public void Lone_loaded_window_between_idle_ones_does_not_count_as_load()
     {
         // This used to register as loaded. It no longer does, because it is indistinguishable from a

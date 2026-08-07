@@ -696,8 +696,18 @@ public class AsnSeries
     public bool IsDestination { get; init; }
 }
 
-/// <summary>Load classification of one aggregate window.</summary>
-public record LoadWindow(bool IsIdle, bool IsLoadedDown, bool IsLoadedUp);
+/// <summary>
+/// Load classification of one aggregate window. The Classified* pair is the rates' verdict before
+/// isolated runs were demoted, read only as the opposite-direction barrier when matching samples to
+/// load: demotion clears the live flag on a speed test's shorter phase, and with it the marker that
+/// keeps the surviving phase from reaching across the handover.
+/// </summary>
+public record LoadWindow(
+    bool IsIdle,
+    bool IsLoadedDown,
+    bool IsLoadedUp,
+    bool ClassifiedLoadedDown = false,
+    bool ClassifiedLoadedUp = false);
 
 /// <summary>A WAN throughput point joined into load classification.</summary>
 public record ThroughputSample(DateTime Time, double? DownloadBps, double? UploadBps);
