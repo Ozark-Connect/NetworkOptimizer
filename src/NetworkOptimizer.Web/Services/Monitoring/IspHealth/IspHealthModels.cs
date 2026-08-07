@@ -698,7 +698,9 @@ public class AsnSeries
 
 /// <summary>
 /// Load classification of one aggregate window. The Classified* pair is the rates' verdict before
-/// isolated runs were demoted; only dilation reads it, as its opposite-direction barrier.
+/// isolated runs were demoted, read only as the opposite-direction barrier when matching samples to
+/// load: demotion clears the live flag on a speed test's shorter phase, and with it the marker that
+/// keeps the surviving phase from reaching across the handover.
 /// </summary>
 public record LoadWindow(
     bool IsIdle,
