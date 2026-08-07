@@ -2359,6 +2359,10 @@ a.btn-sm {
     .loss-nav-arrow {
         min-width: 4rem;
     }
+
+    .investigate-btn {
+        font-size: 0.8rem;
+    }
 }
 
 .btn-group-wrap {

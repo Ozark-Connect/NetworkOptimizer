@@ -481,7 +481,7 @@
                 {
                     <button class="btn btn-sm btn-secondary loss-nav-arrow" @onclick="LossNavBack" disabled="@_investigatingLoss"
                             data-tooltip="Previous loss event">&#x25C0;</button>
-                    <button class="btn btn-primary" @onclick="LossNavDeactivate"
+                    <button class="btn btn-primary investigate-btn" @onclick="LossNavDeactivate"
                             data-tooltip="Exit @(_lossNavLoadedOnly ? "loaded" : "packet") loss investigation">
                         @(_lossNavLoadedOnly ? "Loaded Loss Events" : "Packet Loss Events")
                     </button>
@@ -490,12 +490,12 @@
                 }
                 else
                 {
-                    <button class="btn btn-secondary" @onclick="InvestigatePacketLoss" disabled="@_investigatingLoss"
+                    <button class="btn btn-secondary investigate-btn" @onclick="InvestigatePacketLoss" disabled="@_investigatingLoss"
                             data-tooltip="Find the most recent packet loss event across ISP, Transit, and Internet targets and jump to it on the chart">
                         @if (_investigatingLoss && !_lossNavLoadedOnly) { <span class="spinner-sm"></span> }
                         else { <span>Packet Loss Events</span> }
                     </button>
-                    <button class="btn btn-secondary" @onclick="InvestigateLoadedLoss" disabled="@_investigatingLoss"
+                    <button class="btn btn-secondary investigate-btn" @onclick="InvestigateLoadedLoss" disabled="@_investigatingLoss"
                             data-tooltip="Find the most recent loss event that happened while the WAN was under load - the SQM/bufferbloat signal">
                         @if (_investigatingLoss && _lossNavLoadedOnly) { <span class="spinner-sm"></span> }
                         else { <span>Loaded Loss Events</span> }
