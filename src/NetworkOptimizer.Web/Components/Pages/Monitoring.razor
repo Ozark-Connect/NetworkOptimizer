@@ -2273,6 +2273,11 @@
         _selectedWanKeys.RemoveWhere(k => !_wanOptions.Any(o => o.Key.Equals(k, StringComparison.OrdinalIgnoreCase)));
         if (_selectedWanKeys.Count == 0)
             _selectedWanKeys.Add(_primaryWanKey);
+        // The stored selection, now that there are options to validate it against. Here as well as
+        // at the mount because the mount runs once and can get there first: _monitoringReady does
+        // not wait on this load, so the restore would find nothing to restore against, decline to
+        // spend its one-shot, and never be asked again. Its own guard makes the second call free.
+        await RestoreWanSelectionAsync();
         // A link that arrived before this point resolved nothing and was waiting on it. Applying
         // it here rather than leaving it to the next mount is what makes a deep link land on its
         // WAN every time instead of most of the time.
