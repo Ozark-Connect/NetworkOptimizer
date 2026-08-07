@@ -665,3 +665,20 @@ echo "  Stop:    launchctl unload ~/Library/LaunchAgents/$LAUNCH_AGENT_FILE"
 echo "  Start:   launchctl load ~/Library/LaunchAgents/$LAUNCH_AGENT_FILE"
 echo "  Logs:    tail -f $INSTALL_DIR/logs/stdout.log"
 echo ""
+
+# Reported, not acted on: see the note at the brew step. Self-suppresses after an
+# --upgrade-nginx run, since nginx is then current.
+NGINX_OUTDATED="$(brew outdated --verbose nginx 2>/dev/null || true)"
+if [ -n "$NGINX_OUTDATED" ]; then
+    echo "=== nginx update available ==="
+    echo ""
+    echo "  $NGINX_OUTDATED"
+    echo ""
+    echo "The speed test runs on Homebrew's nginx, which this installer leaves alone -"
+    echo "it may also be fronting a reverse proxy or other sites on this Mac, and an"
+    echo "upgrade restarts them. When you are ready:"
+    echo "  brew upgrade nginx"
+    echo ""
+    echo "Or re-run this installer with --upgrade-nginx to do both in one pass."
+    echo ""
+fi
