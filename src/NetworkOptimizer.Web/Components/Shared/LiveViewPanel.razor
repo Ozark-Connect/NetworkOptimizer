@@ -17,7 +17,6 @@
 @inject IJSRuntime JS
 @inject NetworkOptimizer.Web.Services.UiHintService UiHints
 @inject NavigationManager NavigationManager
-@inject ILogger<LiveViewPanel> Logger
 @inject Microsoft.AspNetCore.Mvc.ViewFeatures.IFileVersionProvider FileVersionProvider
 
 @if (!_ready)
@@ -706,10 +705,7 @@ else
         // which pass the moment they are frozen at. Without the token the destination fell back to
         // its saved window, so a click on a tile showing what is happening right now could land on
         // some earlier stretch of the day.
-        var href = Analysis(category, LiveAtToken, LiveWan);
-        Logger.LogDebug("Dashboard jump: hasChoice={HasChoice} options={Options} selected=[{Keys}] -> {Href}",
-            LiveWan.HasChoice, LiveWan.Options.Count, string.Join(",", LiveWan.SelectedKeys), href);
-        NavigationManager.NavigateTo(href);
+        NavigationManager.NavigateTo(Analysis(category, LiveAtToken, LiveWan));
     }
 
     private (double? rtt, double loss) GetBestTargetStats(MonitoringTargetType type)

@@ -2355,10 +2355,6 @@
     /// </summary>
     private async Task ApplyLinkWanSelectionAsync()
     {
-        Logger.LogDebug(
-            "Link WAN: wan={Wan} category={Cat} tab={Tab} narrows={Narrows} applied={Applied} key={Key} optionsLoaded={Loaded} multiWan={Multi} options={Count}",
-            WanParam, CategoryParam, _activeTab, LinkNarrowsWanFilter, _appliedLinkWanKey, LinkWanKey,
-            _wanOptionsLoaded, _multiWanUiVisible, _wanOptions.Count);
         // The options answer the question this needs answered, and the mount that calls this runs
         // once - so returning here without remembering the link dropped it for the rest of the
         // visit, and the stored filter that was read a line earlier stood instead. Whether that
@@ -5428,8 +5424,6 @@
             ReleaseLinkWanSelection();
             await RestoreWanSelectionAsync();
             await ApplyLinkWanSelectionAsync();
-            Logger.LogDebug("Link WAN: settled={Settled} scope={Scope} selected=[{Keys}] lan={Lan} all={All}",
-                LinkWanScopeSettled, WanScopeJson(), string.Join(",", _selectedWanKeys), _lanScope, _allScope);
         }
 
         // Latency charts - Performance tab only
