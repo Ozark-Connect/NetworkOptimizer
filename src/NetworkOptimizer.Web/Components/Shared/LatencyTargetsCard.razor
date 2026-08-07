@@ -14,11 +14,13 @@
         @if (ShowScopeFilter)
         {
             <div class="time-range-selector wan-selector @(_wanChoices.Count > 3 ? "wan-selector-many" : "")" @onclick:stopPropagation>
-                <button class="time-btn @(LanScope || AllScope ? "active" : "")"
+                <button class="time-btn @(LanScope || ShowingAll ? "active" : "")"
                         @onclick="PickLanAsync" @onclick:stopPropagation>LAN</button>
                 @foreach (var w in _wanChoices)
                 {
-                    <button class="time-btn @(!LanScope && SelectedWanKeys.Contains(w.Key) ? "active" : "")"
+                    @* All lights every pill: it shows every WAN, and on a single-WAN site the
+                       parent has no option list to fill the selection from. *@
+                    <button class="time-btn @(!LanScope && (ShowingAll || SelectedWanKeys.Contains(w.Key)) ? "active" : "")"
                             @onclick="() => PickWanAsync(w.Key)" @onclick:stopPropagation>
                         @{
                             var wp = NetworkOptimizer.UniFi.GatewayWanHelper.SplitWanLabel(
@@ -27,7 +29,7 @@
                         {<span class="wan-pill-token">@wp.WanToken</span>}
                     </button>
                 }
-                @if (!AllScope)
+                @if (!ShowingAll)
                 {
                     <button class="time-btn wan-all-btn"
                             @onclick="() => PickWanAsync(AllWansKey)" @onclick:stopPropagation>All</button>
@@ -454,8 +456,22 @@
     /// rule on the tab's own WAN bar. All counts: it is every WAN at once, and it takes the place of
     /// the All pill once that pill has nothing left to offer.
     /// </summary>
+    /// <para>
+    /// Never on a single-WAN site: there the All pill is on screen whenever anything is narrowed,
+    /// and it already restores the whole list - a clear beside it would be the same button twice.
+    /// </para>
     private bool ScopeIsNarrowed =>
-        AllScope || (!LanScope && SelectedWanKeys.Count > 1);
+        !SingleWan && (AllScope || (!LanScope && SelectedWanKeys.Count > 1));
+
+    /// <summary>Whether the site has one WAN, where LAN and WAN are the only real split.</summary>
+    private bool SingleWan => _wanChoices.Count == 1;
+
+    /// <summary>
+    /// Whether the list is showing everything: All outright, or nothing picked - which is where a
+    /// single-WAN site starts, and what VisibleTargets already treats as unfiltered. On a multi-WAN
+    /// site the parent always seeds a selection, so this is exactly AllScope there.
+    /// </summary>
+    private bool ShowingAll => AllScope || (!LanScope && SelectedWanKeys.Count == 0);
 
     /// <summary>Back to one WAN - the primary, matching what the tab's own clear returns to.</summary>
     private async Task ResetScopeAsync()
@@ -551,7 +567,7 @@
         if (LanScope)
             return ordered.Where(NetworkOptimizer.Web.Services.Monitoring.LocalTargetResolver.IsLocal);
         if (AllScope) return ordered;
-        if (_wanChoices.Count <= 1 || SelectedWanKeys.Count == 0) return ordered;
+        if (_wanChoices.Count == 0 || SelectedWanKeys.Count == 0) return ordered;
         ordered = ordered.Where(t => !NetworkOptimizer.Web.Services.Monitoring.LocalTargetResolver.IsLocal(t));
         var primaryKey = _wanChoices.FirstOrDefault(w => w.IsPrimary)?.Key;
         return ordered.Where(t => NetworkOptimizer.Storage.Models.MonitoringTarget.IsUnpinned(t.WanInterface)
@@ -587,9 +603,11 @@
         }
         // WAN order, not the order the vantages came back in - those are read by name, which put
         // these pills out of sequence against every other WAN bar on the page.
-        _wanChoices = choices.Count > 1
-            ? choices.OrderBy(c => NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey(c.Key)).ToList()
-            : new List<WanChoice>();
+        //
+        // The single choice is KEPT. A site with one WAN still has a LAN worth separating from it,
+        // and dropping it left that site a LAN pill with nothing to sit beside.
+        _wanChoices = choices
+            .OrderBy(c => NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey(c.Key)).ToList();
     }
 
     private static string WanLabelFor(
