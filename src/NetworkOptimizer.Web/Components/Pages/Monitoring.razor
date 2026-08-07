@@ -2355,6 +2355,10 @@
     /// </summary>
     private async Task ApplyLinkWanSelectionAsync()
     {
+        Logger.LogDebug(
+            "Link WAN: wan={Wan} category={Cat} tab={Tab} narrows={Narrows} applied={Applied} key={Key} optionsLoaded={Loaded} multiWan={Multi} options={Count}",
+            WanParam, CategoryParam, _activeTab, LinkNarrowsWanFilter, _appliedLinkWanKey, LinkWanKey,
+            _wanOptionsLoaded, _multiWanUiVisible, _wanOptions.Count);
         // The options answer the question this needs answered, and the mount that calls this runs
         // once - so returning here without remembering the link dropped it for the rest of the
         // visit, and the stored filter that was read a line earlier stood instead. Whether that
@@ -2388,6 +2392,8 @@
         // options are loaded by here, so a WAN this site does not have will not resolve on a later
         // pass either. Leaving it unstamped would hold the deep-link gate open forever.
         _appliedLinkWanKey = LinkWanKey;
+        Logger.LogDebug("Link WAN: resolved {Wan} to [{Keys}] against [{Options}]",
+            WanParam, string.Join(",", keys), string.Join(",", _wanOptions.Select(o => o.Key)));
         if (keys.Count == 0) return;
         // Narrowing for as long as the link does. Never persisted, and released on the way back
         // in without one, so a saved All is what the tab has again next time.
@@ -5422,6 +5428,8 @@
             ReleaseLinkWanSelection();
             await RestoreWanSelectionAsync();
             await ApplyLinkWanSelectionAsync();
+            Logger.LogDebug("Link WAN: settled={Settled} scope={Scope} selected=[{Keys}] lan={Lan} all={All}",
+                LinkWanScopeSettled, WanScopeJson(), string.Join(",", _selectedWanKeys), _lanScope, _allScope);
         }
 
         // Latency charts - Performance tab only
