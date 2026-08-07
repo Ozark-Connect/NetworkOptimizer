@@ -16,6 +16,7 @@
 @inject SiteAgentCoverage AgentCoverage
 @inject Microsoft.JSInterop.IJSRuntime JS
 @inject UniFiConnectionService Connection
+@inject UiHintService UiHints
 @inject ILogger<WanContextsCard> Log
 
 <div class="card">
@@ -53,6 +54,26 @@
                 fails over they follow the backup, and the latency and loss are still recorded
                 under @_primaryWanLabel.
             </p>
+        }
+
+        @if (ShowGatewayAgentHint)
+        {
+            @* Site Admin only: it asks for an install a Viewer or Operator cannot perform. *@
+            <SiteAdminOnly>
+                <div class="alert alert-info multi-wan-hint">
+                    <div class="multi-wan-hint-body">
+                        <span class="banner-icon banner-icon-info">i</span>
+                        <p>
+                            The easiest way to monitor your other WANs is to deploy the agent on your
+                            UniFi gateway. It reaches each WAN by that WAN's own interface, so there is
+                            no routing policy to build. Set one up in
+                            <a href="/settings?tab=multisite#site-agent-setup">Settings - Multi-Site</a>,
+                            under <strong>On a UniFi gateway</strong>.
+                        </p>
+                    </div>
+                    <button class="btn btn-sm btn-tertiary" @onclick="DismissGatewayAgentHintAsync">Dismiss</button>
+                </div>
+            </SiteAdminOnly>
         }
 
         @if (WanContexts.Count == 0)
@@ -234,6 +255,18 @@
                 }
                 <div class="info-box wc-help">
                     <p class="wc-help-title">Help</p>
+                    @if (NoGatewayAgentAvailable)
+                    {
+                        <p>
+                            No agent on the gateway yet. That is the shortest path to probing another
+                            WAN: an agent on the UniFi gateway reaches every WAN by its own interface,
+                            with no source address to pick and no routing policy to build. The install
+                            command is in <a href="/settings?tab=multisite#site-agent-setup">Settings -
+                            Multi-Site</a> - <strong>Set up agent</strong>, under <strong>On a UniFi
+                            gateway</strong>. Everything below relies on the gateway routing the probe
+                            out the WAN instead.
+                        </p>
+                    }
                     @if (!SelectedAgentCanBindSource)
                     {
                         <p>
@@ -250,6 +283,8 @@
                             a second address on an existing NIC won't route differently.
                         </p>
                     }
+                    @* A gateway agent leaves by the WAN's own interface and needs no route; anything
+                       binding an ADDRESS does, source-binding agents included. *@
                     @if (SelectedAgentCanBindInterface)
                     {
                         <p>
@@ -258,7 +293,7 @@
                             routing policy does not govern the gateway's own traffic.
                         </p>
                     }
-                    @if ((!string.IsNullOrWhiteSpace(_newSourceIp) && !SelectedAgentCanBindSource) || SelectedAgentNeedsPolicyRoute)
+                    else if (!string.IsNullOrEmpty(_newAgentId))
                     {
                         <p>
                             This agent reaches @WanLabelFor(_newWanInterface) only if the gateway routes it there. In UniFi
@@ -268,6 +303,16 @@
                             interface and MAC of its own - an LXC has one already, a VM or Docker
                             container can be given one - not a second address on a host that's already
                             on the network.
+                        </p>
+                    }
+                    else if (!string.IsNullOrWhiteSpace(_newSourceIp))
+                    {
+                        <p>
+                            This server reaches @WanLabelFor(_newWanInterface) only if the gateway routes it there. In
+                            UniFi Network, go to Settings - Policy Table and add a Policy-Based Route
+                            with this WAN as the interface, this server as the source, and Any as the
+                            destination. The source is matched by MAC, so the address has to sit on a
+                            NIC of its own - not a second address on the NIC this server already uses.
                         </p>
                     }
                 </div>
@@ -422,6 +467,22 @@
     private HashSet<int> _sourceBindAgents = new();
     private HashSet<int> _connectedAgents = new();
     private Dictionary<int, int> _targetCounts = new();
+    private bool _gatewayAgentHintAllowed;
+
+    /// <summary>
+    /// Whether none of this site's connected agents runs on the gateway, so the shortest route to
+    /// monitoring another WAN - install one there - is still open. Drives both the dismissible card
+    /// and the Help call-out, so the two can never say opposite things.
+    /// </summary>
+    private bool NoGatewayAgentAvailable => _bindCapableAgents.Count == 0;
+
+    /// <summary>
+    /// The standing recommendation, shown only where it is still news: more than one WAN, no
+    /// gateway agent, and the user has not dismissed it. Shares the Settings key, so dismissing it
+    /// in either place retires it in both - it is one message in two placements.
+    /// </summary>
+    private bool ShowGatewayAgentHint =>
+        _gatewayAgentHintAllowed && NoGatewayAgentAvailable && _wans.Count > 1;
 
     private bool SelectedAgentCanBindInterface =>
         int.TryParse(_newAgentId, out var agentId) && _bindCapableAgents.Contains(agentId);
@@ -434,12 +495,6 @@
     private bool SelectedAgentCanBindSource =>
         int.TryParse(_newAgentId, out var agentId) && _sourceBindAgents.Contains(agentId);
 
-    /// <summary>
-    /// Whether the selected agent binds nothing of its own, so the WHOLE box has to be routed out
-    /// the WAN for its probes to go anywhere near it. True for an agent that cannot bind at all -
-    /// an older binary - which is the setup that silently measures the primary WAN and files the
-    /// results under another one if the route is never built.
-    /// </summary>
     /// <summary>
     /// Whether THIS server still probes this site's paths, which is what a vantage with no agent
     /// depends on: the server is the thing binding the address. False for every secondary site, and
@@ -480,9 +535,6 @@
         && NetworkOptimizer.Core.Helpers.VersionUtilities.IsOlderThan(
             selected.LastVersion, NetworkOptimizer.Web.Services.AppVersionInfo.LatestAgentVersion);
 
-    private bool SelectedAgentNeedsPolicyRoute =>
-        !string.IsNullOrEmpty(_newAgentId) && !SelectedAgentCanBindInterface && !SelectedAgentCanBindSource;
-
     // WAN contexts are per-site data: route through the current site's database.
     private NetworkOptimizerDbContext CreateDb() => SiteDb.CreateForSite(SiteCtx.Slug, SiteCtx.IsDefault);
 
@@ -501,6 +553,17 @@
         await LoadWansAsync();
         LoadConnectedAgents();
         await LoadBindCapableAgentsAsync();
+        _gatewayAgentHintAllowed = await UiHints.ShouldShowAsync(UiHintKeys.MultiWanVantageSetup);
+    }
+
+    /// <summary>
+    /// Retires the recommendation for this user, here and on Settings - Multi-Site, which share the
+    /// key.
+    /// </summary>
+    private async Task DismissGatewayAgentHintAsync()
+    {
+        _gatewayAgentHintAllowed = false;
+        await UiHints.DismissAsync(UiHintKeys.MultiWanVantageSetup);
     }
 
     private void LoadConnectedAgents()

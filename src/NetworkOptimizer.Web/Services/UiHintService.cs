@@ -151,6 +151,9 @@ public static class UiHintKeys
     /// Where to go to start monitoring a second WAN, shown on Settings - Multi-Site to a site that
     /// has more than one WAN and no vantage for any of them. Dismissed rather than counted down:
     /// it is a card on the page, not a passing tooltip.
+    ///
+    /// Shared with the Multi-WAN Monitoring - Vantages card, which makes the same recommendation to
+    /// a site with no gateway agent. One message in two placements, so one dismissal retires both.
     /// </summary>
     public const string MultiWanVantageSetup = "multi-wan-vantage-setup";
 }
