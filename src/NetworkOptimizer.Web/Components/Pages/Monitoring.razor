@@ -4173,6 +4173,10 @@
     private void ClearLinkedWan()
     {
         if (string.IsNullOrWhiteSpace(WanParam)) return;
+        // Never before the link has been read. Loading the live scope self-selects a WAN and raises
+        // its own change, so on a cold load this threw the parameter away while it was still the
+        // only record of where the user asked to go.
+        if (LinkNarrowsWanFilter && _appliedLinkWanKey != LinkWanKey) return;
 
         var stripped = SiteContextService.RemoveQueryParam(NavigationManager.Uri, "wan");
         if (stripped == NavigationManager.Uri) return;
