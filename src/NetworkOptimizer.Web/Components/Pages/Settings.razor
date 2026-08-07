@@ -3676,9 +3676,12 @@
                                                                 <input type="checkbox" checked="@AgentCoversSite(site.Id)"
                                                                        disabled="@(!AgentsFor(site.Id).Any())"
                                                                        @onchange="e => ToggleAgentCoversSite(site, (bool)e.Value!)" />
-                                                                An agent collects for this site - probes, path discovery and SNMP run
-                                                                there instead of on this server. Turn on if this server is off-site, or
-                                                                you want a separate agent.
+                                                                An agent collects for this site - @(_siteHasMultipleWans
+                                                                    ? "default path discovery and probes, and SNMP"
+                                                                    : "probes, path discovery and SNMP") run there instead of on this
+                                                                server. Turn on if this server is off-site, or you want a separate
+                                                                agent.@if (_siteHasMultipleWans)
+                                                                {<text> Agent(s) can still probe for Multi-WAN monitoring with this off.</text>}
                                                             </label>
                                                             @if (AgentCoversSite(site.Id))
                                                             {
@@ -3917,6 +3920,13 @@
     private bool _showMultiWanHint;
 
     /// <summary>
+    /// Whether this site has more than one WAN, from the same read the hint above uses. Unlike the
+    /// hint it is not dismissible and does not care whether a vantage exists yet - it only decides
+    /// whether copy that mentions Multi-WAN monitoring has an audience.
+    /// </summary>
+    private bool _siteHasMultipleWans;
+
+    /// <summary>
     /// Names the site in the card so a reader with several rows in the table knows which one to
     /// open. A whole phrase rather than a name dropped into a template, because the name is already
     /// a noun: "the Main Site site's Configuration" is what a template produces, and people do call
@@ -3933,7 +3943,8 @@
         try
         {
             var wans = await PathView.GetWansAsync();
-            if (wans.Count <= 1) return;
+            _siteHasMultipleWans = wans.Count > 1;
+            if (!_siteHasMultipleWans) return;
 
             // Agent-bound, not merely present. A vantage with no agent behind it is the state this
             // card exists to get someone out of: they created one, nothing probes it, and the reason

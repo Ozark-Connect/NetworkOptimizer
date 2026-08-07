@@ -37,7 +37,7 @@
                 }
             </div>
         }
-        <div style="display: flex; align-items: center; gap: 0.5rem;">
+        <div class="card-header-badges">
             <span class="status-badge @StateBadgeClass(_state.Step)" @onclick:stopPropagation="true">@StateLabel(_state.Step)</span>
             <span class="issue-type-chevron">@(_collapsed ? "▼" : "▲")</span>
         </div>

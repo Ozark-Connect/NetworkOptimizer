@@ -254,6 +254,107 @@ public class PerWanDiscoveryTests
         target.WanInterface.Should().Be("wan");
     }
 
+    /// <summary>
+    /// A hand-added target on a discovered host is the tracer's to manage - that is the point of
+    /// adding one - so the address-only match adopts it exactly as it always has.
+    /// </summary>
+    [Fact]
+    public async Task Run_AdoptsAHandAddedTargetProbedTheSameWay()
+    {
+        await using var db = NewDb();
+        db.MonitoringTargets.Add(new MonitoringTarget
+        {
+            TargetId = "custom-a9e6bd59",
+            Name = "My first hop",
+            Address = "198.51.100.1",
+            TargetType = MonitoringTargetType.Custom,
+            ProbeMode = ProbeMode.Icmp,
+            AutoDiscovered = false,
+        });
+        await db.SaveChangesAsync();
+
+        await UpstreamTracerService.UpsertTargetAsync(
+            db, Hop("198.51.100.1"), "wan", wanContextId: null, default, isUnboundRun: true);
+        await db.SaveChangesAsync();
+
+        var target = await db.MonitoringTargets.SingleAsync();
+        target.TargetId.Should().Be("custom-a9e6bd59");
+        target.WanInterface.Should().Be("wan");
+        target.Name.Should().Be("First hop");
+    }
+
+    /// <summary>
+    /// ...but only one probed the same way. A TCP check and an ICMP reply on one address are
+    /// different measurements, so merging them would rewrite one probe's history as the other's -
+    /// and rewrite the row itself, since the adopting run sets the name and the mode.
+    /// </summary>
+    [Fact]
+    public async Task Run_LeavesATargetProbedADifferentWayAlone()
+    {
+        await using var db = NewDb();
+        db.MonitoringTargets.Add(new MonitoringTarget
+        {
+            TargetId = "custom-a9e6bd59",
+            Name = "Example ISP (HTTPS)",
+            Address = "198.51.100.1",
+            TargetType = MonitoringTargetType.Custom,
+            ProbeMode = ProbeMode.Tcp,
+            Port = 443,
+            AutoDiscovered = false,
+        });
+        await db.SaveChangesAsync();
+
+        await UpstreamTracerService.UpsertTargetAsync(
+            db, Hop("198.51.100.1"), "wan", wanContextId: null, default, isUnboundRun: true);
+        await db.SaveChangesAsync();
+
+        var handAdded = await db.MonitoringTargets.SingleAsync(t => t.TargetId == "custom-a9e6bd59");
+        handAdded.Name.Should().Be("Example ISP (HTTPS)");
+        handAdded.ProbeMode.Should().Be(ProbeMode.Tcp);
+        handAdded.Port.Should().Be(443);
+        handAdded.WanInterface.Should().BeNull();
+
+        var discovered = await db.MonitoringTargets.SingleAsync(t => t.AutoDiscovered);
+        discovered.Address.Should().Be("198.51.100.1");
+        discovered.ProbeMode.Should().Be(ProbeMode.Icmp);
+        discovered.WanInterface.Should().Be("wan");
+    }
+
+    /// <summary>
+    /// The transit/path-end writer agrees with the access one - this is the pairing that absorbed a
+    /// hand-added HTTPS check into a WAN context's freshly discovered Cloudflare target.
+    /// </summary>
+    [Fact]
+    public async Task ContextRun_LeavesATransitTargetProbedADifferentWayAlone()
+    {
+        await using var db = NewDb();
+        db.MonitoringTargets.Add(new MonitoringTarget
+        {
+            TargetId = "custom-a9e6bd59",
+            Name = "Example Transit (HTTPS)",
+            Address = "203.0.113.9",
+            TargetType = MonitoringTargetType.Custom,
+            ProbeMode = ProbeMode.Tcp,
+            Port = 443,
+            AutoDiscovered = false,
+        });
+        await db.SaveChangesAsync();
+
+        await UpstreamTracerService.UpsertTransitTargetAsync(
+            db, Transit("203.0.113.9"), "wan4", wanContextId: 3, default, isUnboundRun: false);
+        await db.SaveChangesAsync();
+
+        var handAdded = await db.MonitoringTargets.SingleAsync(t => t.TargetId == "custom-a9e6bd59");
+        handAdded.Name.Should().Be("Example Transit (HTTPS)");
+        handAdded.ProbeMode.Should().Be(ProbeMode.Tcp);
+        handAdded.WanInterface.Should().BeNull();
+        handAdded.WanContextId.Should().BeNull();
+
+        var discovered = await db.MonitoringTargets.SingleAsync(t => t.AutoDiscovered);
+        discovered.WanInterface.Should().Be("wan4");
+        discovered.WanContextId.Should().Be(3);
+    }
+
     [Theory]
     [InlineData(null, "wan", true)]      // never stamped - the primary's, and this IS the primary
     [InlineData("", "wan", true)]
