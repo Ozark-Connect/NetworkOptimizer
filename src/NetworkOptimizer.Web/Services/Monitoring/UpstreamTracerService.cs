@@ -2925,7 +2925,11 @@ public class UpstreamTracerService
             .ToListAsync(ct);
         var existing = rows.FirstOrDefault(t => t.TargetId == hop.TargetId && OwnsTargetRow(t.WanInterface, wanInterface, isUnboundRun))
             ?? rows.FirstOrDefault(t => t.TargetId == twinId)
-            ?? rows.FirstOrDefault(t => OwnsTargetRow(t.WanInterface, wanInterface, isUnboundRun));
+            // Matched on address alone, so the probe has to agree too: a row checking this host a
+            // different way measures a different thing, and merging the two rewrites one probe's
+            // history as the other's.
+            ?? rows.FirstOrDefault(t => t.ProbeMode == hop.RespondedTo
+                && OwnsTargetRow(t.WanInterface, wanInterface, isUnboundRun));
         var claimedByOtherWan = existing == null && rows.Count > 0;
         if (existing == null)
         {
@@ -3005,7 +3009,10 @@ public class UpstreamTracerService
             .ToListAsync(ct);
         var existing = rows.FirstOrDefault(t => t.TargetId == transit.TargetId && OwnsTargetRow(t.WanInterface, wanInterface, isUnboundRun))
             ?? rows.FirstOrDefault(t => t.TargetId == twinId)
-            ?? rows.FirstOrDefault(t => OwnsTargetRow(t.WanInterface, wanInterface, isUnboundRun));
+            // Same probe agreement as UpsertTargetAsync's address-only match. A trace that never
+            // established what it answered on has nothing to disagree with, so it still adopts.
+            ?? rows.FirstOrDefault(t => (transit.RespondedTo == null || t.ProbeMode == transit.RespondedTo)
+                && OwnsTargetRow(t.WanInterface, wanInterface, isUnboundRun));
         var claimedByOtherWan = existing == null && rows.Count > 0;
         if (existing == null)
         {
