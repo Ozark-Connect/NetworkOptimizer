@@ -2340,8 +2340,12 @@
         {
             var shared = await JS.InvokeAsync<string?>("localStorage.getItem", SharedWanScopeKey);
             var focus = string.IsNullOrEmpty(shared) ? _primaryWanKey : shared!.Trim().ToLowerInvariant();
-            if (!_wanOptions.Any(o => o.Key.Equals(focus, StringComparison.OrdinalIgnoreCase))
-                || (!_lanScope && !_allScope && _selectedWanKeys.Contains(focus)))
+            // LAN and All are scope decisions, not a WAN selection to reconcile - adopting a focus
+            // over either one throws away what the user picked. This ran straight after the restore
+            // read a stored LAN, so LAN was restored and overwritten on the same pass, every time.
+            if (_lanScope || _allScope
+                || !_wanOptions.Any(o => o.Key.Equals(focus, StringComparison.OrdinalIgnoreCase))
+                || _selectedWanKeys.Contains(focus))
                 return;
             _lanScope = false;
             _allScope = false;
