@@ -512,9 +512,9 @@
 
         <!-- Latency time-series charts -->
         <div class="card" id="latency-charts-container" style="margin-top: 1.5rem;">
-            <div class="card-header monitoring-chart-header @(_multiWanUiVisible && _wanOptions.Count > 1 ? "chart-header-stacked" : "")">
+            <div class="card-header monitoring-chart-header @(ScopeBarVisible ? "chart-header-stacked" : "")">
                 <h2 class="card-title">Latency &amp; Packet Loss</h2>
-                @if (_multiWanUiVisible && _wanOptions.Count > 1)
+                @if (ScopeBarVisible)
                 {
                     <div class="time-range-selector wan-selector @(_wanOptions.Count > 3 ? "wan-selector-many" : "")"
                          data-tooltip="@(_showWanCompareHint ? _wanCompareHint : null)" data-tooltip-hover-only>
@@ -1898,6 +1898,15 @@
     // or contexts already configured (which can only exist on a site that had one). A single-WAN
     // install should never meet the concept at all.
     private bool _multiWanUiVisible;
+
+    /// <summary>
+    /// Whether the LAN / WAN scope bar is worth showing. One WAN is still a split - what is on this
+    /// network is not reached over it - so this asks for a LAN to separate rather than for a second
+    /// WAN. Comparing WANs is the thing that needs <see cref="_multiWanUiVisible"/>.
+    /// </summary>
+    private bool ScopeBarVisible => _wanOptions.Count > 1
+        || (_wanOptions.Count == 1
+            && _targets.Any(NetworkOptimizer.Web.Services.Monitoring.LocalTargetResolver.IsLocal));
     private bool _wanCountChecked;
     private List<MonitoredSfp> _monitoredSfps = new();
     private List<MonitoredSfp> _allSfps = new();
@@ -2184,7 +2193,7 @@
 
     private string WanScopeJson()
     {
-        var scope = !_multiWanUiVisible || _wanOptions.Count <= 1
+        var scope = !ScopeBarVisible
             ? null
             : (object)new
             {
@@ -2438,7 +2447,7 @@
 
     private async Task RestoreWanSelectionAsync()
     {
-        if (_wanSelectionRestored || !_multiWanUiVisible || _wanOptions.Count <= 1) return;
+        if (_wanSelectionRestored || !ScopeBarVisible) return;
         _wanSelectionRestored = true;
         try
         {
@@ -2447,10 +2456,16 @@
             // No scope stored is either a fresh install or one that predates the key. A WAN set
             // already stored means the second, and moving that user onto LAN would take them off a
             // choice they made; with nothing stored at all, LAN is the honest opening view.
+            // Not on a single-WAN site: there LAN hides the one WAN's targets, which is most of
+            // the list, so those open on everything until the user narrows it themselves.
             _lanScope = string.IsNullOrEmpty(storedScope)
-                ? string.IsNullOrEmpty(stored)
+                ? string.IsNullOrEmpty(stored) && _wanOptions.Count > 1
                 : string.Equals(storedScope, LanScopeToken, StringComparison.OrdinalIgnoreCase);
-            _allScope = string.Equals(storedScope, AllScopeToken, StringComparison.OrdinalIgnoreCase);
+            // And opens on All there: the option list seeds the one WAN as selected, so left alone
+            // the LAN rows would be filtered out of a view nobody had narrowed.
+            _allScope = string.IsNullOrEmpty(storedScope)
+                ? _wanOptions.Count == 1
+                : string.Equals(storedScope, AllScopeToken, StringComparison.OrdinalIgnoreCase);
             if (!string.IsNullOrEmpty(stored))
             {
                 var keys = stored.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
@@ -3670,11 +3685,10 @@
                 .OrderBy(t => t.TargetType).ThenBy(t => t.Name).ToListAsync();
             _wanContexts = await db.WanContexts.AsNoTracking().OrderBy(c => c.Name).ToListAsync();
             await ResolveMultiWanVisibilityAsync();
-            if (_multiWanUiVisible)
-            {
-                await LoadWanOptionsAsync();
-                await LiveWan.LoadAsync();
-            }
+            // Always: the LAN/WAN scope bar needs the WAN even when there is only one of them.
+            // Comparison UI stays gated on _multiWanUiVisible, which one WAN never satisfies.
+            await LoadWanOptionsAsync();
+            if (_multiWanUiVisible) await LiveWan.LoadAsync();
             _allSfps = await db.MonitoredSfps.AsNoTracking().ToListAsync();
             _monitoredSfps = _allSfps.Where(s => s.IsMonitoredOnt).ToList();
 
