@@ -717,6 +717,41 @@ public class IspHealthScorerTests
     }
 
     [Fact]
+    public void A_direction_that_never_reported_costs_the_factor_half_its_weight()
+    {
+        // Absence of evidence should cost influence rather than re-centre the factor on whichever
+        // direction did report, which it kept full weight to do.
+        var both = new IspHealthScorer(Options).Score(WithLossyProbesUnderDownLoad(), Gpon)
+            .AccessDimension.Factors.Single(f => f.Name == "Loaded Loss");
+        both.Weight.Should().BeApproximately(Options.LoadedLossWeight, 1e-9);
+
+        var oneSided = WithLossyProbesUnderDownLoad();
+        // Strip the upload load so only downstream has a pool to grade.
+        for (var i = 0; i < oneSided.WanRates.Count; i++)
+        {
+            var r = oneSided.WanRates[i];
+            if (r.Time >= LoadedUpStart && r.Time < LoadedUpEnd)
+                oneSided.WanRates[i] = r with { UploadBps = 5_000_000 };
+        }
+
+        var factor = new IspHealthScorer(Options).Score(oneSided, Gpon)
+            .AccessDimension.Factors.Single(f => f.Name == "Loaded Loss");
+        factor.ValueText.Should().EndWith("n/a up");
+        factor.Weight.Should().BeApproximately(Options.LoadedLossWeight / 2, 1e-9);
+    }
+
+    [Fact]
+    public void A_gated_direction_says_so_rather_than_reading_like_it_was_never_loaded()
+    {
+        var factor = new IspHealthScorer(Options).Score(WithLossyProbesUnderDownLoad(30), Gpon)
+            .AccessDimension.Factors.Single(f => f.Name == "Loaded Loss");
+
+        factor.ValueText.Should().StartWith("n/a down");
+        factor.Description.Should().EndWith(
+            "Downstream is not graded - one dropped probe in a single load episode is not a rate.");
+    }
+
+    [Fact]
     public void Loaded_loss_names_the_bands_it_actually_scored_against()
     {
         var factor = new IspHealthScorer(Options).Score(WithLossyProbesUnderDownLoad(), Gpon)

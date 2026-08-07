@@ -969,7 +969,8 @@ public class IspHealthScorer
         {
             Name = "Loaded Latency",
             Score = (int)Math.Round(scores.Average()),
-            Weight = _options.LoadedLatencyWeight,
+            // Same reasoning as Loaded Loss: one direction measured is half the question answered.
+            Weight = _options.LoadedLatencyWeight * (scores.Count / 2.0),
             ValueText = string.Join(", ", parts),
             Description = $"Latency increase under load vs +{FormatMsBand(profile.LoadedDeltaExcellentMs)} excellent and +{FormatMsBand(profile.LoadedDeltaAcceptableMs)} acceptable for {profile.DisplayName}.{source}"
         }, true);
@@ -1040,7 +1041,7 @@ public class IspHealthScorer
             {
                 if (!s.RttAvgMs.HasValue) continue;
                 var (coverage, key) = LoadedCoverage(s.Time, span, inputs, loaded, OppositeLoaded);
-                if (coverage < _options.LoadedOverlapMinFraction) continue;
+                if (coverage <= 0 || coverage < _options.LoadedOverlapMinFraction) continue;
                 perHop.Add((s.Time, s.RttAvgMs.Value - baseline.Value, h));
                 keyByTime[s.Time] = key;
             }
@@ -1238,13 +1239,22 @@ public class IspHealthScorer
         if (upLoss.HasValue)
             bands.Add($"{FormatPct(profile.LoadedLossUpLowPct)} to {FormatPct(profile.LoadedLossUpHighPct)} upstream");
 
+        // A direction that reported nothing reads "n/a" in the value, and until now the factor kept
+        // its full pull on the dimension while its score quietly became the surviving direction's
+        // alone. Absence of evidence should cost influence, not re-centre the answer: half the
+        // directions measured, half the weight, and BuildDimension renormalises the rest.
+        var thin = downThin ? "Downstream" : upThin ? "Upstream" : null;
+        var thinNote = thin == null
+            ? string.Empty
+            : $" {thin} is not graded - one dropped probe in a single load episode is not a rate.";
+
         return (new IspScoreFactor
         {
             Name = "Loaded Loss",
             Score = (int)Math.Round(scores.Average()),
-            Weight = _options.LoadedLossWeight,
+            Weight = _options.LoadedLossWeight * (scores.Count / 2.0),
             ValueText = string.Join(", ", parts),
-            Description = $"Packet loss while the line is under load vs the {string.Join(" and ", bands)} band{(bands.Count > 1 ? "s" : "")} for {profile.DisplayName}."
+            Description = $"Packet loss while the line is under load vs the {string.Join(" and ", bands)} band{(bands.Count > 1 ? "s" : "")} for {profile.DisplayName}.{thinNote}"
         }, true);
     }
 
@@ -1285,7 +1295,10 @@ public class IspHealthScorer
             {
                 if (!s.LossPercent.HasValue || InOutage(s.Time)) continue;
                 var (coverage, key) = LoadedCoverage(s.Time, span, inputs, loaded, OppositeLoaded);
-                if (coverage < _options.LoadedOverlapMinFraction) continue;
+                // Zero coverage is checked on its own: at a minimum fraction of 0 a sample that
+                // touched no loaded window would otherwise join the pool weighing nothing, which the
+                // mean survives but the lossy-probe count behind the gate below does not.
+                if (coverage <= 0 || coverage < _options.LoadedOverlapMinFraction) continue;
                 samples.Add((s.Time, _gatewayFloor.Apply(s.LossPercent.Value, s.Time), key, coverage));
             }
         }
