@@ -1,4 +1,5 @@
-using FluentAssertions;
+﻿using FluentAssertions;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
@@ -48,15 +49,21 @@ public class LegacyWan1KeyNormalizationTests : IDisposable
         return new NetworkOptimizerDbContext(options);
     }
 
-    private static MonitoringTarget Target(string targetId, string? wanInterface) => new()
-    {
-        TargetId = targetId,
-        Name = targetId,
-        Address = "203.0.113.10",
-        TargetType = MonitoringTargetType.AccessIsp,
-        ProbeMode = ProbeMode.Icmp,
-        WanInterface = wanInterface,
-    };
+    /// <summary>
+    /// Seeds through raw SQL rather than the entity - see the note in
+    /// WanContextTargetWanBackfillTests: an EF insert would use the current model and break on
+    /// every column added to MonitoringTargets after this migration.
+    /// </summary>
+    private static void SeedTarget(NetworkOptimizerDbContext context, string targetId, string? wanInterface) =>
+        context.Database.ExecuteSqlRaw(
+            "INSERT INTO MonitoringTargets (TargetId, Name, Address, TargetType, ProbeMode, "
+            + "WanInterface, VantagePoint, PollIntervalSeconds, PingCount, Enabled, AutoDiscovered, "
+            + "CreatedAt) VALUES (@id, @id, '203.0.113.10', 2, 0, @wan, 'server', 10, 5, 1, 0, "
+            + "datetime('now'))",
+            new SqliteParameter("@id", targetId),
+            new SqliteParameter("@wan", (object?)wanInterface ?? DBNull.Value));
+
+
 
     [Fact]
     public void Normalize_RenamesTheLegacySpellingEverywhereItIsStored()
@@ -66,7 +73,7 @@ public class LegacyWan1KeyNormalizationTests : IDisposable
             context.GetService<IMigrator>().Migrate(PreNormalizeMigration);
 
             context.WanDiscoveryContexts.Add(new WanDiscoveryContext { WanInterface = "wan1", AccessTechnology = AccessTechnology.Gpon });
-            context.MonitoringTargets.Add(Target("access-legacy", "wan1"));
+            SeedTarget(context, "access-legacy", "wan1");
             context.UpstreamDiscoveries.Add(new UpstreamDiscovery { HopIp = "192.0.2.30", HopNumber = 1, WanInterface = "wan1" });
             context.WanContexts.Add(new WanContext { Id = 1, Name = "legacy-context", WanInterface = "wan1", ProbeSourceIp = "198.51.100.9" });
             context.SaveChanges();
@@ -156,8 +163,8 @@ public class LegacyWan1KeyNormalizationTests : IDisposable
             context.GetService<IMigrator>().Migrate(PreNormalizeMigration);
 
             context.WanDiscoveryContexts.Add(new WanDiscoveryContext { WanInterface = "wan2" });
-            context.MonitoringTargets.Add(Target("access-wan2", "wan2"));
-            context.MonitoringTargets.Add(Target("access-unstamped", null));
+            SeedTarget(context, "access-wan2", "wan2");
+            SeedTarget(context, "access-unstamped", null);
             context.SaveChanges();
         }
 
@@ -167,7 +174,9 @@ public class LegacyWan1KeyNormalizationTests : IDisposable
 
             context.WanDiscoveryContexts.Single().WanInterface.Should().Be("wan2");
             context.MonitoringTargets.Single(t => t.TargetId == "access-wan2").WanInterface.Should().Be("wan2");
-            context.MonitoringTargets.Single(t => t.TargetId == "access-unstamped").WanInterface.Should().BeNull();
+            // Normalization leaves it alone; the later unpinned migration then names it.
+            context.MonitoringTargets.Single(t => t.TargetId == "access-unstamped").WanInterface
+                .Should().Be(MonitoringTarget.UnpinnedWan);
         }
     }
 

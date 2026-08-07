@@ -89,7 +89,8 @@ public class MonitoringPathView
             .Where(t => t.TargetType == MonitoringTargetType.AccessIsp
                         && t.Enabled
                         && (t.WanInterface == resolvedWanInterface
-                            || (isPrimary && t.WanInterface == null)))
+                            || (isPrimary && (t.WanInterface == null
+                                || t.WanInterface == MonitoringTarget.UnpinnedWan))))
             .OrderBy(t => t.Id)
             .ToListAsync(ct);
 
@@ -131,7 +132,8 @@ public class MonitoringPathView
             var transitRows = await db.MonitoringTargets.AsNoTracking()
                 .Where(t => t.TargetType == MonitoringTargetType.Transit
                             && t.Enabled
-                            && (t.WanInterface == resolvedWanInterface || t.WanInterface == null))
+                            && (t.WanInterface == resolvedWanInterface || t.WanInterface == null
+                                || t.WanInterface == MonitoringTarget.UnpinnedWan))
                 .OrderBy(t => t.AsnNumber)
                 .ToListAsync(ct);
 
@@ -261,14 +263,14 @@ public class MonitoringPathView
                     var wanSpeed = wan.Speed is int s && s > 0 ? s : 0;
 
                     string? interfaceKey = null;
-                    string? friendlyName = null;
+                    string? portName = null;
                     int linkSpeed = wanSpeed;
 
                     if (wan.PortIdx.HasValue &&
                         portInfo.TryGetValue(wan.PortIdx.Value, out var pi))
                     {
                         interfaceKey = pi.networkName;
-                        friendlyName = pi.name;
+                        portName = pi.name;
                         if (linkSpeed == 0 && pi.speed > 0) linkSpeed = pi.speed;
                     }
 
@@ -276,19 +278,16 @@ public class MonitoringPathView
                     // same as uplinkIfname for non-VLAN connections).
                     var physicalIfname = wan.IfName;
 
-                    // For virtual WANs (GRE, etc.) without port_table entries,
-                    // resolve the friendly name from WAN network configs via
-                    // ethernet_overrides networkgroup or wan key convention.
-                    if (string.IsNullOrEmpty(friendlyName))
-                    {
-                        var lookupIfname = physicalIfname ?? uplinkIfname;
-                        string? networkGroup = null;
-                        if (!string.IsNullOrEmpty(lookupIfname) && ifnameToNetworkGroup.TryGetValue(lookupIfname, out var ng))
-                            networkGroup = ng;
-                        networkGroup ??= GatewayWanHelper.WanNetworkGroupFromKey(wan.Key);
-                        if (networkGroupToName.TryGetValue(networkGroup, out var configName))
-                            friendlyName = configName;
-                    }
+                    // The WAN network's own name, via ethernet_overrides networkgroup or the wan
+                    // key convention. Virtual WANs (GRE and the like) have no port_table entry, so
+                    // this is the only name they have; GatewayWanHelper decides which one wins.
+                    var lookupIfname = physicalIfname ?? uplinkIfname;
+                    string? networkGroup = null;
+                    if (!string.IsNullOrEmpty(lookupIfname) && ifnameToNetworkGroup.TryGetValue(lookupIfname, out var ng))
+                        networkGroup = ng;
+                    networkGroup ??= GatewayWanHelper.WanNetworkGroupFromKey(wan.Key);
+                    networkGroupToName.TryGetValue(networkGroup, out var configName);
+                    var friendlyName = GatewayWanHelper.ResolveWanName(configName, portName);
 
                     interfaceKey ??= GatewayWanHelper.WanInterfaceKeyFromKey(wan.Key);
 
@@ -299,7 +298,9 @@ public class MonitoringPathView
                         IsPrimary = false,
                         Up = wan.Up,
                         GatewayMac = gwMac,
-                        GatewayPortName = friendlyName,
+                        // The port, not the display name - unchanged from before the two were split:
+                        // the port's own name where there is one, the network's for a virtual WAN.
+                        GatewayPortName = portName ?? configName,
                         UplinkIfName = uplinkIfname,
                         PhysicalIfName = physicalIfname,
                         LinkSpeedMbps = linkSpeed > 0 ? linkSpeed : (int?)null,

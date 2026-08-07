@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -133,7 +133,7 @@ public class WanContextTargetStampingTests : IDisposable
 
         var row = await ReadAsync(targetId);
         row.WanContextId.Should().BeNull();
-        row.WanInterface.Should().BeNull();
+        row.WanInterface.Should().Be(MonitoringTarget.UnpinnedWan);
     }
 
     [Fact]
@@ -147,14 +147,14 @@ public class WanContextTargetStampingTests : IDisposable
 
         var row = await ReadAsync(targetId);
         row.WanContextId.Should().Be(contextId);
-        row.WanInterface.Should().BeNull();
+        row.WanInterface.Should().Be(MonitoringTarget.UnpinnedWan);
     }
 
     [Fact]
     public async Task A_single_wan_target_that_was_never_assigned_stays_untouched()
     {
-        // Every row on a single-WAN install: no context to move to, nothing to stamp, and the
-        // no-change path must not write an audit event either.
+        // A no-op assignment must write NOTHING - not the stamp, not an audit event. Seeded
+        // directly rather than through the migration, so the WAN stays exactly as seeded.
         var targetId = await SeedTargetAsync("custom-hop");
 
         (await Targets().SetWanContextAsync(targetId, null)).Should().BeTrue();
@@ -191,7 +191,7 @@ public class WanContextTargetStampingTests : IDisposable
         var lte = await SeedContextAsync("lte", "wan3");
         await SeedTargetAsync("hop-a", backup, "wan2");
         await SeedTargetAsync("hop-b", lte, "wan3");
-        await SeedTargetAsync("hop-primary");
+        await SeedTargetAsync("hop-primary", contextId: null, wanInterface: "wan");
 
         await using (var db = Db())
         {
@@ -202,7 +202,7 @@ public class WanContextTargetStampingTests : IDisposable
         await using var read = Db();
         (await read.MonitoringTargets.SingleAsync(t => t.TargetId == "hop-a")).WanInterface.Should().Be("wan4");
         (await read.MonitoringTargets.SingleAsync(t => t.TargetId == "hop-b")).WanInterface.Should().Be("wan3");
-        (await read.MonitoringTargets.SingleAsync(t => t.TargetId == "hop-primary")).WanInterface.Should().BeNull();
+        (await read.MonitoringTargets.SingleAsync(t => t.TargetId == "hop-primary")).WanInterface.Should().Be("wan");
     }
 
     // ─── Path 3: deleting a context ───
@@ -222,7 +222,7 @@ public class WanContextTargetStampingTests : IDisposable
         await using var read = Db();
         var row = await read.MonitoringTargets.SingleAsync();
         row.WanContextId.Should().BeNull();
-        row.WanInterface.Should().BeNull();
+        row.WanInterface.Should().Be(MonitoringTarget.UnpinnedWan);
     }
 
     [Fact]
@@ -243,7 +243,7 @@ public class WanContextTargetStampingTests : IDisposable
     // ─── The rule itself ───
 
     [Fact]
-    public void ApplyAssignment_carries_the_contexts_wan_and_clears_it_on_the_way_back()
+    public void ApplyAssignment_carries_the_contexts_wan_and_marks_it_unpinned_on_the_way_back()
     {
         var target = new MonitoringTarget { TargetId = "t", Name = "t", Address = "203.0.113.10" };
 
@@ -251,9 +251,24 @@ public class WanContextTargetStampingTests : IDisposable
         target.WanContextId.Should().Be(7);
         target.WanInterface.Should().Be("wan2");
 
-        // The context's WAN is irrelevant on the way back to the primary: both keys clear.
+        // The context id clears, but the WAN does not go blank: unpinned is a claim, and on a
+        // load-balancing site it is the only true one.
         WanContextTargetStamping.ApplyAssignment(target, null, "wan2");
         target.WanContextId.Should().BeNull();
-        target.WanInterface.Should().BeNull();
+        target.WanInterface.Should().Be(MonitoringTarget.UnpinnedWan);
+        MonitoringTarget.IsUnpinned(target.WanInterface).Should().BeTrue();
+    }
+
+    /// <summary>Rows predating the marker carry NULL and must read the same, or they vanish from every per-WAN view.</summary>
+    [Theory]
+    [InlineData(null, true)]
+    [InlineData("", true)]
+    [InlineData("unpinned", true)]
+    [InlineData("UNPINNED", true)]
+    [InlineData("wan", false)]
+    [InlineData("wan2", false)]
+    public void IsUnpinned_reads_the_legacy_null_and_the_sentinel_the_same_way(string? value, bool expected)
+    {
+        MonitoringTarget.IsUnpinned(value).Should().Be(expected);
     }
 }

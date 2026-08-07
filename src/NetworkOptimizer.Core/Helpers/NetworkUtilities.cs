@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Text.RegularExpressions;
@@ -346,6 +346,29 @@ public static class NetworkUtilities
     /// </summary>
     /// <param name="ipAddress">IP address string to check</param>
     /// <returns>True if the IP is private/non-routable, false if public or invalid</returns>
+    /// <summary>
+    /// The address to judge a resolved name by: the unusable ones discarded first, then IPv4
+    /// preferred among what is left.
+    /// <para>
+    /// Both steps, in that order. "::" and "0.0.0.0" are what a resolver returns for a name that
+    /// exists and has no address of its own - a search-domain suffix that answers nothing - and
+    /// they parse as addresses, so they have to be thrown out rather than merely out-ranked, or a
+    /// junk A record would beat a good AAAA. IPv4 wins the rest because the private-range tests
+    /// here are v4, and an AAAA taken because DNS listed it first is judged by a rule that cannot
+    /// see it.
+    /// </para>
+    /// </summary>
+    /// <param name="answers">Every address the name resolved to.</param>
+    /// <returns>The address to judge, or null when none of them is a host.</returns>
+    public static IPAddress? SelectUsableAddress(IEnumerable<IPAddress> answers)
+    {
+        var usable = answers
+            .Where(a => a is not null && !a.Equals(IPAddress.Any) && !a.Equals(IPAddress.IPv6Any))
+            .ToList();
+        return usable.FirstOrDefault(a => a.AddressFamily == AddressFamily.InterNetwork)
+            ?? usable.FirstOrDefault();
+    }
+
     public static bool IsPrivateIpAddress(string ipAddress)
     {
         if (!IPAddress.TryParse(ipAddress, out var ip))

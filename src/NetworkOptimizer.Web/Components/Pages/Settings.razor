@@ -3560,7 +3560,7 @@
                                                                     @if (_collectorAgentIds.TryGetValue(site.Slug, out var collectorId) && collectorId == agent.Id)
                                                                     {
                                                                         <span class="status-badge status-active"
-                                                                              data-tooltip="Polls this site's SNMP and probes its LAN and primary-WAN targets. Chosen automatically; another agent takes over if this one drops.">Collecting</span>
+                                                                              data-tooltip="Polls this site's SNMP and probes its LAN targets, plus any target on the default WAN path. Chosen automatically; another agent takes over if this one drops.">Collecting</span>
                                                                     }
                                                                     <span class="site-agent-status">
                                                                         @if (!agent.Enabled)

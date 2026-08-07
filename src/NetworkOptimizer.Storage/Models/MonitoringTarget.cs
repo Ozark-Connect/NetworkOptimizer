@@ -89,12 +89,41 @@ public class MonitoringTarget
     public DiscoveryMethod? DiscoveryMethod { get; set; }
 
     /// <summary>
-    /// Which WAN this target was discovered against. Null for fabric and custom
-    /// targets that aren't tied to a specific WAN. The upstream tracer always sets
-    /// this on access-ISP and transit targets.
+    /// The WAN this target measures, or <see cref="UnpinnedWan"/> when the probe is pinned to none
+    /// - which measures the primary under failover and no single WAN under load balancing.
+    /// <para>
+    /// A pinned value is intent, not proof. An on-gateway agent binds its probe source, so its
+    /// stamp always holds - which is why multi-WAN monitoring steers users onto one. Steering an
+    /// on-LAN agent or the server takes gateway policy routing instead, and that re-routes when its
+    /// WAN drops, so a failover window reads as the pinned WAN's latency when it is another's.
+    /// Short of a kill switch on the policy, which costs the site its probes for the whole outage.
+    /// </para>
     /// </summary>
     [MaxLength(50)]
     public string? WanInterface { get; set; }
+
+    /// <summary>The <see cref="WanInterface"/> meaning "not pinned to a WAN" - stated, not inferred.</summary>
+    public const string UnpinnedWan = "unpinned";
+
+    /// <summary>
+    /// Whether this target sits on the local network, resolved rather than guessed from the text of
+    /// <see cref="Address"/>.
+    /// <para>
+    /// An address typed as a hostname says nothing on its own - "cloudkey.local" and
+    /// "speedtest.example.net" read the same - so it is resolved once and the answer kept. Null
+    /// means nobody has been able to resolve it yet, and readers fall back to testing the address
+    /// itself, which is right for a literal IP and silent for everything else.
+    /// </para>
+    /// </summary>
+    public bool? IsLocal { get; set; }
+
+    /// <summary>
+    /// Whether a WanInterface names no WAN. Null counts: rows predating the marker carry it, and
+    /// every reader must treat the two the same.
+    /// </summary>
+    public static bool IsUnpinned(string? wanInterface) =>
+        string.IsNullOrEmpty(wanInterface)
+        || string.Equals(wanInterface, UnpinnedWan, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Multi-WAN monitoring context this target belongs to (loose reference to

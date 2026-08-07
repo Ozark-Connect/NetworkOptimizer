@@ -1923,7 +1923,7 @@ public class LanFlowMapService
     /// <summary>True for names that aren't a real user identity: default port placeholders
     /// ("SFP+ 2") and generic WAN names ("WAN2", "Internet 2").</summary>
     private static bool IsPlaceholderWanName(string name)
-        => InterfaceLabelResolver.IsDefaultPortName(name) || DisplayFormatters.IsGenericWanName(name);
+        => GatewayWanHelper.IsPlaceholderWanName(name);
 
     private static void InterpolateInteriorPlacements(LanFlowMapSnapshot snapshot, NetworkTopology topology)
     {

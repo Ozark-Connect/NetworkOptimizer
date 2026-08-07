@@ -17,6 +17,11 @@
 
     // Called from C# before navigation
     window.scrollRestoration = {
+        // The box that actually scrolls the page, for anything else that needs to move or measure
+        // it. Exposed rather than duplicated: the window is NOT the scroller here, and code that
+        // assumes it is fails silently - window.scrollBy simply moves nothing.
+        container: getScrollContainer,
+
         savePosition: function(path) {
             const container = getScrollContainer();
             if (container) {

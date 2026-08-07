@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Storage.Models;
 
@@ -120,6 +120,22 @@ public class UpstreamRediscoveryService : BackgroundService
             : _siteDbFactory.CreateForSite(slug, isDefault: false);
         var settings = await db.MonitoringSettings.FirstOrDefaultAsync(ct);
         if (settings == null || !settings.Enabled) return;
+
+        // Settle any target whose address has not been resolved to a local/not-local answer yet.
+        // A batch at a time, nulls only, so it costs nothing once a site is settled.
+        try
+        {
+            var settled = await LocalTargetResolver.SweepUnresolvedAsync(db, _logger, ct);
+            if (settled > 0)
+            {
+                await db.SaveChangesAsync(ct);
+                _logger.LogDebug("Resolved {Count} target(s) as local or not for site {Slug}", settled, slug);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not resolve local targets for site {Slug} this tick", slug);
+        }
 
         // Keep Custom/Internet witness targets' ancestry filled and fresh every tick (hourly),
         // independent of the 7-day full re-discovery cadence below. They aren't part of the sweep,
@@ -625,7 +641,8 @@ public class UpstreamRediscoveryService : BackgroundService
                     || t.TargetType == MonitoringTargetType.Transit
                     || t.TargetType == MonitoringTargetType.InternetService)
                 && (t.DiscoveryMethod == DiscoveryMethod.UserProvided
-                    ? (t.WanInterface == wanInterface || t.WanInterface == null || t.WanInterface == "")
+                    ? (t.WanInterface == wanInterface || t.WanInterface == null || t.WanInterface == ""
+                        || t.WanInterface == MonitoringTarget.UnpinnedWan)
                     : t.WanInterface == wanInterface))
             .ToListAsync(ct);
 

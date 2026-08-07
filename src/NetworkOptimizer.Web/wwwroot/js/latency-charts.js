@@ -1,13 +1,13 @@
-// Latency & Packet Loss charts — pure JS ApexCharts, fed by /api/monitoring/chart-data.
+﻿// Latency & Packet Loss charts — pure JS ApexCharts, fed by /api/monitoring/chart-data.
 // Mounted from Blazor the same way as lan-flow-map.js.
 // TODO: Extract time-range controls (presets, shift arrows, custom range popover,
 // filter badges, poll interval scaling) into a shared module so latency-charts,
 // device-health-charts, and future chart sets share one implementation.
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
-import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=4';
-import { valueSortedTooltip, tooltipHeld } from './chart-tooltip.js?v=8';
-import { renderFilterReset, isFiltered } from './chart-filter.js?v=4';
+import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=6';
+import { valueSortedTooltip, tooltipHeld } from './chart-tooltip.js?v=10';
+import { renderFilterReset, isFiltered } from './chart-filter.js?v=5';
 import { downloadColor, uploadColor } from './chart-colors.js?v=2';
 
 const PALETTE = window.Apex?.colors || ['#7EB26D', '#EAB839', '#6ED0E0', '#EF843C', '#E24D42', '#1F78C1'];
@@ -57,19 +57,62 @@ let wanScope = null;
 // Dash patterns by WAN order: primary solid, then visibly distinct patterns per extra WAN.
 const WAN_DASH_PATTERNS = [0, 6, 2, 9];
 
+// The server's marker for a target whose probe is pinned to no WAN. Null means the same thing on
+// rows written before the marker existed, so both are treated as unpinned here.
+const UNPINNED_WAN = 'unpinned';
+
 function effectiveWanKey(t) {
-    // Unstamped targets are primary-path measurements (same rule as the server side).
-    return (t.wanInterface || wanScope?.primaryKey || 'wan').toLowerCase();
+    // Unpinned targets are primary-path measurements (same rule as the server side). Checked
+    // rather than relying on a falsy value: the marker is a real string, so `||` alone would take
+    // it for a WAN key, match no selected pill, and drop every LAN target off the chart.
+    const wan = t.wanInterface && t.wanInterface.toLowerCase() !== UNPINNED_WAN ? t.wanInterface : null;
+    return (wan || wanScope?.primaryKey || 'wan').toLowerCase();
 }
 
 function wanComparisonActive() {
     return !!wanScope && wanScope.selected.length > 1;
 }
 
+// Which categories each scope can show anything in. LAN holds the fabric devices and the
+// hand-added targets that sit on this network; a single WAN holds neither, because neither leaves
+// by it. All is the union, so it offers everything.
+const CATEGORIES_BY_SCOPE = {
+    lan: ['Fabric', 'Custom'],
+    wan: ['AccessIsp', 'Transit', 'InternetService', 'Custom'],
+    all: ['Fabric', 'AccessIsp', 'Transit', 'InternetService', 'Custom'],
+};
+
+function scopeName() {
+    if (!wanScope) return 'all';
+    if (wanScope.lan) return 'lan';
+    return wanScope.all ? 'all' : 'wan';
+}
+
 function filterTargetsToWanScope(targets) {
     if (!wanScope) return targets;
+    // LAN is its own scope, not a WAN: it shows what is on this network and nothing else, and a
+    // single WAN shows the opposite. Only All carries both.
+    if (wanScope.lan) return targets.filter(t => t.isLan);
+    if (wanScope.all) return targets;
     const sel = new Set(wanScope.selected.map(k => k.toLowerCase()));
-    return targets.filter(t => sel.has(effectiveWanKey(t)));
+    return targets.filter(t => !t.isLan && sel.has(effectiveWanKey(t)));
+}
+
+// Shows only the categories the current scope can fill, and moves off one it cannot: the current
+// choice is kept whenever it survives the move - switching WAN while on Custom should stay on
+// Custom - and otherwise falls to the first that does.
+function applyCategoryAvailability() {
+    const container = document.getElementById(containerId);
+    if (!container) return currentCategory;
+    const allowed = CATEGORIES_BY_SCOPE[scopeName()] || CATEGORIES_BY_SCOPE.all;
+    container.querySelectorAll('[data-category]').forEach(b => {
+        b.style.display = allowed.includes(b.dataset.category) ? '' : 'none';
+    });
+    if (!allowed.includes(currentCategory)) currentCategory = allowed[0];
+    container.querySelectorAll('[data-category]').forEach(b => {
+        b.classList.toggle('active', b.dataset.category === currentCategory);
+    });
+    return currentCategory;
 }
 
 function wanDisplayName(t) {
@@ -239,13 +282,13 @@ function renderBadges(container) {
     const el = container.querySelector('.latency-filter-badges');
     if (el) el.dataset.tour = 'chart-series-filter';
     if (!el) return;
-    if (targetMeta.length <= 1) { el.innerHTML = ''; return; }
+    if (badgeGroups().length <= 1) { el.innerHTML = ''; return; }
 
-    el.innerHTML = targetMeta.map(t => {
-        const vis = visibility[t.id] !== false;
-        return `<button class="wan-filter-badge ${vis ? 'active' : 'inactive'}" data-target="${t.id}">
-            <span class="wan-badge-dot" style="background-color: ${t.color}"></span>
-            <span>${escapeHtml(t.name)}</span>
+    el.innerHTML = badgeGroups().map(g => {
+        const vis = g.ids.some(id => visibility[id] !== false);
+        return `<button class="wan-filter-badge ${vis ? 'active' : 'inactive'}" data-target="${escapeHtml(g.key)}">
+            <span class="wan-badge-dot" style="background-color: ${g.color}"></span>
+            <span>${escapeHtml(g.key)}</span>
         </button>`;
     }).join('');
 
@@ -254,21 +297,28 @@ function renderBadges(container) {
         el.addEventListener('click', (e) => {
             const btn = e.target.closest('button[data-target]');
             if (!btn) return;
-            const tid = btn.dataset.target;
+            const key = btn.dataset.target;
+            const groups = badgeGroups();
+            const group = groups.find(g => g.key === key);
+            if (!group) return;
+            const inGroup = new Set(group.ids);
+            const groupVisible = group.ids.some(id => visibility[id] !== false);
 
             if (e.ctrlKey || e.metaKey) {
-                visibility[tid] = visibility[tid] === false ? undefined : false;
+                group.ids.forEach(id => { visibility[id] = groupVisible ? false : undefined; });
             } else {
                 const allVis = targetMeta.every(t => visibility[t.id] !== false);
-                const onlyThis = visibility[tid] !== false
-                    && targetMeta.filter(t => t.id !== tid).every(t => visibility[t.id] === false);
+                const onlyThis = groupVisible
+                    && targetMeta.filter(t => !inGroup.has(t.id)).every(t => visibility[t.id] === false);
 
                 if (onlyThis) {
                     visibility = {};
                 } else if (allVis) {
-                    targetMeta.forEach(t => visibility[t.id] = t.id === tid);
+                    targetMeta.forEach(t => visibility[t.id] = inGroup.has(t.id));
                 } else {
-                    visibility[tid] = visibility[tid] === false;
+                    // Flip it: assigning the state back to itself leaves a hidden host hidden, so
+                    // the click after a solo did nothing at all.
+                    group.ids.forEach(id => { visibility[id] = !groupVisible; });
                 }
             }
 
@@ -287,18 +337,44 @@ function renderBadges(container) {
     });
 }
 
+// One entry per host, in the order its series first appear, carrying every series id that host
+// owns. Keyed on the raw name because that is what decides the colour - two rows sharing a colour
+// are the same host over different WANs, and the badge speaks for both.
+function badgeGroups() {
+    const byHost = new Map();
+    targetMeta.forEach(t => {
+        const key = t.hostName ?? t.name;
+        if (!byHost.has(key)) byHost.set(key, { key, color: t.color, ids: [] });
+        byHost.get(key).ids.push(t.id);
+    });
+    return [...byHost.values()];
+}
+
+// Draws exactly the series that should be on screen, in one update per chart.
+//
+// This used to call showSeries/hideSeries once per series per chart, and each of those is a full
+// redraw - so going from everything to one host, or clearing back again, cost a redraw for every
+// series that changed while the clicks in between cost two. That is why the first selection and
+// the clear were the slow ones. Nothing here talks to the server; it is all redraw.
 function updateChartVisibility() {
     if (!rttChart || !lossChart) return;
-    targetMeta.forEach((t, i) => {
-        const vis = visibility[t.id] !== false;
-        if (vis) {
-            rttChart.showSeries(t.name);
-            lossChart.showSeries(t.name);
-        } else {
-            rttChart.hideSeries(t.name);
-            lossChart.hideSeries(t.name);
-        }
-    });
+    const shown = (lastFetchData?.targets || []).filter(t => visibility[t.targetId] !== false);
+
+    const seriesOf = key => shown.map(t => ({
+        name: wanDisplayName(t),
+        color: hashColor(t.name),
+        data: (t[key] || []).map(p => ({ x: new Date(p.time).getTime(), y: p.value })),
+    }));
+
+    rttChart.updateSeries(seriesOf('rtt'), false);
+    lossChart.updateSeries(seriesOf('loss'), false);
+
+    // Dashes are positional, so they have to be rebuilt against the series actually drawn. Twins
+    // of one host share its colour, so the pattern is the only thing telling their WANs apart.
+    const annotations = buildInvestigateAnnotations();
+    const opts = { annotations, stroke: { curve: 'smooth', width: 2, dashArray: shown.map(wanDashFor) } };
+    rttChart.updateOptions(opts, false, false);
+    lossChart.updateOptions(opts, false, false);
 }
 
 // Mean loss (%) over the visible window at or above which a LAN fabric target is treated as
@@ -337,7 +413,7 @@ function notifyLanFlakyHints(data) {
         const ref = window.__netoptLatencyRef;
         if (!ref) return;
         let ids = [];
-        if (currentCategory === 'Fabric' && data && Array.isArray(data.targets)) {
+        if (scopeName() === 'lan' && currentCategory === 'Fabric' && data && Array.isArray(data.targets)) {
             // Mask out timestamps whose loss rode an outage rather than one target's own flakiness,
             // so a switch isn't flagged for loss the gateway (or a shared upstream) caused. A
             // timestamp is an outage when EITHER holds:
@@ -394,32 +470,11 @@ async function loadAndUpdate() {
     targetMeta = scopedTargets.map(t => ({
         id: t.targetId,
         name: wanDisplayName(t),
+        hostName: t.name,
         color: hashColor(t.name),
-    }));
-
-    const rttSeries = scopedTargets.map(t => ({
-        name: wanDisplayName(t),
-        color: hashColor(t.name),
-        data: (t.rtt || []).map(p => ({ x: new Date(p.time).getTime(), y: p.value })),
-    }));
-
-    const lossSeries = scopedTargets.map(t => ({
-        name: wanDisplayName(t),
-        color: hashColor(t.name),
-        data: (t.loss || []).map(p => ({ x: new Date(p.time).getTime(), y: p.value })),
     }));
 
     lastFetchData = { ...data, targets: scopedTargets };
-
-    const dashArray = scopedTargets.map(wanDashFor);
-    if (rttChart) rttChart.updateSeries(rttSeries, false);
-    if (lossChart) lossChart.updateSeries(lossSeries, false);
-
-    const annotations = buildInvestigateAnnotations();
-    if (rttChart) rttChart.updateOptions({ annotations, stroke: { curve: 'smooth', width: 2, dashArray } }, false, false);
-    // Same dashes as the RTT chart: twins of one host share its color, so the pattern is the only
-    // thing telling their WANs apart here too.
-    if (lossChart) lossChart.updateOptions({ annotations, stroke: { curve: 'smooth', width: 2, dashArray } }, false, false);
 
     updateChartVisibility();
 
@@ -499,6 +554,10 @@ function renderStatsTable(container, showAll) {
         ],
         filter: { meta: () => targetMeta, key: 'id', visibility: () => visibility,
             resetVisibility: () => { visibility = {}; },
+            // The same host over two WANs is one series to the user - they are comparing the WANs,
+            // not choosing between them - so its rows toggle together, exactly as the chip above
+            // does. Outside a comparison every group holds one id and this changes nothing.
+            groupOf: (id) => badgeGroups().find(g => g.ids.some(i => String(i) === String(id)))?.ids ?? [id],
             onChanged: (c) => { updateChartVisibility(); renderBadges(c); renderStatsTable(c, true); } },
     });
 }
@@ -664,9 +723,7 @@ export async function mount(elId, initialWanScope, initialCategory) {
     // LAN targets. From here the module owns it: the buttons carry no server-rendered active class,
     // so a re-render of the header cannot put a stale one back while this still holds another.
     if (initialCategory) currentCategory = initialCategory;
-    container.querySelectorAll('[data-category]').forEach(b => {
-        b.classList.toggle('active', b.dataset.category === currentCategory);
-    });
+    applyCategoryAvailability();
 
     const rttEl = container.querySelector('.latency-rtt-chart');
     const lossEl = container.querySelector('.latency-loss-chart');
@@ -894,16 +951,12 @@ export function restoreState() {
 // Blazor pushes the WAN pill bar's state here. Passing null clears scoping entirely
 // (the gate is closed - single WAN, no contexts).
 export function setWanScope(scope) {
-    wanScope = scope && Array.isArray(scope.selected) && scope.selected.length > 0 ? scope : null;
+    // The LAN scope carries no WAN keys, so it must survive the empty-selected check that used to
+    // mean "no scoping at all".
+    wanScope = scope && (scope.lan || (Array.isArray(scope.selected) && scope.selected.length > 0))
+        ? scope : null;
     visibility = {};
-    // LAN targets belong to the site, not to a WAN, so a secondary WAN has none - staying on the
-    // LAN category there draws an empty chart. Only ever leave a category that has nothing to show;
-    // coming back to a WAN that does have LAN targets leaves the choice alone, because by then it
-    // may be the one the user made.
-    if (wanScope && wanScope.hasLan === false && currentCategory === 'Fabric') {
-        setCategory('AccessIsp');
-        return;
-    }
+    applyCategoryAvailability();
     loadAndUpdate();
 }
 

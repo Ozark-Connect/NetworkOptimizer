@@ -1,4 +1,4 @@
-/* ============================================
+﻿/* ============================================
    Network Optimizer - Main Stylesheet
    Modern, dark-mode friendly design
    ============================================ */
@@ -550,9 +550,33 @@ h1:focus {
     }
 }
 
+.time-window-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+}
+
+@media (max-width: 768px) {
+    .time-window-controls .time-btn[data-shift] {
+        padding: 0.5rem;
+    }
+}
+
 .wan-selector .wan-filter-reset {
     position: static;
     margin-left: 0.15rem;
+}
+
+.stats-name-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+}
+
+.stats-name-head .wan-filter-reset {
+    position: static;
+    padding: 0 0.15rem;
 }
 
 @media (max-width: 768px) {
@@ -572,16 +596,6 @@ h1:focus {
         margin: 0;
     }
 
-    #latency-charts-container .monitoring-chart-header {
-        position: relative;
-    }
-
-    #latency-charts-container .monitoring-chart-header > .monitoring-jump-btn {
-        position: absolute;
-        top: -0.2rem;
-        right: -0.2rem;
-        margin: 0;
-    }
 }
 
 .card-header-collapsible {
@@ -15684,8 +15698,22 @@ a.affected-client:hover {
     color: var(--text-primary);
 }
 
-.monitoring-chart-header > .monitoring-jump-btn {
-    padding-right: 0.1rem;
+#latency-charts-container .monitoring-chart-header {
+    position: relative;
+}
+
+#latency-charts-container .monitoring-chart-header > .monitoring-jump-btn {
+    position: absolute;
+    top: 0.75rem;
+    right: 0.75rem;
+    margin: 0;
+}
+
+@media (max-width: 768px) {
+    #latency-charts-container .monitoring-chart-header > .monitoring-jump-btn {
+        top: -0.2rem;
+        right: -0.2rem;
+    }
 }
 
 .live-view-jump-row {

@@ -1,14 +1,13 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
-using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.AgentProtocol;
 using NetworkOptimizer.Alerts.Events;
-using NetworkOptimizer.Storage;
 using NetworkOptimizer.Storage.Models;
+using NetworkOptimizer.Storage.Services;
 using NetworkOptimizer.UniFi;
 using NetworkOptimizer.Web.Services.Ssh;
 
@@ -382,30 +381,47 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase, IUwnSpeedTestService
                 }
                 else
                 {
-                    // Fallback: if measured speed exceeds 125% of any single WAN's
-                    // configured speed, assume multiple WANs are bonded. The 25% margin
-                    // accounts for ISP overprovisioning and burst headroom.
-                    var maxSingleDown = wanNetworks!.Max(n => n.WanDownloadMbps ?? 0);
-                    var maxSingleUp = wanNetworks!.Max(n => n.WanUploadMbps ?? 0);
-                    const double fudgeFactor = 1.25;
-
-                    if (downloadMbps > maxSingleDown * fudgeFactor || uploadMbps > maxSingleUp * fudgeFactor)
+                    // Without the gateway there is no observation of where the traffic went, only
+                    // inference. What the site can still say for itself comes first.
+                    var (siteGroup, siteName) = await IdentifyWanFromSiteFactsAsync(cancellationToken);
+                    if (!string.IsNullOrEmpty(siteGroup))
                     {
-                        var groups = wanNetworks!
-                            .Select(n => n.WanNetworkgroup ?? "WAN")
-                            .Distinct().OrderBy(g => g);
-                        result.WanNetworkGroup = string.Join("+", groups);
-                        var names = wanNetworks!
-                            .Select(n => !string.IsNullOrEmpty(n.Name) ? n.Name : n.WanNetworkgroup ?? "WAN")
-                            .Distinct().OrderBy(n => n);
-                        result.WanName = string.Join(" + ", names);
+                        result.WanNetworkGroup = siteGroup;
+                        result.WanName = siteName;
                     }
                     else
                     {
-                        var (wanGroup, wanName) = await PathAnalyzer.IdentifyWanConnectionAsync(
-                            finalWanIp ?? "", downloadMbps, uploadMbps, cancellationToken);
-                        result.WanNetworkGroup = wanGroup;
-                        result.WanName = wanName;
+                        // Fallback: if measured speed exceeds 125% of any single WAN's
+                        // configured speed, assume multiple WANs are bonded. The 25% margin
+                        // accounts for ISP overprovisioning and burst headroom.
+                        //
+                        // Only where bonding is possible at all. A failover site carries one test on
+                        // one WAN whatever the numbers say, and the ceiling this compares against is a
+                        // plan speed somebody typed in - left stale, every result looks impossible for
+                        // a single WAN and the test gets attributed to ALL of them at once.
+                        var maxSingleDown = wanNetworks!.Max(n => n.WanDownloadMbps ?? 0);
+                        var maxSingleUp = wanNetworks!.Max(n => n.WanUploadMbps ?? 0);
+                        const double fudgeFactor = 1.25;
+
+                        if (await SiteLoadBalancesAsync(cancellationToken)
+                            && (downloadMbps > maxSingleDown * fudgeFactor || uploadMbps > maxSingleUp * fudgeFactor))
+                        {
+                            var groups = wanNetworks!
+                                .Select(n => n.WanNetworkgroup ?? "WAN")
+                                .Distinct().OrderBy(g => g);
+                            result.WanNetworkGroup = string.Join("+", groups);
+                            var names = wanNetworks!
+                                .Select(n => !string.IsNullOrEmpty(n.Name) ? n.Name : n.WanNetworkgroup ?? "WAN")
+                                .Distinct().OrderBy(n => n);
+                            result.WanName = string.Join(" + ", names);
+                        }
+                        else
+                        {
+                            var (wanGroup, wanName) = await PathAnalyzer.IdentifyWanConnectionAsync(
+                                finalWanIp ?? "", downloadMbps, uploadMbps, cancellationToken);
+                            result.WanNetworkGroup = wanGroup;
+                            result.WanName = wanName;
+                        }
                     }
                 }
             }
@@ -441,6 +457,94 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase, IUwnSpeedTestService
         Success = false,
         ErrorMessage = errorMessage,
     };
+
+    /// <summary>
+    /// Whether the site spreads traffic across its WANs, from what a connected console last
+    /// recorded. Unknown is not a yes: a site nobody has resolved cannot be assumed to bond.
+    /// </summary>
+    private async Task<bool> SiteLoadBalancesAsync(CancellationToken ct)
+    {
+        try
+        {
+            using var scope = CreateSiteScope();
+            var siteDb = scope.ServiceProvider.GetRequiredService<SiteDbContextFactory>();
+            var siteCtx = scope.ServiceProvider.GetRequiredService<SiteContextService>();
+            await using var db = siteDb.CreateForSite(siteCtx.Slug, siteCtx.IsDefault);
+            return await EntityFrameworkQueryableExtensions.AnyAsync(db.WanProfiles, p => p.SiteLoadBalances == true, ct);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Could not read whether the site load balances; assuming it does not");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Which WAN this test went out, from what the site knows about itself rather than from what
+    /// the numbers resemble.
+    /// <para>
+    /// Two answers, both about the box that actually ran the test - this server, or the site's
+    /// agent. A single vantage on that side names its WAN outright; several means several boxes,
+    /// and which one ran the test is not knowable from here. Failing that, a site that fails
+    /// over sends everything unpinned out its primary, which is true except for the length of an
+    /// outage. A load-balancing site gets neither, because there the WAN genuinely was whichever
+    /// the balancer picked and only the gateway could have seen it.
+    /// </para>
+    /// </summary>
+    private async Task<(string? Group, string? Name)> IdentifyWanFromSiteFactsAsync(CancellationToken ct)
+    {
+        try
+        {
+            var viaAgent = await _tunnelRouting.IsViaAgentAsync(SiteSlug);
+            using var scope = CreateSiteScope();
+            var siteDb = scope.ServiceProvider.GetRequiredService<SiteDbContextFactory>();
+            var siteCtx = scope.ServiceProvider.GetRequiredService<SiteContextService>();
+            await using var db = siteDb.CreateForSite(siteCtx.Slug, siteCtx.IsDefault);
+
+            // A vantage names the WAN its box probes over, which is the same box and the same
+            // path this test took. Scoped to whoever ran it: a vantage bound to an agent says
+            // nothing about a test this server ran, or the other way round. Only one candidate
+            // may answer - two agent-bound vantages are two boxes on two WANs, and we cannot
+            // tell from here which of them ran the test, so guessing would name a WAN at random.
+            var vantages = await EntityFrameworkQueryableExtensions.ToListAsync(
+                db.WanContexts.AsNoTracking().Where(c => c.WanInterface != null && c.WanInterface != ""), ct);
+            var candidates = vantages.Where(c => viaAgent ? c.AgentId != null : c.AgentId == null).ToList();
+            if (candidates.Count > 1)
+            {
+                Logger.LogDebug(
+                    "WAN attribution: {Count} vantages sit on the {Runner} side, so none of them identifies this test",
+                    candidates.Count, viaAgent ? "agent" : "server");
+            }
+            var owning = candidates.Count == 1 ? candidates[0] : null;
+            if (owning?.WanInterface is string vantageWan)
+            {
+                var group = GatewayWanHelper.WanNetworkGroupFromKey(vantageWan);
+                Logger.LogInformation(
+                    "WAN attribution: vantage '{Name}' covers the {Runner} that ran this test, so it went out {Group}",
+                    owning.Name, viaAgent ? "agent" : "server", group);
+                return (group, owning.Name);
+            }
+
+            if (await EntityFrameworkQueryableExtensions.AnyAsync(db.WanProfiles, p => p.SiteLoadBalances == true, ct))
+                return (null, null);
+
+            var primary = await EntityFrameworkQueryableExtensions.FirstOrDefaultAsync(
+                db.WanProfiles.AsNoTracking(), p => p.IsPrimary == true, ct);
+            if (primary?.WanNetworkgroup is string primaryGroup)
+            {
+                Logger.LogInformation(
+                    "WAN attribution: the site fails over, so an unpinned test left by the primary ({Group})",
+                    primaryGroup);
+                return (primaryGroup, primary.Name);
+            }
+            return (null, null);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Could not identify the WAN from the site's own records");
+            return (null, null);
+        }
+    }
 
     /// <summary>
     /// Use SSH route lookup on the gateway to determine which WAN interfaces

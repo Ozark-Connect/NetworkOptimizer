@@ -1,4 +1,4 @@
-// Shared tooltip behaviour for the Monitoring time-series charts.
+﻿// Shared tooltip behaviour for the Monitoring time-series charts.
 //
 // Lived in device-health-charts.js and latency-charts.js as two copies of the same
 // function; the other five chart sets used the stock ApexCharts tooltip, which lists
@@ -33,7 +33,59 @@ const DOT_LAYER = 'netopt-hover-dots';
  * elements at all. Nulls are skipped, so a line with no reading at this instant has no dot
  * rather than one parked on the axis.
  */
-function paintHoverDots(w, dataPointIndex) {
+// The x the pointer is actually on. Taken from the hovered series when there is one, and from
+// the first series holding a point at that index otherwise, which is what a shared tooltip lands
+// on when it cannot name one.
+function hoveredXValue(w, dataPointIndex, seriesIndex) {
+    const direct = w.globals.seriesX[seriesIndex]?.[dataPointIndex];
+    if (direct != null && !isNaN(direct)) return direct;
+    for (const xs of w.globals.seriesX || []) {
+        const x = xs?.[dataPointIndex];
+        if (x != null && !isNaN(x)) return x;
+    }
+    return null;
+}
+
+// Where a series holds its point for a given x, or -1 when it has none near enough to be the
+// same moment. Series on this chart are separate targets polled at their own intervals, so the
+// same index means a different time in each of them - matching on the value is what keeps the
+// dots on one vertical line instead of scattering them along the axis.
+function indexAtX(xs, x) {
+    if (!xs || xs.length === 0 || x == null) return -1;
+    // Binary search: x is ascending, and this now runs for the rows as well as the dots, on every
+    // mousemove, over ranges that reach thousands of points per series.
+    let lo = 0, hi = xs.length - 1;
+    while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (xs[mid] < x) lo = mid + 1; else hi = mid;
+    }
+    let best = lo;
+    if (lo > 0 && Math.abs(xs[lo - 1] - x) <= Math.abs(xs[lo] - x)) best = lo - 1;
+    const bestGap = Math.abs(xs[best] - x);
+    // Half a step of this series' own spacing: close enough to be the same bucket, far enough
+    // out and the series simply has nothing here, which is worth showing as a missing dot
+    // rather than as a dot in the wrong place.
+    const span = xs.length > 1 ? Math.abs(xs[xs.length - 1] - xs[0]) / (xs.length - 1) : 0;
+    return bestGap <= Math.max(span / 2, 1) ? best : -1;
+}
+
+/**
+ * Which point each series holds at the hovered moment - ONE resolution, used for the dot and for
+ * the row alike.
+ *
+ * They were resolved separately, and disagreed the moment two series did not share timestamps: the
+ * dot was placed by matching the x value while the row read the array position, so a series polled
+ * on its own cadence drew its dot on a spike and printed the value it held at some other moment.
+ * The reader then had to hunt along the line for the x where the two happened to coincide.
+ */
+function hoveredIndices(w, dataPointIndex, seriesIndex) {
+    const hoveredX = hoveredXValue(w, dataPointIndex, seriesIndex);
+    const at = (w.globals.seriesX || []).map(xs =>
+        hoveredX == null ? dataPointIndex : indexAtX(xs, hoveredX));
+    return { hoveredX, at };
+}
+
+function paintHoverDots(w, at) {
     const inner = w.globals.dom.baseEl.querySelector('.apexcharts-inner');
     if (!inner) return;
 
@@ -63,7 +115,8 @@ function paintHoverDots(w, dataPointIndex) {
     const points = w.globals.pointsArray;
     for (let i = 0; i < points.length; i++) {
         if (w.globals.collapsedSeriesIndices?.indexOf(i) >= 0) continue;
-        const p = points[i]?.[dataPointIndex];
+        if (at[i] == null || at[i] < 0) continue;
+        const p = points[i]?.[at[i]];
         if (!p) continue;
         const [cx, cy] = p;
         if (cx == null || cy == null || isNaN(cx) || isNaN(cy)) continue;
@@ -79,8 +132,9 @@ function paintHoverDots(w, dataPointIndex) {
     }
 }
 
-export function valueSortedTooltip({ series, dataPointIndex, w }, options = {}) {
-    paintHoverDots(w, dataPointIndex);
+export function valueSortedTooltip({ series, seriesIndex, dataPointIndex, w }, options = {}) {
+    const { hoveredX, at } = hoveredIndices(w, dataPointIndex, seriesIndex);
+    paintHoverDots(w, at);
     const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
     // The axis formatter by default, since it is already right for the chart. An explicit one
     // is for charts whose axis deliberately omits a unit that the tooltip should still carry -
@@ -90,11 +144,16 @@ export function valueSortedTooltip({ series, dataPointIndex, w }, options = {}) 
     const fmtOpt = options.format ?? w.config.yaxis?.[0]?.labels?.formatter ?? (v => v);
     const fmtFor = i => Array.isArray(fmtOpt) ? (fmtOpt[i] ?? (v => v)) : fmtOpt;
     const rows = [];
-    let ts = null;
+    let ts = hoveredX;
     for (let i = 0; i < series.length; i++) {
-        const v = series[i]?.[dataPointIndex];
+        // The same index the dot uses. A series whose nearest reading is further off than half its
+        // own spacing has nothing to say at this moment, so it gets no row - the same silence it
+        // gets no dot for, rather than a number belonging to some other instant.
+        const j = at[i] ?? dataPointIndex;
+        if (j < 0) continue;
+        const v = series[i]?.[j];
         if (v == null) continue;
-        ts ??= w.globals.seriesX[i]?.[dataPointIndex];
+        ts ??= w.globals.seriesX[i]?.[j];
         rows.push({ name: w.globals.seriesNames[i], color: w.globals.colors[i % w.globals.colors.length], v, i });
     }
     // Sorted by value only where the series share a SCALE - several WANs' throughput on one axis,

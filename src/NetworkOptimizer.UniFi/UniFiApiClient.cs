@@ -1618,32 +1618,41 @@ public class UniFiApiClient : IDisposable
     #region Traffic Management APIs
 
     /// <summary>
-    /// GET v2/api/site/{site}/trafficroutes - Get traffic routes
-    /// This is a newer UniFi Network Application (v2) endpoint
+    /// GET v2/api/site/{site}/trafficroutes - the site's policy-based routes.
+    /// <para>
+    /// A v2 endpoint, so the payload is a bare array rather than the meta/data envelope the v1
+    /// calls unwrap. Best effort: an empty list whenever it cannot be read, since a caller asking
+    /// which WAN a device is pinned to treats "no route" and "could not look" the same way.
+    /// </para>
     /// </summary>
-    public async Task<JsonDocument?> GetTrafficRoutesAsync(CancellationToken cancellationToken = default)
+    public async Task<List<UniFiTrafficRouteResponse>> GetTrafficRoutesAsync(
+        CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("Fetching traffic routes for site {Site}", _site);
 
         if (!await EnsureAuthenticatedAsync(cancellationToken))
         {
-            return null;
+            return new List<UniFiTrafficRouteResponse>();
         }
 
-        return await ExecuteRequestAsync(async () =>
+        var routes = await ExecuteRequestAsync(async () =>
         {
             var response = await _httpClient!.GetAsync(
                 BuildV2ApiPath($"site/{_site}/trafficroutes"),
                 cancellationToken);
 
-            if (response.IsSuccessStatusCode)
+            if (!response.IsSuccessStatusCode)
             {
-                var json = await response.Content.ReadAsStringAsync(cancellationToken);
-                return JsonDocument.Parse(json);
+                _logger.LogDebug("Traffic routes returned {Status}", response.StatusCode);
+                return null;
             }
 
-            return null;
+            var json = await response.Content.ReadAsStringAsync(cancellationToken);
+            return JsonSerializer.Deserialize<List<UniFiTrafficRouteResponse>>(json);
         });
+
+        _logger.LogDebug("Retrieved {Count} traffic route(s)", routes?.Count ?? 0);
+        return routes ?? new List<UniFiTrafficRouteResponse>();
     }
 
     /// <summary>

@@ -1,11 +1,11 @@
-// Starlink terminal time-series charts: power draw, ping drop rate, obstruction,
+﻿// Starlink terminal time-series charts: power draw, ping drop rate, obstruction,
 // outage seconds, GPS satellites, alignment offset.
 // Same control pattern as cellular-charts.js and cm-charts.js.
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
-import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=4';
-import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=8';
-import { renderFilterReset, isFiltered } from './chart-filter.js?v=4';
+import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=6';
+import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=10';
+import { renderFilterReset, isFiltered } from './chart-filter.js?v=5';
 
 const PALETTE = window.Apex?.colors || ['#2ba89a', '#3b82f6', '#a78bfa', '#ef5858', '#f59e0b', '#10b981'];
 const _esc = document.createElement('span');
@@ -33,19 +33,6 @@ let visibility = {};
 let visibilityObserver = null;
 let isInViewport = true;
 let lastData = null;
-
-// Paired charts carry an avg (solid) and max (dashed) series per terminal;
-// the suffixes let visibility toggling reach both.
-function chartsWithSuffixes() {
-    return [
-        { chart: powerChart, suffixes: [' (avg)', ' (max)'] },
-        { chart: dropChart, suffixes: [' (avg)', ' (max)'] },
-        { chart: obstructionChart, suffixes: [''] },
-        { chart: outageChart, suffixes: [''] },
-        { chart: gpsChart, suffixes: [''] },
-        { chart: alignmentChart, suffixes: [''] },
-    ];
-}
 
 function baseOpts(height, yTitle, yFormatter, extra) {
     return {
@@ -153,38 +140,25 @@ function renderBadges(container) {
     renderFilterReset(el, isFiltered(visibility), () => { visibility = {}; updateVisibility(); renderBadges(container); });
 }
 
-function updateVisibility() {
-    deviceMeta.forEach(m => {
-        const vis = visibility[m.id] !== false;
-        chartsWithSuffixes().forEach(({ chart, suffixes }) => {
-            if (!chart) return;
-            suffixes.forEach(suffix => {
-                if (vis) chart.showSeries(m.label + suffix);
-                else chart.hideSeries(m.label + suffix);
-            });
-        });
-    });
-}
-
 const pct = v => v != null ? v * 100 : null;
 
-async function loadAndUpdate() {
-    const data = await fetchData();
-    if (!data?.devices) return;
-    deviceMeta = data.devices.map((d, i) => ({
-        id: d.id, label: d.label, color: PALETTE[i % PALETTE.length],
-    }));
-
+// Draws exactly the terminals that should be on screen, in one update per chart.
+//
+// This used to call showSeries/hideSeries per terminal per series on all six charts, and each of
+// those is a full redraw. Colors come from deviceMeta, which holds each terminal's palette slot
+// from the full list, so filtering never re-colors what stays on screen.
+function updateVisibility() {
+    const devices = (lastData?.devices || []).filter(d => visibility[d.id] !== false);
+    const colorOf = d => deviceMeta.find(x => x.id === d.id)?.color || PALETTE[0];
     const powerSeries = [];
     const dropSeries = [];
     const obstructionSeries = [];
     const outageSeries = [];
     const gpsSeries = [];
     const alignmentSeries = [];
-    data.devices.forEach((d, i) => {
-        const color = PALETTE[i % PALETTE.length];
-        const pts = d.data || [];
-        const map = (sel) => alignedPoints(pts, sel);
+    devices.forEach(d => {
+        const color = colorOf(d);
+        const map = (sel) => alignedPoints(d.data || [], sel);
         powerSeries.push(
             { name: `${d.label} (avg)`, color, data: map(p => p.powerAvg) },
             { name: `${d.label} (max)`, color, data: map(p => p.powerMax) });
@@ -197,8 +171,9 @@ async function loadAndUpdate() {
         alignmentSeries.push({ name: d.label, color, data: map(p => p.alignment) });
     });
 
-    // Solid avg / dashed max per terminal on the paired charts
-    const pairedDash = data.devices.flatMap(() => [0, 5]);
+    // Solid avg / dashed max per terminal on the paired charts. Positional, so rebuilt against the
+    // terminals actually drawn.
+    const pairedDash = devices.flatMap(() => [0, 5]);
     if (powerChart) {
         powerChart.updateOptions({ stroke: { curve: 'smooth', width: 2, dashArray: pairedDash } }, false, false);
         powerChart.updateSeries(powerSeries, false);
@@ -211,9 +186,18 @@ async function loadAndUpdate() {
     if (outageChart) outageChart.updateSeries(outageSeries, false);
     if (gpsChart) gpsChart.updateSeries(gpsSeries, false);
     if (alignmentChart) alignmentChart.updateSeries(alignmentSeries, false);
+}
 
-    updateVisibility();
+async function loadAndUpdate() {
+    const data = await fetchData();
+    if (!data?.devices) return;
+    deviceMeta = data.devices.map((d, i) => ({
+        id: d.id, label: d.label, color: PALETTE[i % PALETTE.length],
+    }));
+
+    // Before updateVisibility, which draws from it.
     lastData = data;
+    updateVisibility();
     const container = document.getElementById(containerId);
     if (container) {
         renderBadges(container);
