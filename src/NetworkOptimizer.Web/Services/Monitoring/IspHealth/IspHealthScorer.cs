@@ -1229,13 +1229,22 @@ public class IspHealthScorer
             upLoss.HasValue ? $"{FormatPct(upLoss.Value)} up" : "n/a up"
         };
 
+        // Name the band(s) the score was actually made against. The downstream band was cited
+        // unconditionally, so a report that only graded upstream quoted a range it never used -
+        // 1% to 2% against an upstream figure judged on 0.5% to 1.5%.
+        var bands = new List<string>();
+        if (downLoss.HasValue)
+            bands.Add($"{FormatPct(profile.LoadedLossDownLowPct)} to {FormatPct(profile.LoadedLossDownHighPct)} downstream");
+        if (upLoss.HasValue)
+            bands.Add($"{FormatPct(profile.LoadedLossUpLowPct)} to {FormatPct(profile.LoadedLossUpHighPct)} upstream");
+
         return (new IspScoreFactor
         {
             Name = "Loaded Loss",
             Score = (int)Math.Round(scores.Average()),
             Weight = _options.LoadedLossWeight,
             ValueText = string.Join(", ", parts),
-            Description = $"Packet loss while the line is under load vs the {FormatPct(profile.LoadedLossDownLowPct)} to {FormatPct(profile.LoadedLossDownHighPct)} downstream band for {profile.DisplayName}."
+            Description = $"Packet loss while the line is under load vs the {string.Join(" and ", bands)} band{(bands.Count > 1 ? "s" : "")} for {profile.DisplayName}."
         }, true);
     }
 

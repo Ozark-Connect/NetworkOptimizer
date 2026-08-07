@@ -716,6 +716,17 @@ public class IspHealthScorerTests
         LoadedLossValueText(WithLossyProbesUnderDownLoad()).Should().StartWith("0% down");
     }
 
+    [Fact]
+    public void Loaded_loss_names_the_bands_it_actually_scored_against()
+    {
+        var factor = new IspHealthScorer(Options).Score(WithLossyProbesUnderDownLoad(), Gpon)
+            .AccessDimension.Factors.Single(f => f.Name == "Loaded Loss");
+
+        factor.ValueText.Should().Be("0% down, 0% up");
+        factor.Description.Should().Be(
+            "Packet loss while the line is under load vs the 1% to 2% downstream and 0.5% to 1.5% upstream bands for GPON.");
+    }
+
     // ─── Speed-test shaped load: a short download phase handing straight over to an upload phase,
     // which is what a scheduled WAN speed test looks like and where end-stamped probes were landing
     // in the wrong phase. Rates every 7 s so each phase is its own run of loaded windows. ───
