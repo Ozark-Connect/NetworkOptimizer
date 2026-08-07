@@ -78,6 +78,12 @@ public class DeviceTypeClassificationTests
         result.Should().Be(expected);
     }
 
+    [Fact]
+    public void ToDisplayName_SmartPower_ReturnsSpacedLabel()
+    {
+        DeviceType.SmartPower.ToDisplayName().Should().Be("Smart Power");
+    }
+
     [Theory]
     [InlineData("umbb", DeviceType.CellularModem)]
     [InlineData("UMBB", DeviceType.CellularModem)]
