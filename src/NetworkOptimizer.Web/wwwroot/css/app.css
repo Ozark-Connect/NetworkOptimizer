@@ -2355,6 +2355,24 @@ a.btn-sm {
     line-height: 28px;
 }
 
+.investigate-actions {
+    width: fit-content;
+    max-width: 100%;
+}
+
+.investigate-actions-row {
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.investigate-result {
+    display: block;
+    margin-top: 0.75rem;
+    text-align: center;
+}
+
 @media (max-width: 768px) {
     .loss-nav-arrow {
         min-width: 4rem;

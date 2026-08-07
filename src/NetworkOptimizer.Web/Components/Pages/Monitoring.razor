@@ -476,7 +476,9 @@
             </div>
             <div class="expand-wrapper @(!_investigateCollapsed && _investigateStateLoaded ? "expanded" : "")" style="@(!_investigateStateLoaded ? "display:none" : "")">
             <div class="expand-content">
-            <div class="card-body" style="display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center;">
+            <div class="card-body">
+                <div class="investigate-actions">
+                <div class="investigate-actions-row">
                 @if (_lossNavActive)
                 {
                     <button class="btn btn-sm btn-secondary loss-nav-arrow" @onclick="LossNavBack" disabled="@_investigatingLoss"
@@ -501,10 +503,12 @@
                         else { <span>Loaded Loss Events</span> }
                     </button>
                 }
+                </div>
                 @if (!string.IsNullOrEmpty(_lossInvestigateResult))
                 {
-                    <span class="page-description" style="align-self: center;">@_lossInvestigateResult</span>
+                    <span class="page-description investigate-result">@_lossInvestigateResult</span>
                 }
+                </div>
             </div>
             </div>
             </div>
