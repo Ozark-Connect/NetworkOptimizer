@@ -157,6 +157,31 @@ public static class GatewayWanHelper
     }
 
     /// <summary>
+    /// The name a WAN should be shown under, from what the console reports for it.
+    /// <para>
+    /// The network's own name wins - it is the one someone typed. A stock "Internet 2" is not
+    /// that, so the port's name answers next, and only when the port has been renamed: "Port 5"
+    /// is no more a name than "Internet 2" is. Null when neither is real, which leaves the
+    /// caller with the plain "WANn" that <see cref="FormatWanLabel"/> already produces.
+    /// </para>
+    /// <para>
+    /// Here rather than at each call site because the precedence was being decided separately in
+    /// several of them, and one had it backwards - the port name shadowed the network's, so every
+    /// site that had not renamed its port showed "Port 5" where its WAN's name should be.
+    /// </para>
+    /// </summary>
+    /// <param name="networkName">The WAN network's configured name, if any.</param>
+    /// <param name="portName">The front-panel port's name, if any.</param>
+    public static string? ResolveWanName(string? networkName, string? portName)
+    {
+        if (!Core.Helpers.DisplayFormatters.IsGenericWanName(networkName)) return networkName!.Trim();
+        // Emptiness is not a default port name, so it has to be ruled out separately or a blank
+        // port comes back as a blank label rather than as no label at all.
+        var port = string.IsNullOrWhiteSpace(portName) ? null : portName.Trim();
+        return port != null && !InterfaceLabelResolver.IsDefaultPortName(port) ? port : null;
+    }
+
+    /// <summary>
     /// Builds a human-readable WAN label from up to four identifiers
     /// (e.g. "Acme Fiber WAN1 (eth6 - Port 7)"), degrading gracefully when any
     /// piece is missing so it never emits empty parentheses, doubled spaces, or

@@ -177,4 +177,29 @@ public class GatewayWanHelperTests
         GatewayWanHelper.EnumerateWanInterfaces(Device("""{ "type": "ucg" }""")).Should().BeEmpty();
         GatewayWanHelper.EnumerateWanInterfaces(Device("""{ "wan1": "not-an-object" }""")).Should().BeEmpty();
     }
+
+    // The network's own name wins; the port answers only when the network name is stock and the
+    // port has actually been renamed.
+    [Theory]
+    [InlineData("Acme Fiber", "Port 5", "Acme Fiber")]
+    [InlineData("Acme Fiber", "Uplink", "Acme Fiber")]
+    [InlineData("Internet 2", "Uplink", "Uplink")]
+    [InlineData("Internet", "Uplink", "Uplink")]
+    [InlineData("WAN2", "Uplink", "Uplink")]
+    [InlineData(null, "Uplink", "Uplink")]
+    [InlineData("  Acme Fiber  ", "Port 5", "Acme Fiber")]
+    public void ResolveWanName_prefers_the_network_name(string? network, string? port, string expected)
+    {
+        GatewayWanHelper.ResolveWanName(network, port).Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("Internet 2", "Port 5")]
+    [InlineData("Internet 2", null)]
+    [InlineData(null, null)]
+    [InlineData("", "")]
+    public void ResolveWanName_is_null_when_neither_is_a_real_name(string? network, string? port)
+    {
+        GatewayWanHelper.ResolveWanName(network, port).Should().BeNull();
+    }
 }
