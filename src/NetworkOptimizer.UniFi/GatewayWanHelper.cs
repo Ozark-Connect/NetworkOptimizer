@@ -174,12 +174,22 @@ public static class GatewayWanHelper
     /// <param name="portName">The front-panel port's name, if any.</param>
     public static string? ResolveWanName(string? networkName, string? portName)
     {
-        if (!Core.Helpers.DisplayFormatters.IsGenericWanName(networkName)) return networkName!.Trim();
-        // Emptiness is not a default port name, so it has to be ruled out separately or a blank
-        // port comes back as a blank label rather than as no label at all.
-        var port = string.IsNullOrWhiteSpace(portName) ? null : portName.Trim();
-        return port != null && !InterfaceLabelResolver.IsDefaultPortName(port) ? port : null;
+        if (!IsPlaceholderWanName(networkName)) return networkName!.Trim();
+        if (!IsPlaceholderWanName(portName)) return portName!.Trim();
+        return null;
     }
+
+    /// <summary>
+    /// Whether a name is a stock label rather than one someone chose: a generic WAN name
+    /// ("Internet 2", "WAN3"), a default port label ("SFP+ 2"), or nothing at all.
+    /// <para>
+    /// Both halves matter and neither alone is enough - a WAN can arrive carrying either kind of
+    /// placeholder, so testing for one lets the other through as though it were a real name.
+    /// </para>
+    /// </summary>
+    public static bool IsPlaceholderWanName(string? name) =>
+        Core.Helpers.DisplayFormatters.IsGenericWanName(name)
+        || InterfaceLabelResolver.IsDefaultPortName(name);
 
     /// <summary>
     /// Builds a human-readable WAN label from up to four identifiers

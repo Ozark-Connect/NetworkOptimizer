@@ -193,6 +193,29 @@ public class GatewayWanHelperTests
         GatewayWanHelper.ResolveWanName(network, port).Should().Be(expected);
     }
 
+    // A port placeholder in the NETWORK slot is still a placeholder - checking only for a generic
+    // WAN name there let "SFP+ 2" through as though someone had chosen it.
+    [Theory]
+    [InlineData("SFP+ 2", "Acme Fiber", "Acme Fiber")]
+    [InlineData("Port 5", null, null)]
+    public void ResolveWanName_rejects_a_port_placeholder_in_either_slot(
+        string? network, string? port, string? expected)
+    {
+        GatewayWanHelper.ResolveWanName(network, port).Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("Internet 2", true)]
+    [InlineData("WAN3", true)]
+    [InlineData("SFP+ 2", true)]
+    [InlineData(null, true)]
+    [InlineData("", true)]
+    [InlineData("Acme Fiber", false)]
+    public void IsPlaceholderWanName_covers_both_kinds(string? name, bool expected)
+    {
+        GatewayWanHelper.IsPlaceholderWanName(name).Should().Be(expected);
+    }
+
     [Theory]
     [InlineData("Internet 2", "Port 5")]
     [InlineData("Internet 2", null)]
