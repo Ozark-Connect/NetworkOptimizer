@@ -1,7 +1,9 @@
 # Ozark Connect Speed Test - based on OpenSpeedTest
 # Built from local customized source instead of upstream image
-# Pin to nginx 1.26 to match OpenSpeedTest (1.29+ has caching behavior changes)
-FROM nginx:1.26-alpine
+# Track the 1.30 stable line; the floating minor tag picks up patch releases.
+# Revisit when 1.30 goes legacy - a pinned EOL branch stops getting base-image
+# rebuilds, so the whole Alpine layer goes stale with it.
+FROM nginx:1.30-alpine
 
 # Copy our customized OpenSpeedTest files
 COPY src/OpenSpeedTest/ /usr/share/nginx/html/

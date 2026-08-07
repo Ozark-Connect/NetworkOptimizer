@@ -476,12 +476,14 @@
             </div>
             <div class="expand-wrapper @(!_investigateCollapsed && _investigateStateLoaded ? "expanded" : "")" style="@(!_investigateStateLoaded ? "display:none" : "")">
             <div class="expand-content">
-            <div class="card-body" style="display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center;">
+            <div class="card-body">
+                <div class="investigate-actions">
+                <div class="investigate-actions-row">
                 @if (_lossNavActive)
                 {
                     <button class="btn btn-sm btn-secondary loss-nav-arrow" @onclick="LossNavBack" disabled="@_investigatingLoss"
                             data-tooltip="Previous loss event">&#x25C0;</button>
-                    <button class="btn btn-primary" @onclick="LossNavDeactivate"
+                    <button class="btn btn-primary investigate-btn" @onclick="LossNavDeactivate"
                             data-tooltip="Exit @(_lossNavLoadedOnly ? "loaded" : "packet") loss investigation">
                         @(_lossNavLoadedOnly ? "Loaded Loss Events" : "Packet Loss Events")
                     </button>
@@ -490,21 +492,23 @@
                 }
                 else
                 {
-                    <button class="btn btn-secondary" @onclick="InvestigatePacketLoss" disabled="@_investigatingLoss"
+                    <button class="btn btn-secondary investigate-btn" @onclick="InvestigatePacketLoss" disabled="@_investigatingLoss"
                             data-tooltip="Find the most recent packet loss event across ISP, Transit, and Internet targets and jump to it on the chart">
                         @if (_investigatingLoss && !_lossNavLoadedOnly) { <span class="spinner-sm"></span> }
                         else { <span>Packet Loss Events</span> }
                     </button>
-                    <button class="btn btn-secondary" @onclick="InvestigateLoadedLoss" disabled="@_investigatingLoss"
+                    <button class="btn btn-secondary investigate-btn" @onclick="InvestigateLoadedLoss" disabled="@_investigatingLoss"
                             data-tooltip="Find the most recent loss event that happened while the WAN was under load - the SQM/bufferbloat signal">
                         @if (_investigatingLoss && _lossNavLoadedOnly) { <span class="spinner-sm"></span> }
                         else { <span>Loaded Loss Events</span> }
                     </button>
                 }
+                </div>
                 @if (!string.IsNullOrEmpty(_lossInvestigateResult))
                 {
-                    <span class="page-description" style="align-self: center;">@_lossInvestigateResult</span>
+                    <span class="page-description investigate-result">@_lossInvestigateResult</span>
                 }
+                </div>
             </div>
             </div>
             </div>
@@ -5038,7 +5042,33 @@
     }
 
     private Task InvestigatePacketLoss() => NavigateToLossEvent(null, null, loadedOnly: false);
-    private Task InvestigateLoadedLoss() => NavigateToLossEvent(null, null, loadedOnly: true);
+
+    /// <summary>
+    /// Loaded loss is a WAN's own signal - graded against that WAN's plan speeds and read off its
+    /// counters - so the LAN scope has nothing to answer with, and any event found would land on a
+    /// chart holding none of its targets. Move to the first WAN, then investigate.
+    /// </summary>
+    private async Task InvestigateLoadedLoss()
+    {
+        var firstWan = _wanOptions.FirstOrDefault()?.Key;
+        if (_lanScope && firstWan != null)
+        {
+            // Claim the spinner before the scope round-trip, so the button is disabled for the
+            // whole action rather than only the query at the end of it.
+            _investigatingLoss = true;
+            _lossNavLoadedOnly = true;
+            StateHasChanged();
+            _lanScope = false;
+            _allScope = false;
+            _selectedWanKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { firstWan };
+            // Released here rather than left to the investigation's own finally: a scope change
+            // that threw would strand both buttons disabled for the life of the circuit. The
+            // investigation re-claims it before its first await, so nothing renders in between.
+            try { await ApplyWanSelectionAsync(persist: true); }
+            finally { _investigatingLoss = false; }
+        }
+        await NavigateToLossEvent(null, null, loadedOnly: true);
+    }
     // Step to the previous/next distinct event by querying strictly outside the current
     // event's bounds, so a multi-minute burst is one stop rather than one stop per minute.
     // The 1-minute aggregateWindow buckets are stamped at their STOP edge, so the bucket at
@@ -5128,7 +5158,13 @@
                     await JS.InvokeVoidAsync("eval", "window.__latencyCharts?.restoreState();");
                     return;
                 }
-                _lossInvestigateResult = after.HasValue ? "No newer events" : "No older events";
+                // Older/newer only answer a step. A first search that finds nothing has no event to
+                // be on either side of, so it reports the empty window it actually searched.
+                _lossInvestigateResult =
+                    after.HasValue ? "No newer events"
+                    : before.HasValue ? "No older events"
+                    : loadedOnly ? "No loaded loss events in the last 30 days"
+                    : "No packet loss events in the last 30 days";
                 return;
             }
             var category = result.TargetType switch

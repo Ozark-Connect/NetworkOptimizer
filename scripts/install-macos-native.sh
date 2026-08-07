@@ -1,6 +1,6 @@
 #!/bin/bash
 # Install Network Optimizer natively on macOS
-# Usage: ./scripts/install-macos-native.sh
+# Usage: ./scripts/install-macos-native.sh [--upgrade-nginx]
 #
 # This script:
 # 1. Installs prerequisites via Homebrew
@@ -8,8 +8,28 @@
 # 3. Signs binaries for macOS
 # 4. Sets up OpenSpeedTest with nginx for browser-based speed testing
 # 5. Creates launchd service for auto-start
+#
+# Options:
+#   --upgrade-nginx  Also upgrade Homebrew's nginx. Off by default - see the note
+#                    at the brew step for why this is opt-in.
 
 set -e
+
+UPGRADE_NGINX=false
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --upgrade-nginx) UPGRADE_NGINX=true; shift ;;
+        -h|--help)
+            echo "Usage: ./scripts/install-macos-native.sh [--upgrade-nginx]"
+            echo ""
+            echo "  --upgrade-nginx  Also upgrade Homebrew's nginx. Off by default: that"
+            echo "                   nginx may serve other sites on this Mac, and"
+            echo "                   upgrading it restarts them."
+            exit 0 ;;
+        *) echo "Unknown option: $1" >&2; exit 1 ;;
+    esac
+done
 
 # Refuse to run as root - everything installs to $HOME, root is never needed
 if [ "$(id -u)" = "0" ]; then
@@ -203,7 +223,19 @@ fi
 eval "$($BREW_PREFIX/bin/brew shellenv)"
 
 echo "Installing required packages..."
-brew install sshpass iperf3 nginx go 2>/dev/null || true
+brew install sshpass iperf3 go 2>/dev/null || true
+
+# nginx is deliberately not on the line above: brew install UPGRADES an outdated
+# formula, and Homebrew's nginx is shared - it may be fronting a reverse proxy or
+# other sites on this Mac, which an upgrade then restarts. Install it when missing,
+# move it only when asked. Build tools (go, dotnet) stay on the upgrade-always path.
+if ! brew list --formula nginx >/dev/null 2>&1; then
+    echo "Installing nginx..."
+    brew install nginx 2>/dev/null || true
+elif [ "$UPGRADE_NGINX" = true ]; then
+    echo "Upgrading nginx (--upgrade-nginx)..."
+    brew upgrade nginx 2>/dev/null || true
+fi
 
 # Check for .NET SDK
 if ! command -v dotnet &> /dev/null; then
@@ -217,10 +249,16 @@ else
     brew upgrade dotnet 2>/dev/null || true
 fi
 
-# Verify .NET version
+# Verify .NET version. The floor is read from the csproj, never written here: a
+# literal goes stale the moment the target framework moves, and then lets an SDK
+# too old to build the app pass the check.
+REQUIRED_DOTNET=$(sed -n 's|.*<TargetFramework>net\([0-9][0-9]*\)\.[0-9][0-9]*</TargetFramework>.*|\1|p' \
+    "$REPO_ROOT/src/NetworkOptimizer.Web/NetworkOptimizer.Web.csproj" | head -1)
+REQUIRED_DOTNET="${REQUIRED_DOTNET:-10}"
+
 DOTNET_VERSION=$(dotnet --version 2>/dev/null | cut -d. -f1)
-if [ "$DOTNET_VERSION" -lt 8 ]; then
-    echo "Warning: .NET $DOTNET_VERSION detected. Network Optimizer requires .NET 8 or later."
+if [ -n "$DOTNET_VERSION" ] && [ "$DOTNET_VERSION" -lt "$REQUIRED_DOTNET" ]; then
+    echo "Warning: .NET $DOTNET_VERSION detected. Network Optimizer requires .NET $REQUIRED_DOTNET or later."
     echo "Updating .NET SDK..."
     brew upgrade dotnet || brew install dotnet
 fi
@@ -631,3 +669,20 @@ echo "  Stop:    launchctl unload ~/Library/LaunchAgents/$LAUNCH_AGENT_FILE"
 echo "  Start:   launchctl load ~/Library/LaunchAgents/$LAUNCH_AGENT_FILE"
 echo "  Logs:    tail -f $INSTALL_DIR/logs/stdout.log"
 echo ""
+
+# Reported, not acted on: see the note at the brew step. Self-suppresses after an
+# --upgrade-nginx run, since nginx is then current.
+NGINX_OUTDATED="$(brew outdated --verbose nginx 2>/dev/null || true)"
+if [ -n "$NGINX_OUTDATED" ]; then
+    echo "=== nginx update available ==="
+    echo ""
+    echo "  $NGINX_OUTDATED"
+    echo ""
+    echo "The speed test runs on Homebrew's nginx, which this installer leaves alone -"
+    echo "it may also be fronting a reverse proxy or other sites on this Mac, and an"
+    echo "upgrade restarts them. When you are ready:"
+    echo "  brew upgrade nginx"
+    echo ""
+    echo "Or re-run this installer with --upgrade-nginx to do both in one pass."
+    echo ""
+fi

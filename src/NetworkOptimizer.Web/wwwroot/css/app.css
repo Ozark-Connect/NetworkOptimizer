@@ -2311,6 +2311,10 @@ a.stat-card-link:active {
     gap: 0.5rem;
 }
 
+.card-header-badges .issue-type-chevron {
+    margin-left: 0.25rem;
+}
+
 /* Buttons - Three colors only: primary (blue), secondary (grey), danger (red) */
 .btn {
     display: inline-flex;
@@ -2351,9 +2355,31 @@ a.btn-sm {
     line-height: 28px;
 }
 
+.investigate-actions {
+    width: fit-content;
+    max-width: 100%;
+}
+
+.investigate-actions-row {
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.investigate-result {
+    display: block;
+    margin-top: 0.75rem;
+    text-align: center;
+}
+
 @media (max-width: 768px) {
     .loss-nav-arrow {
         min-width: 4rem;
+    }
+
+    .investigate-btn {
+        font-size: 0.8rem;
     }
 }
 
@@ -3949,7 +3975,8 @@ select.form-control {
         position: relative;
     }
 
-    .card-header .issue-type-chevron {
+    .card-header .issue-type-chevron,
+    .data-table .issue-type-chevron {
         position: static;
         transform: none;
     }
@@ -3957,6 +3984,16 @@ select.form-control {
     .card-header-collapsible .card-header-right {
         width: 100%;
         justify-content: space-between;
+    }
+
+    .card-header-collapsible > .card-title,
+    .card-header-collapsible > .card-title-group {
+        flex: 1 1 0;
+    }
+
+    .card-header-collapsible > .time-range-selector {
+        order: 1;
+        flex-basis: 100%;
     }
 
     /* Filter tabs mobile - wrap below title, compact sizing */

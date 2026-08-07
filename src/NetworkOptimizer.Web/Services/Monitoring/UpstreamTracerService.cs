@@ -1,4 +1,4 @@
-﻿using System.Text.RegularExpressions;
+using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Core.Helpers;
@@ -1742,14 +1742,25 @@ public class UpstreamTracerService
         var allExisting = await reconcileDb.MonitoringTargets
             .AsNoTracking()
             .ToListAsync(ct);
-        var existingByAddress = new Dictionary<string, MonitoringTarget>(StringComparer.OrdinalIgnoreCase);
-        foreach (var t in allExisting.Where(t => !string.IsNullOrEmpty(t.Address)))
-            existingByAddress.TryAdd(t.Address, t);
+        // Deliberately NOT scoped to this run's WAN. A twin is the same host reached over another
+        // WAN, and the chart pairs twins by NAME to draw them in one color - so inheriting the name
+        // across WANs is what keeps that pairing, and the checkbox carries a decision the user has
+        // already made about the host. Never narrow this to the running WAN.
+        //
+        // Grouped, not first-wins: one address can hold several rows probed different ways, and the
+        // review has to reconcile against the one the commit will actually match - a row checking
+        // this host another way is a different target, so pre-checking and renaming the candidate
+        // after it would describe a merge that never happens.
+        var existingByAddress = allExisting
+            .Where(t => !string.IsNullOrEmpty(t.Address))
+            .GroupBy(t => t.Address, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.OrdinalIgnoreCase);
         foreach (var c in candidates)
         {
             var addr = c.HopAddress ?? c.PathProxyTarget;
             if (string.IsNullOrEmpty(addr)) continue;
-            if (existingByAddress.TryGetValue(addr, out var existing))
+            if (existingByAddress.TryGetValue(addr, out var rows)
+                && rows.FirstOrDefault(t => c.RespondedTo == null || t.ProbeMode == c.RespondedTo) is { } existing)
             {
                 c.Enabled = existing.Enabled;
                 c.PreservedFromExisting = true;
@@ -1759,7 +1770,8 @@ public class UpstreamTracerService
         }
         foreach (var hop in State.AccessHops)
         {
-            if (existingByAddress.TryGetValue(hop.Address, out var existing))
+            if (existingByAddress.TryGetValue(hop.Address, out var rows)
+                && rows.FirstOrDefault(t => t.ProbeMode == hop.RespondedTo) is { } existing)
             {
                 hop.Enabled = existing.Enabled;
                 if (!string.IsNullOrEmpty(existing.Name))
@@ -2925,7 +2937,11 @@ public class UpstreamTracerService
             .ToListAsync(ct);
         var existing = rows.FirstOrDefault(t => t.TargetId == hop.TargetId && OwnsTargetRow(t.WanInterface, wanInterface, isUnboundRun))
             ?? rows.FirstOrDefault(t => t.TargetId == twinId)
-            ?? rows.FirstOrDefault(t => OwnsTargetRow(t.WanInterface, wanInterface, isUnboundRun));
+            // Matched on address alone, so the probe has to agree too: a row checking this host a
+            // different way measures a different thing, and merging the two rewrites one probe's
+            // history as the other's.
+            ?? rows.FirstOrDefault(t => t.ProbeMode == hop.RespondedTo
+                && OwnsTargetRow(t.WanInterface, wanInterface, isUnboundRun));
         var claimedByOtherWan = existing == null && rows.Count > 0;
         if (existing == null)
         {
@@ -3005,7 +3021,10 @@ public class UpstreamTracerService
             .ToListAsync(ct);
         var existing = rows.FirstOrDefault(t => t.TargetId == transit.TargetId && OwnsTargetRow(t.WanInterface, wanInterface, isUnboundRun))
             ?? rows.FirstOrDefault(t => t.TargetId == twinId)
-            ?? rows.FirstOrDefault(t => OwnsTargetRow(t.WanInterface, wanInterface, isUnboundRun));
+            // Same probe agreement as UpsertTargetAsync's address-only match. A trace that never
+            // established what it answered on has nothing to disagree with, so it still adopts.
+            ?? rows.FirstOrDefault(t => (transit.RespondedTo == null || t.ProbeMode == transit.RespondedTo)
+                && OwnsTargetRow(t.WanInterface, wanInterface, isUnboundRun));
         var claimedByOtherWan = existing == null && rows.Count > 0;
         if (existing == null)
         {

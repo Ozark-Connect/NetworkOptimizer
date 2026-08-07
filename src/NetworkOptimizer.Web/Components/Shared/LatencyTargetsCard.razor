@@ -51,7 +51,7 @@
                         @onclick="() => PickTypeAsync(null)" @onclick:stopPropagation>All</button>
             </div>
         }
-        <div style="display: flex; align-items: center; gap: 0.5rem;">
+        <div class="card-header-badges">
             <span class="status-badge status-active" @onclick:stopPropagation="true">@VisibleTargets().Count(t => t.Enabled) active</span>
             <span class="issue-type-chevron">@(_collapsed ? "▼" : "▲")</span>
         </div>

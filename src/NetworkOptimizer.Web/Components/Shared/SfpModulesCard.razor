@@ -11,7 +11,7 @@
 <div class="card">
     <div class="card-header card-header-collapsible monitoring-chart-header" @onclick="ToggleCollapse">
         <h2 class="card-title">Optical (SFP / ONT)</h2>
-        <div style="display: flex; align-items: center; gap: 0.5rem;">
+        <div class="card-header-badges">
             <span class="status-badge status-active" @onclick:stopPropagation="true">@AllSfps.Count(s => s.IsMonitoredOnt) monitored</span>
             <span class="issue-type-chevron">@(_collapsed ? "▼" : "▲")</span>
         </div>
