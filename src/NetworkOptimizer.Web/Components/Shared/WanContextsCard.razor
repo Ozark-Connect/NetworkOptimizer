@@ -473,10 +473,7 @@
     /// monitoring another WAN - install one there - is still open. Drives both the dismissible card
     /// and the Help call-out, so the two can never say opposite things.
     /// </summary>
-    // TODO: TEMPORARY - forced true so the gateway-agent copy can be reviewed on a site that
-    // already has one. RESTORE THE REAL CONDITION BELOW BEFORE THIS SHIPS.
-    private bool NoGatewayAgentAvailable => true;
-    // private bool NoGatewayAgentAvailable => _bindCapableAgents.Count == 0;
+    private bool NoGatewayAgentAvailable => _bindCapableAgents.Count == 0;
 
     /// <summary>
     /// The standing recommendation, shown only where it is still news: more than one WAN, no
