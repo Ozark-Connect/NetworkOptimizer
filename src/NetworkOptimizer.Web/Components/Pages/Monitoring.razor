@@ -5061,7 +5061,11 @@
             _lanScope = false;
             _allScope = false;
             _selectedWanKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { firstWan };
-            await ApplyWanSelectionAsync(persist: true);
+            // Released here rather than left to the investigation's own finally: a scope change
+            // that threw would strand both buttons disabled for the life of the circuit. The
+            // investigation re-claims it before its first await, so nothing renders in between.
+            try { await ApplyWanSelectionAsync(persist: true); }
+            finally { _investigatingLoss = false; }
         }
         await NavigateToLossEvent(null, null, loadedOnly: true);
     }
