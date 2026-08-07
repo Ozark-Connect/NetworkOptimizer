@@ -5546,6 +5546,10 @@
         else if (_activeTab != "performance" && _latencyChartsMounted)
         {
             _latencyChartsMounted = false;
+            // Leaving ends the visit a link governed, so the next arrival gets to be honoured even
+            // when it names the same WAN. The stamp is once-PER-VISIT; left set across the leave it
+            // was once ever, and a second jump on the same WAN silently kept the scope it found.
+            _appliedLinkWanKey = null;
             try { await JS.InvokeVoidAsync("eval", "window.__latencyCharts?.unmount(); window.__netoptPendingWanScope = undefined;"); }
             catch { }
             // The flaky-LAN advisory is tied to the live chart, so clear it when the chart leaves.
