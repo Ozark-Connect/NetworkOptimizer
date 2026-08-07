@@ -3,7 +3,7 @@
 
 param(
     [string]$OutputDir = "$PSScriptRoot\nginx",
-    [string]$Version = "1.26.2"  # Match Docker version for consistency
+    [string]$Version = "1.30.4"  # Match the Docker 1.30 stable line
 )
 
 $ErrorActionPreference = "Stop"
