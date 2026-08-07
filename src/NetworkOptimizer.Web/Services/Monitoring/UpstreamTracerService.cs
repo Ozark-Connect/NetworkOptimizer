@@ -1742,6 +1742,11 @@ public class UpstreamTracerService
         var allExisting = await reconcileDb.MonitoringTargets
             .AsNoTracking()
             .ToListAsync(ct);
+        // Deliberately NOT scoped to this run's WAN. A twin is the same host reached over another
+        // WAN, and the chart pairs twins by NAME to draw them in one color - so inheriting the name
+        // across WANs is what keeps that pairing, and the checkbox carries a decision the user has
+        // already made about the host. Never narrow this to the running WAN.
+        //
         // Grouped, not first-wins: one address can hold several rows probed different ways, and the
         // review has to reconcile against the one the commit will actually match - a row checking
         // this host another way is a different target, so pre-checking and renaming the candidate
