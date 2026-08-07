@@ -585,7 +585,11 @@
             if (choices.Any(c => string.Equals(c.Key, key, StringComparison.OrdinalIgnoreCase))) continue;
             choices.Add(new WanChoice(key, WanLabelFor(liveWans, key, ctx.Name), IsPrimary: false));
         }
-        _wanChoices = choices.Count > 1 ? choices : new List<WanChoice>();
+        // WAN order, not the order the vantages came back in - those are read by name, which put
+        // these pills out of sequence against every other WAN bar on the page.
+        _wanChoices = choices.Count > 1
+            ? choices.OrderBy(c => NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey(c.Key)).ToList()
+            : new List<WanChoice>();
     }
 
     private static string WanLabelFor(
