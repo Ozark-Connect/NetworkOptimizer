@@ -56,7 +56,7 @@ public class UniFiDiscovery
 
         var discoveredDevices = devices.Select(d =>
         {
-            var hardwareType = DeviceTypeExtensions.FromUniFiApiType(d.Type, d.Model);
+            var hardwareType = d.DeviceType;
             var effectiveType = DetermineDeviceType(d, allDeviceMacs, _logger);
 
             return new DiscoveredDevice
@@ -591,7 +591,7 @@ public class UniFiDiscovery
         HashSet<string> allDeviceMacs,
         ILogger logger)
     {
-        var baseType = DeviceTypeExtensions.FromUniFiApiType(device.Type, device.Model);
+        var baseType = device.DeviceType;
 
         // Only apply special handling to UDM-family devices (type = udm, uxg, ucg, etc.)
         if (baseType != DeviceType.Gateway)
@@ -649,7 +649,7 @@ public class UniFiDiscovery
     /// <returns>The effective device type</returns>
     public static DeviceType GetEffectiveDeviceType(UniFiDeviceResponse device, IEnumerable<UniFiDeviceResponse> allDevices)
     {
-        var baseType = DeviceTypeExtensions.FromUniFiApiType(device.Type, device.Model);
+        var baseType = device.DeviceType;
 
         // Only apply special handling to gateway-class devices
         if (baseType != DeviceType.Gateway)

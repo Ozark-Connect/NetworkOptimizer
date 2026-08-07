@@ -1436,6 +1436,34 @@ public class PerformanceAnalyzerTests
     }
 
     [Fact]
+    public void GetInfrastructureTrunkPorts_PowerDeviceUplink_NotTrunk()
+    {
+        var sw = CreateSwitch("switch1", "Switch 1");
+        sw.Mac = "aa:bb:cc:00:00:01";
+
+        var ups = new UniFiDeviceResponse
+        {
+            Id = "ups1",
+            Mac = "aa:bb:cc:00:00:02",
+            Name = "UPS-2U",
+            Type = "usw",
+            Model = "USWDA25",
+            Shortname = "UPS25",
+            Uplink = new UplinkInfo
+            {
+                UplinkMac = "aa:bb:cc:00:00:01",
+                UplinkRemotePort = 3,
+                PortIdx = 1
+            }
+        };
+
+        var result = PerformanceAnalyzer.GetInfrastructureTrunkPorts(
+            new List<UniFiDeviceResponse> { sw, ups });
+
+        result.Should().BeEmpty();
+    }
+
+    [Fact]
     public void GetInfrastructureTrunkPorts_MixedCaseMacs_NormalizedToLowercase()
     {
         var core = CreateSwitch("core", "Core");

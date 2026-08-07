@@ -2218,11 +2218,12 @@ public class MonitoringCollectionAgent : BackgroundService
         }
     }
 
-    private static string DescribeDeviceType(NetworkOptimizer.Core.Enums.DeviceType type) => type switch
+    internal static string DescribeDeviceType(NetworkOptimizer.Core.Enums.DeviceType type) => type switch
     {
         NetworkOptimizer.Core.Enums.DeviceType.Gateway => "gateway",
         NetworkOptimizer.Core.Enums.DeviceType.Switch => "switch",
         NetworkOptimizer.Core.Enums.DeviceType.AccessPoint => "ap",
+        NetworkOptimizer.Core.Enums.DeviceType.SmartPower => "smartpower",
         _ => "unknown"
     };
 
