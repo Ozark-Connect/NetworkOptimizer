@@ -2925,7 +2925,9 @@ public class UpstreamTracerService
             .ToListAsync(ct);
         var existing = rows.FirstOrDefault(t => t.TargetId == hop.TargetId && OwnsTargetRow(t.WanInterface, wanInterface, isUnboundRun))
             ?? rows.FirstOrDefault(t => t.TargetId == twinId)
-            ?? rows.FirstOrDefault(t => OwnsTargetRow(t.WanInterface, wanInterface, isUnboundRun));
+            // Matched on address alone, so discovery's own rows only: adopting a hand-added target
+            // renames it and resets its probe mode to whatever the trace got a reply on.
+            ?? rows.FirstOrDefault(t => t.AutoDiscovered && OwnsTargetRow(t.WanInterface, wanInterface, isUnboundRun));
         var claimedByOtherWan = existing == null && rows.Count > 0;
         if (existing == null)
         {
@@ -3005,7 +3007,9 @@ public class UpstreamTracerService
             .ToListAsync(ct);
         var existing = rows.FirstOrDefault(t => t.TargetId == transit.TargetId && OwnsTargetRow(t.WanInterface, wanInterface, isUnboundRun))
             ?? rows.FirstOrDefault(t => t.TargetId == twinId)
-            ?? rows.FirstOrDefault(t => OwnsTargetRow(t.WanInterface, wanInterface, isUnboundRun));
+            // Matched on address alone, so discovery's own rows only: adopting a hand-added target
+            // renames it and resets its probe mode to whatever the trace got a reply on.
+            ?? rows.FirstOrDefault(t => t.AutoDiscovered && OwnsTargetRow(t.WanInterface, wanInterface, isUnboundRun));
         var claimedByOtherWan = existing == null && rows.Count > 0;
         if (existing == null)
         {

@@ -254,6 +254,76 @@ public class PerWanDiscoveryTests
         target.WanInterface.Should().Be("wan");
     }
 
+    /// <summary>
+    /// A hand-added target is never discovery's to take over, however well the host matches. The
+    /// address-only match reached one and rewrote it in place: the user's name replaced with the
+    /// ASN label, and a TCP check reset to whatever the trace got a reply on.
+    /// </summary>
+    [Fact]
+    public async Task PrimaryRun_LeavesAHandAddedTargetOnTheSameHostAlone()
+    {
+        await using var db = NewDb();
+        db.MonitoringTargets.Add(new MonitoringTarget
+        {
+            TargetId = "custom-a9e6bd59",
+            Name = "Example ISP (HTTPS)",
+            Address = "198.51.100.1",
+            TargetType = MonitoringTargetType.Custom,
+            ProbeMode = ProbeMode.Tcp,
+            Port = 443,
+            AutoDiscovered = false,
+        });
+        await db.SaveChangesAsync();
+
+        await UpstreamTracerService.UpsertTargetAsync(
+            db, Hop("198.51.100.1"), "wan", wanContextId: null, default, isUnboundRun: true);
+        await db.SaveChangesAsync();
+
+        var handAdded = await db.MonitoringTargets.SingleAsync(t => t.TargetId == "custom-a9e6bd59");
+        handAdded.Name.Should().Be("Example ISP (HTTPS)");
+        handAdded.ProbeMode.Should().Be(ProbeMode.Tcp);
+        handAdded.Port.Should().Be(443);
+        handAdded.WanInterface.Should().BeNull();
+        handAdded.WanContextId.Should().BeNull();
+
+        // Discovery still gets a row for the hop - its own, not the user's.
+        var discovered = await db.MonitoringTargets.SingleAsync(t => t.AutoDiscovered);
+        discovered.Address.Should().Be("198.51.100.1");
+        discovered.WanInterface.Should().Be("wan");
+    }
+
+    [Fact]
+    public async Task ContextRun_LeavesAHandAddedTransitTargetOnTheSameHostAlone()
+    {
+        await using var db = NewDb();
+        db.MonitoringTargets.Add(new MonitoringTarget
+        {
+            TargetId = "custom-a9e6bd59",
+            Name = "Example Transit (HTTPS)",
+            Address = "203.0.113.9",
+            TargetType = MonitoringTargetType.Custom,
+            ProbeMode = ProbeMode.Tcp,
+            Port = 443,
+            AutoDiscovered = false,
+            WanInterface = "wan2",
+            WanContextId = 4,
+        });
+        await db.SaveChangesAsync();
+
+        await UpstreamTracerService.UpsertTransitTargetAsync(
+            db, Transit("203.0.113.9"), "wan2", wanContextId: 4, default, isUnboundRun: false);
+        await db.SaveChangesAsync();
+
+        var handAdded = await db.MonitoringTargets.SingleAsync(t => t.TargetId == "custom-a9e6bd59");
+        handAdded.Name.Should().Be("Example Transit (HTTPS)");
+        handAdded.ProbeMode.Should().Be(ProbeMode.Tcp);
+        handAdded.Port.Should().Be(443);
+
+        var discovered = await db.MonitoringTargets.SingleAsync(t => t.AutoDiscovered);
+        discovered.WanInterface.Should().Be("wan2");
+        discovered.WanContextId.Should().Be(4);
+    }
+
     [Theory]
     [InlineData(null, "wan", true)]      // never stamped - the primary's, and this IS the primary
     [InlineData("", "wan", true)]
