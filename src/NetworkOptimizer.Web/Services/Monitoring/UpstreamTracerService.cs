@@ -1,4 +1,4 @@
-﻿using System.Text.RegularExpressions;
+using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Core.Helpers;
@@ -1742,14 +1742,20 @@ public class UpstreamTracerService
         var allExisting = await reconcileDb.MonitoringTargets
             .AsNoTracking()
             .ToListAsync(ct);
-        var existingByAddress = new Dictionary<string, MonitoringTarget>(StringComparer.OrdinalIgnoreCase);
-        foreach (var t in allExisting.Where(t => !string.IsNullOrEmpty(t.Address)))
-            existingByAddress.TryAdd(t.Address, t);
+        // Grouped, not first-wins: one address can hold several rows probed different ways, and the
+        // review has to reconcile against the one the commit will actually match - a row checking
+        // this host another way is a different target, so pre-checking and renaming the candidate
+        // after it would describe a merge that never happens.
+        var existingByAddress = allExisting
+            .Where(t => !string.IsNullOrEmpty(t.Address))
+            .GroupBy(t => t.Address, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.OrdinalIgnoreCase);
         foreach (var c in candidates)
         {
             var addr = c.HopAddress ?? c.PathProxyTarget;
             if (string.IsNullOrEmpty(addr)) continue;
-            if (existingByAddress.TryGetValue(addr, out var existing))
+            if (existingByAddress.TryGetValue(addr, out var rows)
+                && rows.FirstOrDefault(t => c.RespondedTo == null || t.ProbeMode == c.RespondedTo) is { } existing)
             {
                 c.Enabled = existing.Enabled;
                 c.PreservedFromExisting = true;
@@ -1759,7 +1765,8 @@ public class UpstreamTracerService
         }
         foreach (var hop in State.AccessHops)
         {
-            if (existingByAddress.TryGetValue(hop.Address, out var existing))
+            if (existingByAddress.TryGetValue(hop.Address, out var rows)
+                && rows.FirstOrDefault(t => t.ProbeMode == hop.RespondedTo) is { } existing)
             {
                 hop.Enabled = existing.Enabled;
                 if (!string.IsNullOrEmpty(existing.Name))
