@@ -5042,7 +5042,29 @@
     }
 
     private Task InvestigatePacketLoss() => NavigateToLossEvent(null, null, loadedOnly: false);
-    private Task InvestigateLoadedLoss() => NavigateToLossEvent(null, null, loadedOnly: true);
+
+    /// <summary>
+    /// Loaded loss is a WAN's own signal - graded against that WAN's plan speeds and read off its
+    /// counters - so the LAN scope has nothing to answer with, and any event found would land on a
+    /// chart holding none of its targets. Move to the first WAN, then investigate.
+    /// </summary>
+    private async Task InvestigateLoadedLoss()
+    {
+        var firstWan = _wanOptions.FirstOrDefault()?.Key;
+        if (_lanScope && firstWan != null)
+        {
+            // Claim the spinner before the scope round-trip, so the button is disabled for the
+            // whole action rather than only the query at the end of it.
+            _investigatingLoss = true;
+            _lossNavLoadedOnly = true;
+            StateHasChanged();
+            _lanScope = false;
+            _allScope = false;
+            _selectedWanKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { firstWan };
+            await ApplyWanSelectionAsync(persist: true);
+        }
+        await NavigateToLossEvent(null, null, loadedOnly: true);
+    }
     // Step to the previous/next distinct event by querying strictly outside the current
     // event's bounds, so a multi-minute burst is one stop rather than one stop per minute.
     // The 1-minute aggregateWindow buckets are stamped at their STOP edge, so the bucket at
@@ -5132,7 +5154,13 @@
                     await JS.InvokeVoidAsync("eval", "window.__latencyCharts?.restoreState();");
                     return;
                 }
-                _lossInvestigateResult = after.HasValue ? "No newer events" : "No older events";
+                // Older/newer only answer a step. A first search that finds nothing has no event to
+                // be on either side of, so it reports the empty window it actually searched.
+                _lossInvestigateResult =
+                    after.HasValue ? "No newer events"
+                    : before.HasValue ? "No older events"
+                    : loadedOnly ? "No loaded loss events in the last 30 days"
+                    : "No packet loss events in the last 30 days";
                 return;
             }
             var category = result.TargetType switch
