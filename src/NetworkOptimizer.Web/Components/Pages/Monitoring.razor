@@ -1899,6 +1899,18 @@
     // install should never meet the concept at all.
     private bool _multiWanUiVisible;
 
+    // Temporary. Buffered because logging per step moved the timing enough to hide the race:
+    // appends only here, one flush well after the fact.
+    private readonly List<string> _wanTrace = new();
+    private void WanTrace(string msg) =>
+        _wanTrace.Add($"+{Environment.TickCount64 % 100000}ms {msg}");
+    private void FlushWanTrace()
+    {
+        if (_wanTrace.Count == 0) return;
+        Logger.LogDebug("WANtrace: {Steps}", string.Join("  ->  ", _wanTrace));
+        _wanTrace.Clear();
+    }
+
     /// <summary>
     /// Whether the LAN / WAN scope bar is worth showing. One WAN is still a split - what is on this
     /// network is not reached over it - so this asks for a LAN to separate rather than for a second
@@ -2277,7 +2289,7 @@
         // at the mount because the mount runs once and can get there first: _monitoringReady does
         // not wait on this load, so the restore would find nothing to restore against, decline to
         // spend its one-shot, and never be asked again. Its own guard makes the second call free.
-        await RestoreWanSelectionAsync();
+        await RestoreWanSelectionAsync("options");
         // A link that arrived before this point resolved nothing and was waiting on it. Applying
         // it here rather than leaving it to the next mount is what makes a deep link land on its
         // WAN every time instead of most of the time.
@@ -2346,10 +2358,14 @@
             if (_lanScope || _allScope
                 || !_wanOptions.Any(o => o.Key.Equals(focus, StringComparison.OrdinalIgnoreCase))
                 || _selectedWanKeys.Contains(focus))
+            {
+                WanTrace($"ADOPT stood down focus={focus} lan={_lanScope} all={_allScope}");
                 return;
+            }
             _lanScope = false;
             _allScope = false;
             _selectedWanKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { focus };
+            WanTrace($"ADOPT took [{focus}] apply={apply}");
             if (apply) await ApplyWanSelectionAsync(persist: true);
         }
         catch { /* no interop yet - the stored set stands */ }
@@ -2369,6 +2385,7 @@
         _linkNarrowedWanSelection = false;
         // Lets the stored selection be read again; nothing else clears this one-shot.
         _wanSelectionRestored = false;
+        WanTrace($"RELEASE re-armed restore, wan={WanParam}");
     }
 
     /// <summary>
@@ -2413,6 +2430,7 @@
         // options are loaded by here, so a WAN this site does not have will not resolve on a later
         // pass either. Leaving it unstamped would hold the deep-link gate open forever.
         _appliedLinkWanKey = LinkWanKey;
+        WanTrace($"LINK applying [{string.Join(",", keys)}] over sel=[{string.Join(",", _selectedWanKeys)}] lan={_lanScope}");
         Logger.LogDebug("Link WAN: resolved {Wan} to [{Keys}] against [{Options}]",
             WanParam, string.Join(",", keys), string.Join(",", _wanOptions.Select(o => o.Key)));
         if (keys.Count == 0) return;
@@ -2454,8 +2472,9 @@
             .ToList();
     }
 
-    private async Task RestoreWanSelectionAsync()
+    private async Task RestoreWanSelectionAsync(string who = "?")
     {
+        WanTrace($"RESTORE({who}) enter restored={_wanSelectionRestored} bar={ScopeBarVisible} wan={WanParam} lan={_lanScope} sel=[{string.Join(",", _selectedWanKeys)}]");
         if (_wanSelectionRestored || !ScopeBarVisible) return;
         _wanSelectionRestored = true;
         try
@@ -2487,6 +2506,7 @@
             await AdoptSharedWanFocusAsync(apply: false);
         }
         catch { }
+        WanTrace($"RESTORE({who}) set sel=[{string.Join(",", _selectedWanKeys)}] lan={_lanScope} all={_allScope}");
         await ApplyWanSelectionAsync(persist: false);
     }
 
@@ -5475,7 +5495,7 @@
                 // link's, because the link only narrows to a WAN the saved filter does not already
                 // show - and it cannot know that until the saved one is in hand.
                 ReleaseLinkWanSelection();
-                await RestoreWanSelectionAsync();
+                await RestoreWanSelectionAsync("mount");
                 await ApplyLinkWanSelectionAsync();
                 var postMount = "";
                 if (!string.IsNullOrEmpty(_preSelectCategory))
@@ -5507,6 +5527,14 @@
                     $"(async () => {{ const m = await import('{chartsUrl}'); window.__latencyCharts = m; await m.mount('latency-charts-container', {WanScopeJson()}, '{DefaultChartCategory()}'); "
                     + "if (window.__netoptPendingWanScope !== undefined) { m.setWanScope(window.__netoptPendingWanScope); window.__netoptPendingWanScope = undefined; } "
                     + $"{postMount} }})();");
+                // Temporary: flushed late and off the render path, so the trace itself cannot
+                // reorder what it is measuring, and so writes AFTER the mount still land in it.
+                _ = InvokeAsync(async () =>
+                {
+                    await Task.Delay(2000);
+                    WanTrace($"FINAL sel=[{string.Join(",", _selectedWanKeys)}] lan={_lanScope} all={_allScope} wan={WanParam}");
+                    FlushWanTrace();
+                });
                 // The link's WAN is applied above, so a deep-linked investigation held back at the
                 // top of this method can run now. Done here rather than left to the next render:
                 // the apply does not always raise one, and waiting for an unrelated render is the
