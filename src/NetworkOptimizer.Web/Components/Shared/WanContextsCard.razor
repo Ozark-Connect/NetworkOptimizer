@@ -265,7 +265,9 @@
                             out the WAN instead.
                         </p>
                     }
-                    @if (!SelectedAgentCanBindSource)
+                    @* Three states, not two: nothing picked, an agent binding an address, and a
+                       gateway agent - whose interface binding the paragraph below covers. *@
+                    @if (string.IsNullOrEmpty(_newAgentId))
                     {
                         <p>
                             Give a source IP for local probing (the gateway must policy-route it out this
@@ -273,7 +275,7 @@
                             targets are probed only by that agent.
                         </p>
                     }
-                    else
+                    else if (SelectedAgentCanBindSource)
                     {
                         <p>
                             This agent binds this address for the WAN's probes. The address needs its own
