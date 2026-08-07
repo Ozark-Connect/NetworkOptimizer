@@ -408,8 +408,8 @@ public class IspHealthScorer
         double? down = null, up = null;
         if (loadWindows.Count > 0)
         {
-            down = LoadedLatencyDelta(inputs, loadWindows, w => w.IsLoadedDown, w => w.IsLoadedUp, upstream: false);
-            up = LoadedLatencyDelta(inputs, loadWindows, w => w.IsLoadedUp, w => w.IsLoadedDown, upstream: true);
+            down = LoadedLatencyDelta(inputs, loadWindows, w => w.IsLoadedDown, w => w.ClassifiedLoadedUp, upstream: false);
+            up = LoadedLatencyDelta(inputs, loadWindows, w => w.IsLoadedUp, w => w.ClassifiedLoadedDown, upstream: true);
         }
 
         bool downFromSpeedTest = false, upFromSpeedTest = false;
@@ -578,7 +578,11 @@ public class IspHealthScorer
         var floor = _options.LoadedLatencyMinLoadWeight;
         var windowSeconds = Math.Max(1, _options.LoadWindowSeconds);
         var fullSeconds = Math.Max(windowSeconds, _options.LoadedLatencyFullCredibilitySustainedSeconds);
-        var episodeSeconds = SeriesStats.LoadEpisodeSeconds(loaded, windowSeconds);
+        // Runs measured at the RATE series' spacing. The loaded set is no longer dilated, and
+        // dilation was what accidentally bridged the gaps here: where the rates are aggregated
+        // coarser than a window, loaded keys are never adjacent, so every key read as its own
+        // episode and a long saturation scored the same credibility as a two-second burst.
+        var episodeSeconds = SeriesStats.LoadEpisodeSeconds(loaded, RateSampleSeconds(inputs));
 
         double DurationWeight(DateTime key) =>
             episodeSeconds.TryGetValue(key, out var seconds)
@@ -965,7 +969,8 @@ public class IspHealthScorer
         {
             Name = "Loaded Latency",
             Score = (int)Math.Round(scores.Average()),
-            Weight = _options.LoadedLatencyWeight,
+            // Same reasoning as Loaded Loss: one direction measured is half the question answered.
+            Weight = _options.LoadedLatencyWeight * (scores.Count / 2.0),
             ValueText = string.Join(", ", parts),
             Description = $"Latency increase under load vs +{FormatMsBand(profile.LoadedDeltaExcellentMs)} excellent and +{FormatMsBand(profile.LoadedDeltaAcceptableMs)} acceptable for {profile.DisplayName}.{source}"
         }, true);
@@ -985,10 +990,9 @@ public class IspHealthScorer
     /// Loaded-latency delta from ISP access hops only. Each access hop's loaded RTT
     /// samples are baseline-subtracted and pooled; the median of the pool (filtered
     /// > 0.5 ms) is the result. Pooling raw samples instead of per-target aggregates
-    /// is stable even with sparse loaded data (typical residential). Loaded windows are
-    /// dilated (see <see cref="DilateLoadedWindows"/>) so the ramp-in rise and drain tail of
-    /// an event - which fall in transition windows outside the strict rate threshold - are
-    /// captured rather than dropped.
+    /// is stable even with sparse loaded data (typical residential). Samples are matched by
+    /// interval overlap (see <see cref="LoadedCoverage"/>), which extends each loaded window by
+    /// the ramp and drain so an event's edges are captured rather than dropped.
     /// </summary>
     private double? LoadedLatencyDelta(
         IspHealthInputs inputs,
@@ -998,7 +1002,12 @@ public class IspHealthScorer
         bool upstream)
     {
         const double noiseFloor = 0.5;
-        var loaded = DilateLoadedWindows(loadWindows, directionSelector, oppositeSelector);
+        // Same overlap matching as loaded loss - see LoadedCoverage. A misbinned probe is less
+        // damaging here (episodes are pooled and corroborated against the speed tests) but it is
+        // the same error, and the corroboration is a backstop rather than a reason to keep it.
+        var loaded = BuildLoadedKeySet(loadWindows, directionSelector);
+        bool OppositeLoaded(DateTime key) =>
+            loadWindows.TryGetValue(key, out var w) && oppositeSelector(w);
 
         var accessCohort = inputs.AccessHopSeries.Count > 0
             ? inputs.AccessHopSeries
@@ -1018,16 +1027,24 @@ public class IspHealthScorer
             .ToList();
 
         var perHop = new List<(DateTime Time, double Value, int Series)>();
+        // The loaded window each matched sample overlapped, so episode grouping and load weighting
+        // below read the window the probe measured instead of re-flooring its stamp.
+        var keyByTime = new Dictionary<DateTime, DateTime>();
         for (var h = 0; h < agreementCohort.Count; h++)
         {
             var hop = agreementCohort[h];
             var baseline = ComputeIdleBaseline(hop, loadWindows);
             if (baseline == null) continue;
 
-            var series = h;
-            perHop.AddRange(hop
-                .Where(s => s.RttAvgMs.HasValue && loaded.Contains(FloorToWindow(s.Time)))
-                .Select(s => (s.Time, s.RttAvgMs!.Value - baseline.Value, series)));
+            var span = SampleSpanSeconds(hop);
+            foreach (var s in hop)
+            {
+                if (!s.RttAvgMs.HasValue) continue;
+                var (coverage, key) = LoadedCoverage(s.Time, span, inputs, loaded, OppositeLoaded);
+                if (coverage <= 0 || coverage < _options.LoadedOverlapMinFraction) continue;
+                perHop.Add((s.Time, s.RttAvgMs.Value - baseline.Value, h));
+                keyByTime[s.Time] = key;
+            }
         }
 
         // Hops that reported at the same instant are collapsed to what they AGREED on before any
@@ -1046,10 +1063,11 @@ public class IspHealthScorer
         // seven seconds, so "the newest three windows" is the last twenty seconds and any brief
         // lull inside one bad evening would read as a line that was fixed. An episode is however
         // long the line actually stayed loaded, which is the unit a person means by "a load event".
-        var episodeStarts = SeriesStats.LoadEpisodeStarts(loaded, Math.Max(1, _options.LoadWindowSeconds));
+        var episodeStarts = SeriesStats.LoadEpisodeStarts(loaded.Keys, EpisodeGroupSeconds(inputs));
+        DateTime MatchedKey(DateTime t) => keyByTime.TryGetValue(t, out var k) ? k : FloorToWindow(t);
         var episodes = pooled
-            .Where(x => episodeStarts.ContainsKey(FloorToWindow(x.Time)))
-            .GroupBy(x => episodeStarts[FloorToWindow(x.Time)])
+            .Where(x => episodeStarts.ContainsKey(MatchedKey(x.Time)))
+            .GroupBy(x => episodeStarts[MatchedKey(x.Time)])
             .Select(g => (Time: g.Key, Value: EpisodeDelta(g.Select(x => x.Value).ToList(), noiseFloor)))
             .OrderByDescending(e => e.Time)
             .ToList();
@@ -1105,7 +1123,7 @@ public class IspHealthScorer
                 ?? double.NegativeInfinity;
         }
 
-        var loadWeight = BuildLoadWeighting(inputs, upstream, loaded);
+        var loadWeight = BuildLoadWeighting(inputs, upstream, loaded.Keys);
         var stale = _options.LoadedLatencyElevationStaleEpisodes;
         var elevatedEpisodes = episodes.Where(e => e.Value >= noiseFloor).ToList();
 
@@ -1182,8 +1200,10 @@ public class IspHealthScorer
             }, false);
         }
 
-        var downLoss = LoadedMeanLoss(inputs, lossPool, loadWindows, w => w.IsLoadedDown, w => w.IsLoadedUp, upstream: false);
-        var upLoss = LoadedMeanLoss(inputs, lossPool, loadWindows, w => w.IsLoadedUp, w => w.IsLoadedDown, upstream: true);
+        var downLoss = LoadedMeanLoss(inputs, lossPool, loadWindows, w => w.IsLoadedDown, w => w.ClassifiedLoadedUp,
+            upstream: false, direction: "down", out var downThin);
+        var upLoss = LoadedMeanLoss(inputs, lossPool, loadWindows, w => w.IsLoadedUp, w => w.ClassifiedLoadedDown,
+            upstream: true, direction: "up", out var upThin);
 
         var scores = new List<double>();
         if (downLoss.HasValue) scores.Add(ScoreLossBand(downLoss.Value, profile.LoadedLossDownLowPct, profile.LoadedLossDownHighPct));
@@ -1194,7 +1214,11 @@ public class IspHealthScorer
             {
                 Name = "Loaded Loss",
                 Weight = _options.LoadedLossWeight,
-                Description = "The line was never under sustained load during the window."
+                // Two different silences: nothing loaded the line, versus something did and a
+                // single probe caught a single drop.
+                Description = downThin || upThin
+                    ? "The line was under load too briefly to measure loss - a single dropped probe is not a rate."
+                    : "The line was never under sustained load during the window."
             }, false);
         }
 
@@ -1206,13 +1230,31 @@ public class IspHealthScorer
             upLoss.HasValue ? $"{FormatPct(upLoss.Value)} up" : "n/a up"
         };
 
+        // Name the band(s) the score was actually made against. The downstream band was cited
+        // unconditionally, so a report that only graded upstream quoted a range it never used -
+        // 1% to 2% against an upstream figure judged on 0.5% to 1.5%.
+        var bands = new List<string>();
+        if (downLoss.HasValue)
+            bands.Add($"{FormatPct(profile.LoadedLossDownLowPct)} to {FormatPct(profile.LoadedLossDownHighPct)} downstream");
+        if (upLoss.HasValue)
+            bands.Add($"{FormatPct(profile.LoadedLossUpLowPct)} to {FormatPct(profile.LoadedLossUpHighPct)} upstream");
+
+        // A direction that reported nothing reads "n/a" in the value, and until now the factor kept
+        // its full pull on the dimension while its score quietly became the surviving direction's
+        // alone. Absence of evidence should cost influence, not re-centre the answer: half the
+        // directions measured, half the weight, and BuildDimension renormalises the rest.
+        var thin = downThin ? "Downstream" : upThin ? "Upstream" : null;
+        var thinNote = thin == null
+            ? string.Empty
+            : $" {thin} is not graded - one dropped probe in a single load episode is not a rate.";
+
         return (new IspScoreFactor
         {
             Name = "Loaded Loss",
             Score = (int)Math.Round(scores.Average()),
-            Weight = _options.LoadedLossWeight,
+            Weight = _options.LoadedLossWeight * (scores.Count / 2.0),
             ValueText = string.Join(", ", parts),
-            Description = $"Packet loss while the line is under load vs the {FormatPct(profile.LoadedLossDownLowPct)} to {FormatPct(profile.LoadedLossDownHighPct)} downstream band for {profile.DisplayName}."
+            Description = $"Packet loss while the line is under load vs the {string.Join(" and ", bands)} band{(bands.Count > 1 ? "s" : "")} for {profile.DisplayName}.{thinNote}"
         }, true);
     }
 
@@ -1234,49 +1276,101 @@ public class IspHealthScorer
         Dictionary<DateTime, LoadWindow> loadWindows,
         Func<LoadWindow, bool> directionSelector,
         Func<LoadWindow, bool> oppositeSelector,
-        bool upstream)
+        bool upstream,
+        string direction,
+        out bool thinEvidence)
     {
-        var loaded = DilateLoadedWindows(loadWindows, directionSelector, oppositeSelector);
-        var samples = lossPool.SelectMany(series => series)
-            .Where(s => s.LossPercent.HasValue && !InOutage(s.Time)
-                && loaded.Contains(FloorToWindow(s.Time)))
-            .Select(s => (s.Time, Value: _gatewayFloor.Apply(s.LossPercent!.Value, s.Time)))
-            .ToList();
+        thinEvidence = false;
+        // Matched by OVERLAP against the seconds each loaded window describes, not by flooring the
+        // probe's end-stamp into a bucket. See LoadedCoverage.
+        var loaded = BuildLoadedKeySet(loadWindows, directionSelector);
+        bool OppositeLoaded(DateTime key) =>
+            loadWindows.TryGetValue(key, out var w) && oppositeSelector(w);
+
+        var samples = new List<(DateTime Time, double Value, DateTime Key, double Coverage)>();
+        foreach (var series in lossPool)
+        {
+            var span = SampleSpanSeconds(series);
+            foreach (var s in series)
+            {
+                if (!s.LossPercent.HasValue || InOutage(s.Time)) continue;
+                var (coverage, key) = LoadedCoverage(s.Time, span, inputs, loaded, OppositeLoaded);
+                // Zero coverage is checked on its own: at a minimum fraction of 0 a sample that
+                // touched no loaded window would otherwise join the pool weighing nothing, which the
+                // mean survives but the lossy-probe count behind the gate below does not.
+                if (coverage <= 0 || coverage < _options.LoadedOverlapMinFraction) continue;
+                samples.Add((s.Time, _gatewayFloor.Apply(s.LossPercent.Value, s.Time), key, coverage));
+            }
+        }
         var losses = samples.Select(s => s.Value).ToList();
-        // Loaded loss rests on however many samples happen to fall inside the loaded windows, and on
-        // a long window the rate series is aggregated far coarser than LoadWindowSeconds, so that set
-        // can be small enough for a few dark samples to set the whole figure. Log what it was built
-        // from - a mean over a handful of samples is a very different claim from one over thousands.
-        _logger?.LogDebug(
-            "ISP Health: loaded loss pool {Count} sample(s) from {Windows} loaded window key(s), {Dark} at/above 99% ({Mean}% mean)",
-            losses.Count, loaded.Count, losses.Count(l => l >= 99.0),
-            losses.Count > 0 ? losses.Average().ToString("0.##", CultureInfo.InvariantCulture) : "n/a");
-        if (losses.Count < _options.MinLoadedSamples) return null;
+
         // Same credibility rules as loaded latency: a sustained saturation says far more about
         // behavior under load than a two-second burst that may not even have been load, and recent
         // evidence outranks old evidence of the same kind. A weighted MEAN rather than a median,
         // because loss is a rate - most samples are zero even on a bad line, and a median over
         // them reports zero however bad the rest are.
-        var loadWeight = BuildLoadWeighting(inputs, upstream, loaded);
-        return SeriesStats.WeightedMean(samples
+        var loadWeight = BuildLoadWeighting(inputs, upstream, loaded.Keys);
+        // Weighted on the window the probe actually overlapped, not on its stamp: the stamp is what
+        // was pointing a bucket too late, and reading utilization off that bucket is what let a
+        // download-phase probe collect the upload phase's credibility.
+        var weighted = samples
             .Select(s => (s.Value,
-                SeriesStats.RecencyWeight(inputs.WindowEnd - s.Time, _options.LoadedLatencyRecencyHalfLifeHours)
-                    * loadWeight(s.Time)))
-            .ToList()) ?? losses.Average();
+                Weight: SeriesStats.RecencyWeight(inputs.WindowEnd - s.Time, _options.LoadedLatencyRecencyHalfLifeHours)
+                    * loadWeight(s.Key) * s.Coverage))
+            .ToList();
+        var weightedMean = SeriesStats.WeightedMean(weighted);
+
+        var lossy = losses.Count(l => l > 0);
+        // Counted at the RATE series' own spacing, not LoadWindowSeconds. On a long window the rates
+        // are aggregated coarser than the window, so loaded keys are never adjacent and one six-hour
+        // saturation counts as hundreds of episodes.
+        var episodes = SeriesStats
+            .LoadEpisodeStarts(loaded.Keys, EpisodeGroupSeconds(inputs))
+            .Values.Distinct().Count();
+        // Both means, because the reported one is the WEIGHTED one: the raw mean alone read 0.63%
+        // for a figure the panel showed as 2.1%. The heaviest sample's weight share explains that
+        // gap - it says when the credibility weighting handed one sample the whole answer.
+        if (_logger?.IsEnabled(LogLevel.Debug) == true)
+        {
+            var totalWeight = 0.0;
+            var topWeight = 0.0;
+            foreach (var (_, w) in weighted)
+            {
+                if (w <= 0) continue;
+                totalWeight += w;
+                if (w > topWeight) topWeight = w;
+            }
+            _logger.LogDebug(
+                "ISP Health: loaded loss {Direction} pool {Count} sample(s) from {Windows} loaded window key(s) over "
+                + "{Episodes} episode(s), {Lossy} with loss, {Dark} at/above 99%; {Mean}% raw mean -> {Weighted}% "
+                + "weighted, heaviest sample holds {Share}% of the weight",
+                direction, losses.Count, loaded.Keys.Count, episodes, lossy, losses.Count(l => l >= 99.0),
+                losses.Count > 0 ? losses.Average().ToString("0.##", CultureInfo.InvariantCulture) : "n/a",
+                weightedMean?.ToString("0.##", CultureInfo.InvariantCulture) ?? "n/a",
+                (totalWeight > 0 ? topWeight / totalWeight * 100 : 0).ToString("0.#", CultureInfo.InvariantCulture));
+        }
+
+        if (losses.Count < _options.MinLoadedSamples) return null;
+
+        // A rate needs more than one observation. A five-ping probe quantizes to 20% steps, so one
+        // dropped ping in one scheduled speed test can otherwise be the entire figure - and the
+        // weighting concentrates it rather than diluting it. Silent only when there IS uncorroborated
+        // loss; a pool with none still reports 0%, which is a real measurement.
+        if (lossy > 0 && lossy < _options.LoadedLossMinLossyProbes && episodes < _options.LoadedLossMinEpisodes)
+        {
+            _logger?.LogDebug(
+                "ISP Health: loaded loss {Direction} not graded - {Lossy} probe(s) with loss across {Episodes} "
+                + "load episode(s), needs {NeedLossy} probe(s) or {NeedEpisodes} episode(s)",
+                direction, lossy, episodes, _options.LoadedLossMinLossyProbes, _options.LoadedLossMinEpisodes);
+            thinEvidence = true;
+            return null;
+        }
+
+        return weightedMean ?? losses.Average();
     }
 
-    /// <summary>
-    /// Window keys that count as loaded in a direction for sample matching: the directly
-    /// loaded windows plus up to <see cref="IspHealthOptions.LoadedLeadSeconds"/> before and
-    /// <see cref="IspHealthOptions.LoadedTailSeconds"/> after each loaded run. The ramp fills
-    /// the queue before throughput crosses the loaded threshold and the drain (plus end-stamped
-    /// loss probes) trails it, so without dilation the edges of every event are dropped. Dilation
-    /// never crosses into a window loaded in the OPPOSITE direction, so a speed test's download
-    /// tail does not bleed into its upload phase. Idle classification is unaffected (this builds a
-    /// loaded set only), keeping the baseline a clean uncongested floor.
-    /// </summary>
     // Loaded window keys per direction for the current report. Both lists are filled on the first
-    // request from a single pass, since the dilation asks for them four times.
+    // request from a single pass, since matching asks for them four times.
     private List<DateTime>? _loadedDownKeys;
     private List<DateTime>? _loadedUpKeys;
 
@@ -1300,36 +1394,6 @@ public class IspHealthScorer
         return directionSelector(new LoadWindow(false, true, false)) ? _loadedDownKeys : _loadedUpKeys;
     }
 
-    private HashSet<DateTime> DilateLoadedWindows(
-        Dictionary<DateTime, LoadWindow> loadWindows,
-        Func<LoadWindow, bool> directionSelector,
-        Func<LoadWindow, bool> oppositeSelector)
-    {
-        var leadWindows = (int)Math.Ceiling((double)_options.LoadedLeadSeconds / _options.LoadWindowSeconds);
-        var tailWindows = (int)Math.Ceiling((double)_options.LoadedTailSeconds / _options.LoadWindowSeconds);
-
-        var loaded = new HashSet<DateTime>();
-        // Only the loaded keys matter, and there are a couple of dozen of them against six figures of
-        // windows on a long span. This runs four times - latency and loss, each direction - so the
-        // scan is cached per Score() call rather than repeated.
-        foreach (var key in LoadedKeysFor(loadWindows, directionSelector))
-        {
-            loaded.Add(key);
-            for (var i = 1; i <= leadWindows; i++)
-            {
-                var k = key.AddSeconds(-i * _options.LoadWindowSeconds);
-                if (loadWindows.TryGetValue(k, out var nw) && oppositeSelector(nw)) break;
-                loaded.Add(k);
-            }
-            for (var i = 1; i <= tailWindows; i++)
-            {
-                var k = key.AddSeconds(i * _options.LoadWindowSeconds);
-                if (loadWindows.TryGetValue(k, out var nw) && oppositeSelector(nw)) break;
-                loaded.Add(k);
-            }
-        }
-        return loaded;
-    }
 
     /// <summary>
     /// Grades one ASN (transit) or one ISP hop: a quality blend (stability, jitter,
@@ -2534,11 +2598,182 @@ public class IspHealthScorer
         var loss = false;
         if (loadWindows.Count > 0)
         {
-            var downLoss = LoadedMeanLoss(inputs, inputs.LossPoolSeries, loadWindows, w => w.IsLoadedDown, w => w.IsLoadedUp, upstream: false);
-            var upLoss = LoadedMeanLoss(inputs, inputs.LossPoolSeries, loadWindows, w => w.IsLoadedUp, w => w.IsLoadedDown, upstream: true);
+            var downLoss = LoadedMeanLoss(inputs, inputs.LossPoolSeries, loadWindows, w => w.IsLoadedDown,
+                w => w.ClassifiedLoadedUp, upstream: false, direction: "down", out _);
+            var upLoss = LoadedMeanLoss(inputs, inputs.LossPoolSeries, loadWindows, w => w.IsLoadedUp,
+                w => w.ClassifiedLoadedDown, upstream: true, direction: "up", out _);
             loss = downLoss > profile.LoadedLossDownHighPct || upLoss > profile.LoadedLossUpHighPct;
         }
         return (latency, loss);
+    }
+
+    // Cached for the current report: the four loaded-factor passes all want it, and the series runs
+    // to five figures.
+    private int? _rateSampleSeconds;
+
+    // The ORIGINAL aggregate stamp behind each loaded window key. FloorToWindow moves a stamp onto a
+    // .NET-epoch grid, which is offset from the Unix-epoch grid Influx aggregates on, so the key
+    // alone cannot say which seconds its rates describe. Overlap matching needs that.
+    private Dictionary<DateTime, DateTime>? _stampByKey;
+
+    private Dictionary<DateTime, DateTime> StampByKey(IspHealthInputs inputs)
+    {
+        if (_stampByKey != null) return _stampByKey;
+        _stampByKey = new Dictionary<DateTime, DateTime>();
+        foreach (var r in inputs.WanRates) _stampByKey[FloorToWindow(r.Time)] = r.Time;
+        return _stampByKey;
+    }
+
+    /// <summary>
+    /// How much of a probe's measurement interval ran while the line was loaded in this direction,
+    /// as a fraction of the probe's span.
+    /// <para>
+    /// A probe is stamped when its LAST ping returns, and Influx bins it by that stamp, so a probe
+    /// that finished a fraction of a second past a bucket boundary is filed under the next bucket
+    /// and inherits its character. On a back-to-back speed test that bucket is the other direction's
+    /// phase, so download-phase loss was landing on upload every time. Comparing the probe's own
+    /// interval against the seconds each rate window actually describes removes the whole class of
+    /// error, including the epoch-grid offset above.
+    /// </para>
+    /// </summary>
+    /// <returns>
+    /// The covered fraction, and the loaded window the probe overlapped MOST. Callers key episode
+    /// grouping and load weighting off that window rather than off the probe's own stamp, which is
+    /// the thing that was pointing at the wrong bucket in the first place.
+    /// </returns>
+    private (double Coverage, DateTime Key) LoadedCoverage(
+        DateTime probeEnd, double spanSeconds, IspHealthInputs inputs,
+        LoadedKeySet loaded, Func<DateTime, bool> oppositeLoaded)
+    {
+        var loadedKeys = loaded.Keys;
+        if (spanSeconds <= 0 || loadedKeys.Count == 0) return (0, default);
+
+        var stamps = StampByKey(inputs);
+        var width = RateSampleSeconds(inputs);
+        var step = Math.Max(1, _options.LoadWindowSeconds);
+        var probeStart = probeEnd.AddSeconds(-spanSeconds);
+        // Only the handful of windows that can reach the probe's interval, allowing for the lead and
+        // tail extensions and for a rate window wider than one key step. Both ends are FLOORED onto
+        // the key grid - the walk steps by whole windows, so an off-grid start never lands on a key.
+        var first = FloorToWindow(probeStart.AddSeconds(-(width + _options.LoadedTailSeconds + step)));
+        var last = FloorToWindow(probeEnd.AddSeconds(_options.LoadedLeadSeconds + step));
+
+        // Nearly every sample in a window is nowhere near a load event - four loaded keys against
+        // twelve thousand is a normal day - and walking the grid for each one is most of the cost of
+        // this factor. The loop can only count keys inside [Min, Max], so missing that range
+        // entirely is the same answer for two comparisons instead of a dozen lookups.
+        if (last < loaded.Min || first > loaded.Max) return (0, default);
+
+        var covered = 0.0;
+        var best = 0.0;
+        var bestKey = default(DateTime);
+        for (var key = first; key <= last; key = key.AddSeconds(step))
+        {
+            if (!loadedKeys.Contains(key) || !stamps.TryGetValue(key, out var stamp)) continue;
+
+            // The window's own seconds, then the physical ramp and drain either side. The extensions
+            // stop at a window the RATES called loaded the other way, so a download run's drain
+            // cannot reach across a handover and claim the upload phase's probes.
+            var from = stamp.AddSeconds(-width);
+            var to = stamp;
+            if (!oppositeLoaded(key.AddSeconds(-step))) from = from.AddSeconds(-_options.LoadedLeadSeconds);
+            if (!oppositeLoaded(key.AddSeconds(step))) to = to.AddSeconds(_options.LoadedTailSeconds);
+
+            var lo = from > probeStart ? from : probeStart;
+            var hi = to < probeEnd ? to : probeEnd;
+            if (hi <= lo) continue;
+
+            var overlap = (hi - lo).TotalSeconds;
+            covered += overlap;
+            if (overlap > best) { best = overlap; bestKey = key; }
+        }
+        return (Math.Min(1.0, covered / spanSeconds), bestKey);
+    }
+
+    /// <summary>
+    /// Gap that still counts as the same load episode. One window wider than the rate spacing:
+    /// flooring stamps onto the key grid makes the gap between consecutive loaded keys jitter either
+    /// side of the true spacing (56 or 63 s for a 60 s series), and an exact test splits an episode
+    /// on the wide ones. Grouping only - episode DURATION stays on the true spacing.
+    /// </summary>
+    private int EpisodeGroupSeconds(IspHealthInputs inputs) =>
+        RateSampleSeconds(inputs) + Math.Max(1, _options.LoadWindowSeconds);
+
+    /// <summary>A direction's loaded window keys with their extent, so a sample far from any load
+    /// event is rejected on two comparisons.</summary>
+    private sealed record LoadedKeySet(IReadOnlySet<DateTime> Keys, DateTime Min, DateTime Max);
+
+    private LoadedKeySet BuildLoadedKeySet(
+        Dictionary<DateTime, LoadWindow> loadWindows, Func<LoadWindow, bool> directionSelector)
+    {
+        var keys = LoadedKeysFor(loadWindows, directionSelector);
+        var set = new HashSet<DateTime>(keys);
+        if (keys.Count == 0) return new LoadedKeySet(set, DateTime.MaxValue, DateTime.MinValue);
+
+        var min = DateTime.MaxValue;
+        var max = DateTime.MinValue;
+        foreach (var k in keys)
+        {
+            if (k < min) min = k;
+            if (k > max) max = k;
+        }
+        return new LoadedKeySet(set, min, max);
+    }
+
+    // Span per series for the current report. Each series is asked twice, once per direction, and
+    // the median costs a sort of the whole series - five figures long on a long window.
+    private readonly Dictionary<object, double> _sampleSpanCache = new(ReferenceEqualityComparer.Instance);
+
+    /// <summary>
+    /// Seconds of line time one loss/latency sample speaks for.
+    /// <para>
+    /// These series arrive ALREADY aggregated: a sample stamped T is the mean of every probe that
+    /// completed in (T-A, T], and each of those spent a ping burst measuring before it completed, so
+    /// the sample covers (T-A-P, T]. Where inside that span the lossy probe actually sat is gone with
+    /// the aggregation - which is why attribution across a speed test's handover is PROPORTIONAL
+    /// rather than exclusive. Recovering the instant would mean reading the loss series unaggregated
+    /// inside the loaded windows.
+    /// </para>
+    /// </summary>
+    private double SampleSpanSeconds(IReadOnlyList<LatencySample> series)
+    {
+        if (_sampleSpanCache.TryGetValue(series, out var cached)) return cached;
+
+        var probe = (double)Math.Max(1, _options.LoadedProbeSpanSeconds);
+        if (series.Count < 2) return _sampleSpanCache[series] = probe;
+
+        var gaps = new List<double>(series.Count - 1);
+        for (var i = 1; i < series.Count; i++)
+        {
+            var gap = (series[i].Time - series[i - 1].Time).TotalSeconds;
+            if (gap > 0) gaps.Add(gap);
+        }
+        if (gaps.Count == 0) return _sampleSpanCache[series] = probe;
+        gaps.Sort();
+        var aggregate = SeriesStats.MedianSorted(gaps) ?? 0;
+        return _sampleSpanCache[series] =
+            Math.Clamp(aggregate + probe, probe, Math.Max(probe, _options.LoadedProbeSpanMaxSeconds));
+    }
+
+    /// <summary>Median spacing of the WAN rate series, floored at the load window.</summary>
+    private int RateSampleSeconds(IspHealthInputs inputs)
+    {
+        if (_rateSampleSeconds is { } cached) return cached;
+
+        var floor = Math.Max(1, _options.LoadWindowSeconds);
+        var rates = inputs.WanRates;
+        if (rates.Count < 2) return (_rateSampleSeconds = floor).Value;
+
+        var gaps = new List<double>(rates.Count - 1);
+        for (var i = 1; i < rates.Count; i++)
+        {
+            var gap = (rates[i].Time - rates[i - 1].Time).TotalSeconds;
+            if (gap > 0) gaps.Add(gap);
+        }
+        gaps.Sort();
+        var median = SeriesStats.MedianSorted(gaps);
+        _rateSampleSeconds = median is > 0 ? Math.Max(floor, (int)Math.Round(median.Value)) : floor;
+        return _rateSampleSeconds.Value;
     }
 
     private DateTime FloorToWindow(DateTime time) =>

@@ -71,7 +71,8 @@ public static class LoadClassifier
                 && peak.Down < options.IdleThresholdFraction * expectedDownBps.Value
                 && peak.Up < options.IdleThresholdFraction * expectedUpBps.Value;
 
-            result[key] = new LoadWindow(idle, loadedDown, loadedUp);
+            // Recorded twice: DemoteIsolated clears the live flags, never the classified pair.
+            result[key] = new LoadWindow(idle, loadedDown, loadedUp, loadedDown, loadedUp);
         }
 
         // Demote loaded windows that stand alone. A saturating transfer holds across consecutive
