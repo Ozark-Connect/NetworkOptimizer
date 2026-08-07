@@ -223,12 +223,16 @@ fi
 eval "$($BREW_PREFIX/bin/brew shellenv)"
 
 echo "Installing required packages..."
-brew install sshpass iperf3 nginx go 2>/dev/null || true
+brew install sshpass iperf3 go 2>/dev/null || true
 
-# brew install no-ops on an already-installed formula, so nginx never moves on a
-# re-run. Upgrading it stays opt-in because Homebrew's nginx is shared - it may also
-# be fronting a reverse proxy or other sites here, and an upgrade restarts them.
-if [ "$UPGRADE_NGINX" = true ]; then
+# nginx is deliberately not on the line above: brew install UPGRADES an outdated
+# formula, and Homebrew's nginx is shared - it may be fronting a reverse proxy or
+# other sites on this Mac, which an upgrade then restarts. Install it when missing,
+# move it only when asked. Build tools (go, dotnet) stay on the upgrade-always path.
+if ! brew list --formula nginx >/dev/null 2>&1; then
+    echo "Installing nginx..."
+    brew install nginx 2>/dev/null || true
+elif [ "$UPGRADE_NGINX" = true ]; then
     echo "Upgrading nginx (--upgrade-nginx)..."
     brew upgrade nginx 2>/dev/null || true
 fi
