@@ -2277,7 +2277,7 @@
         // at the mount because the mount runs once and can get there first: _monitoringReady does
         // not wait on this load, so the restore would find nothing to restore against, decline to
         // spend its one-shot, and never be asked again. Its own guard makes the second call free.
-        await RestoreWanSelectionAsync();
+        await RestoreWanSelectionAsync("options");
         // A link that arrived before this point resolved nothing and was waiting on it. Applying
         // it here rather than leaving it to the next mount is what makes a deep link land on its
         // WAN every time instead of most of the time.
@@ -2350,6 +2350,7 @@
             _lanScope = false;
             _allScope = false;
             _selectedWanKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { focus };
+            Logger.LogDebug("WANsel: ADOPT took [{Focus}] apply={Apply}", focus, apply);
             if (apply) await ApplyWanSelectionAsync(persist: true);
         }
         catch { /* no interop yet - the stored set stands */ }
@@ -2369,6 +2370,8 @@
         _linkNarrowedWanSelection = false;
         // Lets the stored selection be read again; nothing else clears this one-shot.
         _wanSelectionRestored = false;
+        Logger.LogDebug("WANsel: RELEASE re-armed the restore, wan={Wan} selected=[{Keys}]",
+            WanParam, string.Join(",", _selectedWanKeys));
     }
 
     /// <summary>
@@ -2413,6 +2416,8 @@
         // options are loaded by here, so a WAN this site does not have will not resolve on a later
         // pass either. Leaving it unstamped would hold the deep-link gate open forever.
         _appliedLinkWanKey = LinkWanKey;
+        Logger.LogDebug("WANsel: LINK applying [{Keys}] over selected=[{Prev}] lan={Lan}",
+            string.Join(",", keys), string.Join(",", _selectedWanKeys), _lanScope);
         Logger.LogDebug("Link WAN: resolved {Wan} to [{Keys}] against [{Options}]",
             WanParam, string.Join(",", keys), string.Join(",", _wanOptions.Select(o => o.Key)));
         if (keys.Count == 0) return;
@@ -2454,8 +2459,10 @@
             .ToList();
     }
 
-    private async Task RestoreWanSelectionAsync()
+    private async Task RestoreWanSelectionAsync(string who = "?")
     {
+        Logger.LogDebug("WANsel: RESTORE({Who}) enter restored={Done} bar={Bar} wan={Wan} selected=[{Keys}] lan={Lan}",
+            who, _wanSelectionRestored, ScopeBarVisible, WanParam, string.Join(",", _selectedWanKeys), _lanScope);
         if (_wanSelectionRestored || !ScopeBarVisible) return;
         _wanSelectionRestored = true;
         try
@@ -2487,6 +2494,8 @@
             await AdoptSharedWanFocusAsync(apply: false);
         }
         catch { }
+        Logger.LogDebug("WANsel: RESTORE({Who}) set [{Keys}] lan={Lan} all={All}",
+            who, string.Join(",", _selectedWanKeys), _lanScope, _allScope);
         await ApplyWanSelectionAsync(persist: false);
     }
 
@@ -5475,7 +5484,7 @@
                 // link's, because the link only narrows to a WAN the saved filter does not already
                 // show - and it cannot know that until the saved one is in hand.
                 ReleaseLinkWanSelection();
-                await RestoreWanSelectionAsync();
+                await RestoreWanSelectionAsync("mount");
                 await ApplyLinkWanSelectionAsync();
                 var postMount = "";
                 if (!string.IsNullOrEmpty(_preSelectCategory))
