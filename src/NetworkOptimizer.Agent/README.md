@@ -376,8 +376,27 @@ everything else to the app:
 - gRPC tunnel path: `/networkoptimizer.agent.v1.AgentTunnel/` -> `https://127.0.0.1:8043` (self-signed, skip verification)
 - everything else (app + `/api/public/agents/*`) -> `http://127.0.0.1:8042`
 
-**Traefik** (file provider) - add a higher-priority path router alongside the
-app router on the same host:
+The tunnel is one long-lived HTTP/2 request that stays open for as long as the
+agent is connected. Most proxies ship a whole-request or request-body read
+deadline measured in seconds, which severs a perfectly healthy tunnel on a
+timer, so raise or disable that deadline on the route serving the tunnel and
+keep HTTP/2 end to end.
+
+**Traefik** - in the static config, clear the read deadline on the entrypoint
+that serves the tunnel. Traefik v3 defaults `readTimeout` to 60 seconds and
+applies it to the entire request, which resets the tunnel every 60 seconds:
+
+```yaml
+entryPoints:
+  websecure:
+    address: ":443"
+    transport:
+      respondingTimeouts:
+        readTimeout: 0
+```
+
+Then in the dynamic config (file provider), add a higher-priority path router
+alongside the app router on the same host:
 
 ```yaml
 routers:
@@ -419,13 +438,21 @@ optimizer.example.com {
 }
 ```
 
-**nginx**:
+Caddy needs no timeout changes for the tunnel - its server read timeouts are
+unset by default.
+
+**nginx** - `grpc_pass` keeps the stream on HTTP/2, and the three 60-second
+defaults below all have to be lifted or the tunnel dies on whichever fires
+first:
 
 ```nginx
 location /networkoptimizer.agent.v1.AgentTunnel/ {
     grpc_pass grpcs://127.0.0.1:8043;
     grpc_ssl_verify off;
     grpc_set_header Host $host;
+    grpc_read_timeout 1d;
+    grpc_send_timeout 1d;
+    client_body_timeout 1d;
 }
 location / {
     proxy_pass http://127.0.0.1:8042;
@@ -433,9 +460,24 @@ location / {
 }
 ```
 
-Do not gzip the gRPC path - compression breaks streaming. Over a site-to-site
-VPN the same config applies; the proxy is simply reached at its VPN address,
-with `"ignoreSslErrors": true` if its certificate does not match that address.
+Do not gzip the gRPC path - compression breaks streaming.
+
+A proxy timeout looks like this from the outside: enrollment and the first
+configuration exchange both succeed, then the tunnel drops on a fixed interval
+and the agent reconnects, while its log repeats a backlog that never drains.
+
+```text
+Buffered backlog: 235 result message(s) (~132 KB) will flush once the tunnel connects
+```
+
+Probe and SNMP results are buffered on the agent and flushed over the tunnel, so
+a stream that keeps resetting leaves the site reporting nothing even though the
+agent is up and reconnecting. Pin down the interval - a reset landing on the same
+round number every time is a proxy deadline, not a network fault.
+
+Over a site-to-site VPN the same config applies; the proxy is simply reached at
+its VPN address, with `"ignoreSslErrors": true` if its certificate does not
+match that address.
 Everything rides that one TLS session: heartbeats, probe and SNMP traffic
 (including SNMP credentials pushed to the agent), and proxied UniFi Console
 connections - which are additionally HTTPS end-to-end inside the tunnel.
