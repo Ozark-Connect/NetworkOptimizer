@@ -17,6 +17,7 @@
 @inject IJSRuntime JS
 @inject NetworkOptimizer.Web.Services.UiHintService UiHints
 @inject NavigationManager NavigationManager
+@inject ILogger<LiveViewPanel> Logger
 @inject Microsoft.AspNetCore.Mvc.ViewFeatures.IFileVersionProvider FileVersionProvider
 
 @if (!_ready)
@@ -561,6 +562,11 @@ else
             // monitoring IS configured, the console is just unreachable. Live stats
             // come from the buffers/Influx, not this call; the console-down banner
             // explains any staleness instead.
+            // From the site's own records, not the console - the WAN pills and every link's ?wan=
+            // need it. Nested inside the console call below, an unreachable console left the tiles
+            // rendering with no WAN scope, so their links carried no WAN at all.
+            await LiveWan.LoadAsync();
+
             try
             {
                 var devices = await ConnectionService.GetDiscoveredDevicesAsync();
@@ -570,7 +576,6 @@ else
                         d.Type == DeviceType.Gateway || d.HardwareType == DeviceType.Gateway);
                     _gatewayMac = gw?.Mac?.Replace("-", ":").ToLowerInvariant();
                     _gatewayWanIfNames = gw?.WanInterfaceNames ?? new();
-                    await LiveWan.LoadAsync();
                 }
                 _consoleUnreachable = false;
             }
@@ -701,7 +706,10 @@ else
         // which pass the moment they are frozen at. Without the token the destination fell back to
         // its saved window, so a click on a tile showing what is happening right now could land on
         // some earlier stretch of the day.
-        NavigationManager.NavigateTo(Analysis(category, LiveAtToken, LiveWan));
+        var href = Analysis(category, LiveAtToken, LiveWan);
+        Logger.LogDebug("Dashboard jump: hasChoice={HasChoice} options={Options} selected=[{Keys}] -> {Href}",
+            LiveWan.HasChoice, LiveWan.Options.Count, string.Join(",", LiveWan.SelectedKeys), href);
+        NavigationManager.NavigateTo(href);
     }
 
     private (double? rtt, double loss) GetBestTargetStats(MonitoringTargetType type)
