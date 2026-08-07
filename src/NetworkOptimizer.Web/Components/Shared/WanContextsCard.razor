@@ -288,9 +288,8 @@
                     @if (SelectedAgentCanBindInterface)
                     {
                         <p>
-                            This agent runs on the gateway, so its probes can go out the WAN's own
-                            interface. Selecting a WAN fills this in. A gateway agent has to bind it:
-                            routing policy does not govern the gateway's own traffic.
+                            This agent runs on the gateway, so its probes leave by the WAN's own
+                            interface. The interface comes from the WAN you select.
                         </p>
                     }
                     else if (!string.IsNullOrEmpty(_newAgentId))
