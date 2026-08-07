@@ -500,6 +500,37 @@ public class PortSecurityAnalyzerTests
     }
 
     [Fact]
+    public void ExtractSwitches_Ups2UPro_MarksInternalPortUnmanageableAndSkipsAuditIssues()
+    {
+        // Captured from a US UPS-2U-Pro adopted by UniFi Network.
+        var deviceData = JsonDocument.Parse(@"[
+            {
+                ""type"": ""usp"",
+                ""name"": ""UPS-2U-Pro"",
+                ""model"": ""USPDA2B"",
+                ""shortname"": ""UPSPROUS"",
+                ""port_table"": [
+                    { ""port_idx"": 1, ""name"": ""Port 1"", ""up"": true, ""forward"": ""all"" }
+                ]
+            }
+        ]").RootElement;
+        var networks = new List<NetworkInfo>
+        {
+            new() { Id = "net-1", Name = "Default", VlanId = 1 },
+            new() { Id = "net-2", Name = "IoT", VlanId = 20 },
+            new() { Id = "net-3", Name = "Cameras", VlanId = 30 }
+        };
+
+        var switches = _engine.ExtractSwitches(deviceData, networks);
+
+        switches.Should().ContainSingle();
+        switches[0].ModelName.Should().Be("UPS-2U-Pro");
+        switches[0].IsPowerDevice.Should().BeTrue();
+        switches[0].HasUnmanageablePorts.Should().BeTrue();
+        _engine.AnalyzePorts(switches, networks).Should().BeEmpty();
+    }
+
+    [Fact]
     public void AnalyzePorts_PowerDevice_SkipsAuditIssues()
     {
         // A power device's internal port is forward=all with no connected device,

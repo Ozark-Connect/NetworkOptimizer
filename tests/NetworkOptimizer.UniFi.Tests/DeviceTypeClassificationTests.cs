@@ -67,6 +67,18 @@ public class DeviceTypeClassificationTests
     }
 
     [Theory]
+    [InlineData("usp", DeviceType.SmartPower)]
+    [InlineData("USP", DeviceType.SmartPower)]
+    public void FromUniFiApiType_SmartPowerTypes_ReturnsSmartPower(string apiType, DeviceType expected)
+    {
+        // Act
+        var result = DeviceTypeExtensions.FromUniFiApiType(apiType);
+
+        // Assert
+        result.Should().Be(expected);
+    }
+
+    [Theory]
     [InlineData("umbb", DeviceType.CellularModem)]
     [InlineData("UMBB", DeviceType.CellularModem)]
     public void FromUniFiApiType_CellularModemTypes_ReturnsCellularModem(string apiType, DeviceType expected)

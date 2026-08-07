@@ -102,6 +102,7 @@ public static class UniFiProductDatabase
         // UPS and Power devices (no iperf3)
         "UPS-Tower",
         "UPS-2U",
+        "UPS-2U-Pro",
         "USP-PDU-Pro",
         "USP-PDU-HD",
         "USP-RPS",
@@ -447,6 +448,8 @@ public static class UniFiProductDatabase
         { "USWDA24", "UPS-Tower" },
         { "USWDA25", "UPS-2U" },
         { "USWDA26", "UPS-2U" },
+        { "USPDA2B", "UPS-2U-Pro" },
+        { "USPDA2C", "UPS-2U-Pro" },
 
         // ----- Official: Building Bridge -----
         { "UBB", "UBB" },
@@ -649,6 +652,9 @@ public static class UniFiProductDatabase
         { "U5G-Antenna-EU", "U5G-Backup" },
         { "UDBPRO", "UDB-Pro" },
         { "UDBPROSECTOR", "UDB-Pro-Sector" },
+        { "UPSPROUS", "UPS-2U-Pro" },
+        { "UPS2UPROUS", "UPS-2U-Pro" },
+        { "UPS2UPROEU", "UPS-2U-Pro" },
         { "USPPLUG", "USP-Plug" },
         { "USPSTRIP", "USP-Strip" },
     };
@@ -756,17 +762,18 @@ public static class UniFiProductDatabase
 
     /// <summary>
     /// UniFi power devices (UPS, PDU, redundant power supplies, smart plugs/strips).
-    /// Ubiquiti reports these with SWITCH device capabilities, so the API exposes a
-    /// single internal/management port_table row. That port is not a controllable
+    /// Ubiquiti reports these with power-device capabilities and exposes a single
+    /// internal/management port_table row. That port is not a controllable
     /// downstream edge port - it cannot be reconfigured with an access/trunk profile -
     /// so port-level VLAN/profile audits are not actionable for these devices.
     ///
     /// HOW TO MAINTAIN THIS LIST:
     /// Derive it from Ubiquiti's device database at https://static.ui.com/fingerprint/ui/public.json
-    /// A true power device reports type "usw", deviceCapabilities containing "SWITCH" together with
-    /// power capabilities (SMART_POWER / SMART_OUTLET / BATTERY_MANAGEMENT / REDUNDANT_POWER), AND
-    /// numberOfPorts == 1 (the single internal/management port). Add the product name (the value
-    /// GetBestProductName resolves to) here.
+    /// Most power devices report type "usw" and deviceCapabilities containing "SWITCH" together
+    /// with power capabilities (SMART_POWER / SMART_OUTLET / BATTERY_MANAGEMENT / REDUNDANT_POWER).
+    /// Newer devices may report the dedicated "usp" type without SWITCH. In both cases,
+    /// numberOfPorts == 1 identifies the single internal/management port. Add the product name
+    /// (the value GetBestProductName resolves to) here.
     ///
     /// DO NOT exclude on power capabilities alone. Some real, fully manageable switches carry the
     /// same power caps - e.g. USW-Mission-Critical (USL8MP) reports SWITCH + SMART_POWER +
@@ -779,6 +786,7 @@ public static class UniFiProductDatabase
     {
         "UPS-Tower",
         "UPS-2U",
+        "UPS-2U-Pro",
         "USP-PDU-Pro",
         "USP-PDU-HD",
         "USP-RPS",
