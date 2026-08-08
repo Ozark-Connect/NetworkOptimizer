@@ -236,6 +236,32 @@ public class CellularModemService : ICellularModemService
     }
 
     /// <summary>
+    /// Power-cycle a modem's radio to force a fresh cell selection, then re-poll so
+    /// the caller sees the result. The caller is responsible for confirming with the
+    /// user first: this drops the cellular connection for several seconds.
+    /// </summary>
+    /// <param name="modemId">The modem configuration ID.</param>
+    /// <returns>A tuple containing success status and message.</returns>
+    public async Task<(bool success, string message)> ResetRadioAsync(int modemId)
+    {
+        var modems = await GetModemsAsync();
+        var modem = modems.FirstOrDefault(m => m.Id == modemId);
+        if (modem == null)
+            return (false, "That modem is no longer configured.");
+
+        if (ResolveProvider(modem) is not ISupportsRadioReset provider)
+            return (false, $"{modem.Name} does not support a radio reset.");
+
+        var context = await ToPollContextAsync(modem);
+        var result = await provider.ResetRadioAsync(context);
+
+        if (result.success)
+            await PollModemAsync(modem);
+
+        return result;
+    }
+
+    /// <summary>
     /// Provider-aware probe. Resolves the provider for the configuration
     /// and asks it to verify reachability and (where applicable) auth.
     /// Used by the Settings page Probe & Detect button.

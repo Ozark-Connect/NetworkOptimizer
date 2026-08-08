@@ -46,6 +46,15 @@ public interface ICellularModemService : IDisposable
     Task<(bool success, string message)> PollModemAsync(ModemConfiguration modem);
 
     /// <summary>
+    /// Power-cycle a modem's radio to force a fresh cell selection, then re-poll.
+    /// Drops the cellular connection for several seconds, so callers must confirm
+    /// with the user first. Fails for providers without the capability.
+    /// </summary>
+    /// <param name="modemId">The modem configuration ID.</param>
+    /// <returns>A tuple containing success status and message.</returns>
+    Task<(bool success, string message)> ResetRadioAsync(int modemId);
+
+    /// <summary>
     /// Get all configured modems.
     /// </summary>
     /// <returns>A list of all modem configurations.</returns>

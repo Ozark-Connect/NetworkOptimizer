@@ -419,4 +419,82 @@ public class UiwwandParserTests
     }
 
     #endregion
+
+    #region EN-DC State Tests
+
+    private const string SystemInfoOutput = @"[/dev/wwan0qmi0] Successfully got system info:
+	LTE service:
+		Registration restriction: 'unrestricted'
+		5G NSA Available: '{0}'
+		DCNR Restriction: '{1}'";
+
+    [Theory]
+    [InlineData("yes", "no", true, false)]
+    [InlineData("no", "no", false, false)]
+    [InlineData("no", "yes", false, true)]
+    public void ParseSystemInfo_ReadsBothFlags(
+        string nsa, string dcnr, bool expectedNsa, bool expectedDcnr)
+    {
+        var output = string.Format(SystemInfoOutput, nsa, dcnr);
+
+        var (nsaAvailable, dcnrRestricted) = QmicliParser.ParseSystemInfo(output);
+
+        nsaAvailable.Should().Be(expectedNsa);
+        dcnrRestricted.Should().Be(expectedDcnr);
+    }
+
+    [Fact]
+    public void ParseSystemInfo_FlagsAbsent_ReturnsNulls()
+    {
+        var (nsaAvailable, dcnrRestricted) = QmicliParser.ParseSystemInfo("no LTE service reported");
+
+        nsaAvailable.Should().BeNull();
+        dcnrRestricted.Should().BeNull();
+    }
+
+    [Fact]
+    public void EnDc_FlagsMissing_IsUnknown()
+    {
+        new CellularModemStats().EnDc.Should().Be(EnDcState.Unknown);
+        new CellularModemStats { Is5gNsaAvailable = false }.EnDc.Should().Be(EnDcState.Unknown);
+    }
+
+    [Fact]
+    public void EnDc_PermittedButCellDoesNotOfferIt_IsAnchorMissing()
+    {
+        var stats = new CellularModemStats { Is5gNsaAvailable = false, IsDcnrRestricted = false };
+
+        stats.EnDc.Should().Be(EnDcState.AnchorMissing);
+    }
+
+    [Fact]
+    public void EnDc_NetworkRestricted_OutranksAnchorState()
+    {
+        var stats = new CellularModemStats { Is5gNsaAvailable = false, IsDcnrRestricted = true };
+
+        stats.EnDc.Should().Be(EnDcState.NetworkRestricted);
+    }
+
+    [Fact]
+    public void EnDc_CellOffersItButNoNrLegYet_IsAnchorCapable()
+    {
+        var stats = new CellularModemStats { Is5gNsaAvailable = true, IsDcnrRestricted = false };
+
+        stats.EnDc.Should().Be(EnDcState.AnchorCapable);
+    }
+
+    [Fact]
+    public void EnDc_NrLegAttached_IsAttached()
+    {
+        var stats = new CellularModemStats
+        {
+            Is5gNsaAvailable = true,
+            IsDcnrRestricted = false,
+            Nr5g = new SignalInfo { Rsrp = -82 },
+        };
+
+        stats.EnDc.Should().Be(EnDcState.Attached);
+    }
+
+    #endregion
 }

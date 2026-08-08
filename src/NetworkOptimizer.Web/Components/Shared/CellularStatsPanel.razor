@@ -1,6 +1,8 @@
 @using NetworkOptimizer.Web.Services
 @using NetworkOptimizer.Monitoring.Models
+@using Microsoft.JSInterop
 @inject CellularModemService ModemService
+@inject IJSRuntime JS
 @implements IDisposable
 
 <div class="cellular-stats-panel">
@@ -135,6 +137,24 @@
                 @if (modemStats.IsRoaming)
                 {
                     <span class="roaming-badge">Roaming</span>
+                }
+                @if (ShowRadioReset)
+                {
+                    @* Tooltip lives on the wrapper: a disabled button has pointer-events none and never fires the hover *@
+                    <span class="radio-reset" data-tooltip="@RadioResetTooltip" @onclick:stopPropagation>
+                        <button class="radio-reset-btn" @onclick="ResetRadio" @onclick:stopPropagation
+                                disabled="@(isResettingRadio || modemStats.EnDc != EnDcState.AnchorMissing)"
+                                aria-label="Reset Radio">
+                            @if (isResettingRadio)
+                            {
+                                <span class="spinner-sm"></span>
+                            }
+                            else
+                            {
+                                <span>&#x21bb;</span>
+                            }
+                        </button>
+                    </span>
                 }
             </div>
             <div class="network-mode-description">
@@ -365,6 +385,35 @@
         font-weight: 600;
     }
 
+    .radio-reset {
+        margin-left: auto;
+    }
+
+    .radio-reset-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 28px;
+        height: 28px;
+        padding: 0;
+        border: 1px solid var(--border-color);
+        border-radius: 4px;
+        background: var(--bg-tertiary);
+        color: var(--text-secondary);
+        font-size: 1rem;
+        cursor: pointer;
+    }
+
+    .radio-reset-btn:hover:not(:disabled) {
+        background: var(--bg-hover);
+        color: var(--text-primary);
+    }
+
+    .radio-reset-btn:disabled {
+        opacity: 0.4;
+        cursor: default;
+    }
+
     .registration-state {
         color: var(--text-muted, #888);
         font-size: 0.85rem;
@@ -442,6 +491,7 @@
     private CellularModemStats? modemStats;
     private bool isLoading = true;
     private bool isRefreshing = false;
+    private bool isResettingRadio = false;
     private bool hasConfiguredModems = false;
     private List<NetworkOptimizer.Storage.Models.ModemConfiguration> configuredModems = new();
     private int currentModemIndex = 0;
@@ -556,6 +606,48 @@
         finally
         {
             isRefreshing = false;
+            StateHasChanged();
+        }
+    }
+
+    /// <summary>
+    /// Only offered when the EN-DC flags say something about it: hidden when 5G is
+    /// already attached, and when the modem reported no flags at all.
+    /// </summary>
+    private bool ShowRadioReset => modemStats?.EnDc
+        is EnDcState.AnchorMissing or EnDcState.AnchorCapable or EnDcState.NetworkRestricted;
+
+    private string RadioResetTooltip => modemStats?.EnDc switch
+    {
+        EnDcState.AnchorCapable => "Anchor is fine and the 5G leg is still connecting. Resetting now would undo it.",
+        EnDcState.NetworkRestricted => "Your carrier is not offering 5G on this connection right now, so resetting the radio will not bring it back.",
+        _ => "Reset Radio: cycles the radio off and on for about 7 seconds to force a fresh tower selection. Use when the modem is stuck on LTE and will not pick up 5G again.",
+    };
+
+    private async Task ResetRadio()
+    {
+        if (modemStats?.EnDc != EnDcState.AnchorMissing) return;
+        if (configuredModems.Count == 0 || currentModemIndex >= configuredModems.Count) return;
+
+        var confirmed = await JS.InvokeAsync<bool>("confirm",
+            "Resetting the radio drops the cellular connection for about 7 seconds while the modem re-selects a tower.\n\nAre you sure?");
+        if (!confirmed) return;
+
+        var modem = configuredModems[currentModemIndex];
+        isResettingRadio = true;
+        StateHasChanged();
+
+        try
+        {
+            var (success, _) = await ModemService.ResetRadioAsync(modem.Id);
+            if (success)
+            {
+                modemStats = ModemService.GetCachedStats(modem.Id);
+            }
+        }
+        finally
+        {
+            isResettingRadio = false;
             StateHasChanged();
         }
     }

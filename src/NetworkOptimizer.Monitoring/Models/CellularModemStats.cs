@@ -16,6 +16,25 @@ public enum CellularNetworkMode
 }
 
 /// <summary>
+/// EN-DC (5G NSA) state, derived from the modem's 5G NSA availability and DCNR
+/// restriction flags. Distinguishes the one case a radio reset can fix - the network
+/// permits EN-DC but the serving cell does not offer it - from cases where it cannot.
+/// </summary>
+public enum EnDcState
+{
+    /// <summary>System info was unavailable, so nothing can be concluded.</summary>
+    Unknown,
+    /// <summary>An NR secondary cell is attached - 5G is up.</summary>
+    Attached,
+    /// <summary>The network is withholding EN-DC from this UE. No anchor change can help.</summary>
+    NetworkRestricted,
+    /// <summary>The serving cell offers EN-DC and the NR leg has not attached yet.</summary>
+    AnchorCapable,
+    /// <summary>EN-DC is permitted but the serving cell does not offer it.</summary>
+    AnchorMissing
+}
+
+/// <summary>
 /// Comprehensive cellular modem statistics from qmicli commands
 /// Supports LTE and 5G NR data from UniFi U5G-Max and similar modems
 /// </summary>
@@ -43,6 +62,32 @@ public class CellularModemStats
 
     // Band info
     public BandInfo? ActiveBand { get; set; }
+
+    // EN-DC (5G NSA) anchor state, from the modem's system info
+    /// <summary>Serving cell advertises EN-DC support. Null when system info was unavailable.</summary>
+    public bool? Is5gNsaAvailable { get; set; }
+
+    /// <summary>Network is withholding EN-DC from this UE. Null when system info was unavailable.</summary>
+    public bool? IsDcnrRestricted { get; set; }
+
+    /// <summary>
+    /// Why 5G is or is not up, from the pair of EN-DC flags. The pair matters: a missing
+    /// NR leg is only worth acting on when the network permits EN-DC and the serving cell
+    /// is the one withholding it.
+    /// </summary>
+    public EnDcState EnDc
+    {
+        get
+        {
+            if (!Is5gNsaAvailable.HasValue || !IsDcnrRestricted.HasValue)
+                return EnDcState.Unknown;
+            if (Nr5g?.Rsrp.HasValue == true)
+                return EnDcState.Attached;
+            if (IsDcnrRestricted.Value)
+                return EnDcState.NetworkRestricted;
+            return Is5gNsaAvailable.Value ? EnDcState.AnchorCapable : EnDcState.AnchorMissing;
+        }
+    }
 
     /// <summary>
     /// Detected network mode (LTE, 5G NSA, 5G SA)
