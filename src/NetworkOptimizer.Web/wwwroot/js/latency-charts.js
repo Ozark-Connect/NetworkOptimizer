@@ -6,7 +6,7 @@
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=7';
-import { valueSortedTooltip, tooltipHeld } from './chart-tooltip.js?v=13';
+import { valueSortedTooltip, tooltipHeld, alignedOnto } from './chart-tooltip.js?v=13';
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=5';
 import { downloadColor, uploadColor } from './chart-colors.js?v=2';
 import { createAxisDateCaption } from './chart-axis-date.js?v=2';
@@ -517,8 +517,19 @@ async function loadAndUpdate() {
             const resp = await fetch(`/api/monitoring/wan-rate-chart?${timeParams}`, { credentials: 'same-origin' });
             if (resp.ok) {
                 const wan = await resp.json();
-                const dlSeries = (wan.download || []).map(p => ({ x: new Date(p.time).getTime(), y: p.value }));
-                const ulSeries = (wan.upload || []).map(p => ({ x: new Date(p.time).getTime(), y: p.value }));
+                // Placed on the longest series on screen rather than on its own rows. Hover sync
+                // addresses a point by INDEX, and this chart answers a different query: when its
+                // array is shorter than the index it is handed - which changing category does,
+                // since each one brings targets with their own row counts - there is nothing at
+                // that position and the synced tooltip draws nothing at all.
+                const refRows = (lastFetchData?.targets || [])
+                    .map(t => t.rtt || [])
+                    .reduce((longest, rows) => (rows.length > longest.length ? rows : longest), []);
+                const wanSeries = (points) => refRows.length
+                    ? alignedOnto(refRows, points || [], p => p.value)
+                    : (points || []).map(p => ({ x: new Date(p.time).getTime(), y: p.value }));
+                const dlSeries = wanSeries(wan.download);
+                const ulSeries = wanSeries(wan.upload);
                 wanRateChart.updateSeries([
                     { name: 'Download', data: dlSeries },
                     { name: 'Upload', data: ulSeries }
