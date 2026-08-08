@@ -1362,3 +1362,45 @@ public class AccessIspFallbackTests
             .Should().BeNull();
     }
 }
+
+public class CarveOutBlockedByTier1AccessTests
+{
+    private const int Lumen = 3356;
+    private const int Att = 7018;
+    private const int Indatel = 30517;
+    private static IReadOnlySet<int> Tier1 => new HashSet<int> { Lumen, Att, 1299 };
+
+    [Fact]
+    public void Regional_carve_out_is_blocked_above_a_tier1_access_isp()
+    {
+        // INDATEL cannot be AT&T's upstream; it is on the path only because we probed it.
+        UpstreamTracerService.CarveOutBlockedByTier1Access(Indatel, accessIsTier1: true, Tier1)
+            .Should().BeTrue();
+    }
+
+    [Fact]
+    public void Tier1_carve_out_survives_a_tier1_access_isp()
+    {
+        // Lumen above AT&T is a real relationship, so the Lumen probe stays eligible.
+        UpstreamTracerService.CarveOutBlockedByTier1Access(Lumen, accessIsTier1: true, Tier1)
+            .Should().BeFalse();
+    }
+
+    [Fact]
+    public void Regional_carve_out_survives_a_normal_access_isp()
+    {
+        // The reason the carve-out exists: on an INDATEL member ISP, access -> INDATEL is
+        // genuinely its transit and must still be discovered.
+        UpstreamTracerService.CarveOutBlockedByTier1Access(Indatel, accessIsTier1: false, Tier1)
+            .Should().BeFalse();
+    }
+
+    [Fact]
+    public void Nothing_is_blocked_when_the_access_isp_is_not_tier1()
+    {
+        UpstreamTracerService.CarveOutBlockedByTier1Access(Lumen, accessIsTier1: false, Tier1)
+            .Should().BeFalse();
+        UpstreamTracerService.CarveOutBlockedByTier1Access(64500, accessIsTier1: false, Tier1)
+            .Should().BeFalse();
+    }
+}
