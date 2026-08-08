@@ -1984,6 +1984,9 @@
         get
         {
             if (!_multiWanUiVisible || _wanOptions.Count <= 1) return string.Empty;
+            // Comparing draws every selected WAN on the chart, each named in its own series, so
+            // naming one of them in the title would contradict what is on screen.
+            if (_selectedWanKeys.Count > 1) return string.Empty;
             var focused = _wanOptions.FirstOrDefault(w => string.Equals(w.Key, FocusedWanKey, StringComparison.OrdinalIgnoreCase));
             // Prose form, not the pill form: a title is read as a phrase, so the WAN token needs
             // parentheses to sit apart from the connection's name instead of running into it.

@@ -512,26 +512,44 @@ async function loadAndUpdate() {
     if (wanCard) wanCard.style.display = showWanRate ? '' : 'none';
 
     if (showWanRate && wanRateChart) {
-        let timeParams = buildQueryParams().replace(/category=[^&]*&?/, '');
-        // The throughput reference follows the WAN filter: the solo-selected WAN, or the
-        // primary while comparing (never a sum - Blazor labels the card accordingly).
-        if (wanScope) {
-            const focused = wanScope.selected.length === 1 ? wanScope.selected[0] : wanScope.primaryKey;
-            if (focused) timeParams += `${timeParams ? '&' : ''}wan=${encodeURIComponent(focused)}`;
-        }
+        const timeParams = buildQueryParams().replace(/category=[^&]*&?/, '');
+        // The throughput follows the WAN filter: the WANs being compared, each drawn in full.
+        // Summing them would answer a question nobody asked - the point of comparing two WANs is
+        // to see them apart - so they arrive as their own pair of lines, told apart the way the
+        // RTT chart tells its WANs apart.
+        const keys = wanScope?.selected?.length ? wanScope.selected : [null];
+        const many = keys.length > 1;
+
+        // Its own samples, at its own cadence - only the extents are trimmed and padded to the
+        // group's, which is all the hover sync asks for.
+        const points = (pts) => (pts || []).map(p => ({ x: new Date(p.time).getTime(), y: p.value }));
+
         try {
-            const resp = await fetch(`/api/monitoring/wan-rate-chart?${timeParams}`, { credentials: 'same-origin' });
-            if (resp.ok) {
-                const wan = await resp.json();
-                // Its own samples, at its own cadence - only the extents are stretched to the
-                // group's, which is all the hover sync asks for.
-                const wanSeries = (points) =>
-                    (points || []).map(p => ({ x: new Date(p.time).getTime(), y: p.value }));
-                wanRateChart.updateSeries(spanTo([
-                    { name: 'Download', data: wanSeries(wan.download) },
-                    { name: 'Upload', data: wanSeries(wan.upload) }
-                ], groupExtents), false);
-            }
+            const fetched = await Promise.all(keys.map(async (key) => {
+                const params = key ? `${timeParams}${timeParams ? '&' : ''}wan=${encodeURIComponent(key)}` : timeParams;
+                const resp = await fetch(`/api/monitoring/wan-rate-chart?${params}`, { credentials: 'same-origin' });
+                return resp.ok ? { key, wan: await resp.json() } : null;
+            }));
+
+            const series = [];
+            const dashes = [];
+            fetched.filter(Boolean).forEach(({ key, wan }, i) => {
+                // The WAN's own token, as on the pills: the color says download or upload, so the
+                // name and the dash are what say which connection.
+                const token = many ? ` (${wanScope.tokens?.[key] || String(key).toUpperCase()})` : '';
+                const dash = many ? WAN_DASH_PATTERNS[i % WAN_DASH_PATTERNS.length] : 0;
+                series.push(
+                    { name: `Download${token}`, color: downloadColor(), data: points(wan.download) },
+                    { name: `Upload${token}`, color: uploadColor(), data: points(wan.upload) });
+                dashes.push(dash, dash);
+            });
+            if (!series.length) return;
+
+            wanRateChart.updateSeries(spanTo(series, groupExtents), false);
+            // Positional, so rebuilt against the WANs actually drawn - and fourth argument false,
+            // or the group takes this pattern for its own series.
+            wanRateChart.updateOptions(
+                { stroke: { curve: 'smooth', width: 2, dashArray: dashes } }, false, false, false);
         } catch { }
     }
 }
