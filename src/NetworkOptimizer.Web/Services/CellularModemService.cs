@@ -108,11 +108,11 @@ public class CellularModemService : ICellularModemService
     /// Get cached stats for a specific modem without polling.
     /// Returns null if no cached stats exist for this modem.
     /// </summary>
-    public CellularModemStats? GetCachedStats(int modemId)
+    public Task<CellularModemStats?> GetCachedStatsAsync(int modemId)
     {
         lock (_lock)
         {
-            return _statsCache.TryGetValue(modemId, out var stats) ? stats : null;
+            return Task.FromResult(_statsCache.TryGetValue(modemId, out var stats) ? stats : null);
         }
     }
 

@@ -1,6 +1,6 @@
 @using NetworkOptimizer.Web.Services
 @using NetworkOptimizer.Monitoring.Models
-@inject CableModemMonitorService CmService
+@inject ICableModemService CmService
 @implements IDisposable
 
 <div class="cellular-stats-panel">
@@ -61,7 +61,7 @@
                     @if (_isRefreshing) { <span class="spinner-sm"></span> } else { <span>Refresh</span> }
                 </button>
             </span>
-            <a href="/settings#cable-modem" class="btn btn-primary" @onclick:stopPropagation>CM Settings</a>
+            <SiteAdminOnly><a href="/settings#cable-modem" class="btn btn-primary" @onclick:stopPropagation>CM Settings</a></SiteAdminOnly>
         </div>
     }
     else if (_stats == null)
@@ -75,7 +75,7 @@
                 Monitor your cable modem's downstream power, SNR, upstream power, and FEC error rates. Supports Netgear, ARRIS Surfboard, Motorola, and Xfinity modems.
             </p>
             <div class="sqm-actions">
-                <a href="/settings#cable-modem" class="btn btn-primary" @onclick:stopPropagation>Configure CM</a>
+                <SiteAdminOnly><a href="/settings#cable-modem" class="btn btn-primary" @onclick:stopPropagation>Configure CM</a></SiteAdminOnly>
             </div>
         </div>
     }
@@ -152,7 +152,7 @@
                     @if (_isRefreshing) { <span class="spinner-sm"></span> } else { <span>Refresh</span> }
                 </button>
             </span>
-            <a href="/settings#cable-modem" class="btn btn-primary" @onclick:stopPropagation>CM Settings</a>
+            <SiteAdminOnly><a href="/settings#cable-modem" class="btn btn-primary" @onclick:stopPropagation>CM Settings</a></SiteAdminOnly>
         </div>
     }
 </div>
@@ -202,11 +202,10 @@
         await LoadStatsAsync();
     }
 
-    private Task LoadStatsAsync()
+    private async Task LoadStatsAsync()
     {
-        if (_configs.Count == 0) { _stats = null; return Task.CompletedTask; }
-        _stats = CmService.GetCachedStats(_configs[_currentIndex].Id);
-        return Task.CompletedTask;
+        if (_configs.Count == 0) { _stats = null; return; }
+        _stats = await CmService.GetCachedStatsAsync(_configs[_currentIndex].Id);
     }
 
     /// <summary>Whether polling is enabled for the currently shown modem (disabled configs

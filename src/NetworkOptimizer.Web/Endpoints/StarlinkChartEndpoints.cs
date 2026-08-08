@@ -20,7 +20,7 @@ public static class StarlinkChartEndpoints
 
         group.MapGet("/api/monitoring/starlink-chart", async (
             MonitoringInfluxClient influx,
-            StarlinkMonitorService starlinkService,
+            IStarlinkMonitorService starlinkService,
             int? rangeHours,
             DateTime? from,
             DateTime? to,
@@ -80,11 +80,11 @@ public static class StarlinkChartEndpoints
             return Results.Ok(new { devices = result });
         });
 
-        group.MapGet("/api/monitoring/starlink/{id:int}/obstruction-map", (
-            StarlinkMonitorService starlinkService,
+        group.MapGet("/api/monitoring/starlink/{id:int}/obstruction-map", async (
+            IStarlinkMonitorService starlinkService,
             int id) =>
         {
-            var map = starlinkService.GetCachedObstructionMap(id);
+            var map = await starlinkService.GetCachedObstructionMapAsync(id);
             if (map == null)
                 return Results.NotFound();
 
@@ -99,10 +99,10 @@ public static class StarlinkChartEndpoints
         });
 
         group.MapGet("/api/monitoring/starlink/stats", async (
-            StarlinkMonitorService starlinkService) =>
+            IStarlinkMonitorService starlinkService) =>
         {
             var configs = await starlinkService.GetConfigsAsync();
-            var cached = starlinkService.GetAllCachedStats();
+            var cached = await starlinkService.GetAllCachedStatsAsync();
 
             var terminals = configs.Select(c =>
             {

@@ -1,6 +1,6 @@
 @using NetworkOptimizer.Web.Services
 @using NetworkOptimizer.Monitoring.Models
-@inject StarlinkMonitorService StarlinkService
+@inject IStarlinkMonitorService StarlinkService
 @inject IJSRuntime JS
 @implements IAsyncDisposable
 
@@ -21,7 +21,7 @@
             </div>
             <p class="status-message">No Starlink terminal configured.</p>
             <div class="sqm-actions">
-                <a href="/settings#starlink" class="btn btn-primary" @onclick:stopPropagation>Configure Starlink</a>
+                <SiteAdminOnly><a href="/settings#starlink" class="btn btn-primary" @onclick:stopPropagation>Configure Starlink</a></SiteAdminOnly>
             </div>
         </div>
     }
@@ -146,7 +146,7 @@
                     }
                 </button>
             </span>
-            <a href="/settings#starlink" class="btn btn-primary" @onclick:stopPropagation>Starlink Settings</a>
+            <SiteAdminOnly><a href="/settings#starlink" class="btn btn-primary" @onclick:stopPropagation>Starlink Settings</a></SiteAdminOnly>
         </div>
     }
 </div>
@@ -325,11 +325,11 @@
                     if (configuredTerminals.Count > 0)
                     {
                         var terminal = configuredTerminals[currentIndex];
-                        var newStats = StarlinkService.GetCachedStats(terminal.Id);
+                        var newStats = await StarlinkService.GetCachedStatsAsync(terminal.Id);
                         if (newStats != null)
                         {
                             stats = newStats;
-                            obstructionMap = StarlinkService.GetCachedObstructionMap(terminal.Id);
+                            obstructionMap = await StarlinkService.GetCachedObstructionMapAsync(terminal.Id);
                         }
                     }
                     StateHasChanged();
@@ -405,8 +405,8 @@
             {
                 var terminal = configuredTerminals[currentIndex];
                 await StarlinkService.PollStarlinkAsync(terminal.Id);
-                stats = StarlinkService.GetCachedStats(terminal.Id);
-                obstructionMap = StarlinkService.GetCachedObstructionMap(terminal.Id);
+                stats = await StarlinkService.GetCachedStatsAsync(terminal.Id);
+                obstructionMap = await StarlinkService.GetCachedObstructionMapAsync(terminal.Id);
             }
         }
         finally
@@ -439,8 +439,8 @@
         if (configuredTerminals.Count == 0 || currentIndex >= configuredTerminals.Count) return;
 
         var terminal = configuredTerminals[currentIndex];
-        stats = StarlinkService.GetCachedStats(terminal.Id);
-        obstructionMap = StarlinkService.GetCachedObstructionMap(terminal.Id);
+        stats = await StarlinkService.GetCachedStatsAsync(terminal.Id);
+        obstructionMap = await StarlinkService.GetCachedObstructionMapAsync(terminal.Id);
         StateHasChanged();
 
         // Don't ping the dish of a paused terminal - the guarded poll write would
@@ -448,8 +448,8 @@
         if (stats == null && pollIfEmpty && terminal.Enabled)
         {
             await StarlinkService.PollStarlinkAsync(terminal.Id);
-            stats = StarlinkService.GetCachedStats(terminal.Id);
-            obstructionMap = StarlinkService.GetCachedObstructionMap(terminal.Id);
+            stats = await StarlinkService.GetCachedStatsAsync(terminal.Id);
+            obstructionMap = await StarlinkService.GetCachedObstructionMapAsync(terminal.Id);
             StateHasChanged();
         }
     }

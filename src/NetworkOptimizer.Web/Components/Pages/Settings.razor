@@ -23,7 +23,7 @@
 @inject ISpeedTestRepository SpeedTestRepository
 @inject AuditService AuditService
 @inject ISqmService SqmService
-@inject CellularModemService ModemService
+@inject ICellularModemService ModemService
 @inject UniFiSshService SshService
 @inject IGatewaySpeedTestService GatewayService
 @inject SystemSettingsService SystemSettings
@@ -52,9 +52,9 @@
 @inject ISiteConfigurationService SiteConfig
 @inject SnmpDetectionService SnmpDetection
 @inject MonitoringInfluxClient InfluxClient
-@inject CableModemMonitorService CmMonitorService
-@inject OntMonitorService OntMonitorService
-@inject StarlinkMonitorService StarlinkMonitor
+@inject ICableModemService CmMonitorService
+@inject IOntMonitorService OntMonitorService
+@inject IStarlinkMonitorService StarlinkMonitor
 @inject Microsoft.EntityFrameworkCore.IDbContextFactory<NetworkOptimizer.Storage.Models.NetworkOptimizerDbContext> DbFactory
 @inject NetworkOptimizer.Web.Services.Identity.IIdentityAdminService IdentityAdmin
 @inject NetworkOptimizer.Web.Services.Identity.ICurrentUserAccessor CurrentUser

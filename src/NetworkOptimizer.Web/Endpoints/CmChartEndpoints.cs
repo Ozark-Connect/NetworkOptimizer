@@ -19,7 +19,7 @@ public static class CmChartEndpoints
 
         group.MapGet("/api/monitoring/cm-chart", async (
             MonitoringInfluxClient influx,
-            CableModemMonitorService cmService,
+            ICableModemService cmService,
             int? rangeHours,
             DateTime? from,
             DateTime? to,

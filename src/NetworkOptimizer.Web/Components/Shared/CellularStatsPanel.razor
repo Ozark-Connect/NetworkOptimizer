@@ -1,7 +1,7 @@
 @using NetworkOptimizer.Web.Services
 @using NetworkOptimizer.Monitoring.Models
 @using Microsoft.JSInterop
-@inject CellularModemService ModemService
+@inject ICellularModemService ModemService
 @inject IJSRuntime JS
 @implements IDisposable
 
@@ -69,7 +69,7 @@
                     @if (isRefreshing) { <span class="spinner-sm"></span> } else { <span>Refresh</span> }
                 </button>
             </span>
-            <a href="/settings#cellular-modem" class="btn btn-primary" @onclick:stopPropagation>Modem Settings</a>
+            <SiteAdminOnly><a href="/settings#cellular-modem" class="btn btn-primary" @onclick:stopPropagation>Modem Settings</a></SiteAdminOnly>
         </div>
     }
     else if (modemStats == null)
@@ -81,7 +81,7 @@
             </div>
             <p class="status-message">No cellular modem configured.</p>
             <div class="sqm-actions">
-                <a href="/settings#cellular-modem" class="btn btn-primary" @onclick:stopPropagation>Configure Modem</a>
+                <SiteAdminOnly><a href="/settings#cellular-modem" class="btn btn-primary" @onclick:stopPropagation>Configure Modem</a></SiteAdminOnly>
             </div>
         </div>
     }
@@ -282,7 +282,7 @@
                     }
                 </button>
             </span>
-            <a href="/settings#cellular-modem" class="btn btn-primary" @onclick:stopPropagation>Modem Settings</a>
+            <SiteAdminOnly><a href="/settings#cellular-modem" class="btn btn-primary" @onclick:stopPropagation>Modem Settings</a></SiteAdminOnly>
         </div>
     }
 </div>
@@ -548,7 +548,7 @@
                     {
                         // Just fetch cached stats for current modem - don't force a poll
                         var modem = configuredModems[currentModemIndex];
-                        var newStats = ModemService.GetCachedStats(modem.Id);
+                        var newStats = await ModemService.GetCachedStatsAsync(modem.Id);
                         if (newStats != null) modemStats = newStats;
                     }
                     StateHasChanged();
@@ -577,7 +577,7 @@
                 var modem = configuredModems[currentModemIndex];
 
                 // Use cached stats if available, otherwise poll
-                var cachedStats = ModemService.GetCachedStats(modem.Id);
+                var cachedStats = await ModemService.GetCachedStatsAsync(modem.Id);
                 if (cachedStats != null)
                 {
                     modemStats = cachedStats;
@@ -588,7 +588,7 @@
                     var (success, _) = await ModemService.PollModemAsync(modem);
                     if (success)
                     {
-                        modemStats = ModemService.GetCachedStats(modem.Id);
+                        modemStats = await ModemService.GetCachedStatsAsync(modem.Id);
                     }
                 }
             }
@@ -619,7 +619,7 @@
                 var (success, _) = await ModemService.PollModemAsync(modem);
                 if (success)
                 {
-                    modemStats = ModemService.GetCachedStats(modem.Id);
+                    modemStats = await ModemService.GetCachedStatsAsync(modem.Id);
                 }
             }
         }
@@ -677,7 +677,7 @@
             var (success, _) = await ModemService.ResetRadioAsync(modem.Id);
             if (success)
             {
-                modemStats = ModemService.GetCachedStats(modem.Id);
+                modemStats = await ModemService.GetCachedStatsAsync(modem.Id);
             }
         }
         finally
@@ -710,7 +710,7 @@
         if (configuredModems.Count > 0 && currentModemIndex < configuredModems.Count)
         {
             var modem = configuredModems[currentModemIndex];
-            var cached = ModemService.GetCachedStats(modem.Id);
+            var cached = await ModemService.GetCachedStatsAsync(modem.Id);
             modemStats = cached;
             StateHasChanged();
 
@@ -720,7 +720,7 @@
                 var (success, _) = await ModemService.PollModemAsync(modem);
                 if (success)
                 {
-                    modemStats = ModemService.GetCachedStats(modem.Id);
+                    modemStats = await ModemService.GetCachedStatsAsync(modem.Id);
                     StateHasChanged();
                 }
             }

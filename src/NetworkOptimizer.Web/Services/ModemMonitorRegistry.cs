@@ -21,10 +21,10 @@ public class ModemMonitorRegistry : BackgroundService, ISiteScopedRegistry
 {
     /// <summary>One site's modem monitors.</summary>
     public sealed record SiteModemMonitors(
-        CableModemMonitorService CableModem,
-        OntMonitorService Ont,
-        CellularModemService Cellular,
-        StarlinkMonitorService Starlink);
+        ICableModemService CableModem,
+        IOntMonitorService Ont,
+        ICellularModemService Cellular,
+        IStarlinkMonitorService Starlink);
 
     private static readonly TimeSpan ReconcileInterval = TimeSpan.FromSeconds(30);
 
@@ -82,6 +82,26 @@ public class ModemMonitorRegistry : BackgroundService, ISiteScopedRegistry
                     _serviceProvider, s, (IEnumerable<IStarlinkProvider>)starlinkProviders));
         });
 
+    /// <summary>
+    /// The owned cellular instance. The bundle declares the gated interface so nothing depends on
+    /// the implementation (architecture test A2), but start/stop and disposal are the registry's
+    /// own business and deliberately absent from the caller-facing interface.
+    /// </summary>
+    private static CellularModemService CellularOwned(SiteModemMonitors bundle)
+        => (CellularModemService)bundle.Cellular;
+
+    /// <summary>The owned cable modem instance - see <see cref="CellularOwned"/>.</summary>
+    private static CableModemMonitorService CableModemOwned(SiteModemMonitors bundle)
+        => (CableModemMonitorService)bundle.CableModem;
+
+    /// <summary>The owned Starlink instance - see <see cref="CellularOwned"/>.</summary>
+    private static StarlinkMonitorService StarlinkOwned(SiteModemMonitors bundle)
+        => (StarlinkMonitorService)bundle.Starlink;
+
+    /// <summary>The owned ONT instance - see <see cref="CellularOwned"/>.</summary>
+    private static OntMonitorService OntOwned(SiteModemMonitors bundle)
+        => (OntMonitorService)bundle.Ont;
+
     /// <summary>The default site's modem monitors.</summary>
     public SiteModemMonitors GetDefault() => GetFor(SiteManagementService.DefaultSiteSlug);
 
@@ -112,10 +132,10 @@ public class ModemMonitorRegistry : BackgroundService, ISiteScopedRegistry
 
         foreach (var bundle in _instances.Values)
         {
-            bundle.CableModem.DisposeOwned();
-            bundle.Ont.DisposeOwned();
-            bundle.Cellular.DisposeOwned();
-            bundle.Starlink.DisposeOwned();
+            CableModemOwned(bundle).DisposeOwned();
+            OntOwned(bundle).DisposeOwned();
+            CellularOwned(bundle).DisposeOwned();
+            StarlinkOwned(bundle).DisposeOwned();
         }
     }
 
@@ -124,10 +144,10 @@ public class ModemMonitorRegistry : BackgroundService, ISiteScopedRegistry
         => _instances.TryRemove(slug, out var bundle)
             ? () =>
             {
-                bundle.CableModem.DisposeOwned();
-                bundle.Ont.DisposeOwned();
-                bundle.Cellular.DisposeOwned();
-                bundle.Starlink.DisposeOwned();
+                CableModemOwned(bundle).DisposeOwned();
+                OntOwned(bundle).DisposeOwned();
+                CellularOwned(bundle).DisposeOwned();
+                StarlinkOwned(bundle).DisposeOwned();
                 return ValueTask.CompletedTask;
             }
             : null;
@@ -171,24 +191,24 @@ public class ModemMonitorRegistry : BackgroundService, ISiteScopedRegistry
 
     private void SetActive(SiteModemMonitors bundle, bool active)
     {
-        if (bundle.CableModem.Active != active)
+        if (CableModemOwned(bundle).Active != active)
         {
-            bundle.CableModem.Active = active;
+            CableModemOwned(bundle).Active = active;
             _logger.LogInformation("Cable modem monitoring {State} for a site", active ? "activated" : "deactivated");
         }
-        if (bundle.Ont.Active != active)
+        if (OntOwned(bundle).Active != active)
         {
-            bundle.Ont.Active = active;
+            OntOwned(bundle).Active = active;
             _logger.LogInformation("External ONT monitoring {State} for a site", active ? "activated" : "deactivated");
         }
-        if (bundle.Cellular.Active != active)
+        if (CellularOwned(bundle).Active != active)
         {
-            bundle.Cellular.Active = active;
+            CellularOwned(bundle).Active = active;
             _logger.LogInformation("Cellular modem monitoring {State} for a site", active ? "activated" : "deactivated");
         }
-        if (bundle.Starlink.Active != active)
+        if (StarlinkOwned(bundle).Active != active)
         {
-            bundle.Starlink.Active = active;
+            StarlinkOwned(bundle).Active = active;
             _logger.LogInformation("Starlink monitoring {State} for a site", active ? "activated" : "deactivated");
         }
     }

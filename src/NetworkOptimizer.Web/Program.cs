@@ -383,6 +383,20 @@ builder.Services.AddScoped(sp => sp.GetRequiredService<ModemMonitorRegistry>()
 // LAN iperf3 speed test per site (registry-owned): devices, credentials, and
 // results live in that site's database; tests run against that site's devices.
 // Scoped resolution forwards to the current site's instance.
+// The cellular service is owned by the per-site modem registry, so it is gated through the
+// factory overload: callers resolve the interface and get a proxy over the current site's instance.
+builder.Services.AddMutatingService<ICableModemService>(sp => sp.GetRequiredService<ModemMonitorRegistry>()
+    .GetFor(sp.GetRequiredService<SiteContextService>().Slug).CableModem);
+
+builder.Services.AddMutatingService<IStarlinkMonitorService>(sp => sp.GetRequiredService<ModemMonitorRegistry>()
+    .GetFor(sp.GetRequiredService<SiteContextService>().Slug).Starlink);
+
+builder.Services.AddMutatingService<IOntMonitorService>(sp => sp.GetRequiredService<ModemMonitorRegistry>()
+    .GetFor(sp.GetRequiredService<SiteContextService>().Slug).Ont);
+
+builder.Services.AddMutatingService<ICellularModemService>(sp => sp.GetRequiredService<ModemMonitorRegistry>()
+    .GetFor(sp.GetRequiredService<SiteContextService>().Slug).Cellular);
+
 builder.Services.AddMutatingService<IIperf3SpeedTestService>(sp => sp.GetRequiredService<SpeedTestServiceRegistry>()
     .GetFor(sp.GetRequiredService<SiteContextService>().Slug).LanSpeedTest);
 
