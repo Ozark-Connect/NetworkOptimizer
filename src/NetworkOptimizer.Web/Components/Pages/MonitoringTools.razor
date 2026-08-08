@@ -635,6 +635,7 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
     // the picker stays out of the way and the vantage list reads exactly as it always has.
     private List<ProbeVantageOption> _probeVantages = new();
     private bool _linkVantageApplied;
+    private bool _vantageChoiceSettled;
 
     /// <summary>
     /// Remembered vantage, per site. Which box a probe runs from is a property of the site being
@@ -745,18 +746,26 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (!firstRender) return;
-        // Only worth restoring when there is a choice; with one origin the stored value would
-        // just be "server" anyway. Interop is unavailable during prerender, hence first render.
-        // Second chance: the vantage list may have been empty or still loading when the link was
-        // first offered one, and a link the page silently drops looks like it was ignored.
+        // Retried across renders rather than run once on the first: a client-side nav renders
+        // before OnInitializedAsync has finished, so the first pass sees no vantages, and giving
+        // up there left the list's own first entry standing over the saved choice. A full page
+        // load prerenders, so it never showed there. The flag keeps this to one application.
+        if (_vantageChoiceSettled) return;
+
+        // A link still outranks the saved choice, and the list may have been empty or still
+        // loading when the link was first offered one.
         if (!_linkVantageApplied) TryApplyLinkedVantage();
         if (_linkVantageApplied)
         {
+            _vantageChoiceSettled = true;
             StateHasChanged();
             return;
         }
-        if (_probeVantages.Count == 0) return;
+
+        // Nothing to validate a stored value against yet; a later render will have it.
+        if (_probeVantages.Count == 0 && _devices.Count == 0) return;
+
+        _vantageChoiceSettled = true;
         try
         {
             var stored = await JS.InvokeAsync<string>("localStorage.getItem", VantageStorageKey);
