@@ -57,6 +57,7 @@ let lastData = null;
 let lastEvents = [];
 let chartEls = {};
 let markResizeTimer = null;
+let axisDateShown = '';
 
 function baseOpts(height, yTitle, yFormatter, extra) {
     return {
@@ -80,6 +81,7 @@ function baseOpts(height, yTitle, yFormatter, extra) {
                 datetimeUTC: false,
                 datetimeFormatter: { hour: 'HH:mm', day: 'MMM dd' },
             },
+            title: { text: axisDateText(), style: { color: '#9ca3af', fontSize: '11px', fontWeight: 400 } },
         },
         yaxis: {
             min: 0,
@@ -234,6 +236,9 @@ async function loadAndUpdate() {
     lastData = data;
     if (container) await syncCustomCharts(container, data.devices, newDefs);
 
+    // Ahead of updateVisibility, never after it: this redraw recreates the annotation label
+    // elements, and the mark layer's tooltips are bound to the ones it tagged.
+    applyAxisDate();
     updateVisibility();
     if (container) {
         renderBadges(container);
@@ -351,6 +356,29 @@ function stopPoll() { if (pollTimer) { clearInterval(pollTimer); pollTimer = nul
 function toLocalDatetimeString(d) {
     const pad = n => String(n).padStart(2, '0');
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+// The window's date, as the axis caption. The tick labels only grow a date where the granularity
+// changes, so a window that crosses no midnight - which is most of them - said nowhere what day it
+// was showing. ApexCharts has no "stamp the date once" option, and a caption is the one place that
+// holds still: tick positions move with the chart's width.
+function axisDateText() {
+    const to = getEffectiveTo() || new Date();
+    const from = getEffectiveFrom() || new Date(to.getTime() - (RANGE_MS[currentRangeHours] || 3600000));
+    const fmt = d => d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    const start = fmt(from), end = fmt(to);
+    return start === end ? start : `${start} - ${end}`;
+}
+
+// Only when it actually changes - a range the user moved, or a trailing window crossing midnight.
+// updateOptions redraws, and the poll runs every few seconds.
+function applyAxisDate() {
+    const text = axisDateText();
+    if (text === axisDateShown) return;
+    axisDateShown = text;
+    for (const [chart] of chartEntries()) {
+        chart?.updateOptions({ xaxis: { title: { text } } }, false, false);
+    }
 }
 
 function getEffectiveFrom() {
@@ -494,6 +522,8 @@ export async function mount(elId) {
     await tempChart.render();
     await cpuChart.render();
     await memChart.render();
+    // What the three of them just rendered with, so the first load does not redraw them to say it.
+    axisDateShown = axisDateText();
 
     // Preset range buttons
     container.querySelectorAll('[data-range]').forEach(btn => {
@@ -638,4 +668,5 @@ export function unmount() {
     customFrom = null;
     customTo = null;
     isInViewport = true;
+    axisDateShown = '';
 }
