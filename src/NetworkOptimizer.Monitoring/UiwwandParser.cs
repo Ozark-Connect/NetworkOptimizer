@@ -6,7 +6,8 @@ namespace NetworkOptimizer.Monitoring;
 /// <summary>
 /// Parses the JSON output from UniFi's uiwwand radio status command
 /// (<c>ubus call uiwwand call '{"method":"get-radio-status","params":{}}'</c>)
-/// into <see cref="CellularModemStats"/>.
+/// into <see cref="CellularModemStats"/>, plus the cell tower detail from
+/// <c>get-cell-tower-info</c> via <see cref="ParseCellTowerInfo"/>.
 ///
 /// This command is available on all UniFi cellular modems (U5G-Max, U5G Backup,
 /// U-LTE) and returns a normalized view of signal, band, carrier, and carrier
@@ -58,6 +59,63 @@ public static class UiwwandParser
             ParseCell(result, stats);
 
             return stats;
+        }
+    }
+
+    /// <summary>
+    /// Merge the output of <c>get-cell-tower-info</c> into stats already parsed
+    /// from <c>get-radio-status</c>, adding the timing advance, tracking area code,
+    /// and neighbor cells that get-radio-status does not report.
+    /// </summary>
+    /// <remarks>
+    /// The payload describes the LTE anchor even when NR is the active carrier, so
+    /// on an NSA link the timing advance is the distance to the anchor cell.
+    /// </remarks>
+    /// <param name="json">Raw JSON output from the ubus call.</param>
+    /// <param name="stats">Stats to enrich in place.</param>
+    public static void ParseCellTowerInfo(string json, CellularModemStats stats)
+    {
+        JsonDocument doc;
+        try
+        {
+            doc = JsonDocument.Parse(json, JsonOptions);
+        }
+        catch (JsonException)
+        {
+            return;
+        }
+
+        using (doc)
+        {
+            if (!doc.RootElement.TryGetProperty("result", out var result) ||
+                !result.TryGetProperty("lte", out var lte) ||
+                lte.ValueKind != JsonValueKind.Object)
+                return;
+
+            var serving = stats.ServingCell ??= new CellInfo { IsServing = true };
+
+            // get-radio-status reports the NR physical cell id on an NSA link while this
+            // reports the LTE anchor's, so keep whichever id the caller already set.
+            serving.TimingAdvance = GetInt(lte, "adv");
+            serving.Tac = GetInt(lte, "tac")?.ToString();
+            serving.GlobalCellId ??= GetInt(lte, "cell_id")?.ToString();
+            serving.Earfcn ??= GetInt(lte, "earfcn");
+
+            if (!lte.TryGetProperty("neighbor_measurements", out var neighbors) ||
+                neighbors.ValueKind != JsonValueKind.Array)
+                return;
+
+            // Signal is left unset: rsrp/rsrq here are raw indices, not dBm. Use
+            // get-cell-tower-info-nrf, which reports converted values, if we ever show them.
+            stats.NeighborCells = neighbors.EnumerateArray()
+                .Select(n => new CellInfo
+                {
+                    PhysicalCellId = GetInt(n, "pci") ?? 0,
+                    GlobalCellId = GetInt(n, "cell_id")?.ToString(),
+                    Earfcn = GetInt(n, "earfcn"),
+                    TimingAdvance = GetInt(n, "adv"),
+                })
+                .ToList();
         }
     }
 

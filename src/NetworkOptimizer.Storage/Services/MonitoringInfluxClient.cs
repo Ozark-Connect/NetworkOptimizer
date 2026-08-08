@@ -843,7 +843,8 @@ from(bucket: ""{_longtermBucket}"")
 
     /// <summary>
     /// Write cellular modem signal metrics for time-series charting.
-    /// Tags identify the modem; fields capture all available signal/band/carrier data.
+    /// Tags identify the modem; fields capture all available signal/band/carrier
+    /// data plus the serving cell identity.
     /// Written to the longterm bucket since cellular trends are useful over weeks/months.
     /// </summary>
     public Task WriteCellularAsync(
@@ -862,7 +863,11 @@ from(bucket: ""{_longtermBucket}"")
         int? signalQuality,
         int? signalBars,
         bool? isRoaming,
-        DateTime timestamp)
+        DateTime timestamp,
+        int? timingAdvanceUs = null,
+        int? cellId = null,
+        int? tac = null,
+        int? neighborCount = null)
     {
         if (!IsConfigured) return Task.CompletedTask;
         var point = PointData.Measurement("cellular")
@@ -884,6 +889,12 @@ from(bucket: ""{_longtermBucket}"")
         if (channel.HasValue) point = point.Field("channel", channel.Value);
         if (bandwidthMhz.HasValue) point = point.Field("bandwidth_mhz", bandwidthMhz.Value);
         if (isRoaming.HasValue) point = point.Field("roaming", isRoaming.Value);
+
+        // Cell identity as fields, never tags: a handover would otherwise open a new series.
+        if (timingAdvanceUs.HasValue) point = point.Field("timing_advance", timingAdvanceUs.Value);
+        if (cellId.HasValue) point = point.Field("cell_id", cellId.Value);
+        if (tac.HasValue) point = point.Field("tac", tac.Value);
+        if (neighborCount.HasValue) point = point.Field("neighbor_count", neighborCount.Value);
 
         Enqueue(point, longterm: true);
         return Task.CompletedTask;

@@ -252,6 +252,21 @@ public class CellInfo
 
     /// <summary>Is this the serving cell?</summary>
     public bool IsServing { get; set; }
+
+    /// <summary>
+    /// eNodeB (site) identifier: the upper 20 bits of the 28-bit LTE cell id.
+    /// Null when <see cref="GlobalCellId"/> is absent or non-numeric.
+    /// </summary>
+    public int? EnbId => ParsedCellId >> 8;
+
+    /// <summary>
+    /// Sector within the site: the low 8 bits of the LTE cell id. Neighbor cells
+    /// sharing an <see cref="EnbId"/> are other sectors of the same tower.
+    /// </summary>
+    public int? SectorId => ParsedCellId & 0xFF;
+
+    private int? ParsedCellId =>
+        int.TryParse(GlobalCellId, out var eci) && eci > 0 ? eci : null;
 }
 
 /// <summary>

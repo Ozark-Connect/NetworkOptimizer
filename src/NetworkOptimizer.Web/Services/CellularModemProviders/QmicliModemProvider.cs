@@ -83,6 +83,8 @@ public sealed class QmicliModemProvider : ICellularModemProvider
 
             if (stats != null)
             {
+                await TryEnrichWithCellTowerInfoAsync(context, stats);
+
                 _logger.LogInformation(
                     "Successfully polled modem {Name} via uiwwand: {Carrier}, Signal Quality: {Quality}%",
                     context.Name, stats.Carrier, stats.SignalQuality);
@@ -94,6 +96,29 @@ public sealed class QmicliModemProvider : ICellularModemProvider
         {
             _logger.LogDebug(ex, "uiwwand poll failed for {Name}, falling back to qmicli", context.Name);
             return null;
+        }
+    }
+
+    /// <summary>
+    /// Add timing advance, tracking area, and neighbor cells from uiwwand's
+    /// get-cell-tower-info, which get-radio-status does not report. Best effort:
+    /// the signal data is already in hand, so a failure here just leaves them unset.
+    /// </summary>
+    private async Task TryEnrichWithCellTowerInfoAsync(ModemPollContext context, CellularModemStats stats)
+    {
+        try
+        {
+            var command = "ubus call uiwwand call '{\"method\":\"get-cell-tower-info\",\"params\":{}}'";
+            var (success, output) = await _sshService.RunCommandAsync(context.Host, command);
+
+            if (success && !string.IsNullOrWhiteSpace(output) && output.Contains("\"result\""))
+                UiwwandParser.ParseCellTowerInfo(output, stats);
+            else
+                _logger.LogDebug("get-cell-tower-info unavailable on {Name}", context.Name);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "get-cell-tower-info failed for {Name}", context.Name);
         }
     }
 

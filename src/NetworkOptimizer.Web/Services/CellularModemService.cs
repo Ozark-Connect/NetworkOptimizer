@@ -425,6 +425,13 @@ public class CellularModemService : ICellularModemService
     }
 
     /// <summary>
+    /// Cell and tracking area ids are carried as strings on the model but are numeric
+    /// on every provider, so they chart as numbers. Returns null when non-numeric.
+    /// </summary>
+    private static int? ParseCellNumber(string? value) =>
+        int.TryParse(value, out var parsed) ? parsed : null;
+
+    /// <summary>
     /// Write cellular signal metrics to InfluxDB for time-series charting.
     /// In NSA mode, writes separate points for LTE and NR5G so both bands
     /// are charted independently. Fire-and-forget; InfluxDB client handles
@@ -462,6 +469,11 @@ public class CellularModemService : ICellularModemService
         {
             // In NSA mode, signal quality is on the NR5G point; in LTE-only, attach it here
             var lteSignalQuality = stats.Nr5g?.Rsrp.HasValue == true ? (int?)null : stats.SignalQuality;
+
+            // Cell identity rides the LTE point because get-cell-tower-info describes the
+            // LTE anchor even under NR. Absent tower data must not read as zero neighbors.
+            var cell = stats.ServingCell;
+            var hasTowerInfo = cell?.TimingAdvance.HasValue == true || cell?.Tac != null;
             // Offset by 1 tick so InfluxDB doesn't overwrite the NR5G point
             _ = _influx.WriteCellularAsync(
                 modemId: modemId,
@@ -479,7 +491,11 @@ public class CellularModemService : ICellularModemService
                 signalQuality: lteSignalQuality,
                 signalBars: stats.Lte.Bars,
                 isRoaming: stats.IsRoaming,
-                timestamp: stats.Timestamp.AddTicks(1));
+                timestamp: stats.Timestamp.AddTicks(1),
+                timingAdvanceUs: cell?.TimingAdvance,
+                cellId: ParseCellNumber(cell?.GlobalCellId),
+                tac: ParseCellNumber(cell?.Tac),
+                neighborCount: hasTowerInfo ? stats.NeighborCells.Count : null);
         }
     }
 
