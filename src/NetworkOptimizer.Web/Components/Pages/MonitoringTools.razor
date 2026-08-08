@@ -208,7 +208,13 @@
             </div>
             <div class="form-group">
                 <label class="form-label">Target</label>
-                <div class="form-value">@_pingResult.Target</div>
+                <div class="form-value">
+                    @_pingResult.Target
+                    @if (!string.IsNullOrEmpty(_pingResult.ResolvedAddress))
+                    {
+                        <span>(@_pingResult.ResolvedAddress)</span>
+                    }
+                </div>
             </div>
             @if (_pingResult.RttAvgMs.HasValue)
             {

@@ -105,4 +105,64 @@ public class PingOutputParserTests
         r.RttAvgMs.Should().Be(20);
         r.JitterMs.Should().NotBeNull();
     }
+
+    private static readonly ProbeTarget HostnameTarget = new("example.com", ProbeMode.Icmp);
+
+    [Fact]
+    public void Parse_HostnameTarget_ReportsWhatItResolvedTo()
+    {
+        var output = """
+            PING example.com (192.0.2.10) 56(84) bytes of data.
+            64 bytes from 192.0.2.10: icmp_seq=1 ttl=58 time=12.3 ms
+
+            --- example.com ping statistics ---
+            1 packets transmitted, 1 received, 0% packet loss, time 0ms
+            rtt min/avg/max/mdev = 12.3/12.3/12.3/0.0 ms
+            """;
+
+        PingOutputParser.Parse(output, HostnameTarget, Vantage, 1)
+            .ResolvedAddress.Should().Be("192.0.2.10");
+    }
+
+    [Fact]
+    public void Parse_BusyBoxHostnameTarget_ReportsWhatItResolvedTo()
+    {
+        var output = """
+            PING example.com (192.0.2.10): 56 data bytes
+            64 bytes from 192.0.2.10: seq=0 ttl=58 time=12.300 ms
+
+            --- example.com ping statistics ---
+            1 packets transmitted, 1 packets received, 0% packet loss
+            round-trip min/avg/max = 12.300/12.300/12.300 ms
+            """;
+
+        PingOutputParser.Parse(output, HostnameTarget, Vantage, 1)
+            .ResolvedAddress.Should().Be("192.0.2.10");
+    }
+
+    [Fact]
+    public void Parse_HeaderWithoutParenthesizedAddress_FallsBackToTheReplyLine()
+    {
+        var output = """
+            PING example.com: 56 data bytes
+            64 bytes from 192.0.2.10: seq=0 ttl=58 time=12.300 ms
+            1 packets transmitted, 1 packets received, 0% packet loss
+            """;
+
+        PingOutputParser.Parse(output, HostnameTarget, Vantage, 1)
+            .ResolvedAddress.Should().Be("192.0.2.10");
+    }
+
+    [Fact]
+    public void Parse_AddressTarget_ReportsNoResolutionToShow()
+    {
+        var output = """
+            PING 1.1.1.1 (1.1.1.1) 56(84) bytes of data.
+            64 bytes from 1.1.1.1: icmp_seq=1 ttl=58 time=12.3 ms
+            1 packets transmitted, 1 received, 0% packet loss, time 0ms
+            """;
+
+        PingOutputParser.Parse(output, Target, Vantage, 1)
+            .ResolvedAddress.Should().BeNull();
+    }
 }

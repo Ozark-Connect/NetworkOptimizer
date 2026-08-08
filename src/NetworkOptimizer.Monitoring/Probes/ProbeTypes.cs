@@ -72,6 +72,13 @@ public record PingProbeResult
     public double? RttMaxMs { get; init; }
     public double? JitterMs { get; init; }
 
+    /// <summary>
+    /// What a hostname target resolved to. Null when the target was already an address, or
+    /// when the vantage's ping gave no address to read - the same thing a traceroute hop
+    /// shows alongside its hostname.
+    /// </summary>
+    public string? ResolvedAddress { get; init; }
+
     public string? ErrorMessage { get; init; }
     public string? RawOutput { get; init; }
 

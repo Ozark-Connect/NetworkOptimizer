@@ -285,6 +285,7 @@ public class LocalProbeExecutor : IProbeExecutor
         var rtts = new List<double>();
         int received = 0;
         string? lastError = null;
+        string? resolvedAddress = null;
 
         using var ping = new Ping();
         for (int i = 0; i < count; i++)
@@ -305,6 +306,8 @@ public class LocalProbeExecutor : IProbeExecutor
                 {
                     received++;
                     rtts.Add(sw.Elapsed.TotalMilliseconds);
+                    // Only a successful reply carries a real peer; a failure reports 0.0.0.0.
+                    resolvedAddress ??= reply.Address?.ToString();
                 }
                 else
                 {
@@ -340,6 +343,9 @@ public class LocalProbeExecutor : IProbeExecutor
             RttAvgMs = avg,
             RttMaxMs = max,
             JitterMs = jitter,
+            ResolvedAddress = string.Equals(resolvedAddress, target.Address, StringComparison.OrdinalIgnoreCase)
+                ? null
+                : resolvedAddress,
             ErrorMessage = received == 0 ? lastError : null,
             Timestamp = DateTime.UtcNow
         };
