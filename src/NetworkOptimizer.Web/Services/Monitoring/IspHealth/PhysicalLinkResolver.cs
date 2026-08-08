@@ -387,10 +387,7 @@ public class PhysicalLinkResolver
         var quality = Median(qualities);
         if (quality is null && live != null) quality = live.SignalQuality;
 
-        var had5g = pts.Any(p => IsFiveG(p.NetworkMode)) || live?.Nr5g != null;
-        var latestMode = pts.LastOrDefault(p => !string.IsNullOrEmpty(p.NetworkMode))?.NetworkMode
-                         ?? (live != null ? live.NetworkModeLabel : null);
-        var downgraded = had5g && IsLte(latestMode);
+        var (had5g, latestMode, downgraded) = ResolveCellularMode(pts, aggregate, live);
 
         return new PhysicalLinkInput
         {
@@ -453,6 +450,33 @@ public class PhysicalLinkResolver
             EthSpeedMbps = live?.EthSpeedMbps,
             WindowDays = (windowEnd - windowStart).TotalDays
         };
+    }
+
+    /// <summary>
+    /// Resolve which network mode a cellular link was on at the end of the window, and whether
+    /// it lost 5G during it.
+    /// </summary>
+    /// <param name="pts">All points across every mode series, ordered by time.</param>
+    /// <param name="aggregate">Bucket width the points were aggregated to.</param>
+    /// <param name="live">Cached live stats, used when the window holds no points.</param>
+    internal static (bool had5g, string? mode, bool downgraded) ResolveCellularMode(
+        IReadOnlyList<MonitoringInfluxClient.CellularPoint> pts, TimeSpan aggregate, CellularModemStats? live)
+    {
+        // NSA writes a point per mode for the same poll, so the newest point is the LTE half even
+        // on a healthy 5G link. A downgrade is the 5G series going dark while LTE keeps reporting;
+        // one empty bucket is a missed sample, not a downgrade.
+        var lastPoint = pts.LastOrDefault(p => !string.IsNullOrEmpty(p.NetworkMode));
+        var last5g = pts.LastOrDefault(p => IsFiveG(p.NetworkMode));
+        var concurrent = aggregate > TimeSpan.Zero ? aggregate * 2 : TimeSpan.FromMinutes(10);
+
+        var had5g = last5g != null || live?.Nr5g != null;
+        var on5g = last5g != null && lastPoint != null && lastPoint.Time - last5g.Time <= concurrent;
+
+        var mode = on5g
+            ? last5g!.NetworkMode
+            : lastPoint?.NetworkMode ?? (live != null ? live.NetworkModeLabel : null);
+
+        return (had5g, mode, had5g && !on5g && IsLte(mode));
     }
 
     private static bool IsFiveG(string? mode) =>
