@@ -132,9 +132,11 @@
                                     <div class="inline-name-edit">
                                         <input type="text" class="form-control" @ref="_nameInput" @bind="_editName" @bind:event="oninput"
                                                @onkeydown="@(e => TargetNameEditKey(e, t))" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
-                                        <button type="button" class="btn btn-primary btn-sm" @onclick="() => SaveTargetNameAsync(t)"
-                                                disabled="@string.IsNullOrWhiteSpace(_editName)">Save</button>
-                                        <button type="button" class="btn btn-secondary btn-sm" @onclick="CancelTargetNameEdit">Cancel</button>
+                                        <div class="inline-name-edit-actions">
+                                            <button type="button" class="btn btn-primary btn-sm" @onclick="() => SaveTargetNameAsync(t)"
+                                                    disabled="@string.IsNullOrWhiteSpace(_editName)">Save</button>
+                                            <button type="button" class="btn btn-secondary btn-sm" @onclick="CancelTargetNameEdit">Cancel</button>
+                                        </div>
                                     </div>
                                 }
                                 else

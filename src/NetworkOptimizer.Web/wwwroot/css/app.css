@@ -19462,6 +19462,14 @@ body.kiosk-mode .status-indicators {
     max-width: 14rem;
 }
 
+/* Save and Cancel travel together: in a table cell there is rarely room for the field and both
+   buttons, and wrapping them one at a time left Cancel stranded on its own line. */
+.inline-name-edit-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
 .checkbox-toggle {
     display: flex;
     align-items: flex-start;
