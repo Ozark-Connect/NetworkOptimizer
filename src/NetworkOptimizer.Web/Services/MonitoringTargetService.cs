@@ -152,6 +152,26 @@ public class MonitoringTargetService : IMonitoringTargetService
     }
 
     /// <inheritdoc />
+    public Task<bool> SetNameAsync(int id, string name, CancellationToken ct = default)
+    {
+        // Validated the way AddAsync validates it, so a rename cannot put a name on a target that
+        // adding one would have refused.
+        var trimmed = (name ?? "").Trim();
+        if (string.IsNullOrEmpty(trimmed))
+            throw new MonitoringTargetValidationException("Name is required.");
+        if (trimmed.Length > MaxFieldLength)
+            throw new MonitoringTargetValidationException($"Name must be under {MaxFieldLength} characters.");
+
+        return UpdateAsync(id, ct, row =>
+        {
+            if (row.Name == trimmed) return null;
+            var before = row.Name;
+            row.Name = trimmed;
+            return new { field = "Name", from = before, to = trimmed };
+        });
+    }
+
+    /// <inheritdoc />
     public Task<bool> SetEnabledAsync(int id, bool enabled, CancellationToken ct = default) =>
         UpdateAsync(id, ct, row =>
         {

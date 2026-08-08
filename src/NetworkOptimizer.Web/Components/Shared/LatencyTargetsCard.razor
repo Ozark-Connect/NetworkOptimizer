@@ -126,7 +126,32 @@
                                     @TargetTypeBadgeLabel(t.TargetType)
                                 </span>
                             </td>
-                            <td>@t.Name</td>
+                            <td>
+                                @if (_editingNameId == t.Id)
+                                {
+                                    <div class="inline-name-edit">
+                                        <input type="text" class="form-control" @ref="_nameInput" @bind="_editName" @bind:event="oninput"
+                                               @onkeydown="@(e => TargetNameEditKey(e, t))" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
+                                        <button type="button" class="btn btn-primary btn-sm" @onclick="() => SaveTargetNameAsync(t)"
+                                                disabled="@string.IsNullOrWhiteSpace(_editName)">Save</button>
+                                        <button type="button" class="btn btn-secondary btn-sm" @onclick="CancelTargetNameEdit">Cancel</button>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <span class="inline-name-cell">
+                                        <span>@t.Name</span>
+                                        <SiteOperatorOnly>
+                                            <button type="button" class="inline-name-edit-btn" data-tooltip="Rename target"
+                                                    aria-label="Rename target" @onclick="() => StartTargetNameEdit(t)">
+                                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                                                    <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
+                                                </svg>
+                                            </button>
+                                        </SiteOperatorOnly>
+                                    </span>
+                                }
+                            </td>
                             <td><code>@t.Address</code></td>
                             @if (WanContexts.Count > 0)
                             {
@@ -702,6 +727,46 @@
     private async Task SetTargetEnabledAsync(int targetId, bool enabled)
     {
         await MutateAsync(() => TargetService.SetEnabledAsync(targetId, enabled));
+    }
+
+    // Inline rename, as the Sites table does it. The service carries the role and the audit
+    // envelope; the gate here only decides whether the pencil is drawn.
+    private int? _editingNameId;
+    private string _editName = "";
+    private ElementReference _nameInput;
+
+    private async Task StartTargetNameEdit(MonitoringTarget t)
+    {
+        _editingNameId = t.Id;
+        _editName = t.Name;
+        StateHasChanged();
+        await Task.Delay(1); // let the input render before it is focused
+        await _nameInput.FocusAsync();
+    }
+
+    private void CancelTargetNameEdit()
+    {
+        _editingNameId = null;
+        _editName = "";
+    }
+
+    private async Task SaveTargetNameAsync(MonitoringTarget t)
+    {
+        var name = _editName?.Trim();
+        if (string.IsNullOrWhiteSpace(name) || name == t.Name)
+        {
+            CancelTargetNameEdit();
+            return;
+        }
+        _editingNameId = null;
+        _editName = "";
+        await MutateAsync(() => TargetService.SetNameAsync(t.Id, name));
+    }
+
+    private async Task TargetNameEditKey(KeyboardEventArgs e, MonitoringTarget t)
+    {
+        if (e.Key == "Enter") await SaveTargetNameAsync(t);
+        else if (e.Key == "Escape") CancelTargetNameEdit();
     }
 
     private async Task DeleteTargetAsync(int targetId)

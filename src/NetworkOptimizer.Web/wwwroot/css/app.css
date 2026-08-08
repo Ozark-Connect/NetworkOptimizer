@@ -19414,13 +19414,15 @@ body.kiosk-mode .status-indicators {
     padding: 0.35rem 0;
 }
 
-.site-name-cell {
+.site-name-cell,
+.inline-name-cell {
     display: inline-flex;
     align-items: center;
     gap: 0.4rem;
 }
 
-.site-name-edit-btn {
+.site-name-edit-btn,
+.inline-name-edit-btn {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -19433,24 +19435,28 @@ body.kiosk-mode .status-indicators {
     transition: color 0.15s ease, background 0.15s ease;
 }
 
-.site-name-edit-btn:hover {
+.site-name-edit-btn:hover,
+.inline-name-edit-btn:hover {
     color: var(--text-primary);
     background: var(--bg-hover);
 }
 
-.site-name-edit-btn svg {
+.site-name-edit-btn svg,
+.inline-name-edit-btn svg {
     width: 15px;
     height: 15px;
 }
 
-.site-name-edit {
+.site-name-edit,
+.inline-name-edit {
     display: flex;
     align-items: center;
     gap: 0.4rem;
     flex-wrap: wrap;
 }
 
-.site-name-edit .form-control {
+.site-name-edit .form-control,
+.inline-name-edit .form-control {
     width: auto;
     min-width: 8rem;
     max-width: 14rem;
