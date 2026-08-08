@@ -10,7 +10,7 @@ import { valueSortedTooltip, tooltipHeld } from './chart-tooltip.js?v=14';
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=5';
 import { downloadColor, uploadColor } from './chart-colors.js?v=2';
 import { createAxisDateCaption } from './chart-axis-date.js?v=2';
-import { syncIdentity, extentsOf, spanTo } from './chart-sync.js?v=4';
+import { syncIdentity, extentsOf, spanTo } from './chart-sync.js?v=5';
 
 const PALETTE = window.Apex?.colors || ['#7EB26D', '#EAB839', '#6ED0E0', '#EF843C', '#E24D42', '#1F78C1'];
 const _colorCache = {};
@@ -375,17 +375,14 @@ function updateChartVisibility() {
     if (!rttChart || !lossChart) return;
     const shown = (lastFetchData?.targets || []).filter(t => visibility[t.targetId] !== false);
 
-    const seriesOf = key => shown.map((t, i) => {
-        const data = (t[key] || []).map(p => ({ x: new Date(p.time).getTime(), y: p.value }));
-        return {
-            name: wanDisplayName(t),
-            color: hashColor(t.name),
-            data: i === 0 ? spanTo(data, groupExtents) : data,
-        };
-    });
+    const seriesOf = key => shown.map(t => ({
+        name: wanDisplayName(t),
+        color: hashColor(t.name),
+        data: (t[key] || []).map(p => ({ x: new Date(p.time).getTime(), y: p.value })),
+    }));
 
-    rttChart.updateSeries(seriesOf('rtt'), false);
-    lossChart.updateSeries(seriesOf('loss'), false);
+    rttChart.updateSeries(spanTo(seriesOf('rtt'), groupExtents), false);
+    lossChart.updateSeries(spanTo(seriesOf('loss'), groupExtents), false);
 
     // Dashes are positional, so they have to be rebuilt against the series actually drawn. Twins
     // of one host share its colour, so the pattern is the only thing telling their WANs apart.
@@ -528,12 +525,10 @@ async function loadAndUpdate() {
                 // group's, which is all the hover sync asks for.
                 const wanSeries = (points) =>
                     (points || []).map(p => ({ x: new Date(p.time).getTime(), y: p.value }));
-                const dlSeries = spanTo(wanSeries(wan.download), groupExtents);
-                const ulSeries = wanSeries(wan.upload);
-                wanRateChart.updateSeries([
-                    { name: 'Download', data: dlSeries },
-                    { name: 'Upload', data: ulSeries }
-                ], false);
+                wanRateChart.updateSeries(spanTo([
+                    { name: 'Download', data: wanSeries(wan.download) },
+                    { name: 'Upload', data: wanSeries(wan.upload) }
+                ], groupExtents), false);
             }
         } catch { }
     }

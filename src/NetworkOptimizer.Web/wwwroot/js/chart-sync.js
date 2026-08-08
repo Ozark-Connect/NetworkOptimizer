@@ -51,12 +51,21 @@ export function extentsOf(pointArrays, timeKey = 'time') {
  * A null point draws nothing, takes no hover dot and gets no tooltip row, so the padding is
  * invisible. Only one series per chart needs it - the extents are taken across all of them.
  */
-export function spanTo(points, extents) {
-    if (!extents || !points?.length) return points;
-    const out = points.slice();
-    if (out[0].x > extents.minX) out.unshift({ x: extents.minX, y: null });
-    if (out[out.length - 1].x < extents.maxX) out.push({ x: extents.maxX, y: null });
-    return out;
+export function spanTo(series, extents) {
+    if (!extents || !series?.length) return series;
+    const { minX, maxX } = extents;
+
+    return series.map((s, i) => {
+        // Trimmed as well as padded. Padding alone could only reach outwards, so a chart whose own
+        // query started 24s earlier and ended 3s later than the rest kept its own ends and stayed
+        // out of step - measured, not guessed: [sync] latency-12 -24000/0 then 0/+3000.
+        let data = (s.data || []).filter(p => p.x >= minX && p.x <= maxX);
+        if (i === 0) {
+            if (!data.length || data[0].x > minX) data = [{ x: minX, y: null }, ...data];
+            if (data[data.length - 1].x < maxX) data = [...data, { x: maxX, y: null }];
+        }
+        return { ...s, data };
+    });
 }
 
 // ─── Diagnostics ───
