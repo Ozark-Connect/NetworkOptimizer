@@ -59,6 +59,19 @@ let lastEvents = [];
 let chartEls = {};
 let markResizeTimer = null;
 
+// Charts sharing a group sync their tooltip and crosshair, so hovering any of them reads the same
+// instant on all three - which is the question being asked of a device: what else was happening
+// when this climbed.
+//
+// The sync is by data INDEX, not by timestamp, which is why only these three are in it: they are
+// drawn from one payload through alignedPoints, so index i is the same moment on each. The
+// custom-field charts are plotted from their own arrays and would point at a different moment.
+const SYNC_GROUP = 'device-health';
+
+function synced(opts, id) {
+    return { ...opts, chart: { ...opts.chart, id, group: SYNC_GROUP } };
+}
+
 function baseOpts(height, yTitle, yFormatter, extra) {
     return {
         chart: {
@@ -493,14 +506,14 @@ export async function mount(elId) {
 
     chartEls = { temp: tempEl, cpu: cpuEl, mem: memEl };
 
-    tempChart = new ApexCharts(tempEl, { ...baseOpts(200, '°C', v => v != null ? v.toFixed(0) + ' °C' : ''), series: [], colors: PALETTE });
+    tempChart = new ApexCharts(tempEl, { ...synced(baseOpts(200, '°C', v => v != null ? v.toFixed(0) + ' °C' : ''), 'health-temp'), series: [], colors: PALETTE });
     cpuChart = new ApexCharts(cpuEl, {
-        ...baseOpts(200, 'CPU %', v => v != null ? v.toFixed(0) + '%' : ''),
+        ...synced(baseOpts(200, 'CPU %', v => v != null ? v.toFixed(0) + '%' : ''), 'health-cpu'),
         yaxis: { min: 0, max: v => Math.max(v * 1.1, 30), title: { text: 'CPU %', style: { color: '#9ca3af' } }, labels: { style: { colors: '#9ca3af' }, formatter: v => v != null ? v.toFixed(0) + '%' : '' } },
         series: [], colors: PALETTE,
     });
     memChart = new ApexCharts(memEl, {
-        ...baseOpts(200, 'Memory %', v => v != null ? v.toFixed(0) + '%' : ''),
+        ...synced(baseOpts(200, 'Memory %', v => v != null ? v.toFixed(0) + '%' : ''), 'health-mem'),
         yaxis: { min: 0, max: v => Math.max(v * 1.1, 50), title: { text: 'Memory %', style: { color: '#9ca3af' } }, labels: { style: { colors: '#9ca3af' }, formatter: v => v != null ? v.toFixed(0) + '%' : '' } },
         series: [], colors: PALETTE,
     });
