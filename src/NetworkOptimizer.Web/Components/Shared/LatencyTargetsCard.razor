@@ -66,7 +66,7 @@
                 measurement in InfluxDB.
             </p>
             <div class="lt-actions">
-                <a href="/network-tools" class="btn btn-sm btn-secondary">Run Probe</a>
+                <a href="@RunProbeUrl" class="btn btn-sm btn-secondary">Run Probe</a>
                 <SiteOperatorOnly>
                     <button class="btn btn-sm btn-primary" @onclick="ShowAddTargetFromTop">
                         + Add Target
@@ -342,7 +342,7 @@
                asymmetry is deliberate: measuring one more thing is cheap and reversible, losing one
                that someone established months ago is not. *@
             <div class="lt-actions lt-actions-bottom">
-                <a href="/network-tools" class="btn btn-sm btn-secondary">Run Probe</a>
+                <a href="@RunProbeUrl" class="btn btn-sm btn-secondary">Run Probe</a>
                 <SiteOperatorOnly>
                     <button class="btn btn-sm btn-primary" @onclick="ShowAddTarget">
                         + Add Target
@@ -586,6 +586,36 @@
     /// </summary>
     /// <summary>Columns in the table, so an empty-state row spans all of them.</summary>
     private int VisibleColumnCount => WanContexts.Count > 0 ? 8 : 7;
+
+    /// <summary>
+    /// Run Probe opens Network Tools on the agent that actually probes these rows, taken from the
+    /// WAN context most of them sit on. MonitoringTarget.VantagePoint cannot answer this - every
+    /// target stores "server" whoever collects it. Null leaves Network Tools on its own default.
+    /// </summary>
+    private string? RunProbeVantage
+    {
+        get
+        {
+            if (WanContexts.Count == 0) return null;
+
+            var dominantContextId = VisibleTargets()
+                .Where(t => t.WanContextId != null)
+                .GroupBy(t => t.WanContextId!.Value)
+                .OrderByDescending(g => g.Count())
+                .Select(g => (int?)g.Key)
+                .FirstOrDefault();
+
+            var context = dominantContextId is int id
+                ? WanContexts.FirstOrDefault(w => w.Id == id)
+                : WanContexts.Count == 1 ? WanContexts[0] : null;
+
+            return context?.AgentId is int agentId ? $"agent:{agentId}" : null;
+        }
+    }
+
+    private string RunProbeUrl => RunProbeVantage is string vantage
+        ? $"/network-tools?from={Uri.EscapeDataString(vantage)}"
+        : "/network-tools";
 
     private IEnumerable<MonitoringTarget> VisibleTargets()
     {

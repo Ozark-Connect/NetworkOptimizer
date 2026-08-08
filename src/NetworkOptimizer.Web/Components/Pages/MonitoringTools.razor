@@ -630,15 +630,36 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
     [SupplyParameterFromQuery(Name = "from")]
     public string? FromParam { get; set; }
 
+    /// <summary>
+    /// Which offered vantage a "from" link means. Exact key first, then the first vantage
+    /// belonging to the named agent.
+    /// </summary>
+    /// <remarks>
+    /// Callers can only name an agent (<c>agent:7</c>): a WAN context records the agent that
+    /// probes it and no vantage id, while the picker keys an agent's entries per vantage
+    /// (<c>agent:7:wan2</c>). Matching on the exact key alone therefore threw every link away on
+    /// any agent that has vantages, which is every multi-WAN site. Returns null when nothing on
+    /// offer matches, leaving the remembered choice alone.
+    /// </remarks>
+    internal static string? ResolveVantageFromLink(string? fromParam, IEnumerable<string> vantageKeys)
+    {
+        if (string.IsNullOrEmpty(fromParam)) return null;
+
+        var keys = vantageKeys as IReadOnlyList<string> ?? vantageKeys.ToList();
+        return keys.FirstOrDefault(k => string.Equals(k, fromParam, StringComparison.OrdinalIgnoreCase))
+               ?? keys.FirstOrDefault(k => k.StartsWith(fromParam + ":", StringComparison.OrdinalIgnoreCase));
+    }
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (!firstRender) return;
         // Only worth restoring when there is a choice; with one origin the stored value would
         // just be "server" anyway. Interop is unavailable during prerender, hence first render.
         if (_probeVantages.Count == 0) return;
-        if (!string.IsNullOrEmpty(FromParam) && _probeVantages.Any(v => v.Key == FromParam))
+        var linkedVantage = ResolveVantageFromLink(FromParam, _probeVantages.Select(v => v.Key));
+        if (linkedVantage != null)
         {
-            ApplyVantage(FromParam);
+            ApplyVantage(linkedVantage);
             StateHasChanged();
             return;
         }
