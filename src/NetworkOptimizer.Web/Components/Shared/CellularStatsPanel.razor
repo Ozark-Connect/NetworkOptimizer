@@ -184,6 +184,15 @@
                     </div>
                 </div>
             }
+            else if (ShowNr5gPlaceholder)
+            {
+                <div class="metric-box metric-5g">
+                    <div class="metric-header">5G NR</div>
+                    <div class="metric-content">
+                        <p class="metric-empty-text">@Nr5gPlaceholderText</p>
+                    </div>
+                </div>
+            }
             @if (modemStats.Lte != null && (modemStats.Lte.Rsrp.HasValue || modemStats.Lte.Rsrq.HasValue || modemStats.Lte.Snr.HasValue))
             {
                 <div class="metric-box metric-lte">
@@ -383,6 +392,13 @@
         border-radius: 4px;
         font-size: 0.7rem;
         font-weight: 600;
+    }
+
+    .metric-empty-text {
+        margin: 0;
+        color: var(--text-muted);
+        font-size: 0.78rem;
+        line-height: 1.35;
     }
 
     .radio-reset {
@@ -609,6 +625,21 @@
             StateHasChanged();
         }
     }
+
+    /// <summary>
+    /// A 5G modem with no NR leg otherwise leaves a single box in a two-box grid, which
+    /// reads as a broken card rather than an absent connection. The EN-DC flags double as
+    /// the capability test: an LTE-only modem never reports them, so it never gets the box.
+    /// </summary>
+    private bool ShowNr5gPlaceholder => modemStats?.EnDc
+        is EnDcState.AnchorMissing or EnDcState.AnchorCapable or EnDcState.NetworkRestricted;
+
+    private string Nr5gPlaceholderText => modemStats?.EnDc switch
+    {
+        EnDcState.NetworkRestricted => "Not connected. Your carrier is not offering 5G on this connection.",
+        EnDcState.AnchorCapable => "Not connected. 5G is available here and should attach with traffic.",
+        _ => "Not connected. This tower is not offering 5G. Try Reset Radio above.",
+    };
 
     /// <summary>
     /// Only offered when the EN-DC flags say something about it: hidden when 5G is
