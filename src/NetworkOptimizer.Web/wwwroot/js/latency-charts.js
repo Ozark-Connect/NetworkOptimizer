@@ -9,7 +9,7 @@ import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?
 import { valueSortedTooltip, tooltipHeld } from './chart-tooltip.js?v=14';
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=5';
 import { downloadColor, uploadColor } from './chart-colors.js?v=2';
-import { createAxisDateCaption } from './chart-axis-date.js?v=2';
+import { createAxisDateCaption } from './chart-axis-date.js?v=3';
 import { syncIdentity, extentsOf, spanTo } from './chart-sync.js?v=7';
 
 const PALETTE = window.Apex?.colors || ['#7EB26D', '#EAB839', '#6ED0E0', '#EF843C', '#E24D42', '#1F78C1'];
@@ -388,8 +388,10 @@ function updateChartVisibility() {
     // of one host share its colour, so the pattern is the only thing telling their WANs apart.
     const annotations = buildInvestigateAnnotations();
     const opts = { annotations, stroke: { curve: 'smooth', width: 2, dashArray: shown.map(wanDashFor) } };
-    rttChart.updateOptions(opts, false, false);
-    lossChart.updateOptions(opts, false, false);
+    // Fourth argument false: this dash pattern is positional to THESE series, and a grouped
+    // chart would otherwise be handed it - which is how WAN Throughput's upload went dashed.
+    rttChart.updateOptions(opts, false, false, false);
+    lossChart.updateOptions(opts, false, false, false);
 }
 
 // Mean loss (%) over the visible window at or above which a LAN fabric target is treated as

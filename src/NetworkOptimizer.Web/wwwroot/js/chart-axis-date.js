@@ -61,7 +61,7 @@ export function createAxisDateCaption({ charts, window: getWindow }) {
             shown = next;
             for (const entry of charts()) {
                 const chart = Array.isArray(entry) ? entry[0] : entry;
-                chart?.updateOptions({ xaxis: { title: { text: next } } }, false, false);
+                chart?.updateOptions({ xaxis: { title: { text: next } } }, false, false, false);
             }
         },
 

@@ -5,8 +5,8 @@ import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=7';
 import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=14';
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=5';
-import { createMarkLayer } from './chart-event-marks.js?v=1';
-import { createAxisDateCaption } from './chart-axis-date.js?v=2';
+import { createMarkLayer } from './chart-event-marks.js?v=2';
+import { createAxisDateCaption } from './chart-axis-date.js?v=3';
 import { syncIdentity, extentsOf, spanTo } from './chart-sync.js?v=7';
 
 // A device answers SNMP but can still miss a single field on a poll - a temperature or

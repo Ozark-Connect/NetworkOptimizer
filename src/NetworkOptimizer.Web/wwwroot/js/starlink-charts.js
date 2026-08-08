@@ -6,7 +6,7 @@ import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=7';
 import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=14';
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=5';
-import { createAxisDateCaption } from './chart-axis-date.js?v=2';
+import { createAxisDateCaption } from './chart-axis-date.js?v=3';
 import { syncIdentity } from './chart-sync.js?v=7';
 
 const PALETTE = window.Apex?.colors || ['#2ba89a', '#3b82f6', '#a78bfa', '#ef5858', '#f59e0b', '#10b981'];
@@ -184,11 +184,11 @@ function updateVisibility() {
     // terminals actually drawn.
     const pairedDash = devices.flatMap(() => [0, 5]);
     if (powerChart) {
-        powerChart.updateOptions({ stroke: { curve: 'smooth', width: 2, dashArray: pairedDash } }, false, false);
+        powerChart.updateOptions({ stroke: { curve: 'smooth', width: 2, dashArray: pairedDash } }, false, false, false);
         powerChart.updateSeries(powerSeries, false);
     }
     if (dropChart) {
-        dropChart.updateOptions({ stroke: { curve: 'smooth', width: 2, dashArray: pairedDash } }, false, false);
+        dropChart.updateOptions({ stroke: { curve: 'smooth', width: 2, dashArray: pairedDash } }, false, false, false);
         dropChart.updateSeries(dropSeries, false);
     }
     if (obstructionChart) obstructionChart.updateSeries(obstructionSeries, false);

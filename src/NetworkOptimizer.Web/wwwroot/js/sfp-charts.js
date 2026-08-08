@@ -5,8 +5,8 @@ import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=7';
 import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=14';
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=5';
-import { createMarkLayer } from './chart-event-marks.js?v=1';
-import { createAxisDateCaption } from './chart-axis-date.js?v=2';
+import { createMarkLayer } from './chart-event-marks.js?v=2';
+import { createAxisDateCaption } from './chart-axis-date.js?v=3';
 import { syncIdentity, extentsOf, spanTo } from './chart-sync.js?v=7';
 
 const PALETTE = window.Apex?.colors || ['#7EB26D', '#EAB839', '#6ED0E0', '#EF843C', '#E24D42', '#1F78C1'];
@@ -248,7 +248,9 @@ function drawSeries() {
         tSeries.push({ name: m.label, color: color, data: alignedPoints(pts, p => p.temp) });
     });
     if (powerChart) {
-        powerChart.updateOptions({ stroke: { curve: 'smooth', width: 2, dashArray: powerDash } }, false, false);
+        // Fourth argument false: RX solid / TX dashed is positional to this chart's series, and
+        // sharing it with the group is what dashed TX Frames on GEM Frames.
+        powerChart.updateOptions({ stroke: { curve: 'smooth', width: 2, dashArray: powerDash } }, false, false, false);
         powerChart.updateSeries(padFirst(powerSeries), false);
     }
     if (tempChart) tempChart.updateSeries(padFirst(tSeries), false);

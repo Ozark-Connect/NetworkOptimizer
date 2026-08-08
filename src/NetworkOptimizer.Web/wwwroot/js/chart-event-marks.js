@@ -208,7 +208,9 @@ export function createMarkLayer({ charts }) {
                 untag(el);
                 // Wrapped rather than chained directly: the labels only exist once the update
                 // has rendered, and updateOptions is not promise-returning in every build.
-                Promise.resolve(chart.updateOptions({ annotations: { xaxis } }, false, false))
+                // Fourth argument false: grouped charts otherwise take each other's options,
+                // and these marks belong to the chart they were measured against.
+                Promise.resolve(chart.updateOptions({ annotations: { xaxis } }, false, false, false))
                     .then(() => tag(el, clusters))
                     .catch(e => console.warn('Chart event marks failed to draw', e));
             }
