@@ -86,6 +86,41 @@ public record PingProbeResult
     public double LossPercent => Sent == 0 ? 100.0 : Math.Max(0.0, (1.0 - (double)Received / Sent) * 100.0);
 }
 
+/// <summary>
+/// Result of a DNS lookup from one vantage. Forward lookups fill <see cref="Addresses"/>;
+/// a reverse lookup fills <see cref="CanonicalName"/>.
+/// </summary>
+public record DnsLookupResult
+{
+    /// <summary>
+    /// Marks a result as genuinely produced by a lookup. Null identifies a relayed result from
+    /// an agent too old to know the verb: it ran a ping instead, and its JSON must not be read
+    /// as an empty DNS answer.
+    /// </summary>
+    public string? Kind { get; init; }
+
+    public required ProbeTarget Target { get; init; }
+    public required ProbeVantage Vantage { get; init; }
+    public required DateTime Timestamp { get; init; } = DateTime.UtcNow;
+
+    /// <summary>Resolver that answered, when the vantage names one. Several device classes do not.</summary>
+    public string? Resolver { get; init; }
+
+    /// <summary>Addresses the name resolved to, in the order reported. Order varies by device.</summary>
+    public IReadOnlyList<string> Addresses { get; init; } = Array.Empty<string>();
+
+    /// <summary>The name a reverse lookup resolved to.</summary>
+    public string? CanonicalName { get; init; }
+
+    /// <summary>The name does not exist, as opposed to the lookup having failed.</summary>
+    public bool NotFound { get; init; }
+
+    public string? ErrorMessage { get; init; }
+    public string? RawOutput { get; init; }
+
+    public bool Success => Addresses.Count > 0 || !string.IsNullOrEmpty(CanonicalName);
+}
+
 /// <summary>One hop on a traceroute. Address may be null for non-responding hops.</summary>
 public record TraceHop
 {
