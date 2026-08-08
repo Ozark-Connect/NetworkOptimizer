@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using Microsoft.Extensions.Logging;
@@ -349,6 +350,90 @@ public class LocalProbeExecutor : IProbeExecutor
             ErrorMessage = received == 0 ? lastError : null,
             Timestamp = DateTime.UtcNow
         };
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Prefers the nslookup binary, which names the resolver that answered - the field that makes
+    /// two vantages comparable. Windows and macOS ship it; the Docker image installs it. Where it
+    /// is missing the managed resolver still answers, minus the resolver identity.
+    /// </remarks>
+    public async Task<DnsLookupResult> LookupAsync(
+        ProbeTarget target,
+        bool reverse = false,
+        CancellationToken ct = default)
+    {
+        try
+        {
+            var psi = new ProcessStartInfo("nslookup", target.Address)
+            {
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            using var proc = Process.Start(psi);
+            if (proc == null) return await ManagedLookupAsync(target, reverse, ct);
+
+            var stdoutTask = proc.StandardOutput.ReadToEndAsync(ct);
+            var stderrTask = proc.StandardError.ReadToEndAsync(ct);
+            using var killCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            killCts.CancelAfter(TimeSpan.FromSeconds(10));
+            try { await proc.WaitForExitAsync(killCts.Token); }
+            catch (OperationCanceledException) { try { proc.Kill(entireProcessTree: true); } catch { } }
+
+            var stdout = await SafeReadAsync(stdoutTask);
+            var stderr = await SafeReadAsync(stderrTask);
+            var combined = string.Concat(stdout, "\n", stderr);
+
+            if (string.IsNullOrWhiteSpace(combined))
+                return await ManagedLookupAsync(target, reverse, ct);
+
+            return NslookupOutputParser.Parse(combined, target, Vantage, reverse);
+        }
+        catch (Exception)
+        {
+            // No nslookup on this host (Win32Exception) or it misbehaved - the managed
+            // resolver still answers the question, just without naming the server.
+            return await ManagedLookupAsync(target, reverse, ct);
+        }
+    }
+
+    /// <summary>
+    /// Resolver-less fallback via the .NET resolver. It cannot report which server answered,
+    /// so Resolver stays null rather than naming something we did not observe.
+    /// </summary>
+    private async Task<DnsLookupResult> ManagedLookupAsync(
+        ProbeTarget target, bool reverse, CancellationToken ct)
+    {
+        var result = new DnsLookupResult
+        {
+            Kind = NslookupOutputParser.ResultKind,
+            Target = target,
+            Vantage = Vantage,
+            Timestamp = DateTime.UtcNow
+        };
+
+        try
+        {
+            if (reverse)
+            {
+                var entry = await Dns.GetHostEntryAsync(target.Address, ct);
+                return result with { CanonicalName = entry.HostName };
+            }
+
+            var addresses = await Dns.GetHostAddressesAsync(target.Address, ct);
+            return result with { Addresses = addresses.Select(a => a.ToString()).ToList() };
+        }
+        catch (SocketException ex) when (ex.SocketErrorCode == SocketError.HostNotFound)
+        {
+            return result with { NotFound = true };
+        }
+        catch (Exception ex)
+        {
+            return result with { ErrorMessage = ex.Message };
+        }
     }
 
     public async Task<TcpProbeResult> TcpProbeAsync(

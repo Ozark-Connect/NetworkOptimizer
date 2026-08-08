@@ -39,7 +39,12 @@ public sealed class ProbeRequestRunner
                 string.IsNullOrEmpty(request.SourceIp) ? null : request.SourceIp);
 
             string json;
-            if (request.Traceroute)
+            if (string.Equals(request.Kind, "dns", StringComparison.OrdinalIgnoreCase))
+            {
+                var result = await _executor.LookupAsync(target, request.Reverse, ct);
+                json = JsonSerializer.Serialize(result);
+            }
+            else if (request.Traceroute)
             {
                 var result = await _executor.TracerouteAsync(
                     target,

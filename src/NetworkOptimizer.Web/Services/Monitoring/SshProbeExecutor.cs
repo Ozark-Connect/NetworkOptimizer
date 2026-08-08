@@ -133,6 +133,33 @@ public class SshProbeExecutor : IProbeExecutor
         return PingOutputParser.Parse(combined ?? string.Empty, target, Vantage, count);
     }
 
+    /// <inheritdoc/>
+    /// <remarks>
+    /// stdout and stderr are merged because several busybox builds print the whole answer to
+    /// stderr, and one prints a can't-resolve line there even when the lookup succeeded.
+    /// </remarks>
+    public async Task<DnsLookupResult> LookupAsync(
+        ProbeTarget target,
+        bool reverse = false,
+        CancellationToken ct = default)
+    {
+        var cmd = $"nslookup {ShellEscape(target.Address)} 2>&1";
+        var result = await _ssh.ExecuteCommandAsync(_connection, cmd, TimeSpan.FromSeconds(15), ct);
+        var combined = string.IsNullOrWhiteSpace(result.Output) ? result.Error : result.Output;
+
+        if (string.IsNullOrWhiteSpace(combined))
+            return new DnsLookupResult
+            {
+                Kind = NslookupOutputParser.ResultKind,
+                Target = target,
+                Vantage = Vantage,
+                Timestamp = DateTime.UtcNow,
+                ErrorMessage = "No output from nslookup on this device"
+            };
+
+        return NslookupOutputParser.Parse(combined, target, Vantage, reverse);
+    }
+
     public async Task<TcpProbeResult> TcpProbeAsync(
         ProbeTarget target,
         TimeSpan? timeout = null,

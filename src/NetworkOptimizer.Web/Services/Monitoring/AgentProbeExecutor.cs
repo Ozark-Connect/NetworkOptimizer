@@ -122,6 +122,52 @@ public sealed class AgentProbeExecutor : IProbeExecutor
     private TracerouteResult Attribute(TracerouteResult result) =>
         _agentId == null ? result : result with { Vantage = Vantage };
 
+    /// <inheritdoc/>
+    /// <remarks>
+    /// An agent predating the dns verb ignores Kind and runs a ping, so its result arrives with
+    /// no Kind marker. That is reported as an agent that needs updating - showing the ping's
+    /// empty address list as a DNS answer would read as "this name resolves to nothing."
+    /// </remarks>
+    public async Task<DnsLookupResult> LookupAsync(
+        ProbeTarget target,
+        bool reverse = false,
+        CancellationToken ct = default)
+    {
+        var request = BuildRequest(target, traceroute: false, count: 0, maxHops: 0);
+        request.Kind = "dns";
+        request.Reverse = reverse;
+
+        var resp = await _agentProbe.RunAsync(_siteSlug, request, TimeSpan.FromSeconds(30), ct, _agentId);
+        if (resp == null) return FailedLookup(target, "No on-site agent is online to run the lookup");
+        if (!resp.Success || string.IsNullOrEmpty(resp.ResultJson))
+            return FailedLookup(target, string.IsNullOrEmpty(resp.Error) ? "Agent lookup failed" : resp.Error);
+
+        try
+        {
+            var parsed = JsonSerializer.Deserialize<DnsLookupResult>(resp.ResultJson);
+            if (parsed == null)
+                return FailedLookup(target, "Agent returned an unreadable lookup result");
+            if (string.IsNullOrEmpty(parsed.Kind))
+                return FailedLookup(target, "This site's agent is too old to run DNS lookups. Update the agent to use this from its vantage.");
+
+            return parsed with { Vantage = Vantage };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to parse agent lookup result for site {Slug}", _siteSlug);
+            return FailedLookup(target, $"Couldn't parse the agent lookup result: {ex.Message}");
+        }
+    }
+
+    private DnsLookupResult FailedLookup(ProbeTarget target, string error) => new()
+    {
+        Kind = NslookupOutputParser.ResultKind,
+        Target = target,
+        Vantage = Vantage,
+        Timestamp = DateTime.UtcNow,
+        ErrorMessage = error,
+    };
+
     private ProbeRequest BuildRequest(ProbeTarget target, bool traceroute, int count, int maxHops) => new()
     {
         Address = target.Address,

@@ -187,6 +187,11 @@
                 @if (_running && _runningKind == "trace") { <span class="spinner-sm"></span> <span>Tracing...</span> }
                 else { <span>Traceroute</span> }
             </button>
+            <button class="btn btn-secondary" @onclick="RunLookup" disabled="@_running"
+                    data-tooltip="Resolves the target using this vantage's own DNS server.">
+                @if (_running && _runningKind == "dns") { <span class="spinner-sm"></span> <span>Looking up...</span> }
+                else { <span>DNS Lookup</span> }
+            </button>
         </div>
     </div>
 </div>
@@ -230,6 +235,62 @@
             @if (!string.IsNullOrEmpty(_pingResult.ErrorMessage))
             {
                 <div class="alert alert-warning">@_pingResult.ErrorMessage</div>
+            }
+        </div>
+    </div>
+}
+
+@if (_dnsResult != null)
+{
+    <div class="card" style="margin-top: 1.5rem;">
+        <div class="card-header">
+            <h2 class="card-title">DNS Result</h2>
+            <span class="status-badge @(_dnsResult.Success ? "status-connected" : "status-error")">
+                @(_dnsResult.Success
+                    ? (_dnsResult.Addresses.Count > 0 ? $"{_dnsResult.Addresses.Count} address(es)" : "Name found")
+                    : _dnsResult.NotFound ? "Name not found" : "No answer")
+            </span>
+        </div>
+        <div class="card-body">
+            <div class="form-group">
+                <label class="form-label">From</label>
+                <div class="form-value">@VantageLabel(_dnsResult.Vantage.Id)</div>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Target</label>
+                <div class="form-value">@_dnsResult.Target.Address</div>
+            </div>
+            @* Several device classes name no resolver at all, so the row is omitted rather
+               than shown empty or filled with a guess. *@
+            @if (!string.IsNullOrEmpty(_dnsResult.Resolver))
+            {
+                <div class="form-group">
+                    <label class="form-label">Resolver</label>
+                    <div class="form-value">@_dnsResult.Resolver</div>
+                </div>
+            }
+            @if (_dnsResult.Addresses.Count > 0)
+            {
+                <div class="form-group">
+                    <label class="form-label">Resolves to</label>
+                    <div class="form-value">
+                        @foreach (var address in _dnsResult.Addresses)
+                        {
+                            <div>@address</div>
+                        }
+                    </div>
+                </div>
+            }
+            @if (!string.IsNullOrEmpty(_dnsResult.CanonicalName))
+            {
+                <div class="form-group">
+                    <label class="form-label">Name</label>
+                    <div class="form-value">@_dnsResult.CanonicalName</div>
+                </div>
+            }
+            @if (!string.IsNullOrEmpty(_dnsResult.ErrorMessage))
+            {
+                <div class="alert alert-warning">@_dnsResult.ErrorMessage</div>
             }
         </div>
     </div>
@@ -580,6 +641,7 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
     private string VantageStorageKey => SiteContext.ScopeStorageKey("networkToolsVantage");
 
     private PingProbeResult? _pingResult;
+    private DnsLookupResult? _dnsResult;
     private TracerouteResult? _traceResult;
 
     // Gateway interface diagnostics. The section only exists when the site has a gateway,
@@ -1016,12 +1078,51 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
         return ExecutorFactory.GetServer();
     }
 
+    /// <summary>
+    /// Resolve the target from the chosen vantage. A bare address is treated as a reverse
+    /// lookup, since asking a resolver to forward-resolve an address answers nothing.
+    /// </summary>
+    private async Task RunLookup()
+    {
+        _running = true;
+        _runningKind = "dns";
+        _pingResult = null;
+        _traceResult = null;
+        _dnsResult = null;
+        _runError = null;
+        StateHasChanged();
+        try
+        {
+            var executor = await ResolveExecutorAsync();
+            if (executor == null)
+            {
+                _runError = "Couldn't resolve the chosen vantage; check SSH credentials.";
+                return;
+            }
+            var address = _targetAddress.Trim();
+            var reverse = System.Net.IPAddress.TryParse(address, out _);
+            var target = new ProbeTarget(address, _probeMode, null, SelectedSourceBind());
+            _dnsResult = await executor.LookupAsync(target, reverse);
+        }
+        catch (Exception ex)
+        {
+            _runError = $"Lookup failed: {ex.Message}";
+        }
+        finally
+        {
+            _running = false;
+            _runningKind = null;
+            StateHasChanged();
+        }
+    }
+
     private async Task RunPing()
     {
         _running = true;
         _runningKind = "ping";
         _pingResult = null;
         _traceResult = null;
+        _dnsResult = null;
         _runError = null;
         StateHasChanged();
         try
@@ -1053,6 +1154,7 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
         _runningKind = "trace";
         _pingResult = null;
         _traceResult = null;
+        _dnsResult = null;
         _runError = null;
         StateHasChanged();
         try
