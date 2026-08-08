@@ -64,7 +64,7 @@
 
         <div class="sqm-actions">
             @* Tooltip lives on the wrapper: a disabled button has pointer-events none and never fires the hover *@
-            <span data-tooltip="@(CurrentEnabled ? null : "Monitoring is disabled for this device. Enable it in Cellular Modem Settings.")" @onclick:stopPropagation data-tooltip-hover-only>
+            <span data-tooltip="@(CurrentEnabled ? null : "Monitoring is disabled for this device. Enable it in Cellular Modem Settings.")" @onclick:stopPropagation>
                 <button class="btn btn-secondary" @onclick="RefreshStats" @onclick:stopPropagation disabled="@(isRefreshing || !CurrentEnabled)">
                     @if (isRefreshing) { <span class="spinner-sm"></span> } else { <span>Refresh</span> }
                 </button>
@@ -144,7 +144,7 @@
                        so it sits with the destructive actions rather than the routine ones. *@
                     <SiteAdminOnly>
                     @* Tooltip lives on the wrapper: a disabled button has pointer-events none and never fires the hover *@
-                    <span class="radio-reset" data-tooltip="@RadioResetTooltip" @onclick:stopPropagation data-tooltip-hover-only>
+                    <span class="radio-reset" data-tooltip="@RadioResetTooltip" @onclick:stopPropagation>
                         <button class="radio-reset-btn" @onclick="ResetRadio" @onclick:stopPropagation
                                 disabled="@(isResettingRadio || modemStats.EnDc != EnDcState.AnchorMissing)"
                                 aria-label="Reset Radio">
@@ -270,7 +270,7 @@
 
         <div class="sqm-actions">
             @* Tooltip lives on the wrapper: a disabled button has pointer-events none and never fires the hover *@
-            <span data-tooltip="@(CurrentEnabled ? null : "Monitoring is disabled for this device. Enable it in Cellular Modem Settings.")" @onclick:stopPropagation data-tooltip-hover-only>
+            <span data-tooltip="@(CurrentEnabled ? null : "Monitoring is disabled for this device. Enable it in Cellular Modem Settings.")" @onclick:stopPropagation>
                 <button class="btn btn-secondary" @onclick="RefreshStats" @onclick:stopPropagation disabled="@(isRefreshing || !CurrentEnabled)">
                     @if (isRefreshing)
                     {

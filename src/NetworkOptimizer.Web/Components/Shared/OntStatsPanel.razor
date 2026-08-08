@@ -108,7 +108,7 @@ else if (IsShowingExternal && _externalOntStats != null)
 
     <div class="sqm-actions">
         @* Tooltip lives on the wrapper: a disabled button has pointer-events none and never fires the hover *@
-        <span data-tooltip="@(CurrentExternalEnabled ? null : "Monitoring is disabled for this device. Enable it in ONT Settings.")" @onclick:stopPropagation data-tooltip-hover-only>
+        <span data-tooltip="@(CurrentExternalEnabled ? null : "Monitoring is disabled for this device. Enable it in ONT Settings.")" @onclick:stopPropagation>
             <button class="btn btn-secondary" @onclick="RefreshExternal" @onclick:stopPropagation disabled="@(_isRefreshing || !CurrentExternalEnabled)">
                 @if (_isRefreshing) { <span class="spinner-sm"></span> } else { <span>Refresh</span> }
             </button>
@@ -162,7 +162,7 @@ else if (IsShowingExternal)
 
     <div class="sqm-actions">
         @* Tooltip lives on the wrapper: a disabled button has pointer-events none and never fires the hover *@
-        <span data-tooltip="@(CurrentExternalEnabled ? null : "Monitoring is disabled for this device. Enable it in ONT Settings.")" @onclick:stopPropagation data-tooltip-hover-only>
+        <span data-tooltip="@(CurrentExternalEnabled ? null : "Monitoring is disabled for this device. Enable it in ONT Settings.")" @onclick:stopPropagation>
             <button class="btn btn-secondary" @onclick="RefreshExternal" @onclick:stopPropagation disabled="@(_isRefreshing || !CurrentExternalEnabled)">
                 @if (_isRefreshing) { <span class="spinner-sm"></span> } else { <span>Refresh</span> }
             </button>
@@ -284,7 +284,7 @@ else
                 @if (hasErrCounts)
                 {
                     <div class="metric-row">
-                        <span class="metric-label" data-tooltip="@($"BIP / {midErrTip} / dropped GEM frames (cumulative)")" data-tooltip-hover-only>@($"BIP/{midErrLabel}/Drops:")</span>
+                        <span class="metric-label" data-tooltip="@($"BIP / {midErrTip} / dropped GEM frames (cumulative)")">@($"BIP/{midErrLabel}/Drops:")</span>
                         <span class="metric-value ont-err-counts">@FmtCount(stats?.BipErrors) / @FmtCount(midErr) / @FmtCount(stats?.GemRxDropped)</span>
                     </div>
                 }
