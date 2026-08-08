@@ -655,7 +655,9 @@
                     return NetworkOptimizer.Web.Services.Monitoring.ProbeVantages.ServerKey;
 
                 var first = OrderedWanContexts.FirstOrDefault(c => c.AgentId != null);
-                return first?.AgentId is int firstAgentId ? $"agent:{firstAgentId}:{first.Id}" : null;
+                return first?.AgentId is int firstAgentId
+                    ? $"agent:{firstAgentId}:{first.Id}"
+                    : NetworkOptimizer.Web.Services.Monitoring.ProbeVantages.ServerKey;
             }
 
             var dominantContextId = VisibleTargets()
@@ -670,7 +672,10 @@
                 : WanContexts.Count == 1 ? WanContexts[0] : null;
 
             // The picker keys an agent entry per WAN vantage, and a vantage id IS the context id.
-            return context?.AgentId is int agentId ? $"agent:{agentId}:{context.Id}" : null;
+            // Naming the server beats sending nothing: no param leaves whatever was last used.
+            return context?.AgentId is int agentId
+                ? $"agent:{agentId}:{context.Id}"
+                : NetworkOptimizer.Web.Services.Monitoring.ProbeVantages.ServerKey;
         }
     }
 
