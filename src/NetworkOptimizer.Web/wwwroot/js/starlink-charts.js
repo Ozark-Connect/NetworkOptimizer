@@ -3,9 +3,11 @@
 // Same control pattern as cellular-charts.js and cm-charts.js.
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
-import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=6';
-import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=10';
+import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=7';
+import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=14';
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=5';
+import { createAxisDateCaption } from './chart-axis-date.js?v=3';
+import { syncIdentity } from './chart-sync.js?v=7';
 
 const PALETTE = window.Apex?.colors || ['#2ba89a', '#3b82f6', '#a78bfa', '#ef5858', '#f59e0b', '#10b981'];
 const _esc = document.createElement('span');
@@ -34,10 +36,16 @@ let visibilityObserver = null;
 let isInViewport = true;
 let lastData = null;
 
-function baseOpts(height, yTitle, yFormatter, extra) {
+const axisDate = createAxisDateCaption({ charts: () => [powerChart, dropChart, obstructionChart, outageChart, gpsChart, alignmentChart], window: effectiveWindow });
+
+// Every chart this tab stacks shares one group - see chart-sync.js.
+const SYNC_GROUP = 'starlink';
+
+function baseOpts(height, yTitle, yFormatter, extra, group = SYNC_GROUP) {
     return {
         chart: {
             type: 'area', height,
+            ...syncIdentity(group),
             background: 'transparent',
             toolbar: { show: false },
             zoom: { enabled: !matchMedia('(pointer:coarse)').matches, type: 'x', allowMouseWheelZoom: false },
@@ -60,6 +68,7 @@ function baseOpts(height, yTitle, yFormatter, extra) {
                 datetimeUTC: false,
                 datetimeFormatter: { hour: 'HH:mm', day: 'MMM dd' },
             },
+            title: axisDate.option(),
         },
         yaxis: {
             title: { text: yTitle, style: { color: '#9ca3af' } },
@@ -175,11 +184,11 @@ function updateVisibility() {
     // terminals actually drawn.
     const pairedDash = devices.flatMap(() => [0, 5]);
     if (powerChart) {
-        powerChart.updateOptions({ stroke: { curve: 'smooth', width: 2, dashArray: pairedDash } }, false, false);
+        powerChart.updateOptions({ stroke: { curve: 'smooth', width: 2, dashArray: pairedDash } }, false, false, false);
         powerChart.updateSeries(powerSeries, false);
     }
     if (dropChart) {
-        dropChart.updateOptions({ stroke: { curve: 'smooth', width: 2, dashArray: pairedDash } }, false, false);
+        dropChart.updateOptions({ stroke: { curve: 'smooth', width: 2, dashArray: pairedDash } }, false, false, false);
         dropChart.updateSeries(dropSeries, false);
     }
     if (obstructionChart) obstructionChart.updateSeries(obstructionSeries, false);
@@ -197,6 +206,8 @@ async function loadAndUpdate() {
 
     // Before updateVisibility, which draws from it.
     lastData = data;
+    // Ahead of the redraw below - see apply().
+    axisDate.apply();
     updateVisibility();
     const container = document.getElementById(containerId);
     if (container) {
@@ -261,6 +272,16 @@ function stopPoll() { if (pollTimer) { clearInterval(pollTimer); pollTimer = nul
 function toLocalDatetimeString(d) {
     const pad = n => String(n).padStart(2, '0');
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+// A plain preset keeps no explicit bounds - getEffectiveFrom/To answer null for it - so its window
+// is the range, trailing from now.
+function effectiveWindow() {
+    const to = getEffectiveTo() || new Date();
+    return {
+        from: getEffectiveFrom() || new Date(to.getTime() - (RANGE_MS[currentRangeHours] || 3600000)),
+        to,
+    };
 }
 
 function getEffectiveFrom() {
@@ -520,4 +541,5 @@ export function unmount() {
     customFrom = null;
     customTo = null;
     isInViewport = true;
+    axisDate.reset();
 }

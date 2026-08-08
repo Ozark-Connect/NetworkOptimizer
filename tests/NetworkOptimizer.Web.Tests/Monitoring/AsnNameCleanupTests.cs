@@ -18,6 +18,10 @@ public class AsnNameCleanupTests
     // Limited partnership forms.
     [InlineData("Hurricane Electric, L.P.", "Hurricane Electric")]
     [InlineData("Hurricane Electric LP", "Hurricane Electric")]
+    // SpaceX (AS14593) under both forms the two cleaners can hand this one: straight off the
+    // registry, and already stored after CleanOrgName took the industry words off.
+    [InlineData("Space Exploration Technologies Corporation", "SpaceX")]
+    [InlineData("Space Exploration", "SpaceX")]
     public void Strips_corporate_suffixes_and_applies_brand_overrides(string raw, string expected)
         => AsnNameCleanup.Clean(raw).Should().Be(expected);
 

@@ -87,7 +87,7 @@ export function renderStatsTable(el, container, opts) {
         </tr>`;
     }).join('');
 
-    el.innerHTML = `<div class="chart-card" style="margin-top:1rem">
+    el.innerHTML = `<div class="chart-card">
         ${title ? `<div class="chart-header"><h3 class="chart-title">${title}</h3></div>` : ''}
         <div class="table-responsive">
         <table class="data-table" style="font-size:0.8125rem">

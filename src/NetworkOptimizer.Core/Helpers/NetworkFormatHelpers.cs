@@ -137,14 +137,28 @@ public static class NetworkFormatHelpers
     };
 
     /// <summary>
+    /// The last step of the boil-down: what a company is actually called, for the ones whose
+    /// stripped legal name is not the name anyone knows them by. Exact-match against the fully
+    /// stripped form, never a substring - the suffix passes have already run by the time this is
+    /// consulted, so a key is written the way the name comes out of them.
+    /// </summary>
+    private static readonly Dictionary<string, string> OrgAliases = new(StringComparer.OrdinalIgnoreCase)
+    {
+        // AS14593 registers as "Space Exploration Technologies Corporation", which strips to
+        // "Space Exploration" - a target list nobody would recognize as Starlink's operator.
+        ["Space Exploration"] = "SpaceX",
+    };
+
+    /// <summary>
     /// The storage-time ASN/org-name cleaner: strips industry suffixes (Communications, Telecom,
     /// Broadband, Networks, Services, Parent, Holdings ...) and legal forms (LLC, Inc, AB ...) off
     /// the tail ("Hisense Broadband Technologies Co Ltd" -> "Hisense", "Level 3 Parent, LLC" ->
-    /// "Level 3"). Applied once when a target's AsnName is persisted - auto-discovery
-    /// (UpstreamTracerService.CleanAsnName) and manual target add (LatencyTargetsCard) both call it,
-    /// so the two paths store identical names. This is the HEAVIER of the two ASN-name cleaners;
-    /// the lighter resolve/display pass that also carries brand overrides (e.g. Arelion Sweden ->
-    /// Arelion, applied without re-discovery) is AsnNameCleanup in AsnResolutionService.
+    /// "Level 3"), then applies <see cref="OrgAliases"/> to whatever is left. Applied once when a
+    /// target's AsnName is persisted - auto-discovery (UpstreamTracerService.CleanAsnName) and
+    /// manual target add (LatencyTargetsCard) both call it, so the two paths store identical
+    /// names. This is the HEAVIER of the two ASN-name cleaners; the lighter resolve/display pass
+    /// that also carries brand overrides (e.g. Arelion Sweden -> Arelion, applied without
+    /// re-discovery) is AsnNameCleanup in AsnResolutionService.
     /// </summary>
     public static string CleanOrgName(string? name)
     {
@@ -163,6 +177,7 @@ public static class NetworkFormatHelpers
                 }
             }
         } while (changed && cleaned.Contains(' '));
-        return cleaned.Trim();
+        cleaned = cleaned.Trim();
+        return OrgAliases.TryGetValue(cleaned, out var alias) ? alias : cleaned;
     }
 }

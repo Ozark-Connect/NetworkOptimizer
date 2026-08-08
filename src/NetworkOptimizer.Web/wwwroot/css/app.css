@@ -10096,6 +10096,16 @@ a.path-hop.hop-clickable:hover {
     display: none;
 }
 
+/* Marks a synced tooltip as trimmed - the rest are on the chart under the pointer. Sits at the
+   right end of the last row, so the mark costs no height of its own. */
+.netopt-tooltip-more {
+    margin-left: auto;
+    padding-left: 10px;
+    color: var(--text-muted);
+    font-family: Helvetica, Arial, sans-serif;
+    font-size: 12px;
+}
+
 @media (max-width: 768px) {
     .metrics-header {
         flex-direction: column;
@@ -15735,6 +15745,12 @@ a.affected-client:hover {
     color: var(--text-primary);
 }
 
+/* Takes the button's own right padding back, so the glyph sits where the card's edge is rather
+   than a third of a rem inside it. */
+.isp-health-chart-card .card-header-right .monitoring-jump-btn {
+    margin-right: -0.2rem;
+}
+
 #latency-charts-container .monitoring-chart-header {
     position: relative;
 }
@@ -18754,6 +18770,12 @@ body.kiosk-mode .status-indicators {
     display: none;
 }
 
+/* The shared stats table drops its top margin because it normally follows a chart, which brings
+   its own space below the plot. This one follows the filter chips instead and needs the gap. */
+.port-stats-table .chart-card {
+    margin-top: 0.5rem;
+}
+
 .port-stats-table .data-table th,
 .port-stats-table .data-table td {
     white-space: nowrap;
@@ -19398,13 +19420,15 @@ body.kiosk-mode .status-indicators {
     padding: 0.35rem 0;
 }
 
-.site-name-cell {
+.site-name-cell,
+.inline-name-cell {
     display: inline-flex;
     align-items: center;
     gap: 0.4rem;
 }
 
-.site-name-edit-btn {
+.site-name-edit-btn,
+.inline-name-edit-btn {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -19417,27 +19441,39 @@ body.kiosk-mode .status-indicators {
     transition: color 0.15s ease, background 0.15s ease;
 }
 
-.site-name-edit-btn:hover {
+.site-name-edit-btn:hover,
+.inline-name-edit-btn:hover {
     color: var(--text-primary);
     background: var(--bg-hover);
 }
 
-.site-name-edit-btn svg {
+.site-name-edit-btn svg,
+.inline-name-edit-btn svg {
     width: 15px;
     height: 15px;
 }
 
-.site-name-edit {
+.site-name-edit,
+.inline-name-edit {
     display: flex;
     align-items: center;
     gap: 0.4rem;
     flex-wrap: wrap;
 }
 
-.site-name-edit .form-control {
+.site-name-edit .form-control,
+.inline-name-edit .form-control {
     width: auto;
     min-width: 8rem;
     max-width: 14rem;
+}
+
+/* Save and Cancel travel together: in a table cell there is rarely room for the field and both
+   buttons, and wrapping them one at a time left Cancel stranded on its own line. */
+.inline-name-edit-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
 }
 
 .checkbox-toggle {

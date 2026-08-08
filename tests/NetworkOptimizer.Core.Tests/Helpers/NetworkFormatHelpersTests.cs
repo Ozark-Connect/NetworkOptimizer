@@ -33,4 +33,19 @@ public class NetworkFormatHelpersTests
     public void CleanOrgName_keeps_bandwidth_when_it_is_the_whole_brand()
         // "Bandwidth" only strips as a trailing word; it must not erase a standalone brand.
         => NetworkFormatHelpers.CleanOrgName("Bandwidth Inc").Should().Be("Bandwidth");
+
+    [Theory]
+    // The alias pass runs last, on whatever the suffix strippers leave behind.
+    [InlineData("Space Exploration Technologies Corporation", "SpaceX")]
+    [InlineData("Space Exploration Technologies", "SpaceX")]
+    [InlineData("Space Exploration", "SpaceX")]
+    public void CleanOrgName_aliases_the_stripped_name_to_the_known_one(string raw, string expected)
+        => NetworkFormatHelpers.CleanOrgName(raw).Should().Be(expected);
+
+    [Fact]
+    public void CleanOrgName_alias_matches_the_whole_name_only()
+        // "Partners" is not a suffix this strips, so the name never becomes the alias key - and an
+        // unrelated firm that merely starts with those words keeps its own name.
+        => NetworkFormatHelpers.CleanOrgName("Space Exploration Partners")
+            .Should().Be("Space Exploration Partners");
 }

@@ -210,14 +210,20 @@ public sealed class LiveWanScope
 
     /// <summary>
     /// The <c>&amp;wan=...</c> fragment to append to a link, or an empty string when there is no
-    /// choice worth carrying (a single-WAN site, where every view is that WAN's already).
+    /// WAN to name.
+    /// <para>
+    /// A single-WAN site carries it too. Leaving it off there assumed one WAN means one view, and
+    /// the destination separates that WAN from the LAN regardless of how many WANs the site has -
+    /// so an unnamed link landed on whichever scope was last saved over there, and the chart then
+    /// refused the category the link asked for.
+    /// </para>
     /// <paramref name="value"/> overrides the current selection for a link that means something
     /// else by it - a LAN view asking for every WAN rather than the tiles' focus.
     /// </summary>
     public string QueryFragment(string? value = null)
     {
         var wan = value ?? QueryValue();
-        return HasChoice && wan.Length > 0 ? $"&wan={Uri.EscapeDataString(wan)}" : "";
+        return wan.Length > 0 ? $"&wan={Uri.EscapeDataString(wan)}" : "";
     }
 
     /// <summary>Puts every WAN on screen at once - the All pill.</summary>

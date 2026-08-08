@@ -209,6 +209,12 @@ internal static class AsnNameCleanup
     {
         // Arelion (AS1299, ex-Telia Carrier) resolves as "Arelion Sweden AB"; show just "Arelion".
         ["Arelion Sweden"] = "Arelion",
+        // SpaceX (AS14593) registers as "Space Exploration Technologies Corporation". Both forms
+        // are here because the two cleaners strip different amounts: a name stored through
+        // CleanOrgName arrives as "Space Exploration", while this pass on its own - which leaves
+        // industry words alone - lands on "Space Exploration Technologies".
+        ["Space Exploration"] = "SpaceX",
+        ["Space Exploration Technologies"] = "SpaceX",
     };
 
     // Brand tokens: collapse the whole name to this brand when it appears as a standalone word.

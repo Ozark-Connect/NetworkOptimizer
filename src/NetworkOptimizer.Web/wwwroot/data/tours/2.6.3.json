@@ -1,0 +1,32 @@
+{
+  "id": "2.6.3",
+  "kind": "whats-new",
+  "title": "What's new in v2.6.3",
+  "summary": "Hover one chart and the rest follow, and targets can be renamed in place.",
+  "steps": [
+    {
+      "id": "chart-hover-sync",
+      "level": "minor",
+      "url": "/monitoring?tab=performance",
+      "selector": "[data-tour=\"chart-hover-sync\"]",
+      "title": "Latency & Packet Loss",
+      "listLabel": "Hover one chart, read the same instant on all of them",
+      "body": "Point at any chart and the rest follow - same instant, same crosshair. Reading a spike against what the link was carrying no longer means lining up two charts by eye. **Device Stats**, **SFP Stats**, **CM Stats**, **ONT Stats**, **Cellular Stats** and **Starlink Stats** do it too.",
+      "placement": "top",
+      "badge": "improved",
+      "requires": ["has-targets"]
+    },
+    {
+      "id": "rename-latency-target",
+      "level": "minor",
+      "url": "/monitoring?tab=performance",
+      "selector": "[data-tour=\"latency-target-rename\"]",
+      "title": "Latency Targets",
+      "listLabel": "Rename a target without removing it",
+      "body": "A target's name is now editable in place - click the pencil beside it.",
+      "placement": "top",
+      "optional": true,
+      "requires": ["has-targets"]
+    }
+  ]
+}

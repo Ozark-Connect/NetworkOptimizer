@@ -29,6 +29,15 @@ public interface IMonitoringTargetService
     [AuditAction(AuditActions.MonitoringSetupChanged, TargetType = "monitoring_target")]
     Task<bool> DeleteAsync(int id, CancellationToken ct = default);
 
+    /// <summary>Renames a target. False when it no longer exists.</summary>
+    /// <remarks>
+    /// Operator, like adding one: naming a target is curating the list, not administering the
+    /// site, and whoever can put a target on the list can say what it is called.
+    /// </remarks>
+    [RequireRole(Roles.Operator)]
+    [AuditAction(AuditActions.MonitoringSetupChanged, TargetType = "monitoring_target")]
+    Task<bool> SetNameAsync(int id, string name, CancellationToken ct = default);
+
     /// <summary>Pauses or resumes probing of a target. False when it no longer exists.</summary>
     [RequireRole(Roles.Operator)]
     [AuditAction(AuditActions.MonitoringSetupChanged, TargetType = "monitoring_target")]

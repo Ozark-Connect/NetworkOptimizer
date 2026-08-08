@@ -51,6 +51,53 @@ public static class MonitoringLinks
     }
 
     /// <summary>
+    /// Latency and Packet Loss framed on a window: the instant at its center and how wide it is.
+    /// For a jump from a view that IS a window rather than a moment - the ISP Health report reads
+    /// over days, and landing on the 15 minutes the moment-jumps frame would throw away the
+    /// context its reader is looking at, so the span travels with the instant.
+    /// <para>
+    /// The WAN rides along even on a site with one, for the same reason every other link here
+    /// does: the destination separates that WAN from the LAN, and a link naming neither lands on
+    /// whichever of the two was last selected.
+    /// </para>
+    /// </summary>
+    /// <param name="at">Unix-ms instant at the center of the window.</param>
+    /// <param name="spanMs">How wide the window is, in milliseconds.</param>
+    public static string Analysis(string category, long at, long spanMs, string? wanKey) =>
+        $"/monitoring?tab=performance&category={category}&at={at}&span={spanMs}"
+        + (string.IsNullOrEmpty(wanKey) ? "" : $"&wan={Uri.EscapeDataString(wanKey)}");
+
+    /// <summary>
+    /// Latency and Packet Loss on a LAN target - the gateway's own fabric row, from a live tile -
+    /// at a moment. Carries <paramref name="at"/> for the same reason the category tiles do: without
+    /// it the destination framed its saved window, so a tile showing what is happening now could
+    /// land on some earlier stretch of the day.
+    /// <para>
+    /// Asks for every WAN the way any LAN view does: the LAN categories are only offered in the All
+    /// scope, so a link that named no WAN landed in whatever scope the destination was last left in
+    /// and the chart moved off the category - and the target - the link had asked for.
+    /// </para>
+    /// </summary>
+    public static string FabricTarget(string? targetId, string at, LiveWanScope wanScope) =>
+        $"/monitoring?tab=performance&category={FabricCategory}&at={at}"
+        + (string.IsNullOrEmpty(targetId) ? "" : $"&target={Uri.EscapeDataString(targetId)}")
+        + wanScope.QueryFragment(LiveWanScope.AllWansToken);
+
+    /// <summary>
+    /// Device Stats for one device, at a moment. The gateway's CPU, memory and temperature tiles
+    /// open here, and they read as history the same way the latency tiles do - so the instant they
+    /// were parked on rides along rather than being left behind on the Live view.
+    /// <para>
+    /// The window that instant lands in is the destination's own business: Device Stats frames an
+    /// hour where Latency and Packet Loss frames 15 minutes, because a device warms up over a
+    /// shift and a loss spike is over in seconds.
+    /// </para>
+    /// </summary>
+    public static string DeviceStats(string? deviceMac, string at) =>
+        $"/monitoring?tab=devices&at={at}"
+        + (string.IsNullOrEmpty(deviceMac) ? "" : $"&device={Uri.EscapeDataString(deviceMac)}");
+
+    /// <summary>
     /// The ISP Health report for one WAN. The primary is named like any other: the destination
     /// remembers the WAN it was last left on, so leaving it unnamed opened that one instead.
     /// </summary>

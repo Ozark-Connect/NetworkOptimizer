@@ -15,6 +15,27 @@
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const DOT_LAYER = 'netopt-hover-dots';
 
+// Rows a SYNCED tooltip shows - the copy a grouped chart draws for a chart nobody is pointing at.
+// Enough of them and the box is taller than the chart being read, covering the thing the reader
+// is looking at. The top few carry the comparison; the hovered chart still lists everything.
+const SYNCED_ROW_CAP = 5;
+
+// Which element the pointer is over. Read from the document because a synced chart never sees a
+// pointer event of its own - that is what makes it synced - so it has no other way to tell that
+// the hover belongs to a sibling. Capture phase, so a chart stopping propagation cannot hide it.
+let pointerTarget = null;
+document.addEventListener('pointerover', e => { pointerTarget = e.target; }, true);
+
+// The instant the hovered chart last resolved, for the synced copies to answer at.
+let lastHoveredX = null;
+
+// Positively elsewhere, never merely unknown: with no pointer seen yet (touch, keyboard, a
+// programmatic tooltip) the full list is the safer answer.
+function isSyncedCopy(w) {
+    const el = w.globals?.dom?.baseEl;
+    return !!pointerTarget && !!el && !el.contains(pointerTarget);
+}
+
 /**
  * A dot on EVERY line at the hovered instant, drawn by us.
  *
@@ -133,7 +154,20 @@ function paintHoverDots(w, at) {
 }
 
 export function valueSortedTooltip({ series, seriesIndex, dataPointIndex, w }, options = {}) {
-    const { hoveredX, at } = hoveredIndices(w, dataPointIndex, seriesIndex);
+    const syncedCopy = isSyncedCopy(w);
+    let { hoveredX, at } = hoveredIndices(w, dataPointIndex, seriesIndex);
+    // A synced copy is handed the hovered chart's data INDEX, and reading its own x at that
+    // position lands on a different instant wherever two charts' points do not line up one for
+    // one. Resolving against the x the hovered chart reported keeps the rows and dots answering
+    // for the moment under the pointer, whatever the indices happen to be here.
+    if (syncedCopy) {
+        if (lastHoveredX != null) {
+            hoveredX = lastHoveredX;
+            at = (w.globals.seriesX || []).map(xs => indexAtX(xs, hoveredX));
+        }
+    } else if (hoveredX != null) {
+        lastHoveredX = hoveredX;
+    }
     paintHoverDots(w, at);
     const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
     // The axis formatter by default, since it is already right for the chart. An explicit one
@@ -176,14 +210,22 @@ export function valueSortedTooltip({ series, seriesIndex, dataPointIndex, w }, o
         ? { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }
         : { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false };
     const when = ts ? new Date(ts).toLocaleString(undefined, timeParts) : '';
+    const hidden = syncedCopy ? Math.max(0, rows.length - SYNCED_ROW_CAP) : 0;
+    const shown = hidden ? rows.slice(0, SYNCED_ROW_CAP) : rows;
     return (when ? '<div class="apexcharts-tooltip-title" style="font-family:Helvetica, Arial, sans-serif;font-size:12px">' + esc(when) + '</div>' : '')
-        + rows.map(r =>
+        + shown.map((r, idx) =>
             '<div class="apexcharts-tooltip-series-group apexcharts-active" style="display:flex">'
             + '<span class="apexcharts-tooltip-marker" style="background-color:' + r.color + ';border-radius:50%;width:12px;height:12px"></span>'
             + '<div class="apexcharts-tooltip-text" style="font-family:Helvetica, Arial, sans-serif;font-size:12px"><div class="apexcharts-tooltip-y-group">'
             + '<span class="apexcharts-tooltip-text-y-label">' + esc(r.name) + ': </span>'
             + '<span class="apexcharts-tooltip-text-y-value">' + esc(fmtFor(r.i)(r.v)) + '</span>'
-            + '</div></div></div>').join('');
+            + '</div></div>'
+            // Rides the last row rather than taking one of its own: a row's worth of empty box is
+            // most of what the cap was trying to win back.
+            + (hidden && idx === shown.length - 1
+                ? '<span class="netopt-tooltip-more" title="' + hidden + ' more on the chart you are hovering">…</span>'
+                : '')
+            + '</div>').join('');
 }
 
 /**

@@ -15,6 +15,7 @@
 @inject NetworkOptimizer.Web.Services.ISystemSettingsService SettingsService
 @inject NetworkOptimizer.Web.Services.SiteContextService SiteContext
 @inject Microsoft.AspNetCore.Authorization.IAuthorizationService Authz
+@inject ILogger<IspHealthPanel> Logger
 @using NetworkOptimizer.Web.Services.Authorization
 @using Microsoft.AspNetCore.Components.Authorization
 
@@ -872,7 +873,14 @@ else
     </div>
 
     <div class="card isp-health-card isp-health-chart-card">
-        <div class="card-header"><h2 class="card-title">Per-Network RTT (@WindowLabel(r))</h2></div>
+        <div class="card-header">
+            <h2 class="card-title">Per-Network RTT (@WindowLabel(r))</h2>
+            <div class="card-header-right">
+                <MonitoringJumpButton Icon="MonitoringJumpButton.JumpIcon.Analyze"
+                                      Tooltip="Analyze this window in Latency &amp; Packet Loss"
+                                      OnClick="JumpToAnalysisAsync" />
+            </div>
+        </div>
         <div class="card-body isp-card-body-tight-top">
             <div id="isp-health-asn-chart"></div>
 
@@ -1335,6 +1343,33 @@ else
     /// Carries the report's WAN into a link out of this panel, so the destination opens filtered to
     /// the WAN the report was about. Empty on a single-WAN site, where the parameter says nothing.
     /// </summary>
+    private sealed record IspChartView(string AtIso, long SpanMs);
+
+    /// <summary>
+    /// Opens Latency and Packet Loss on what this chart is showing: Transit, which is where those
+    /// same per-ASN clusters are charted, framed on the window in view rather than on a fixed 15
+    /// minutes - a reader who zoomed into an evening did that to say which evening.
+    /// </summary>
+    private async Task JumpToAnalysisAsync()
+    {
+        try
+        {
+            var view = await JS.InvokeAsync<IspChartView?>("__ispHealthCharts.currentView");
+            if (view == null || string.IsNullOrEmpty(view.AtIso)) return;
+            var at = new DateTimeOffset(
+                DateTime.Parse(view.AtIso, null, System.Globalization.DateTimeStyles.RoundtripKind)
+                    .ToUniversalTime()).ToUnixTimeMilliseconds();
+            NavigationManager.NavigateTo(NetworkOptimizer.Web.Services.Monitoring.MonitoringLinks.Analysis(
+                NetworkOptimizer.Web.Services.Monitoring.MonitoringLinks.TransitCategory,
+                at, view.SpanMs, _selectedWanKey));
+        }
+        catch (Exception ex)
+        {
+            // The chart owns the window; with it not mounted there is nothing to frame on.
+            Logger.LogDebug(ex, "ISP Health analyze jump skipped; chart view unavailable");
+        }
+    }
+
     private string WanLinkQuery() =>
         string.IsNullOrEmpty(_selectedWanKey) || _wanOptions.Count <= 1
             ? "" : $"&wan={Uri.EscapeDataString(_selectedWanKey)}";

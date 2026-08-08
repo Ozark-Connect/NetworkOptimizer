@@ -5,10 +5,12 @@
 // device-health-charts, and future chart sets share one implementation.
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
-import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=6';
-import { valueSortedTooltip, tooltipHeld } from './chart-tooltip.js?v=10';
+import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=7';
+import { valueSortedTooltip, tooltipHeld } from './chart-tooltip.js?v=14';
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=5';
 import { downloadColor, uploadColor } from './chart-colors.js?v=2';
+import { createAxisDateCaption } from './chart-axis-date.js?v=3';
+import { syncIdentity, extentsOf, spanTo } from './chart-sync.js?v=7';
 
 const PALETTE = window.Apex?.colors || ['#7EB26D', '#EAB839', '#6ED0E0', '#EF843C', '#E24D42', '#1F78C1'];
 const _colorCache = {};
@@ -54,6 +56,11 @@ let savedState = null;
 // exactly as before. Shape: { primaryKey, selected: [wanKey...], tokens: {key: 'WAN1'} };
 // selecting every key is comparison mode (per-host color kept, per-WAN dash pattern).
 let wanScope = null;
+// The instants every chart on this tab must report as its own first and last for the hover sync to
+// fire - see spanTo. Recomputed each load, since each category brings its own targets.
+let groupExtents = null;
+// The throughput chart's dash pattern as last applied, so an unchanged one costs no redraw.
+let lastWanRateDash = null;
 // Dash patterns by WAN order: primary solid, then visibly distinct patterns per extra WAN.
 const WAN_DASH_PATTERNS = [0, 6, 2, 9];
 
@@ -156,11 +163,20 @@ function buildInvestigateAnnotations() {
     };
 }
 
-function baseChartOpts(type, yTitle, yFormatter, extraOpts) {
+const axisDate = createAxisDateCaption({ charts: () => [rttChart, lossChart, wanRateChart], window: effectiveWindow });
+
+// Every chart this tab stacks shares one group - see chart-sync.js. WAN Throughput is in it too:
+// reading a latency spike against what the link was carrying at that moment is most of why it sits
+// under them. It comes from its own query, so its points can be spaced differently - the tooltip
+// resolves by the hovered instant rather than by index, which is what keeps its rows honest.
+const SYNC_GROUP = 'latency';
+
+function baseChartOpts(type, yTitle, yFormatter, extraOpts, group = SYNC_GROUP) {
     return {
         chart: {
             type: type,
             height: type === 'area' ? 200 : 260,
+            ...syncIdentity(group),
             background: 'transparent',
             toolbar: { show: false },
             zoom: { enabled: !matchMedia('(pointer:coarse)').matches, type: 'x', allowMouseWheelZoom: false },
@@ -179,6 +195,7 @@ function baseChartOpts(type, yTitle, yFormatter, extraOpts) {
                 datetimeUTC: false,
                 datetimeFormatter: { hour: 'HH:mm', day: 'MMM dd' },
             },
+            title: axisDate.option(),
         },
         yaxis: {
             min: 0,
@@ -366,15 +383,17 @@ function updateChartVisibility() {
         data: (t[key] || []).map(p => ({ x: new Date(p.time).getTime(), y: p.value })),
     }));
 
-    rttChart.updateSeries(seriesOf('rtt'), false);
-    lossChart.updateSeries(seriesOf('loss'), false);
+    rttChart.updateSeries(spanTo(seriesOf('rtt'), groupExtents), false);
+    lossChart.updateSeries(spanTo(seriesOf('loss'), groupExtents), false);
 
     // Dashes are positional, so they have to be rebuilt against the series actually drawn. Twins
     // of one host share its colour, so the pattern is the only thing telling their WANs apart.
     const annotations = buildInvestigateAnnotations();
     const opts = { annotations, stroke: { curve: 'smooth', width: 2, dashArray: shown.map(wanDashFor) } };
-    rttChart.updateOptions(opts, false, false);
-    lossChart.updateOptions(opts, false, false);
+    // Fourth argument false: this dash pattern is positional to THESE series, and a grouped
+    // chart would otherwise be handed it - which is how WAN Throughput's upload went dashed.
+    rttChart.updateOptions(opts, false, false, false);
+    lossChart.updateOptions(opts, false, false, false);
 }
 
 // Mean loss (%) over the visible window at or above which a LAN fabric target is treated as
@@ -475,7 +494,10 @@ async function loadAndUpdate() {
     }));
 
     lastFetchData = { ...data, targets: scopedTargets };
+    groupExtents = extentsOf(scopedTargets.flatMap(t => [t.rtt || [], t.loss || []]));
 
+    // Ahead of the redraw below - see apply().
+    axisDate.apply();
     updateChartVisibility();
 
     const container = document.getElementById(containerId);
@@ -492,23 +514,51 @@ async function loadAndUpdate() {
     if (wanCard) wanCard.style.display = showWanRate ? '' : 'none';
 
     if (showWanRate && wanRateChart) {
-        let timeParams = buildQueryParams().replace(/category=[^&]*&?/, '');
-        // The throughput reference follows the WAN filter: the solo-selected WAN, or the
-        // primary while comparing (never a sum - Blazor labels the card accordingly).
-        if (wanScope) {
-            const focused = wanScope.selected.length === 1 ? wanScope.selected[0] : wanScope.primaryKey;
-            if (focused) timeParams += `${timeParams ? '&' : ''}wan=${encodeURIComponent(focused)}`;
-        }
+        const timeParams = buildQueryParams().replace(/category=[^&]*&?/, '');
+        // The throughput follows the WAN filter: the WANs being compared, each drawn in full.
+        // Summing them would answer a question nobody asked - the point of comparing two WANs is
+        // to see them apart - so they arrive as their own pair of lines, told apart the way the
+        // RTT chart tells its WANs apart.
+        const keys = wanScope?.selected?.length ? wanScope.selected : [null];
+        const many = keys.length > 1;
+
+        // Its own samples, at its own cadence - only the extents are trimmed and padded to the
+        // group's, which is all the hover sync asks for.
+        const points = (pts) => (pts || []).map(p => ({ x: new Date(p.time).getTime(), y: p.value }));
+
         try {
-            const resp = await fetch(`/api/monitoring/wan-rate-chart?${timeParams}`, { credentials: 'same-origin' });
-            if (resp.ok) {
-                const wan = await resp.json();
-                const dlSeries = (wan.download || []).map(p => ({ x: new Date(p.time).getTime(), y: p.value }));
-                const ulSeries = (wan.upload || []).map(p => ({ x: new Date(p.time).getTime(), y: p.value }));
-                wanRateChart.updateSeries([
-                    { name: 'Download', data: dlSeries },
-                    { name: 'Upload', data: ulSeries }
-                ], false);
+            const fetched = await Promise.all(keys.map(async (key) => {
+                const params = key ? `${timeParams}${timeParams ? '&' : ''}wan=${encodeURIComponent(key)}` : timeParams;
+                const resp = await fetch(`/api/monitoring/wan-rate-chart?${params}`, { credentials: 'same-origin' });
+                return resp.ok ? { key, wan: await resp.json() } : null;
+            }));
+
+            const series = [];
+            const dashes = [];
+            fetched.filter(Boolean).forEach(({ key, wan }) => {
+                // The WAN's own token, as on the pills: the color says download or upload, so the
+                // name and the dash are what say which connection.
+                const token = many ? ` (${wanScope.tokens?.[key] || String(key).toUpperCase()})` : '';
+                // Keyed off the WAN's place in the filter, exactly as wanDashFor does it, so a WAN
+                // wears the same pattern here as on the RTT chart above. Its place among the
+                // series drawn here would not survive one WAN's request failing.
+                const dash = many ? WAN_DASH_PATTERNS[Math.max(0, keys.indexOf(key)) % WAN_DASH_PATTERNS.length] : 0;
+                series.push(
+                    { name: `Download${token}`, color: downloadColor(), data: points(wan.download) },
+                    { name: `Upload${token}`, color: uploadColor(), data: points(wan.upload) });
+                dashes.push(dash, dash);
+            });
+            if (!series.length) return;
+
+            wanRateChart.updateSeries(spanTo(series, groupExtents), false);
+            // Positional, so rebuilt against the WANs actually drawn - and only when it changes,
+            // since this redraws and the poll comes round every few seconds. Fourth argument
+            // false, or the group takes this pattern for its own series.
+            const pattern = dashes.join(',');
+            if (pattern !== lastWanRateDash) {
+                lastWanRateDash = pattern;
+                wanRateChart.updateOptions(
+                    { stroke: { curve: 'smooth', width: 2, dashArray: dashes } }, false, false, false);
             }
         } catch { }
     }
@@ -694,6 +744,16 @@ function applyDragZoom(xaxis) {
     return { xaxis: { min: undefined, max: undefined } };
 }
 
+// A plain preset keeps no explicit bounds - getEffectiveFrom/To answer null for it - so its window
+// is the range, trailing from now.
+function effectiveWindow() {
+    const to = getEffectiveTo() || new Date();
+    return {
+        from: getEffectiveFrom() || new Date(to.getTime() - (RANGE_MS[currentRangeHours] || 3600000)),
+        to,
+    };
+}
+
 function getEffectiveFrom() {
     if (isCustomRange && customFrom) return customFrom;
     if (windowOffset !== 0) {
@@ -873,6 +933,16 @@ export function navigateToTime(isoTimestamp, category, label, loaded, eventStart
  * Deliberately NOT navigateToTime - that is the Investigate flow, and it carries an event marker
  * and label this has no business drawing. Same window machinery, no marker.
  */
+/**
+ * Frames a window of a stated width on a moment, for a link that carries its own span - a jump
+ * from a view that is itself a window rather than an instant. Used only when the link says so;
+ * without a span, frameMoment's 15 minutes still applies.
+ */
+export function frameWindow(isoTimestamp, category, spanMs) {
+    investigateMarker = null;
+    frameCustomWindow(new Date(isoTimestamp).getTime(), category, Math.max(60000, spanMs) / 2);
+}
+
 export function frameMoment(isoTimestamp, category) {
     investigateMarker = null;
     frameCustomWindow(new Date(isoTimestamp).getTime(), category, 7.5 * 60000);
@@ -1007,4 +1077,6 @@ export function unmount() {
     investigateMarker = null;
     isInViewport = true;
     wanScope = null;
+    lastWanRateDash = null;
+    axisDate.reset();
 }
