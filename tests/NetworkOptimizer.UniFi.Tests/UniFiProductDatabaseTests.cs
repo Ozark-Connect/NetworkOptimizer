@@ -785,7 +785,6 @@ public class UniFiProductDatabaseTests
     [InlineData("UPS23", "UPS-Tower")]
     [InlineData("UPS-Tower-EU", "UPS-Tower")]
     [InlineData("UPS25", "UPS-2U")]
-    [InlineData("UPS2U", "UPS-2U")]
     [InlineData("UPS-2U", "UPS-2U")]
     [InlineData("UPS-2U-EU", "UPS-2U")]
     [InlineData("UP1", "USP-Plug")]
@@ -796,6 +795,10 @@ public class UniFiProductDatabaseTests
     [InlineData("USPRPSP", "USP-RPS-Pro")]
     [InlineData("USPPDUPEU", "USP-PDU-Pro")]
     [InlineData("USP-PDU-Pro-EU", "USP-PDU-Pro")]
+    [InlineData("USPPDUPAU", "USP-PDU-Pro")]
+    [InlineData("USP-PDU-Pro-AU", "USP-PDU-Pro")]
+    [InlineData("USPPDUPUK", "USP-PDU-Pro")]
+    [InlineData("USP-PDU-Pro-UK", "USP-PDU-Pro")]
     public void GetProductNameFromShortname_SmartPower_ReturnsCorrectName(string shortname, string expected)
     {
         // Act
@@ -1395,7 +1398,6 @@ public class UniFiProductDatabaseTests
     [InlineData(null, "UPS24")]
     [InlineData(null, "UPS25")]
     [InlineData(null, "UPS26")]
-    [InlineData(null, "UPS2U")]
     [InlineData(null, "UP1")]
     [InlineData(null, "UP6")]
     [InlineData(null, "USPPDUP")]
@@ -1404,6 +1406,10 @@ public class UniFiProductDatabaseTests
     [InlineData(null, "USPRPSP")]
     [InlineData(null, "USPPDUPEU")]
     [InlineData(null, "USP-PDU-Pro-EU")]
+    [InlineData(null, "USPPDUPAU")]
+    [InlineData(null, "USP-PDU-Pro-AU")]
+    [InlineData(null, "USPPDUPUK")]
+    [InlineData(null, "USP-PDU-Pro-UK")]
     [InlineData(null, "USPPLUG")]
     [InlineData(null, "USPSTRIP")]
     public void IsPowerDevice_PowerDeviceShortnames_ReturnsTrue(string? model, string? shortname)

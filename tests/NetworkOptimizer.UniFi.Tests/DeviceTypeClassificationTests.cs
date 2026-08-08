@@ -79,9 +79,9 @@ public class DeviceTypeClassificationTests
     }
 
     [Fact]
-    public void ToDisplayName_SmartPower_ReturnsSpacedLabel()
+    public void ToDisplayName_SmartPower_ReturnsOfficialLabel()
     {
-        DeviceType.SmartPower.ToDisplayName().Should().Be("Smart Power");
+        DeviceType.SmartPower.ToDisplayName().Should().Be("SmartPower");
     }
 
     [Theory]

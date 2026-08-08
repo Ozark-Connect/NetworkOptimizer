@@ -569,7 +569,6 @@ public static class UniFiProductDatabase
         { "USWF070", "USW-Pro-24" },
         { "WRS3", "USW-Pro-24" },
         { "WRS3F", "USW-Pro-24" },
-        { "UPS2U", "UPS-2U" },
 
         // =====================================================================
         // ACCESS POINTS
@@ -657,6 +656,10 @@ public static class UniFiProductDatabase
         { "UPS2UPROEU", "UPS-2U-Pro" },
         { "USPPDUPEU", "USP-PDU-Pro" },
         { "USPPDUPROEU", "USP-PDU-Pro" },
+        { "USPPDUPAU", "USP-PDU-Pro" },
+        { "USPPDUPROAU", "USP-PDU-Pro" },
+        { "USPPDUPUK", "USP-PDU-Pro" },
+        { "USPPDUPROUK", "USP-PDU-Pro" },
         { "USPPLUG", "USP-Plug" },
         { "USPSTRIP", "USP-Strip" },
     };
