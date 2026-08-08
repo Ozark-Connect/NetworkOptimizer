@@ -107,7 +107,6 @@ public class ModemRepository : IModemRepository
                     existing.ModemType = config.ModemType;
                     existing.QmiDevice = config.QmiDevice;
                     existing.Provider = config.Provider;
-                    existing.Enabled = config.Enabled;
                     existing.PollingIntervalSeconds = config.PollingIntervalSeconds;
                     existing.LastPolled = config.LastPolled;
                     existing.LastError = config.LastError;
@@ -182,19 +181,20 @@ public class ModemRepository : IModemRepository
     {
         try
         {
-            var config = await _context.ModemConfigurations.FirstOrDefaultAsync(m => m.Id == id, cancellationToken);
-            // Never resurrect or overwrite a config that was disabled while the poll was
-            // in flight - its frozen state (and cleared LastError) must stand.
-            if (config == null || !config.Enabled)
-                return false;
-
+            var now = DateTime.UtcNow;
+            int rows;
             if (lastPolled.HasValue)
-                config.LastPolled = lastPolled.Value;
-            config.LastError = lastError;
-            config.UpdatedAt = DateTime.UtcNow;
-
-            await _context.SaveChangesAsync(cancellationToken);
-            return true;
+                rows = await _context.ModemConfigurations.Where(m => m.Id == id && m.Enabled)
+                    .ExecuteUpdateAsync(s => s
+                        .SetProperty(m => m.LastPolled, lastPolled.Value)
+                        .SetProperty(m => m.LastError, lastError)
+                        .SetProperty(m => m.UpdatedAt, now), cancellationToken);
+            else
+                rows = await _context.ModemConfigurations.Where(m => m.Id == id && m.Enabled)
+                    .ExecuteUpdateAsync(s => s
+                        .SetProperty(m => m.LastError, lastError)
+                        .SetProperty(m => m.UpdatedAt, now), cancellationToken);
+            return rows > 0;
         }
         catch (Exception ex)
         {

@@ -257,6 +257,14 @@ public class CellularModemService : ICellularModemService
     {
         try
         {
+            using (var scope = CreateSiteScope())
+            {
+                var repository = scope.ServiceProvider.GetRequiredService<IModemRepository>();
+                var current = await repository.GetModemConfigurationAsync(modem.Id);
+                if (current == null || !current.Enabled)
+                    return (false, "Modem is disabled - enable it to resume polling.");
+            }
+
             var stats = await ExecutePollAsync(modem);
 
             if (stats != null)
@@ -420,7 +428,7 @@ public class CellularModemService : ICellularModemService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to update modem config after poll");
-            return false;
+            throw;
         }
     }
 

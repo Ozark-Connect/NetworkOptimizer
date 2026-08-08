@@ -148,6 +148,11 @@ public sealed class StarlinkMonitorService : IDisposable
             _logger.LogWarning("PollStarlinkAsync called for unknown Starlink config {Id}", id);
             return;
         }
+        if (!config.Enabled)
+        {
+            _logger.LogDebug("PollStarlinkAsync skipped for disabled Starlink config {Id}", id);
+            return;
+        }
 
         await PollSingleAsync(config);
     }
@@ -500,6 +505,8 @@ public sealed class StarlinkMonitorService : IDisposable
     /// <summary>
     /// Guarded success write - returns false (and persists nothing) when the config was
     /// disabled while the poll was in flight, so callers can skip caching/Influx too.
+    /// A write failure is rethrown rather than reported as that same false, so it
+    /// surfaces on the poll error path instead of silently dropping valid stats.
     /// </summary>
     private async Task<bool> UpdateConfigSuccessAsync(int id)
     {
@@ -512,7 +519,7 @@ public sealed class StarlinkMonitorService : IDisposable
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to update Starlink config {Id} after successful poll", id);
-            return false;
+            throw;
         }
     }
 

@@ -1,4 +1,5 @@
 using FluentAssertions;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Moq;
@@ -10,21 +11,31 @@ namespace NetworkOptimizer.Storage.Tests;
 
 public class OntRepositoryTests : IDisposable
 {
+    private readonly SqliteConnection _connection;
     private readonly NetworkOptimizerDbContext _context;
     private readonly OntRepository _repository;
 
     public OntRepositoryTests()
     {
+        // SQLite in-memory (not the EF InMemory provider): UpdateOntPollResultAsync uses
+        // ExecuteUpdate for an atomic guarded write, which only a relational provider supports.
+        _connection = new SqliteConnection("DataSource=:memory:");
+        _connection.Open();
         var options = new DbContextOptionsBuilder<NetworkOptimizerDbContext>()
-            .UseInMemoryDatabase(databaseName: Guid.NewGuid().ToString())
+            .UseSqlite(_connection)
             .Options;
 
         _context = new NetworkOptimizerDbContext(options);
+        _context.Database.EnsureCreated();
         var logger = new Mock<ILogger<OntRepository>>();
         _repository = new OntRepository(_context, logger.Object);
     }
 
-    public void Dispose() => _context.Dispose();
+    public void Dispose()
+    {
+        _context.Dispose();
+        _connection.Dispose();
+    }
 
     [Fact]
     public async Task GetEnabledOntConfigurationsAsync_ReturnsOnlyEnabled()
@@ -37,6 +48,27 @@ public class OntRepositoryTests : IDisposable
         var results = await _repository.GetEnabledOntConfigurationsAsync();
 
         results.Should().ContainSingle().Which.Name.Should().Be("Live ONT");
+    }
+
+    [Fact]
+    public async Task SaveOntConfigurationAsync_ExistingConfig_PreservesDatabaseEnabledValue()
+    {
+        var ont = new OntConfiguration
+        {
+            Name = "Paused ONT", Host = "192.168.1.1", Enabled = false,
+        };
+        _context.OntConfigurations.Add(ont);
+        await _context.SaveChangesAsync();
+
+        await _repository.SaveOntConfigurationAsync(new OntConfiguration
+        {
+            Id = ont.Id, Name = "Edited ONT", Host = ont.Host, Enabled = true,
+        });
+
+        _context.ChangeTracker.Clear();
+        var reloaded = await _repository.GetOntConfigurationAsync(ont.Id);
+        reloaded!.Name.Should().Be("Edited ONT");
+        reloaded.Enabled.Should().BeFalse("only SetOntEnabledAsync may change Enabled on an existing ONT");
     }
 
     [Fact]
@@ -155,6 +187,38 @@ public class OntRepositoryTests : IDisposable
         reloaded!.Enabled.Should().BeFalse("the late poll must not re-enable a paused ONT");
         reloaded.LastError.Should().BeNull("the late poll must not overwrite the LastError that Disable cleared");
         reloaded.LastPolled.Should().Be(new DateTime(2026, 7, 22, 8, 0, 0, DateTimeKind.Utc));
+    }
+
+    [Fact]
+    public async Task UpdateOntPollResultAsync_SqliteDisabledBeforeLateResult_AtomicallySkipsUpdate()
+    {
+        await using var connection = new SqliteConnection("DataSource=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<NetworkOptimizerDbContext>()
+            .UseSqlite(connection)
+            .Options;
+        await using var context = new NetworkOptimizerDbContext(options);
+        await context.Database.EnsureCreatedAsync();
+        var repository = new OntRepository(context, new Mock<ILogger<OntRepository>>().Object);
+        var lastPolled = new DateTime(2026, 7, 22, 8, 0, 0, DateTimeKind.Utc);
+        var ont = new OntConfiguration
+        {
+            Name = "ONT", Host = "192.168.1.1", Enabled = true, LastPolled = lastPolled,
+        };
+        context.OntConfigurations.Add(ont);
+        await context.SaveChangesAsync();
+
+        await repository.SetOntEnabledAsync(ont.Id, false);
+        context.ChangeTracker.Clear();
+        var persisted = await repository.UpdateOntPollResultAsync(
+            ont.Id, new DateTime(2026, 7, 22, 8, 5, 0, DateTimeKind.Utc), "late");
+
+        persisted.Should().BeFalse();
+        context.ChangeTracker.Clear();
+        var reloaded = await repository.GetOntConfigurationAsync(ont.Id);
+        reloaded!.Enabled.Should().BeFalse();
+        reloaded.LastError.Should().BeNull();
+        reloaded.LastPolled.Should().Be(lastPolled);
     }
 
     [Fact]

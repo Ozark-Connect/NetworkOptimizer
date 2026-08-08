@@ -131,6 +131,11 @@ public class OntMonitorService : IDisposable
             _logger.LogWarning("Cannot poll ONT {Id}: configuration not found", ontId);
             return null;
         }
+        if (!config.Enabled)
+        {
+            _logger.LogDebug("Cannot poll ONT {Id}: configuration is disabled", ontId);
+            return null;
+        }
 
         return await PollSingleAsync(config, repository, await ResolveThresholdsAsync(scope));
     }

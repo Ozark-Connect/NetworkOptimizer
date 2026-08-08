@@ -1463,12 +1463,6 @@
                             }
                         }
 
-                        <div class="form-group">
-                            <label class="checkbox-label">
-                                <input type="checkbox" @bind="editingModem.Enabled" />
-                                <span>Enable polling</span>
-                            </label>
-                        </div>
                     }
 
                     <div class="action-buttons">
@@ -1663,13 +1657,6 @@
                             <label class="form-label">Polling Interval (sec)</label>
                             <input type="number" class="form-control" @bind="_editingCm.PollingIntervalSeconds" min="60" max="3600" />
                         </div>
-                    </div>
-
-                    <div class="form-group">
-                        <label class="checkbox-label">
-                            <input type="checkbox" @bind="_editingCm.Enabled" />
-                            <span>Enable polling</span>
-                        </label>
                     </div>
 
                     <div class="action-buttons">
@@ -1902,13 +1889,6 @@
                         </div>
                     </div>
 
-                    <div class="form-group">
-                        <label class="checkbox-label">
-                            <input type="checkbox" @bind="_editingOnt.Enabled" />
-                            <span>Enable polling</span>
-                        </label>
-                    </div>
-
                     <div class="action-buttons">
                         <button class="btn btn-primary" @onclick="SaveOnt" disabled="@_savingOnt">
                             @if (_savingOnt)
@@ -2082,13 +2062,6 @@
                             <label class="form-label">Polling Interval (sec)</label>
                             <input type="number" class="form-control" @bind="_editingStarlink.PollingIntervalSeconds" min="30" max="3600" />
                         </div>
-                    </div>
-
-                    <div class="form-group">
-                        <label class="checkbox-label">
-                            <input type="checkbox" @bind="_editingStarlink.Enabled" />
-                            <span>Enable polling</span>
-                        </label>
                     </div>
 
                     <div class="action-buttons">

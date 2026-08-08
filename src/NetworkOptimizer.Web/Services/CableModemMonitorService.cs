@@ -110,6 +110,11 @@ public sealed class CableModemMonitorService : IDisposable
             _logger.LogWarning("PollCmAsync called for unknown CM config {Id}", cmId);
             return;
         }
+        if (!config.Enabled)
+        {
+            _logger.LogDebug("PollCmAsync skipped for disabled CM config {Id}", cmId);
+            return;
+        }
 
         await PollSingleAsync(config);
     }
@@ -331,7 +336,7 @@ public sealed class CableModemMonitorService : IDisposable
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to update CM config {Id} after successful poll", id);
-            return false;
+            throw;
         }
     }
 
