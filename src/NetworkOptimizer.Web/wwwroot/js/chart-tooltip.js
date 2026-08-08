@@ -197,16 +197,19 @@ export function valueSortedTooltip({ series, seriesIndex, dataPointIndex, w }, o
     const hidden = isSyncedCopy(w) ? Math.max(0, rows.length - SYNCED_ROW_CAP) : 0;
     const shown = hidden ? rows.slice(0, SYNCED_ROW_CAP) : rows;
     return (when ? '<div class="apexcharts-tooltip-title" style="font-family:Helvetica, Arial, sans-serif;font-size:12px">' + esc(when) + '</div>' : '')
-        + shown.map(r =>
+        + shown.map((r, idx) =>
             '<div class="apexcharts-tooltip-series-group apexcharts-active" style="display:flex">'
             + '<span class="apexcharts-tooltip-marker" style="background-color:' + r.color + ';border-radius:50%;width:12px;height:12px"></span>'
             + '<div class="apexcharts-tooltip-text" style="font-family:Helvetica, Arial, sans-serif;font-size:12px"><div class="apexcharts-tooltip-y-group">'
             + '<span class="apexcharts-tooltip-text-y-label">' + esc(r.name) + ': </span>'
             + '<span class="apexcharts-tooltip-text-y-value">' + esc(fmtFor(r.i)(r.v)) + '</span>'
-            + '</div></div></div>').join('')
-        + (hidden
-            ? '<div class="netopt-tooltip-more" title="' + hidden + ' more on the chart you are hovering">…</div>'
-            : '');
+            + '</div></div>'
+            // Rides the last row rather than taking one of its own: a row's worth of empty box is
+            // most of what the cap was trying to win back.
+            + (hidden && idx === shown.length - 1
+                ? '<span class="netopt-tooltip-more" title="' + hidden + ' more on the chart you are hovering">…</span>'
+                : '')
+            + '</div>').join('');
 }
 
 /**

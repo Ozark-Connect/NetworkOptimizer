@@ -10096,14 +10096,14 @@ a.path-hop.hop-clickable:hover {
     display: none;
 }
 
-/* Marks a synced tooltip as trimmed - the rest are on the chart under the pointer. */
+/* Marks a synced tooltip as trimmed - the rest are on the chart under the pointer. Sits at the
+   right end of the last row, so the mark costs no height of its own. */
 .netopt-tooltip-more {
-    text-align: right;
-    padding: 0 8px 8px;
+    margin-left: auto;
+    padding-left: 10px;
     color: var(--text-muted);
     font-family: Helvetica, Arial, sans-serif;
     font-size: 12px;
-    line-height: 1;
 }
 
 @media (max-width: 768px) {
