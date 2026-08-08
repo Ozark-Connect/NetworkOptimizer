@@ -867,7 +867,8 @@ from(bucket: ""{_longtermBucket}"")
         int? timingAdvanceUs = null,
         int? cellId = null,
         int? tac = null,
-        int? neighborCount = null)
+        int? neighborCount = null,
+        bool? nsaAvailable = null)
     {
         if (!IsConfigured) return Task.CompletedTask;
         var point = PointData.Measurement("cellular")
@@ -895,6 +896,10 @@ from(bucket: ""{_longtermBucket}"")
         if (cellId.HasValue) point = point.Field("cell_id", cellId.Value);
         if (tac.HasValue) point = point.Field("tac", tac.Value);
         if (neighborCount.HasValue) point = point.Field("neighbor_count", neighborCount.Value);
+
+        // Whether the serving cell offers EN-DC. Charting it dates the moment the anchor
+        // went bad, rather than leaving it to be noticed days later.
+        if (nsaAvailable.HasValue) point = point.Field("nsa_available", nsaAvailable.Value);
 
         Enqueue(point, longterm: true);
         return Task.CompletedTask;

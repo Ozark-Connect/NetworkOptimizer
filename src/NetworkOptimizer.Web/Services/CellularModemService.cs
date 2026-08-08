@@ -521,7 +521,8 @@ public class CellularModemService : ICellularModemService
                 timingAdvanceUs: cell?.TimingAdvance,
                 cellId: ParseCellNumber(cell?.GlobalCellId),
                 tac: ParseCellNumber(cell?.Tac),
-                neighborCount: hasTowerInfo ? stats.NeighborCells.Count : null);
+                neighborCount: hasTowerInfo ? stats.NeighborCells.Count : null,
+                nsaAvailable: stats.Is5gNsaAvailable);
         }
     }
 
