@@ -61,7 +61,7 @@
     <div class="card-body">
         <div class="lt-intro">
             <p class="section-description">
-                Default WAN targets and one fabric target per discovered device. The agent probes
+                Default WAN targets and one fabric target per discovered device. The @ProberNoun probes
                 each target at its own interval and writes results to the <code>latency</code>
                 measurement in InfluxDB.
             </p>
@@ -586,6 +586,37 @@
     /// </summary>
     /// <summary>Columns in the table, so an empty-state row spans all of them.</summary>
     private int VisibleColumnCount => WanContexts.Count > 0 ? 8 : 7;
+
+    /// <summary>
+    /// What actually probes the listed targets, for the card's own description of itself. A target
+    /// assigned to a WAN context with an agent is probed by that agent; the rest fall to the server
+    /// vantage, which is itself the on-site agent on an agent-backed site. Both can be true at once,
+    /// and saying only one of them is wrong on every mixed site.
+    /// </summary>
+    private string ProberNoun
+    {
+        get
+        {
+            var contextsById = WanContexts.ToDictionary(w => w.Id);
+            var byAgent = false;
+            var byServer = false;
+
+            foreach (var target in VisibleTargets())
+            {
+                var assignedAgent = target.WanContextId is int id
+                                    && contextsById.TryGetValue(id, out var context)
+                                    && context.AgentId != null;
+
+                if (assignedAgent || ExecutorFactory.ServerVantageIsAgent) byAgent = true;
+                else byServer = true;
+            }
+
+            if (byAgent && byServer) return "server / agent";
+            if (byAgent) return "agent";
+            if (byServer) return "server";
+            return ExecutorFactory.ServerVantageIsAgent ? "agent" : "server";
+        }
+    }
 
     /// <summary>
     /// Run Probe opens Network Tools on the agent that actually probes these rows, taken from the
