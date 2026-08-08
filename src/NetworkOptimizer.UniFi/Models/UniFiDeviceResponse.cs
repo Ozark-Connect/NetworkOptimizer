@@ -27,10 +27,10 @@ public class UniFiDeviceResponse
 
     /// <summary>
     /// Normalized device type enum value.
-    /// Uses model-based filtering to exclude smart power devices (USP-Strip, etc.)
-    /// from being classified as AccessPoints.
+    /// Uses product identity to normalize power appliances that the controller reports
+    /// as switches, access points, or dedicated SmartPower devices.
     /// </summary>
-    public DeviceType DeviceType => DeviceTypeExtensions.FromUniFiApiType(Type, Model);
+    public DeviceType DeviceType => UniFiProductDatabase.ClassifyDeviceType(Type, Model, Shortname);
 
     [JsonPropertyName("model")]
     public string Model { get; set; } = string.Empty;

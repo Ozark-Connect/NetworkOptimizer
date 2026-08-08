@@ -2243,6 +2243,7 @@ public class LanFlowMapService
     {
         DeviceType.Gateway => LanNodeKind.Gateway,
         DeviceType.Switch => LanNodeKind.Switch,
+        DeviceType.SmartPower => LanNodeKind.Switch,
         DeviceType.AccessPoint => LanNodeKind.AccessPoint,
         _ => LanNodeKind.Switch,
     };
