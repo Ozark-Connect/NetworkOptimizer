@@ -3,7 +3,7 @@
 // Same control pattern as cellular-charts.js and cm-charts.js.
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
-import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=6';
+import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=7';
 import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=10';
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=5';
 import { createAxisDateCaption } from './chart-axis-date.js?v=2';

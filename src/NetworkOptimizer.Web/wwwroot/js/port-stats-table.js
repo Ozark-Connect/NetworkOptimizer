@@ -2,7 +2,7 @@
 // at the current map scrubber position (or live), renders them via the shared
 // renderStatsTable(), and exposes selectDevice() so a map double-click can
 // isolate a single switch/gateway.
-import { renderStatsTable as renderTable } from './chart-stats.js?v=6';
+import { renderStatsTable as renderTable } from './chart-stats.js?v=7';
 import { renderFilterReset } from './chart-filter.js?v=5';
 
 const _esc = document.createElement('span');
