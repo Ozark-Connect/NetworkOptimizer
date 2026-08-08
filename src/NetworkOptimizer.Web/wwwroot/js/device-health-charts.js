@@ -7,7 +7,7 @@ import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=5';
 import { createMarkLayer } from './chart-event-marks.js?v=1';
 import { createAxisDateCaption } from './chart-axis-date.js?v=2';
-import { syncIdentity, extentsOf, spanTo } from './chart-sync.js?v=2';
+import { syncIdentity, toWindow } from './chart-sync.js?v=3';
 
 // A device answers SNMP but can still miss a single field on a poll - a temperature or
 // memory OID that times out is written as no value rather than a zero, so the row arrives
@@ -62,12 +62,10 @@ let markResizeTimer = null;
 
 // Every chart this tab stacks shares one group - see chart-sync.js.
 const SYNC_GROUP = 'device-health';
-let groupExtents = null;
-// The group's extents on every chart, so ApexCharts passes the hover between them - see spanTo.
+// Anchors every chart on the tab to the window it asked the server for, which is what lets the
+// hover pass between them - see toWindow.
 function padFirst(series) {
-    return series.length
-        ? [{ ...series[0], data: spanTo(series[0].data, groupExtents) }, ...series.slice(1)]
-        : series;
+    return toWindow(series, effectiveWindow());
 }
 
 
@@ -246,7 +244,6 @@ async function loadAndUpdate() {
     deviceMeta = data.devices.map(d => ({
         name: d.name, mac: d.mac, color: hashColor(d.name),
     }));
-    groupExtents = extentsOf((data.devices || []).map(d => d.data || []));
     // Set before updateVisibility below, which is what draws the marks.
     lastEvents = data.events || [];
     const newDefs = data.customFields || [];
