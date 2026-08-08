@@ -134,7 +134,7 @@
 
         <div class="sqm-actions">
             @* Tooltip lives on the wrapper: a disabled button has pointer-events none and never fires the hover *@
-            <span data-tooltip="@(CurrentEnabled ? null : "Monitoring is disabled for this device. Enable it in Starlink Settings.")" @onclick:stopPropagation>
+            <span data-tooltip="@(CurrentEnabled ? null : "Monitoring is disabled for this device. Enable it in Starlink Settings.")" @onclick:stopPropagation data-tooltip-hover-only>
                 <button class="btn btn-secondary" @onclick="RefreshStats" @onclick:stopPropagation disabled="@(isRefreshing || !CurrentEnabled)">
                     @if (isRefreshing)
                     {
