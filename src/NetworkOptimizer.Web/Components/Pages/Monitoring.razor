@@ -596,7 +596,9 @@
             </div>
             <div class="card-body">
                 <div class="latency-filter-badges wan-filter-badges"></div>
-                <div class="chart-card">
+                @* Anchored on the chart rather than the card: the sync is something the plot does
+                   under the pointer, and it only reads as that with a line to hover. *@
+                <div class="chart-card" data-tour="chart-hover-sync">
                     <div class="chart-header"><h3 class="chart-title">Round-trip time</h3></div>
                     <div class="latency-rtt-chart"></div>
                 </div>

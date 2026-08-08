@@ -84,7 +84,9 @@
         else
         {
             <div class="table-responsive">
-            <table class="data-table">
+            @* The table, not a row: which target is first depends on the site, and the pencil the
+               step is about only exists for a role that can rename. *@
+            <table class="data-table" data-tour="latency-target-rename">
                 <thead>
                     <tr>
                         <th>Type</th>

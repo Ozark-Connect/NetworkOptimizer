@@ -27,6 +27,15 @@ public class TourPredicateResolver
     public const string IspHealth = "isp-health";
 
     /// <summary>
+    /// The site is monitoring something: the feature is on AND at least one target is enabled, of
+    /// any type. Deliberately looser than <see cref="IspHealth"/>, which needs an Access ISP target
+    /// - a site watching nothing but its own switches and APs still has charts worth pointing at,
+    /// and would be turned away by that one. With monitoring off the tab is a setup prompt, so a
+    /// step must be filtered out BEFORE the driver navigates.
+    /// </summary>
+    public const string HasTargets = "has-targets";
+
+    /// <summary>
     /// The site runs Adaptive SQM on at least one WAN. Without it the page is a setup prompt with no
     /// WAN cards at all, so a step pointing at a per-WAN control has nothing to spotlight and must be
     /// filtered out BEFORE the driver navigates - "optional" only skips the step once you are there.
@@ -142,6 +151,7 @@ public class TourPredicateResolver
         // others down with it - a site whose database is unreachable simply qualifies for neither.
         var gatewaySshSites = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var ispHealthSites = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var hasTargetsSites = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var sqmSites = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var smartQueuesSites = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var multiWanSites = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -166,6 +176,16 @@ public class TourPredicateResolver
             catch (Exception ex)
             {
                 _logger.LogDebug(ex, "Tour predicate {Predicate} evaluation failed for site {Slug}", IspHealth, site.Slug);
+            }
+
+            try
+            {
+                if (await HasMonitoringTargetsAsync(site.Slug, site.IsDefault))
+                    hasTargetsSites.Add(site.Slug);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Tour predicate {Predicate} evaluation failed for site {Slug}", HasTargets, site.Slug);
             }
 
             try
@@ -212,6 +232,8 @@ public class TourPredicateResolver
             qualifying[GatewaySsh] = gatewaySshSites;
         if (ispHealthSites.Count > 0)
             qualifying[IspHealth] = ispHealthSites;
+        if (hasTargetsSites.Count > 0)
+            qualifying[HasTargets] = hasTargetsSites;
         if (sqmSites.Count > 0)
             qualifying[SqmEnabled] = sqmSites;
         if (smartQueuesSites.Count > 0)
@@ -245,6 +267,19 @@ public class TourPredicateResolver
         using var db = _siteDbFactory.CreateForSite(slug, isDefault);
         return await db.MonitoringTargets.AsNoTracking()
             .AnyAsync(t => t.Enabled && t.TargetType == MonitoringTargetType.AccessIsp);
+    }
+
+    /// <summary>
+    /// Whether the site is monitoring anything: the feature switched on, and at least one enabled
+    /// target of any type. Both halves matter - targets left behind by a site that has since turned
+    /// monitoring off would otherwise qualify it for steps whose tab is a setup prompt.
+    /// </summary>
+    private async Task<bool> HasMonitoringTargetsAsync(string slug, bool isDefault)
+    {
+        using var db = _siteDbFactory.CreateForSite(slug, isDefault);
+        var settings = await db.MonitoringSettings.AsNoTracking().FirstOrDefaultAsync();
+        if (settings?.Enabled != true) return false;
+        return await db.MonitoringTargets.AsNoTracking().AnyAsync(t => t.Enabled);
     }
 
     /// <summary>
