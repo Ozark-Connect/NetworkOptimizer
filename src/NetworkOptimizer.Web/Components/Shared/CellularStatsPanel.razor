@@ -140,6 +140,9 @@
                 }
                 @if (ShowRadioReset)
                 {
+                    @* Admin, not Operator: this drops the cellular connection for several seconds,
+                       so it sits with the destructive actions rather than the routine ones. *@
+                    <SiteAdminOnly>
                     @* Tooltip lives on the wrapper: a disabled button has pointer-events none and never fires the hover *@
                     <span class="radio-reset" data-tooltip="@RadioResetTooltip" @onclick:stopPropagation>
                         <button class="radio-reset-btn" @onclick="ResetRadio" @onclick:stopPropagation
@@ -155,6 +158,7 @@
                             }
                         </button>
                     </span>
+                    </SiteAdminOnly>
                 }
             </div>
             <div class="network-mode-description">
