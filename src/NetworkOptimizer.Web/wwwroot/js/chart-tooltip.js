@@ -15,6 +15,24 @@
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const DOT_LAYER = 'netopt-hover-dots';
 
+// Rows a SYNCED tooltip shows - the copy a grouped chart draws for a chart nobody is pointing at.
+// Enough of them and the box is taller than the chart being read, covering the thing the reader
+// is looking at. The top few carry the comparison; the hovered chart still lists everything.
+const SYNCED_ROW_CAP = 5;
+
+// Which element the pointer is over. Read from the document because a synced chart never sees a
+// pointer event of its own - that is what makes it synced - so it has no other way to tell that
+// the hover belongs to a sibling. Capture phase, so a chart stopping propagation cannot hide it.
+let pointerTarget = null;
+document.addEventListener('pointerover', e => { pointerTarget = e.target; }, true);
+
+// Positively elsewhere, never merely unknown: with no pointer seen yet (touch, keyboard, a
+// programmatic tooltip) the full list is the safer answer.
+function isSyncedCopy(w) {
+    const el = w.globals?.dom?.baseEl;
+    return !!pointerTarget && !!el && !el.contains(pointerTarget);
+}
+
 /**
  * A dot on EVERY line at the hovered instant, drawn by us.
  *
@@ -176,14 +194,19 @@ export function valueSortedTooltip({ series, seriesIndex, dataPointIndex, w }, o
         ? { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }
         : { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false };
     const when = ts ? new Date(ts).toLocaleString(undefined, timeParts) : '';
+    const hidden = isSyncedCopy(w) ? Math.max(0, rows.length - SYNCED_ROW_CAP) : 0;
+    const shown = hidden ? rows.slice(0, SYNCED_ROW_CAP) : rows;
     return (when ? '<div class="apexcharts-tooltip-title" style="font-family:Helvetica, Arial, sans-serif;font-size:12px">' + esc(when) + '</div>' : '')
-        + rows.map(r =>
+        + shown.map(r =>
             '<div class="apexcharts-tooltip-series-group apexcharts-active" style="display:flex">'
             + '<span class="apexcharts-tooltip-marker" style="background-color:' + r.color + ';border-radius:50%;width:12px;height:12px"></span>'
             + '<div class="apexcharts-tooltip-text" style="font-family:Helvetica, Arial, sans-serif;font-size:12px"><div class="apexcharts-tooltip-y-group">'
             + '<span class="apexcharts-tooltip-text-y-label">' + esc(r.name) + ': </span>'
             + '<span class="apexcharts-tooltip-text-y-value">' + esc(fmtFor(r.i)(r.v)) + '</span>'
-            + '</div></div></div>').join('');
+            + '</div></div></div>').join('')
+        + (hidden
+            ? '<div class="netopt-tooltip-more" title="' + hidden + ' more on the chart you are hovering">…</div>'
+            : '');
 }
 
 /**

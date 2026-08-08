@@ -3,7 +3,7 @@
 // device-health-charts, and future chart sets share one implementation.
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=7';
-import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=10';
+import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=11';
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=5';
 import { createMarkLayer } from './chart-event-marks.js?v=1';
 import { createAxisDateCaption } from './chart-axis-date.js?v=2';
@@ -63,9 +63,9 @@ let markResizeTimer = null;
 // instant on all three - which is the question being asked of a device: what else was happening
 // when this climbed.
 //
-// The sync is by data INDEX, not by timestamp, which is why only these three are in it: they are
-// drawn from one payload through alignedPoints, so index i is the same moment on each. The
-// custom-field charts are plotted from their own arrays and would point at a different moment.
+// The sync is by data INDEX, not by timestamp, so every chart in the group has to agree on what
+// index i means. They do: the fixed three come from one payload through alignedPoints, and the
+// custom-field charts are re-keyed onto those same rows by customPoints.
 const SYNC_GROUP = 'device-health';
 
 function synced(opts, id) {
@@ -198,9 +198,51 @@ function drawSeries() {
         chart.updateSeries(devices.map(d => ({
             name: d.name,
             color: hashColor(d.name),
-            data: (d.custom?.[field] || []).map(p => ({ x: new Date(p.time).getTime(), y: p.value })),
+            data: customPoints(d, field),
         })), false);
     }
+}
+
+function medianStep(xs) {
+    if (xs.length < 2) return 0;
+    const d = [];
+    for (let i = 1; i < xs.length; i++) d.push(xs[i] - xs[i - 1]);
+    d.sort((a, b) => a - b);
+    return d[d.length >> 1];
+}
+
+/**
+ * A custom field's readings placed on the HEALTH rows' timeline.
+ *
+ * They arrive from their own Influx query, so their rows are their own: same window, but not
+ * necessarily the same instants or the same count. ApexCharts' group sync addresses a point by
+ * INDEX, so plotting them as they arrive put the crosshair on a different moment than the chart
+ * being hovered - which is why these charts sat outside the group. Re-keyed here, index i is the
+ * same instant on every chart on the tab.
+ *
+ * Matched to the nearest health row within half a step rather than exactly: a bucket boundary
+ * landing a moment apart would otherwise match nothing and blank the series.
+ */
+function customPoints(d, field) {
+    const src = d.custom?.[field] || [];
+    const rows = d.data || [];
+    if (!src.length || !rows.length) return [];
+
+    const xs = src.map(p => new Date(p.time).getTime());
+    const tolerance = Math.max(1, medianStep(xs) / 2);
+    const byRow = new Map();
+    let k = 0;
+    for (const row of rows) {
+        const t = new Date(row.time).getTime();
+        while (k + 1 < xs.length && Math.abs(xs[k + 1] - t) <= Math.abs(xs[k] - t)) k++;
+        if (Math.abs(xs[k] - t) <= tolerance) byRow.set(row, src[k].value);
+    }
+    // A custom OID polled more slowly than the health fields leaves most rows empty, and a budget
+    // scaled to the health cadence would break the line between every reading - which with
+    // markers.size 0 draws nothing at all. Bridging on the field's OWN cadence keeps the line it
+    // had before it was re-keyed.
+    const bridge = Math.max(GAP_BRIDGE_MS, 2.5 * medianStep(xs));
+    return alignedPoints(rows, row => byRow.get(row) ?? null, 'time', bridge);
 }
 
 function updateVisibility() {
@@ -278,9 +320,7 @@ async function syncCustomCharts(container, devices, defs) {
         const series = devices.map(d => ({
             name: d.name,
             color: hashColor(d.name),
-            data: (d.custom?.[def.fieldName] || []).map(p => ({
-                x: new Date(p.time).getTime(), y: p.value
-            })),
+            data: customPoints(d, def.fieldName),
         }));
 
         if (customCharts[def.fieldName]) {
@@ -295,7 +335,7 @@ async function syncCustomCharts(container, devices, defs) {
                 chartDiv = card.querySelector(`[data-custom-field]`);
             }
             const chart = new ApexCharts(chartDiv, {
-                ...baseOpts(200, def.description, fmtCustom),
+                ...synced(baseOpts(200, def.description, fmtCustom), `health-custom-${def.fieldName}`),
                 series, colors: PALETTE,
             });
             await chart.render();

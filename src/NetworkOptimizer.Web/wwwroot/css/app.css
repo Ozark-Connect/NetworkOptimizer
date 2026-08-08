@@ -10096,6 +10096,16 @@ a.path-hop.hop-clickable:hover {
     display: none;
 }
 
+/* Marks a synced tooltip as trimmed - the rest are on the chart under the pointer. */
+.netopt-tooltip-more {
+    text-align: right;
+    padding: 0 8px 4px;
+    color: var(--text-muted);
+    font-family: Helvetica, Arial, sans-serif;
+    font-size: 12px;
+    line-height: 1;
+}
+
 @media (max-width: 768px) {
     .metrics-header {
         flex-direction: column;
