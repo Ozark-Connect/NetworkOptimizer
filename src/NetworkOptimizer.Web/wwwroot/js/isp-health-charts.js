@@ -366,6 +366,33 @@ export function setHiddenTypes(types) {
     if (chart) chart.updateOptions({ annotations: buildAnnotations(lastEvents) }, false, false);
 }
 
+/**
+ * The window on screen: the instant at its center, and how wide it is.
+ *
+ * For the jump into Latency and Packet Loss, which frames what it is handed. Center rather than
+ * either edge because a reader zooms AROUND the thing they are looking at, and the width travels
+ * too - this chart reads over days, so the 15 minutes a moment-jump frames would drop the context
+ * the zoom was expressing.
+ *
+ * Answers from the drag-zoom when there is one, else the report window this was mounted for, else
+ * what the chart actually drew. Null when there is nothing on screen to describe.
+ */
+export function currentView() {
+    let min = null, max = null;
+    if (zoomWindow?.min != null) {
+        min = zoomWindow.min;
+        max = zoomWindow.max;
+    } else if (win?.from && win?.to) {
+        min = new Date(win.from).getTime();
+        max = new Date(win.to).getTime();
+    } else {
+        const g = chart?.w?.globals;
+        if (g && g.maxX > g.minX) { min = g.minX; max = g.maxX; }
+    }
+    if (min == null || max == null || !(max > min)) return null;
+    return { atIso: new Date((min + max) / 2).toISOString(), spanMs: Math.round(max - min) };
+}
+
 export function scrollChartIntoView() {
     document.getElementById('isp-health-asn-chart')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }

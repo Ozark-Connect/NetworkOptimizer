@@ -51,6 +51,23 @@ public static class MonitoringLinks
     }
 
     /// <summary>
+    /// Latency and Packet Loss framed on a window: the instant at its center and how wide it is.
+    /// For a jump from a view that IS a window rather than a moment - the ISP Health report reads
+    /// over days, and landing on the 15 minutes the moment-jumps frame would throw away the
+    /// context its reader is looking at, so the span travels with the instant.
+    /// <para>
+    /// The WAN rides along even on a site with one, for the same reason every other link here
+    /// does: the destination separates that WAN from the LAN, and a link naming neither lands on
+    /// whichever of the two was last selected.
+    /// </para>
+    /// </summary>
+    /// <param name="at">Unix-ms instant at the center of the window.</param>
+    /// <param name="spanMs">How wide the window is, in milliseconds.</param>
+    public static string Analysis(string category, long at, long spanMs, string? wanKey) =>
+        $"/monitoring?tab=performance&category={category}&at={at}&span={spanMs}"
+        + (string.IsNullOrEmpty(wanKey) ? "" : $"&wan={Uri.EscapeDataString(wanKey)}");
+
+    /// <summary>
     /// Latency and Packet Loss on a LAN target - the gateway's own fabric row, from a live tile -
     /// at a moment. Carries <paramref name="at"/> for the same reason the category tiles do: without
     /// it the destination framed its saved window, so a tile showing what is happening now could

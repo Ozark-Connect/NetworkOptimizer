@@ -1819,6 +1819,15 @@
     [SupplyParameterFromQuery(Name = "at")]
     public string? AtParam { get; set; }
 
+    /// <summary>
+    /// How wide a window to frame around <c>?at=</c>, in milliseconds. An OVERRIDE only: a link
+    /// that omits it frames what the destination always framed - 15 minutes on Latency and Packet
+    /// Loss, an hour on Device Stats. Sent by a jump from a view that is itself a window, so the
+    /// zoom the reader was looking at survives the trip.
+    /// </summary>
+    [SupplyParameterFromQuery(Name = "span")]
+    public string? SpanParam { get; set; }
+
     [SupplyParameterFromQuery(Name = "discover")]
     public string? DiscoverParam { get; set; }
 
@@ -2784,6 +2793,8 @@
     private string? _soloDeviceMac;
     private string? _preSelectCategory;
     private long? _preSelectAtMs;
+    // Set only by a link carrying ?span=; null leaves the framing exactly as it was.
+    private long? _preSelectSpanMs;
     private bool _preSelectTrailing;
     // The same pair for Device Stats. Kept apart from the ones above rather than shared: those are
     // consumed by the latency charts' mount and cleared there, so one tab's jump would eat the
@@ -2926,6 +2937,7 @@
                 ? analyzeAtMs
                 : null;
             _preSelectTrailing = string.Equals(AtParam, LiveAtToken, StringComparison.OrdinalIgnoreCase);
+            _preSelectSpanMs = long.TryParse(SpanParam, out var spanMs) && spanMs > 0 ? spanMs : null;
         }
     }
 
@@ -5567,7 +5579,11 @@
                     // parked there, which the window is framed on, or "live" if it was not - and
                     // that lands on a trailing window that keeps updating rather than a frozen one.
                     postMount = _preSelectAtMs is { } atMs
-                        ? $"m.frameMoment('{DateTimeOffset.FromUnixTimeMilliseconds(atMs).UtcDateTime:O}', '{category}');"
+                        ? _preSelectSpanMs is { } spanMs
+                            // A link that states its own width frames that; everything else keeps
+                            // the 15 minutes these charts have always opened a moment at.
+                            ? $"m.frameWindow('{DateTimeOffset.FromUnixTimeMilliseconds(atMs).UtcDateTime:O}', '{category}', {spanMs});"
+                            : $"m.frameMoment('{DateTimeOffset.FromUnixTimeMilliseconds(atMs).UtcDateTime:O}', '{category}');"
                         : _preSelectTrailing
                             ? $"m.frameTrailing('{category}');"
                             : $"m.setCategory('{category}');";
@@ -5576,6 +5592,7 @@
                     _preSelectCategory = null;
                     _soloTargetId = null;
                     _preSelectAtMs = null;
+                    _preSelectSpanMs = null;
                     _preSelectTrailing = false;
                 }
                 // Drains any scope that arrived while the import was still in flight - see the shim

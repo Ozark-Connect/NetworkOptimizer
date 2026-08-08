@@ -933,6 +933,16 @@ export function navigateToTime(isoTimestamp, category, label, loaded, eventStart
  * Deliberately NOT navigateToTime - that is the Investigate flow, and it carries an event marker
  * and label this has no business drawing. Same window machinery, no marker.
  */
+/**
+ * Frames a window of a stated width on a moment, for a link that carries its own span - a jump
+ * from a view that is itself a window rather than an instant. Used only when the link says so;
+ * without a span, frameMoment's 15 minutes still applies.
+ */
+export function frameWindow(isoTimestamp, category, spanMs) {
+    investigateMarker = null;
+    frameCustomWindow(new Date(isoTimestamp).getTime(), category, Math.max(60000, spanMs) / 2);
+}
+
 export function frameMoment(isoTimestamp, category) {
     investigateMarker = null;
     frameCustomWindow(new Date(isoTimestamp).getTime(), category, 7.5 * 60000);
