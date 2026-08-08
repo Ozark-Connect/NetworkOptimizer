@@ -1104,12 +1104,14 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
 
     private static string LabelForDevice(DiscoveredDevice d)
     {
+        // The three common types are shortened for a dropdown ("AP", not "Access Point");
+        // everything else takes the shared display name rather than a raw enum member.
         var type = d.Type switch
         {
             DeviceType.Gateway => "Gateway",
             DeviceType.Switch => "Switch",
             DeviceType.AccessPoint => "AP",
-            _ => d.Type.ToString()
+            _ => d.Type.ToDisplayName()
         };
         var name = string.IsNullOrEmpty(d.Name) ? d.Mac : d.Name;
         return string.IsNullOrEmpty(d.DisplayIpAddress)
