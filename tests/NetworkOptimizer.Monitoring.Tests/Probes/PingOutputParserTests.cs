@@ -165,4 +165,24 @@ public class PingOutputParserTests
         PingOutputParser.Parse(output, Target, Vantage, 1)
             .ResolvedAddress.Should().BeNull();
     }
+
+    [Fact]
+    public void Parse_OutputNamingNoAddress_LeavesResolvedAddressNull()
+    {
+        // Neither regex matches: the target must not be echoed back as if it resolved.
+        var output = """
+            1 packets transmitted, 0 received, 100% packet loss, time 0ms
+            """;
+
+        var r = PingOutputParser.Parse(output, HostnameTarget, Vantage, 1);
+        r.ResolvedAddress.Should().BeNull();
+        r.Received.Should().Be(0);
+    }
+
+    [Fact]
+    public void Parse_UnparseableGarbage_LeavesResolvedAddressNull()
+    {
+        PingOutputParser.Parse("ping: bad address 'example.com'", HostnameTarget, Vantage, 1)
+            .ResolvedAddress.Should().BeNull();
+    }
 }
