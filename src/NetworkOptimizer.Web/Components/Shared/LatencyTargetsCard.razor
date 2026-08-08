@@ -1,4 +1,4 @@
-﻿@using NetworkOptimizer.Storage.Models
+@using NetworkOptimizer.Storage.Models
 @using Microsoft.EntityFrameworkCore
 @using NetworkOptimizer.Web.Components.Shared.Monitoring
 @inject MonitoringLiveStats LiveStats
@@ -62,7 +62,7 @@
         <div class="lt-intro">
             <p class="section-description">
                 Default WAN targets and one fabric target per discovered device. The @ProberNoun probes
-                each target at its own interval and writes results to the <code>latency</code>
+                each target at @ProberPossessive own interval and writes results to the <code>latency</code>
                 measurement in InfluxDB.
             </p>
             <div class="lt-actions">
@@ -593,6 +593,8 @@
     /// vantage, which is itself the on-site agent on an agent-backed site. Both can be true at once,
     /// and saying only one of them is wrong on every mixed site.
     /// </summary>
+    private const string BothProbers = "server / agent";
+
     private string ProberNoun
     {
         get
@@ -611,12 +613,15 @@
                 else byServer = true;
             }
 
-            if (byAgent && byServer) return "server / agent";
+            if (byAgent && byServer) return BothProbers;
             if (byAgent) return "agent";
             if (byServer) return "server";
             return ExecutorFactory.ServerVantageIsAgent ? "agent" : "server";
         }
     }
+
+    /// <summary>Possessive matching <see cref="ProberNoun"/>: two probers take their, one takes its.</summary>
+    private string ProberPossessive => ProberNoun == BothProbers ? "their" : "its";
 
     /// <summary>
     /// Run Probe opens Network Tools on the agent that actually probes these rows, taken from the
