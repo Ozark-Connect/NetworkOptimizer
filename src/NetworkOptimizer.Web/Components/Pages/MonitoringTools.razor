@@ -634,8 +634,6 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
     // with the WAN context it probes for. Empty on a site with only one origin, which is where
     // the picker stays out of the way and the vantage list reads exactly as it always has.
     private List<ProbeVantageOption> _probeVantages = new();
-    private bool _linkVantageApplied;
-    private bool _vantageChoiceSettled;
 
     /// <summary>
     /// Remembered vantage, per site. Which box a probe runs from is a property of the site being
@@ -689,6 +687,7 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
         _consoleDataLoaded = ConnectionService.IsConnected;
 
         await LoadProbeVantagesAsync();
+        await ApplyInitialVantageAsync();
         await RefreshAgentAvailabilityAsync();
         StartAgentStatusPolling();
     }
@@ -703,38 +702,79 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
     public string? FromParam { get; set; }
 
     /// <summary>
+    /// Decides the starting vantage once, in OnInitializedAsync after the vantage and device
+    /// lists have loaded, so no render can race the decision: a from= link first, then the
+    /// remembered choice, then the list's first entry. During prerender the localStorage read
+    /// throws and the fallback stands; the interactive circuit re-runs the decision in full.
+    /// </summary>
+    private async Task ApplyInitialVantageAsync()
+    {
+        // The link outranks the remembered choice and is never persisted - it overrides this
+        // load only. server and device keys resolve even when the vantage list is empty,
+        // since neither comes from it.
+        if (!string.IsNullOrEmpty(FromParam))
+        {
+            var keys = _probeVantages.Select(v => v.Key)
+                .Concat(new[] { ProbeVantages.ServerKey })
+                .Concat(_devices.Select(d => $"device:{d.Mac}"))
+                .ToList();
+            var resolved = ResolveVantageFromLink(FromParam, keys);
+            if (resolved != null)
+            {
+                ApplyVantage(resolved);
+                return;
+            }
+        }
+
+        var stored = await ReadStoredVantageAsync();
+        if (stored != null)
+        {
+            ApplyVantage(stored);
+            return;
+        }
+
+        EnsureDefaultVantage();
+    }
+
+    /// <summary>
+    /// The remembered vantage, or null when nothing valid is stored. A remembered agent that has
+    /// since been removed (or a device that is gone) must not leave the page pointing at a
+    /// vantage the select can't show.
+    /// </summary>
+    private async Task<string?> ReadStoredVantageAsync()
+    {
+        try
+        {
+            var stored = await JS.InvokeAsync<string>("localStorage.getItem", VantageStorageKey);
+            if (!string.IsNullOrEmpty(stored)
+                && (_probeVantages.Any(v => v.Key == stored)
+                    || (stored.StartsWith("device:") && _devices.Any(d => $"device:{d.Mac}" == stored))))
+                return stored;
+        }
+        catch { /* prerendering, or no localStorage - the default vantage is fine */ }
+        return null;
+    }
+
+    /// <summary>
+    /// With the server not offering itself, the default "server" key names nothing in the
+    /// vantage list; start on the first origin that does.
+    /// </summary>
+    private void EnsureDefaultVantage()
+    {
+        if (_probeVantages.Count > 0 && _probeVantages.All(v => v.Key != _fromKey) && !_fromKey.StartsWith("device:"))
+            ApplyVantage(_probeVantages[0].Key);
+    }
+
+    /// <summary>
     /// Which offered vantage a "from" link means. Exact key first, then the first vantage
     /// belonging to the named agent.
     /// </summary>
     /// <remarks>
     /// Callers can only name an agent (<c>agent:7</c>): a WAN context records the agent that
     /// probes it and no vantage id, while the picker keys an agent's entries per vantage
-    /// (<c>agent:7:wan2</c>). Matching on the exact key alone therefore threw every link away on
-    /// any agent that has vantages, which is every multi-WAN site. Returns null when nothing on
-    /// offer matches, leaving the remembered choice alone.
+    /// (<c>agent:7:wan2</c>). Returns null when nothing on offer matches, leaving the
+    /// remembered choice alone.
     /// </remarks>
-    /// <summary>
-    /// Applies the vantage a from= link asked for, if one is on offer. Called both when the
-    /// vantage list finishes loading and again after first render, because the list is built
-    /// best-effort: a console or tunnel read that is slow or throws leaves it empty, and a link
-    /// resolved only once against an empty list is lost with no sign it was ever there.
-    /// server and device keys are honored even when the list is empty, since neither comes from it.
-    /// </summary>
-    private void TryApplyLinkedVantage()
-    {
-        if (_linkVantageApplied || string.IsNullOrEmpty(FromParam)) return;
-
-        var keys = _probeVantages.Select(v => v.Key)
-            .Concat(new[] { ProbeVantages.ServerKey })
-            .Concat(_devices.Select(d => $"device:{d.Mac}"));
-
-        var resolved = ResolveVantageFromLink(FromParam, keys.ToList());
-        if (resolved == null) return;
-
-        ApplyVantage(resolved);
-        _linkVantageApplied = true;
-    }
-
     internal static string? ResolveVantageFromLink(string? fromParam, IEnumerable<string> vantageKeys)
     {
         if (string.IsNullOrEmpty(fromParam)) return null;
@@ -742,44 +782,6 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
         var keys = vantageKeys as IReadOnlyList<string> ?? vantageKeys.ToList();
         return keys.FirstOrDefault(k => string.Equals(k, fromParam, StringComparison.OrdinalIgnoreCase))
                ?? keys.FirstOrDefault(k => k.StartsWith(fromParam + ":", StringComparison.OrdinalIgnoreCase));
-    }
-
-    protected override async Task OnAfterRenderAsync(bool firstRender)
-    {
-        // Retried across renders rather than run once on the first: a client-side nav renders
-        // before OnInitializedAsync has finished, so the first pass sees no vantages, and giving
-        // up there left the list's own first entry standing over the saved choice. A full page
-        // load prerenders, so it never showed there. The flag keeps this to one application.
-        if (_vantageChoiceSettled) return;
-
-        // A link still outranks the saved choice, and the list may have been empty or still
-        // loading when the link was first offered one.
-        if (!_linkVantageApplied) TryApplyLinkedVantage();
-        if (_linkVantageApplied)
-        {
-            _vantageChoiceSettled = true;
-            StateHasChanged();
-            return;
-        }
-
-        // Nothing to validate a stored value against yet; a later render will have it.
-        if (_probeVantages.Count == 0 && _devices.Count == 0) return;
-
-        _vantageChoiceSettled = true;
-        try
-        {
-            var stored = await JS.InvokeAsync<string>("localStorage.getItem", VantageStorageKey);
-            // A remembered agent that has since been removed (or a device that is gone) must not
-            // leave the page pointing at a vantage the select can't show.
-            if (!string.IsNullOrEmpty(stored)
-                && (_probeVantages.Any(v => v.Key == stored)
-                    || (stored.StartsWith("device:") && _devices.Any(d => $"device:{d.Mac}" == stored))))
-            {
-                ApplyVantage(stored);
-                StateHasChanged();
-            }
-        }
-        catch { /* no localStorage, or the circuit went away - the default vantage is fine */ }
     }
 
     /// <summary>
@@ -841,13 +843,6 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
                 serverProbesSite: !ExecutorFactory.ServerVantageIsAgent,
                 serverLabel: "Network Optimizer server",
                 agents);
-
-            // With the server not offering itself, the default "server" key names nothing in the
-            // list; start on the first origin that does.
-            if (_probeVantages.Count > 0 && _probeVantages.All(v => v.Key != _fromKey) && !_fromKey.StartsWith("device:"))
-                ApplyVantage(_probeVantages[0].Key);
-
-            TryApplyLinkedVantage();
         }
         catch
         {
@@ -904,7 +899,11 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
 
                     // The vantage list is built from live tunnels, so an agent that was down when
                     // the page opened would otherwise never appear in it.
-                    if (changed) await LoadProbeVantagesAsync();
+                    if (changed)
+                    {
+                        await LoadProbeVantagesAsync();
+                        EnsureDefaultVantage();
+                    }
 
                     if (!_consoleDataLoaded && ConnectionService.IsConnected)
                     {
@@ -1150,7 +1149,7 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
         finally
         {
             _running = false;
-            _runningKind = null;
+            _runningKind = string.Empty;
             StateHasChanged();
         }
     }
