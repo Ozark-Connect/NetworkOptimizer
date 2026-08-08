@@ -760,9 +760,10 @@
             CancelTargetNameEdit();
             return;
         }
-        _editingNameId = null;
-        _editName = "";
         await MutateAsync(() => TargetService.SetNameAsync(t.Id, name));
+        // Closed only once it took. A refused name - too long, or a role that cannot rename - kept
+        // its reason under the table while the box it was typed into had already gone.
+        if (_targetError == null) CancelTargetNameEdit();
     }
 
     private async Task TargetNameEditKey(KeyboardEventArgs e, MonitoringTarget t)
