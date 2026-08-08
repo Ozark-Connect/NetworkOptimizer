@@ -6,7 +6,7 @@ import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?
 import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=10';
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=5';
 import { createMarkLayer } from './chart-event-marks.js?v=1';
-import { createAxisDateCaption } from './chart-axis-date.js?v=1';
+import { createAxisDateCaption } from './chart-axis-date.js?v=2';
 
 // A device answers SNMP but can still miss a single field on a poll - a temperature or
 // memory OID that times out is written as no value rather than a zero, so the row arrives

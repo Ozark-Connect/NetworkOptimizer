@@ -6,7 +6,7 @@ import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=6';
 import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=10';
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=5';
-import { createAxisDateCaption } from './chart-axis-date.js?v=1';
+import { createAxisDateCaption } from './chart-axis-date.js?v=2';
 
 const PALETTE = window.Apex?.colors || ['#2ba89a', '#3b82f6', '#a78bfa', '#ef5858', '#f59e0b', '#10b981'];
 const _esc = document.createElement('span');

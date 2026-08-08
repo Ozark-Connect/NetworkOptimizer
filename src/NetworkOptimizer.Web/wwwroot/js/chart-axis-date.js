@@ -8,7 +8,15 @@
 // Above a day the ticks carry dates themselves, so the caption would only repeat them.
 const SUPPRESS_AT_MS = 24 * 3600000;
 
-const TITLE_STYLE = { color: '#9ca3af', fontSize: '11px', fontWeight: 400 };
+// The tick labels' own style, so the caption reads as one of them rather than as a heading under
+// them. ApexCharts renders x-axis labels at 12px/600 in this family; the color is the shared
+// axis grey.
+const TITLE_STYLE = {
+    color: '#9ca3af',
+    fontSize: '12px',
+    fontFamily: 'Helvetica, Arial, sans-serif',
+    fontWeight: 600,
+};
 
 /**
  * @param {() => Array} charts Every chart the caption belongs on. Entries may be chart instances
@@ -23,7 +31,8 @@ export function createAxisDateCaption({ charts, window: getWindow }) {
     function text() {
         const { from, to } = getWindow() || {};
         if (!from || !to || to - from >= SUPPRESS_AT_MS) return '';
-        const fmt = d => d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+        // Zero-padded to match a day tick, which datetimeFormatter draws as "MMM dd".
+        const fmt = d => d.toLocaleDateString(undefined, { month: 'short', day: '2-digit' });
         const start = fmt(from), end = fmt(to);
         return start === end ? start : `${start} - ${end}`;
     }
