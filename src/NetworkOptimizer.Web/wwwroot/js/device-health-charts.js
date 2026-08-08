@@ -6,6 +6,7 @@ import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?
 import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=10';
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=5';
 import { createMarkLayer } from './chart-event-marks.js?v=1';
+import { createAxisDateCaption } from './chart-axis-date.js?v=1';
 
 // A device answers SNMP but can still miss a single field on a poll - a temperature or
 // memory OID that times out is written as no value rather than a zero, so the row arrives
@@ -57,7 +58,6 @@ let lastData = null;
 let lastEvents = [];
 let chartEls = {};
 let markResizeTimer = null;
-let axisDateShown = '';
 
 function baseOpts(height, yTitle, yFormatter, extra) {
     return {
@@ -81,7 +81,7 @@ function baseOpts(height, yTitle, yFormatter, extra) {
                 datetimeUTC: false,
                 datetimeFormatter: { hour: 'HH:mm', day: 'MMM dd' },
             },
-            title: { text: axisDateText(), style: { color: '#9ca3af', fontSize: '11px', fontWeight: 400 } },
+            title: axisDate.option(),
         },
         yaxis: {
             min: 0,
@@ -207,6 +207,7 @@ function chartEntries() {
 }
 
 const markLayer = createMarkLayer({ charts: chartEntries });
+const axisDate = createAxisDateCaption({ charts: chartEntries, window: effectiveWindow });
 
 function applyAnnotations() {
     markLayer.apply(lastEvents, visibility);
@@ -236,9 +237,8 @@ async function loadAndUpdate() {
     lastData = data;
     if (container) await syncCustomCharts(container, data.devices, newDefs);
 
-    // Ahead of updateVisibility, never after it: this redraw recreates the annotation label
-    // elements, and the mark layer's tooltips are bound to the ones it tagged.
-    applyAxisDate();
+    // Ahead of the redraw below - see apply().
+    axisDate.apply();
     updateVisibility();
     if (container) {
         renderBadges(container);
@@ -358,27 +358,14 @@ function toLocalDatetimeString(d) {
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-// The window's date, as the axis caption. The tick labels only grow a date where the granularity
-// changes, so a window that crosses no midnight - which is most of them - said nowhere what day it
-// was showing. ApexCharts has no "stamp the date once" option, and a caption is the one place that
-// holds still: tick positions move with the chart's width.
-function axisDateText() {
+// A plain preset keeps no explicit bounds - getEffectiveFrom/To answer null for it - so its window
+// is the range, trailing from now.
+function effectiveWindow() {
     const to = getEffectiveTo() || new Date();
-    const from = getEffectiveFrom() || new Date(to.getTime() - (RANGE_MS[currentRangeHours] || 3600000));
-    const fmt = d => d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-    const start = fmt(from), end = fmt(to);
-    return start === end ? start : `${start} - ${end}`;
-}
-
-// Only when it actually changes - a range the user moved, or a trailing window crossing midnight.
-// updateOptions redraws, and the poll runs every few seconds.
-function applyAxisDate() {
-    const text = axisDateText();
-    if (text === axisDateShown) return;
-    axisDateShown = text;
-    for (const [chart] of chartEntries()) {
-        chart?.updateOptions({ xaxis: { title: { text } } }, false, false);
-    }
+    return {
+        from: getEffectiveFrom() || new Date(to.getTime() - (RANGE_MS[currentRangeHours] || 3600000)),
+        to,
+    };
 }
 
 function getEffectiveFrom() {
@@ -522,8 +509,6 @@ export async function mount(elId) {
     await tempChart.render();
     await cpuChart.render();
     await memChart.render();
-    // What the three of them just rendered with, so the first load does not redraw them to say it.
-    axisDateShown = axisDateText();
 
     // Preset range buttons
     container.querySelectorAll('[data-range]').forEach(btn => {
@@ -668,5 +653,5 @@ export function unmount() {
     customFrom = null;
     customTo = null;
     isInViewport = true;
-    axisDateShown = '';
+    axisDate.reset();
 }

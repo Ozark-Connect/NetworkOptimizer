@@ -6,6 +6,7 @@ import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=6';
 import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=10';
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=5';
+import { createAxisDateCaption } from './chart-axis-date.js?v=1';
 
 const PALETTE = window.Apex?.colors || ['#2ba89a', '#3b82f6', '#a78bfa', '#ef5858', '#f59e0b', '#10b981'];
 const _esc = document.createElement('span');
@@ -34,6 +35,8 @@ let visibilityObserver = null;
 let isInViewport = true;
 let lastData = null;
 
+const axisDate = createAxisDateCaption({ charts: () => [powerChart, dropChart, obstructionChart, outageChart, gpsChart, alignmentChart], window: effectiveWindow });
+
 function baseOpts(height, yTitle, yFormatter, extra) {
     return {
         chart: {
@@ -60,6 +63,7 @@ function baseOpts(height, yTitle, yFormatter, extra) {
                 datetimeUTC: false,
                 datetimeFormatter: { hour: 'HH:mm', day: 'MMM dd' },
             },
+            title: axisDate.option(),
         },
         yaxis: {
             title: { text: yTitle, style: { color: '#9ca3af' } },
@@ -197,6 +201,8 @@ async function loadAndUpdate() {
 
     // Before updateVisibility, which draws from it.
     lastData = data;
+    // Ahead of the redraw below - see apply().
+    axisDate.apply();
     updateVisibility();
     const container = document.getElementById(containerId);
     if (container) {
@@ -261,6 +267,16 @@ function stopPoll() { if (pollTimer) { clearInterval(pollTimer); pollTimer = nul
 function toLocalDatetimeString(d) {
     const pad = n => String(n).padStart(2, '0');
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+// A plain preset keeps no explicit bounds - getEffectiveFrom/To answer null for it - so its window
+// is the range, trailing from now.
+function effectiveWindow() {
+    const to = getEffectiveTo() || new Date();
+    return {
+        from: getEffectiveFrom() || new Date(to.getTime() - (RANGE_MS[currentRangeHours] || 3600000)),
+        to,
+    };
 }
 
 function getEffectiveFrom() {
@@ -520,4 +536,5 @@ export function unmount() {
     customFrom = null;
     customTo = null;
     isInViewport = true;
+    axisDate.reset();
 }

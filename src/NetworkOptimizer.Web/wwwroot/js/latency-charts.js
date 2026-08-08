@@ -9,6 +9,7 @@ import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?
 import { valueSortedTooltip, tooltipHeld } from './chart-tooltip.js?v=10';
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=5';
 import { downloadColor, uploadColor } from './chart-colors.js?v=2';
+import { createAxisDateCaption } from './chart-axis-date.js?v=1';
 
 const PALETTE = window.Apex?.colors || ['#7EB26D', '#EAB839', '#6ED0E0', '#EF843C', '#E24D42', '#1F78C1'];
 const _colorCache = {};
@@ -156,6 +157,8 @@ function buildInvestigateAnnotations() {
     };
 }
 
+const axisDate = createAxisDateCaption({ charts: () => [rttChart, lossChart, wanRateChart], window: effectiveWindow });
+
 function baseChartOpts(type, yTitle, yFormatter, extraOpts) {
     return {
         chart: {
@@ -179,6 +182,7 @@ function baseChartOpts(type, yTitle, yFormatter, extraOpts) {
                 datetimeUTC: false,
                 datetimeFormatter: { hour: 'HH:mm', day: 'MMM dd' },
             },
+            title: axisDate.option(),
         },
         yaxis: {
             min: 0,
@@ -476,6 +480,8 @@ async function loadAndUpdate() {
 
     lastFetchData = { ...data, targets: scopedTargets };
 
+    // Ahead of the redraw below - see apply().
+    axisDate.apply();
     updateChartVisibility();
 
     const container = document.getElementById(containerId);
@@ -692,6 +698,16 @@ function applyDragZoom(xaxis) {
     }
     // Cancel ApexCharts' client-side zoom; the refetch repaints the selected window
     return { xaxis: { min: undefined, max: undefined } };
+}
+
+// A plain preset keeps no explicit bounds - getEffectiveFrom/To answer null for it - so its window
+// is the range, trailing from now.
+function effectiveWindow() {
+    const to = getEffectiveTo() || new Date();
+    return {
+        from: getEffectiveFrom() || new Date(to.getTime() - (RANGE_MS[currentRangeHours] || 3600000)),
+        to,
+    };
 }
 
 function getEffectiveFrom() {
@@ -1007,4 +1023,5 @@ export function unmount() {
     investigateMarker = null;
     isInViewport = true;
     wanScope = null;
+    axisDate.reset();
 }
