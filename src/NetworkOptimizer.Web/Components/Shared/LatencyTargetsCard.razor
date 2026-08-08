@@ -636,6 +636,24 @@
     private string ProberPossessive => ProberNoun == BothProbers ? "their" : "its";
 
     /// <summary>
+    /// The WAN context the scope filter names, or null when the scope names no single WAN (LAN,
+    /// All, or several selected). What the filter says is the only signal available when no rows
+    /// are showing, and it is a truer one than falling back to the server.
+    /// </summary>
+    private WanContext? ScopeWanContext
+    {
+        get
+        {
+            if (LanScope || AllScope || SelectedWanKeys.Count != 1) return null;
+
+            var key = NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(SelectedWanKeys.First());
+            return WanContexts.FirstOrDefault(c => !string.IsNullOrEmpty(c.WanInterface)
+                && string.Equals(NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(c.WanInterface!),
+                    key, StringComparison.OrdinalIgnoreCase));
+        }
+    }
+
+    /// <summary>
     /// Run Probe opens Network Tools on the agent that actually probes these rows, taken from the
     /// WAN context most of them sit on. MonitoringTarget.VantagePoint cannot answer this - every
     /// target stores "server" whoever collects it. Null leaves Network Tools on its own default.
@@ -667,9 +685,10 @@
                 .Select(g => (int?)g.Key)
                 .FirstOrDefault();
 
+            // No rows to infer from falls back to what the filter names, then to a lone context.
             var context = dominantContextId is int id
                 ? WanContexts.FirstOrDefault(w => w.Id == id)
-                : WanContexts.Count == 1 ? WanContexts[0] : null;
+                : ScopeWanContext ?? (WanContexts.Count == 1 ? WanContexts[0] : null);
 
             // The picker keys an agent entry per WAN vantage, and a vantage id IS the context id.
             // Naming the server beats sending nothing: no param leaves whatever was last used.
@@ -943,13 +962,7 @@
     private void PreselectWanFromScope()
     {
         _newTargetWanContextId = "";
-        if (LanScope || AllScope || SelectedWanKeys.Count != 1) return;
-
-        var key = NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(SelectedWanKeys.First());
-        var vantage = WanContexts.FirstOrDefault(c => !string.IsNullOrEmpty(c.WanInterface)
-            && string.Equals(NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(c.WanInterface!),
-                key, StringComparison.OrdinalIgnoreCase));
-        if (vantage != null) _newTargetWanContextId = vantage.Id.ToString();
+        if (ScopeWanContext is { } vantage) _newTargetWanContextId = vantage.Id.ToString();
     }
 
     protected override async Task OnParametersSetAsync()
