@@ -59,6 +59,8 @@ let wanScope = null;
 // The instants every chart on this tab must report as its own first and last for the hover sync to
 // fire - see spanTo. Recomputed each load, since each category brings its own targets.
 let groupExtents = null;
+// The throughput chart's dash pattern as last applied, so an unchanged one costs no redraw.
+let lastWanRateDash = null;
 // Dash patterns by WAN order: primary solid, then visibly distinct patterns per extra WAN.
 const WAN_DASH_PATTERNS = [0, 6, 2, 9];
 
@@ -533,11 +535,14 @@ async function loadAndUpdate() {
 
             const series = [];
             const dashes = [];
-            fetched.filter(Boolean).forEach(({ key, wan }, i) => {
+            fetched.filter(Boolean).forEach(({ key, wan }) => {
                 // The WAN's own token, as on the pills: the color says download or upload, so the
                 // name and the dash are what say which connection.
                 const token = many ? ` (${wanScope.tokens?.[key] || String(key).toUpperCase()})` : '';
-                const dash = many ? WAN_DASH_PATTERNS[i % WAN_DASH_PATTERNS.length] : 0;
+                // Keyed off the WAN's place in the filter, exactly as wanDashFor does it, so a WAN
+                // wears the same pattern here as on the RTT chart above. Its place among the
+                // series drawn here would not survive one WAN's request failing.
+                const dash = many ? WAN_DASH_PATTERNS[Math.max(0, keys.indexOf(key)) % WAN_DASH_PATTERNS.length] : 0;
                 series.push(
                     { name: `Download${token}`, color: downloadColor(), data: points(wan.download) },
                     { name: `Upload${token}`, color: uploadColor(), data: points(wan.upload) });
@@ -546,10 +551,15 @@ async function loadAndUpdate() {
             if (!series.length) return;
 
             wanRateChart.updateSeries(spanTo(series, groupExtents), false);
-            // Positional, so rebuilt against the WANs actually drawn - and fourth argument false,
-            // or the group takes this pattern for its own series.
-            wanRateChart.updateOptions(
-                { stroke: { curve: 'smooth', width: 2, dashArray: dashes } }, false, false, false);
+            // Positional, so rebuilt against the WANs actually drawn - and only when it changes,
+            // since this redraws and the poll comes round every few seconds. Fourth argument
+            // false, or the group takes this pattern for its own series.
+            const pattern = dashes.join(',');
+            if (pattern !== lastWanRateDash) {
+                lastWanRateDash = pattern;
+                wanRateChart.updateOptions(
+                    { stroke: { curve: 'smooth', width: 2, dashArray: dashes } }, false, false, false);
+            }
         } catch { }
     }
 }
@@ -1057,5 +1067,6 @@ export function unmount() {
     investigateMarker = null;
     isInViewport = true;
     wanScope = null;
+    lastWanRateDash = null;
     axisDate.reset();
 }
