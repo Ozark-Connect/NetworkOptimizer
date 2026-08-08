@@ -10,7 +10,7 @@ import { valueSortedTooltip, tooltipHeld } from './chart-tooltip.js?v=14';
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=5';
 import { downloadColor, uploadColor } from './chart-colors.js?v=2';
 import { createAxisDateCaption } from './chart-axis-date.js?v=2';
-import { syncIdentity, extentsOf, spanTo } from './chart-sync.js?v=6';
+import { syncIdentity, extentsOf, spanTo } from './chart-sync.js?v=7';
 
 const PALETTE = window.Apex?.colors || ['#7EB26D', '#EAB839', '#6ED0E0', '#EF843C', '#E24D42', '#1F78C1'];
 const _colorCache = {};
