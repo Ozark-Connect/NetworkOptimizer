@@ -947,7 +947,13 @@
         if (vantage != null) _newTargetWanContextId = vantage.Id.ToString();
     }
 
-    protected override async Task OnParametersSetAsync() => await LoadWanChoicesAsync();
+    protected override async Task OnParametersSetAsync()
+    {
+        await LoadWanChoicesAsync();
+        // The scope arrives as a parameter, so re-seed the open form here. Seeding only on open
+        // left the default following the filter just once, across a cancel and reopen.
+        if (_showAddTarget) PreselectWanFromScope();
+    }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
