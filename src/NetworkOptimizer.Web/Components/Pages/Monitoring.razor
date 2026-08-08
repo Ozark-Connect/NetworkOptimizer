@@ -2782,6 +2782,11 @@
     private string? _preSelectCategory;
     private long? _preSelectAtMs;
     private bool _preSelectTrailing;
+    // The same pair for Device Stats. Kept apart from the ones above rather than shared: those are
+    // consumed by the latency charts' mount and cleared there, so one tab's jump would eat the
+    // other's instant on a page that carries both.
+    private long? _deviceAtMs;
+    private bool _deviceAtTrailing;
     private string? _soloTargetId;
     private bool _mapOrder2dFirst;
     private bool _liveViewOnDashboard;
@@ -2887,8 +2892,14 @@
             _pendingExpandMiCard = true;
         }
 
-        if (!string.IsNullOrEmpty(DeviceParam) && _activeTab == "devices")
-            _soloDeviceMac = DeviceParam;
+        if (_activeTab == "devices")
+        {
+            if (!string.IsNullOrEmpty(DeviceParam)) _soloDeviceMac = DeviceParam;
+            // Read whether or not a device rode along: a gateway the console has not named yet
+            // still links here, and the moment is worth framing on its own.
+            _deviceAtMs = long.TryParse(AtParam, out var deviceAtMs) && deviceAtMs > 0 ? deviceAtMs : null;
+            _deviceAtTrailing = string.Equals(AtParam, LiveAtToken, StringComparison.OrdinalIgnoreCase);
+        }
 
         // A deep-linked instant is armed by the NAVIGATION that named it, and consumed by the
         // next map mount. Mount is the wrong place to decide: the map mounts several times per
@@ -3617,15 +3628,18 @@
     /// puts it back on the way out - so following this never costs someone the filter they set
     /// up over there.
     /// </summary>
-    private void JumpToAnalysis(string category)
-    {
-        // The one thing that legitimately differs between the two Live surfaces: these tiles can be
-        // parked on an instant, so they carry it. The dashboard's cannot, and always say live.
-        var at = _mapHistoricAt is { } parkedAt
+    /// <summary>
+    /// The moment these tiles are showing, for a link that frames its window on it: the instant the
+    /// timeline is parked at, or the live marker. The one thing that legitimately differs between
+    /// the two Live surfaces - the dashboard's tiles cannot be parked, and always say live.
+    /// </summary>
+    private string CurrentAtToken() =>
+        _mapHistoricAt is { } parkedAt
             ? new DateTimeOffset(parkedAt.ToUniversalTime()).ToUnixTimeMilliseconds().ToString()
             : LiveAtToken;
-        NavigationManager.NavigateTo(Analysis(category, at, LiveWan));
-    }
+
+    private void JumpToAnalysis(string category) =>
+        NavigationManager.NavigateTo(Analysis(category, CurrentAtToken(), LiveWan));
 
     private sealed record LatencyChartView(string AtIso, string Category);
 
@@ -4715,10 +4729,8 @@
     private RenderFragment GatewayStatCards => __builder =>
     {
         var gwStats = GetGatewayStats();
-        var gwDeviceUrl = _gatewayMac != null
-            ? $"/monitoring?tab=devices&device={Uri.EscapeDataString(_gatewayMac)}"
-            : "/monitoring?tab=devices";
-        var gwFabricUrl = FabricTarget(GetGatewayFabricTargetId(), LiveWan);
+        var gwDeviceUrl = DeviceStats(_gatewayMac, CurrentAtToken());
+        var gwFabricUrl = FabricTarget(GetGatewayFabricTargetId(), CurrentAtToken(), LiveWan);
         var gwLatency = GetGatewayLatency();
         <div class="monitoring-stat-cards" style="margin-top: 0.5rem;">
             <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => NavigationManager.NavigateTo(gwFabricUrl))">
@@ -5628,9 +5640,21 @@
             {
                 var healthUrl = VersionedJs("/js/device-health-charts.js");
                 var postMount = "";
+                // Framed before the solo, so the device is picked out of the window the link asked
+                // for rather than the one it is about to leave.
+                if (_deviceAtMs is { } deviceAtMs)
+                {
+                    postMount = $"m.frameMoment('{DateTimeOffset.FromUnixTimeMilliseconds(deviceAtMs).UtcDateTime:O}');";
+                    _deviceAtMs = null;
+                }
+                else if (_deviceAtTrailing)
+                {
+                    postMount = "m.frameTrailing();";
+                    _deviceAtTrailing = false;
+                }
                 if (!string.IsNullOrEmpty(_soloDeviceMac))
                 {
-                    postMount = $"m.soloDevice('{System.Text.Encodings.Web.JavaScriptEncoder.Default.Encode(_soloDeviceMac)}');";
+                    postMount += $"m.soloDevice('{System.Text.Encodings.Web.JavaScriptEncoder.Default.Encode(_soloDeviceMac)}');";
                     _soloDeviceMac = null;
                 }
                 await JS.InvokeVoidAsync("eval",

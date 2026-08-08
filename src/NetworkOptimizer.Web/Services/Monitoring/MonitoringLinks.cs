@@ -51,15 +51,34 @@ public static class MonitoringLinks
     }
 
     /// <summary>
-    /// Latency and Packet Loss on a LAN target - the gateway's own fabric row, from a live tile.
+    /// Latency and Packet Loss on a LAN target - the gateway's own fabric row, from a live tile -
+    /// at a moment. Carries <paramref name="at"/> for the same reason the category tiles do: without
+    /// it the destination framed its saved window, so a tile showing what is happening now could
+    /// land on some earlier stretch of the day.
+    /// <para>
     /// Asks for every WAN the way any LAN view does: the LAN categories are only offered in the All
     /// scope, so a link that named no WAN landed in whatever scope the destination was last left in
     /// and the chart moved off the category - and the target - the link had asked for.
+    /// </para>
     /// </summary>
-    public static string FabricTarget(string? targetId, LiveWanScope wanScope) =>
-        $"/monitoring?tab=performance&category={FabricCategory}"
+    public static string FabricTarget(string? targetId, string at, LiveWanScope wanScope) =>
+        $"/monitoring?tab=performance&category={FabricCategory}&at={at}"
         + (string.IsNullOrEmpty(targetId) ? "" : $"&target={Uri.EscapeDataString(targetId)}")
         + wanScope.QueryFragment(LiveWanScope.AllWansToken);
+
+    /// <summary>
+    /// Device Stats for one device, at a moment. The gateway's CPU, memory and temperature tiles
+    /// open here, and they read as history the same way the latency tiles do - so the instant they
+    /// were parked on rides along rather than being left behind on the Live view.
+    /// <para>
+    /// The window that instant lands in is the destination's own business: Device Stats frames an
+    /// hour where Latency and Packet Loss frames 15 minutes, because a device warms up over a
+    /// shift and a loss spike is over in seconds.
+    /// </para>
+    /// </summary>
+    public static string DeviceStats(string? deviceMac, string at) =>
+        $"/monitoring?tab=devices&at={at}"
+        + (string.IsNullOrEmpty(deviceMac) ? "" : $"&device={Uri.EscapeDataString(deviceMac)}");
 
     /// <summary>
     /// The ISP Health report for one WAN. The primary is named like any other: the destination

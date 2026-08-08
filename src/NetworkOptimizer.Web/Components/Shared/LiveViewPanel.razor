@@ -36,10 +36,9 @@
 }
 else
 {
-    var gwFabricUrl = FabricTarget(GetGatewayFabricTargetId(), LiveWan);
-    var gwDeviceUrl = _gatewayMac != null
-        ? $"/monitoring?tab=devices&device={Uri.EscapeDataString(_gatewayMac)}"
-        : "/monitoring?tab=devices";
+    // Always live: these tiles have no parked instant to carry, unlike the Monitoring tab's own.
+    var gwFabricUrl = FabricTarget(GetGatewayFabricTargetId(), LiveAtToken, LiveWan);
+    var gwDeviceUrl = DeviceStats(_gatewayMac, LiveAtToken);
     <div class="lv-panel">
         @if (ShowConsoleDownBanner)
         {

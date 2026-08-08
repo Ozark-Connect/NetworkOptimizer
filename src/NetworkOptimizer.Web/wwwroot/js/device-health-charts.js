@@ -558,6 +558,50 @@ export async function mount(elId) {
     startPoll();
 }
 
+function frameCustomWindow(ts, halfWindowMs) {
+    customFrom = new Date(ts - halfWindowMs);
+    customTo = new Date(ts + halfWindowMs);
+    isCustomRange = true;
+    windowOffset = 0;
+
+    const container = document.getElementById(containerId);
+    if (container) {
+        container.querySelectorAll('[data-range]').forEach(b => b.classList.remove('active'));
+        container.querySelector('.custom-range-btn')?.classList.add('active');
+        const fromInput = container.querySelector('[data-input="from"]');
+        const toInput = container.querySelector('[data-input="to"]');
+        if (fromInput) fromInput.value = toLocalDatetimeString(customFrom);
+        if (toInput) toInput.value = toLocalDatetimeString(customTo);
+        updateCustomLabel(container);
+    }
+    loadAndUpdate();
+    startPoll();
+}
+
+/**
+ * Frames the window on a moment carried in from a live tile that was PARKED on that instant:
+ * 30 minutes either side, so the jump arrives at this tab's own 1h default rather than the 15m
+ * the latency charts land on. Temperature, CPU and memory drift over a shift; an hour is what
+ * makes a climb read as a climb, where 15 minutes of it reads as a flat line.
+ */
+export function frameMoment(isoTimestamp) {
+    frameCustomWindow(new Date(isoTimestamp).getTime(), 30 * 60000);
+}
+
+/**
+ * Frames a trailing 1-hour window for a jump made while the tile was live. Trailing rather than
+ * centered on now: half the window would be in the future, and a chart frozen at the instant of
+ * the click looks exactly like a device that stopped reporting.
+ */
+export function frameTrailing() {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    // A fresh mount already opens on a trailing hour, and re-selecting it would only buy a second
+    // fetch of the same window.
+    if (currentRangeHours === 1 && !isCustomRange && windowOffset === 0) return;
+    selectPresetRange(container, 1);
+}
+
 export function soloDevice(mac) {
     if (!deviceMeta.length) return;
     const match = deviceMeta.find(d => d.mac === mac);
