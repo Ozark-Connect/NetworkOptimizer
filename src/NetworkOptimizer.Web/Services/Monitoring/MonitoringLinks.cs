@@ -51,6 +51,17 @@ public static class MonitoringLinks
     }
 
     /// <summary>
+    /// Latency and Packet Loss on a LAN target - the gateway's own fabric row, from a live tile.
+    /// Asks for every WAN the way any LAN view does: the LAN categories are only offered in the All
+    /// scope, so a link that named no WAN landed in whatever scope the destination was last left in
+    /// and the chart moved off the category - and the target - the link had asked for.
+    /// </summary>
+    public static string FabricTarget(string? targetId, LiveWanScope wanScope) =>
+        $"/monitoring?tab=performance&category={FabricCategory}"
+        + (string.IsNullOrEmpty(targetId) ? "" : $"&target={Uri.EscapeDataString(targetId)}")
+        + wanScope.QueryFragment(LiveWanScope.AllWansToken);
+
+    /// <summary>
     /// The ISP Health report for one WAN. The primary is named like any other: the destination
     /// remembers the WAN it was last left on, so leaving it unnamed opened that one instead.
     /// </summary>

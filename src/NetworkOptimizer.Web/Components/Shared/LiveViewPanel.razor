@@ -36,10 +36,7 @@
 }
 else
 {
-    var gwFabricTargetId = GetGatewayFabricTargetId();
-    var gwFabricUrl = gwFabricTargetId != null
-        ? $"/monitoring?tab=performance&category=Fabric&target={Uri.EscapeDataString(gwFabricTargetId)}"
-        : "/monitoring?tab=performance&category=Fabric";
+    var gwFabricUrl = FabricTarget(GetGatewayFabricTargetId(), LiveWan);
     var gwDeviceUrl = _gatewayMac != null
         ? $"/monitoring?tab=devices&device={Uri.EscapeDataString(_gatewayMac)}"
         : "/monitoring?tab=devices";

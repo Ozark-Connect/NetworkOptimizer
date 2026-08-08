@@ -2404,13 +2404,17 @@
         // filter - read a line earlier - standing in its place. Whether that happened came down
         // to which finished first, so the same link kept or lost its WAN from one load to the
         // next. The flag holds it until the answers arrive.
-        if (!_wanOptionsLoaded || !_multiWanUiVisible)
+        if (!_wanOptionsLoaded)
         {
             _linkWanAwaitingOptions = true;
             return;
         }
         _linkWanAwaitingOptions = false;
-        if (_wanOptions.Count <= 1) return;
+        // One WAN still has a scope to set: the bar splits it from the LAN, so a link naming it
+        // (or naming All) decides which of the two the user lands in. Gating this on multi-WAN
+        // left those sites on whatever scope was saved, and the chart dropped the category the
+        // link asked for whenever the two disagreed.
+        if (_wanOptions.Count == 0) return;
 
         var keys = ResolveLinkWanKeys(WanParam);
         // Stamped before the resolve is judged: the link has been CONSIDERED either way, and the
@@ -2430,7 +2434,11 @@
         // every one of them is the whole site, which is what All means.
         _lanScope = false;
         _selectedWanKeys = new HashSet<string>(keys, StringComparer.OrdinalIgnoreCase);
-        _allScope = _wanOptions.Count > 1 && _wanOptions.All(w => _selectedWanKeys.Contains(w.Key));
+        // The token, not just the keys it resolved to: on a single-WAN site "all" and that one WAN
+        // resolve to the same key, and only All keeps the LAN categories on the chart - which is
+        // what a link from a LAN view came to see.
+        _allScope = IsAllWansToken(WanParam)
+            || (_wanOptions.Count > 1 && _wanOptions.All(w => _selectedWanKeys.Contains(w.Key)));
         await ApplyWanSelectionAsync(persist: false);
     }
 
@@ -2442,7 +2450,7 @@
     private List<string> ResolveLinkWanKeys(string wanParam)
     {
         var trimmed = wanParam.Trim();
-        if (string.Equals(trimmed, Services.Monitoring.LiveWanScope.AllWansToken, StringComparison.OrdinalIgnoreCase))
+        if (IsAllWansToken(trimmed))
             return _wanOptions.Select(o => o.Key).ToList();
         if (string.Equals(trimmed, Services.Monitoring.LiveWanScope.PrimaryWanToken, StringComparison.OrdinalIgnoreCase))
             return _wanOptions.Where(o => o.IsPrimary).Select(o => o.Key).ToList();
@@ -2457,6 +2465,10 @@
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
+
+    /// <summary>Whether a link's <c>?wan=</c> asks for the whole site rather than named WANs.</summary>
+    private static bool IsAllWansToken(string? wanParam) =>
+        string.Equals(wanParam?.Trim(), Services.Monitoring.LiveWanScope.AllWansToken, StringComparison.OrdinalIgnoreCase);
 
     private async Task RestoreWanSelectionAsync()
     {
@@ -2646,14 +2658,15 @@
     /// without this it raced that block and landed on the wrong WAN about half the time - whichever
     /// render pass happened to flip _monitoringReady decided it.
     /// <para>
-    /// Never blocks when there is nothing to wait for: a link with no WAN, a single-WAN site, or a
-    /// WAN already applied. Delaying a render or two costs nothing next to searching the wrong WAN.
+    /// Never blocks when there is nothing to wait for: a link with no WAN, a site whose WANs the
+    /// console never named, or a WAN already applied. Delaying a render or two costs nothing next
+    /// to searching the wrong WAN.
     /// </para>
     /// </summary>
     private bool LinkWanScopeSettled =>
         !LinkNarrowsWanFilter
         || _appliedLinkWanKey == LinkWanKey
-        || (_wanOptionsLoaded && (!_multiWanUiVisible || _wanOptions.Count <= 1));
+        || (_wanOptionsLoaded && _wanOptions.Count == 0);
 
     private bool LinkNarrowsWanFilter =>
         !string.IsNullOrWhiteSpace(WanParam)
@@ -3710,7 +3723,10 @@
             // Always: the LAN/WAN scope bar needs the WAN even when there is only one of them.
             // Comparison UI stays gated on _multiWanUiVisible, which one WAN never satisfies.
             await LoadWanOptionsAsync();
-            if (_multiWanUiVisible) await LiveWan.LoadAsync();
+            // Always as well, and for the same reason: every live tile's ?wan= is read off this
+            // scope, so gating it left the Live tab's links naming no WAN on a single-WAN site -
+            // where the dashboard's copy of those same tiles named it.
+            await LiveWan.LoadAsync();
             _allSfps = await db.MonitoredSfps.AsNoTracking().ToListAsync();
             _monitoredSfps = _allSfps.Where(s => s.IsMonitoredOnt).ToList();
 
@@ -4702,10 +4718,7 @@
         var gwDeviceUrl = _gatewayMac != null
             ? $"/monitoring?tab=devices&device={Uri.EscapeDataString(_gatewayMac)}"
             : "/monitoring?tab=devices";
-        var gwFabricTargetId = GetGatewayFabricTargetId();
-        var gwFabricUrl = gwFabricTargetId != null
-            ? $"/monitoring?tab=performance&category=Fabric&target={Uri.EscapeDataString(gwFabricTargetId)}"
-            : "/monitoring?tab=performance&category=Fabric";
+        var gwFabricUrl = FabricTarget(GetGatewayFabricTargetId(), LiveWan);
         var gwLatency = GetGatewayLatency();
         <div class="monitoring-stat-cards" style="margin-top: 0.5rem;">
             <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => NavigationManager.NavigateTo(gwFabricUrl))">
