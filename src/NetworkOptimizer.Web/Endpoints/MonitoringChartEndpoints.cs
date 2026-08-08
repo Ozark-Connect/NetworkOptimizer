@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Services;
@@ -346,6 +346,7 @@ public static class MonitoringChartEndpoints
             MonitoringInfluxClient influx,
             SiteDbContextFactory siteDbFactory,
             SiteContextService siteContext,
+            ILoggerFactory loggerFactory,
             string? category,
             int? rangeHours,
             DateTime? from,
@@ -414,6 +415,17 @@ public static class MonitoringChartEndpoints
                 };
             });
 
+            // Chart hover sync compares the first and last instant each chart holds, so those are
+            // what a "why is it not syncing" investigation needs from this side. Extents only -
+            // no target names or addresses.
+            var allPts = data.Values.SelectMany(p => p).ToList();
+            loggerFactory.CreateLogger("MonitoringChartEndpoints").LogDebug(
+                "chart-data: category={Category} targets={Targets} points={Points} first={First:o} last={Last:o} window={From:o}..{To:o}",
+                category ?? "Fabric", targets.Count, allPts.Count,
+                allPts.Count > 0 ? allPts.Min(p => p.Time) : (DateTime?)null,
+                allPts.Count > 0 ? allPts.Max(p => p.Time) : (DateTime?)null,
+                queryFrom, queryTo);
+
             return Results.Ok(new { targets = result });
         });
 
@@ -422,6 +434,7 @@ public static class MonitoringChartEndpoints
             UniFiConnectionService connectionService,
             SiteDbContextFactory siteDbFactory,
             SiteContextService siteContext,
+            ILoggerFactory loggerFactory,
             int? rangeHours,
             DateTime? from,
             DateTime? to,
@@ -488,6 +501,15 @@ public static class MonitoringChartEndpoints
                 return Results.Ok(new { download = Array.Empty<object>(), upload = Array.Empty<object>() });
 
             var data = await influx.QueryGatewayWanRatesAsync(gatewayMac, wanIfNames, queryFrom, queryTo, ct: ct);
+
+            // The other half of the sync comparison - read these against the chart-data line for
+            // the same moment to see whether the two queries actually cover the same span.
+            loggerFactory.CreateLogger("MonitoringChartEndpoints").LogDebug(
+                "wan-rate-chart: wan={Wan} points={Points} first={First:o} last={Last:o} window={From:o}..{To:o}",
+                wan ?? "(default)", data.Count,
+                data.Count > 0 ? data.Min(p => p.Time) : (DateTime?)null,
+                data.Count > 0 ? data.Max(p => p.Time) : (DateTime?)null,
+                queryFrom, queryTo);
 
             return Results.Ok(new
             {

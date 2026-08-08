@@ -58,3 +58,82 @@ export function spanTo(points, extents) {
     if (out[out.length - 1].x < extents.maxX) out.push({ x: extents.maxX, y: null });
     return out;
 }
+
+// ─── Diagnostics ───
+//
+// The sync either fires or it does not, with nothing on screen to say why, and the deciding test
+// lives inside ApexCharts: a hover reaches a grouped chart only when its minX AND maxX equal the
+// hovered chart's exactly. These read that state out of the library's own registry, so what is
+// compared here is what the library compares - not our idea of it.
+//
+// Console only, and only when called. Nothing runs unless someone asks.
+
+function groupRows() {
+    return (window.Apex?._chartInstances || [])
+        .filter(i => i.group)
+        .map(i => {
+            const g = i.chart?.w?.globals || {};
+            const iso = ms => (Number.isFinite(ms) ? new Date(ms).toISOString().slice(11, 23) : String(ms));
+            return {
+                group: i.group,
+                id: i.id,
+                minX: g.minX,
+                maxX: g.maxX,
+                min: iso(g.minX),
+                max: iso(g.maxX),
+                series: g.series?.length ?? 0,
+                points: g.dataPoints ?? 0,
+            };
+        });
+}
+
+/** Every grouped chart with its extents, and which of them ApexCharts would refuse to sync. */
+export function syncReport() {
+    const rows = groupRows();
+    const byGroup = {};
+    for (const r of rows) (byGroup[r.group] ||= []).push(r);
+
+    for (const [group, members] of Object.entries(byGroup)) {
+        const ref = members[0];
+        for (const m of members) {
+            m.dMin = m.minX - ref.minX;
+            m.dMax = m.maxX - ref.maxX;
+            m.syncs = m.dMin === 0 && m.dMax === 0 ? 'yes' : 'NO';
+        }
+        const broken = members.filter(m => m.syncs === 'NO');
+        console.log(`[sync] ${group}: ${members.length} charts, ${broken.length} out of step`
+            + (broken.length ? ` - deltas ms: ${broken.map(b => `${b.id} min${b.dMin} max${b.dMax}`).join(', ')}` : ''));
+    }
+    console.table(rows, ['group', 'id', 'min', 'max', 'dMin', 'dMax', 'syncs', 'series', 'points']);
+    return rows;
+}
+
+/**
+ * Reports only when a group's alignment CHANGES, which is what a flaky sync needs: leave it
+ * running, use the page, and the log says when it broke and by how much rather than what it
+ * looked like when someone thought to check.
+ */
+export function watchSync(intervalMs = 1000) {
+    if (watchSync._timer) clearInterval(watchSync._timer);
+    let last = {};
+    watchSync._timer = setInterval(() => {
+        const byGroup = {};
+        for (const r of groupRows()) (byGroup[r.group] ||= []).push(r);
+        for (const [group, members] of Object.entries(byGroup)) {
+            const ref = members[0];
+            const off = members.filter(m => m.minX !== ref.minX || m.maxX !== ref.maxX);
+            const state = off.map(m => `${m.id}:${m.minX - ref.minX}/${m.maxX - ref.maxX}`).join(' ') || 'aligned';
+            if (state === last[group]) continue;
+            last[group] = state;
+            console.log(`[sync] ${new Date().toISOString().slice(11, 23)} ${group} -> ${state}`);
+        }
+    }, intervalMs);
+    console.log(`[sync] watching every ${intervalMs}ms - __netoptSync.stop() to end`);
+}
+
+export function stopWatch() {
+    clearInterval(watchSync._timer);
+    watchSync._timer = null;
+}
+
+window.__netoptSync = { report: syncReport, watch: watchSync, stop: stopWatch };
