@@ -6,7 +6,7 @@
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=7';
-import { valueSortedTooltip, tooltipHeld } from './chart-tooltip.js?v=12';
+import { valueSortedTooltip, tooltipHeld } from './chart-tooltip.js?v=13';
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=5';
 import { downloadColor, uploadColor } from './chart-colors.js?v=2';
 import { createAxisDateCaption } from './chart-axis-date.js?v=2';
@@ -160,10 +160,10 @@ function buildInvestigateAnnotations() {
 
 const axisDate = createAxisDateCaption({ charts: () => [rttChart, lossChart, wanRateChart], window: effectiveWindow });
 
-// RTT and packet loss are the pair a reader compares, and they are drawn from one query's rows -
-// so hovering either draws the same instant on both. WAN Throughput is deliberately NOT in the
-// group: it is a different measurement on its own cadence, and hover sync addresses a point by
-// index, which on that chart is some other moment entirely.
+// Every chart this tab stacks shares one group - see chart-sync.js. WAN Throughput is in it too:
+// reading a latency spike against what the link was carrying at that moment is most of why it sits
+// under them. It comes from its own query, so its points can be spaced differently - the tooltip
+// resolves by the hovered instant rather than by index, which is what keeps its rows honest.
 const SYNC_GROUP = 'latency';
 
 function baseChartOpts(type, yTitle, yFormatter, extraOpts, group = SYNC_GROUP) {
@@ -255,8 +255,7 @@ function buildWanRateOpts() {
                 type: 'gradient',
                 gradient: { shadeIntensity: 0.3, opacityFrom: 0.3, opacityTo: 0.05 },
             },
-        },
-        null);
+        });
 }
 
 function buildQueryParams() {

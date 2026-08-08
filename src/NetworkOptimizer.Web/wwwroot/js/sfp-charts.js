@@ -3,7 +3,7 @@
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=7';
-import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=12';
+import { valueSortedTooltip, tooltipHeld, alignedPoints, alignedOnto } from './chart-tooltip.js?v=13';
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=5';
 import { createMarkLayer } from './chart-event-marks.js?v=1';
 import { createAxisDateCaption } from './chart-axis-date.js?v=2';
@@ -45,11 +45,10 @@ let markResizeTimer = null;
 
 const axisDate = createAxisDateCaption({ charts: () => [...opticsChartEntries(), ...ponChartEntries()], window: effectiveWindow });
 
-// Two groups, not one: the optics charts are drawn from each module's own rows, the PON charts
-// from its `pon` array, and hover sync addresses a point by index - so a PON chart syncing against
-// an optics hover would land on whatever sits at that position in a different array.
-const SYNC_GROUP = 'sfp-optics';
-const PON_SYNC_GROUP = 'sfp-pon';
+// Every chart this tab stacks shares one group - see chart-sync.js. The PON charts are fed from
+// each module's `pon` array rather than its optics rows, so ponPoints re-keys them onto those rows
+// first: hover sync addresses a point by index, and the two arrays are not the same one.
+const SYNC_GROUP = 'sfp';
 
 function baseOpts(height, yTitle, yFormatter, extra, group = SYNC_GROUP) {
     const base = {
@@ -260,24 +259,23 @@ async function refreshPonSection() {
         const multi = visiblePon.length > 1;
         const errSeries = [], gemSeries = [], hostSeries = [];
         visiblePon.forEach(m => {
-            const pts = m.pon;
             const prefix = multi ? `${m.label} ` : '';
             errSeries.push(
-                { name: `${prefix}BIP`, data: ponPoints(pts, 'bip') },
-                { name: `${prefix}FEC`, data: ponPoints(pts, 'fec') },
-                { name: `${prefix}FEC corrected`, data: ponPoints(pts, 'fecCorr') },
-                { name: `${prefix}HEC`, data: ponPoints(pts, 'hec') },
-                { name: `${prefix}GEM drops`, data: ponPoints(pts, 'gemDrop') },
-                { name: `${prefix}Allocs lost`, data: ponPoints(pts, 'allocLost') },
+                { name: `${prefix}BIP`, data: ponPoints(m, 'bip') },
+                { name: `${prefix}FEC`, data: ponPoints(m, 'fec') },
+                { name: `${prefix}FEC corrected`, data: ponPoints(m, 'fecCorr') },
+                { name: `${prefix}HEC`, data: ponPoints(m, 'hec') },
+                { name: `${prefix}GEM drops`, data: ponPoints(m, 'gemDrop') },
+                { name: `${prefix}Allocs lost`, data: ponPoints(m, 'allocLost') },
             );
             gemSeries.push(
-                { name: `${prefix}RX frames`, data: ponPoints(pts, 'gemRx') },
-                { name: `${prefix}TX frames`, data: ponPoints(pts, 'gemTx') },
+                { name: `${prefix}RX frames`, data: ponPoints(m, 'gemRx') },
+                { name: `${prefix}TX frames`, data: ponPoints(m, 'gemTx') },
             );
             hostSeries.push(
-                { name: `${prefix}FCS errors`, data: ponPoints(pts, 'lanFcs') },
-                { name: `${prefix}TX drops`, data: ponPoints(pts, 'lanDrop') },
-                { name: `${prefix}Buffer overflows`, data: ponPoints(pts, 'lanOvfl') },
+                { name: `${prefix}FCS errors`, data: ponPoints(m, 'lanFcs') },
+                { name: `${prefix}TX drops`, data: ponPoints(m, 'lanDrop') },
+                { name: `${prefix}Buffer overflows`, data: ponPoints(m, 'lanOvfl') },
             );
         });
         ponErrChart.updateSeries(errSeries.filter(s => s.data.length), false);
@@ -333,8 +331,12 @@ const PLOAM_LABELS = {
 //
 // A counter the module never reports at all returns nothing, so it is dropped as a
 // series rather than drawn as an empty one.
-function ponPoints(pts, key) {
-    return alignedPoints(pts, p => p[key]);
+function ponPoints(m, key) {
+    // No optics rows to key onto (a module reporting PON alone) leaves the counters on their own
+    // timeline, which is what they had before - it only costs this chart its place in the group.
+    return m.data?.length
+        ? alignedOnto(m.data, m.pon || [], p => p[key])
+        : alignedPoints(m.pon || [], p => p[key]);
 }
 
 // Create the three PON charts on first use. Kept out of mount() so setups without
@@ -346,9 +348,9 @@ async function ensurePonChartsMounted() {
     const ponGemEl = container?.querySelector('.sfp-pon-gem-chart');
     const ponHostEl = container?.querySelector('.sfp-pon-host-chart');
     if (!ponErrEl || !ponGemEl || !ponHostEl) return;
-    ponErrChart = new ApexCharts(ponErrEl, { ...baseOpts(160, 'errors', fmtCount, undefined, PON_SYNC_GROUP), series: [], colors: PALETTE });
-    ponGemChart = new ApexCharts(ponGemEl, { ...baseOpts(160, 'frames', fmtCount, undefined, PON_SYNC_GROUP), series: [], colors: PALETTE });
-    ponHostChart = new ApexCharts(ponHostEl, { ...baseOpts(160, 'errors', fmtCount, undefined, PON_SYNC_GROUP), series: [], colors: PALETTE });
+    ponErrChart = new ApexCharts(ponErrEl, { ...baseOpts(160, 'errors', fmtCount), series: [], colors: PALETTE });
+    ponGemChart = new ApexCharts(ponGemEl, { ...baseOpts(160, 'frames', fmtCount), series: [], colors: PALETTE });
+    ponHostChart = new ApexCharts(ponHostEl, { ...baseOpts(160, 'errors', fmtCount), series: [], colors: PALETTE });
     // No ponGem: GEM Frames takes no marks, so the layer never needs to reach it.
     chartEls.ponErr = ponErrEl;
     chartEls.ponHost = ponHostEl;

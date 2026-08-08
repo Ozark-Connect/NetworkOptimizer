@@ -271,12 +271,52 @@ export function valueSortedTooltip({ series, seriesIndex, dataPointIndex, w }, o
  * window the server chose. Median rather than mean so one long outage in the range cannot inflate
  * it. Needs at least three points to mean anything; below that the caller's own value stands.
  */
-function medianDelta(pts) {
-    if (pts.length < 3) return 0;
+function medianStep(xs) {
+    if (xs.length < 3) return 0;
     const deltas = [];
-    for (let i = 1; i < pts.length; i++) deltas.push(pts[i].x - pts[i - 1].x);
+    for (let i = 1; i < xs.length; i++) deltas.push(xs[i] - xs[i - 1]);
     deltas.sort((a, b) => a - b);
     return deltas[deltas.length >> 1];
+}
+
+function medianDelta(pts) {
+    return medianStep(pts.map(p => p.x));
+}
+
+/**
+ * Readings from a SECOND source, placed on `rows`' timeline.
+ *
+ * A chart fed by its own query - PON counters beside the optics, a custom OID beside CPU - holds
+ * its own rows: same window, but not the same instants and not the same count. ApexCharts' group
+ * sync addresses a point by INDEX, so such a chart syncs to whatever sits at that position in its
+ * own array, which is some other moment. Re-keyed here, index i means the same instant as the
+ * charts it is grouped with.
+ *
+ * Matched to the nearest row within half a step rather than exactly, because two queries can put
+ * their bucket boundaries a moment apart and an exact match would then find nothing and blank the
+ * series. Gaps bridge on the SOURCE's own cadence: a counter polled more slowly than the rows it
+ * is being placed on would otherwise break its line between every reading, and with markers.size 0
+ * an isolated point draws nothing at all.
+ *
+ * Returns [] when either side is empty, which the caller drops as a series.
+ */
+export function alignedOnto(rows, src, sel, timeKey = 'time', gapBridgeMs = 0) {
+    if (!rows?.length || !src?.length) return [];
+
+    const xs = src.map(p => new Date(p[timeKey]).getTime());
+    const step = medianStep(xs);
+    const tolerance = Math.max(1, step / 2);
+    const byRow = new Map();
+    let k = 0;
+    for (const row of rows) {
+        const t = new Date(row[timeKey]).getTime();
+        while (k + 1 < xs.length && Math.abs(xs[k + 1] - t) <= Math.abs(xs[k] - t)) k++;
+        if (Math.abs(xs[k] - t) <= tolerance) {
+            const v = sel(src[k]);
+            if (v != null) byRow.set(row, v);
+        }
+    }
+    return alignedPoints(rows, row => byRow.get(row) ?? null, timeKey, Math.max(gapBridgeMs, 2.5 * step));
 }
 
 export function alignedPoints(pts, sel, timeKey = 'time', gapBridgeMs = 0, interpolateNulls = true) {
