@@ -1,3 +1,5 @@
+using NetworkOptimizer.Core.Enums;
+
 namespace NetworkOptimizer.UniFi;
 
 /// <summary>
@@ -98,16 +100,6 @@ public static class UniFiProductDatabase
         "UDB-Pro",
         "UDB-Pro-Sector",
         "UDB-IoT",
-
-        // UPS and Power devices (no iperf3)
-        "UPS-Tower",
-        "UPS-2U",
-        "USP-PDU-Pro",
-        "USP-PDU-HD",
-        "USP-RPS",
-        "USP-RPS-Pro",
-        "USP-Plug",
-        "USP-Strip",
 
         // NAS devices (storage, no iperf3)
         "UNAS-Pro",
@@ -313,6 +305,7 @@ public static class UniFiProductDatabase
 
         // ----- Power Distribution -----
         { "USPPDUP", "USP-PDU-Pro" },
+        { "USPED18", "USP-PDU-Pro" },
         { "USPPDUHD", "USP-PDU-HD" },
         { "USPRPS", "USP-RPS" },
         { "USPRPSP", "USP-RPS-Pro" },
@@ -447,6 +440,8 @@ public static class UniFiProductDatabase
         { "USWDA24", "UPS-Tower" },
         { "USWDA25", "UPS-2U" },
         { "USWDA26", "UPS-2U" },
+        { "USPDA2B", "UPS-2U-Pro" },
+        { "USPDA2C", "UPS-2U-Pro" },
 
         // ----- Official: Building Bridge -----
         { "UBB", "UBB" },
@@ -574,7 +569,6 @@ public static class UniFiProductDatabase
         { "USWF070", "USW-Pro-24" },
         { "WRS3", "USW-Pro-24" },
         { "WRS3F", "USW-Pro-24" },
-        { "UPS2U", "USP-RPS" },
 
         // =====================================================================
         // ACCESS POINTS
@@ -649,6 +643,23 @@ public static class UniFiProductDatabase
         { "U5G-Antenna-EU", "U5G-Backup" },
         { "UDBPRO", "UDB-Pro" },
         { "UDBPROSECTOR", "UDB-Pro-Sector" },
+        { "UPS23", "UPS-Tower" },
+        { "UPS24", "UPS-Tower" },
+        { "UPSTOWERUS", "UPS-Tower" },
+        { "UPSTOWEREU", "UPS-Tower" },
+        { "UPS25", "UPS-2U" },
+        { "UPS26", "UPS-2U" },
+        { "UPS2UUS", "UPS-2U" },
+        { "UPS2UEU", "UPS-2U" },
+        { "UPSPROUS", "UPS-2U-Pro" },
+        { "UPS2UPROUS", "UPS-2U-Pro" },
+        { "UPS2UPROEU", "UPS-2U-Pro" },
+        { "USPPDUPEU", "USP-PDU-Pro" },
+        { "USPPDUPROEU", "USP-PDU-Pro" },
+        { "USPPDUPAU", "USP-PDU-Pro" },
+        { "USPPDUPROAU", "USP-PDU-Pro" },
+        { "USPPDUPUK", "USP-PDU-Pro" },
+        { "USPPDUPROUK", "USP-PDU-Pro" },
         { "USPPLUG", "USP-Plug" },
         { "USPSTRIP", "USP-Strip" },
     };
@@ -680,6 +691,10 @@ public static class UniFiProductDatabase
     {
         if (string.IsNullOrEmpty(shortname))
             return "Unknown";
+
+        // Some controllers put the official model code in shortname.
+        if (OfficialModelCodes.TryGetValue(shortname, out var officialName))
+            return officialName;
 
         // Try legacy shortname alias lookup (case-insensitive)
         if (LegacyShortnameAliases.TryGetValue(shortname, out var name))
@@ -727,7 +742,8 @@ public static class UniFiProductDatabase
         if (string.IsNullOrEmpty(productName))
             return true;
 
-        return !DevicesWithoutIperf3.Contains(productName);
+        return !PowerDeviceProductNames.Contains(productName) &&
+               !DevicesWithoutIperf3.Contains(productName);
     }
 
     /// <summary>
@@ -756,17 +772,18 @@ public static class UniFiProductDatabase
 
     /// <summary>
     /// UniFi power devices (UPS, PDU, redundant power supplies, smart plugs/strips).
-    /// Ubiquiti reports these with SWITCH device capabilities, so the API exposes a
-    /// single internal/management port_table row. That port is not a controllable
+    /// Ubiquiti reports these with power-device capabilities and exposes a single
+    /// internal/management port_table row. That port is not a controllable
     /// downstream edge port - it cannot be reconfigured with an access/trunk profile -
     /// so port-level VLAN/profile audits are not actionable for these devices.
     ///
     /// HOW TO MAINTAIN THIS LIST:
     /// Derive it from Ubiquiti's device database at https://static.ui.com/fingerprint/ui/public.json
-    /// A true power device reports type "usw", deviceCapabilities containing "SWITCH" together with
-    /// power capabilities (SMART_POWER / SMART_OUTLET / BATTERY_MANAGEMENT / REDUNDANT_POWER), AND
-    /// numberOfPorts == 1 (the single internal/management port). Add the product name (the value
-    /// GetBestProductName resolves to) here.
+    /// Most power devices report type "usw" and deviceCapabilities containing "SWITCH" together
+    /// with power capabilities (SMART_POWER / SMART_OUTLET / BATTERY_MANAGEMENT / REDUNDANT_POWER).
+    /// Newer devices may report the dedicated "usp" type without SWITCH. In both cases,
+    /// numberOfPorts == 1 identifies the single internal/management port. Add the product name
+    /// (the value GetBestProductName resolves to) here.
     ///
     /// DO NOT exclude on power capabilities alone. Some real, fully manageable switches carry the
     /// same power caps - e.g. USW-Mission-Critical (USL8MP) reports SWITCH + SMART_POWER +
@@ -779,6 +796,7 @@ public static class UniFiProductDatabase
     {
         "UPS-Tower",
         "UPS-2U",
+        "UPS-2U-Pro",
         "USP-PDU-Pro",
         "USP-PDU-HD",
         "USP-RPS",
@@ -799,6 +817,20 @@ public static class UniFiProductDatabase
     {
         var productName = GetBestProductName(model, shortname);
         return !string.IsNullOrEmpty(productName) && PowerDeviceProductNames.Contains(productName);
+    }
+
+    /// <summary>
+    /// Classify a UniFi device using product identity before the controller's raw type.
+    /// Older power appliances report as switches or access points, while newer ones use
+    /// the dedicated usp type. The product allow-list normalizes all of them without
+    /// treating real managed switches with power capabilities as SmartPower devices.
+    /// </summary>
+    public static DeviceType ClassifyDeviceType(string? apiType, string? model, string? shortname)
+    {
+        if (IsPowerDevice(model, shortname))
+            return DeviceType.SmartPower;
+
+        return DeviceTypeExtensions.FromUniFiApiType(apiType, model);
     }
 
     /// <summary>

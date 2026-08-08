@@ -213,6 +213,7 @@ public static class DeviceTypeExtensions
     /// - ugw/usg/udm/uxg/ucg: Gateway (includes USG, UDM, UXG, Cloud Gateway)
     /// - utr: Travel Router
     /// - usw: Switch
+    /// - usp: Smart Power device
     /// - umbb: Cellular Modem (Mobile Broadband)
     /// - ubb: Building Bridge
     /// - udb/uacc: Device Bridge
@@ -250,6 +251,8 @@ public static class DeviceTypeExtensions
             "utr" => DeviceType.TravelRouter,
             // Switches
             "usw" => DeviceType.Switch,
+            // Smart Power devices
+            "usp" => DeviceType.SmartPower,
             // Modems
             "umbb" => DeviceType.CellularModem,
             "uci" => DeviceType.CableModem,

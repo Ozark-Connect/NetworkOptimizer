@@ -3198,6 +3198,34 @@ public class VlanAnalyzerTests
     }
 
     [Fact]
+    public void AnalyzeInfrastructureVlanPlacement_PowerDeviceOnHomeVlan_NoIssues()
+    {
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, vlanId: 1),
+            CreateNetwork("Home", NetworkPurpose.Home, vlanId: 2)
+        };
+        var deviceJson = System.Text.Json.JsonDocument.Parse("""
+        {
+            "data": [
+                {
+                    "type": "usw",
+                    "model": "USWDA25",
+                    "shortname": "UPS25",
+                    "name": "UPS-2U",
+                    "ip": "192.168.2.20",
+                    "mac": "aa:bb:cc:dd:ee:ff"
+                }
+            ]
+        }
+        """).RootElement;
+
+        var issues = _analyzer.AnalyzeInfrastructureVlanPlacement(deviceJson, networks);
+
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
     public void AnalyzeInfrastructureVlanPlacement_NonIdealVlans_APOnIoTVlan_FlagsCritical()
     {
         // Arrange - Non-sequential VLANs like real-world setups (99, 1, 42, 64)

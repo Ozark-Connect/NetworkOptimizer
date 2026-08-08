@@ -1178,7 +1178,10 @@ public class VlanAnalyzer
             if (string.IsNullOrEmpty(deviceType))
                 continue;
 
-            var parsedType = FromUniFiApiType(deviceType);
+            var model = device.GetStringOrNull("model");
+            var shortname = device.GetStringOrNull("shortname");
+            var parsedType = NetworkOptimizer.UniFi.UniFiProductDatabase.ClassifyDeviceType(
+                deviceType, model, shortname);
 
             // Skip gateways - they're typically on VLAN 1 by default and that's OK
             if (parsedType.IsGateway())
