@@ -277,7 +277,6 @@ async function syncCustomCharts(container, devices, defs) {
             if (!chartDiv) {
                 const card = document.createElement('div');
                 card.className = 'chart-card';
-                card.style.marginTop = '1rem';
                 card.innerHTML = `<div class="chart-header"><h3 class="chart-title">${escapeHtml(def.description)}</h3></div><div data-custom-field="${escapeHtml(def.fieldName)}"></div>`;
                 customContainer.appendChild(card);
                 chartDiv = card.querySelector(`[data-custom-field]`);

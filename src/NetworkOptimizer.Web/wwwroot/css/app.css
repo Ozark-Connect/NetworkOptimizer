@@ -10597,12 +10597,6 @@ a.path-hop.hop-clickable:hover {
     overflow: hidden;
 }
 
-/* Stacked charts inside a card. Scoped to .card-body so it cannot reach the side-by-side rows
-   elsewhere, where a top margin would drop one card below its partner. */
-.card-body .chart-card + .chart-card {
-    margin-top: 1rem;
-}
-
 .chart-header {
     display: flex;
     justify-content: space-between;
