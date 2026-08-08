@@ -22,33 +22,39 @@ export function syncIdentity(group) {
 }
 
 /**
- * Anchors a chart's series to the window on screen, so it reports exactly that window as its own
- * extents.
+ * The first and last instant across every array given, as {minX, maxX} - or null when they are all
+ * empty. Arrays are time-ordered, so only their ends are read.
+ */
+export function extentsOf(pointArrays, timeKey = 'time') {
+    let minX = null, maxX = null;
+    for (const pts of pointArrays) {
+        if (!pts?.length) continue;
+        const first = new Date(pts[0][timeKey]).getTime();
+        const last = new Date(pts[pts.length - 1][timeKey]).getTime();
+        if (!Number.isFinite(first) || !Number.isFinite(last)) continue;
+        minX = minX == null ? first : Math.min(minX, first);
+        maxX = maxX == null ? last : Math.max(maxX, last);
+    }
+    return minX == null ? null : { minX, maxX };
+}
+
+/**
+ * Stretches a series to the group's extents with null points, so its chart reports the same minX
+ * and maxX as the charts it is grouped with.
  *
  * This is what makes the sync happen at all. ApexCharts passes a hover to a grouped chart only if
  *   a.w.globals.minX === i.w.globals.minX && a.w.globals.maxX === i.w.globals.maxX
- * - an exact match on both ends, and symmetric, which is why a mismatch silenced BOTH directions.
+ * - an exact match on both ends. Charts drawn from one query agree by construction; one fed by its
+ * own query lands on the same first and last timestamp only by luck, so the sync came and went as
+ * the data moved, and did so in BOTH directions because the test is symmetric.
  *
- * Deriving those ends from the data cannot settle it: each query is polled on its own schedule, so
- * whichever wrote last owns the later final sample, and the answer changed from one load to the
- * next with nothing else different. The window every chart on the tab asked the server for is the
- * one thing they all agree on without consulting each other.
- *
- * Points outside it are dropped - a sample a second past the window's end, from a poller whose
- * clock ran ahead, is exactly what made the extents disagree. The first series is then padded to
- * both ends with null points, which draw nothing, take no hover dot and get no tooltip row.
+ * A null point draws nothing, takes no hover dot and gets no tooltip row, so the padding is
+ * invisible. Only one series per chart needs it - the extents are taken across all of them.
  */
-export function toWindow(series, win) {
-    if (!win?.from || !win?.to || !series?.length) return series;
-    const min = win.from.getTime(), max = win.to.getTime();
-    if (!Number.isFinite(min) || !Number.isFinite(max)) return series;
-
-    return series.map((s, i) => {
-        let data = (s.data || []).filter(p => p.x >= min && p.x <= max);
-        if (i === 0) {
-            if (!data.length || data[0].x > min) data = [{ x: min, y: null }, ...data];
-            if (data[data.length - 1].x < max) data = [...data, { x: max, y: null }];
-        }
-        return { ...s, data };
-    });
+export function spanTo(points, extents) {
+    if (!extents || !points?.length) return points;
+    const out = points.slice();
+    if (out[0].x > extents.minX) out.unshift({ x: extents.minX, y: null });
+    if (out[out.length - 1].x < extents.maxX) out.push({ x: extents.maxX, y: null });
+    return out;
 }

@@ -7,7 +7,7 @@ import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=5';
 import { createMarkLayer } from './chart-event-marks.js?v=1';
 import { createAxisDateCaption } from './chart-axis-date.js?v=2';
-import { syncIdentity, toWindow } from './chart-sync.js?v=3';
+import { syncIdentity, extentsOf, spanTo } from './chart-sync.js?v=2';
 
 const PALETTE = window.Apex?.colors || ['#7EB26D', '#EAB839', '#6ED0E0', '#EF843C', '#E24D42', '#1F78C1'];
 const _esc = document.createElement('span');
@@ -49,10 +49,12 @@ const axisDate = createAxisDateCaption({ charts: () => [...opticsChartEntries(),
 // each module's `pon` array rather than its optics rows, so ponPoints re-keys them onto those rows
 // first: hover sync addresses a point by index, and the two arrays are not the same one.
 const SYNC_GROUP = 'sfp';
-// Anchors every chart on the tab to the window it asked the server for, which is what lets the
-// hover pass between them - see toWindow.
+let groupExtents = null;
+// The group's extents on every chart, so ApexCharts passes the hover between them - see spanTo.
 function padFirst(series) {
-    return toWindow(series, effectiveWindow());
+    return series.length
+        ? [{ ...series[0], data: spanTo(series[0].data, groupExtents) }, ...series.slice(1)]
+        : series;
 }
 
 
@@ -297,6 +299,7 @@ async function loadAndUpdate() {
     moduleMeta = data.modules.map((m, i) => ({
         id: m.id, label: m.label, color: PALETTE[i % PALETTE.length],
     }));
+    groupExtents = extentsOf((data.modules || []).map(m => m.data || []));
     // Set before updateVisibility below, which is what draws the marks.
     lastEvents = data.events || [];
 

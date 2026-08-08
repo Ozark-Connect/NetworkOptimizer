@@ -7,7 +7,7 @@ import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?
 import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=14';
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=5';
 import { createAxisDateCaption } from './chart-axis-date.js?v=2';
-import { syncIdentity } from './chart-sync.js?v=3';
+import { syncIdentity } from './chart-sync.js?v=2';
 
 const PALETTE = window.Apex?.colors || ['#2ba89a', '#3b82f6', '#a78bfa', '#ef5858', '#f59e0b', '#10b981'];
 const _esc = document.createElement('span');
