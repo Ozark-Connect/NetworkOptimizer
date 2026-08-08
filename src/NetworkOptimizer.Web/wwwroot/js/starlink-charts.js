@@ -4,9 +4,10 @@
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=7';
-import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=11';
+import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=12';
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=5';
 import { createAxisDateCaption } from './chart-axis-date.js?v=2';
+import { syncIdentity } from './chart-sync.js?v=1';
 
 const PALETTE = window.Apex?.colors || ['#2ba89a', '#3b82f6', '#a78bfa', '#ef5858', '#f59e0b', '#10b981'];
 const _esc = document.createElement('span');
@@ -37,10 +38,14 @@ let lastData = null;
 
 const axisDate = createAxisDateCaption({ charts: () => [powerChart, dropChart, obstructionChart, outageChart, gpsChart, alignmentChart], window: effectiveWindow });
 
-function baseOpts(height, yTitle, yFormatter, extra) {
+// Every chart this tab stacks shares one group - see chart-sync.js.
+const SYNC_GROUP = 'starlink';
+
+function baseOpts(height, yTitle, yFormatter, extra, group = SYNC_GROUP) {
     return {
         chart: {
             type: 'area', height,
+            ...syncIdentity(group),
             background: 'transparent',
             toolbar: { show: false },
             zoom: { enabled: !matchMedia('(pointer:coarse)').matches, type: 'x', allowMouseWheelZoom: false },

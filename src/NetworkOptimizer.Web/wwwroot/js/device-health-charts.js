@@ -3,10 +3,11 @@
 // device-health-charts, and future chart sets share one implementation.
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=7';
-import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=11';
+import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=12';
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=5';
 import { createMarkLayer } from './chart-event-marks.js?v=1';
 import { createAxisDateCaption } from './chart-axis-date.js?v=2';
+import { syncIdentity } from './chart-sync.js?v=1';
 
 // A device answers SNMP but can still miss a single field on a poll - a temperature or
 // memory OID that times out is written as no value rather than a zero, so the row arrives
@@ -59,23 +60,16 @@ let lastEvents = [];
 let chartEls = {};
 let markResizeTimer = null;
 
-// Charts sharing a group sync their tooltip and crosshair, so hovering any of them reads the same
-// instant on all three - which is the question being asked of a device: what else was happening
-// when this climbed.
-//
-// The sync is by data INDEX, not by timestamp, so every chart in the group has to agree on what
-// index i means. They do: the fixed three come from one payload through alignedPoints, and the
-// custom-field charts are re-keyed onto those same rows by customPoints.
+// Every chart this tab stacks shares one group - see chart-sync.js. Index i is the same moment on
+// all of them: the fixed three come from one payload through alignedPoints, and the custom-field
+// charts are re-keyed onto those same rows by customPoints.
 const SYNC_GROUP = 'device-health';
 
-function synced(opts, id) {
-    return { ...opts, chart: { ...opts.chart, id, group: SYNC_GROUP } };
-}
-
-function baseOpts(height, yTitle, yFormatter, extra) {
+function baseOpts(height, yTitle, yFormatter, extra, group = SYNC_GROUP) {
     return {
         chart: {
             type: 'line', height,
+            ...syncIdentity(group),
             background: 'transparent',
             toolbar: { show: false },
             zoom: { enabled: !matchMedia('(pointer:coarse)').matches, type: 'x', allowMouseWheelZoom: false },
@@ -335,7 +329,7 @@ async function syncCustomCharts(container, devices, defs) {
                 chartDiv = card.querySelector(`[data-custom-field]`);
             }
             const chart = new ApexCharts(chartDiv, {
-                ...synced(baseOpts(200, def.description, fmtCustom), `health-custom-${def.fieldName}`),
+                ...baseOpts(200, def.description, fmtCustom),
                 series, colors: PALETTE,
             });
             await chart.render();
@@ -546,14 +540,14 @@ export async function mount(elId) {
 
     chartEls = { temp: tempEl, cpu: cpuEl, mem: memEl };
 
-    tempChart = new ApexCharts(tempEl, { ...synced(baseOpts(200, '°C', v => v != null ? v.toFixed(0) + ' °C' : ''), 'health-temp'), series: [], colors: PALETTE });
+    tempChart = new ApexCharts(tempEl, { ...baseOpts(200, '°C', v => v != null ? v.toFixed(0) + ' °C' : ''), series: [], colors: PALETTE });
     cpuChart = new ApexCharts(cpuEl, {
-        ...synced(baseOpts(200, 'CPU %', v => v != null ? v.toFixed(0) + '%' : ''), 'health-cpu'),
+        ...baseOpts(200, 'CPU %', v => v != null ? v.toFixed(0) + '%' : ''),
         yaxis: { min: 0, max: v => Math.max(v * 1.1, 30), title: { text: 'CPU %', style: { color: '#9ca3af' } }, labels: { style: { colors: '#9ca3af' }, formatter: v => v != null ? v.toFixed(0) + '%' : '' } },
         series: [], colors: PALETTE,
     });
     memChart = new ApexCharts(memEl, {
-        ...synced(baseOpts(200, 'Memory %', v => v != null ? v.toFixed(0) + '%' : ''), 'health-mem'),
+        ...baseOpts(200, 'Memory %', v => v != null ? v.toFixed(0) + '%' : ''),
         yaxis: { min: 0, max: v => Math.max(v * 1.1, 50), title: { text: 'Memory %', style: { color: '#9ca3af' } }, labels: { style: { colors: '#9ca3af' }, formatter: v => v != null ? v.toFixed(0) + '%' : '' } },
         series: [], colors: PALETTE,
     });

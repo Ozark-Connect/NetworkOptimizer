@@ -3,10 +3,11 @@
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=7';
-import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=11';
+import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=12';
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=5';
 import { createMarkLayer } from './chart-event-marks.js?v=1';
 import { createAxisDateCaption } from './chart-axis-date.js?v=2';
+import { syncIdentity } from './chart-sync.js?v=1';
 
 const PALETTE = window.Apex?.colors || ['#7EB26D', '#EAB839', '#6ED0E0', '#EF843C', '#E24D42', '#1F78C1'];
 const _esc = document.createElement('span');
@@ -44,10 +45,17 @@ let markResizeTimer = null;
 
 const axisDate = createAxisDateCaption({ charts: () => [...opticsChartEntries(), ...ponChartEntries()], window: effectiveWindow });
 
-function baseOpts(height, yTitle, yFormatter, extra) {
+// Two groups, not one: the optics charts are drawn from each module's own rows, the PON charts
+// from its `pon` array, and hover sync addresses a point by index - so a PON chart syncing against
+// an optics hover would land on whatever sits at that position in a different array.
+const SYNC_GROUP = 'sfp-optics';
+const PON_SYNC_GROUP = 'sfp-pon';
+
+function baseOpts(height, yTitle, yFormatter, extra, group = SYNC_GROUP) {
     const base = {
         chart: {
             type: 'area', height,
+            ...syncIdentity(group),
             background: 'transparent',
             toolbar: { show: false },
             zoom: { enabled: !matchMedia('(pointer:coarse)').matches, type: 'x', allowMouseWheelZoom: false },
@@ -338,9 +346,9 @@ async function ensurePonChartsMounted() {
     const ponGemEl = container?.querySelector('.sfp-pon-gem-chart');
     const ponHostEl = container?.querySelector('.sfp-pon-host-chart');
     if (!ponErrEl || !ponGemEl || !ponHostEl) return;
-    ponErrChart = new ApexCharts(ponErrEl, { ...baseOpts(160, 'errors', fmtCount), series: [], colors: PALETTE });
-    ponGemChart = new ApexCharts(ponGemEl, { ...baseOpts(160, 'frames', fmtCount), series: [], colors: PALETTE });
-    ponHostChart = new ApexCharts(ponHostEl, { ...baseOpts(160, 'errors', fmtCount), series: [], colors: PALETTE });
+    ponErrChart = new ApexCharts(ponErrEl, { ...baseOpts(160, 'errors', fmtCount, undefined, PON_SYNC_GROUP), series: [], colors: PALETTE });
+    ponGemChart = new ApexCharts(ponGemEl, { ...baseOpts(160, 'frames', fmtCount, undefined, PON_SYNC_GROUP), series: [], colors: PALETTE });
+    ponHostChart = new ApexCharts(ponHostEl, { ...baseOpts(160, 'errors', fmtCount, undefined, PON_SYNC_GROUP), series: [], colors: PALETTE });
     // No ponGem: GEM Frames takes no marks, so the layer never needs to reach it.
     chartEls.ponErr = ponErrEl;
     chartEls.ponHost = ponHostEl;

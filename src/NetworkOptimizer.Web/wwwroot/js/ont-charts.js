@@ -3,10 +3,11 @@
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=7';
-import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=11';
+import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=12';
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=5';
 import { createMarkLayer } from './chart-event-marks.js?v=1';
 import { createAxisDateCaption } from './chart-axis-date.js?v=2';
+import { syncIdentity } from './chart-sync.js?v=1';
 
 const PALETTE = window.Apex?.colors || ['#4269d0', '#efb118', '#ff725c', '#6cc5b0', '#3ca951', '#ff8ab7'];
 const _esc = document.createElement('span');
@@ -38,10 +39,14 @@ let lastData = null;
 
 const axisDate = createAxisDateCaption({ charts: chartEntries, window: effectiveWindow });
 
-function baseOpts(height, yTitle, yFormatter, extra) {
+// Every chart this tab stacks shares one group - see chart-sync.js.
+const SYNC_GROUP = 'ont';
+
+function baseOpts(height, yTitle, yFormatter, extra, group = SYNC_GROUP) {
     const base = {
         chart: {
             type: 'area', height,
+            ...syncIdentity(group),
             background: 'transparent',
             toolbar: { show: false },
             zoom: { enabled: !matchMedia('(pointer:coarse)').matches, type: 'x', allowMouseWheelZoom: false },
