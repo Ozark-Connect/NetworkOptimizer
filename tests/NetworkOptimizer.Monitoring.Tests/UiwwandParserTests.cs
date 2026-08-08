@@ -396,7 +396,7 @@ public class UiwwandParserTests
     }
 
     [Theory]
-    [InlineData("64584456", 252283, 8)]
+    [InlineData("98765432", 385802, 120)]
     [InlineData("12345678", 48225, 78)]
     public void CellInfo_DerivesSiteAndSectorFromCellId(string cellId, int expectedEnb, int expectedSector)
     {

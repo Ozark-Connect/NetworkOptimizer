@@ -6,8 +6,9 @@ using Xunit;
 namespace NetworkOptimizer.Monitoring.Tests.Probes;
 
 /// <summary>
-/// Every fixture here is real output captured from the corresponding device class, not a
-/// reconstruction. The dialects differ enough that inventing them would prove nothing.
+/// Each fixture keeps the exact output SHAPE captured from that device class - spacing,
+/// ordering, stray lines and all - with the addresses swapped for documentation ranges.
+/// The dialects differ enough that inventing their shapes would prove nothing.
 /// </summary>
 public class NslookupOutputParserTests
 {
@@ -26,18 +27,18 @@ public class NslookupOutputParserTests
 
             Non-authoritative answer:
             Name:	example.com
-            Address: 104.20.23.154
+            Address: 192.0.2.10
             Name:	example.com
-            Address: 172.66.147.243
+            Address: 192.0.2.11
             Name:	example.com
-            Address: 2606:4700:10::6814:179a
+            Address: 2001:db8::2
             """;
 
         var r = NslookupOutputParser.Parse(output, Host, Vantage);
 
         r.Resolver.Should().Be("127.0.0.1");
         r.Addresses.Should().BeEquivalentTo(
-            new[] { "104.20.23.154", "172.66.147.243", "2606:4700:10::6814:179a" });
+            new[] { "192.0.2.10", "192.0.2.11", "2001:db8::2" });
         r.NotFound.Should().BeFalse();
         r.Kind.Should().Be(NslookupOutputParser.ResultKind);
     }
@@ -53,20 +54,20 @@ public class NslookupOutputParserTests
 
             Non-authoritative answer:
             Name:	example.com
-            Address: 172.66.147.243
+            Address: 192.0.2.11
             Name:	example.com
-            Address: 104.20.23.154
+            Address: 192.0.2.10
 
             Non-authoritative answer:
             Name:	example.com
-            Address: 2606:4700:10::ac42:93f3
+            Address: 2001:db8::1
             """;
 
         var r = NslookupOutputParser.Parse(output, Host, Vantage);
 
         r.Resolver.Should().Be("192.168.99.1");
         r.Addresses.Should().BeEquivalentTo(
-            new[] { "172.66.147.243", "104.20.23.154", "2606:4700:10::ac42:93f3" });
+            new[] { "192.0.2.11", "192.0.2.10", "2001:db8::1" });
         r.Addresses.Should().NotContain("192.168.99.1", "the header address is the resolver, not an answer");
     }
 
@@ -78,16 +79,16 @@ public class NslookupOutputParserTests
             nslookup: can't resolve '(null)': Name does not resolve
 
             Name:      example.com
-            Address 1: 172.66.147.243
-            Address 2: 104.20.23.154
-            Address 3: 2606:4700:10::ac42:93f3
+            Address 1: 192.0.2.11
+            Address 2: 192.0.2.10
+            Address 3: 2001:db8::1
             """;
 
         var r = NslookupOutputParser.Parse(output, Host, Vantage);
 
         r.Resolver.Should().BeNull();
         r.Addresses.Should().BeEquivalentTo(
-            new[] { "172.66.147.243", "104.20.23.154", "2606:4700:10::ac42:93f3" });
+            new[] { "192.0.2.11", "192.0.2.10", "2001:db8::1" });
         r.NotFound.Should().BeFalse("the (null) line prints on successful lookups too");
     }
 
@@ -95,18 +96,18 @@ public class NslookupOutputParserTests
     public void Busybox_xg_switch_forward_server_plus_numbered()
     {
         var output = """
-            Server:		192.168.150.1
-            Address:	192.168.150.1#53
+            Server:		192.168.99.1
+            Address:	192.168.99.1#53
 
             Name:      example.com
-            Address 1: 104.20.23.154
-            Address 2: 172.66.147.243
+            Address 1: 192.0.2.10
+            Address 2: 192.0.2.11
             """;
 
         var r = NslookupOutputParser.Parse(output, Host, Vantage);
 
-        r.Resolver.Should().Be("192.168.150.1");
-        r.Addresses.Should().BeEquivalentTo(new[] { "104.20.23.154", "172.66.147.243" });
+        r.Resolver.Should().Be("192.168.99.1");
+        r.Addresses.Should().BeEquivalentTo(new[] { "192.0.2.10", "192.0.2.11" });
     }
 
     // ---- Not found ----
@@ -148,7 +149,7 @@ public class NslookupOutputParserTests
             nslookup: can't resolve '(null)': Name does not resolve
 
             Name:      example.com
-            Address 1: 172.66.147.243
+            Address 1: 192.0.2.11
             """;
 
         var r = NslookupOutputParser.Parse(output, Host, Vantage);
