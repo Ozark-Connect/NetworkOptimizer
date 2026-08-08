@@ -10099,7 +10099,7 @@ a.path-hop.hop-clickable:hover {
 /* Marks a synced tooltip as trimmed - the rest are on the chart under the pointer. */
 .netopt-tooltip-more {
     text-align: right;
-    padding: 0 8px 4px;
+    padding: 0 8px 8px;
     color: var(--text-muted);
     font-family: Helvetica, Arial, sans-serif;
     font-size: 12px;
