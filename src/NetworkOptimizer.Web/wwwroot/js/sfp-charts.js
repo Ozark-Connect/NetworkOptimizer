@@ -7,7 +7,7 @@ import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=5';
 import { createMarkLayer } from './chart-event-marks.js?v=1';
 import { createAxisDateCaption } from './chart-axis-date.js?v=2';
-import { syncIdentity, extentsOf, spanTo } from './chart-sync.js?v=5';
+import { syncIdentity, extentsOf, spanTo } from './chart-sync.js?v=6';
 
 const PALETTE = window.Apex?.colors || ['#7EB26D', '#EAB839', '#6ED0E0', '#EF843C', '#E24D42', '#1F78C1'];
 const _esc = document.createElement('span');
@@ -45,14 +45,28 @@ let markResizeTimer = null;
 
 const axisDate = createAxisDateCaption({ charts: () => [...opticsChartEntries(), ...ponChartEntries()], window: effectiveWindow });
 
-// Every chart this tab stacks shares one group - see chart-sync.js. The PON charts are fed from
-// each module's `pon` array rather than its optics rows, so ponPoints re-keys them onto those rows
-// first: hover sync addresses a point by index, and the two arrays are not the same one.
+// Every chart this tab stacks shares one group - see chart-sync.js. The PON charts come from each
+// module's `pon` array rather than its optics rows, so they are trimmed and padded to the group's
+// extents like everything else, which is what the sync actually turns on.
 const SYNC_GROUP = 'sfp';
 let groupExtents = null;
 // The group's extents on every chart, so ApexCharts passes the hover between them - see spanTo.
 function padFirst(series) {
     return spanTo(series, groupExtents);
+}
+
+// The group a chart belongs to is fixed at construction, and ApexCharts decides membership from
+// its own registry entry plus the hovering chart's config - so moving a chart between groups means
+// setting both. Rebuilding the charts instead would cost a full remount on every chip click.
+const PON_ONLY_GROUP = 'sfp-pon';
+
+function setPonSyncGroup(group) {
+    for (const chart of [ponErrChart, ponGemChart, ponHostChart]) {
+        if (!chart?.w) continue;
+        chart.w.config.chart.group = group;
+        const entry = (window.Apex?._chartInstances || []).find(i => i.chart === chart);
+        if (entry) entry.group = group;
+    }
 }
 
 
@@ -260,6 +274,13 @@ async function refreshPonSection() {
     if (!visiblePon.length) { section.style.display = 'none'; return; }
     section.style.display = '';
     await ensurePonChartsMounted();
+
+    // The PON charts follow the optics only while the ONT modules are the ONLY ones on screen.
+    // With another module shown beside them the optics charts are drawing something the PON
+    // charts have no line for, and a crosshair tracking across the two would claim a
+    // correspondence that is not there. They still follow each other either way.
+    const visibleModules = (lastData?.modules || []).filter(m => visibility[m.id] !== false);
+    setPonSyncGroup(visibleModules.length === visiblePon.length ? SYNC_GROUP : PON_ONLY_GROUP);
     if (!ponErrChart) return;
     try {
         const multi = visiblePon.length > 1;
