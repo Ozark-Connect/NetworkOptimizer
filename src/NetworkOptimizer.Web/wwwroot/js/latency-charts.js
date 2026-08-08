@@ -6,11 +6,11 @@
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=7';
-import { valueSortedTooltip, tooltipHeld, alignedOnto } from './chart-tooltip.js?v=13';
+import { valueSortedTooltip, tooltipHeld } from './chart-tooltip.js?v=14';
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=5';
 import { downloadColor, uploadColor } from './chart-colors.js?v=2';
 import { createAxisDateCaption } from './chart-axis-date.js?v=2';
-import { syncIdentity } from './chart-sync.js?v=1';
+import { syncIdentity, extentsOf, spanTo } from './chart-sync.js?v=2';
 
 const PALETTE = window.Apex?.colors || ['#7EB26D', '#EAB839', '#6ED0E0', '#EF843C', '#E24D42', '#1F78C1'];
 const _colorCache = {};
@@ -56,6 +56,9 @@ let savedState = null;
 // exactly as before. Shape: { primaryKey, selected: [wanKey...], tokens: {key: 'WAN1'} };
 // selecting every key is comparison mode (per-host color kept, per-WAN dash pattern).
 let wanScope = null;
+// The instants every chart on this tab must report as its own first and last for the hover sync to
+// fire - see spanTo. Recomputed each load, since each category brings its own targets.
+let groupExtents = null;
 // Dash patterns by WAN order: primary solid, then visibly distinct patterns per extra WAN.
 const WAN_DASH_PATTERNS = [0, 6, 2, 9];
 
@@ -372,11 +375,14 @@ function updateChartVisibility() {
     if (!rttChart || !lossChart) return;
     const shown = (lastFetchData?.targets || []).filter(t => visibility[t.targetId] !== false);
 
-    const seriesOf = key => shown.map(t => ({
-        name: wanDisplayName(t),
-        color: hashColor(t.name),
-        data: (t[key] || []).map(p => ({ x: new Date(p.time).getTime(), y: p.value })),
-    }));
+    const seriesOf = key => shown.map((t, i) => {
+        const data = (t[key] || []).map(p => ({ x: new Date(p.time).getTime(), y: p.value }));
+        return {
+            name: wanDisplayName(t),
+            color: hashColor(t.name),
+            data: i === 0 ? spanTo(data, groupExtents) : data,
+        };
+    });
 
     rttChart.updateSeries(seriesOf('rtt'), false);
     lossChart.updateSeries(seriesOf('loss'), false);
@@ -487,6 +493,7 @@ async function loadAndUpdate() {
     }));
 
     lastFetchData = { ...data, targets: scopedTargets };
+    groupExtents = extentsOf(scopedTargets.flatMap(t => [t.rtt || [], t.loss || []]));
 
     // Ahead of the redraw below - see apply().
     axisDate.apply();
@@ -517,18 +524,11 @@ async function loadAndUpdate() {
             const resp = await fetch(`/api/monitoring/wan-rate-chart?${timeParams}`, { credentials: 'same-origin' });
             if (resp.ok) {
                 const wan = await resp.json();
-                // Placed on the longest series on screen rather than on its own rows. Hover sync
-                // addresses a point by INDEX, and this chart answers a different query: when its
-                // array is shorter than the index it is handed - which changing category does,
-                // since each one brings targets with their own row counts - there is nothing at
-                // that position and the synced tooltip draws nothing at all.
-                const refRows = (lastFetchData?.targets || [])
-                    .map(t => t.rtt || [])
-                    .reduce((longest, rows) => (rows.length > longest.length ? rows : longest), []);
-                const wanSeries = (points) => refRows.length
-                    ? alignedOnto(refRows, points || [], p => p.value)
-                    : (points || []).map(p => ({ x: new Date(p.time).getTime(), y: p.value }));
-                const dlSeries = wanSeries(wan.download);
+                // Its own samples, at its own cadence - only the extents are stretched to the
+                // group's, which is all the hover sync asks for.
+                const wanSeries = (points) =>
+                    (points || []).map(p => ({ x: new Date(p.time).getTime(), y: p.value }));
+                const dlSeries = spanTo(wanSeries(wan.download), groupExtents);
                 const ulSeries = wanSeries(wan.upload);
                 wanRateChart.updateSeries([
                     { name: 'Download', data: dlSeries },

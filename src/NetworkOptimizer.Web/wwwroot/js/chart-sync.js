@@ -20,3 +20,41 @@ let seq = 0;
 export function syncIdentity(group) {
     return group ? { id: `${group}-${++seq}`, group } : {};
 }
+
+/**
+ * The first and last instant across every array given, as {minX, maxX} - or null when they are all
+ * empty. Arrays are time-ordered, so only their ends are read.
+ */
+export function extentsOf(pointArrays, timeKey = 'time') {
+    let minX = null, maxX = null;
+    for (const pts of pointArrays) {
+        if (!pts?.length) continue;
+        const first = new Date(pts[0][timeKey]).getTime();
+        const last = new Date(pts[pts.length - 1][timeKey]).getTime();
+        if (!Number.isFinite(first) || !Number.isFinite(last)) continue;
+        minX = minX == null ? first : Math.min(minX, first);
+        maxX = maxX == null ? last : Math.max(maxX, last);
+    }
+    return minX == null ? null : { minX, maxX };
+}
+
+/**
+ * Stretches a series to the group's extents with null points, so its chart reports the same minX
+ * and maxX as the charts it is grouped with.
+ *
+ * This is what makes the sync happen at all. ApexCharts passes a hover to a grouped chart only if
+ *   a.w.globals.minX === i.w.globals.minX && a.w.globals.maxX === i.w.globals.maxX
+ * - an exact match on both ends. Charts drawn from one query agree by construction; one fed by its
+ * own query lands on the same first and last timestamp only by luck, so the sync came and went as
+ * the data moved, and did so in BOTH directions because the test is symmetric.
+ *
+ * A null point draws nothing, takes no hover dot and gets no tooltip row, so the padding is
+ * invisible. Only one series per chart needs it - the extents are taken across all of them.
+ */
+export function spanTo(points, extents) {
+    if (!extents || !points?.length) return points;
+    const out = points.slice();
+    if (out[0].x > extents.minX) out.unshift({ x: extents.minX, y: null });
+    if (out[out.length - 1].x < extents.maxX) out.push({ x: extents.maxX, y: null });
+    return out;
+}

@@ -3,11 +3,11 @@
 // device-health-charts, and future chart sets share one implementation.
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=7';
-import { valueSortedTooltip, tooltipHeld, alignedPoints, alignedOnto } from './chart-tooltip.js?v=13';
+import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=14';
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=5';
 import { createMarkLayer } from './chart-event-marks.js?v=1';
 import { createAxisDateCaption } from './chart-axis-date.js?v=2';
-import { syncIdentity } from './chart-sync.js?v=1';
+import { syncIdentity, extentsOf, spanTo } from './chart-sync.js?v=2';
 
 // A device answers SNMP but can still miss a single field on a poll - a temperature or
 // memory OID that times out is written as no value rather than a zero, so the row arrives
@@ -60,10 +60,16 @@ let lastEvents = [];
 let chartEls = {};
 let markResizeTimer = null;
 
-// Every chart this tab stacks shares one group - see chart-sync.js. Index i is the same moment on
-// all of them: the fixed three come from one payload through alignedPoints, and the custom-field
-// charts are re-keyed onto those same rows by customPoints.
+// Every chart this tab stacks shares one group - see chart-sync.js.
 const SYNC_GROUP = 'device-health';
+let groupExtents = null;
+// The group's extents on every chart, so ApexCharts passes the hover between them - see spanTo.
+function padFirst(series) {
+    return series.length
+        ? [{ ...series[0], data: spanTo(series[0].data, groupExtents) }, ...series.slice(1)]
+        : series;
+}
+
 
 function baseOpts(height, yTitle, yFormatter, extra, group = SYNC_GROUP) {
     return {
@@ -184,22 +190,21 @@ function drawSeries() {
         color: hashColor(d.name),
         data: alignedPoints(d.data || [], p => p[field], 'time', GAP_BRIDGE_MS),
     }));
-    if (tempChart) tempChart.updateSeries(makeSeries('temp'), false);
-    if (cpuChart) cpuChart.updateSeries(makeSeries('cpu'), false);
-    if (memChart) memChart.updateSeries(makeSeries('mem'), false);
+    if (tempChart) tempChart.updateSeries(padFirst(makeSeries('temp')), false);
+    if (cpuChart) cpuChart.updateSeries(padFirst(makeSeries('cpu')), false);
+    if (memChart) memChart.updateSeries(padFirst(makeSeries('mem')), false);
     for (const [field, chart] of Object.entries(customCharts)) {
         if (!chart) continue;
-        chart.updateSeries(devices.map(d => ({
+        chart.updateSeries(padFirst(devices.map(d => ({
             name: d.name,
             color: hashColor(d.name),
             data: customPoints(d, field),
-        })), false);
+        }))), false);
     }
 }
 
-/** A custom field's readings on the health rows' timeline - see alignedOnto. */
 function customPoints(d, field) {
-    return alignedOnto(d.data || [], d.custom?.[field] || [], p => p.value, 'time', GAP_BRIDGE_MS);
+    return (d.custom?.[field] || []).map(p => ({ x: new Date(p.time).getTime(), y: p.value }));
 }
 
 function updateVisibility() {
@@ -241,6 +246,7 @@ async function loadAndUpdate() {
     deviceMeta = data.devices.map(d => ({
         name: d.name, mac: d.mac, color: hashColor(d.name),
     }));
+    groupExtents = extentsOf((data.devices || []).map(d => d.data || []));
     // Set before updateVisibility below, which is what draws the marks.
     lastEvents = data.events || [];
     const newDefs = data.customFields || [];
@@ -279,9 +285,10 @@ async function syncCustomCharts(container, devices, defs) {
             color: hashColor(d.name),
             data: customPoints(d, def.fieldName),
         }));
+        const padded = padFirst(series);
 
         if (customCharts[def.fieldName]) {
-            customCharts[def.fieldName].updateSeries(series, false);
+            customCharts[def.fieldName].updateSeries(padded, false);
         } else {
             let chartDiv = customContainer.querySelector(`[data-custom-field="${def.fieldName}"]`);
             if (!chartDiv) {
@@ -293,7 +300,7 @@ async function syncCustomCharts(container, devices, defs) {
             }
             const chart = new ApexCharts(chartDiv, {
                 ...baseOpts(200, def.description, fmtCustom),
-                series, colors: PALETTE,
+                series: padded, colors: PALETTE,
             });
             await chart.render();
             customCharts[def.fieldName] = chart;

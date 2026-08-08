@@ -3,11 +3,11 @@
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=7';
-import { valueSortedTooltip, tooltipHeld, alignedPoints, alignedOnto } from './chart-tooltip.js?v=13';
+import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=14';
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=5';
 import { createMarkLayer } from './chart-event-marks.js?v=1';
 import { createAxisDateCaption } from './chart-axis-date.js?v=2';
-import { syncIdentity } from './chart-sync.js?v=1';
+import { syncIdentity, extentsOf, spanTo } from './chart-sync.js?v=2';
 
 const PALETTE = window.Apex?.colors || ['#7EB26D', '#EAB839', '#6ED0E0', '#EF843C', '#E24D42', '#1F78C1'];
 const _esc = document.createElement('span');
@@ -49,6 +49,14 @@ const axisDate = createAxisDateCaption({ charts: () => [...opticsChartEntries(),
 // each module's `pon` array rather than its optics rows, so ponPoints re-keys them onto those rows
 // first: hover sync addresses a point by index, and the two arrays are not the same one.
 const SYNC_GROUP = 'sfp';
+let groupExtents = null;
+// The group's extents on every chart, so ApexCharts passes the hover between them - see spanTo.
+function padFirst(series) {
+    return series.length
+        ? [{ ...series[0], data: spanTo(series[0].data, groupExtents) }, ...series.slice(1)]
+        : series;
+}
+
 
 function baseOpts(height, yTitle, yFormatter, extra, group = SYNC_GROUP) {
     const base = {
@@ -229,9 +237,9 @@ function drawSeries() {
     });
     if (powerChart) {
         powerChart.updateOptions({ stroke: { curve: 'smooth', width: 2, dashArray: powerDash } }, false, false);
-        powerChart.updateSeries(powerSeries, false);
+        powerChart.updateSeries(padFirst(powerSeries), false);
     }
-    if (tempChart) tempChart.updateSeries(tSeries, false);
+    if (tempChart) tempChart.updateSeries(padFirst(tSeries), false);
 }
 
 function updateVisibility() {
@@ -278,9 +286,9 @@ async function refreshPonSection() {
                 { name: `${prefix}Buffer overflows`, data: ponPoints(m, 'lanOvfl') },
             );
         });
-        ponErrChart.updateSeries(errSeries.filter(s => s.data.length), false);
-        ponGemChart.updateSeries(gemSeries.filter(s => s.data.length), false);
-        ponHostChart.updateSeries(hostSeries.filter(s => s.data.length), false);
+        ponErrChart.updateSeries(padFirst(errSeries.filter(s => s.data.length)), false);
+        ponGemChart.updateSeries(padFirst(gemSeries.filter(s => s.data.length)), false);
+        ponHostChart.updateSeries(padFirst(hostSeries.filter(s => s.data.length)), false);
         renderPonDetails(container, visiblePon);
     } catch (e) { /* leave the previous render if a chart update fails */ }
 }
@@ -291,6 +299,7 @@ async function loadAndUpdate() {
     moduleMeta = data.modules.map((m, i) => ({
         id: m.id, label: m.label, color: PALETTE[i % PALETTE.length],
     }));
+    groupExtents = extentsOf((data.modules || []).map(m => m.data || []));
     // Set before updateVisibility below, which is what draws the marks.
     lastEvents = data.events || [];
 
@@ -332,11 +341,7 @@ const PLOAM_LABELS = {
 // A counter the module never reports at all returns nothing, so it is dropped as a
 // series rather than drawn as an empty one.
 function ponPoints(m, key) {
-    // No optics rows to key onto (a module reporting PON alone) leaves the counters on their own
-    // timeline, which is what they had before - it only costs this chart its place in the group.
-    return m.data?.length
-        ? alignedOnto(m.data, m.pon || [], p => p[key])
-        : alignedPoints(m.pon || [], p => p[key]);
+    return alignedPoints(m.pon || [], p => p[key]);
 }
 
 // Create the three PON charts on first use. Kept out of mount() so setups without
