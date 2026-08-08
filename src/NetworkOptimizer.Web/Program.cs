@@ -340,8 +340,6 @@ builder.Services.AddScoped(sp => sp.GetRequiredService<UniFiSshRegistry>()
 // builds each site's provider set (qmicli with the site's device SSH; HTTP and
 // per-modem-SSH providers are context-driven). Scoped resolution forwards to
 // the current site's monitor.
-builder.Services.AddScoped(sp => sp.GetRequiredService<ModemMonitorRegistry>()
-    .GetFor(sp.GetRequiredService<SiteContextService>().Slug).Cellular);
 
 // Register Cable Modem providers (stateless scrapers, shared across sites).
 // The monitor itself is per site through ModemMonitorRegistry: configurations,
@@ -355,8 +353,6 @@ builder.Services.AddSingleton<ICableModemProvider, MotorolaHnapProvider>();
 builder.Services.AddSingleton<ICableModemProvider, XfinityGatewayProvider>();
 builder.Services.AddSiteScopedRegistry<ModemMonitorRegistry>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<ModemMonitorRegistry>());
-builder.Services.AddScoped(sp => sp.GetRequiredService<ModemMonitorRegistry>()
-    .GetFor(sp.GetRequiredService<SiteContextService>().Slug).CableModem);
 
 // Register External ONT providers (stateless scrapers, shared across sites).
 // The monitor itself is per site through ModemMonitorRegistry, like the cable
@@ -370,15 +366,11 @@ builder.Services.AddSingleton<IOntProvider, TelekomModem2OntProvider>();
 builder.Services.AddSingleton<IOntProvider, NokiaXs010xOntProvider>();
 builder.Services.AddSingleton<IOntProvider, ZyxelGponSfpOntProvider>();
 builder.Services.AddSingleton<IOntProvider, NetOptCustomPonOntProvider>();
-builder.Services.AddScoped(sp => sp.GetRequiredService<ModemMonitorRegistry>()
-    .GetFor(sp.GetRequiredService<SiteContextService>().Slug).Ont);
 
 // Starlink terminal monitoring is per site through ModemMonitorRegistry, which
 // builds each site's provider set (the gRPC provider keeps per-config history
 // state, so instances are per site like the cellular providers). Scoped
 // resolution forwards to the current site's monitor.
-builder.Services.AddScoped(sp => sp.GetRequiredService<ModemMonitorRegistry>()
-    .GetFor(sp.GetRequiredService<SiteContextService>().Slug).Starlink);
 
 // LAN iperf3 speed test per site (registry-owned): devices, credentials, and
 // results live in that site's database; tests run against that site's devices.

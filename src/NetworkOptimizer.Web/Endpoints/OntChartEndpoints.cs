@@ -22,7 +22,7 @@ public static class OntChartEndpoints
 
         group.MapGet("/api/monitoring/ont-chart", async (
             MonitoringInfluxClient influx,
-            OntMonitorService ontService,
+            IOntMonitorService ontService,
             SiteDbContextFactory siteDbFactory,
             SiteContextService siteContext,
             int? rangeHours,
