@@ -2,10 +2,12 @@
 // Same control pattern as latency-charts.js and device-health-charts.js.
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
-import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=6';
-import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=10';
+import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=7';
+import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=14';
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=5';
-import { createMarkLayer } from './chart-event-marks.js?v=1';
+import { createMarkLayer } from './chart-event-marks.js?v=2';
+import { createAxisDateCaption } from './chart-axis-date.js?v=3';
+import { syncIdentity, extentsOf, spanTo } from './chart-sync.js?v=7';
 
 const PALETTE = window.Apex?.colors || ['#7EB26D', '#EAB839', '#6ED0E0', '#EF843C', '#E24D42', '#1F78C1'];
 const _esc = document.createElement('span');
@@ -41,10 +43,38 @@ let lastEvents = [];
 let chartEls = {};
 let markResizeTimer = null;
 
-function baseOpts(height, yTitle, yFormatter, extra) {
+const axisDate = createAxisDateCaption({ charts: () => [...opticsChartEntries(), ...ponChartEntries()], window: effectiveWindow });
+
+// Every chart this tab stacks shares one group - see chart-sync.js. The PON charts come from each
+// module's `pon` array rather than its optics rows, so they are trimmed and padded to the group's
+// extents like everything else, which is what the sync actually turns on.
+const SYNC_GROUP = 'sfp';
+let groupExtents = null;
+// The group's extents on every chart, so ApexCharts passes the hover between them - see spanTo.
+function padFirst(series) {
+    return spanTo(series, groupExtents);
+}
+
+// The group a chart belongs to is fixed at construction, and ApexCharts decides membership from
+// its own registry entry plus the hovering chart's config - so moving a chart between groups means
+// setting both. Rebuilding the charts instead would cost a full remount on every chip click.
+const PON_ONLY_GROUP = 'sfp-pon';
+
+function setPonSyncGroup(group) {
+    for (const chart of [ponErrChart, ponGemChart, ponHostChart]) {
+        if (!chart?.w) continue;
+        chart.w.config.chart.group = group;
+        const entry = (window.Apex?._chartInstances || []).find(i => i.chart === chart);
+        if (entry) entry.group = group;
+    }
+}
+
+
+function baseOpts(height, yTitle, yFormatter, extra, group = SYNC_GROUP) {
     const base = {
         chart: {
             type: 'area', height,
+            ...syncIdentity(group),
             background: 'transparent',
             toolbar: { show: false },
             zoom: { enabled: !matchMedia('(pointer:coarse)').matches, type: 'x', allowMouseWheelZoom: false },
@@ -67,6 +97,7 @@ function baseOpts(height, yTitle, yFormatter, extra) {
                 datetimeUTC: false,
                 datetimeFormatter: { hour: 'HH:mm', day: 'MMM dd' },
             },
+            title: axisDate.option(),
         },
         yaxis: {
             title: { text: yTitle, style: { color: '#9ca3af' } },
@@ -217,10 +248,12 @@ function drawSeries() {
         tSeries.push({ name: m.label, color: color, data: alignedPoints(pts, p => p.temp) });
     });
     if (powerChart) {
-        powerChart.updateOptions({ stroke: { curve: 'smooth', width: 2, dashArray: powerDash } }, false, false);
-        powerChart.updateSeries(powerSeries, false);
+        // Fourth argument false: RX solid / TX dashed is positional to this chart's series, and
+        // sharing it with the group is what dashed TX Frames on GEM Frames.
+        powerChart.updateOptions({ stroke: { curve: 'smooth', width: 2, dashArray: powerDash } }, false, false, false);
+        powerChart.updateSeries(padFirst(powerSeries), false);
     }
-    if (tempChart) tempChart.updateSeries(tSeries, false);
+    if (tempChart) tempChart.updateSeries(padFirst(tSeries), false);
 }
 
 function updateVisibility() {
@@ -243,34 +276,40 @@ async function refreshPonSection() {
     if (!visiblePon.length) { section.style.display = 'none'; return; }
     section.style.display = '';
     await ensurePonChartsMounted();
+
+    // The PON charts follow the optics only while the ONT modules are the ONLY ones on screen.
+    // With another module shown beside them the optics charts are drawing something the PON
+    // charts have no line for, and a crosshair tracking across the two would claim a
+    // correspondence that is not there. They still follow each other either way.
+    const visibleModules = (lastData?.modules || []).filter(m => visibility[m.id] !== false);
+    setPonSyncGroup(visibleModules.length === visiblePon.length ? SYNC_GROUP : PON_ONLY_GROUP);
     if (!ponErrChart) return;
     try {
         const multi = visiblePon.length > 1;
         const errSeries = [], gemSeries = [], hostSeries = [];
         visiblePon.forEach(m => {
-            const pts = m.pon;
             const prefix = multi ? `${m.label} ` : '';
             errSeries.push(
-                { name: `${prefix}BIP`, data: ponPoints(pts, 'bip') },
-                { name: `${prefix}FEC`, data: ponPoints(pts, 'fec') },
-                { name: `${prefix}FEC corrected`, data: ponPoints(pts, 'fecCorr') },
-                { name: `${prefix}HEC`, data: ponPoints(pts, 'hec') },
-                { name: `${prefix}GEM drops`, data: ponPoints(pts, 'gemDrop') },
-                { name: `${prefix}Allocs lost`, data: ponPoints(pts, 'allocLost') },
+                { name: `${prefix}BIP`, data: ponPoints(m, 'bip') },
+                { name: `${prefix}FEC`, data: ponPoints(m, 'fec') },
+                { name: `${prefix}FEC corrected`, data: ponPoints(m, 'fecCorr') },
+                { name: `${prefix}HEC`, data: ponPoints(m, 'hec') },
+                { name: `${prefix}GEM drops`, data: ponPoints(m, 'gemDrop') },
+                { name: `${prefix}Allocs lost`, data: ponPoints(m, 'allocLost') },
             );
             gemSeries.push(
-                { name: `${prefix}RX frames`, data: ponPoints(pts, 'gemRx') },
-                { name: `${prefix}TX frames`, data: ponPoints(pts, 'gemTx') },
+                { name: `${prefix}RX frames`, data: ponPoints(m, 'gemRx') },
+                { name: `${prefix}TX frames`, data: ponPoints(m, 'gemTx') },
             );
             hostSeries.push(
-                { name: `${prefix}FCS errors`, data: ponPoints(pts, 'lanFcs') },
-                { name: `${prefix}TX drops`, data: ponPoints(pts, 'lanDrop') },
-                { name: `${prefix}Buffer overflows`, data: ponPoints(pts, 'lanOvfl') },
+                { name: `${prefix}FCS errors`, data: ponPoints(m, 'lanFcs') },
+                { name: `${prefix}TX drops`, data: ponPoints(m, 'lanDrop') },
+                { name: `${prefix}Buffer overflows`, data: ponPoints(m, 'lanOvfl') },
             );
         });
-        ponErrChart.updateSeries(errSeries.filter(s => s.data.length), false);
-        ponGemChart.updateSeries(gemSeries.filter(s => s.data.length), false);
-        ponHostChart.updateSeries(hostSeries.filter(s => s.data.length), false);
+        ponErrChart.updateSeries(padFirst(errSeries.filter(s => s.data.length)), false);
+        ponGemChart.updateSeries(padFirst(gemSeries.filter(s => s.data.length)), false);
+        ponHostChart.updateSeries(padFirst(hostSeries.filter(s => s.data.length)), false);
         renderPonDetails(container, visiblePon);
     } catch (e) { /* leave the previous render if a chart update fails */ }
 }
@@ -281,6 +320,7 @@ async function loadAndUpdate() {
     moduleMeta = data.modules.map((m, i) => ({
         id: m.id, label: m.label, color: PALETTE[i % PALETTE.length],
     }));
+    groupExtents = extentsOf((data.modules || []).map(m => m.data || []));
     // Set before updateVisibility below, which is what draws the marks.
     lastEvents = data.events || [];
 
@@ -289,6 +329,8 @@ async function loadAndUpdate() {
 
     // Before updateVisibility, which draws from it.
     lastData = data;
+    // Ahead of the redraw below - see apply().
+    axisDate.apply();
     updateVisibility();
     const container = document.getElementById(containerId);
     if (container) {
@@ -319,8 +361,8 @@ const PLOAM_LABELS = {
 //
 // A counter the module never reports at all returns nothing, so it is dropped as a
 // series rather than drawn as an empty one.
-function ponPoints(pts, key) {
-    return alignedPoints(pts, p => p[key]);
+function ponPoints(m, key) {
+    return alignedPoints(m.pon || [], p => p[key]);
 }
 
 // Create the three PON charts on first use. Kept out of mount() so setups without
@@ -414,6 +456,16 @@ function stopPoll() { if (pollTimer) { clearInterval(pollTimer); pollTimer = nul
 function toLocalDatetimeString(d) {
     const pad = n => String(n).padStart(2, '0');
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+// A plain preset keeps no explicit bounds - getEffectiveFrom/To answer null for it - so its window
+// is the range, trailing from now.
+function effectiveWindow() {
+    const to = getEffectiveTo() || new Date();
+    return {
+        from: getEffectiveFrom() || new Date(to.getTime() - (RANGE_MS[currentRangeHours] || 3600000)),
+        to,
+    };
 }
 
 function getEffectiveFrom() {
@@ -675,4 +727,5 @@ export function unmount() {
     customFrom = null;
     customTo = null;
     isInViewport = true;
+    axisDate.reset();
 }

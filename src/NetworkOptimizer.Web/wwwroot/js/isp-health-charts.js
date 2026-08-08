@@ -3,7 +3,7 @@
 // render as shaded x-axis ranges, path shifts as annotation lines.
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
-import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=10';
+import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=14';
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=5';
 
 const PALETTE = ['#2ba89a', '#3b82f6', '#a78bfa', '#ef5858', '#f59e0b', '#10b981'];
@@ -364,6 +364,33 @@ export function setDotNetRef(ref) {
 export function setHiddenTypes(types) {
     hiddenTypes = new Set(types || []);
     if (chart) chart.updateOptions({ annotations: buildAnnotations(lastEvents) }, false, false);
+}
+
+/**
+ * The window on screen: the instant at its center, and how wide it is.
+ *
+ * For the jump into Latency and Packet Loss, which frames what it is handed. Center rather than
+ * either edge because a reader zooms AROUND the thing they are looking at, and the width travels
+ * too - this chart reads over days, so the 15 minutes a moment-jump frames would drop the context
+ * the zoom was expressing.
+ *
+ * Answers from the drag-zoom when there is one, else the report window this was mounted for, else
+ * what the chart actually drew. Null when there is nothing on screen to describe.
+ */
+export function currentView() {
+    let min = null, max = null;
+    if (zoomWindow?.min != null) {
+        min = zoomWindow.min;
+        max = zoomWindow.max;
+    } else if (win?.from && win?.to) {
+        min = new Date(win.from).getTime();
+        max = new Date(win.to).getTime();
+    } else {
+        const g = chart?.w?.globals;
+        if (g && g.maxX > g.minX) { min = g.minX; max = g.maxX; }
+    }
+    if (min == null || max == null || !(max > min)) return null;
+    return { atIso: new Date((min + max) / 2).toISOString(), spanMs: Math.round(max - min) };
 }
 
 export function scrollChartIntoView() {

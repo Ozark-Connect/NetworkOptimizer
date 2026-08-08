@@ -2,10 +2,12 @@
 // filter badges, poll interval scaling) into a shared module so latency-charts,
 // device-health-charts, and future chart sets share one implementation.
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
-import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=6';
-import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=10';
+import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=7';
+import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=14';
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=5';
-import { createMarkLayer } from './chart-event-marks.js?v=1';
+import { createMarkLayer } from './chart-event-marks.js?v=2';
+import { createAxisDateCaption } from './chart-axis-date.js?v=3';
+import { syncIdentity, extentsOf, spanTo } from './chart-sync.js?v=7';
 
 // A device answers SNMP but can still miss a single field on a poll - a temperature or
 // memory OID that times out is written as no value rather than a zero, so the row arrives
@@ -58,10 +60,20 @@ let lastEvents = [];
 let chartEls = {};
 let markResizeTimer = null;
 
-function baseOpts(height, yTitle, yFormatter, extra) {
+// Every chart this tab stacks shares one group - see chart-sync.js.
+const SYNC_GROUP = 'device-health';
+let groupExtents = null;
+// The group's extents on every chart, so ApexCharts passes the hover between them - see spanTo.
+function padFirst(series) {
+    return spanTo(series, groupExtents);
+}
+
+
+function baseOpts(height, yTitle, yFormatter, extra, group = SYNC_GROUP) {
     return {
         chart: {
             type: 'line', height,
+            ...syncIdentity(group),
             background: 'transparent',
             toolbar: { show: false },
             zoom: { enabled: !matchMedia('(pointer:coarse)').matches, type: 'x', allowMouseWheelZoom: false },
@@ -80,6 +92,7 @@ function baseOpts(height, yTitle, yFormatter, extra) {
                 datetimeUTC: false,
                 datetimeFormatter: { hour: 'HH:mm', day: 'MMM dd' },
             },
+            title: axisDate.option(),
         },
         yaxis: {
             min: 0,
@@ -175,17 +188,21 @@ function drawSeries() {
         color: hashColor(d.name),
         data: alignedPoints(d.data || [], p => p[field], 'time', GAP_BRIDGE_MS),
     }));
-    if (tempChart) tempChart.updateSeries(makeSeries('temp'), false);
-    if (cpuChart) cpuChart.updateSeries(makeSeries('cpu'), false);
-    if (memChart) memChart.updateSeries(makeSeries('mem'), false);
+    if (tempChart) tempChart.updateSeries(padFirst(makeSeries('temp')), false);
+    if (cpuChart) cpuChart.updateSeries(padFirst(makeSeries('cpu')), false);
+    if (memChart) memChart.updateSeries(padFirst(makeSeries('mem')), false);
     for (const [field, chart] of Object.entries(customCharts)) {
         if (!chart) continue;
-        chart.updateSeries(devices.map(d => ({
+        chart.updateSeries(padFirst(devices.map(d => ({
             name: d.name,
             color: hashColor(d.name),
-            data: (d.custom?.[field] || []).map(p => ({ x: new Date(p.time).getTime(), y: p.value })),
-        })), false);
+            data: customPoints(d, field),
+        }))), false);
     }
+}
+
+function customPoints(d, field) {
+    return (d.custom?.[field] || []).map(p => ({ x: new Date(p.time).getTime(), y: p.value }));
 }
 
 function updateVisibility() {
@@ -205,6 +222,7 @@ function chartEntries() {
 }
 
 const markLayer = createMarkLayer({ charts: chartEntries });
+const axisDate = createAxisDateCaption({ charts: chartEntries, window: effectiveWindow });
 
 function applyAnnotations() {
     markLayer.apply(lastEvents, visibility);
@@ -226,6 +244,7 @@ async function loadAndUpdate() {
     deviceMeta = data.devices.map(d => ({
         name: d.name, mac: d.mac, color: hashColor(d.name),
     }));
+    groupExtents = extentsOf((data.devices || []).map(d => d.data || []));
     // Set before updateVisibility below, which is what draws the marks.
     lastEvents = data.events || [];
     const newDefs = data.customFields || [];
@@ -234,6 +253,8 @@ async function loadAndUpdate() {
     lastData = data;
     if (container) await syncCustomCharts(container, data.devices, newDefs);
 
+    // Ahead of the redraw below - see apply().
+    axisDate.apply();
     updateVisibility();
     if (container) {
         renderBadges(container);
@@ -260,26 +281,24 @@ async function syncCustomCharts(container, devices, defs) {
         const series = devices.map(d => ({
             name: d.name,
             color: hashColor(d.name),
-            data: (d.custom?.[def.fieldName] || []).map(p => ({
-                x: new Date(p.time).getTime(), y: p.value
-            })),
+            data: customPoints(d, def.fieldName),
         }));
+        const padded = padFirst(series);
 
         if (customCharts[def.fieldName]) {
-            customCharts[def.fieldName].updateSeries(series, false);
+            customCharts[def.fieldName].updateSeries(padded, false);
         } else {
             let chartDiv = customContainer.querySelector(`[data-custom-field="${def.fieldName}"]`);
             if (!chartDiv) {
                 const card = document.createElement('div');
                 card.className = 'chart-card';
-                card.style.marginTop = '1rem';
                 card.innerHTML = `<div class="chart-header"><h3 class="chart-title">${escapeHtml(def.description)}</h3></div><div data-custom-field="${escapeHtml(def.fieldName)}"></div>`;
                 customContainer.appendChild(card);
                 chartDiv = card.querySelector(`[data-custom-field]`);
             }
             const chart = new ApexCharts(chartDiv, {
                 ...baseOpts(200, def.description, fmtCustom),
-                series, colors: PALETTE,
+                series: padded, colors: PALETTE,
             });
             await chart.render();
             customCharts[def.fieldName] = chart;
@@ -351,6 +370,16 @@ function stopPoll() { if (pollTimer) { clearInterval(pollTimer); pollTimer = nul
 function toLocalDatetimeString(d) {
     const pad = n => String(n).padStart(2, '0');
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+// A plain preset keeps no explicit bounds - getEffectiveFrom/To answer null for it - so its window
+// is the range, trailing from now.
+function effectiveWindow() {
+    const to = getEffectiveTo() || new Date();
+    return {
+        from: getEffectiveFrom() || new Date(to.getTime() - (RANGE_MS[currentRangeHours] || 3600000)),
+        to,
+    };
 }
 
 function getEffectiveFrom() {
@@ -558,6 +587,50 @@ export async function mount(elId) {
     startPoll();
 }
 
+function frameCustomWindow(ts, halfWindowMs) {
+    customFrom = new Date(ts - halfWindowMs);
+    customTo = new Date(ts + halfWindowMs);
+    isCustomRange = true;
+    windowOffset = 0;
+
+    const container = document.getElementById(containerId);
+    if (container) {
+        container.querySelectorAll('[data-range]').forEach(b => b.classList.remove('active'));
+        container.querySelector('.custom-range-btn')?.classList.add('active');
+        const fromInput = container.querySelector('[data-input="from"]');
+        const toInput = container.querySelector('[data-input="to"]');
+        if (fromInput) fromInput.value = toLocalDatetimeString(customFrom);
+        if (toInput) toInput.value = toLocalDatetimeString(customTo);
+        updateCustomLabel(container);
+    }
+    loadAndUpdate();
+    startPoll();
+}
+
+/**
+ * Frames the window on a moment carried in from a live tile that was PARKED on that instant:
+ * 30 minutes either side, so the jump arrives at this tab's own 1h default rather than the 15m
+ * the latency charts land on. Temperature, CPU and memory drift over a shift; an hour is what
+ * makes a climb read as a climb, where 15 minutes of it reads as a flat line.
+ */
+export function frameMoment(isoTimestamp) {
+    frameCustomWindow(new Date(isoTimestamp).getTime(), 30 * 60000);
+}
+
+/**
+ * Frames a trailing 1-hour window for a jump made while the tile was live. Trailing rather than
+ * centered on now: half the window would be in the future, and a chart frozen at the instant of
+ * the click looks exactly like a device that stopped reporting.
+ */
+export function frameTrailing() {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    // A fresh mount already opens on a trailing hour, and re-selecting it would only buy a second
+    // fetch of the same window.
+    if (currentRangeHours === 1 && !isCustomRange && windowOffset === 0) return;
+    selectPresetRange(container, 1);
+}
+
 export function soloDevice(mac) {
     if (!deviceMeta.length) return;
     const match = deviceMeta.find(d => d.mac === mac);
@@ -594,4 +667,5 @@ export function unmount() {
     customFrom = null;
     customTo = null;
     isInViewport = true;
+    axisDate.reset();
 }
