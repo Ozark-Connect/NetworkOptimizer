@@ -1,4 +1,4 @@
-﻿@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.Components.Authorization
 @using Microsoft.EntityFrameworkCore
 @using NetworkOptimizer.Storage.Models
@@ -97,7 +97,7 @@
                     </tr>
                 </thead>
                 <tbody>
-                    @foreach (var wc in WanContexts)
+                    @foreach (var wc in OrderedWanContexts)
                     {
                         <tr>
                             <td><code>@wc.Name</code></td>
@@ -862,7 +862,7 @@
     /// </summary>
     private static string VerifyUrl(WanContext context) =>
         context.AgentId is int id
-            ? $"/network-tools?from=agent:{id}"
+            ? $"/network-tools?from=agent:{id}:{context.Id}"
             : $"/network-tools?from={NetworkOptimizer.Web.Services.Monitoring.ProbeVantages.ServerKey}";
 
     private string AgentLabel(int? agentId)
@@ -1241,4 +1241,17 @@
         try { await ProbeSink.PushProbeConfigToSiteAsync(SiteCtx.Slug); }
         catch { }
     }
+
+    /// <summary>
+    /// WAN contexts in WAN1, WAN2, WAN3 order. The order lives in the UniFi key (wan, wan2), so
+    /// GatewayWanHelper reads it rather than anything re-parsing the display name. That helper
+    /// answers 0 for a context predating WanInterface, which would otherwise sort such a row
+    /// above WAN1 instead of after the WANs it cannot be placed among.
+    /// </summary>
+    private IEnumerable<WanContext> OrderedWanContexts => WanContexts
+        .OrderBy(c => NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey(c.WanInterface) is var i && i >= 1
+            ? i
+            : int.MaxValue)
+        .ThenBy(c => c.Name, StringComparer.OrdinalIgnoreCase);
+
 }

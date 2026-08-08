@@ -58,21 +58,23 @@
     <div class="card-body">
         <div class="form-group">
             <label class="form-label">From (vantage)</label>
-            <select class="form-control" value="@_fromKey" @onchange="OnVantageChanged">
+            @* Selection rides on each option's selected flag: a value attribute on a select is
+               inert, so a vantage applied after first render never reached the control. *@
+            <select class="form-control" @onchange="OnVantageChanged">
                 @if (_probeVantages.Count > 0)
                 {
                     @foreach (var vantage in _probeVantages)
                     {
-                        <option value="@vantage.Key">@vantage.Label</option>
+                        <option value="@vantage.Key" selected="@(vantage.Key == _fromKey)">@vantage.Label</option>
                     }
                 }
                 else
                 {
-                    <option value="server">@(ExecutorFactory.ServerVantageIsAgent ? "On-site agent" : "Network Optimizer server")</option>
+                    <option value="server" selected="@(_fromKey == "server")">@(ExecutorFactory.ServerVantageIsAgent ? "On-site agent" : "Network Optimizer server")</option>
                 }
                 @foreach (var d in _devices)
                 {
-                    <option value="@($"device:{d.Mac}")">@LabelForDevice(d)</option>
+                    <option value="@($"device:{d.Mac}")" selected="@(_fromKey == $"device:{d.Mac}")">@LabelForDevice(d)</option>
                 }
             </select>
             @if (_probeVantages.Any(v => v.SourceBind != null))

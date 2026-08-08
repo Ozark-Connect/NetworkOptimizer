@@ -164,7 +164,7 @@
                                         <select class="cadence-select"
                                             @onchange="(e) => UpdateWanContextAsync(t.Id, e)">
                                         <option value="" selected="@(t.WanContextId == null)">Default path</option>
-                                        @foreach (var wc in WanContexts)
+                                        @foreach (var wc in OrderedWanContexts)
                                         {
                                             <option value="@wc.Id" selected="@(t.WanContextId == wc.Id)">@wc.Name</option>
                                         }
@@ -303,7 +303,7 @@
                             <label class="form-label">WAN / Path</label>
                             <select class="form-control" @bind="_newTargetWanContextId">
                                 <option value="">Default path</option>
-                                @foreach (var wc in WanContexts)
+                                @foreach (var wc in OrderedWanContexts)
                                 {
                                     <option value="@wc.Id">@wc.Name</option>
                                 }
@@ -584,6 +584,18 @@
     /// The rows for the WANs on screen. A target with no WAN of its own belongs to the primary, the
     /// same rule every other per-WAN reader uses.
     /// </summary>
+    /// <summary>
+    /// WAN contexts in WAN1, WAN2, WAN3 order. The order lives in the UniFi key (wan, wan2), so
+    /// GatewayWanHelper reads it rather than anything re-parsing the display name. That helper
+    /// answers 0 for a context predating WanInterface, which would otherwise sort such a row
+    /// above WAN1 instead of after the WANs it cannot be placed among.
+    /// </summary>
+    private IEnumerable<WanContext> OrderedWanContexts => WanContexts
+        .OrderBy(c => NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey(c.WanInterface) is var i && i >= 1
+            ? i
+            : int.MaxValue)
+        .ThenBy(c => c.Name, StringComparer.OrdinalIgnoreCase);
+
     /// <summary>Columns in the table, so an empty-state row spans all of them.</summary>
     private int VisibleColumnCount => WanContexts.Count > 0 ? 8 : 7;
 
@@ -645,7 +657,8 @@
                 ? WanContexts.FirstOrDefault(w => w.Id == id)
                 : WanContexts.Count == 1 ? WanContexts[0] : null;
 
-            return context?.AgentId is int agentId ? $"agent:{agentId}" : null;
+            // The picker keys an agent entry per WAN vantage, and a vantage id IS the context id.
+            return context?.AgentId is int agentId ? $"agent:{agentId}:{context.Id}" : null;
         }
     }
 
