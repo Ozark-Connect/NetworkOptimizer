@@ -646,6 +646,18 @@
         {
             if (WanContexts.Count == 0) return null;
 
+            // With every WAN in scope no single context speaks for the rows, so name a defined
+            // origin rather than whichever WAN happened to contribute the most: the server when
+            // it probes this site, otherwise the first agent vantage in WAN order.
+            if (ShowingAll)
+            {
+                if (!ExecutorFactory.ServerVantageIsAgent)
+                    return NetworkOptimizer.Web.Services.Monitoring.ProbeVantages.ServerKey;
+
+                var first = OrderedWanContexts.FirstOrDefault(c => c.AgentId != null);
+                return first?.AgentId is int firstAgentId ? $"agent:{firstAgentId}:{first.Id}" : null;
+            }
+
             var dominantContextId = VisibleTargets()
                 .Where(t => t.WanContextId != null)
                 .GroupBy(t => t.WanContextId!.Value)
