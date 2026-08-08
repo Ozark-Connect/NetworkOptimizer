@@ -18754,6 +18754,12 @@ body.kiosk-mode .status-indicators {
     display: none;
 }
 
+/* The shared stats table drops its top margin because it normally follows a chart, which brings
+   its own space below the plot. This one follows the filter chips instead and needs the gap. */
+.port-stats-table .chart-card {
+    margin-top: 1rem;
+}
+
 .port-stats-table .data-table th,
 .port-stats-table .data-table td {
     white-space: nowrap;
