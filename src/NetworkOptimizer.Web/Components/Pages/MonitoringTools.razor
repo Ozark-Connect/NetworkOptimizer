@@ -1019,7 +1019,9 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
     private async Task OnVantageChanged(ChangeEventArgs e)
     {
         ApplyVantage(e.Value?.ToString() ?? "server");
-        if (_probeVantages.Count == 0) return;
+        // Saved whatever the vantage list holds: device and server keys never came from it, so
+        // gating on it lost a hand-picked device vantage on any site whose list came back empty.
+        // A deep link deliberately does not reach here - it overrides the load, not the choice.
         try { await JS.InvokeVoidAsync("localStorage.setItem", VantageStorageKey, _fromKey); }
         catch { /* remembering the vantage is best-effort */ }
     }
