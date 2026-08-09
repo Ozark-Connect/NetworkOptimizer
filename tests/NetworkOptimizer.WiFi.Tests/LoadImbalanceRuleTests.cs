@@ -368,4 +368,85 @@ public class LoadImbalanceRuleTests
         WallsByFloor = new Dictionary<int, List<PropagationWall>>(),
         Buildings = null
     };
+
+    // ---------------------------------------------------------------
+    // Absolute floors and the mean's population
+    // ---------------------------------------------------------------
+
+    [Fact]
+    public void Identical_ap_counts_are_never_an_imbalance()
+    {
+        // The mean once came from every client on the site while the deviations came from the
+        // APs' own counts, so two equal APs still scored 50% and one was reported overloaded
+        // against another with the same number.
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:00:00:01", "AP One", 6),
+            CreateAp("aa:bb:cc:00:00:02", "AP Two", 6),
+        };
+        var clients = Enumerable.Range(0, 24).Select(_ => CreateClient("aa:bb:cc:00:00:01")).ToList();
+
+        _rule.Evaluate(CreateContext(aps, clients)).Should().BeNull();
+    }
+
+    [Fact]
+    public void Small_client_counts_do_not_raise_an_imbalance()
+    {
+        // 3 against 1 is the same coefficient of variation as 30 against 10, and no AP with
+        // three clients is overloaded.
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:00:00:01", "AP One", 3),
+            CreateAp("aa:bb:cc:00:00:02", "AP Two", 1),
+        };
+        var clients = Enumerable.Range(0, 4).Select(_ => CreateClient("aa:bb:cc:00:00:01")).ToList();
+
+        _rule.Evaluate(CreateContext(aps, clients)).Should().BeNull();
+    }
+
+    [Fact]
+    public void A_narrow_gap_does_not_raise_an_imbalance()
+    {
+        // Enough clients to matter, but a gap one roaming device closes.
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:00:00:01", "AP One", 9),
+            CreateAp("aa:bb:cc:00:00:02", "AP Two", 7),
+        };
+        var clients = Enumerable.Range(0, 16).Select(_ => CreateClient("aa:bb:cc:00:00:01")).ToList();
+
+        _rule.Evaluate(CreateContext(aps, clients)).Should().BeNull();
+    }
+
+    [Fact]
+    public void A_real_imbalance_still_raises()
+    {
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:00:00:01", "AP One", 12),
+            CreateAp("aa:bb:cc:00:00:02", "AP Two", 2),
+        };
+        var clients = Enumerable.Range(0, 14).Select(_ => CreateClient("aa:bb:cc:00:00:01")).ToList();
+
+        var issue = _rule.Evaluate(CreateContext(aps, clients));
+
+        issue.Should().NotBeNull();
+        issue!.Title.Should().Be("Significant Load Imbalance");
+    }
+
+    [Fact]
+    public void Wired_clients_do_not_inflate_the_imbalance()
+    {
+        // Clears both floors, so only the arithmetic decides. Measured about the site's whole
+        // client count the spread reads 68% and fires; measured about the APs' own mean it is
+        // 33% and correctly says nothing. 8 against 4 is not a distribution worth steering.
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:00:00:01", "AP One", 8),
+            CreateAp("aa:bb:cc:00:00:02", "AP Two", 4),
+        };
+        var clients = Enumerable.Range(0, 36).Select(_ => CreateClient("aa:bb:cc:00:00:01")).ToList();
+
+        _rule.Evaluate(CreateContext(aps, clients)).Should().BeNull();
+    }
 }
