@@ -35,7 +35,7 @@
       "selector": "[data-tour=\"dns-lookup\"]",
       "title": "DNS Lookup",
       "listLabel": "Test DNS from any device on your network",
-      "body": "**DNS Lookup** asks any vantage to resolve a name and names the server that answered. That separates a DNS failure from a routing one, and shows when something other than your resolver is replying.",
+      "body": "**DNS Lookup** asks any vantage to resolve a name and shows what came back. That separates a DNS failure from a routing one, and catches a name resolving somewhere it shouldn't.",
       "placement": "top"
     },
     {
