@@ -41,7 +41,7 @@
     {
       "id": "cellular-radio-reset",
       "level": "major",
-      "url": "/monitoring?tab=cellular",
+      "url": "/",
       "selector": "[data-tour=\"cellular-radio-reset\"]",
       "title": "Reset Radio",
       "listLabel": "Get 5G back without rebooting the modem",
