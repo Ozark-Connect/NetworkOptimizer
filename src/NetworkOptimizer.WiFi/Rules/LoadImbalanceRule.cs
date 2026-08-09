@@ -45,14 +45,18 @@ public class LoadImbalanceRule : IWiFiOptimizerRule
         if (ctx.AccessPoints.Count <= 1)
             return null;
 
-        var totalClients = ctx.Clients.Count;
-        var avgClientsPerAp = (double)totalClients / ctx.AccessPoints.Count;
+        // Mean and deviations must come from the SAME population. This measured spread about
+        // ctx.Clients.Count / APs - every client on the site, wired included - while deviating
+        // per-AP wireless counts, so identical APs still scored: two APs of 6 against 24 site
+        // clients gave a mean of 12, a deviation of 6 each, and exactly the 50% threshold, then
+        // reported one AP as overloaded against another with the same count.
+        var clientCounts = ctx.AccessPoints.Select(ap => (double)ap.TotalClients).ToList();
+        var avgClientsPerAp = clientCounts.Average();
 
         if (avgClientsPerAp <= 0)
             return null;
 
         // Calculate load imbalance as coefficient of variation (stddev / mean * 100)
-        var clientCounts = ctx.AccessPoints.Select(ap => (double)ap.TotalClients).ToList();
         var stdDev = Math.Sqrt(clientCounts.Average(c => Math.Pow(c - avgClientsPerAp, 2)));
         var imbalance = Math.Min(100, (stdDev / avgClientsPerAp) * 100);
 
