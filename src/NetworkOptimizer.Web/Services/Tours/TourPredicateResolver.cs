@@ -63,6 +63,12 @@ public class TourPredicateResolver
     /// </summary>
     public const string Starlink = "starlink";
 
+    /// <summary>
+    /// The site has a cellular modem configured. Without one the radio steps describe hardware the
+    /// user does not own, which is worse than saying nothing.
+    /// </summary>
+    public const string Cellular = "cellular";
+
     private readonly SiteManagementService _siteManagement;
     private readonly GatewaySshRegistry _gatewaySshRegistry;
     private readonly SiteConnectionRegistry _siteConnections;
@@ -156,6 +162,7 @@ public class TourPredicateResolver
         var smartQueuesSites = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var multiWanSites = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var starlinkSites = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var cellularSites = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var site in sites)
         {
             try
@@ -227,6 +234,16 @@ public class TourPredicateResolver
             {
                 _logger.LogDebug(ex, "Tour predicate {Predicate} evaluation failed for site {Slug}", Starlink, site.Slug);
             }
+
+            try
+            {
+                if (await HasCellularAsync(site.Slug, site.IsDefault))
+                    cellularSites.Add(site.Slug);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Tour predicate {Predicate} evaluation failed for site {Slug}", Cellular, site.Slug);
+            }
         }
         if (gatewaySshSites.Count > 0)
             qualifying[GatewaySsh] = gatewaySshSites;
@@ -242,6 +259,8 @@ public class TourPredicateResolver
             qualifying[MultiWan] = multiWanSites;
         if (starlinkSites.Count > 0)
             qualifying[Starlink] = starlinkSites;
+        if (cellularSites.Count > 0)
+            qualifying[Cellular] = cellularSites;
 
         return new PredicateContext
         {
@@ -321,6 +340,16 @@ public class TourPredicateResolver
     {
         using var db = _siteDbFactory.CreateForSite(slug, isDefault);
         return await db.StarlinkConfigurations.AsNoTracking().AnyAsync(c => c.Enabled);
+    }
+
+    /// <summary>
+    /// Whether the site has an enabled cellular modem. A disabled one is a modem the user has but
+    /// is not watching, and its card carries no live state to point at.
+    /// </summary>
+    private async Task<bool> HasCellularAsync(string slug, bool isDefault)
+    {
+        using var db = _siteDbFactory.CreateForSite(slug, isDefault);
+        return await db.ModemConfigurations.AsNoTracking().AnyAsync(c => c.Enabled);
     }
 
     /// <summary>

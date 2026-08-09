@@ -20,7 +20,7 @@ public static class CellularChartEndpoints
 
         group.MapGet("/api/monitoring/cellular-chart", async (
             MonitoringInfluxClient influx,
-            CellularModemService modemService,
+            ICellularModemService modemService,
             int? rangeHours,
             DateTime? from,
             DateTime? to,

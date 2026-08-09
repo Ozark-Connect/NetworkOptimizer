@@ -29,6 +29,20 @@ public static class PingOutputParser
         @"time\s*=\s*(?<rtt>\d+(?:\.\d+)?)\s*ms",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
+    // What a hostname resolved to, from the header both implementations print:
+    //   iputils:  "PING example.com (192.0.2.10) 56(84) bytes of data."
+    //   busybox:  "PING example.com (192.0.2.10): 56 data bytes"
+    private static readonly Regex HeaderAddressRegex = new(
+        @"^\s*PING\s+\S+\s+\((?<addr>[0-9A-Fa-f:.]+)\)",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.Multiline);
+
+    // Reply lines carry it too, for builds whose header prints no parenthesized address:
+    //   "64 bytes from 192.0.2.10: icmp_seq=1 ttl=58 time=3.45 ms"
+    //   "64 bytes from example.com (192.0.2.10): icmp_seq=1 ttl=58 time=3.45 ms"
+    private static readonly Regex ReplyAddressRegex = new(
+        @"bytes\s+from\s+(?:[^\s(]+\s+\()?(?<addr>[0-9A-Fa-f:.]+)\)?\s*:",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
     public static PingProbeResult Parse(
         string output,
         ProbeTarget target,
@@ -102,9 +116,28 @@ public static class PingOutputParser
             RttAvgMs = avg,
             RttMaxMs = max,
             JitterMs = mdev,
+            ResolvedAddress = ExtractResolvedAddress(output, target.Address),
             Timestamp = timestamp ?? DateTime.UtcNow,
             RawOutput = output
         };
+    }
+
+    /// <summary>
+    /// What the target resolved to, or null when the output names no address or names the one
+    /// that was asked for - there is nothing to tell the reader about an address they typed.
+    /// </summary>
+    private static string? ExtractResolvedAddress(string output, string requestedAddress)
+    {
+        var header = HeaderAddressRegex.Match(output);
+        var address = header.Success
+            ? header.Groups["addr"].Value
+            : ReplyAddressRegex.Match(output) is { Success: true } reply
+                ? reply.Groups["addr"].Value
+                : null;
+
+        return string.Equals(address, requestedAddress, StringComparison.OrdinalIgnoreCase)
+            ? null
+            : address;
     }
 
     private static List<double> ExtractPerReplyRtts(string output)

@@ -108,11 +108,11 @@ public class CellularModemService : ICellularModemService
     /// Get cached stats for a specific modem without polling.
     /// Returns null if no cached stats exist for this modem.
     /// </summary>
-    public CellularModemStats? GetCachedStats(int modemId)
+    public Task<CellularModemStats?> GetCachedStatsAsync(int modemId)
     {
         lock (_lock)
         {
-            return _statsCache.TryGetValue(modemId, out var stats) ? stats : null;
+            return Task.FromResult(_statsCache.TryGetValue(modemId, out var stats) ? stats : null);
         }
     }
 
@@ -233,6 +233,32 @@ public class CellularModemService : ICellularModemService
             ModemType = modem.ModemType,
             TransportPath = modem.QmiDevice,
         };
+    }
+
+    /// <summary>
+    /// Power-cycle a modem's radio to force a fresh cell selection, then re-poll so
+    /// the caller sees the result. The caller is responsible for confirming with the
+    /// user first: this drops the cellular connection for several seconds.
+    /// </summary>
+    /// <param name="modemId">The modem configuration ID.</param>
+    /// <returns>A tuple containing success status and message.</returns>
+    public async Task<(bool success, string message)> ResetRadioAsync(int modemId)
+    {
+        var modems = await GetModemsAsync();
+        var modem = modems.FirstOrDefault(m => m.Id == modemId);
+        if (modem == null)
+            return (false, "That modem is no longer configured.");
+
+        if (ResolveProvider(modem) is not ISupportsRadioReset provider)
+            return (false, $"{modem.Name} does not support a radio reset.");
+
+        var context = await ToPollContextAsync(modem);
+        var result = await provider.ResetRadioAsync(context);
+
+        if (result.success)
+            await PollModemAsync(modem);
+
+        return result;
     }
 
     /// <summary>
@@ -425,6 +451,13 @@ public class CellularModemService : ICellularModemService
     }
 
     /// <summary>
+    /// Cell and tracking area ids are carried as strings on the model but are numeric
+    /// on every provider, so they chart as numbers. Returns null when non-numeric.
+    /// </summary>
+    private static int? ParseCellNumber(string? value) =>
+        int.TryParse(value, out var parsed) ? parsed : null;
+
+    /// <summary>
     /// Write cellular signal metrics to InfluxDB for time-series charting.
     /// In NSA mode, writes separate points for LTE and NR5G so both bands
     /// are charted independently. Fire-and-forget; InfluxDB client handles
@@ -462,6 +495,11 @@ public class CellularModemService : ICellularModemService
         {
             // In NSA mode, signal quality is on the NR5G point; in LTE-only, attach it here
             var lteSignalQuality = stats.Nr5g?.Rsrp.HasValue == true ? (int?)null : stats.SignalQuality;
+
+            // Cell identity rides the LTE point because get-cell-tower-info describes the
+            // LTE anchor even under NR. Absent tower data must not read as zero neighbors.
+            var cell = stats.ServingCell;
+            var hasTowerInfo = cell?.TimingAdvance.HasValue == true || cell?.Tac != null;
             // Offset by 1 tick so InfluxDB doesn't overwrite the NR5G point
             _ = _influx.WriteCellularAsync(
                 modemId: modemId,
@@ -479,7 +517,12 @@ public class CellularModemService : ICellularModemService
                 signalQuality: lteSignalQuality,
                 signalBars: stats.Lte.Bars,
                 isRoaming: stats.IsRoaming,
-                timestamp: stats.Timestamp.AddTicks(1));
+                timestamp: stats.Timestamp.AddTicks(1),
+                timingAdvanceUs: cell?.TimingAdvance,
+                cellId: ParseCellNumber(cell?.GlobalCellId),
+                tac: ParseCellNumber(cell?.Tac),
+                neighborCount: hasTowerInfo ? stats.NeighborCells.Count : null,
+                nsaAvailable: stats.Is5gNsaAvailable);
         }
     }
 

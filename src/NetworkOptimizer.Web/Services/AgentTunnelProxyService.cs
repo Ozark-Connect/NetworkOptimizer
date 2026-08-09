@@ -23,7 +23,11 @@ public class AgentTunnelProxyService : IDisposable
     // on its side), so a tight timeout still never trips a healthy tunnel but
     // bounds the per-connection stall when the tunnel is black-holed and the
     // answer never comes.
-    private static readonly TimeSpan OpenTimeout = TimeSpan.FromSeconds(3);
+    // MUST stay longer than the agent's own ProxyHandler.ConnectTimeout (5s), or the agent's
+    // answer for an unreachable target always arrives too late to be read and every dead host
+    // looks identical to a dead tunnel. At 3s against the agent's 5s that was not a race, it
+    // was guaranteed: a monitored device with a bogus address took its site's console offline.
+    private static readonly TimeSpan OpenTimeout = TimeSpan.FromSeconds(8);
 
     // Past AgentTunnelConnection.StaleThreshold of silence the tunnel is treated
     // as black-holed and proxy opens are refused immediately instead of blocking
@@ -181,7 +185,13 @@ public class AgentTunnelProxyService : IDisposable
                 // awaiting-agent now (not at the 90s watchdog), so its page renders
                 // short-circuit console calls instead of each dialing the dead proxy
                 // and paying the retry backoff.
-                if (!wasTripped)
+                //
+                // Only when the tunnel itself looks silent. An agent that has messaged
+                // recently is demonstrably alive, so a target that did not answer says
+                // nothing about the tunnel - and tearing the console down for it takes
+                // the site offline over one unreachable device.
+                var tunnelSilent = DateTime.UtcNow - agent.LastMessageAt > AgentTunnelConnection.StaleThreshold;
+                if (!wasTripped && tunnelSilent)
                     FlipConsoleAwaitingAgent(listener.SiteSlug);
             }
             if (openError != null)

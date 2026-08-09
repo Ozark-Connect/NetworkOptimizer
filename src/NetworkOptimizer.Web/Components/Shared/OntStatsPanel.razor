@@ -7,7 +7,7 @@
 @inject NetworkOptimizer.Storage.Services.SiteDbContextFactory SiteDb
 @inject SiteContextService SiteCtx
 @inject UniFiConnectionService ConnectionService
-@inject OntMonitorService ExternalOntService
+@inject IOntMonitorService ExternalOntService
 
 @if (_isLoading)
 {
@@ -113,7 +113,7 @@ else if (IsShowingExternal && _externalOntStats != null)
                 @if (_isRefreshing) { <span class="spinner-sm"></span> } else { <span>Refresh</span> }
             </button>
         </span>
-        <a href="/settings#ont-monitoring" class="btn btn-primary" @onclick:stopPropagation>ONT Settings</a>
+        <SiteAdminOnly><a href="/settings#ont-monitoring" class="btn btn-primary" @onclick:stopPropagation>ONT Settings</a></SiteAdminOnly>
     </div>
 }
 else if (IsShowingExternal)
@@ -167,7 +167,7 @@ else if (IsShowingExternal)
                 @if (_isRefreshing) { <span class="spinner-sm"></span> } else { <span>Refresh</span> }
             </button>
         </span>
-        <a href="/settings#ont-monitoring" class="btn btn-primary" @onclick:stopPropagation>ONT Settings</a>
+        <SiteAdminOnly><a href="/settings#ont-monitoring" class="btn btn-primary" @onclick:stopPropagation>ONT Settings</a></SiteAdminOnly>
     </div>
 }
 else if (TotalCount == 0)
@@ -186,8 +186,8 @@ else if (TotalCount == 0)
             ONT sticks, and other devices in Settings.
         </p>
         <div class="sqm-actions">
-            <a href="/monitoring?tab=sfp" class="btn btn-secondary" @onclick:stopPropagation>SFP Monitoring</a>
-            <a href="/settings#ont-monitoring" class="btn btn-primary" @onclick:stopPropagation>Configure ONT</a>
+            <a href="@SfpMonitoringUrl" class="btn btn-secondary" @onclick:stopPropagation>SFP Monitoring</a>
+            <SiteAdminOnly><a href="/settings#ont-monitoring" class="btn btn-primary" @onclick:stopPropagation>Configure ONT</a></SiteAdminOnly>
         </div>
     </div>
 }
@@ -340,7 +340,7 @@ else
     </div>
 
     <div class="sqm-actions">
-        <a href="/monitoring?tab=sfp" class="btn btn-primary" @onclick:stopPropagation>SFP Monitoring</a>
+        <a href="@SfpMonitoringUrl" class="btn btn-primary" @onclick:stopPropagation>SFP Monitoring</a>
     </div>
 }
 
@@ -405,7 +405,7 @@ else
                         if (_currentIndex >= TotalCount) _currentIndex = 0;
                     }
                     catch { }
-                    RefreshExternalStats();
+                    await RefreshExternalStatsAsync();
                     StateHasChanged();
                 });
             }
@@ -430,7 +430,7 @@ else
                 .ToListAsync();
             _externalOnts = await ExternalOntService.GetStandaloneConfigsAsync();
             if (_currentIndex >= TotalCount) _currentIndex = 0;
-            RefreshExternalStats();
+            await RefreshExternalStatsAsync();
 
             try
             {
@@ -456,25 +456,25 @@ else
         return !string.IsNullOrEmpty(target?.Name) ? target.Name : deviceMac;
     }
 
-    private void Previous()
+    private async Task Previous()
     {
-        if (_currentIndex > 0) { _currentIndex--; RefreshExternalStats(); }
+        if (_currentIndex > 0) { _currentIndex--; await RefreshExternalStatsAsync(); }
         StateHasChanged();
     }
 
-    private void Next()
+    private async Task Next()
     {
-        if (_currentIndex < TotalCount - 1) { _currentIndex++; RefreshExternalStats(); }
+        if (_currentIndex < TotalCount - 1) { _currentIndex++; await RefreshExternalStatsAsync(); }
         StateHasChanged();
     }
 
-    private void RefreshExternalStats()
+    private async Task RefreshExternalStatsAsync()
     {
         if (IsShowingExternal)
         {
             var extIdx = _currentIndex - _monitoredOnts.Count;
             if (extIdx >= 0 && extIdx < _externalOnts.Count)
-                _externalOntStats = ExternalOntService.GetCachedStats(_externalOnts[extIdx].Id);
+                _externalOntStats = await ExternalOntService.GetCachedStatsAsync(_externalOnts[extIdx].Id);
             else
                 _externalOntStats = null;
         }
@@ -500,7 +500,7 @@ else
         try
         {
             await ExternalOntService.PollOntAsync(_externalOnts[extIdx].Id);
-            RefreshExternalStats();
+            await RefreshExternalStatsAsync();
         }
         finally
         {
@@ -519,6 +519,16 @@ else
         if (v >= -28.5) return "signal-weak";
         return "signal-poor";
     }
+
+    /// <summary>
+    /// SFP Stats for the module this card is showing, matching where clicking the card itself
+    /// goes. A bare tab link lands on whichever module sorts first, which is less use than the
+    /// card it sits inside. Plain "&" - a dynamic attribute is encoded on write, so "&amp;" here
+    /// would reach the DOM doubly encoded.
+    /// </summary>
+    private string SfpMonitoringUrl => CurrentModuleKey is string key
+        ? $"/monitoring?tab=sfp&sfp={Uri.EscapeDataString(key)}"
+        : "/monitoring?tab=sfp";
 
     private static string LinkTypeLabel(MonitoredSfp sfp) => sfp.Category switch
     {

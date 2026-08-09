@@ -379,6 +379,12 @@ message ProbeRequest {
   bool traceroute = 6;    // false = ping burst, true = traceroute
   int32 count = 7;        // ping count (ping only)
   int32 max_hops = 8;     // traceroute max hops
+  // Probe verb, added after ping/traceroute. Empty means honor `traceroute` above, so an
+  // agent predating this field is unaffected. "dns" asks for a lookup; an agent that does
+  // not know the verb ignores this field and runs a ping, which the server detects from the
+  // missing Kind marker on the returned result rather than showing ping data as DNS.
+  string kind = 9;        // "" | dns
+  bool reverse = 10;      // dns: PTR lookup rather than forward
 }
 
 message ProbeResponse {

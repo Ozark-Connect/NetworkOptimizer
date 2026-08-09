@@ -19,7 +19,7 @@ namespace NetworkOptimizer.Web.Services;
 /// devices are reached that way. The registry flips <see cref="Active"/> as
 /// sites are enabled and disabled; only active instances poll.
 /// </summary>
-public sealed class StarlinkMonitorService : IDisposable
+public sealed class StarlinkMonitorService : IStarlinkMonitorService, IDisposable
 {
     /// <summary>How often the obstruction sky map is refreshed; it changes slowly and is a ~60 KB payload.</summary>
     private static readonly TimeSpan ObstructionMapRefresh = TimeSpan.FromMinutes(5);
@@ -116,25 +116,25 @@ public sealed class StarlinkMonitorService : IDisposable
     /// <summary>
     /// Get cached stats for a specific terminal without polling.
     /// </summary>
-    public StarlinkStats? GetCachedStats(int id)
+    public Task<StarlinkStats?> GetCachedStatsAsync(int id)
     {
-        return _statsCache.TryGetValue(id, out var stats) ? stats : null;
+        return Task.FromResult(_statsCache.TryGetValue(id, out var stats) ? stats : null);
     }
 
     /// <summary>
     /// Get all cached terminal stats.
     /// </summary>
-    public IReadOnlyDictionary<int, StarlinkStats> GetAllCachedStats()
+    public Task<IReadOnlyDictionary<int, StarlinkStats>> GetAllCachedStatsAsync()
     {
-        return _statsCache;
+        return Task.FromResult<IReadOnlyDictionary<int, StarlinkStats>>(_statsCache);
     }
 
     /// <summary>
     /// Get the cached obstruction sky map for a terminal, if one has been fetched.
     /// </summary>
-    public StarlinkObstructionMap? GetCachedObstructionMap(int id)
+    public Task<StarlinkObstructionMap?> GetCachedObstructionMapAsync(int id)
     {
-        return _obstructionMapCache.TryGetValue(id, out var map) ? map : null;
+        return Task.FromResult(_obstructionMapCache.TryGetValue(id, out var map) ? map : null);
     }
 
     /// <summary>

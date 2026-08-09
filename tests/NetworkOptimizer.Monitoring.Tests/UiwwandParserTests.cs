@@ -308,4 +308,193 @@ public class UiwwandParserTests
     }
 
     #endregion
+
+    #region Cell Tower Info Tests
+
+    private const string CellTowerInfoJson = @"{
+        ""result"": {
+            ""lte"": {
+                ""tac"": 24591,
+                ""cell_id"": 12345678,
+                ""pci"": 286,
+                ""mcc"": 1,
+                ""mnc"": 1,
+                ""adv"": 5,
+                ""earfcn"": 700,
+                ""rsrp"": 40,
+                ""rsrq"": 21,
+                ""neighbor_measurements"": [
+                    { ""pci"": 90, ""cell_id"": 12345692, ""earfcn"": 950, ""adv"": 6, ""rsrp"": 24, ""rsrq"": 2 },
+                    { ""pci"": 174, ""cell_id"": 12345897, ""earfcn"": 1550, ""adv"": 5, ""rsrp"": 25, ""rsrq"": 2 }
+                ]
+            }
+        }
+    }";
+
+    [Fact]
+    public void ParseCellTowerInfo_PopulatesTimingAdvanceAndTac()
+    {
+        var stats = new CellularModemStats();
+
+        UiwwandParser.ParseCellTowerInfo(CellTowerInfoJson, stats);
+
+        stats.ServingCell.Should().NotBeNull();
+        stats.ServingCell!.TimingAdvance.Should().Be(5);
+        stats.ServingCell.Tac.Should().Be("24591");
+        stats.ServingCell.GlobalCellId.Should().Be("12345678");
+        stats.ServingCell.Earfcn.Should().Be(700);
+        stats.ServingCell.IsServing.Should().BeTrue();
+    }
+
+    [Fact]
+    public void ParseCellTowerInfo_PopulatesNeighborsWithoutRawSignal()
+    {
+        var stats = new CellularModemStats();
+
+        UiwwandParser.ParseCellTowerInfo(CellTowerInfoJson, stats);
+
+        stats.NeighborCells.Should().HaveCount(2);
+        stats.NeighborCells[0].PhysicalCellId.Should().Be(90);
+        stats.NeighborCells[0].GlobalCellId.Should().Be("12345692");
+        stats.NeighborCells[0].Earfcn.Should().Be(950);
+        stats.NeighborCells[0].TimingAdvance.Should().Be(6);
+        stats.NeighborCells[0].Signal.Should().BeNull();
+    }
+
+    [Fact]
+    public void ParseCellTowerInfo_KeepsPhysicalCellIdFromRadioStatus()
+    {
+        var radioStatusJson = @"{
+            ""result"": {
+                ""rat-mode-active"": ""5G"",
+                ""rsrp"": -99,
+                ""rsrp-nr"": -82,
+                ""cell-id"": 12345678,
+                ""pci"": 353,
+                ""5g-sa-mode"": false
+            }
+        }";
+        var stats = UiwwandParser.Parse(radioStatusJson, TestHost, TestName, TestModel);
+
+        UiwwandParser.ParseCellTowerInfo(CellTowerInfoJson, stats!);
+
+        stats!.ServingCell!.PhysicalCellId.Should().Be(353);
+        stats.ServingCell.TimingAdvance.Should().Be(5);
+    }
+
+    [Fact]
+    public void ParseCellTowerInfo_MalformedOrMissingLte_LeavesStatsUntouched()
+    {
+        var stats = new CellularModemStats();
+
+        UiwwandParser.ParseCellTowerInfo("not json", stats);
+        UiwwandParser.ParseCellTowerInfo(@"{""result"": {}}", stats);
+        UiwwandParser.ParseCellTowerInfo(@"{""result"": {""lte"": []}}", stats);
+
+        stats.ServingCell.Should().BeNull();
+        stats.NeighborCells.Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData("98765432", 385802, 120)]
+    [InlineData("12345678", 48225, 78)]
+    public void CellInfo_DerivesSiteAndSectorFromCellId(string cellId, int expectedEnb, int expectedSector)
+    {
+        var cell = new CellInfo { GlobalCellId = cellId };
+
+        cell.EnbId.Should().Be(expectedEnb);
+        cell.SectorId.Should().Be(expectedSector);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("not-a-number")]
+    public void CellInfo_SiteAndSectorNullWhenCellIdUnusable(string? cellId)
+    {
+        var cell = new CellInfo { GlobalCellId = cellId };
+
+        cell.EnbId.Should().BeNull();
+        cell.SectorId.Should().BeNull();
+    }
+
+    #endregion
+
+    #region EN-DC State Tests
+
+    private const string SystemInfoOutput = @"[/dev/wwan0qmi0] Successfully got system info:
+	LTE service:
+		Registration restriction: 'unrestricted'
+		5G NSA Available: '{0}'
+		DCNR Restriction: '{1}'";
+
+    [Theory]
+    [InlineData("yes", "no", true, false)]
+    [InlineData("no", "no", false, false)]
+    [InlineData("no", "yes", false, true)]
+    public void ParseSystemInfo_ReadsBothFlags(
+        string nsa, string dcnr, bool expectedNsa, bool expectedDcnr)
+    {
+        var output = string.Format(SystemInfoOutput, nsa, dcnr);
+
+        var (nsaAvailable, dcnrRestricted) = QmicliParser.ParseSystemInfo(output);
+
+        nsaAvailable.Should().Be(expectedNsa);
+        dcnrRestricted.Should().Be(expectedDcnr);
+    }
+
+    [Fact]
+    public void ParseSystemInfo_FlagsAbsent_ReturnsNulls()
+    {
+        var (nsaAvailable, dcnrRestricted) = QmicliParser.ParseSystemInfo("no LTE service reported");
+
+        nsaAvailable.Should().BeNull();
+        dcnrRestricted.Should().BeNull();
+    }
+
+    [Fact]
+    public void EnDc_FlagsMissing_IsUnknown()
+    {
+        new CellularModemStats().EnDc.Should().Be(EnDcState.Unknown);
+        new CellularModemStats { Is5gNsaAvailable = false }.EnDc.Should().Be(EnDcState.Unknown);
+    }
+
+    [Fact]
+    public void EnDc_PermittedButCellDoesNotOfferIt_IsAnchorMissing()
+    {
+        var stats = new CellularModemStats { Is5gNsaAvailable = false, IsDcnrRestricted = false };
+
+        stats.EnDc.Should().Be(EnDcState.AnchorMissing);
+    }
+
+    [Fact]
+    public void EnDc_NetworkRestricted_OutranksAnchorState()
+    {
+        var stats = new CellularModemStats { Is5gNsaAvailable = false, IsDcnrRestricted = true };
+
+        stats.EnDc.Should().Be(EnDcState.NetworkRestricted);
+    }
+
+    [Fact]
+    public void EnDc_CellOffersItButNoNrLegYet_IsAnchorCapable()
+    {
+        var stats = new CellularModemStats { Is5gNsaAvailable = true, IsDcnrRestricted = false };
+
+        stats.EnDc.Should().Be(EnDcState.AnchorCapable);
+    }
+
+    [Fact]
+    public void EnDc_NrLegAttached_IsAttached()
+    {
+        var stats = new CellularModemStats
+        {
+            Is5gNsaAvailable = true,
+            IsDcnrRestricted = false,
+            Nr5g = new SignalInfo { Rsrp = -82 },
+        };
+
+        stats.EnDc.Should().Be(EnDcState.Attached);
+    }
+
+    #endregion
 }

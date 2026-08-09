@@ -1151,6 +1151,10 @@ public class UpstreamTracerService
     // TraceTransitAsnsAsync, read again when injecting transit witnesses.
     private readonly HashSet<int> _excludedTier1Asns = new();
 
+    // Whether the access ISP is itself a tier-1. Set in TraceTransitAsnsAsync, read again
+    // when injecting transit witnesses. See CarveOutBlockedByTier1Access.
+    private bool _accessIsTier1;
+
     // Raw per-trace hop sequences from the last discovery sweep. Kept so commit can
     // persist SAME-PATH hop ordering to UpstreamDiscoveries: the merged pool (_mergedHops)
     // dedupes hop IPs across ~22 anycast traces, so its hop numbers are not on a common
@@ -1505,6 +1509,7 @@ public class UpstreamTracerService
             .Where(h => h.Asn != null)
             .Select(h => h.Asn!.Asn));
         if (_accessAsn.HasValue) accessAsnNumbers.Add(_accessAsn.Value);
+        _accessIsTier1 = accessAsnNumbers.Any(WellKnownAsns.Tier1.Contains);
 
         // Also drop any ASN that's a CDN destination - the CDN's own edge routers
         // respond to traceroute from inside the CDN's ASN, so without this filter
@@ -1571,7 +1576,9 @@ public class UpstreamTracerService
                         && !_excludedTier1Asns.Contains(h.Asn.Asn)
                         && !WellKnownAsns.NonTransitInfrastructure.Contains(h.Asn.Asn)
                         && (!transitProbeAsns.Contains(h.Asn.Asn)
-                            || _nearTransitAsns.Contains(h.Asn.Asn)))
+                            || _nearTransitAsns.Contains(h.Asn.Asn))
+                        && !(transitProbeAsns.Contains(h.Asn.Asn)
+                             && CarveOutBlockedByTier1Access(h.Asn.Asn, _accessIsTier1, WellKnownAsns.Tier1)))
             .GroupBy(h => h.Asn!.Asn)
             .ToList();
 
@@ -2115,6 +2122,8 @@ public class UpstreamTracerService
             if (!_nearTransitAsns.Contains(asn)) continue;
             // And not when this tier-1 only ever sits above another tier-1 (core peering).
             if (_excludedTier1Asns.Contains(asn)) continue;
+            // Nor when a regional witness is being hung off a tier-1 access ISP.
+            if (CarveOutBlockedByTier1Access(asn, _accessIsTier1, WellKnownAsns.Tier1)) continue;
             // Skip only if this witness address is already a candidate this run. A real router in the
             // same ASN no longer suppresses the witness - the anycast anchor is attached alongside it
             // (the real hops are usually a closer POP, so both are kept). Same-address dedup on write
@@ -3293,6 +3302,21 @@ public class UpstreamTracerService
         }
         return near;
     }
+
+    /// <summary>
+    /// Whether a carve-out probe's ASN has to be dropped because the access ISP is a tier-1.
+    ///
+    /// The carve-outs (INDATEL, Lumen, AT&amp;T) are probed deliberately to surface transits that
+    /// the ordinary targets may never touch, which means their ASN is on the path because we
+    /// aimed at it. The near-transit window normally sorts that out by stopping at the first
+    /// tier-1, but when the access ISP is itself the tier-1 its hops are skipped as access
+    /// before that horizon is ever tested, so a carve-out lands at first degree and is read as
+    /// an upstream. A regional aggregator is never a tier-1's upstream, so drop it. Tier-1
+    /// carve-outs stay eligible: a tier-1 above another tier-1 is a real relationship, and
+    /// anything reached through the ordinary targets is untouched by this.
+    /// </summary>
+    internal static bool CarveOutBlockedByTier1Access(int probeAsn, bool accessIsTier1, IReadOnlySet<int> tier1Asns) =>
+        accessIsTier1 && !tier1Asns.Contains(probeAsn);
 
     /// <summary>
     /// Tier-1 ASNs to exclude as transit because they only ever appear directly above

@@ -28,6 +28,27 @@ public interface IProbeExecutor
         TimeSpan? perPingTimeout = null,
         CancellationToken ct = default);
 
+    /// <summary>
+    /// Resolve a name, or a name for an address when <paramref name="reverse"/> is set, using
+    /// whatever resolver this vantage is configured with. Which resolver answers is the point:
+    /// two vantages on different WANs can legitimately disagree.
+    /// </summary>
+    /// <remarks>
+    /// Defaults to unsupported so a vantage with no lookup path (and any test double) keeps
+    /// compiling and says so plainly rather than returning an empty answer.
+    /// </remarks>
+    Task<DnsLookupResult> LookupAsync(
+        ProbeTarget target,
+        bool reverse = false,
+        CancellationToken ct = default)
+        => Task.FromResult(new DnsLookupResult
+        {
+            Target = target,
+            Vantage = Vantage,
+            Timestamp = DateTime.UtcNow,
+            ErrorMessage = "This vantage cannot run DNS lookups."
+        });
+
     /// <summary>Run a TCP-connect probe.</summary>
     Task<TcpProbeResult> TcpProbeAsync(
         ProbeTarget target,

@@ -21,7 +21,7 @@ namespace NetworkOptimizer.Web.Services;
 /// tunnel when its devices are reached that way. The registry flips
 /// <see cref="Active"/> as sites are enabled and disabled.
 /// </summary>
-public class OntMonitorService : IDisposable
+public class OntMonitorService : IOntMonitorService, IDisposable
 {
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ICredentialProtectionService _credentialProtection;
@@ -81,17 +81,17 @@ public class OntMonitorService : IDisposable
     /// <summary>
     /// Get cached stats for a specific ONT without triggering a poll.
     /// </summary>
-    public OntStats? GetCachedStats(int ontId)
+    public Task<OntStats?> GetCachedStatsAsync(int ontId)
     {
-        return _statsCache.TryGetValue(ontId, out var stats) ? stats : null;
+        return Task.FromResult(_statsCache.TryGetValue(ontId, out var stats) ? stats : null);
     }
 
     /// <summary>
     /// Get all cached ONT stats.
     /// </summary>
-    public IReadOnlyDictionary<int, OntStats> GetAllCachedStats()
+    public Task<IReadOnlyDictionary<int, OntStats>> GetAllCachedStatsAsync()
     {
-        return _statsCache;
+        return Task.FromResult<IReadOnlyDictionary<int, OntStats>>(_statsCache);
     }
 
     /// <summary>

@@ -1362,3 +1362,105 @@ public class AccessIspFallbackTests
             .Should().BeNull();
     }
 }
+
+public class CarveOutBlockedByTier1AccessTests
+{
+    private const int Lumen = 3356;
+    private const int Att = 7018;
+    private const int Indatel = 30517;
+    private static IReadOnlySet<int> Tier1 => new HashSet<int> { Lumen, Att, 1299 };
+
+    [Fact]
+    public void Regional_carve_out_is_blocked_above_a_tier1_access_isp()
+    {
+        // INDATEL cannot be AT&T's upstream; it is on the path only because we probed it.
+        UpstreamTracerService.CarveOutBlockedByTier1Access(Indatel, accessIsTier1: true, Tier1)
+            .Should().BeTrue();
+    }
+
+    [Fact]
+    public void Tier1_carve_out_survives_a_tier1_access_isp()
+    {
+        // Lumen above AT&T is a real relationship, so the Lumen probe stays eligible.
+        UpstreamTracerService.CarveOutBlockedByTier1Access(Lumen, accessIsTier1: true, Tier1)
+            .Should().BeFalse();
+    }
+
+    [Fact]
+    public void Regional_carve_out_survives_a_normal_access_isp()
+    {
+        // The reason the carve-out exists: on an INDATEL member ISP, access -> INDATEL is
+        // genuinely its transit and must still be discovered.
+        UpstreamTracerService.CarveOutBlockedByTier1Access(Indatel, accessIsTier1: false, Tier1)
+            .Should().BeFalse();
+    }
+
+    [Fact]
+    public void Nothing_is_blocked_when_the_access_isp_is_not_tier1()
+    {
+        UpstreamTracerService.CarveOutBlockedByTier1Access(Lumen, accessIsTier1: false, Tier1)
+            .Should().BeFalse();
+        UpstreamTracerService.CarveOutBlockedByTier1Access(64500, accessIsTier1: false, Tier1)
+            .Should().BeFalse();
+    }
+}
+
+public class ResolveVantageFromLinkTests
+{
+    private static readonly string[] PerWanKeys =
+        { "server", "agent:67:wan1", "agent:67:wan2", "agent:81:wan1" };
+
+    [Fact]
+    public void Agent_only_link_selects_that_agents_first_vantage()
+    {
+        // WanContextsCard and the Latency Targets card can only name an agent: a WAN context
+        // records no vantage id. Exact-match alone dropped these on every multi-WAN site.
+        NetworkOptimizer.Web.Components.Pages.MonitoringTools
+            .ResolveVantageFromLink("agent:67", PerWanKeys)
+            .Should().Be("agent:67:wan1");
+    }
+
+    [Fact]
+    public void Exact_key_wins_over_the_agent_prefix()
+    {
+        NetworkOptimizer.Web.Components.Pages.MonitoringTools
+            .ResolveVantageFromLink("agent:67:wan2", PerWanKeys)
+            .Should().Be("agent:67:wan2");
+    }
+
+    [Fact]
+    public void Server_link_still_resolves()
+    {
+        NetworkOptimizer.Web.Components.Pages.MonitoringTools
+            .ResolveVantageFromLink("server", PerWanKeys)
+            .Should().Be("server");
+    }
+
+    [Fact]
+    public void Agent_with_no_vantages_matches_its_bare_key()
+    {
+        NetworkOptimizer.Web.Components.Pages.MonitoringTools
+            .ResolveVantageFromLink("agent:12", new[] { "server", "agent:12" })
+            .Should().Be("agent:12");
+    }
+
+    [Fact]
+    public void Unknown_or_missing_link_leaves_the_remembered_choice_alone()
+    {
+        NetworkOptimizer.Web.Components.Pages.MonitoringTools
+            .ResolveVantageFromLink("agent:99", PerWanKeys).Should().BeNull();
+        NetworkOptimizer.Web.Components.Pages.MonitoringTools
+            .ResolveVantageFromLink(null, PerWanKeys).Should().BeNull();
+        NetworkOptimizer.Web.Components.Pages.MonitoringTools
+            .ResolveVantageFromLink("", PerWanKeys).Should().BeNull();
+    }
+
+    [Fact]
+    public void Agent_prefix_does_not_bleed_into_a_longer_agent_id()
+    {
+        // agent:6 must not adopt agent:67's vantage.
+        NetworkOptimizer.Web.Components.Pages.MonitoringTools
+            .ResolveVantageFromLink("agent:6", PerWanKeys)
+            .Should().BeNull();
+    }
+}

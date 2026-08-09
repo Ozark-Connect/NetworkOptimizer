@@ -58,21 +58,23 @@
     <div class="card-body">
         <div class="form-group">
             <label class="form-label">From (vantage)</label>
-            <select class="form-control" value="@_fromKey" @onchange="OnVantageChanged">
+            @* Selection rides on each option's selected flag: a value attribute on a select is
+               inert, so a vantage applied after first render never reached the control. *@
+            <select class="form-control" @onchange="OnVantageChanged">
                 @if (_probeVantages.Count > 0)
                 {
                     @foreach (var vantage in _probeVantages)
                     {
-                        <option value="@vantage.Key">@vantage.Label</option>
+                        <option value="@vantage.Key" selected="@(vantage.Key == _fromKey)">@vantage.Label</option>
                     }
                 }
                 else
                 {
-                    <option value="server">@(ExecutorFactory.ServerVantageIsAgent ? "On-site agent" : "Network Optimizer server")</option>
+                    <option value="server" selected="@(_fromKey == "server")">@(ExecutorFactory.ServerVantageIsAgent ? "On-site agent" : "Network Optimizer server")</option>
                 }
                 @foreach (var d in _devices)
                 {
-                    <option value="@($"device:{d.Mac}")">@LabelForDevice(d)</option>
+                    <option value="@($"device:{d.Mac}")" selected="@(_fromKey == $"device:{d.Mac}")">@LabelForDevice(d)</option>
                 }
             </select>
             @if (_probeVantages.Any(v => v.SourceBind != null))
@@ -177,7 +179,7 @@
             <div class="alert alert-danger">@_runError</div>
         }
 
-        <div class="action-buttons" style="margin-top: 1rem;">
+        <div class="action-buttons" style="margin-top: 1rem;" data-tour="dns-lookup">
             <button class="btn btn-primary" @onclick="RunPing" disabled="@(_running || !CanPing)"
                     data-tooltip="@(_probeMode == ProbeMode.Udp ? "Ping runs over ICMP or TCP - UDP is traceroute-only." : null)">
                 @if (_running && _runningKind == "ping") { <span class="spinner-sm"></span> <span>Pinging...</span> }
@@ -186,6 +188,11 @@
             <button class="btn btn-secondary" @onclick="RunTraceroute" disabled="@(_running || !CanTraceroute)">
                 @if (_running && _runningKind == "trace") { <span class="spinner-sm"></span> <span>Tracing...</span> }
                 else { <span>Traceroute</span> }
+            </button>
+            <button class="btn btn-secondary" @onclick="RunLookup" disabled="@_running"
+                    data-tooltip="Resolves the target using this vantage's own DNS server.">
+                @if (_running && _runningKind == "dns") { <span class="spinner-sm"></span> <span>Looking up...</span> }
+                else { <span>DNS Lookup</span> }
             </button>
         </div>
     </div>
@@ -208,7 +215,13 @@
             </div>
             <div class="form-group">
                 <label class="form-label">Target</label>
-                <div class="form-value">@_pingResult.Target</div>
+                <div class="form-value">
+                    @_pingResult.Target
+                    @if (!string.IsNullOrEmpty(_pingResult.ResolvedAddress))
+                    {
+                        <span>(@_pingResult.ResolvedAddress)</span>
+                    }
+                </div>
             </div>
             @if (_pingResult.RttAvgMs.HasValue)
             {
@@ -224,6 +237,62 @@
             @if (!string.IsNullOrEmpty(_pingResult.ErrorMessage))
             {
                 <div class="alert alert-warning">@_pingResult.ErrorMessage</div>
+            }
+        </div>
+    </div>
+}
+
+@if (_dnsResult != null)
+{
+    <div class="card" style="margin-top: 1.5rem;">
+        <div class="card-header">
+            <h2 class="card-title">DNS Result</h2>
+            <span class="status-badge @(_dnsResult.Success ? "status-connected" : "status-error")">
+                @(_dnsResult.Success
+                    ? (_dnsResult.Addresses.Count > 0 ? $"{_dnsResult.Addresses.Count} address(es)" : "Name found")
+                    : _dnsResult.NotFound ? "Name not found" : "No answer")
+            </span>
+        </div>
+        <div class="card-body">
+            <div class="form-group">
+                <label class="form-label">From</label>
+                <div class="form-value">@VantageLabel(_dnsResult.Vantage.Id)</div>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Target</label>
+                <div class="form-value">@_dnsResult.Target.Address</div>
+            </div>
+            @* Several device classes name no resolver at all, so the row is omitted rather
+               than shown empty or filled with a guess. *@
+            @if (!string.IsNullOrEmpty(_dnsResult.Resolver))
+            {
+                <div class="form-group">
+                    <label class="form-label">Resolver</label>
+                    <div class="form-value">@_dnsResult.Resolver</div>
+                </div>
+            }
+            @if (_dnsResult.Addresses.Count > 0)
+            {
+                <div class="form-group">
+                    <label class="form-label">Resolves to</label>
+                    <div class="form-value">
+                        @foreach (var address in _dnsResult.Addresses)
+                        {
+                            <div>@address</div>
+                        }
+                    </div>
+                </div>
+            }
+            @if (!string.IsNullOrEmpty(_dnsResult.CanonicalName))
+            {
+                <div class="form-group">
+                    <label class="form-label">Name</label>
+                    <div class="form-value">@_dnsResult.CanonicalName</div>
+                </div>
+            }
+            @if (!string.IsNullOrEmpty(_dnsResult.ErrorMessage))
+            {
+                <div class="alert alert-warning">@_dnsResult.ErrorMessage</div>
             }
         </div>
     </div>
@@ -574,6 +643,7 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
     private string VantageStorageKey => SiteContext.ScopeStorageKey("networkToolsVantage");
 
     private PingProbeResult? _pingResult;
+    private DnsLookupResult? _dnsResult;
     private TracerouteResult? _traceResult;
 
     // Gateway interface diagnostics. The section only exists when the site has a gateway,
@@ -617,6 +687,7 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
         _consoleDataLoaded = ConnectionService.IsConnected;
 
         await LoadProbeVantagesAsync();
+        await ApplyInitialVantageAsync();
         await RefreshAgentAvailabilityAsync();
         StartAgentStatusPolling();
     }
@@ -630,32 +701,87 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
     [SupplyParameterFromQuery(Name = "from")]
     public string? FromParam { get; set; }
 
-    protected override async Task OnAfterRenderAsync(bool firstRender)
+    /// <summary>
+    /// Decides the starting vantage once, in OnInitializedAsync after the vantage and device
+    /// lists have loaded, so no render can race the decision: a from= link first, then the
+    /// remembered choice, then the list's first entry. During prerender the localStorage read
+    /// throws and the fallback stands; the interactive circuit re-runs the decision in full.
+    /// </summary>
+    private async Task ApplyInitialVantageAsync()
     {
-        if (!firstRender) return;
-        // Only worth restoring when there is a choice; with one origin the stored value would
-        // just be "server" anyway. Interop is unavailable during prerender, hence first render.
-        if (_probeVantages.Count == 0) return;
-        if (!string.IsNullOrEmpty(FromParam) && _probeVantages.Any(v => v.Key == FromParam))
+        // The link outranks the remembered choice and is never persisted - it overrides this
+        // load only. server and device keys resolve even when the vantage list is empty,
+        // since neither comes from it.
+        if (!string.IsNullOrEmpty(FromParam))
         {
-            ApplyVantage(FromParam);
-            StateHasChanged();
+            var keys = _probeVantages.Select(v => v.Key)
+                .Concat(new[] { ProbeVantages.ServerKey })
+                .Concat(_devices.Select(d => $"device:{d.Mac}"))
+                .ToList();
+            var resolved = ResolveVantageFromLink(FromParam, keys);
+            if (resolved != null)
+            {
+                ApplyVantage(resolved);
+                return;
+            }
+        }
+
+        var stored = await ReadStoredVantageAsync();
+        if (stored != null)
+        {
+            ApplyVantage(stored);
             return;
         }
+
+        EnsureDefaultVantage();
+    }
+
+    /// <summary>
+    /// The remembered vantage, or null when nothing valid is stored. A remembered agent that has
+    /// since been removed (or a device that is gone) must not leave the page pointing at a
+    /// vantage the select can't show.
+    /// </summary>
+    private async Task<string?> ReadStoredVantageAsync()
+    {
         try
         {
             var stored = await JS.InvokeAsync<string>("localStorage.getItem", VantageStorageKey);
-            // A remembered agent that has since been removed (or a device that is gone) must not
-            // leave the page pointing at a vantage the select can't show.
             if (!string.IsNullOrEmpty(stored)
                 && (_probeVantages.Any(v => v.Key == stored)
                     || (stored.StartsWith("device:") && _devices.Any(d => $"device:{d.Mac}" == stored))))
-            {
-                ApplyVantage(stored);
-                StateHasChanged();
-            }
+                return stored;
         }
-        catch { /* no localStorage, or the circuit went away - the default vantage is fine */ }
+        catch { /* prerendering, or no localStorage - the default vantage is fine */ }
+        return null;
+    }
+
+    /// <summary>
+    /// With the server not offering itself, the default "server" key names nothing in the
+    /// vantage list; start on the first origin that does.
+    /// </summary>
+    private void EnsureDefaultVantage()
+    {
+        if (_probeVantages.Count > 0 && _probeVantages.All(v => v.Key != _fromKey) && !_fromKey.StartsWith("device:"))
+            ApplyVantage(_probeVantages[0].Key);
+    }
+
+    /// <summary>
+    /// Which offered vantage a "from" link means. Exact key first, then the first vantage
+    /// belonging to the named agent.
+    /// </summary>
+    /// <remarks>
+    /// Callers can only name an agent (<c>agent:7</c>): a WAN context records the agent that
+    /// probes it and no vantage id, while the picker keys an agent's entries per vantage
+    /// (<c>agent:7:wan2</c>). Returns null when nothing on offer matches, leaving the
+    /// remembered choice alone.
+    /// </remarks>
+    internal static string? ResolveVantageFromLink(string? fromParam, IEnumerable<string> vantageKeys)
+    {
+        if (string.IsNullOrEmpty(fromParam)) return null;
+
+        var keys = vantageKeys as IReadOnlyList<string> ?? vantageKeys.ToList();
+        return keys.FirstOrDefault(k => string.Equals(k, fromParam, StringComparison.OrdinalIgnoreCase))
+               ?? keys.FirstOrDefault(k => k.StartsWith(fromParam + ":", StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>
@@ -717,11 +843,6 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
                 serverProbesSite: !ExecutorFactory.ServerVantageIsAgent,
                 serverLabel: "Network Optimizer server",
                 agents);
-
-            // With the server not offering itself, the default "server" key names nothing in the
-            // list; start on the first origin that does.
-            if (_probeVantages.Count > 0 && _probeVantages.All(v => v.Key != _fromKey) && !_fromKey.StartsWith("device:"))
-                ApplyVantage(_probeVantages[0].Key);
         }
         catch
         {
@@ -778,7 +899,11 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
 
                     // The vantage list is built from live tunnels, so an agent that was down when
                     // the page opened would otherwise never appear in it.
-                    if (changed) await LoadProbeVantagesAsync();
+                    if (changed)
+                    {
+                        await LoadProbeVantagesAsync();
+                        EnsureDefaultVantage();
+                    }
 
                     if (!_consoleDataLoaded && ConnectionService.IsConnected)
                     {
@@ -902,7 +1027,9 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
     private async Task OnVantageChanged(ChangeEventArgs e)
     {
         ApplyVantage(e.Value?.ToString() ?? "server");
-        if (_probeVantages.Count == 0) return;
+        // Saved whatever the vantage list holds: device and server keys never came from it, so
+        // gating on it lost a hand-picked device vantage on any site whose list came back empty.
+        // A deep link deliberately does not reach here - it overrides the load, not the choice.
         try { await JS.InvokeVoidAsync("localStorage.setItem", VantageStorageKey, _fromKey); }
         catch { /* remembering the vantage is best-effort */ }
     }
@@ -989,12 +1116,51 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
         return ExecutorFactory.GetServer();
     }
 
+    /// <summary>
+    /// Resolve the target from the chosen vantage. A bare address is treated as a reverse
+    /// lookup, since asking a resolver to forward-resolve an address answers nothing.
+    /// </summary>
+    private async Task RunLookup()
+    {
+        _running = true;
+        _runningKind = "dns";
+        _pingResult = null;
+        _traceResult = null;
+        _dnsResult = null;
+        _runError = null;
+        StateHasChanged();
+        try
+        {
+            var executor = await ResolveExecutorAsync();
+            if (executor == null)
+            {
+                _runError = "Couldn't resolve the chosen vantage; check SSH credentials.";
+                return;
+            }
+            var address = _targetAddress.Trim();
+            var reverse = System.Net.IPAddress.TryParse(address, out _);
+            var target = new ProbeTarget(address, _probeMode, null, SelectedSourceBind());
+            _dnsResult = await executor.LookupAsync(target, reverse);
+        }
+        catch (Exception ex)
+        {
+            _runError = $"Lookup failed: {ex.Message}";
+        }
+        finally
+        {
+            _running = false;
+            _runningKind = string.Empty;
+            StateHasChanged();
+        }
+    }
+
     private async Task RunPing()
     {
         _running = true;
         _runningKind = "ping";
         _pingResult = null;
         _traceResult = null;
+        _dnsResult = null;
         _runError = null;
         StateHasChanged();
         try
@@ -1026,6 +1192,7 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
         _runningKind = "trace";
         _pingResult = null;
         _traceResult = null;
+        _dnsResult = null;
         _runError = null;
         StateHasChanged();
         try
@@ -1077,12 +1244,14 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
 
     private static string LabelForDevice(DiscoveredDevice d)
     {
+        // The three common types are shortened for a dropdown ("AP", not "Access Point");
+        // everything else takes the shared display name rather than a raw enum member.
         var type = d.Type switch
         {
             DeviceType.Gateway => "Gateway",
             DeviceType.Switch => "Switch",
             DeviceType.AccessPoint => "AP",
-            _ => d.Type.ToString()
+            _ => d.Type.ToDisplayName()
         };
         var name = string.IsNullOrEmpty(d.Name) ? d.Mac : d.Name;
         return string.IsNullOrEmpty(d.DisplayIpAddress)

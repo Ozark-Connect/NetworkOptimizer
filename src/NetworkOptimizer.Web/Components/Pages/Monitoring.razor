@@ -1,4 +1,4 @@
-﻿@* TODO: Continue extracting Monitoring cards into standalone Razor components.
+@* TODO: Continue extracting Monitoring cards into standalone Razor components.
    LatencyTargetsCard and SfpModulesCard are done. Remaining candidates:
    - Live View stat cards → MonitoringStatCards
    - Monitoring Status / Setup card → MonitoringSetupCard
@@ -40,10 +40,10 @@
 @inject NetworkOptimizer.Web.Services.Monitoring.IspHealth.IspHealthRegistry IspHealthRegistry
 @inject ISystemSettingsService SystemSettings
 @inject DashboardLayoutService DashboardLayout
-@inject CableModemMonitorService CmMonitorService
-@inject OntMonitorService OntMonitorService
-@inject CellularModemService CellularModemService
-@inject StarlinkMonitorService StarlinkMonitor
+@inject ICableModemService CmMonitorService
+@inject IOntMonitorService OntMonitorService
+@inject ICellularModemService CellularModemService
+@inject IStarlinkMonitorService StarlinkMonitor
 @inject MonitoringCollectionAgent CollectionAgent
 @inject AgentTunnelRegistry TunnelRegistry
 @inject NetworkOptimizer.Web.Services.IAgentEnrollmentService AgentEnrollment
