@@ -9,6 +9,30 @@ namespace NetworkOptimizer.Monitoring;
 public static class QmicliParser
 {
     /// <summary>
+    /// Parse the EN-DC flags out of --nas-get-system-info output. Either value is
+    /// null when the flag is absent, which is the case on a modem with no LTE service.
+    /// </summary>
+    /// <param name="output">Raw qmicli output.</param>
+    /// <returns>Whether the serving cell offers EN-DC, and whether the network restricts it.</returns>
+    public static (bool? nsaAvailable, bool? dcnrRestricted) ParseSystemInfo(string output)
+    {
+        return (MatchFlag(output, "5G NSA Available"), MatchFlag(output, "DCNR Restriction"));
+
+        static bool? MatchFlag(string text, string label)
+        {
+            var match = Regex.Match(text, $@"{Regex.Escape(label)}:\s*'(\w+)'");
+            if (!match.Success) return null;
+
+            return match.Groups[1].Value.ToLowerInvariant() switch
+            {
+                "yes" => true,
+                "no" => false,
+                _ => null,
+            };
+        }
+    }
+
+    /// <summary>
     /// Parse --nas-get-signal-info output
     /// </summary>
     public static (SignalInfo? lte, SignalInfo? nr5g) ParseSignalInfo(string output)

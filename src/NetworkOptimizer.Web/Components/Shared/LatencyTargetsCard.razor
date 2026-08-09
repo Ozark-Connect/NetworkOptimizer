@@ -1,4 +1,4 @@
-﻿@using NetworkOptimizer.Storage.Models
+@using NetworkOptimizer.Storage.Models
 @using Microsoft.EntityFrameworkCore
 @using NetworkOptimizer.Web.Components.Shared.Monitoring
 @inject MonitoringLiveStats LiveStats
@@ -61,12 +61,12 @@
     <div class="card-body">
         <div class="lt-intro">
             <p class="section-description">
-                Default WAN targets and one fabric target per discovered device. The agent probes
-                each target at its own interval and writes results to the <code>latency</code>
+                Default WAN targets and one fabric target per discovered device. The @ProberNoun probes
+                each target at @ProberPossessive own interval and writes results to the <code>latency</code>
                 measurement in InfluxDB.
             </p>
             <div class="lt-actions">
-                <a href="/network-tools" class="btn btn-sm btn-secondary">Run Probe</a>
+                <a href="@RunProbeUrl" class="btn btn-sm btn-secondary">Run Probe</a>
                 <SiteOperatorOnly>
                     <button class="btn btn-sm btn-primary" @onclick="ShowAddTargetFromTop">
                         + Add Target
@@ -164,7 +164,7 @@
                                         <select class="cadence-select"
                                             @onchange="(e) => UpdateWanContextAsync(t.Id, e)">
                                         <option value="" selected="@(t.WanContextId == null)">Default path</option>
-                                        @foreach (var wc in WanContexts)
+                                        @foreach (var wc in OrderedWanContexts)
                                         {
                                             <option value="@wc.Id" selected="@(t.WanContextId == wc.Id)">@wc.Name</option>
                                         }
@@ -303,7 +303,7 @@
                             <label class="form-label">WAN / Path</label>
                             <select class="form-control" @bind="_newTargetWanContextId">
                                 <option value="">Default path</option>
-                                @foreach (var wc in WanContexts)
+                                @foreach (var wc in OrderedWanContexts)
                                 {
                                     <option value="@wc.Id">@wc.Name</option>
                                 }
@@ -342,7 +342,7 @@
                asymmetry is deliberate: measuring one more thing is cheap and reversible, losing one
                that someone established months ago is not. *@
             <div class="lt-actions lt-actions-bottom">
-                <a href="/network-tools" class="btn btn-sm btn-secondary">Run Probe</a>
+                <a href="@RunProbeUrl" class="btn btn-sm btn-secondary">Run Probe</a>
                 <SiteOperatorOnly>
                     <button class="btn btn-sm btn-primary" @onclick="ShowAddTarget">
                         + Add Target
@@ -584,8 +584,123 @@
     /// The rows for the WANs on screen. A target with no WAN of its own belongs to the primary, the
     /// same rule every other per-WAN reader uses.
     /// </summary>
+    /// <summary>
+    /// WAN contexts in WAN1, WAN2, WAN3 order. The order lives in the UniFi key (wan, wan2), so
+    /// GatewayWanHelper reads it rather than anything re-parsing the display name. That helper
+    /// answers 0 for a context predating WanInterface, which would otherwise sort such a row
+    /// above WAN1 instead of after the WANs it cannot be placed among.
+    /// </summary>
+    private IEnumerable<WanContext> OrderedWanContexts => WanContexts
+        .OrderBy(c => NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey(c.WanInterface) is var i && i >= 1
+            ? i
+            : int.MaxValue)
+        .ThenBy(c => c.Name, StringComparer.OrdinalIgnoreCase);
+
     /// <summary>Columns in the table, so an empty-state row spans all of them.</summary>
     private int VisibleColumnCount => WanContexts.Count > 0 ? 8 : 7;
+
+    /// <summary>
+    /// What actually probes the listed targets, for the card's own description of itself. A target
+    /// assigned to a WAN context with an agent is probed by that agent; the rest fall to the server
+    /// vantage, which is itself the on-site agent on an agent-backed site. Both can be true at once,
+    /// and saying only one of them is wrong on every mixed site.
+    /// </summary>
+    private const string BothProbers = "server / agent";
+
+    private string ProberNoun
+    {
+        get
+        {
+            var contextsById = WanContexts.ToDictionary(w => w.Id);
+            var byAgent = false;
+            var byServer = false;
+
+            foreach (var target in VisibleTargets())
+            {
+                var assignedAgent = target.WanContextId is int id
+                                    && contextsById.TryGetValue(id, out var context)
+                                    && context.AgentId != null;
+
+                if (assignedAgent || ExecutorFactory.ServerVantageIsAgent) byAgent = true;
+                else byServer = true;
+            }
+
+            if (byAgent && byServer) return BothProbers;
+            if (byAgent) return "agent";
+            if (byServer) return "server";
+            return ExecutorFactory.ServerVantageIsAgent ? "agent" : "server";
+        }
+    }
+
+    /// <summary>Possessive matching <see cref="ProberNoun"/>: two probers take their, one takes its.</summary>
+    private string ProberPossessive => ProberNoun == BothProbers ? "their" : "its";
+
+    /// <summary>
+    /// The WAN context the scope filter names, or null when the scope names no single WAN (LAN,
+    /// All, or several selected). What the filter says is the only signal available when no rows
+    /// are showing, and it is a truer one than falling back to the server.
+    /// </summary>
+    private WanContext? ScopeWanContext
+    {
+        get
+        {
+            if (LanScope || AllScope || SelectedWanKeys.Count != 1) return null;
+
+            var key = NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(SelectedWanKeys.First());
+            return WanContexts.FirstOrDefault(c => !string.IsNullOrEmpty(c.WanInterface)
+                && string.Equals(NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(c.WanInterface!),
+                    key, StringComparison.OrdinalIgnoreCase));
+        }
+    }
+
+    /// <summary>
+    /// Run Probe opens Network Tools on the agent that actually probes these rows, taken from the
+    /// WAN context most of them sit on. MonitoringTarget.VantagePoint cannot answer this - every
+    /// target stores "server" whoever collects it. Null leaves Network Tools on its own default.
+    /// </summary>
+    private string? RunProbeVantage
+    {
+        get
+        {
+            if (WanContexts.Count == 0) return null;
+
+            // With every WAN in scope no single context speaks for the rows, so name a defined
+            // origin rather than whichever WAN happened to contribute the most: the server when
+            // it probes this site, otherwise the first agent vantage in WAN order.
+            if (ShowingAll)
+            {
+                if (!ExecutorFactory.ServerVantageIsAgent)
+                    return NetworkOptimizer.Web.Services.Monitoring.ProbeVantages.ServerKey;
+
+                var first = OrderedWanContexts.FirstOrDefault(c => c.AgentId != null);
+                return first?.AgentId is int firstAgentId
+                    ? $"agent:{firstAgentId}:{first.Id}"
+                    : NetworkOptimizer.Web.Services.Monitoring.ProbeVantages.ServerKey;
+            }
+
+            var dominantContextId = VisibleTargets()
+                .Where(t => t.WanContextId != null)
+                .GroupBy(t => t.WanContextId!.Value)
+                .OrderByDescending(g => g.Count())
+                .Select(g => (int?)g.Key)
+                .FirstOrDefault();
+
+            // No rows to infer from falls back to what the filter names, then to a lone context.
+            var context = dominantContextId is int id
+                ? WanContexts.FirstOrDefault(w => w.Id == id)
+                : ScopeWanContext ?? (WanContexts.Count == 1 ? WanContexts[0] : null);
+
+            // The picker keys an agent entry per WAN vantage, and a vantage id IS the context id.
+            // Naming the server beats sending nothing: no param leaves whatever was last used.
+            return context?.AgentId is int agentId
+                ? $"agent:{agentId}:{context.Id}"
+                : NetworkOptimizer.Web.Services.Monitoring.ProbeVantages.ServerKey;
+        }
+    }
+
+    private string RunProbeUrl => RunProbeVantage is string vantage
+        ? $"/network-tools?from={Uri.EscapeDataString(vantage)}"
+        : "/network-tools";
 
     private IEnumerable<MonitoringTarget> VisibleTargets()
     {
@@ -847,16 +962,16 @@
     private void PreselectWanFromScope()
     {
         _newTargetWanContextId = "";
-        if (LanScope || AllScope || SelectedWanKeys.Count != 1) return;
-
-        var key = NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(SelectedWanKeys.First());
-        var vantage = WanContexts.FirstOrDefault(c => !string.IsNullOrEmpty(c.WanInterface)
-            && string.Equals(NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(c.WanInterface!),
-                key, StringComparison.OrdinalIgnoreCase));
-        if (vantage != null) _newTargetWanContextId = vantage.Id.ToString();
+        if (ScopeWanContext is { } vantage) _newTargetWanContextId = vantage.Id.ToString();
     }
 
-    protected override async Task OnParametersSetAsync() => await LoadWanChoicesAsync();
+    protected override async Task OnParametersSetAsync()
+    {
+        await LoadWanChoicesAsync();
+        // The scope arrives as a parameter, so re-seed the open form here. Seeding only on open
+        // left the default following the filter just once, across a cancel and reopen.
+        if (_showAddTarget) PreselectWanFromScope();
+    }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {

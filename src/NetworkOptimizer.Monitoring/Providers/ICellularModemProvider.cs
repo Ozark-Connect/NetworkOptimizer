@@ -44,3 +44,23 @@ public interface ICellularModemProvider
         ModemPollContext context,
         CancellationToken cancellationToken = default);
 }
+
+/// <summary>
+/// Optional capability for providers that can power-cycle the modem's radio.
+/// Kept separate from <see cref="ICellularModemProvider"/> so vendors with no
+/// equivalent control are not forced to stub it out.
+/// </summary>
+public interface ISupportsRadioReset
+{
+    /// <summary>
+    /// Take the radio to low power and back online, forcing a fresh cell selection.
+    /// Drops the cellular connection for the duration, so callers must confirm with
+    /// the user before invoking it.
+    /// </summary>
+    /// <param name="context">Provider-agnostic poll context.</param>
+    /// <param name="cancellationToken">Optional cancellation.</param>
+    /// <returns>(success, human-readable message).</returns>
+    Task<(bool success, string message)> ResetRadioAsync(
+        ModemPollContext context,
+        CancellationToken cancellationToken = default);
+}

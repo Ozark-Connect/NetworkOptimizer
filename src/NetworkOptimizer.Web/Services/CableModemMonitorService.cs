@@ -18,7 +18,7 @@ namespace NetworkOptimizer.Web.Services;
 /// <see cref="Active"/> as sites are enabled and disabled; only active
 /// instances poll.
 /// </summary>
-public sealed class CableModemMonitorService : IDisposable
+public sealed class CableModemMonitorService : ICableModemService, IDisposable
 {
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ICredentialProtectionService _credentialProtection;
@@ -86,17 +86,17 @@ public sealed class CableModemMonitorService : IDisposable
     /// <summary>
     /// Get cached stats for a specific cable modem without polling.
     /// </summary>
-    public CableModemStats? GetCachedStats(int cmId)
+    public Task<CableModemStats?> GetCachedStatsAsync(int cmId)
     {
-        return _statsCache.TryGetValue(cmId, out var stats) ? stats : null;
+        return Task.FromResult(_statsCache.TryGetValue(cmId, out var stats) ? stats : null);
     }
 
     /// <summary>
     /// Get all cached cable modem stats.
     /// </summary>
-    public IReadOnlyDictionary<int, CableModemStats> GetAllCachedStats()
+    public Task<IReadOnlyDictionary<int, CableModemStats>> GetAllCachedStatsAsync()
     {
-        return _statsCache;
+        return Task.FromResult<IReadOnlyDictionary<int, CableModemStats>>(_statsCache);
     }
 
     /// <summary>

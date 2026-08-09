@@ -10,7 +10,7 @@ namespace NetworkOptimizer.Web.Services.CellularModemProviders;
 /// then falls back to raw qmicli commands for older firmware.
 /// SSH transport uses the shared UniFiSshService.
 /// </summary>
-public sealed class QmicliModemProvider : ICellularModemProvider
+public sealed class QmicliModemProvider : ICellularModemProvider, ISupportsRadioReset
 {
     /// <inheritdoc/>
     public string ProviderKey => "qmicli";
@@ -83,6 +83,8 @@ public sealed class QmicliModemProvider : ICellularModemProvider
 
             if (stats != null)
             {
+                await TryEnrichWithCellTowerInfoAsync(context, stats);
+
                 _logger.LogInformation(
                     "Successfully polled modem {Name} via uiwwand: {Carrier}, Signal Quality: {Quality}%",
                     context.Name, stats.Carrier, stats.SignalQuality);
@@ -94,6 +96,88 @@ public sealed class QmicliModemProvider : ICellularModemProvider
         {
             _logger.LogDebug(ex, "uiwwand poll failed for {Name}, falling back to qmicli", context.Name);
             return null;
+        }
+    }
+
+    /// <summary>
+    /// Add the cell tower detail and EN-DC flags that get-radio-status does not report:
+    /// timing advance, tracking area, and neighbors from uiwwand's get-cell-tower-info,
+    /// and the 5G NSA availability pair from qmicli's system info, which uiwwand exposes
+    /// on no method at all. Best effort - the signal data is already in hand, so a failure
+    /// here just leaves these unset.
+    /// </summary>
+    private async Task TryEnrichWithCellTowerInfoAsync(ModemPollContext context, CellularModemStats stats)
+    {
+        var qmiDevice = string.IsNullOrWhiteSpace(context.TransportPath)
+            ? "/dev/wwan0qmi0"
+            : context.TransportPath;
+
+        try
+        {
+            var combinedCommand =
+                "echo '===TOWER===' && ubus call uiwwand call '{\"method\":\"get-cell-tower-info\",\"params\":{}}'; " +
+                $"echo '===SYSINFO===' && qmicli -d {qmiDevice} --device-open-proxy --nas-get-system-info";
+
+            var (success, output) = await _sshService.RunCommandAsync(context.Host, combinedCommand);
+            if (!success || string.IsNullOrWhiteSpace(output))
+            {
+                _logger.LogDebug("Cell tower enrichment unavailable on {Name}", context.Name);
+                return;
+            }
+
+            var sections = ParseCombinedOutput(output, "TOWER", "SYSINFO");
+
+            if (sections.TryGetValue("TOWER", out var towerOutput) && towerOutput.Contains("\"result\""))
+                UiwwandParser.ParseCellTowerInfo(towerOutput, stats);
+
+            if (sections.TryGetValue("SYSINFO", out var sysInfoOutput))
+            {
+                var (nsaAvailable, dcnrRestricted) = QmicliParser.ParseSystemInfo(sysInfoOutput);
+                stats.Is5gNsaAvailable = nsaAvailable;
+                stats.IsDcnrRestricted = dcnrRestricted;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Cell tower enrichment failed for {Name}", context.Name);
+        }
+    }
+
+    /// <inheritdoc/>
+    public async Task<(bool success, string message)> ResetRadioAsync(
+        ModemPollContext context,
+        CancellationToken cancellationToken = default)
+    {
+        var qmiDevice = string.IsNullOrWhiteSpace(context.TransportPath)
+            ? "/dev/wwan0qmi0"
+            : context.TransportPath;
+
+        // Six seconds of low-power, then back online. The modem watchdog needs two failed
+        // 60 s checks before it forces a reset, so this must stay well under a minute.
+        var command =
+            $"qmicli -d {qmiDevice} --device-open-proxy --dms-set-operating-mode=low-power && " +
+            "sleep 6 && " +
+            $"qmicli -d {qmiDevice} --device-open-proxy --dms-set-operating-mode=online";
+
+        _logger.LogInformation("Resetting radio on modem {Name}", context.Name);
+
+        try
+        {
+            var (success, output) = await _sshService.RunCommandAsync(context.Host, command);
+
+            if (!success)
+            {
+                _logger.LogWarning("Radio reset failed on {Name}: {Output}", context.Name, output);
+                return (false, "The modem did not accept the radio reset. Check the SSH connection in Cellular Modem Settings.");
+            }
+
+            _logger.LogInformation("Radio reset completed on modem {Name}", context.Name);
+            return (true, "Radio reset. The modem is re-selecting a tower, which takes a few seconds.");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error resetting radio on modem {Name}", context.Name);
+            return (false, "The radio reset could not be sent to the modem.");
         }
     }
 
@@ -120,7 +204,8 @@ public sealed class QmicliModemProvider : ICellularModemProvider
                 $"echo '===SIGNAL===' && qmicli -d {qmiDevice} --device-open-proxy --nas-get-signal-info; " +
                 $"echo '===SERVING===' && qmicli -d {qmiDevice} --device-open-proxy --nas-get-serving-system; " +
                 $"echo '===CELL===' && qmicli -d {qmiDevice} --device-open-proxy --nas-get-cell-location-info; " +
-                $"echo '===BAND===' && qmicli -d {qmiDevice} --device-open-proxy --nas-get-rf-band-info";
+                $"echo '===BAND===' && qmicli -d {qmiDevice} --device-open-proxy --nas-get-rf-band-info; " +
+                $"echo '===SYSINFO===' && qmicli -d {qmiDevice} --device-open-proxy --nas-get-system-info";
 
             var (success, output) = await _sshService.RunCommandAsync(context.Host, combinedCommand);
 
@@ -130,7 +215,7 @@ public sealed class QmicliModemProvider : ICellularModemProvider
                 return null;
             }
 
-            var sections = ParseCombinedOutput(output);
+            var sections = ParseCombinedOutput(output, "SIGNAL", "SERVING", "CELL", "BAND", "SYSINFO");
 
             if (sections.TryGetValue("SIGNAL", out var signalOutput))
             {
@@ -161,6 +246,13 @@ public sealed class QmicliModemProvider : ICellularModemProvider
                 stats.ActiveBand = QmicliParser.ParseRfBandInfo(bandOutput);
             }
 
+            if (sections.TryGetValue("SYSINFO", out var sysInfoOutput))
+            {
+                var (nsaAvailable, dcnrRestricted) = QmicliParser.ParseSystemInfo(sysInfoOutput);
+                stats.Is5gNsaAvailable = nsaAvailable;
+                stats.IsDcnrRestricted = dcnrRestricted;
+            }
+
             _logger.LogInformation(
                 "Successfully polled modem {Name} via qmicli: {Carrier}, Signal Quality: {Quality}%",
                 context.Name, stats.Carrier, stats.SignalQuality);
@@ -185,23 +277,22 @@ public sealed class QmicliModemProvider : ICellularModemProvider
     /// <summary>
     /// Split combined SSH output into sections by marker.
     /// </summary>
-    private static Dictionary<string, string> ParseCombinedOutput(string output)
+    private static Dictionary<string, string> ParseCombinedOutput(string output, params string[] keys)
     {
         var sections = new Dictionary<string, string>();
-        var markers = new[] { "===SIGNAL===", "===SERVING===", "===CELL===", "===BAND===" };
-        var keys = new[] { "SIGNAL", "SERVING", "CELL", "BAND" };
 
-        for (int i = 0; i < markers.Length; i++)
+        for (int i = 0; i < keys.Length; i++)
         {
-            var startIndex = output.IndexOf(markers[i]);
+            var marker = $"==={keys[i]}===";
+            var startIndex = output.IndexOf(marker, StringComparison.Ordinal);
             if (startIndex == -1) continue;
 
-            startIndex += markers[i].Length;
+            startIndex += marker.Length;
 
             var endIndex = output.Length;
-            for (int j = i + 1; j < markers.Length; j++)
+            for (int j = i + 1; j < keys.Length; j++)
             {
-                var nextMarker = output.IndexOf(markers[j], startIndex);
+                var nextMarker = output.IndexOf($"==={keys[j]}===", startIndex, StringComparison.Ordinal);
                 if (nextMarker != -1)
                 {
                     endIndex = nextMarker;

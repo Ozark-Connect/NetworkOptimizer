@@ -132,6 +132,9 @@ public static class AuditActions
     public const string WanSteeringChanged = "wan_steering.changed";
     public const string AlertRuleChanged = "alert_rule.changed";
     public const string MonitoringSetupChanged = "monitoring_setup.changed";
+
+    /// <summary>A cellular modem's radio was power-cycled to force a fresh tower selection.</summary>
+    public const string CellularRadioReset = "cellular_radio.reset";
     public const string DbRestored = "db.restored";
     public const string DbExported = "db.exported";
     public const string PerfTweakRemoved = "perftweak.removed";

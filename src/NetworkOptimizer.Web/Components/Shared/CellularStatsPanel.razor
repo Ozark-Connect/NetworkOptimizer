@@ -1,9 +1,11 @@
 @using NetworkOptimizer.Web.Services
 @using NetworkOptimizer.Monitoring.Models
-@inject CellularModemService ModemService
+@using Microsoft.JSInterop
+@inject ICellularModemService ModemService
+@inject IJSRuntime JS
 @implements IDisposable
 
-<div class="cellular-stats-panel">
+<div class="cellular-stats-panel" data-tour="cellular-radio-reset">
     @if (isLoading)
     {
         <div class="loading-state">
@@ -67,7 +69,7 @@
                     @if (isRefreshing) { <span class="spinner-sm"></span> } else { <span>Refresh</span> }
                 </button>
             </span>
-            <a href="/settings#cellular-modem" class="btn btn-primary" @onclick:stopPropagation>Modem Settings</a>
+            <SiteAdminOnly><a href="/settings#cellular-modem" class="btn btn-primary" @onclick:stopPropagation>Modem Settings</a></SiteAdminOnly>
         </div>
     }
     else if (modemStats == null)
@@ -79,7 +81,7 @@
             </div>
             <p class="status-message">No cellular modem configured.</p>
             <div class="sqm-actions">
-                <a href="/settings#cellular-modem" class="btn btn-primary" @onclick:stopPropagation>Configure Modem</a>
+                <SiteAdminOnly><a href="/settings#cellular-modem" class="btn btn-primary" @onclick:stopPropagation>Configure Modem</a></SiteAdminOnly>
             </div>
         </div>
     }
@@ -136,6 +138,28 @@
                 {
                     <span class="roaming-badge">Roaming</span>
                 }
+                @if (ShowRadioReset)
+                {
+                    @* Admin, not Operator: this drops the cellular connection for several seconds,
+                       so it sits with the destructive actions rather than the routine ones. *@
+                    <SiteAdminOnly>
+                    @* Tooltip lives on the wrapper: a disabled button has pointer-events none and never fires the hover *@
+                    <span class="radio-reset" data-tooltip="@RadioResetTooltip" @onclick:stopPropagation>
+                        <button class="radio-reset-btn" @onclick="ResetRadio" @onclick:stopPropagation
+                                disabled="@(isResettingRadio || modemStats.EnDc != EnDcState.AnchorMissing)"
+                                aria-label="Reset Radio">
+                            @if (isResettingRadio)
+                            {
+                                <span class="spinner-sm"></span>
+                            }
+                            else
+                            {
+                                <span>&#x21bb;</span>
+                            }
+                        </button>
+                    </span>
+                    </SiteAdminOnly>
+                }
             </div>
             <div class="network-mode-description">
                 @modemStats.NetworkModeDescription
@@ -161,6 +185,15 @@
                             <span class="metric-label">SNR:</span>
                             <span class="metric-value @GetSnrClass(modemStats.Nr5g.Snr)">@modemStats.Nr5g.Snr?.ToString("F1") dB</span>
                         </div>
+                    </div>
+                </div>
+            }
+            else if (ShowNr5gPlaceholder)
+            {
+                <div class="metric-box metric-5g">
+                    <div class="metric-header">5G NR</div>
+                    <div class="metric-content">
+                        <p class="metric-empty-text">@Nr5gPlaceholderText</p>
                     </div>
                 </div>
             }
@@ -210,6 +243,13 @@
                             <span class="info-value">@modemStats.ServingCell.BandDescription</span>
                         </div>
                     }
+                    @if (modemStats.ServingCell.EnbId.HasValue)
+                    {
+                        <div class="info-item">
+                            <span class="info-label">Site:</span>
+                            <span class="info-value">@modemStats.ServingCell.EnbId, sector @modemStats.ServingCell.SectorId</span>
+                        </div>
+                    }
                     @if (modemStats.ServingCell.TimingAdvance.HasValue)
                     {
                         <div class="info-item">
@@ -242,7 +282,7 @@
                     }
                 </button>
             </span>
-            <a href="/settings#cellular-modem" class="btn btn-primary" @onclick:stopPropagation>Modem Settings</a>
+            <SiteAdminOnly><a href="/settings#cellular-modem" class="btn btn-primary" @onclick:stopPropagation>Modem Settings</a></SiteAdminOnly>
         </div>
     }
 </div>
@@ -358,6 +398,42 @@
         font-weight: 600;
     }
 
+    .metric-empty-text {
+        margin: 0;
+        color: var(--text-muted);
+        font-size: 0.78rem;
+        line-height: 1.35;
+    }
+
+    .radio-reset {
+        margin-left: auto;
+    }
+
+    .radio-reset-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 28px;
+        height: 28px;
+        padding: 0;
+        border: 1px solid var(--border-color);
+        border-radius: 4px;
+        background: var(--bg-tertiary);
+        color: var(--text-secondary);
+        font-size: 1rem;
+        cursor: pointer;
+    }
+
+    .radio-reset-btn:hover:not(:disabled) {
+        background: var(--bg-hover);
+        color: var(--text-primary);
+    }
+
+    .radio-reset-btn:disabled {
+        opacity: 0.4;
+        cursor: default;
+    }
+
     .registration-state {
         color: var(--text-muted, #888);
         font-size: 0.85rem;
@@ -435,6 +511,7 @@
     private CellularModemStats? modemStats;
     private bool isLoading = true;
     private bool isRefreshing = false;
+    private bool isResettingRadio = false;
     private bool hasConfiguredModems = false;
     private List<NetworkOptimizer.Storage.Models.ModemConfiguration> configuredModems = new();
     private int currentModemIndex = 0;
@@ -471,7 +548,7 @@
                     {
                         // Just fetch cached stats for current modem - don't force a poll
                         var modem = configuredModems[currentModemIndex];
-                        var newStats = ModemService.GetCachedStats(modem.Id);
+                        var newStats = await ModemService.GetCachedStatsAsync(modem.Id);
                         if (newStats != null) modemStats = newStats;
                     }
                     StateHasChanged();
@@ -500,7 +577,7 @@
                 var modem = configuredModems[currentModemIndex];
 
                 // Use cached stats if available, otherwise poll
-                var cachedStats = ModemService.GetCachedStats(modem.Id);
+                var cachedStats = await ModemService.GetCachedStatsAsync(modem.Id);
                 if (cachedStats != null)
                 {
                     modemStats = cachedStats;
@@ -511,7 +588,7 @@
                     var (success, _) = await ModemService.PollModemAsync(modem);
                     if (success)
                     {
-                        modemStats = ModemService.GetCachedStats(modem.Id);
+                        modemStats = await ModemService.GetCachedStatsAsync(modem.Id);
                     }
                 }
             }
@@ -542,13 +619,70 @@
                 var (success, _) = await ModemService.PollModemAsync(modem);
                 if (success)
                 {
-                    modemStats = ModemService.GetCachedStats(modem.Id);
+                    modemStats = await ModemService.GetCachedStatsAsync(modem.Id);
                 }
             }
         }
         finally
         {
             isRefreshing = false;
+            StateHasChanged();
+        }
+    }
+
+    /// <summary>
+    /// A 5G modem with no NR leg otherwise leaves a single box in a two-box grid, which
+    /// reads as a broken card rather than an absent connection. The EN-DC flags double as
+    /// the capability test: an LTE-only modem never reports them, so it never gets the box.
+    /// </summary>
+    private bool ShowNr5gPlaceholder => modemStats?.EnDc
+        is EnDcState.AnchorMissing or EnDcState.AnchorCapable or EnDcState.NetworkRestricted;
+
+    private string Nr5gPlaceholderText => modemStats?.EnDc switch
+    {
+        EnDcState.NetworkRestricted => "Not connected. Your carrier is not offering 5G on this connection.",
+        EnDcState.AnchorCapable => "Not connected. 5G is available here and should attach with traffic.",
+        _ => "Not connected. This tower is not offering 5G. Try the Reset Radio icon above.",
+    };
+
+    /// <summary>
+    /// Only offered when the EN-DC flags say something about it: hidden when 5G is
+    /// already attached, and when the modem reported no flags at all.
+    /// </summary>
+    private bool ShowRadioReset => modemStats?.EnDc
+        is EnDcState.AnchorMissing or EnDcState.AnchorCapable or EnDcState.NetworkRestricted;
+
+    private string RadioResetTooltip => modemStats?.EnDc switch
+    {
+        EnDcState.AnchorCapable => "Anchor is fine and the 5G leg is still connecting. Resetting now would undo it.",
+        EnDcState.NetworkRestricted => "Your carrier is not offering 5G on this connection right now, so resetting the radio will not bring it back.",
+        _ => "Reset Radio: cycles the radio off and on for about 7 seconds to force a fresh tower selection. Use when the modem is stuck on LTE and will not pick up 5G again.",
+    };
+
+    private async Task ResetRadio()
+    {
+        if (modemStats?.EnDc != EnDcState.AnchorMissing) return;
+        if (configuredModems.Count == 0 || currentModemIndex >= configuredModems.Count) return;
+
+        var confirmed = await JS.InvokeAsync<bool>("confirm",
+            "Resetting the radio drops the cellular connection for about 7 seconds while the modem re-selects a tower.\n\nAre you sure?");
+        if (!confirmed) return;
+
+        var modem = configuredModems[currentModemIndex];
+        isResettingRadio = true;
+        StateHasChanged();
+
+        try
+        {
+            var (success, _) = await ModemService.ResetRadioAsync(modem.Id);
+            if (success)
+            {
+                modemStats = await ModemService.GetCachedStatsAsync(modem.Id);
+            }
+        }
+        finally
+        {
+            isResettingRadio = false;
             StateHasChanged();
         }
     }
@@ -576,7 +710,7 @@
         if (configuredModems.Count > 0 && currentModemIndex < configuredModems.Count)
         {
             var modem = configuredModems[currentModemIndex];
-            var cached = ModemService.GetCachedStats(modem.Id);
+            var cached = await ModemService.GetCachedStatsAsync(modem.Id);
             modemStats = cached;
             StateHasChanged();
 
@@ -586,7 +720,7 @@
                 var (success, _) = await ModemService.PollModemAsync(modem);
                 if (success)
                 {
-                    modemStats = ModemService.GetCachedStats(modem.Id);
+                    modemStats = await ModemService.GetCachedStatsAsync(modem.Id);
                     StateHasChanged();
                 }
             }
