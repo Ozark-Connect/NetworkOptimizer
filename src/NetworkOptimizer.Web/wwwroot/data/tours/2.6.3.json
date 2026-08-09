@@ -2,7 +2,7 @@
   "id": "2.6.3",
   "kind": "whats-new",
   "title": "What's new in v2.6.3",
-  "summary": "Hover one chart and the rest follow, and targets can be renamed in place.",
+  "summary": "Hover one chart and the rest follow, targets can be renamed in place, DNS answers from any vantage, and a stuck modem can be nudged back onto 5G.",
   "steps": [
     {
       "id": "chart-hover-sync",
@@ -22,11 +22,33 @@
       "url": "/monitoring?tab=performance",
       "selector": "[data-tour=\"latency-target-rename\"]",
       "title": "Latency Targets",
-      "listLabel": "Rename a target without removing it",
+      "listLabel": "Rename a Latency / Loss Target without removing it",
       "body": "A target's name is now editable in place - click the pencil beside it.",
       "placement": "top",
       "optional": true,
       "requires": ["has-targets"]
+    },
+    {
+      "id": "dns-lookup",
+      "level": "minor",
+      "url": "/network-tools",
+      "selector": "[data-tour=\"dns-lookup\"]",
+      "title": "DNS Lookup",
+      "listLabel": "Test DNS from any device on your network",
+      "body": "**DNS Lookup** asks any vantage to resolve a name and names the server that answered. That separates a DNS failure from a routing one, and shows when something other than your resolver is replying.",
+      "placement": "top"
+    },
+    {
+      "id": "cellular-radio-reset",
+      "level": "major",
+      "url": "/monitoring?tab=cellular",
+      "selector": "[data-tour=\"cellular-radio-reset\"]",
+      "title": "Reset Radio",
+      "listLabel": "Get 5G back without rebooting the modem",
+      "body": "When your modem is on LTE and won't come back to 5G, **Reset Radio** cycles the radio in about seven seconds to find a tower that offers it. It appears only when that's actually the cause.",
+      "placement": "top",
+      "optional": true,
+      "requires": ["cellular"]
     }
   ]
 }

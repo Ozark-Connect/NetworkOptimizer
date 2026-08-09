@@ -179,7 +179,7 @@
             <div class="alert alert-danger">@_runError</div>
         }
 
-        <div class="action-buttons" style="margin-top: 1rem;">
+        <div class="action-buttons" style="margin-top: 1rem;" data-tour="dns-lookup">
             <button class="btn btn-primary" @onclick="RunPing" disabled="@(_running || !CanPing)"
                     data-tooltip="@(_probeMode == ProbeMode.Udp ? "Ping runs over ICMP or TCP - UDP is traceroute-only." : null)">
                 @if (_running && _runningKind == "ping") { <span class="spinner-sm"></span> <span>Pinging...</span> }
