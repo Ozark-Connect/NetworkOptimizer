@@ -26,6 +26,19 @@ public class LoadImbalanceRule : IWiFiOptimizerRule
     /// </summary>
     private const double ImbalanceThreshold = 50;
 
+    /// <summary>
+    /// Clients the busiest AP must carry before an imbalance is worth raising. The coefficient of
+    /// variation is scale-free, so 3 clients against 1 scores exactly as 30 against 10 - and an AP
+    /// with three clients is not overloaded by any measure the recommendation could act on.
+    /// </summary>
+    private const int MinClientsOnBusiestAp = 8;
+
+    /// <summary>
+    /// How far apart the busiest and quietest AP must be. Guards the other end of the same problem:
+    /// a gap of one or two clients is a single device roaming, not a distribution worth steering.
+    /// </summary>
+    private const int MinClientGap = 4;
+
     public HealthIssue? Evaluate(WiFiOptimizerContext ctx)
     {
         // Only relevant for multi-AP deployments
@@ -53,6 +66,13 @@ public class LoadImbalanceRule : IWiFiOptimizerRule
 
         // Safety: if they resolved to the same AP (e.g., single AP after filtering), bail
         if (maxAp.Mac.Equals(minAp.Mac, StringComparison.OrdinalIgnoreCase))
+            return null;
+
+        // A relative measure alone fires on counts too small to mean anything. Both floors are
+        // absolute so the claim the issue makes - one AP is carrying too much - has to be true in
+        // clients, not just in ratio.
+        if (maxAp.TotalClients < MinClientsOnBusiestAp
+            || maxAp.TotalClients - minAp.TotalClients < MinClientGap)
             return null;
 
         // RF distance check: if both APs are placed on the floor plan, use propagation
