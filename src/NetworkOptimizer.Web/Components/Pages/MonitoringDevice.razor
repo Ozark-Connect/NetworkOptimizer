@@ -263,6 +263,7 @@
             await using var db = SiteDb.CreateForSite(SiteCtx.Slug, SiteCtx.IsDefault);
             var fabric = await db.MonitoringTargets
                 .Where(t => t.TargetType == MonitoringTargetType.Fabric
+                            && t.RetiredAt == null
                             && t.DeviceMac != null && t.DeviceMac.ToLower() == NormalizeMac(Mac))
                 .Select(t => new { t.Name, t.TargetId })
                 .FirstOrDefaultAsync();

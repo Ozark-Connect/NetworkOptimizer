@@ -4458,7 +4458,7 @@
         if (fabricMacs.Count == 0 && fabricTypes.Count == 0)
         {
             fabricMacs = _targets
-                .Where(t => t.TargetType == MonitoringTargetType.Fabric && !string.IsNullOrEmpty(t.DeviceMac))
+                .Where(t => t.TargetType == MonitoringTargetType.Fabric && !t.IsRetired && !string.IsNullOrEmpty(t.DeviceMac))
                 .Select(t => t.DeviceMac!)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();

@@ -45,16 +45,17 @@ public sealed class NetgearNighthawkHotspotProvider : ICellularModemProvider, ID
     }
 
     /// <inheritdoc/>
-    public async Task<CellularModemStats?> PollAsync(
+    public async Task<ModemPollResult> PollAsync(
         ModemPollContext context,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(context.Host))
         {
             _logger.LogWarning("Netgear poll requested for modem {Name} but Host is empty", context.Name);
-            return null;
+            return ModemPollResult.Failed("No address is configured for this modem.");
         }
 
+        var host = context.ConfiguredHost ?? context.Host;
         var hasPassword = !string.IsNullOrEmpty(context.Password);
 
         try
@@ -63,17 +64,21 @@ public sealed class NetgearNighthawkHotspotProvider : ICellularModemProvider, ID
             var json = await FetchModelJsonAsync(context, requireAuth: hasPassword, cancellationToken);
             if (json == null)
             {
-                _logger.LogWarning("Netgear poll for {Name} ({Host}) returned no data", context.Name, context.ConfiguredHost ?? context.Host);
-                return null;
+                _logger.LogWarning("Netgear poll for {Name} ({Host}) returned no data", context.Name, host);
+                return ModemPollResult.Failed(
+                    $"Could not reach {host}, or the hotspot rejected the admin password.");
             }
 
             using var doc = JsonDocument.Parse(json, _jsonOptions);
-            return NetgearModelJsonParser.Parse(doc.RootElement, context);
+            var stats = NetgearModelJsonParser.Parse(doc.RootElement, context);
+            return stats == null
+                ? ModemPollResult.Failed($"{host} answered but returned no signal data.")
+                : ModemPollResult.Ok(stats);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error polling Netgear modem {Name} at {Host}", context.Name, context.ConfiguredHost ?? context.Host);
-            return null;
+            _logger.LogError(ex, "Error polling Netgear modem {Name} at {Host}", context.Name, host);
+            return ModemPollResult.Failed($"Could not read stats from {host}: {ex.Message}");
         }
     }
 

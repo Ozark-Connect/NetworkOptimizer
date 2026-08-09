@@ -146,6 +146,25 @@ public class MonitoringTarget
     /// </summary>
     public DateTime? LanFlakyHintDismissedAt { get; set; }
 
+    /// <summary>
+    /// When this target stopped describing anything real - its device left the UniFi device list,
+    /// or moved to a different address and a replacement target took over.
+    /// <para>
+    /// Retired is not paused. A paused target is a live target the user chose not to probe, and
+    /// resuming it is the obvious thing to offer; resuming a retired one would probe an address
+    /// nothing answers on. The row survives because its measurements are filed under its TargetId
+    /// and deleting it would orphan them - so readers exclude it, they do not remove it.
+    /// </para>
+    /// </summary>
+    public DateTime? RetiredAt { get; set; }
+
+    /// <summary>Why it was retired, in one line, for the badge tooltip. Null when it is live.</summary>
+    [MaxLength(200)]
+    public string? RetiredReason { get; set; }
+
+    /// <summary>Whether this target still describes something real.</summary>
+    public bool IsRetired => RetiredAt != null;
+
     public DateTime? LastVerified { get; set; }
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

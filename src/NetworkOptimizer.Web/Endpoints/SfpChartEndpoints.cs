@@ -53,7 +53,7 @@ public static class SfpChartEndpoints
             var ponData = await influx.QuerySfpPonByModulesAsync(modules, queryFrom, queryTo, ct: ct);
 
             var targets = await db.MonitoringTargets.AsNoTracking()
-                .Where(t => t.TargetType == MonitoringTargetType.Fabric)
+                .Where(t => t.TargetType == MonitoringTargetType.Fabric && t.RetiredAt == null)
                 .Select(t => new { t.DeviceMac, t.Name })
                 .ToListAsync(ct);
             var nameMap = targets

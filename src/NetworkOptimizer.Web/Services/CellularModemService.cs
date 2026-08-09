@@ -194,10 +194,11 @@ public class CellularModemService : ICellularModemService
     /// <summary>
     /// Dispatch a poll to the appropriate provider based on the row's Provider column.
     /// </summary>
-    private async Task<CellularModemStats?> ExecutePollAsync(ModemConfiguration modem)
+    private async Task<ModemPollResult> ExecutePollAsync(ModemConfiguration modem)
     {
         var provider = ResolveProvider(modem);
-        if (provider == null) return null;
+        if (provider == null)
+            return ModemPollResult.Failed($"No provider is registered for '{modem.Provider}'.");
 
         var context = await ToPollContextAsync(modem);
         return await provider.PollAsync(context);
@@ -283,7 +284,8 @@ public class CellularModemService : ICellularModemService
     {
         try
         {
-            var stats = await ExecutePollAsync(modem);
+            var result = await ExecutePollAsync(modem);
+            var stats = result.Stats;
 
             if (stats != null)
             {
@@ -307,8 +309,11 @@ public class CellularModemService : ICellularModemService
             }
             else
             {
-                await UpdateModemConfigAsync(modem.Id, "Poll returned no data", success: false);
-                return (false, "Failed to poll modem - no data returned");
+                var reason = string.IsNullOrWhiteSpace(result.FailureReason)
+                    ? "The modem returned no data."
+                    : result.FailureReason;
+                await UpdateModemConfigAsync(modem.Id, reason, success: false);
+                return (false, reason);
             }
         }
         catch (Exception ex)

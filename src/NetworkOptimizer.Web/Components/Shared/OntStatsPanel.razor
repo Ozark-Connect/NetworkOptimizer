@@ -426,7 +426,7 @@ else
                 .OrderBy(s => s.DeviceMac).ThenBy(s => s.PortName)
                 .ToListAsync();
             _fabricTargets = await db.MonitoringTargets.AsNoTracking()
-                .Where(t => t.TargetType == MonitoringTargetType.Fabric)
+                .Where(t => t.TargetType == MonitoringTargetType.Fabric && t.RetiredAt == null)
                 .ToListAsync();
             _externalOnts = await ExternalOntService.GetStandaloneConfigsAsync();
             if (_currentIndex >= TotalCount) _currentIndex = 0;

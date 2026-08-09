@@ -71,7 +71,7 @@ public static class PortStatsEndpoints
             // Device display name + type ("ap" / "switch" / "gateway") from the fabric
             // monitoring targets, matching how the device health chart resolves names.
             var targets = await db.MonitoringTargets.AsNoTracking()
-                .Where(t => t.TargetType == MonitoringTargetType.Fabric && t.DeviceMac != null)
+                .Where(t => t.TargetType == MonitoringTargetType.Fabric && t.RetiredAt == null && t.DeviceMac != null)
                 .Select(t => new { t.DeviceMac, t.Name, t.AutoLabel })
                 .ToListAsync(ct);
             var targetByMac = targets

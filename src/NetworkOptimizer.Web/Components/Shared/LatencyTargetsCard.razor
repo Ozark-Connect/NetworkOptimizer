@@ -189,7 +189,11 @@
                                 </SiteOperatorOnly>
                             </td>
                             <td>
-                                @if (!t.Enabled)
+                                @if (t.IsRetired)
+                                {
+                                    <span class="text-muted" data-tooltip="@RetiredTooltip(t)">retired</span>
+                                }
+                                else if (!t.Enabled)
                                 {
                                     <span class="text-muted">paused</span>
                                 }
@@ -222,13 +226,17 @@
                                 { <span class="text-muted">never</span> }
                             </td>
                             <td style="white-space: nowrap;">
-                                <SiteOperatorOnly>
-                                    <button class="btn btn-sm btn-secondary"
-                                        @onclick="() => SetTargetEnabledAsync(t.Id, !t.Enabled)"
-                                        title="@(t.Enabled ? "Pause probing" : "Resume probing")">
-                                    @(t.Enabled ? "Pause" : "Resume")
-                                </button>
-                                </SiteOperatorOnly>
+                                @* A retired target's address answers to nothing, so there is no probing to resume. *@
+                                @if (!t.IsRetired)
+                                {
+                                    <SiteOperatorOnly>
+                                        <button class="btn btn-sm btn-secondary"
+                                            @onclick="() => SetTargetEnabledAsync(t.Id, !t.Enabled)"
+                                            title="@(t.Enabled ? "Pause probing" : "Resume probing")">
+                                        @(t.Enabled ? "Pause" : "Resume")
+                                    </button>
+                                    </SiteOperatorOnly>
+                                }
                                 <SiteAdminOnly>
                                     <button class="btn btn-sm btn-danger"
                                         @onclick="() => DeleteTargetAsync(t.Id)"
@@ -565,6 +573,15 @@
                 MonitoringTargetType.InternetService, MonitoringTargetType.Custom }
             : new[] { MonitoringTargetType.AccessIsp, MonitoringTargetType.Transit,
                 MonitoringTargetType.InternetService, MonitoringTargetType.Custom };
+
+    /// <summary>
+    /// Why a target was retired, and what it still offers: the measurements stay readable, which
+    /// is the reason the row is here rather than gone.
+    /// </summary>
+    private static string RetiredTooltip(MonitoringTarget t) =>
+        string.IsNullOrWhiteSpace(t.RetiredReason)
+            ? "No longer probed. Its measurements are kept."
+            : $"{t.RetiredReason}. No longer probed; its measurements are kept.";
 
     /// <summary>
     /// The Type column's badge. Access ISP is shortened to the name the filter pill above it uses,
