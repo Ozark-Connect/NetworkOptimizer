@@ -1514,9 +1514,11 @@ public class MonitoringCollectionAgent : BackgroundService
         if (!_isDefault || AgentOwnsProbing()) return;
 
         await using var db = await CreateSiteDbAsync(ct);
+        // Enabled is the user's intent; RetiredAt is ours. A retired target's address answers to
+        // nothing, so probing it spends a probe to record a loss that means nothing.
         var targets = await db.MonitoringTargets
             .AsNoTracking()
-            .Where(t => t.Enabled)
+            .Where(t => t.Enabled && t.RetiredAt == null)
             .ToListAsync(ct);
         var contextsById = await db.WanContexts.AsNoTracking().ToDictionaryAsync(c => c.Id, ct);
 
@@ -1852,7 +1854,9 @@ public class MonitoringCollectionAgent : BackgroundService
             {
                 revived.RetiredAt = null;
                 revived.RetiredReason = null;
-                revived.Enabled = enableLatency;
+                // Enabled is left as the user last set it - retiring never cleared it, so a target
+                // they had paused comes back paused. The Flex 2.5G rule is ours to apply either way.
+                if (UniFi.UniFiProductDatabase.IsFlex25G(d.Model, d.Shortname)) revived.Enabled = false;
                 revived.Name = string.IsNullOrEmpty(d.Name) ? d.Mac : d.Name;
                 _logger.LogInformation(
                     "Fabric target {Name} ({Mac}) returned to {Address}; resuming its existing target",
@@ -1912,12 +1916,16 @@ public class MonitoringCollectionAgent : BackgroundService
 
     /// <summary>
     /// Stop probing a target and record why, leaving the row in place so the measurements filed
-    /// under its TargetId stay resolvable. Disabling as well as retiring is deliberate: every
-    /// probe path already filters on Enabled.
+    /// under its TargetId stay resolvable.
+    /// <para>
+    /// Never touches Enabled. That column holds what the USER asked for, and retiring is something
+    /// we do to them: clearing it here would silently undo a pause, and revival could not tell that
+    /// pause apart from a target that was simply never paused. The probe paths gate on RetiredAt
+    /// instead.
+    /// </para>
     /// </summary>
     private void Retire(MonitoringTarget target, string reason)
     {
-        target.Enabled = false;
         target.RetiredAt = DateTime.UtcNow;
         target.RetiredReason = reason;
         _logger.LogInformation(

@@ -123,7 +123,7 @@ public class MonitoringGatedServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task A_removed_target_can_be_put_back()
+    public async Task A_removed_target_can_be_put_back_and_starts_probing_again()
     {
         var id = await SeedTargetAsync(everProbed: true);
         await Targets().DeleteAsync(id);
@@ -133,7 +133,9 @@ public class MonitoringGatedServiceTests : IDisposable
 
         _audit.Drain().Suppressed.Should().BeFalse();
         await using var db = _factory.CreateForSite(_siteContext.Slug, _siteContext.IsDefault);
-        (await db.MonitoringTargets.FindAsync(id))!.IsHidden.Should().BeFalse();
+        var row = await db.MonitoringTargets.FindAsync(id);
+        row!.IsHidden.Should().BeFalse();
+        row.Enabled.Should().BeTrue("removing it stopped the probing, so restoring it starts again");
     }
 
     [Fact]

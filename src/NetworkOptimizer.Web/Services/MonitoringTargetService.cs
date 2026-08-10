@@ -171,6 +171,10 @@ public class MonitoringTargetService : IMonitoringTargetService
         {
             if (row.IsHidden == hidden) return null;
             row.HiddenAt = hidden ? DateTime.UtcNow : null;
+            // Probing follows the listing, in both directions: removing a target stopped it, so
+            // putting it back starts it again rather than leaving a restored row silently paused.
+            // A retired one stays dark regardless - the probe paths gate on RetiredAt.
+            row.Enabled = !hidden;
             return new { field = "HiddenAt", hidden };
         });
 

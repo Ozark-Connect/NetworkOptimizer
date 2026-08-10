@@ -33,7 +33,10 @@ public interface IMonitoringTargetService
     [AuditAction(AuditActions.MonitoringSetupChanged, TargetType = "monitoring_target")]
     Task<bool> DeleteAsync(int id, CancellationToken ct = default);
 
-    /// <summary>Takes a target off the list, or puts it back. False when it no longer exists.</summary>
+    /// <summary>
+    /// Takes a target off the list, or puts it back, stopping and resuming its probing with it.
+    /// False when it no longer exists.
+    /// </summary>
     /// <remarks>
     /// Admin, matching <see cref="DeleteAsync"/>: this is the way back from it, and the two should
     /// not need different people.

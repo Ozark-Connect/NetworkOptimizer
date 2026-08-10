@@ -52,7 +52,7 @@
             </div>
         }
         <div class="card-header-badges">
-            <span class="status-badge status-active" @onclick:stopPropagation="true">@VisibleTargets().Count(t => t.Enabled) active</span>
+            <span class="status-badge status-active" @onclick:stopPropagation="true">@VisibleTargets().Count(t => t.Enabled && !t.IsRetired) active</span>
             <span class="issue-type-chevron">@(_collapsed ? "▼" : "▲")</span>
         </div>
     </div>
@@ -198,7 +198,7 @@
                             <td>
                                 @if (t.IsHidden)
                                 {
-                                    <span class="text-muted" data-tooltip="@HiddenTooltip(t)">removed</span>
+                                    <span class="text-muted" data-tooltip="@HiddenTooltip">removed</span>
                                 }
                                 else if (t.IsRetired)
                                 {
@@ -242,7 +242,7 @@
                                     <SiteAdminOnly>
                                         <button class="btn btn-sm btn-secondary"
                                             @onclick="() => RestoreTargetAsync(t.Id)"
-                                            title="Put this target back on the list">
+                                            data-tooltip="Put this target back on the list and resume probing it">
                                         Restore
                                     </button>
                                     </SiteAdminOnly>
@@ -255,7 +255,7 @@
                                         <SiteOperatorOnly>
                                             <button class="btn btn-sm btn-secondary"
                                                 @onclick="() => SetTargetEnabledAsync(t.Id, !t.Enabled)"
-                                                title="@(t.Enabled ? "Pause probing" : "Resume probing")">
+                                                data-tooltip="@(t.Enabled ? "Pause probing" : "Resume probing")">
                                             @(t.Enabled ? "Pause" : "Resume")
                                         </button>
                                         </SiteOperatorOnly>
@@ -263,7 +263,7 @@
                                     <SiteAdminOnly>
                                         <button class="btn btn-sm btn-danger"
                                             @onclick="() => DeleteTargetAsync(t.Id)"
-                                            title="@RemoveTooltip(t)"
+                                            data-tooltip="@RemoveTooltip(t)"
                                             style="margin-left: 0.25rem;">
                                         Remove
                                     </button>
@@ -599,20 +599,20 @@
                 MonitoringTargetType.InternetService, MonitoringTargetType.Custom };
 
     /// <summary>
-    /// How many removed targets are being kept out of the list, counted before the type and WAN
-    /// filters so the button does not disappear just because the current filter excludes them.
+    /// How many removed targets pressing Show removed would actually reveal - narrowed the same
+    /// way the list is, so the count can never promise rows the current scope would filter out.
     /// </summary>
-    private int HiddenCount => Targets.Count(t => t.IsHidden);
+    private int HiddenCount => InScope(Targets.Where(t => t.IsHidden)).Count();
 
     /// <summary>
     /// Remove keeps a probed target's row so its series stays named, and only really deletes one
     /// that never ran. The button says which it will do, because the two are not the same promise.
     /// </summary>
     private static string RemoveTooltip(MonitoringTarget t) => t.LastVerified != null
-        ? "Take this target off the list. Its measurements are kept and stay readable in charts."
+        ? "Take this target off the list. Its measurements are kept, so nothing it recorded is orphaned."
         : "Delete this target. It has never been probed, so there is nothing to keep.";
 
-    private static string HiddenTooltip(MonitoringTarget t) =>
+    private const string HiddenTooltip =
         "Removed from the list. Its measurements are kept so charts can still name them.";
 
     /// <summary>
@@ -760,10 +760,17 @@
         ? $"/network-tools?from={Uri.EscapeDataString(vantage)}"
         : "/network-tools";
 
-    private IEnumerable<MonitoringTarget> VisibleTargets()
+    private IEnumerable<MonitoringTarget> VisibleTargets() =>
+        InScope(_showHidden ? Targets : Targets.Where(t => !t.IsHidden));
+
+    /// <summary>
+    /// The type and LAN/WAN narrowing the card is currently showing, applied to whatever set is
+    /// handed in. Shared with <see cref="HiddenCount"/> so the Show removed button counts what
+    /// pressing it would actually reveal.
+    /// </summary>
+    private IEnumerable<MonitoringTarget> InScope(IEnumerable<MonitoringTarget> targets)
     {
-        IEnumerable<MonitoringTarget> ordered = Targets.OrderBy(t => t.TargetType).ThenBy(t => t.Name);
-        if (!_showHidden) ordered = ordered.Where(t => !t.IsHidden);
+        IEnumerable<MonitoringTarget> ordered = targets.OrderBy(t => t.TargetType).ThenBy(t => t.Name);
         if (_typeFilter is MonitoringTargetType wanted) ordered = ordered.Where(t => t.TargetType == wanted);
         // The LAN is what sits on this network, whatever WAN a row happens to be stamped with, and
         // a WAN is the opposite. Only All carries both.

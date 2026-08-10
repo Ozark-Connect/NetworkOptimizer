@@ -4438,7 +4438,7 @@
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         var fabricMacs = _targets
-            .Where(t => t.TargetType == MonitoringTargetType.Fabric && !string.IsNullOrEmpty(t.DeviceMac))
+            .Where(t => t.TargetType == MonitoringTargetType.Fabric && !t.IsRetired && !string.IsNullOrEmpty(t.DeviceMac))
             .Select(t => t.DeviceMac!)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             // Three ways to answer, in order of how much the site can currently tell us:

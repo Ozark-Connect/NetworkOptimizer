@@ -78,7 +78,8 @@ public sealed class NetgearNighthawkHotspotProvider : ICellularModemProvider, ID
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error polling Netgear modem {Name} at {Host}", context.Name, host);
-            return ModemPollResult.Failed($"Could not read stats from {host}: {ex.Message}");
+            // Capped: an HTTP failure can carry a paragraph, and this renders inline on the card.
+            return ModemPollResult.Failed($"Could not read stats from {host}: {FirstLine(ex.Message)}");
         }
     }
 
@@ -374,6 +375,14 @@ public sealed class NetgearNighthawkHotspotProvider : ICellularModemProvider, ID
         }
     }
 
+
+    /// <summary>The first line of an exception message, capped for inline display.</summary>
+    private static string FirstLine(string? text)
+    {
+        const int maxLength = 160;
+        var line = (text ?? "").Split('\n', '\r').FirstOrDefault(l => !string.IsNullOrWhiteSpace(l))?.Trim() ?? "";
+        return line.Length <= maxLength ? line : line[..maxLength] + "...";
+    }
 
     // Generic helpers for path-based JSON access
 
