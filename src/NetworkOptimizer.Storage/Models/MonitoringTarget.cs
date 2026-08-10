@@ -165,6 +165,20 @@ public class MonitoringTarget
     /// <summary>Whether this target still describes something real.</summary>
     public bool IsRetired => RetiredAt != null;
 
+    /// <summary>
+    /// When the user took this target off the Latency Targets list.
+    /// <para>
+    /// Hiding is a list filter and nothing more. The row is the only thing mapping a TargetId to a
+    /// name, an address and a device, so readers rendering history must still resolve a hidden one
+    /// - filter it where the list is drawn, never where a series is named, or hiding becomes
+    /// deleting by another route.
+    /// </para>
+    /// </summary>
+    public DateTime? HiddenAt { get; set; }
+
+    /// <summary>Whether the user has taken this target off the list.</summary>
+    public bool IsHidden => HiddenAt != null;
+
     public DateTime? LastVerified { get; set; }
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
