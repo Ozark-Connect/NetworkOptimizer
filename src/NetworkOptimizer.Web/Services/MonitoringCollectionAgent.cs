@@ -1852,10 +1852,9 @@ public class MonitoringCollectionAgent : BackgroundService
 
             if (revived != null)
             {
-                revived.RetiredAt = null;
-                revived.RetiredReason = null;
-                // Enabled is left as the user last set it - retiring never cleared it, so a target
-                // they had paused comes back paused. The Flex 2.5G rule is ours to apply either way.
+                // Comes back however the user last left it, not however a fresh target would start:
+                // a pause survives the round trip out of the console and back.
+                ApplyRevival(revived, fallbackEnabled: enableLatency);
                 if (UniFi.UniFiProductDatabase.IsFlex25G(d.Model, d.Shortname)) revived.Enabled = false;
                 revived.Name = string.IsNullOrEmpty(d.Name) ? d.Mac : d.Name;
                 _logger.LogInformation(
@@ -1917,20 +1916,44 @@ public class MonitoringCollectionAgent : BackgroundService
     /// <summary>
     /// Stop probing a target and record why, leaving the row in place so the measurements filed
     /// under its TargetId stay resolvable.
-    /// <para>
-    /// Never touches Enabled. That column holds what the USER asked for, and retiring is something
-    /// we do to them: clearing it here would silently undo a pause, and revival could not tell that
-    /// pause apart from a target that was simply never paused. The probe paths gate on RetiredAt
-    /// instead.
-    /// </para>
     /// </summary>
     private void Retire(MonitoringTarget target, string reason)
     {
-        target.RetiredAt = DateTime.UtcNow;
-        target.RetiredReason = reason;
+        ApplyRetirement(target, reason);
         _logger.LogInformation(
             "Retired fabric target {Name} ({Address}): {Reason}",
             target.Name, target.Address, reason);
+    }
+
+    /// <summary>
+    /// The retirement state change, without the logging, so it can be tested as the pair it forms
+    /// with <see cref="ApplyRevival"/>.
+    /// <para>
+    /// Enabled is cleared because a dozen readers treat it as "is this row live" and would
+    /// otherwise count a retired target as active. It is remembered because Enabled is also where
+    /// a user's pause lives - see <see cref="MonitoringTarget.EnabledBeforeRetire"/>.
+    /// </para>
+    /// </summary>
+    internal static void ApplyRetirement(MonitoringTarget target, string reason)
+    {
+        target.EnabledBeforeRetire = target.Enabled;
+        target.Enabled = false;
+        target.RetiredAt = DateTime.UtcNow;
+        target.RetiredReason = reason;
+    }
+
+    /// <summary>
+    /// Put a retired target back into service, restoring the enabled state retirement took from it.
+    /// </summary>
+    /// <param name="target">The retired row.</param>
+    /// <param name="fallbackEnabled">Used only for a row retired before the remembered value
+    /// existed, where there is nothing to restore.</param>
+    internal static void ApplyRevival(MonitoringTarget target, bool fallbackEnabled)
+    {
+        target.Enabled = target.EnabledBeforeRetire ?? fallbackEnabled;
+        target.EnabledBeforeRetire = null;
+        target.RetiredAt = null;
+        target.RetiredReason = null;
     }
 
     /// <summary>

@@ -162,6 +162,17 @@ public class MonitoringTarget
     [MaxLength(200)]
     public string? RetiredReason { get; set; }
 
+    /// <summary>
+    /// What <see cref="Enabled"/> was before retirement cleared it, so revival can put it back.
+    /// <para>
+    /// Retiring has to clear Enabled: a dozen readers treat that column as "is this row live" and
+    /// would otherwise start counting retired rows as active. But Enabled is also where a user's
+    /// pause lives, and overwriting it without keeping the old value silently un-paused a target
+    /// whose device left and came back. Null means never retired.
+    /// </para>
+    /// </summary>
+    public bool? EnabledBeforeRetire { get; set; }
+
     /// <summary>Whether this target still describes something real.</summary>
     public bool IsRetired => RetiredAt != null;
 

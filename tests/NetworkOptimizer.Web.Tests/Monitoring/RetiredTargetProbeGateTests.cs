@@ -1,53 +1,80 @@
 using FluentAssertions;
 using NetworkOptimizer.Storage.Models;
+using NetworkOptimizer.Web.Services;
 using Xunit;
 
 namespace NetworkOptimizer.Web.Tests.Monitoring;
 
 /// <summary>
-/// Retiring a target must not touch Enabled. That column carries what the user asked for, and the
-/// probe paths gate on RetiredAt instead - without that split, a target the user had paused came
-/// back probing the moment its device left the console and returned.
+/// Retirement clears Enabled, because a dozen readers treat that column as "is this row live".
+/// Enabled is also where a user's pause lives, so it is remembered and handed back on revival -
+/// without that, a target the user had paused came back probing once its device left the console
+/// and returned.
 /// </summary>
 public class RetiredTargetProbeGateTests
 {
-    private static MonitoringTarget Target(bool enabled, bool retired) => new()
+    private static MonitoringTarget Target(bool enabled) => new()
     {
         TargetId = "fabric-aa:bb:cc:dd:ee:ff",
         Name = "Switch",
         Address = "192.0.2.10",
         TargetType = MonitoringTargetType.Fabric,
         Enabled = enabled,
-        RetiredAt = retired ? DateTime.UtcNow : null,
     };
 
     /// <summary>The predicate both probe paths apply.</summary>
     private static bool WouldBeProbed(MonitoringTarget t) => t.Enabled && t.RetiredAt == null;
 
-    [Theory]
-    [InlineData(true, false, true)]    // live and wanted: probed
-    [InlineData(false, false, false)]  // the user paused it
-    [InlineData(true, true, false)]    // retired, though the user never paused it
-    [InlineData(false, true, false)]   // paused AND retired
-    public void Only_a_live_target_the_user_wants_is_probed(bool enabled, bool retired, bool probed)
+    [Fact]
+    public void Retiring_stops_the_probing_and_reads_as_inactive_to_an_Enabled_only_reader()
     {
-        WouldBeProbed(Target(enabled, retired)).Should().Be(probed);
+        var target = Target(enabled: true);
+
+        MonitoringCollectionAgent.ApplyRetirement(target, "No longer in the UniFi device list");
+
+        target.Enabled.Should().BeFalse("readers that filter on Enabled alone must not count it as active");
+        target.RetiredAt.Should().NotBeNull();
+        WouldBeProbed(target).Should().BeFalse();
     }
 
     [Fact]
-    public void A_paused_target_is_still_paused_after_being_retired_and_revived()
+    public void A_target_the_user_had_running_comes_back_running()
     {
-        var target = Target(enabled: false, retired: false);
+        var target = Target(enabled: true);
 
-        // Retire, as the reconcile does: RetiredAt only.
-        target.RetiredAt = DateTime.UtcNow;
-        target.RetiredReason = "No longer in the UniFi device list";
+        MonitoringCollectionAgent.ApplyRetirement(target, "Address changed to 192.0.2.20");
+        MonitoringCollectionAgent.ApplyRevival(target, fallbackEnabled: true);
 
-        // Revive, as the reconcile does when the device returns on the same address.
-        target.RetiredAt = null;
-        target.RetiredReason = null;
+        target.Enabled.Should().BeTrue();
+        target.RetiredAt.Should().BeNull();
+        target.RetiredReason.Should().BeNull();
+        target.EnabledBeforeRetire.Should().BeNull("the remembered value has been handed back and is spent");
+        WouldBeProbed(target).Should().BeTrue();
+    }
+
+    [Fact]
+    public void A_target_the_user_had_paused_comes_back_paused()
+    {
+        var target = Target(enabled: false);
+
+        MonitoringCollectionAgent.ApplyRetirement(target, "No longer in the UniFi device list");
+        // fallbackEnabled is what a brand-new target would get; the remembered pause must beat it.
+        MonitoringCollectionAgent.ApplyRevival(target, fallbackEnabled: true);
 
         target.Enabled.Should().BeFalse("the pause was the user's and nothing in that round trip was entitled to clear it");
         WouldBeProbed(target).Should().BeFalse();
+    }
+
+    [Fact]
+    public void A_row_retired_before_the_remembered_value_existed_falls_back()
+    {
+        // Rows retired by an earlier build carry RetiredAt with no EnabledBeforeRetire.
+        var target = Target(enabled: false);
+        target.RetiredAt = DateTime.UtcNow;
+        target.EnabledBeforeRetire = null;
+
+        MonitoringCollectionAgent.ApplyRevival(target, fallbackEnabled: true);
+
+        target.Enabled.Should().BeTrue("with nothing remembered, it starts as a fresh target would");
     }
 }
