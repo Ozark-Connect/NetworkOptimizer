@@ -350,8 +350,10 @@ public static class MonitoringChartEndpoints
             int? rangeHours,
             DateTime? from,
             DateTime? to,
+            bool? includeInactive,
             CancellationToken ct) =>
         {
+            var showInactive = includeInactive == true;
             var targetType = category switch
             {
                 "AccessIsp" => MonitoringTargetType.AccessIsp,
@@ -377,15 +379,25 @@ public static class MonitoringChartEndpoints
             // the target_type tag (indexed, ~10ms) instead of contains() on
             // target_id set (full scan, ~400ms+).
             await using var db = siteDbFactory.CreateForSite(siteContext.Slug, siteContext.IsDefault);
-            var targets = await db.MonitoringTargets.AsNoTracking()
-                .Where(t => t.TargetType == targetType && t.Enabled
-                    && (t.AsnNumber == null || !WellKnownAsns.NonTransitInfrastructure.Contains(t.AsnNumber.Value)))
+            // Inactive is the inverse of Enabled: retired, removed and paused alike. They are the
+            // series whose history is still worth reading even though nothing is probing them.
+            var inTypeAndScope = db.MonitoringTargets.AsNoTracking()
+                .Where(t => t.TargetType == targetType
+                    && (t.AsnNumber == null || !WellKnownAsns.NonTransitInfrastructure.Contains(t.AsnNumber.Value)));
+
+            var targets = await inTypeAndScope
+                .Where(t => t.Enabled || showInactive)
                 .OrderBy(t => t.Name)
-                .Select(t => new { t.TargetId, t.Name, t.AutoLabel, t.WanInterface, t.Address, t.TargetType, t.IsLocal })
+                .Select(t => new { t.TargetId, t.Name, t.AutoLabel, t.WanInterface, t.Address, t.TargetType, t.IsLocal, t.Enabled })
                 .ToListAsync(ct);
 
+            // Counted whether or not they were asked for: the client shows its toggle only when
+            // there is something behind it, so it needs the answer even on a request that excluded
+            // them. Cheap - Enabled is indexed and this reads no rows.
+            var inactiveCount = await inTypeAndScope.CountAsync(t => !t.Enabled, ct);
+
             if (targets.Count == 0)
-                return Results.Ok(new { targets = Array.Empty<object>() });
+                return Results.Ok(new { targets = Array.Empty<object>(), inactiveCount });
 
             var data = await influx.QueryLatencyByTargetTypeAsync(targetType, queryFrom, queryTo, ct: ct);
 
@@ -409,12 +421,15 @@ public static class MonitoringChartEndpoints
                     // a hostname can only be answered here.
                     isLan = NetworkOptimizer.Web.Services.Monitoring.LocalTargetResolver.IsLocal(
                         t.TargetType, t.Address, t.IsLocal, t.WanInterface),
+                    // Nothing is probing this one, so its line has ended rather than paused for
+                    // rendering purposes. The chart draws it dashed and says so on the chip.
+                    inactive = !t.Enabled,
                     rtt = pts.Select(p => new { time = p.Time.ToString("o"), value = p.RttAvgMs }),
                     loss = pts.Select(p => new { time = p.Time.ToString("o"), value = p.LossPercent }),
                 };
             });
 
-            return Results.Ok(new { targets = result });
+            return Results.Ok(new { targets = result, inactiveCount });
         });
 
         group.MapGet("/api/monitoring/wan-rate-chart", async (

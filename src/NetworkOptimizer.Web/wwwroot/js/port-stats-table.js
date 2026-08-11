@@ -3,7 +3,7 @@
 // renderStatsTable(), and exposes selectDevice() so a map double-click can
 // isolate a single switch/gateway.
 import { renderStatsTable as renderTable } from './chart-stats.js?v=7';
-import { renderFilterReset } from './chart-filter.js?v=5';
+import { renderFilterReset } from './chart-filter.js?v=6';
 
 const _esc = document.createElement('span');
 function escapeHtml(s) { _esc.textContent = s == null ? '' : String(s); return _esc.innerHTML; }

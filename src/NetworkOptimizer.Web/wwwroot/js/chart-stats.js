@@ -1,4 +1,4 @@
-import { isFiltered, FILTER_RESET_SVG } from './chart-filter.js?v=5';
+import { isFiltered, FILTER_RESET_SVG } from './chart-filter.js?v=6';
 
 const _esc = document.createElement('span');
 function escapeHtml(s) { _esc.textContent = s; return _esc.innerHTML; }

@@ -7,7 +7,7 @@
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=7';
 import { valueSortedTooltip, tooltipHeld } from './chart-tooltip.js?v=14';
-import { renderFilterReset, isFiltered } from './chart-filter.js?v=5';
+import { renderFilterReset, renderInactiveToggle, isFiltered } from './chart-filter.js?v=6';
 import { downloadColor, uploadColor } from './chart-colors.js?v=2';
 import { createAxisDateCaption } from './chart-axis-date.js?v=3';
 import { syncIdentity, extentsOf, spanTo } from './chart-sync.js?v=7';
@@ -28,6 +28,18 @@ function hashColor(id) {
     _colorCache[id] = PALETTE[idx];
     return PALETTE[idx];
 }
+/**
+ * The same colour, faded, for a series nothing is probing any more. Keeping the hue is the point:
+ * a host's retired line and its live replacement have to read as the same host, so only the
+ * strength changes. Palette entries are #rrggbb, and anything else is returned untouched.
+ */
+function dimmed(hex) {
+    const m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex ?? '');
+    if (!m) return hex;
+    const [r, g, b] = m.slice(1).map(h => parseInt(h, 16));
+    return `rgba(${r}, ${g}, ${b}, 0.4)`;
+}
+
 const _esc = document.createElement('span');
 function escapeHtml(s) { _esc.textContent = s; return _esc.innerHTML; }
 const POLL_INTERVALS = { 0: 5000, 1: 5000, 6: 10000, 24: 15000, 168: 30000, 720: 30000 };
@@ -51,6 +63,11 @@ let visibilityObserver = null;
 let isInViewport = true;
 let lastFetchData = null;
 let savedState = null;
+// Whether the fetch asks for the series nothing is probing any more, and how many of them this
+// category has. The count comes back on every response, including one that excluded them, because
+// it is what decides whether the control to ask for them is offered at all.
+let showInactive = false;
+let inactiveCount = 0;
 // Per-WAN scope, set by Blazor (which owns the WAN pill bar and its visibility gate).
 // null = no scoping at all: single-WAN sites never reach this code path and render
 // exactly as before. Shape: { primaryKey, selected: [wanKey...], tokens: {key: 'WAN1'} };
@@ -277,6 +294,7 @@ function buildQueryParams() {
             params = `category=${currentCategory}&from=${from.toISOString()}&to=${to.toISOString()}`;
         }
     }
+    if (showInactive) params += '&includeInactive=true';
     return params;
 }
 
@@ -299,11 +317,20 @@ function renderBadges(container) {
     const el = container.querySelector('.latency-filter-badges');
     if (el) el.dataset.tour = 'chart-series-filter';
     if (!el) return;
-    if (badgeGroups().length <= 1) { el.innerHTML = ''; return; }
+    if (badgeGroups().length <= 1) {
+        // Still offer the toggle: a category whose every target has been retired draws no chips at
+        // all, and without this there would be no way to ask for the ones that are missing.
+        el.innerHTML = '';
+        renderInactiveToggle(el, inactiveCount > 0, showInactive, toggleInactive);
+        return;
+    }
 
     el.innerHTML = badgeGroups().map(g => {
         const vis = g.ids.some(id => visibility[id] !== false);
-        return `<button class="wan-filter-badge ${vis ? 'active' : 'inactive'}" data-target="${escapeHtml(g.key)}">
+        // The chip's own `inactive` class already means "filtered off by this row", so the
+        // not-probed state needs its own name here even though the control calls it inactive.
+        const unprobed = g.unprobed ? ' wan-badge-unprobed' : '';
+        return `<button class="wan-filter-badge ${vis ? 'active' : 'inactive'}${unprobed}" data-target="${escapeHtml(g.key)}">
             <span class="wan-badge-dot" style="background-color: ${g.color}"></span>
             <span>${escapeHtml(g.key)}</span>
         </button>`;
@@ -345,13 +372,26 @@ function renderBadges(container) {
         });
     }
 
-    // Last: the chip rebuild above wipes the row, so the reset is re-added after it.
+    // Last: the chip rebuild above wipes the row, so both controls are re-added after it.
+    renderInactiveToggle(el, inactiveCount > 0, showInactive, toggleInactive);
     renderFilterReset(el, isFiltered(visibility), () => {
         visibility = {};
         updateChartVisibility();
         renderBadges(container);
         if (lastFetchData) renderStatsTable(container, false);
     });
+}
+
+/**
+ * Ask the server for the series nothing is probing, or stop asking. Unlike the reset beside it
+ * this changes what comes back rather than what is drawn, so it reloads instead of redrawing.
+ */
+function toggleInactive() {
+    showInactive = !showInactive;
+    // Visibility is keyed by target id, and the ids on the way in are ones it has never seen.
+    // Left alone they would arrive hidden if the user had soloed something earlier.
+    if (showInactive) visibility = {};
+    loadAndUpdate();
 }
 
 // One entry per host, in the order its series first appear, carrying every series id that host
@@ -361,7 +401,10 @@ function badgeGroups() {
     const byHost = new Map();
     targetMeta.forEach(t => {
         const key = t.hostName ?? t.name;
-        if (!byHost.has(key)) byHost.set(key, { key, color: t.color, ids: [] });
+        // A host is shown as not-probed only when every series it owns is: a host with a retired
+        // target and a live replacement is still being probed, and saying otherwise would be wrong.
+        if (!byHost.has(key)) byHost.set(key, { key, color: t.color, ids: [], unprobed: true });
+        if (!t.inactive) byHost.get(key).unprobed = false;
         byHost.get(key).ids.push(t.id);
     });
     return [...byHost.values()];
@@ -379,7 +422,9 @@ function updateChartVisibility() {
 
     const seriesOf = key => shown.map(t => ({
         name: wanDisplayName(t),
-        color: hashColor(t.name),
+        // Faded rather than dashed for the ones nothing is probing: the dash pattern already says
+        // which WAN a series belongs to in comparison mode, and one pattern cannot mean two things.
+        color: t.inactive ? dimmed(hashColor(t.name)) : hashColor(t.name),
         data: (t[key] || []).map(p => ({ x: new Date(p.time).getTime(), y: p.value })),
     }));
 
@@ -486,11 +531,14 @@ async function loadAndUpdate() {
     // are what tells them apart in comparison mode.
     const scopedTargets = filterTargetsToWanScope(data.targets);
 
+    inactiveCount = data.inactiveCount ?? 0;
+
     targetMeta = scopedTargets.map(t => ({
         id: t.targetId,
         name: wanDisplayName(t),
         hostName: t.name,
         color: hashColor(t.name),
+        inactive: t.inactive === true,
     }));
 
     lastFetchData = { ...data, targets: scopedTargets };
@@ -1039,6 +1087,10 @@ export function setCategory(cat) {
         });
     }
     visibility = {};
+    // Each category answers "are there any inactive series" for itself, so asking for them does
+    // not follow the reader from one tab to the next.
+    showInactive = false;
+    inactiveCount = 0;
     loadAndUpdate();
     startPoll();
 }
@@ -1074,6 +1126,8 @@ export function unmount() {
     customTo = null;
     lastFetchData = null;
     savedState = null;
+    showInactive = false;
+    inactiveCount = 0;
     investigateMarker = null;
     isInViewport = true;
     wanScope = null;
