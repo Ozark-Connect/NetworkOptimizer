@@ -240,7 +240,7 @@
                                 else
                                 { <span class="text-muted">never</span> }
                             </td>
-                            <td style="white-space: nowrap;">
+                            <td class="lt-action-cell lt-action-cell-first">
                                 @if (t.IsHidden)
                                 {
                                     <SiteAdminOnly>
@@ -263,7 +263,7 @@
                                     </SiteOperatorOnly>
                                 }
                             </td>
-                            <td style="white-space: nowrap;">
+                            <td class="lt-action-cell lt-action-cell-last">
                                 @if (!t.IsHidden)
                                 {
                                     <SiteAdminOnly>
@@ -395,6 +395,18 @@
 <style>
     .lt-type-filter {
         margin: 0 0.5rem;
+    }
+
+    .data-table td.lt-action-cell {
+        white-space: nowrap;
+    }
+
+    .data-table td.lt-action-cell-first {
+        padding-right: 0.25rem;
+    }
+
+    .data-table td.lt-action-cell-last {
+        padding-left: 0;
     }
 
     .lt-intro {
