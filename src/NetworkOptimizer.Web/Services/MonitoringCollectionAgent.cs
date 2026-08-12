@@ -1878,6 +1878,12 @@ public class MonitoringCollectionAgent : BackgroundService
                     AutoDiscovered = true,
                     AutoLabel = DescribeDeviceType(d.DeviceType),
                     LanFlakyHintDismissedAt = predecessor?.LanFlakyHintDismissedAt,
+                    // Carried with its original stamp, so a device that moves while removed stays
+                    // removed. Without it the replacement arrived back on the list as a paused row,
+                    // honouring the half of the user's intent about probing and dropping the half
+                    // about not wanting to see it. Null for every other predecessor, so this only
+                    // reaches a device that was removed before it moved.
+                    HiddenAt = predecessor?.HiddenAt,
                     CreatedAt = DateTime.UtcNow
                 };
                 db.MonitoringTargets.Add(created);
