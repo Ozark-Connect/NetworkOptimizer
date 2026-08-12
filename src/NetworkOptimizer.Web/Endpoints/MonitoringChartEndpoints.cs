@@ -379,22 +379,47 @@ public static class MonitoringChartEndpoints
             // the target_type tag (indexed, ~10ms) instead of contains() on
             // target_id set (full scan, ~400ms+).
             await using var db = siteDbFactory.CreateForSite(siteContext.Slug, siteContext.IsDefault);
-            // Inactive is the inverse of Enabled: retired, removed and paused alike. They are the
-            // series whose history is still worth reading even though nothing is probing them.
-            var inTypeAndScope = db.MonitoringTargets.AsNoTracking()
+            var all = await db.MonitoringTargets.AsNoTracking()
                 .Where(t => t.TargetType == targetType
-                    && (t.AsnNumber == null || !WellKnownAsns.NonTransitInfrastructure.Contains(t.AsnNumber.Value)));
-
-            var targets = await inTypeAndScope
-                .Where(t => t.Enabled || showInactive)
+                    && (t.AsnNumber == null || !WellKnownAsns.NonTransitInfrastructure.Contains(t.AsnNumber.Value)))
                 .OrderBy(t => t.Name)
-                .Select(t => new { t.TargetId, t.Name, t.AutoLabel, t.WanInterface, t.Address, t.TargetType, t.IsLocal, t.Enabled })
+                .Select(t => new
+                {
+                    t.TargetId,
+                    t.Name,
+                    t.AutoLabel,
+                    t.WanInterface,
+                    t.Address,
+                    t.TargetType,
+                    t.IsLocal,
+                    t.Enabled,
+                    t.DeviceMac
+                })
                 .ToListAsync(ct);
 
-            // Counted whether or not they were asked for: the client shows its toggle only when
-            // there is something behind it, so it needs the answer even on a request that excluded
-            // them. Cheap - Enabled is indexed and this reads no rows.
-            var inactiveCount = await inTypeAndScope.CountAsync(t => !t.Enabled, ct);
+            var liveDeviceMacs = all
+                .Where(t => t.Enabled && !string.IsNullOrEmpty(t.DeviceMac))
+                .Select(t => t.DeviceMac!)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            // Not every stopped series has finished. A device still probed under some other address
+            // is writing one history, and its earlier stretches are part of it - drop them and a
+            // switch of many months looks like it appeared the day its IP changed. Only a device
+            // with nothing still probing it is done, and only that belongs behind the toggle.
+            //
+            // Deliberately blind to Removed. Taking a row off the Latency Targets list is tidying
+            // that list; it says nothing about whether the device's history is worth reading, and
+            // conflating the two would make a bit of housekeeping erase the chart.
+            bool StillMonitored(string? deviceMac) =>
+                !string.IsNullOrEmpty(deviceMac) && liveDeviceMacs.Contains(deviceMac);
+
+            var targets = all
+                .Where(t => t.Enabled || showInactive || StillMonitored(t.DeviceMac))
+                .ToList();
+
+            // What the toggle would actually reveal, so it is offered only when that is something.
+            // A series already on the chart does not count towards it.
+            var inactiveCount = all.Count(t => !t.Enabled && !StillMonitored(t.DeviceMac));
 
             if (targets.Count == 0)
                 return Results.Ok(new { targets = Array.Empty<object>(), inactiveCount });
