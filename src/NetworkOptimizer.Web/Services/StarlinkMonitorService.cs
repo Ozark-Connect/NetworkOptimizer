@@ -290,7 +290,8 @@ public sealed class StarlinkMonitorService : IStarlinkMonitorService, IDisposabl
 
         try
         {
-            var stats = await provider.PollAsync(context);
+            var result = await provider.PollAsync(context);
+            var stats = result.Stats;
 
             if (stats != null)
             {
@@ -307,7 +308,8 @@ public sealed class StarlinkMonitorService : IStarlinkMonitorService, IDisposabl
             }
             else
             {
-                await UpdateConfigErrorAsync(config.Id, "Poll returned no data");
+                await UpdateConfigErrorAsync(
+                    config.Id, result.FailureReason ?? "The terminal returned no data.");
             }
         }
         catch (Exception ex)

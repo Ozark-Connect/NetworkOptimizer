@@ -194,11 +194,11 @@ public class CellularModemService : ICellularModemService
     /// <summary>
     /// Dispatch a poll to the appropriate provider based on the row's Provider column.
     /// </summary>
-    private async Task<ModemPollResult> ExecutePollAsync(ModemConfiguration modem)
+    private async Task<PollResult<CellularModemStats>> ExecutePollAsync(ModemConfiguration modem)
     {
         var provider = ResolveProvider(modem);
         if (provider == null)
-            return ModemPollResult.Failed($"No provider is registered for '{modem.Provider}'.");
+            return PollResult<CellularModemStats>.Failed($"No provider is registered for '{modem.Provider}'.");
 
         var context = await ToPollContextAsync(modem);
         return await provider.PollAsync(context);

@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using NetworkOptimizer.Monitoring.Models;
 using NetworkOptimizer.Monitoring.Providers;
+using NetworkOptimizer.Web.Services.Monitoring;
 
 namespace NetworkOptimizer.Web.Services.OntProviders;
 
@@ -36,12 +37,12 @@ public sealed class QuantumQ1000kOntProvider : IOntProvider
         _logger = logger;
     }
 
-    public async Task<OntStats?> PollAsync(OntPollContext context, CancellationToken cancellationToken = default)
+    public async Task<PollResult<OntStats>> PollAsync(OntPollContext context, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(context.Host))
         {
             _logger.LogWarning("Quantum Q1000K ONT poll requested but Host is empty (config {Id})", context.Id);
-            return null;
+            return PollResult<OntStats>.Failed("No address is configured for this device.");
         }
 
         try
@@ -53,7 +54,7 @@ public sealed class QuantumQ1000kOntProvider : IOntProvider
             if (!await LoginAsync(client, baseUrl, context, cancellationToken))
             {
                 _logger.LogWarning("Quantum Q1000K ONT {Name}: login failed", context.Name);
-                return null;
+                return PollResult<OntStats>.Failed($"No stats could be read from {(context.ConfiguredHost ?? context.Host)}.");
             }
 
             var stats = new OntStats
@@ -80,13 +81,13 @@ public sealed class QuantumQ1000kOntProvider : IOntProvider
                 stats.TemperatureC?.ToString("F0") ?? "-",
                 stats.LinkState ?? "-", stats.PonType ?? "-");
 
-            return stats;
+            return PollResult<OntStats>.Ok(stats);
         }
         catch (OperationCanceledException) { throw; }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Error polling Quantum Q1000K ONT {Name} at {Host}", context.Name, context.ConfiguredHost ?? context.Host);
-            return null;
+            return PollResult<OntStats>.Failed(HttpFailureSummary.Describe(ex, (context.ConfiguredHost ?? context.Host)));
         }
     }
 
@@ -125,7 +126,7 @@ public sealed class QuantumQ1000kOntProvider : IOntProvider
         }
         catch (Exception ex)
         {
-            return (false, $"Connection failed: {ex.Message}");
+            return (false, HttpFailureSummary.Describe(ex, context.ConfiguredHost ?? context.Host));
         }
     }
 

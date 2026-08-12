@@ -45,14 +45,14 @@ public sealed class NetgearNighthawkHotspotProvider : ICellularModemProvider, ID
     }
 
     /// <inheritdoc/>
-    public async Task<ModemPollResult> PollAsync(
+    public async Task<PollResult<CellularModemStats>> PollAsync(
         ModemPollContext context,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(context.Host))
         {
             _logger.LogWarning("Netgear poll requested for modem {Name} but Host is empty", context.Name);
-            return ModemPollResult.Failed("No address is configured for this modem.");
+            return PollResult<CellularModemStats>.Failed("No address is configured for this modem.");
         }
 
         var host = context.ConfiguredHost ?? context.Host;
@@ -65,21 +65,21 @@ public sealed class NetgearNighthawkHotspotProvider : ICellularModemProvider, ID
             if (json == null)
             {
                 _logger.LogWarning("Netgear poll for {Name} ({Host}) returned no data", context.Name, host);
-                return ModemPollResult.Failed(
+                return PollResult<CellularModemStats>.Failed(
                     $"Could not reach {host}, or the hotspot rejected the admin password.");
             }
 
             using var doc = JsonDocument.Parse(json, _jsonOptions);
             var stats = NetgearModelJsonParser.Parse(doc.RootElement, context);
             return stats == null
-                ? ModemPollResult.Failed($"{host} answered but returned no signal data.")
-                : ModemPollResult.Ok(stats);
+                ? PollResult<CellularModemStats>.Failed($"{host} answered but returned no signal data.")
+                : PollResult<CellularModemStats>.Ok(stats);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error polling Netgear modem {Name} at {Host}", context.Name, host);
             // Capped: an HTTP failure can carry a paragraph, and this renders inline on the card.
-            return ModemPollResult.Failed($"Could not read stats from {host}: {FirstLine(ex.Message)}");
+            return PollResult<CellularModemStats>.Failed($"Could not read stats from {host}: {FirstLine(ex.Message)}");
         }
     }
 

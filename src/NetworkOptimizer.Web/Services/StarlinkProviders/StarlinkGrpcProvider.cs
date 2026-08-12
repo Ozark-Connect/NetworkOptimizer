@@ -41,10 +41,11 @@ public class StarlinkGrpcProvider : IStarlinkProvider
 
     public string DisplayName => "Starlink (local gRPC)";
 
-    public async Task<StarlinkStats?> PollAsync(
+    public async Task<PollResult<StarlinkStats>> PollAsync(
         StarlinkPollContext context,
         CancellationToken cancellationToken = default)
     {
+        var host = context.ConfiguredHost ?? context.Host;
         try
         {
             using var channel = CreateChannel(context);
@@ -54,8 +55,9 @@ public class StarlinkGrpcProvider : IStarlinkProvider
             if (statusResp?.ResponseCase != Response.ResponseOneofCase.DishGetStatus)
             {
                 _logger.LogWarning("Starlink {Name} ({Host}): status poll returned {Case}",
-                    context.Name, context.ConfiguredHost ?? context.Host, statusResp?.ResponseCase);
-                return null;
+                    context.Name, host, statusResp?.ResponseCase);
+                return PollResult<StarlinkStats>.Failed(
+                    $"{host} answered, but not with dish status. Check that it is the Starlink dish and not a router in front of it.");
             }
 
             var status = statusResp.DishGetStatus;
@@ -84,15 +86,31 @@ public class StarlinkGrpcProvider : IStarlinkProvider
             }
 
             _lastPollUtc[context.Id] = stats.Timestamp;
-            return stats;
+            return PollResult<StarlinkStats>.Ok(stats);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Starlink {Name} ({Host}): poll failed",
-                context.Name, context.ConfiguredHost ?? context.Host);
-            return null;
+            _logger.LogWarning(ex, "Starlink {Name} ({Host}): poll failed", context.Name, host);
+            return PollResult<StarlinkStats>.Failed(DescribeGrpcFailure(ex, host));
         }
     }
+
+    /// <summary>
+    /// One line for a failed dish call. The dish serves gRPC with no authentication at all, so
+    /// unlike the HTTP devices there is no wrong-password case to tell apart - what is left is
+    /// whether anything answered, which is what the status code says.
+    /// </summary>
+    private static string DescribeGrpcFailure(Exception ex, string host) => ex switch
+    {
+        RpcException { StatusCode: StatusCode.Unavailable } =>
+            $"Could not reach {host}. The dish serves stats on its own address, which stays reachable even when the link is down.",
+        RpcException { StatusCode: StatusCode.DeadlineExceeded } =>
+            $"{host} did not answer in time.",
+        RpcException { StatusCode: StatusCode.Unimplemented } =>
+            $"{host} answered, but does not serve the dish stats API. Check the address.",
+        RpcException rpc => $"{host} refused the request ({rpc.StatusCode}).",
+        _ => $"Could not read stats from {host}.",
+    };
 
     public async Task<StarlinkObstructionMap?> GetObstructionMapAsync(
         StarlinkPollContext context,

@@ -34,7 +34,7 @@ public sealed class QuectelAtModemProvider : ICellularModemProvider
     }
 
     /// <inheritdoc/>
-    public async Task<ModemPollResult> PollAsync(
+    public async Task<PollResult<CellularModemStats>> PollAsync(
         ModemPollContext context,
         CancellationToken cancellationToken = default)
     {
@@ -45,7 +45,7 @@ public sealed class QuectelAtModemProvider : ICellularModemProvider
         if (!connection.HasCredentials)
         {
             _logger.LogWarning("No SSH credentials configured for modem {Name}", context.Name);
-            return ModemPollResult.Failed("SSH credentials are not configured for this modem.");
+            return PollResult<CellularModemStats>.Failed("SSH credentials are not configured for this modem.");
         }
 
         try
@@ -56,24 +56,24 @@ public sealed class QuectelAtModemProvider : ICellularModemProvider
             if (!result.Success)
             {
                 _logger.LogWarning("AT command failed on {Name}: {Error}", context.Name, result.Error);
-                return ModemPollResult.Failed(SshFailureSummary.Describe(result.CombinedOutput, host));
+                return PollResult<CellularModemStats>.Failed(SshFailureSummary.Describe(result.CombinedOutput, host));
             }
 
             var stats = QuectelAtParser.Parse(result.Output, host, context.Name, context.ModemType);
 
             if (stats == null)
-                return ModemPollResult.Failed($"{host} answered over SSH but the modem returned no signal data.");
+                return PollResult<CellularModemStats>.Failed($"{host} answered over SSH but the modem returned no signal data.");
 
             _logger.LogInformation(
                 "Successfully polled GL-iNet modem {Name}: Signal Quality: {Quality}%",
                 context.Name, stats.SignalQuality);
 
-            return ModemPollResult.Ok(stats);
+            return PollResult<CellularModemStats>.Ok(stats);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error polling GL-iNet modem {Name}", context.Name);
-            return ModemPollResult.Failed(SshFailureSummary.Describe(ex.Message, host));
+            return PollResult<CellularModemStats>.Failed(SshFailureSummary.Describe(ex.Message, host));
         }
     }
 

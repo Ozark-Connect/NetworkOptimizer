@@ -5,6 +5,7 @@ using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Monitoring.Models;
 using NetworkOptimizer.Monitoring.Providers;
+using NetworkOptimizer.Web.Services.Monitoring;
 
 namespace NetworkOptimizer.Web.Services.OntProviders;
 
@@ -41,12 +42,12 @@ public sealed class Lantiq8311OntProvider : IOntProvider
         _logger = logger;
     }
 
-    public async Task<OntStats?> PollAsync(OntPollContext context, CancellationToken cancellationToken = default)
+    public async Task<PollResult<OntStats>> PollAsync(OntPollContext context, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(context.Host))
         {
             _logger.LogWarning("8311 ONT poll requested but Host is empty (config {Id})", context.Id);
-            return null;
+            return PollResult<OntStats>.Failed("No address is configured for this device.");
         }
 
         try
@@ -58,7 +59,7 @@ public sealed class Lantiq8311OntProvider : IOntProvider
             if (!await LoginAsync(client, baseUrl, context, cancellationToken))
             {
                 _logger.LogWarning("8311 ONT {Name}: login failed", context.Name);
-                return null;
+                return PollResult<OntStats>.Failed($"No stats could be read from {(context.ConfiguredHost ?? context.Host)}.");
             }
 
             var json = await client.GetStringAsync($"{baseUrl}{GponStatusPath}", cancellationToken);
@@ -75,13 +76,13 @@ public sealed class Lantiq8311OntProvider : IOntProvider
                 stats.TemperatureC?.ToString("F1") ?? "-",
                 stats.PonType ?? "-");
 
-            return stats;
+            return PollResult<OntStats>.Ok(stats);
         }
         catch (OperationCanceledException) { throw; }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Error polling 8311 ONT {Name} at {Host}", context.Name, context.ConfiguredHost ?? context.Host);
-            return null;
+            return PollResult<OntStats>.Failed(HttpFailureSummary.Describe(ex, (context.ConfiguredHost ?? context.Host)));
         }
     }
 
@@ -117,7 +118,7 @@ public sealed class Lantiq8311OntProvider : IOntProvider
         }
         catch (Exception ex)
         {
-            return (false, $"Connection failed: {ex.Message}");
+            return (false, HttpFailureSummary.Describe(ex, context.ConfiguredHost ?? context.Host));
         }
     }
 

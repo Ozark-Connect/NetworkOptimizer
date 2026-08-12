@@ -34,7 +34,7 @@ public sealed class QmicliModemProvider : ICellularModemProvider, ISupportsRadio
     }
 
     /// <inheritdoc/>
-    public async Task<ModemPollResult> PollAsync(
+    public async Task<PollResult<CellularModemStats>> PollAsync(
         ModemPollContext context,
         CancellationToken cancellationToken = default)
     {
@@ -43,7 +43,7 @@ public sealed class QmicliModemProvider : ICellularModemProvider, ISupportsRadio
         // Try uiwwand first - available on all modern UniFi cellular modems
         var stats = await TryPollViaUiwwandAsync(context);
         if (stats != null)
-            return ModemPollResult.Ok(stats);
+            return PollResult<CellularModemStats>.Ok(stats);
 
         // Fall back to raw qmicli commands
         return await PollViaQmicliAsync(context);
@@ -185,7 +185,7 @@ public sealed class QmicliModemProvider : ICellularModemProvider, ISupportsRadio
     /// <summary>
     /// Poll via raw qmicli commands. Fallback path when uiwwand is unavailable.
     /// </summary>
-    private async Task<ModemPollResult> PollViaQmicliAsync(ModemPollContext context)
+    private async Task<PollResult<CellularModemStats>> PollViaQmicliAsync(ModemPollContext context)
     {
         var qmiDevice = string.IsNullOrWhiteSpace(context.TransportPath)
             ? "/dev/wwan0qmi0"
@@ -213,7 +213,7 @@ public sealed class QmicliModemProvider : ICellularModemProvider, ISupportsRadio
             if (!success)
             {
                 _logger.LogWarning("Failed to poll modem {Name} via qmicli: {Output}", context.Name, output);
-                return ModemPollResult.Failed(
+                return PollResult<CellularModemStats>.Failed(
                     SshFailureSummary.Describe(output, context.ConfiguredHost ?? context.Host));
             }
 
@@ -259,12 +259,12 @@ public sealed class QmicliModemProvider : ICellularModemProvider, ISupportsRadio
                 "Successfully polled modem {Name} via qmicli: {Carrier}, Signal Quality: {Quality}%",
                 context.Name, stats.Carrier, stats.SignalQuality);
 
-            return ModemPollResult.Ok(stats);
+            return PollResult<CellularModemStats>.Ok(stats);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error polling modem {Name}", context.Name);
-            return ModemPollResult.Failed(
+            return PollResult<CellularModemStats>.Failed(
                 SshFailureSummary.Describe(ex.Message, context.ConfiguredHost ?? context.Host));
         }
     }

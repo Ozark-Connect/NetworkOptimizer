@@ -24,13 +24,13 @@ public interface ICellularModemProvider
     /// <summary>
     /// Poll the modem and return its current stats.
     /// Implementations should log internally and report transport or parsing failure through
-    /// <see cref="ModemPollResult.Failed"/>; throwing is reserved for programming errors.
+    /// <see cref="PollResult<CellularModemStats>.Failed"/>; throwing is reserved for programming errors.
     /// Every failure carries a reason: it is what the Settings test and the Dashboard card show.
     /// </summary>
     /// <param name="context">Provider-agnostic poll context.</param>
     /// <param name="cancellationToken">Optional cancellation.</param>
     /// <returns>Stats on success, or the reason the poll produced none.</returns>
-    Task<ModemPollResult> PollAsync(
+    Task<PollResult<CellularModemStats>> PollAsync(
         ModemPollContext context,
         CancellationToken cancellationToken = default);
 

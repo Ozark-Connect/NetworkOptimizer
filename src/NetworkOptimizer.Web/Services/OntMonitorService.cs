@@ -285,7 +285,8 @@ public class OntMonitorService : IOntMonitorService, IDisposable
 
         try
         {
-            var stats = await provider.PollAsync(context);
+            var result = await provider.PollAsync(context);
+            var stats = result.Stats;
             if (stats != null)
             {
                 // Persist only the poll result (never Enabled). If the config was disabled
@@ -314,7 +315,8 @@ public class OntMonitorService : IOntMonitorService, IDisposable
             }
             else
             {
-                await UpdateConfigErrorAsync(repository, config, "Poll returned no data");
+                await UpdateConfigErrorAsync(
+                    repository, config, result.FailureReason ?? "The ONT returned no data.");
                 return null;
             }
         }
