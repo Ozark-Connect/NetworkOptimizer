@@ -106,6 +106,10 @@
                         <th>Interval</th>
                         <th>Latest</th>
                         <th>Last verified</th>
+                        @* Two action columns, not one: a retired row has no Pause, and with both
+                           buttons sharing a cell its Remove slid left out of line with every other
+                           Remove. Separate cells put the table's own column alignment to work. *@
+                        <th></th>
                         <th></th>
                     </tr>
                 </thead>
@@ -247,24 +251,25 @@
                                     </button>
                                     </SiteAdminOnly>
                                 }
-                                else
+                                else if (!t.IsRetired)
                                 {
                                     @* A retired target's address answers to nothing, so there is no probing to resume. *@
-                                    @if (!t.IsRetired)
-                                    {
-                                        <SiteOperatorOnly>
-                                            <button class="btn btn-sm btn-secondary"
-                                                @onclick="() => SetTargetEnabledAsync(t.Id, !t.Enabled)"
-                                                data-tooltip="@(t.Enabled ? "Pause probing" : "Resume probing")">
-                                            @(t.Enabled ? "Pause" : "Resume")
-                                        </button>
-                                        </SiteOperatorOnly>
-                                    }
+                                    <SiteOperatorOnly>
+                                        <button class="btn btn-sm btn-secondary"
+                                            @onclick="() => SetTargetEnabledAsync(t.Id, !t.Enabled)"
+                                            data-tooltip="@(t.Enabled ? "Pause probing" : "Resume probing")">
+                                        @(t.Enabled ? "Pause" : "Resume")
+                                    </button>
+                                    </SiteOperatorOnly>
+                                }
+                            </td>
+                            <td style="white-space: nowrap;">
+                                @if (!t.IsHidden)
+                                {
                                     <SiteAdminOnly>
                                         <button class="btn btn-sm btn-danger"
                                             @onclick="() => DeleteTargetAsync(t.Id)"
-                                            data-tooltip="@RemoveTooltip(t)"
-                                            style="margin-left: 0.25rem;">
+                                            data-tooltip="@RemoveTooltip(t)">
                                         Remove
                                     </button>
                                     </SiteAdminOnly>
@@ -655,7 +660,7 @@
         .ThenBy(c => c.Name, StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Columns in the table, so an empty-state row spans all of them.</summary>
-    private int VisibleColumnCount => WanContexts.Count > 0 ? 8 : 7;
+    private int VisibleColumnCount => WanContexts.Count > 0 ? 9 : 8;
 
     /// <summary>
     /// What actually probes the listed targets, for the card's own description of itself. A target
