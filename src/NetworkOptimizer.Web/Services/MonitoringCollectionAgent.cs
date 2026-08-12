@@ -1824,6 +1824,9 @@ public class MonitoringCollectionAgent : BackgroundService
 
             // No live target on this address. Either the device is new, or it moved.
             var predecessor = siblings.FirstOrDefault(t => t.AutoDiscovered);
+            var enableLatency = ReplacementEnabled(
+                predecessor, UniFi.UniFiProductDatabase.IsFlex25G(d.Model, d.Shortname));
+
             if (predecessor != null)
             {
                 // A gateway's target address is its LAN-side IP, and when that lookup has not
@@ -1838,9 +1841,6 @@ public class MonitoringCollectionAgent : BackgroundService
                     Retire(stale, $"Address changed to {address}");
                 changed = true;
             }
-
-            var enableLatency = !UniFi.UniFiProductDatabase.IsFlex25G(d.Model, d.Shortname)
-                && (predecessor?.Enabled ?? true);
 
             // A device that comes back to an address it held before rejoins that row rather than
             // starting a third one: the measurements under its TargetId were taken at this same
@@ -1940,6 +1940,23 @@ public class MonitoringCollectionAgent : BackgroundService
         target.Enabled = false;
         target.RetiredAt = DateTime.UtcNow;
         target.RetiredReason = reason;
+    }
+
+    /// <summary>
+    /// Whether a replacement target starts probing, carrying the predecessor's answer onto it so a
+    /// device that moves address keeps the state the user chose for it.
+    /// <para>
+    /// Reads through retirement deliberately. The replacement is decided in the same pass that
+    /// retires what it replaces, and retirement clears Enabled - so reading Enabled alone gives
+    /// false for every moved device, whatever the user had set. This asks the question in a way
+    /// that answers the same on either side of that.
+    /// </para>
+    /// </summary>
+    internal static bool ReplacementEnabled(MonitoringTarget? predecessor, bool isFlex25G)
+    {
+        if (isFlex25G) return false;
+        if (predecessor == null) return true;
+        return predecessor.EnabledBeforeRetire ?? predecessor.Enabled;
     }
 
     /// <summary>

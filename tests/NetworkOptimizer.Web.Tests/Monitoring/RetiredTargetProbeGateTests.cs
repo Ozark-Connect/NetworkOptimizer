@@ -66,6 +66,51 @@ public class RetiredTargetProbeGateTests
     }
 
     [Fact]
+    public void A_replacement_inherits_the_state_its_predecessor_was_in_before_being_retired()
+    {
+        // The order the reconcile actually runs in: the predecessor is retired, and only then is
+        // the replacement's state decided from it. Reading Enabled at that point gives false for
+        // every moved device - which shipped once, and is what this pins down.
+        var predecessor = Target(enabled: true);
+        MonitoringCollectionAgent.ApplyRetirement(predecessor, "Address changed to 192.0.2.20");
+
+        MonitoringCollectionAgent.ReplacementEnabled(predecessor, isFlex25G: false)
+            .Should().BeTrue("the user had it running, so its replacement runs");
+    }
+
+    [Fact]
+    public void A_replacement_of_a_paused_target_starts_paused()
+    {
+        var predecessor = Target(enabled: false);
+        MonitoringCollectionAgent.ApplyRetirement(predecessor, "Address changed to 192.0.2.20");
+
+        MonitoringCollectionAgent.ReplacementEnabled(predecessor, isFlex25G: false).Should().BeFalse();
+    }
+
+    [Fact]
+    public void The_inherited_state_is_the_same_whether_it_is_read_before_or_after_retirement()
+    {
+        var before = Target(enabled: true);
+        var after = Target(enabled: true);
+        MonitoringCollectionAgent.ApplyRetirement(after, "Address changed to 192.0.2.20");
+
+        MonitoringCollectionAgent.ReplacementEnabled(after, isFlex25G: false)
+            .Should().Be(MonitoringCollectionAgent.ReplacementEnabled(before, isFlex25G: false),
+                "reordering the retire and the decision must not change the answer");
+    }
+
+    [Fact]
+    public void A_brand_new_device_starts_probing_and_a_Flex_25G_never_does()
+    {
+        MonitoringCollectionAgent.ReplacementEnabled(null, isFlex25G: false).Should().BeTrue();
+        MonitoringCollectionAgent.ReplacementEnabled(null, isFlex25G: true).Should().BeFalse();
+
+        var running = Target(enabled: true);
+        MonitoringCollectionAgent.ReplacementEnabled(running, isFlex25G: true)
+            .Should().BeFalse("the Flex rule is ours and outranks what it inherits");
+    }
+
+    [Fact]
     public void A_row_retired_before_the_remembered_value_existed_falls_back()
     {
         // Rows retired by an earlier build carry RetiredAt with no EnabledBeforeRetire.
