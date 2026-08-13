@@ -1615,10 +1615,11 @@
                         <div class="form-group" style="flex: 2;">
                             <label class="form-label">Provider</label>
                             <select class="form-control" @bind="_editingCm.Provider">
-                                <option value="netgear">Netgear / Nighthawk CM (HTTP)</option>
                                 <option value="arris-surfboard">ARRIS Surfboard (HTTP)</option>
                                 <option value="arris-surfboard-hnap">ARRIS Surfboard S33/S34 (HNAP)</option>
                                 <option value="motorola-hnap">Motorola MB8611, MB8600 (HNAP)</option>
+                                <option value="netgear">Netgear / Nighthawk CM (HTTP)</option>
+                                <option value="technicolor-cga">Technicolor CGA Series (HTTP)</option>
                                 <option value="xfinity-gateway">Xfinity XB8/XB10, Cox CGM4981 (HTTP)</option>
                             </select>
                         </div>
@@ -6965,6 +6966,7 @@
         "arris-surfboard-hnap" => "ARRIS Surfboard S33/S34 (HNAP)",
         "motorola-hnap" => "Motorola (HNAP)",
         "xfinity-gateway" => "Xfinity Gateway (HTTP)",
+        "technicolor-cga" => "Technicolor CGA Series (HTTP)",
         _ => provider,
     };
 
@@ -6974,6 +6976,7 @@
         "arris-surfboard-hnap" => "N/A (uses /HNAP1/)",
         "motorola-hnap" => "N/A (uses /HNAP1/)",
         "xfinity-gateway" => "/network_setup.jst",
+        "technicolor-cga" => "/api/v1/sta_docsis_status",
         _ => "/DocsisStatus.htm",
     };
 
