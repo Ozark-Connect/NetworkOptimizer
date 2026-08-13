@@ -19,7 +19,19 @@
 @inject NavigationManager NavigationManager
 @inject Microsoft.AspNetCore.Mvc.ViewFeatures.IFileVersionProvider FileVersionProvider
 
-@if (!_ready)
+@if (!_ready && !_notConfigured && ShowConsoleDownBanner)
+{
+    <div class="sqm-unavailable">
+        <div class="sqm-status">
+            <span class="status-indicator status-disconnected"></span>
+            <span class="status-label">Live View unavailable</span>
+        </div>
+        <p class="status-message">
+            This site's UniFi Console isn't reachable right now. Live stats will return when it reconnects.
+        </p>
+    </div>
+}
+else if (!_ready)
 {
     <div class="sqm-unavailable">
         <div class="sqm-status">
@@ -288,6 +300,9 @@ else
 
     private bool _ready;
     private bool _consoleUnreachable;
+
+    /// <summary>Monitoring is genuinely not set up, as opposed to set up but unable to load.</summary>
+    private bool _notConfigured;
     private string? _gatewayMac;
     private List<string> _gatewayWanIfNames = new();
 
@@ -538,6 +553,7 @@ else
             if (settings == null || !settings.Enabled)
             {
                 _ready = false;
+                _notConfigured = true;
                 return;
             }
 
@@ -546,6 +562,7 @@ else
             if (!InfluxClient.IsConfigured)
             {
                 _ready = false;
+                _notConfigured = true;
                 return;
             }
 
