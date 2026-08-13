@@ -348,8 +348,12 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     /// or dispose the client - this fires from a request in flight, and the next reconnect owns
     /// both. The background reconnect clears it when the console comes back.
     /// </summary>
-    private void HandleConsoleWentSilent()
+    private void HandleConsoleWentSilent(UniFiApiClient client)
     {
+        // Only the live client may report this. A disposed one's request can fault seconds after a
+        // reconnect already succeeded, and acting on it would flip a good connection straight back
+        // down - the subscription outlives the client it was made on.
+        if (!ReferenceEquals(client, _client)) return;
         if (!_isConnected) return;
         _isConnected = false;
         _consoleUnresponsive = true;

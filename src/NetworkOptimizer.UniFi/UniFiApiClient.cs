@@ -90,8 +90,17 @@ public class UniFiApiClient : IDisposable
     /// </summary>
     public event Action<bool, string?>? AuthProbeCompleted;
 
-    /// <summary>Raised when consecutive timeouts show the console has stopped answering.</summary>
-    public event Action? ConsoleWentSilent;
+    /// <summary>
+    /// Raised when consecutive timeouts show the console has stopped answering. Carries the client
+    /// that saw them so a subscriber can ignore one that is no longer its live client.
+    /// </summary>
+    public event Action<UniFiApiClient>? ConsoleWentSilent;
+
+    /// <summary>
+    /// True for an HttpClient timeout, false for a caller cancelling. Both arrive as
+    /// TaskCanceledException; only the timeout says anything about the console.
+    /// </summary>
+    private static bool IsRequestTimeout(Exception ex) => ex.InnerException is TimeoutException;
 
     /// <summary>Consecutive request timeouts before the console counts as silent.</summary>
     private const int SilentTimeoutStreak = 2;
@@ -141,7 +150,7 @@ public class UniFiApiClient : IDisposable
         // real blip, so it keeps the full backoff. A timeout means the console went silent after
         // the handshake, which no backoff can clear, and each retry costs another full 15s.
         var timeoutRetry = Policy
-            .Handle<TaskCanceledException>()
+            .Handle<TaskCanceledException>(IsRequestTimeout)
             .WaitAndRetryAsync(1, _ => TimeSpan.FromMilliseconds(500), OnRetry);
         var transientRetry = Policy
             .Handle<HttpRequestException>()
@@ -187,14 +196,17 @@ public class UniFiApiClient : IDisposable
             _logger.LogDebug("UniFi API request skipped: client was disposed by a concurrent reconnect");
             return default!;
         }
-        catch (TaskCanceledException)
+        catch (TaskCanceledException ex)
         {
             // Rethrown, not swallowed: callers already turn this into their own failure result and
-            // their error reporting should not change just because we counted it.
-            if (Interlocked.Increment(ref _consecutiveTimeouts) >= SilentTimeoutStreak)
+            // their error reporting should not change just because we counted it. A caller
+            // cancelling (page navigation, site switch, shutdown) throws the same type and says
+            // nothing about the console, so it must never count toward silence.
+            if (IsRequestTimeout(ex)
+                && Interlocked.Increment(ref _consecutiveTimeouts) >= SilentTimeoutStreak)
             {
                 Interlocked.Exchange(ref _silentUntilTicks, (DateTime.UtcNow + SilentCooldown).Ticks);
-                ConsoleWentSilent?.Invoke();
+                ConsoleWentSilent?.Invoke(this);
             }
             throw;
         }
