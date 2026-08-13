@@ -518,7 +518,11 @@ public class IspHealthPdfGenerator
                 {
                     Cell(table, entry.Badge);
                     Cell(table, IspHealthPresentation.EventTimeLabel(entry.Time));
-                    Cell(table, entry.Text);
+                    // A grouped line's per-hop readings always print: the document has no
+                    // disclosure to open, and they are what an ISP is being handed this for.
+                    CellLines(table, entry.Text, entry.Members is { Count: > 0 }
+                        ? string.Join("\n", entry.Members)
+                        : null);
                 }
             });
         });

@@ -407,6 +407,7 @@ public static class CongestionLocalizer
         evt.Scope = CongestionScope.Hop;
         evt.Disposition = disposition;
         evt.BottleneckHopIp = bottleneckIp;
+        evt.BottleneckHopNumber = hopNum is > 0 and < int.MaxValue ? hopNum : null;
         evt.BottleneckLabel = label;
         evt.LoadCoincident = loadCoincident;
         evt.CleanParallelPaths = cleanParallelPaths;

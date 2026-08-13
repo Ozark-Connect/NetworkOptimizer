@@ -352,6 +352,132 @@ public class IspHealthPdfGeneratorTests
         pdf.Length.Should().BeGreaterThan(1000);
     }
 
+    private static CongestionEvent Congestion(DateTime start, double hours, string hop, double baselineRtt,
+        CongestionDisposition disposition = CongestionDisposition.Confirmed) => new()
+        {
+            Start = start,
+            End = start.AddHours(hours),
+            AsnNumbers = { 64501 },
+            AsnNames = { "Example Transit" },
+            BottleneckLabel = hop,
+            BaselineRttMs = baselineRtt,
+            PeakRttMs = baselineRtt + 4,
+            BaselineJitterMs = 0.2,
+            PeakJitterMs = 19.4,
+            Disposition = disposition,
+            Scope = CongestionScope.Hop
+        };
+
+    [Fact]
+    public void EventTimeline_GroupsOverlappingCongestionOntoOneLine()
+    {
+        // One incident seen on four hops: a bottleneck's elevation shows on every hop behind it,
+        // and four rows reporting the same two hours hide that they are the same thing.
+        var report = MinimalReport();
+        report.CongestionEvents.Add(Congestion(WindowEnd.AddHours(-4), 2, "OLT", 1.6));
+        report.CongestionEvents.Add(Congestion(WindowEnd.AddHours(-4), 2, "Access hop", 1.5));
+        report.CongestionEvents.Add(Congestion(WindowEnd.AddHours(-3.9), 2, "Transit hop 1", 2.5));
+        report.CongestionEvents.Add(Congestion(WindowEnd.AddHours(-3.9), 2, "Transit hop 2", 2.9));
+
+        var entries = IspHealthPresentation.EventTimeline(report).ToList();
+
+        entries.Should().ContainSingle();
+        // The nearest hop leads and every member keeps its own readings.
+        entries[0].Text.Should().Contain("Access hop").And.Contain("and 3 more hops");
+        entries[0].Members.Should().HaveCount(4);
+        entries[0].Members![0].Should().Contain("Access hop");
+        entries[0].Members!.Should().Contain(m => m.Contains("Transit hop 2"));
+    }
+
+    [Fact]
+    public void EventTimeline_LeadsWithTheNearestHopOnTheTracedPath()
+    {
+        // RTT would pick the 1.5 ms hop; discovery placed it nowhere, so the hop it DID place
+        // leads even though it reads slower.
+        var report = MinimalReport();
+        var placed = Congestion(WindowEnd.AddHours(-4), 2, "Traced hop", 2.4);
+        placed.BottleneckHopNumber = 3;
+        report.CongestionEvents.Add(Congestion(WindowEnd.AddHours(-4), 2, "Untraced hop", 1.5));
+        report.CongestionEvents.Add(placed);
+
+        var entries = IspHealthPresentation.EventTimeline(report).ToList();
+
+        entries.Should().ContainSingle();
+        entries[0].Text.Should().Contain("Traced hop");
+        entries[0].Members![0].Should().Contain("Traced hop");
+    }
+
+    [Fact]
+    public void EventTimeline_FallsBackToTheSoleAccessIspHop()
+    {
+        // The ISP surfaces no traceroute-reachable hop (Deutsche Telekom and friends), so the site
+        // has exactly one, added by hand. Nothing is on a traced path, and it leads even though two
+        // transit hops read nearer.
+        var report = MinimalReport();
+        report.IspTargets.Add(new IspTargetHealth { TargetId = "isp-1", Name = "ISP hop 1", NotOnTracedPath = true });
+        var access = Congestion(WindowEnd.AddHours(-4), 2, "ISP hop 1", 3.2);
+        access.TargetIds.Add("isp-1");
+        report.CongestionEvents.Add(Congestion(WindowEnd.AddHours(-4), 2, "Transit hop 1", 1.5));
+        report.CongestionEvents.Add(Congestion(WindowEnd.AddHours(-4), 2, "Transit hop 2", 2.0));
+        report.CongestionEvents.Add(access);
+
+        var entries = IspHealthPresentation.EventTimeline(report).ToList();
+
+        entries.Should().ContainSingle();
+        entries[0].Text.Should().Contain("ISP hop 1");
+    }
+
+    [Fact]
+    public void EventTimeline_WillNotGuessAnIspHopWhenTheSiteHasSeveral()
+    {
+        // With several ISP hops, an untraced one is a guess - the shortest baseline RTT is the
+        // honest lead.
+        var report = MinimalReport();
+        report.IspTargets.Add(new IspTargetHealth { TargetId = "isp-1", Name = "ISP hop 1" });
+        report.IspTargets.Add(new IspTargetHealth { TargetId = "isp-2", Name = "ISP hop 2" });
+        var access = Congestion(WindowEnd.AddHours(-4), 2, "ISP hop 1", 3.2);
+        access.TargetIds.Add("isp-1");
+        report.CongestionEvents.Add(Congestion(WindowEnd.AddHours(-4), 2, "Transit hop 1", 1.5));
+        report.CongestionEvents.Add(access);
+
+        var entries = IspHealthPresentation.EventTimeline(report).ToList();
+
+        entries.Should().ContainSingle();
+        entries[0].Text.Should().Contain("Transit hop 1");
+    }
+
+    [Fact]
+    public void EventTimeline_SpansTheGroupsMagnitudesAndDuration()
+    {
+        var report = MinimalReport();
+        report.CongestionEvents.Add(Congestion(WindowEnd.AddHours(-4), 1, "Access hop", 1.5));
+        report.CongestionEvents.Add(Congestion(WindowEnd.AddHours(-3.5), 2, "Transit hop", 2.9));
+
+        var entries = IspHealthPresentation.EventTimeline(report).ToList();
+
+        // Widest reading across the group, and the union of the spans (4 h ago to 1.5 h ago).
+        entries.Should().ContainSingle();
+        entries[0].Text.Should().Contain("latency 1.5 to 6.9 ms");
+        entries[0].Text.Should().Contain("2.5 h of elevated");
+    }
+
+    [Fact]
+    public void EventTimeline_NeverGroupsAcrossDispositionsOrSeparateSpans()
+    {
+        var report = MinimalReport();
+        // Same two hours, but a different claim about what happened.
+        report.CongestionEvents.Add(Congestion(WindowEnd.AddHours(-4), 2, "Access hop", 1.5));
+        report.CongestionEvents.Add(Congestion(WindowEnd.AddHours(-4), 2, "Transit hop", 2.9,
+            CongestionDisposition.SelfInflicted));
+        // Same disposition as the first, but hours later - a separate incident.
+        report.CongestionEvents.Add(Congestion(WindowEnd.AddHours(-1), 0.5, "Transit hop", 2.9));
+
+        var entries = IspHealthPresentation.EventTimeline(report).ToList();
+
+        entries.Should().HaveCount(3);
+        entries.Should().OnlyContain(e => e.Members == null);
+    }
+
     [Fact]
     public void EventTimeline_DescribesEveryEventTheReportCarries()
     {

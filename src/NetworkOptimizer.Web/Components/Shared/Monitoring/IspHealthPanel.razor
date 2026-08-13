@@ -864,7 +864,25 @@ else
                         <div class="isp-event-item" @key="(entry, i)">
                             <span class="isp-event-badge @entry.BadgeClass" data-tooltip="@entry.BadgeTooltip">@entry.Badge</span>
                             <span class="isp-event-time">@EventTimeLabel(entry.Time)</span>
-                            <span class="isp-event-text">@entry.Text</span>
+                            <span class="isp-event-text">
+                                @entry.Text
+                                @if (entry.Members is { Count: > 0 })
+                                {
+                                    var key = EventMemberKey(entry);
+                                    var open = _expandedEvents.Contains(key);
+                                    <button type="button" class="isp-event-members-toggle" aria-expanded="@open"
+                                            @onclick="() => ToggleEventMembers(key)">@(open ? "Hide hops" : $"Show {entry.Members.Count} hops")</button>
+                                    @if (open)
+                                    {
+                                        <div class="isp-event-members">
+                                            @foreach (var member in entry.Members)
+                                            {
+                                                <div>@member</div>
+                                            }
+                                        </div>
+                                    }
+                                }
+                            </span>
                         </div>
                     }
                 </div>
@@ -962,6 +980,17 @@ else
     private static readonly EventCategory[] AllEventCategories =
         { EventCategory.Congestion, EventCategory.Shift, EventCategory.Change };
     private HashSet<EventCategory> _visibleEventCats = new(AllEventCategories);
+
+    // Which grouped congestion lines have their per-hop readings open. Keyed by time and text
+    // rather than by index, which the category filters renumber.
+    private readonly HashSet<string> _expandedEvents = new();
+
+    private static string EventMemberKey(TimelineEntry e) => $"{e.Time:O}|{e.Text}";
+
+    private void ToggleEventMembers(string key)
+    {
+        if (!_expandedEvents.Remove(key)) _expandedEvents.Add(key);
+    }
 
     // Date/time filter. Never persisted: OnInitializedAsync starts on the live window (the effective
     // auto-computed window, which auto-fallback may have reduced below the configured target), so

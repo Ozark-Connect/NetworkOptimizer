@@ -326,6 +326,12 @@ public class CongestionEvent
     /// <summary>IP of the attributed bottleneck hop, when <see cref="Scope"/> is <see cref="CongestionScope.Hop"/>.</summary>
     public string? BottleneckHopIp { get; set; }
 
+    /// <summary>Where discovery placed that hop on the path, or null when it placed it nowhere -
+    /// unlocalized, or a hop that answers pings but never landed in a trace (HopNumber 0). Lower is
+    /// nearer. This is what orders one incident's hops; RTT is only a fallback for events with no
+    /// position at all.</summary>
+    public int? BottleneckHopNumber { get; set; }
+
     /// <summary>Human-readable bottleneck label (hop name, segment, ASN, or corridor) for the report.</summary>
     public string? BottleneckLabel { get; set; }
 
