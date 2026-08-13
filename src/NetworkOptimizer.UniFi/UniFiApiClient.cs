@@ -41,7 +41,7 @@ public class UniFiApiClient : IDisposable
     private HttpClient? _httpClient;
     private CookieContainer? _cookieContainer;
     private string? _csrfToken;
-    private readonly AsyncRetryPolicy _retryPolicy;
+    private readonly IAsyncPolicy _retryPolicy;
     private readonly SemaphoreSlim _authLock = new(1, 1);
     // Set in Dispose() before the HttpClient is torn down. A concurrent reconnect
     // can dispose this client while a data call is in flight; the flag and the
@@ -120,19 +120,26 @@ public class UniFiApiClient : IDisposable
         // consoles keep the full backoff - a real transient blip there is worth
         // riding out.
         var viaAgentProxy = _agentProxyPort is not null;
-        _retryPolicy = Policy
+
+        void OnRetry(Exception exception, TimeSpan timespan, int retryCount, Context context) =>
+            _logger.LogWarning("Retry {RetryCount} after {Timespan}s due to {Exception}",
+                retryCount, timespan.TotalSeconds, exception.Message);
+
+        // Split by meaning: a refused or reset connection returns in milliseconds and is often a
+        // real blip, so it keeps the full backoff. A timeout means the console went silent after
+        // the handshake, which no backoff can clear, and each retry costs another full 15s.
+        var timeoutRetry = Policy
+            .Handle<TaskCanceledException>()
+            .WaitAndRetryAsync(1, _ => TimeSpan.FromMilliseconds(500), OnRetry);
+        var transientRetry = Policy
             .Handle<HttpRequestException>()
-            .Or<TaskCanceledException>()
             .WaitAndRetryAsync(
                 retryCount: viaAgentProxy ? 1 : 3,
                 sleepDurationProvider: retryAttempt => viaAgentProxy
                     ? TimeSpan.FromMilliseconds(500)
                     : TimeSpan.FromSeconds(Math.Pow(2, retryAttempt)),
-                onRetry: (exception, timespan, retryCount, context) =>
-                {
-                    _logger.LogWarning("Retry {RetryCount} after {Timespan}s due to {Exception}",
-                        retryCount, timespan.TotalSeconds, exception.Message);
-                });
+                onRetry: OnRetry);
+        _retryPolicy = Policy.WrapAsync(transientRetry, timeoutRetry);
 
         InitializeHttpClient();
     }

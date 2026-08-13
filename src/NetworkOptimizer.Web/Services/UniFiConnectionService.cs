@@ -222,6 +222,10 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     // path back (every automatic reconnect is gated on !IsConnected).
     private bool _clientViaAgent;
 
+    /// <summary>Shown while a directly-connected console answers the handshake but never replies.</summary>
+    private const string ConsoleUnresponsiveMessage =
+        "Your UniFi Console accepted the connection but stopped responding. It may be restarting or upgrading. Network Optimizer keeps trying and will reconnect on its own.";
+
     /// <summary>Shown while a site's agent-tunneled console waits for the agent to come online.</summary>
     private const string AwaitingAgentMessage =
         "This site's console connects through its on-site agent, which isn't online yet. It'll connect automatically as soon as the agent comes online.";
@@ -575,6 +579,16 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     /// </summary>
     public bool IsAwaitingAgent =>
         _awaitingAgent && !_isConnected && _settings is { IsConfigured: true, HasCredentials: true };
+
+    private bool _consoleUnresponsive;
+
+    /// <summary>
+    /// True once a connect has timed out against a console that answers TCP but never replies.
+    /// Lets reads fail fast. Never gate the background reconnect on it, and any successful connect
+    /// clears it - this must not be able to latch a site off.
+    /// </summary>
+    public bool IsConsoleUnresponsive =>
+        _consoleUnresponsive && !_isConnected && _settings is { IsConfigured: true, HasCredentials: true };
     public DateTime? LastConnectedAt => _lastConnectedAt;
     public bool IsUniFiOs => _client?.IsUniFiOs ?? false;
 
@@ -704,6 +718,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
             _isConnected = false;
             _lastError = null;
             _awaitingAgent = false;
+            _consoleUnresponsive = false;
 
             // Create new client
             var viaAgent = await IsConsoleViaAgentAsync();
@@ -846,6 +861,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
             _isConnected = false;
             _lastError = null;
             _awaitingAgent = false;
+            _consoleUnresponsive = false;
 
             // Create new client
             var viaAgent = await IsConsoleViaAgentAsync();
@@ -938,8 +954,11 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
         }
         catch (OperationCanceledException) when (cts.IsCancellationRequested)
         {
-            _lastError = "UniFi Console is unreachable. Check that it's powered on and the URL is correct.";
-            _logger.LogWarning("Startup auto-connect timed out - console unreachable");
+            // Nothing answered inside the budget, so every later call would pay the same wait.
+            // Mark it so reads short-circuit; the background reconnect keeps dialing regardless.
+            _consoleUnresponsive = true;
+            _lastError = ConsoleUnresponsiveMessage;
+            _logger.LogWarning("Console connect timed out for site {Slug}; treating it as unresponsive until a connect succeeds", SiteSlug);
             _client?.Dispose();
             _client = null;
             await PreferAwaitingAgentOnDeadTunnelAsync();
@@ -1266,6 +1285,10 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
         // OnConnectionChanged when it does. Waiting here would stall every page
         // render of the site for the full timeout.
         if (IsAwaitingAgent) return false;
+
+        // Same reasoning for a console that answers TCP and then goes quiet: polling it here only
+        // stalls the render, and the background reconnect brings it back via OnConnectionChanged.
+        if (IsConsoleUnresponsive) return false;
 
         // Check if we have saved credentials to connect with
         var settings = await GetSettingsAsync();

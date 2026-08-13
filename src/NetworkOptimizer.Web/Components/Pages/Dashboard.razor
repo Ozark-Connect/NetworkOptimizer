@@ -97,6 +97,29 @@
             </div>
         </div>
     }
+    else if (ConnectionService.IsConsoleUnresponsive)
+    {
+        <div class="connection-banner">
+            <div class="banner-content">
+                <span class="banner-icon">!</span>
+                <div class="banner-text">
+                    <strong>Console isn't responding</strong>
+                    <span>@ConnectionService.LastError</span>
+                </div>
+                <button class="btn btn-primary" @onclick="RefreshConnectionAsync" disabled="@_refreshingConnection">
+                    @if (_refreshingConnection)
+                    {
+                        <span class="spinner-sm"></span>
+                        <span>Refreshing...</span>
+                    }
+                    else
+                    {
+                        <span>Refresh</span>
+                    }
+                </button>
+            </div>
+        </div>
+    }
     else
     {
         <div class="connection-banner @(!string.IsNullOrEmpty(ConnectionService.LastError) ? "connection-error" : "")">
