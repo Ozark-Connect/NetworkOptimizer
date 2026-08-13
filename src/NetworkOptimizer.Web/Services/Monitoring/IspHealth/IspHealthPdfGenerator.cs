@@ -130,9 +130,6 @@ public class IspHealthPdfGenerator
             column.Item().PageBreak();
             column.Item().Element(c => ComposeScoreBreakdown(c, report));
 
-            if (report.IspTargets.Count > 0)
-                column.Item().PaddingTop(20).Element(c => ComposeIspHops(c, report));
-
             if (report.IspAsns.Count > 0 || report.TransitAsns.Count > 0)
             {
                 column.Item().PageBreak();
@@ -302,12 +299,19 @@ public class IspHealthPdfGenerator
                         .FontColor(ScoreColor(dimension.Score));
                 });
 
+                // ISP Network carries no factors - BuildIspDimension scores it by averaging the
+                // per-hop grades, so the hops ARE its breakdown, and they sit under its heading
+                // the same way the tab renders them inside its dimension card.
+                if (dimension == report.IspAsnDimension && report.IspTargets.Count > 0)
+                {
+                    column.Item().PaddingTop(4).Element(c => ComposeIspHops(c, report));
+                    continue;
+                }
+
                 if (dimension.Factors.Count == 0)
                 {
-                    // ISP Network never carries factors - BuildIspDimension scores it by averaging
-                    // the per-hop grades, which get their own detail in the ISP Network Hops and
-                    // Networks on Your Path sections. So an empty factor list is normal there, and
-                    // only a missing score means there was genuinely nothing to grade.
+                    // An empty factor list is normal for ISP Network, so only a missing score
+                    // means there was genuinely nothing to grade.
                     if (dimension.Score == null)
                     {
                         column.Item().PaddingTop(2).Text("No data for this dimension in the window.")
@@ -343,12 +347,12 @@ public class IspHealthPdfGenerator
         });
     }
 
+    /// <summary>The ISP Network dimension's per-hop breakdown, rendered under its heading in
+    /// Score Breakdown - so no heading of its own, exactly as on the tab.</summary>
     private void ComposeIspHops(IContainer container, IspHealthReport report)
     {
         container.Column(column =>
         {
-            SectionHeading(column, "ISP Network Hops");
-
             var hops = report.IspTargets.OrderBy(t => t.RttMs ?? double.MaxValue).ToList();
 
             column.Item().Table(table =>
@@ -433,14 +437,12 @@ public class IspHealthPdfGenerator
                 }
             });
 
-            // Screen carries these on the card as a weight pie and info icons. In print they read as
-            // footnotes, so only the networks that have something to say take a line.
-            foreach (var asn in networks)
+            // Jitter only. Involvement and the low-reach caveat belong to the same networks a page
+            // earlier, on their Transit factor rows, and repeating them here just buried this.
+            foreach (var asn in networks.Where(a => a.JitterAssimilated))
             {
-                var isIspAsn = report.IspAsns.Contains(asn);
-                var note = Notes(asn.InvolvementTooltip, asn.LowReachScoreCaveat,
-                    asn.JitterAssimilated ? IspHealthPresentation.JitterAssimilationTooltip(asn, isIspAsn) : null);
-                if (note.Length > 0) NoteLine(column, IspHealthPresentation.AsnDisplayName(asn), note);
+                NoteLine(column, IspHealthPresentation.AsnDisplayName(asn),
+                    IspHealthPresentation.JitterAssimilationTooltip(asn, report.IspAsns.Contains(asn)));
             }
         });
     }
