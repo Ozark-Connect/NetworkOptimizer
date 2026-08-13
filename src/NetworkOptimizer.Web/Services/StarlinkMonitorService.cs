@@ -322,7 +322,7 @@ public sealed class StarlinkMonitorService : IStarlinkMonitorService, IDisposabl
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Error polling Starlink terminal {Name} ({Id})", config.Name, config.Id);
-            await UpdateConfigErrorAsync(config.Id, ex.Message);
+            await UpdateConfigErrorAsync(config.Id, HttpFailureSummary.Describe(ex, config.Host));
         }
     }
 

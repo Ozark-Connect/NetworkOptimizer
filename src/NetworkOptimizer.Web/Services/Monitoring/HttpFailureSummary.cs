@@ -25,7 +25,7 @@ public static class HttpFailureSummary
 
         return ex switch
         {
-            TaskCanceledException or OperationCanceledException => $"{where} did not answer in time.",
+            TaskCanceledException or OperationCanceledException => $"{where} did not answer in time. Check connectivity or firewall rules.",
             HttpRequestException { StatusCode: { } status } => ForStatus(status, where),
             HttpRequestException http => ForTransport(http, where),
             _ => $"Could not read from {where}: {FirstLine(ex?.Message)}",
@@ -76,7 +76,7 @@ public static class HttpFailureSummary
             System.Net.Sockets.SocketError.HostNotFound or System.Net.Sockets.SocketError.NoData =>
                 $"{where} could not be resolved.",
             System.Net.Sockets.SocketError.TimedOut =>
-                $"{where} did not answer in time.",
+                $"{where} did not answer in time. Check connectivity or firewall rules.",
             _ => $"Could not reach {where}.",
         };
     }

@@ -68,7 +68,7 @@ public sealed class XfinityGatewayProvider : ICableModemProvider
                     context.Name, stats.DownstreamChannels.Count, stats.UpstreamChannels.Count);
                 return PollResult<CableModemStats>.Ok(stats);
             }
-            catch (OperationCanceledException)
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
                 throw;
             }

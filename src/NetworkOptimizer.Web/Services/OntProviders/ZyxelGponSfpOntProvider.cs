@@ -166,7 +166,7 @@ public sealed class ZyxelGponSfpOntProvider : IOntProvider
             // HttpClient.Timeout elapsed - surfaces as a cancellation not tied to our token.
             return (false, "Connection timed out");
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             throw; // caller-requested cancellation
         }

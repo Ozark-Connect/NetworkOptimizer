@@ -78,7 +78,7 @@ public sealed class Lantiq8311OntProvider : IOntProvider
 
             return PollResult<OntStats>.Ok(stats);
         }
-        catch (OperationCanceledException) { throw; }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Error polling 8311 ONT {Name} at {Host}", context.Name, context.ConfiguredHost ?? context.Host);

@@ -329,7 +329,7 @@ public class OntMonitorService : IOntMonitorService, IDisposable
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Error polling ONT {Name} at {Host}", config.Name, config.Host);
-            await UpdateConfigErrorAsync(repository, config, ex.Message);
+            await UpdateConfigErrorAsync(repository, config, HttpFailureSummary.Describe(ex, config.Host));
             return null;
         }
     }

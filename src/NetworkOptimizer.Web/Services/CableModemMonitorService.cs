@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Monitoring.Models;
 using NetworkOptimizer.Monitoring.Providers;
+using NetworkOptimizer.Web.Services.Monitoring;
 using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Services;
@@ -283,7 +284,7 @@ public sealed class CableModemMonitorService : ICableModemService, IDisposable
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Error polling cable modem {Name} ({Id})", config.Name, config.Id);
-            await UpdateConfigErrorAsync(config.Id, ex.Message);
+            await UpdateConfigErrorAsync(config.Id, HttpFailureSummary.Describe(ex, config.Host));
         }
     }
 

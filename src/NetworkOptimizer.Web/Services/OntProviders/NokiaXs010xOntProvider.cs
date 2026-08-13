@@ -123,7 +123,7 @@ public sealed class NokiaXs010xOntProvider : IOntProvider
 
             return PollResult<OntStats>.Ok(stats);
         }
-        catch (OperationCanceledException) { throw; }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Error polling Nokia XS-010X-Q ONT {Name} at {Host}",

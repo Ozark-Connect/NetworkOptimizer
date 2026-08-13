@@ -83,7 +83,7 @@ public sealed class QuantumQ1000kOntProvider : IOntProvider
 
             return PollResult<OntStats>.Ok(stats);
         }
-        catch (OperationCanceledException) { throw; }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Error polling Quantum Q1000K ONT {Name} at {Host}", context.Name, context.ConfiguredHost ?? context.Host);

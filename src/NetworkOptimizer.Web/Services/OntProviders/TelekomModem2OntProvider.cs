@@ -58,7 +58,7 @@ public sealed class TelekomModem2OntProvider : IOntProvider
 
             return PollResult<OntStats>.Ok(stats);
         }
-        catch (OperationCanceledException) { throw; }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Error polling Telekom Modem 2 ONT {Name} at {Host}", context.Name, context.ConfiguredHost ?? context.Host);

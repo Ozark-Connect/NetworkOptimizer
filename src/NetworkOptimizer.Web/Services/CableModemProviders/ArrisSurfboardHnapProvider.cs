@@ -69,7 +69,7 @@ public sealed class ArrisSurfboardHnapProvider : ICableModemProvider, IDisposabl
 
             return PollResult<CableModemStats>.Ok(stats);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             throw;
         }

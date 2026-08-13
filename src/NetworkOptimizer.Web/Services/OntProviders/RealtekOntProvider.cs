@@ -59,7 +59,7 @@ public sealed class RealtekOntProvider : IOntProvider
 
             return PollResult<OntStats>.Ok(stats);
         }
-        catch (OperationCanceledException) { throw; }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Error polling Realtek ONT {Name} at {Host}", context.Name, context.ConfiguredHost ?? context.Host);

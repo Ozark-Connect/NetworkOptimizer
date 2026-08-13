@@ -82,7 +82,7 @@ public sealed class ArrisSurfboardHttpProvider : ICableModemProvider, IDisposabl
                 context.Name, context.ConfiguredHost ?? context.Host);
             return PollResult<CableModemStats>.Failed($"No stats could be read from {(context.ConfiguredHost ?? context.Host)}.");
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             throw;
         }

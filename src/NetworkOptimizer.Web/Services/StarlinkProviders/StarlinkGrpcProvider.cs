@@ -105,7 +105,7 @@ public class StarlinkGrpcProvider : IStarlinkProvider
         RpcException { StatusCode: StatusCode.Unavailable } =>
             $"Could not reach {host}. The dish serves stats on its own address, which stays reachable even when the link is down.",
         RpcException { StatusCode: StatusCode.DeadlineExceeded } =>
-            $"{host} did not answer in time.",
+            $"{host} did not answer in time. Check connectivity or firewall rules.",
         RpcException { StatusCode: StatusCode.Unimplemented } =>
             $"{host} answered, but does not serve the dish stats API. Check the address.",
         RpcException rpc => $"{host} refused the request ({rpc.StatusCode}).",
