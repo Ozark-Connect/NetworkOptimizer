@@ -19,15 +19,16 @@
 @inject NavigationManager NavigationManager
 @inject Microsoft.AspNetCore.Mvc.ViewFeatures.IFileVersionProvider FileVersionProvider
 
-@if (!_ready && !_notConfigured && ShowConsoleDownBanner)
+@* Beats the tiles: a live snapshot with no live source is worth less than saying so. *@
+@if (!_notConfigured && ShowConsoleDownBanner)
 {
     <div class="sqm-unavailable">
         <div class="sqm-status">
             <span class="status-indicator status-disconnected"></span>
-            <span class="status-label">Live View unavailable</span>
+            <span class="status-label">Console unavailable</span>
         </div>
         <p class="status-message">
-            This site's UniFi Console isn't reachable right now. Live stats will return when it reconnects.
+            Live stats are paused until this site's UniFi Console reconnects. Recorded history is still available in <strong>Monitoring - Live View</strong>.
         </p>
     </div>
 }

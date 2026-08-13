@@ -822,22 +822,17 @@
         </div>
     };
 
-    // Withheld while the console is down, unlike the Monitoring tab, which stays open so its
-    // timeline can be played back. This card is a live snapshot with nothing to scrub: it would
-    // render only to say the console is disconnected, which the page's own banner already says.
+    // Kept while the console is down: withholding it hid that history still plays back.
     private RenderFragment RenderLiveView => __builder =>
     {
-        @if (ConnectionService.IsConnected || !ConnectionService.IsInitialized)
-        {
-            <div class="card" id="live-view">
-                <a href="/monitoring?tab=live" class="card-header card-title-link" @onclick:stopPropagation>
-                    <h2 class="card-title">Live View</h2>
-                </a>
-                <div class="card-body">
-                    <LiveViewPanel MapMode="@GetLiveViewMapMode()" />
-                </div>
+        <div class="card" id="live-view">
+            <a href="/monitoring?tab=live" class="card-header card-title-link" @onclick:stopPropagation>
+                <h2 class="card-title">Live View</h2>
+            </a>
+            <div class="card-body">
+                <LiveViewPanel MapMode="@GetLiveViewMapMode()" />
             </div>
-        }
+        </div>
     };
 
     private string GetLiveViewMapMode()
