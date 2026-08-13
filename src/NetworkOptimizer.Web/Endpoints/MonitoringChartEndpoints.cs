@@ -350,8 +350,10 @@ public static class MonitoringChartEndpoints
             int? rangeHours,
             DateTime? from,
             DateTime? to,
+            bool? includeInactive,
             CancellationToken ct) =>
         {
+            var showInactive = includeInactive == true;
             var targetType = category switch
             {
                 "AccessIsp" => MonitoringTargetType.AccessIsp,
@@ -377,15 +379,50 @@ public static class MonitoringChartEndpoints
             // the target_type tag (indexed, ~10ms) instead of contains() on
             // target_id set (full scan, ~400ms+).
             await using var db = siteDbFactory.CreateForSite(siteContext.Slug, siteContext.IsDefault);
-            var targets = await db.MonitoringTargets.AsNoTracking()
-                .Where(t => t.TargetType == targetType && t.Enabled
+            var all = await db.MonitoringTargets.AsNoTracking()
+                .Where(t => t.TargetType == targetType
                     && (t.AsnNumber == null || !WellKnownAsns.NonTransitInfrastructure.Contains(t.AsnNumber.Value)))
                 .OrderBy(t => t.Name)
-                .Select(t => new { t.TargetId, t.Name, t.AutoLabel, t.WanInterface, t.Address, t.TargetType, t.IsLocal })
+                .Select(t => new
+                {
+                    t.TargetId,
+                    t.Name,
+                    t.AutoLabel,
+                    t.WanInterface,
+                    t.Address,
+                    t.TargetType,
+                    t.IsLocal,
+                    t.Enabled,
+                    t.DeviceMac
+                })
                 .ToListAsync(ct);
 
+            var liveDeviceMacs = all
+                .Where(t => t.Enabled && !string.IsNullOrEmpty(t.DeviceMac))
+                .Select(t => t.DeviceMac!)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            // Not every stopped series has finished. A device still probed under some other address
+            // is writing one history, and its earlier stretches are part of it - drop them and a
+            // switch of many months looks like it appeared the day its IP changed. Only a device
+            // with nothing still probing it is done, and only that belongs behind the toggle.
+            //
+            // Deliberately blind to Removed. Taking a row off the Latency Targets list is tidying
+            // that list; it says nothing about whether the device's history is worth reading, and
+            // conflating the two would make a bit of housekeeping erase the chart.
+            bool StillMonitored(string? deviceMac) =>
+                !string.IsNullOrEmpty(deviceMac) && liveDeviceMacs.Contains(deviceMac);
+
+            var targets = all
+                .Where(t => t.Enabled || showInactive || StillMonitored(t.DeviceMac))
+                .ToList();
+
+            // What the toggle would actually reveal, so it is offered only when that is something.
+            // A series already on the chart does not count towards it.
+            var inactiveCount = all.Count(t => !t.Enabled && !StillMonitored(t.DeviceMac));
+
             if (targets.Count == 0)
-                return Results.Ok(new { targets = Array.Empty<object>() });
+                return Results.Ok(new { targets = Array.Empty<object>(), inactiveCount });
 
             var data = await influx.QueryLatencyByTargetTypeAsync(targetType, queryFrom, queryTo, ct: ct);
 
@@ -409,12 +446,15 @@ public static class MonitoringChartEndpoints
                     // a hostname can only be answered here.
                     isLan = NetworkOptimizer.Web.Services.Monitoring.LocalTargetResolver.IsLocal(
                         t.TargetType, t.Address, t.IsLocal, t.WanInterface),
+                    // Nothing is probing this one, so its line has ended rather than paused for
+                    // rendering purposes. The chart draws it dashed and says so on the chip.
+                    inactive = !t.Enabled,
                     rtt = pts.Select(p => new { time = p.Time.ToString("o"), value = p.RttAvgMs }),
                     loss = pts.Select(p => new { time = p.Time.ToString("o"), value = p.LossPercent }),
                 };
             });
 
-            return Results.Ok(new { targets = result });
+            return Results.Ok(new { targets = result, inactiveCount });
         });
 
         group.MapGet("/api/monitoring/wan-rate-chart", async (

@@ -120,7 +120,7 @@ public class OntMonitorService : IOntMonitorService, IDisposable
     /// <summary>
     /// Manually poll a single ONT by ID (used by UI refresh button).
     /// </summary>
-    public async Task<OntStats?> PollOntAsync(int ontId)
+    public async Task<(OntStats? stats, string? failureReason)> PollOntAsync(int ontId)
     {
         using var scope = CreateSiteScope();
         var repository = scope.ServiceProvider.GetRequiredService<IOntRepository>();
@@ -129,10 +129,16 @@ public class OntMonitorService : IOntMonitorService, IDisposable
         if (config == null)
         {
             _logger.LogWarning("Cannot poll ONT {Id}: configuration not found", ontId);
-            return null;
+            return (null, "That ONT is no longer configured.");
         }
 
-        return await PollSingleAsync(config, repository, await ResolveThresholdsAsync(scope));
+        var stats = await PollSingleAsync(config, repository, await ResolveThresholdsAsync(scope));
+        if (stats != null) return (stats, null);
+
+        // The poll has just written why to LastError; read it back rather than plumbing it out
+        // of a path the timer loop also uses.
+        var after = await repository.GetOntConfigurationAsync(ontId);
+        return (null, string.IsNullOrEmpty(after?.LastError) ? "The ONT returned no data." : after!.LastError);
     }
 
     /// <summary>
@@ -285,7 +291,8 @@ public class OntMonitorService : IOntMonitorService, IDisposable
 
         try
         {
-            var stats = await provider.PollAsync(context);
+            var result = await provider.PollAsync(context);
+            var stats = result.Stats;
             if (stats != null)
             {
                 // Persist only the poll result (never Enabled). If the config was disabled
@@ -314,14 +321,15 @@ public class OntMonitorService : IOntMonitorService, IDisposable
             }
             else
             {
-                await UpdateConfigErrorAsync(repository, config, "Poll returned no data");
+                await UpdateConfigErrorAsync(
+                    repository, config, result.FailureReason ?? "The ONT returned no data.");
                 return null;
             }
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Error polling ONT {Name} at {Host}", config.Name, config.Host);
-            await UpdateConfigErrorAsync(repository, config, ex.Message);
+            await UpdateConfigErrorAsync(repository, config, HttpFailureSummary.Describe(ex, config.Host));
             return null;
         }
     }

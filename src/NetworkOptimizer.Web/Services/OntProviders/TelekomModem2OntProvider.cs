@@ -3,6 +3,7 @@ using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Monitoring.Models;
 using NetworkOptimizer.Monitoring.Providers;
+using NetworkOptimizer.Web.Services.Monitoring;
 
 namespace NetworkOptimizer.Web.Services.OntProviders;
 
@@ -28,12 +29,12 @@ public sealed class TelekomModem2OntProvider : IOntProvider
         _logger = logger;
     }
 
-    public async Task<OntStats?> PollAsync(OntPollContext context, CancellationToken cancellationToken = default)
+    public async Task<PollResult<OntStats>> PollAsync(OntPollContext context, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(context.Host))
         {
             _logger.LogWarning("Telekom Modem 2 ONT poll requested but Host is empty (config {Id})", context.Id);
-            return null;
+            return PollResult<OntStats>.Failed("No address is configured for this device.");
         }
 
         try
@@ -55,13 +56,13 @@ public sealed class TelekomModem2OntProvider : IOntProvider
                 context.Name, stats.RxPowerDbm?.ToString("F2") ?? "-",
                 stats.TxPowerDbm?.ToString("F2") ?? "-", stats.LinkState ?? "-");
 
-            return stats;
+            return PollResult<OntStats>.Ok(stats);
         }
-        catch (OperationCanceledException) { throw; }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Error polling Telekom Modem 2 ONT {Name} at {Host}", context.Name, context.ConfiguredHost ?? context.Host);
-            return null;
+            return PollResult<OntStats>.Failed(HttpFailureSummary.Describe(ex, (context.ConfiguredHost ?? context.Host)));
         }
     }
 
@@ -87,7 +88,7 @@ public sealed class TelekomModem2OntProvider : IOntProvider
         }
         catch (Exception ex)
         {
-            return (false, $"Connection failed: {ex.Message}");
+            return (false, HttpFailureSummary.Describe(ex, context.ConfiguredHost ?? context.Host));
         }
     }
 

@@ -5,6 +5,7 @@ using System.Text;
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Monitoring.Models;
 using NetworkOptimizer.Monitoring.Providers;
+using NetworkOptimizer.Web.Services.Monitoring;
 
 namespace NetworkOptimizer.Web.Services.OntProviders;
 
@@ -50,12 +51,12 @@ public sealed class ZyxelGponSfpOntProvider : IOntProvider
         _logger = logger;
     }
 
-    public async Task<OntStats?> PollAsync(OntPollContext context, CancellationToken cancellationToken = default)
+    public async Task<PollResult<OntStats>> PollAsync(OntPollContext context, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(context.Host))
         {
             _logger.LogWarning("Zyxel GPON-SFP ONT poll requested but Host is empty (config {Id})", context.Id);
-            return null;
+            return PollResult<OntStats>.Failed("No address is configured for this device.");
         }
 
         try
@@ -101,7 +102,7 @@ public sealed class ZyxelGponSfpOntProvider : IOntProvider
                 _logger.LogWarning(
                     "Zyxel GPON-SFP ONT {Name}: get_gpon_info did not contain recognized PON status fields",
                     context.Name);
-                return null;
+                return PollResult<OntStats>.Failed($"No stats could be read from {(context.ConfiguredHost ?? context.Host)}.");
             }
 
             _logger.LogDebug(
@@ -109,7 +110,7 @@ public sealed class ZyxelGponSfpOntProvider : IOntProvider
                 context.Name, stats.RxPowerDbm?.ToString("F2") ?? "-",
                 stats.TxPowerDbm?.ToString("F2") ?? "-", stats.LinkState ?? "-", stats.VendorSn ?? "-");
 
-            return stats;
+            return PollResult<OntStats>.Ok(stats);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -121,7 +122,7 @@ public sealed class ZyxelGponSfpOntProvider : IOntProvider
             // token not cancelled) yields null per the IOntProvider contract, not an exception.
             _logger.LogWarning(ex, "Error polling Zyxel GPON-SFP ONT {Name} at {Host}",
                 context.Name, context.ConfiguredHost ?? context.Host);
-            return null;
+            return PollResult<OntStats>.Failed(HttpFailureSummary.Describe(ex, (context.ConfiguredHost ?? context.Host)));
         }
     }
 
@@ -160,12 +161,12 @@ public sealed class ZyxelGponSfpOntProvider : IOntProvider
             return (true,
                 $"Connected (HTTP) - RX: {stats.RxPowerDbm?.ToString("F2") ?? "?"} dBm, Link: {stats.LinkState ?? "?"}");
         }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested)
         {
             // HttpClient.Timeout elapsed - surfaces as a cancellation not tied to our token.
-            return (false, "Connection timed out");
+            return (false, HttpFailureSummary.Describe(ex, context.ConfiguredHost ?? context.Host));
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             throw; // caller-requested cancellation
         }
@@ -175,7 +176,7 @@ public sealed class ZyxelGponSfpOntProvider : IOntProvider
         }
         catch (Exception ex)
         {
-            return (false, $"Connection failed: {ex.Message}");
+            return (false, HttpFailureSummary.Describe(ex, context.ConfiguredHost ?? context.Host));
         }
     }
 

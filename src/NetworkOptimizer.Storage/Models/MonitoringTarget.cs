@@ -146,6 +146,50 @@ public class MonitoringTarget
     /// </summary>
     public DateTime? LanFlakyHintDismissedAt { get; set; }
 
+    /// <summary>
+    /// When this target stopped describing anything real - its device left the UniFi device list,
+    /// or moved to a different address and a replacement target took over.
+    /// <para>
+    /// Retired is not paused. A paused target is a live target the user chose not to probe, and
+    /// resuming it is the obvious thing to offer; resuming a retired one would probe an address
+    /// nothing answers on. The row survives because its measurements are filed under its TargetId
+    /// and deleting it would orphan them - so readers exclude it, they do not remove it.
+    /// </para>
+    /// </summary>
+    public DateTime? RetiredAt { get; set; }
+
+    /// <summary>Why it was retired, in one line, for the badge tooltip. Null when it is live.</summary>
+    [MaxLength(200)]
+    public string? RetiredReason { get; set; }
+
+    /// <summary>
+    /// What <see cref="Enabled"/> was before retirement cleared it, so revival can put it back.
+    /// <para>
+    /// Retiring has to clear Enabled: a dozen readers treat that column as "is this row live" and
+    /// would otherwise start counting retired rows as active. But Enabled is also where a user's
+    /// pause lives, and overwriting it without keeping the old value silently un-paused a target
+    /// whose device left and came back. Null means never retired.
+    /// </para>
+    /// </summary>
+    public bool? EnabledBeforeRetire { get; set; }
+
+    /// <summary>Whether this target still describes something real.</summary>
+    public bool IsRetired => RetiredAt != null;
+
+    /// <summary>
+    /// When the user took this target off the Latency Targets list.
+    /// <para>
+    /// Hiding is a list filter and nothing more. The row is the only thing mapping a TargetId to a
+    /// name, an address and a device, so readers rendering history must still resolve a hidden one
+    /// - filter it where the list is drawn, never where a series is named, or hiding becomes
+    /// deleting by another route.
+    /// </para>
+    /// </summary>
+    public DateTime? HiddenAt { get; set; }
+
+    /// <summary>Whether the user has taken this target off the list.</summary>
+    public bool IsHidden => HiddenAt != null;
+
     public DateTime? LastVerified { get; set; }
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

@@ -23,10 +23,12 @@ public interface ICableModemProvider
 
     /// <summary>
     /// Poll the cable modem and return its current stats.
-    /// Implementations should log internally and return null on transport
-    /// or parsing failure; throwing is reserved for programming errors.
+    /// Implementations should log internally and report transport or parsing failure
+    /// through <see cref="PollResult{TStats}.Failed"/>; throwing is reserved for
+    /// programming errors. Every failure carries a reason: it is what the Settings test
+    /// and the stats panel show.
     /// </summary>
-    Task<CableModemStats?> PollAsync(
+    Task<PollResult<CableModemStats>> PollAsync(
         CmPollContext context,
         CancellationToken cancellationToken = default);
 

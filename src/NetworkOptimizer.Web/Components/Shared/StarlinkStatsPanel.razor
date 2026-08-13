@@ -20,6 +20,11 @@
                 <span class="status-label">No Data</span>
             </div>
             <p class="status-message">No Starlink terminal configured.</p>
+            @if (!string.IsNullOrEmpty(_pollError))
+            {
+                <div class="poll-error">@_pollError</div>
+            }
+
             <div class="sqm-actions">
                 <SiteAdminOnly><a href="/settings#starlink" class="btn btn-primary" @onclick:stopPropagation>Configure Starlink</a></SiteAdminOnly>
             </div>
@@ -132,6 +137,11 @@
             }
         }
 
+        @if (!string.IsNullOrEmpty(_pollError))
+        {
+            <div class="poll-error">@_pollError</div>
+        }
+
         <div class="sqm-actions">
             @* Tooltip lives on the wrapper: a disabled button has pointer-events none and never fires the hover *@
             <span data-tooltip="@(CurrentEnabled ? null : "Monitoring is disabled for this device. Enable it in Starlink Settings.")" @onclick:stopPropagation>
@@ -156,6 +166,10 @@
         display: flex;
         flex-direction: column;
         gap: 1rem;
+    }
+
+    .starlink-stats-panel .sqm-actions {
+        margin-top: 0.5rem;
     }
 
     .starlink-header-right {
@@ -285,6 +299,9 @@
     private StarlinkStats? stats;
     private StarlinkObstructionMap? obstructionMap;
     private bool isLoading = true;
+    /// <summary>Why the last poll produced nothing, shown on the card until one succeeds.</summary>
+    private string? _pollError;
+
     private bool isRefreshing = false;
     private bool hasConfiguredTerminals = false;
     private List<NetworkOptimizer.Storage.Models.StarlinkConfiguration> configuredTerminals = new();
@@ -404,7 +421,8 @@
             if (configuredTerminals.Count > 0 && currentIndex < configuredTerminals.Count)
             {
                 var terminal = configuredTerminals[currentIndex];
-                await StarlinkService.PollStarlinkAsync(terminal.Id);
+                var (ok, message) = await StarlinkService.PollStarlinkAsync(terminal.Id);
+                _pollError = ok ? null : message;
                 stats = await StarlinkService.GetCachedStatsAsync(terminal.Id);
                 obstructionMap = await StarlinkService.GetCachedObstructionMapAsync(terminal.Id);
             }

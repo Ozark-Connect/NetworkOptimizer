@@ -3,6 +3,7 @@ using System.Text.RegularExpressions;
 using HtmlAgilityPack;
 using NetworkOptimizer.Monitoring.Models;
 using NetworkOptimizer.Monitoring.Providers;
+using NetworkOptimizer.Web.Services.Monitoring;
 
 namespace NetworkOptimizer.Web.Services.OntProviders;
 
@@ -25,12 +26,12 @@ public sealed class RealtekOntProvider : IOntProvider
         _logger = logger;
     }
 
-    public async Task<OntStats?> PollAsync(OntPollContext context, CancellationToken cancellationToken = default)
+    public async Task<PollResult<OntStats>> PollAsync(OntPollContext context, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(context.Host))
         {
             _logger.LogWarning("Realtek ONT poll requested but Host is empty (config {Id})", context.Id);
-            return null;
+            return PollResult<OntStats>.Failed("No address is configured for this device.");
         }
 
         try
@@ -42,7 +43,7 @@ public sealed class RealtekOntProvider : IOntProvider
             if (!await LoginAsync(client, baseUrl, context, cancellationToken))
             {
                 _logger.LogWarning("Realtek ONT {Name}: login failed", context.Name);
-                return null;
+                return PollResult<OntStats>.Failed($"No stats could be read from {(context.ConfiguredHost ?? context.Host)}.");
             }
 
             var ponHtml = await client.GetStringAsync($"{baseUrl}/status_pon.asp", cancellationToken);
@@ -56,13 +57,13 @@ public sealed class RealtekOntProvider : IOntProvider
                 stats.TxPowerDbm?.ToString("F1") ?? "-",
                 stats.TemperatureC?.ToString("F0") ?? "-");
 
-            return stats;
+            return PollResult<OntStats>.Ok(stats);
         }
-        catch (OperationCanceledException) { throw; }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Error polling Realtek ONT {Name} at {Host}", context.Name, context.ConfiguredHost ?? context.Host);
-            return null;
+            return PollResult<OntStats>.Failed(HttpFailureSummary.Describe(ex, (context.ConfiguredHost ?? context.Host)));
         }
     }
 
@@ -92,7 +93,7 @@ public sealed class RealtekOntProvider : IOntProvider
         }
         catch (Exception ex)
         {
-            return (false, $"Connection failed: {ex.Message}");
+            return (false, HttpFailureSummary.Describe(ex, context.ConfiguredHost ?? context.Host));
         }
     }
 

@@ -299,9 +299,11 @@ public class AgentProbeResultSink
                 return;
             }
 
+            // Retired targets are withheld for the same reason the server does not probe them:
+            // their address describes nothing, so an agent probing one only records a false loss.
             var targets = await db.MonitoringTargets
                 .AsNoTracking()
-                .Where(t => t.Enabled)
+                .Where(t => t.Enabled && t.RetiredAt == null)
                 .ToListAsync(ct);
             // Before anything reads a context's binding, give one back to any context that lost the
             // chance to have one. Runs here because this is the push that follows an agent's hello,

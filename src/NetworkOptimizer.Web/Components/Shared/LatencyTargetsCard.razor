@@ -52,7 +52,7 @@
             </div>
         }
         <div class="card-header-badges">
-            <span class="status-badge status-active" @onclick:stopPropagation="true">@VisibleTargets().Count(t => t.Enabled) active</span>
+            <span class="status-badge status-active" @onclick:stopPropagation="true">@VisibleTargets().Count(t => t.Enabled && !t.IsRetired) active</span>
             <span class="issue-type-chevron">@(_collapsed ? "▼" : "▲")</span>
         </div>
     </div>
@@ -67,6 +67,13 @@
             </p>
             <div class="lt-actions">
                 <a href="@RunProbeUrl" class="btn btn-sm btn-secondary">Run Probe</a>
+                @if (HiddenCount > 0)
+                {
+                    <button class="btn btn-sm btn-secondary" @onclick="ToggleShowHidden"
+                            data-tooltip="Removed targets are kept so their measurements stay readable.">
+                        @(_showHidden ? "Hide removed" : $"Show removed ({HiddenCount})")
+                    </button>
+                }
                 <SiteOperatorOnly>
                     <button class="btn btn-sm btn-primary" @onclick="ShowAddTargetFromTop">
                         + Add Target
@@ -99,6 +106,10 @@
                         <th>Interval</th>
                         <th>Latest</th>
                         <th>Last verified</th>
+                        @* Two action columns, not one: a retired row has no Pause, and with both
+                           buttons sharing a cell its Remove slid left out of line with every other
+                           Remove. Separate cells put the table's own column alignment to work. *@
+                        <th></th>
                         <th></th>
                     </tr>
                 </thead>
@@ -189,7 +200,15 @@
                                 </SiteOperatorOnly>
                             </td>
                             <td>
-                                @if (!t.Enabled)
+                                @if (t.IsHidden)
+                                {
+                                    <span class="text-muted" data-tooltip="@HiddenTooltip">removed</span>
+                                }
+                                else if (t.IsRetired)
+                                {
+                                    <span class="text-muted" data-tooltip="@RetiredTooltip(t)">retired</span>
+                                }
+                                else if (!t.Enabled)
                                 {
                                     <span class="text-muted">paused</span>
                                 }
@@ -221,22 +240,40 @@
                                 else
                                 { <span class="text-muted">never</span> }
                             </td>
-                            <td style="white-space: nowrap;">
-                                <SiteOperatorOnly>
-                                    <button class="btn btn-sm btn-secondary"
-                                        @onclick="() => SetTargetEnabledAsync(t.Id, !t.Enabled)"
-                                        title="@(t.Enabled ? "Pause probing" : "Resume probing")">
-                                    @(t.Enabled ? "Pause" : "Resume")
-                                </button>
-                                </SiteOperatorOnly>
-                                <SiteAdminOnly>
-                                    <button class="btn btn-sm btn-danger"
-                                        @onclick="() => DeleteTargetAsync(t.Id)"
-                                        title="Remove this target"
-                                        style="margin-left: 0.25rem;">
-                                    Remove
-                                </button>
-                                </SiteAdminOnly>
+                            <td class="lt-action-cell lt-action-cell-first">
+                                @if (t.IsHidden)
+                                {
+                                    <SiteAdminOnly>
+                                        <button class="btn btn-sm btn-secondary"
+                                            @onclick="() => RestoreTargetAsync(t.Id)"
+                                            data-tooltip="Put this target back on the list and resume probing it">
+                                        Restore
+                                    </button>
+                                    </SiteAdminOnly>
+                                }
+                                else if (!t.IsRetired)
+                                {
+                                    @* A retired target's address answers to nothing, so there is no probing to resume. *@
+                                    <SiteOperatorOnly>
+                                        <button class="btn btn-sm btn-secondary"
+                                            @onclick="() => SetTargetEnabledAsync(t.Id, !t.Enabled)"
+                                            data-tooltip="@(t.Enabled ? "Pause probing" : "Resume probing")">
+                                        @(t.Enabled ? "Pause" : "Resume")
+                                    </button>
+                                    </SiteOperatorOnly>
+                                }
+                            </td>
+                            <td class="lt-action-cell lt-action-cell-last">
+                                @if (!t.IsHidden)
+                                {
+                                    <SiteAdminOnly>
+                                        <button class="btn btn-sm btn-danger"
+                                            @onclick="() => DeleteTargetAsync(t.Id)"
+                                            data-tooltip="@RemoveTooltip(t)">
+                                        Remove
+                                    </button>
+                                    </SiteAdminOnly>
+                                }
                             </td>
                         </tr>
                     }
@@ -247,10 +284,9 @@
                     <p class="alert alert-danger">@_targetError</p>
                 }
             </div>
-            <p class="page-description" style="margin-top: 0.5rem;">
-                Removing a fabric or upstream-discovered WAN target will trigger it to be re-created
-                on the next agent cycle. Use <strong>Pause</strong> instead to stop
-                probing without losing the row's history.
+            <p class="page-description page-description-footnote">
+                <strong>Pause</strong> stops probing a target. <strong>Remove</strong> hides it as
+                well, but keeps everything it measured so <strong>Restore</strong> can bring it back.
             </p>
         }
 
@@ -360,6 +396,20 @@
         margin: 0 0.5rem;
     }
 
+    .data-table td.lt-action-cell {
+        white-space: nowrap;
+    }
+
+    .data-table td.lt-action-cell-first {
+        text-align: right;
+        padding-right: 0.5rem;
+    }
+
+    .data-table td.lt-action-cell-last {
+        text-align: left;
+        padding-left: 0;
+    }
+
     .lt-intro {
         display: flex;
         align-items: flex-start;
@@ -422,6 +472,14 @@
         .lt-intro {
             flex-direction: column;
             gap: 0.5rem;
+        }
+
+        .lt-intro .section-description {
+            margin-bottom: 0.5rem;
+        }
+
+        .lt-intro .lt-actions {
+            margin-bottom: 1rem;
         }
 
         .lt-form-grid {
@@ -567,6 +625,32 @@
                 MonitoringTargetType.InternetService, MonitoringTargetType.Custom };
 
     /// <summary>
+    /// How many removed targets pressing Show removed would actually reveal - narrowed the same
+    /// way the list is, so the count can never promise rows the current scope would filter out.
+    /// </summary>
+    private int HiddenCount => InScope(Targets.Where(t => t.IsHidden)).Count();
+
+    /// <summary>
+    /// Remove keeps a probed target's row so its series stays named, and only really deletes one
+    /// that never ran. The button says which it will do, because the two are not the same promise.
+    /// </summary>
+    private static string RemoveTooltip(MonitoringTarget t) => t.LastVerified != null
+        ? "Take this target off the list. Its measurements are kept, so nothing it recorded is orphaned."
+        : "Delete this target. It has never been probed, so there is nothing to keep.";
+
+    private const string HiddenTooltip =
+        "Removed from the list. Its measurements are kept so charts can still name them.";
+
+    /// <summary>
+    /// Why a target was retired, and what it still offers: the measurements stay readable, which
+    /// is the reason the row is here rather than gone.
+    /// </summary>
+    private static string RetiredTooltip(MonitoringTarget t) =>
+        string.IsNullOrWhiteSpace(t.RetiredReason)
+            ? "No longer probed. Its measurements are kept."
+            : $"{t.RetiredReason}. No longer probed; its measurements are kept.";
+
+    /// <summary>
     /// The Type column's badge. Access ISP is shortened to the name the filter pill above it uses,
     /// which is also the widest label the column has to carry.
     /// </summary>
@@ -597,7 +681,7 @@
         .ThenBy(c => c.Name, StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Columns in the table, so an empty-state row spans all of them.</summary>
-    private int VisibleColumnCount => WanContexts.Count > 0 ? 8 : 7;
+    private int VisibleColumnCount => WanContexts.Count > 0 ? 9 : 8;
 
     /// <summary>
     /// What actually probes the listed targets, for the card's own description of itself. A target
@@ -702,9 +786,17 @@
         ? $"/network-tools?from={Uri.EscapeDataString(vantage)}"
         : "/network-tools";
 
-    private IEnumerable<MonitoringTarget> VisibleTargets()
+    private IEnumerable<MonitoringTarget> VisibleTargets() =>
+        InScope(_showHidden ? Targets : Targets.Where(t => !t.IsHidden));
+
+    /// <summary>
+    /// The type and LAN/WAN narrowing the card is currently showing, applied to whatever set is
+    /// handed in. Shared with <see cref="HiddenCount"/> so the Show removed button counts what
+    /// pressing it would actually reveal.
+    /// </summary>
+    private IEnumerable<MonitoringTarget> InScope(IEnumerable<MonitoringTarget> targets)
     {
-        IEnumerable<MonitoringTarget> ordered = Targets.OrderBy(t => t.TargetType).ThenBy(t => t.Name);
+        IEnumerable<MonitoringTarget> ordered = targets.OrderBy(t => t.TargetType).ThenBy(t => t.Name);
         if (_typeFilter is MonitoringTargetType wanted) ordered = ordered.Where(t => t.TargetType == wanted);
         // The LAN is what sits on this network, whatever WAN a row happens to be stamped with, and
         // a WAN is the opposite. Only All carries both.
@@ -779,6 +871,10 @@
     private bool CanAddTargets => SiteCtx.IsDefault || ExecutorFactory.ServerVantageIsAgent;
 
     private bool _collapsed = true;
+
+    /// <summary>Reveals removed targets. Deliberately not persisted: it is a look at what was taken
+    /// off the list, not a preference, and a sticky one would leave the list permanently fuller.</summary>
+    private bool _showHidden;
     private bool _showAddTarget;
     private bool _addingTarget;
     private string _newTargetName = "";
@@ -892,6 +988,18 @@
     private async Task DeleteTargetAsync(int targetId)
     {
         await MutateAsync(() => TargetService.DeleteAsync(targetId));
+    }
+
+    private async Task RestoreTargetAsync(int targetId)
+    {
+        await MutateAsync(() => TargetService.SetHiddenAsync(targetId, false));
+    }
+
+    private async Task ToggleShowHidden()
+    {
+        await HoldPositionAsync();
+        _showHidden = !_showHidden;
+        _collapsed = false;
     }
 
     private async Task UpdateIntervalAsync(int targetId, ChangeEventArgs e)

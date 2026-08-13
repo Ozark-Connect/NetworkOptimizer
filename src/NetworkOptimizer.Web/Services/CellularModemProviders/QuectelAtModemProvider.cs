@@ -34,17 +34,18 @@ public sealed class QuectelAtModemProvider : ICellularModemProvider
     }
 
     /// <inheritdoc/>
-    public async Task<CellularModemStats?> PollAsync(
+    public async Task<PollResult<CellularModemStats>> PollAsync(
         ModemPollContext context,
         CancellationToken cancellationToken = default)
     {
         _logger.LogInformation("Polling GL-iNet modem {Name} at {Host}", context.Name, context.ConfiguredHost ?? context.Host);
 
+        var host = context.ConfiguredHost ?? context.Host;
         var connection = ToConnectionInfo(context);
         if (!connection.HasCredentials)
         {
             _logger.LogWarning("No SSH credentials configured for modem {Name}", context.Name);
-            return null;
+            return PollResult<CellularModemStats>.Failed("SSH credentials are not configured for this modem.");
         }
 
         try
@@ -55,24 +56,24 @@ public sealed class QuectelAtModemProvider : ICellularModemProvider
             if (!result.Success)
             {
                 _logger.LogWarning("AT command failed on {Name}: {Error}", context.Name, result.Error);
-                return null;
+                return PollResult<CellularModemStats>.Failed(SshFailureSummary.Describe(result.CombinedOutput, host));
             }
 
-            var stats = QuectelAtParser.Parse(result.Output, context.ConfiguredHost ?? context.Host, context.Name, context.ModemType);
+            var stats = QuectelAtParser.Parse(result.Output, host, context.Name, context.ModemType);
 
-            if (stats != null)
-            {
-                _logger.LogInformation(
-                    "Successfully polled GL-iNet modem {Name}: Signal Quality: {Quality}%",
-                    context.Name, stats.SignalQuality);
-            }
+            if (stats == null)
+                return PollResult<CellularModemStats>.Failed($"{host} answered over SSH but the modem returned no signal data.");
 
-            return stats;
+            _logger.LogInformation(
+                "Successfully polled GL-iNet modem {Name}: Signal Quality: {Quality}%",
+                context.Name, stats.SignalQuality);
+
+            return PollResult<CellularModemStats>.Ok(stats);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error polling GL-iNet modem {Name}", context.Name);
-            return null;
+            return PollResult<CellularModemStats>.Failed(SshFailureSummary.Describe(ex.Message, host));
         }
     }
 
@@ -100,7 +101,7 @@ public sealed class QuectelAtModemProvider : ICellularModemProvider
                 return (false, $"SSH connected but modem did not respond. Output: {Truncate(result.Output, 200)}");
             }
 
-            return (false, $"SSH command failed: {Truncate(result.Error, 200)}");
+            return (false, SshFailureSummary.Describe(result.CombinedOutput, context.ConfiguredHost ?? context.Host));
         }
         catch (Exception ex)
         {

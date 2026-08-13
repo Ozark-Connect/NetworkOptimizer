@@ -62,6 +62,11 @@
             </div>
         </div>
 
+        @if (!string.IsNullOrEmpty(pollError))
+        {
+            <div class="poll-error">@pollError</div>
+        }
+
         <div class="sqm-actions">
             @* Tooltip lives on the wrapper: a disabled button has pointer-events none and never fires the hover *@
             <span data-tooltip="@(CurrentEnabled ? null : "Monitoring is disabled for this device. Enable it in Cellular Modem Settings.")" @onclick:stopPropagation>
@@ -266,6 +271,11 @@
                     </div>
                 }
             </div>
+        }
+
+        @if (!string.IsNullOrEmpty(pollError))
+        {
+            <div class="poll-error">@pollError</div>
         }
 
         <div class="sqm-actions">
@@ -549,7 +559,11 @@
                         // Just fetch cached stats for current modem - don't force a poll
                         var modem = configuredModems[currentModemIndex];
                         var newStats = await ModemService.GetCachedStatsAsync(modem.Id);
-                        if (newStats != null) modemStats = newStats;
+                        if (newStats != null)
+                        {
+                            modemStats = newStats;
+                            pollError = null;
+                        }
                     }
                     StateHasChanged();
                 }
@@ -559,6 +573,9 @@
             TimeSpan.FromSeconds(10),
             TimeSpan.FromSeconds(10));
     }
+
+    /// <summary>Why the last poll produced nothing, shown on the card until one succeeds.</summary>
+    private string? pollError;
 
     private async Task LoadStats()
     {
@@ -585,7 +602,8 @@
                 else
                 {
                     // No cached stats - do initial poll
-                    var (success, _) = await ModemService.PollModemAsync(modem);
+                    var (success, message) = await ModemService.PollModemAsync(modem);
+                    pollError = success ? null : message;
                     if (success)
                     {
                         modemStats = await ModemService.GetCachedStatsAsync(modem.Id);
@@ -616,7 +634,8 @@
             if (configuredModems.Count > 0 && currentModemIndex < configuredModems.Count)
             {
                 var modem = configuredModems[currentModemIndex];
-                var (success, _) = await ModemService.PollModemAsync(modem);
+                var (success, message) = await ModemService.PollModemAsync(modem);
+                pollError = success ? null : message;
                 if (success)
                 {
                     modemStats = await ModemService.GetCachedStatsAsync(modem.Id);
@@ -712,12 +731,14 @@
             var modem = configuredModems[currentModemIndex];
             var cached = await ModemService.GetCachedStatsAsync(modem.Id);
             modemStats = cached;
+            pollError = null;
             StateHasChanged();
 
             if (cached == null)
             {
                 // No cached stats - try polling, but don't block paging
-                var (success, _) = await ModemService.PollModemAsync(modem);
+                var (success, message) = await ModemService.PollModemAsync(modem);
+                pollError = success ? null : message;
                 if (success)
                 {
                     modemStats = await ModemService.GetCachedStatsAsync(modem.Id);

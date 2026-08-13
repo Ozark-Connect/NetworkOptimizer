@@ -23,11 +23,27 @@ public interface IMonitoringTargetService
     [AuditAction(AuditActions.MonitoringSetupChanged, TargetType = "monitoring_target")]
     Task<MonitoringTarget> AddAsync(NewMonitoringTarget spec, CancellationToken ct = default);
 
-    /// <summary>Deletes a target. False when it no longer exists.</summary>
+    /// <summary>
+    /// Removes a target from the list. One that has been probed is hidden rather than deleted, so
+    /// its row keeps naming the series filed under its TargetId; one that never was is deleted
+    /// outright. False when it no longer exists.
+    /// </summary>
     /// <remarks>Admin, not Operator: removing a target is the card's one SiteAdminOnly action.</remarks>
     [RequireRole(Roles.Admin)]
     [AuditAction(AuditActions.MonitoringSetupChanged, TargetType = "monitoring_target")]
     Task<bool> DeleteAsync(int id, CancellationToken ct = default);
+
+    /// <summary>
+    /// Takes a target off the list, or puts it back, stopping and resuming its probing with it.
+    /// False when it no longer exists.
+    /// </summary>
+    /// <remarks>
+    /// Admin, matching <see cref="DeleteAsync"/>: this is the way back from it, and the two should
+    /// not need different people.
+    /// </remarks>
+    [RequireRole(Roles.Admin)]
+    [AuditAction(AuditActions.MonitoringSetupChanged, TargetType = "monitoring_target")]
+    Task<bool> SetHiddenAsync(int id, bool hidden, CancellationToken ct = default);
 
     /// <summary>Renames a target. False when it no longer exists.</summary>
     /// <remarks>
