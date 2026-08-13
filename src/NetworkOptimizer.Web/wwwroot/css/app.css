@@ -419,6 +419,11 @@ h1:focus {
     width: 100%;
 }
 
+.poll-error {
+    font-size: 0.8rem;
+    color: var(--danger-color);
+}
+
 .page-description-footnote {
     margin-top: 0.75rem;
     margin-left: 0.5rem;

@@ -169,11 +169,11 @@ public class StarlinkGrpcProvider : IStarlinkProvider
         }
         catch (RpcException ex)
         {
-            return (false, $"gRPC error: {ex.Status.StatusCode} - {ex.Status.Detail}");
+            return (false, DescribeGrpcFailure(ex, context.ConfiguredHost ?? context.Host));
         }
         catch (Exception ex)
         {
-            return (false, $"Connection failed: {ex.Message}");
+            return (false, DescribeGrpcFailure(ex, context.ConfiguredHost ?? context.Host));
         }
     }
 

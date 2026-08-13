@@ -140,16 +140,23 @@ public sealed class StarlinkMonitorService : IStarlinkMonitorService, IDisposabl
     /// <summary>
     /// Manually trigger a poll for a specific terminal.
     /// </summary>
-    public async Task PollStarlinkAsync(int id)
+    public async Task<(bool success, string message)> PollStarlinkAsync(int id)
     {
         var config = await GetConfigAsync(id);
         if (config == null)
         {
             _logger.LogWarning("PollStarlinkAsync called for unknown Starlink config {Id}", id);
-            return;
+            return (false, "That terminal is no longer configured.");
         }
 
         await PollSingleAsync(config);
+
+        // Read back rather than plumbing the reason out of the poll: the poll has just written
+        // it to LastError, and the timer loop that shares this path wants no return value.
+        var after = await GetConfigAsync(id);
+        return string.IsNullOrEmpty(after?.LastError)
+            ? (true, "Polled successfully.")
+            : (false, after!.LastError!);
     }
 
     /// <summary>

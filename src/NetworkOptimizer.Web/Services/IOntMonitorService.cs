@@ -36,7 +36,7 @@ public interface IOntMonitorService
 
     /// <summary>Polls one ONT now and caches the result.</summary>
     [RequireRole(Roles.Viewer)]
-    Task<OntStats?> PollOntAsync(int ontId);
+    Task<(OntStats? stats, string? failureReason)> PollOntAsync(int ontId);
 
     /// <summary>Adds or updates an ONT configuration.</summary>
     [RequireRole(Roles.Admin)]

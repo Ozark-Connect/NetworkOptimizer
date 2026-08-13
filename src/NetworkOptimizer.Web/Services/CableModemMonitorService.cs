@@ -102,16 +102,23 @@ public sealed class CableModemMonitorService : ICableModemService, IDisposable
     /// <summary>
     /// Manually trigger a poll for a specific cable modem.
     /// </summary>
-    public async Task PollCmAsync(int cmId)
+    public async Task<(bool success, string message)> PollCmAsync(int cmId)
     {
         var config = await GetConfigAsync(cmId);
         if (config == null)
         {
             _logger.LogWarning("PollCmAsync called for unknown CM config {Id}", cmId);
-            return;
+            return (false, "That cable modem is no longer configured.");
         }
 
         await PollSingleAsync(config);
+
+        // Read back rather than plumbing the reason out of the poll: the poll has just written
+        // it to LastError, and the timer loop that shares this path wants no return value.
+        var after = await GetConfigAsync(cmId);
+        return string.IsNullOrEmpty(after?.LastError)
+            ? (true, "Polled successfully.")
+            : (false, after!.LastError!);
     }
 
     /// <summary>
