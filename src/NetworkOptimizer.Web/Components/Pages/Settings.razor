@@ -1385,10 +1385,13 @@
                             <div class="form-group" style="flex: 2;">
                                 <label class="form-label">Host / IP</label>
                                 <input type="text" class="form-control" @bind="editingModem.Host" placeholder="192.168.1.100" />
-                                <small class="form-help">
-                                    Can you only reach the management page of this device when directly connected?
-                                    <a href="@MonitoringInterfaceLink(editingModem.Host, "wmodem")">Set up a monitoring interface →</a>
-                                </small>
+                                @if (!IsUniFiSshModem(editingModem.Provider))
+                                {
+                                    <small class="form-help">
+                                        Can you only reach the management page of this device when directly connected?
+                                        <a href="@MonitoringInterfaceLink(editingModem.Host, "wmodem")">Set up a monitoring interface →</a>
+                                    </small>
+                                }
                             </div>
                             <div class="form-group" style="flex: 1;">
                                 <label class="form-label">Polling Interval (sec)</label>
@@ -1453,10 +1456,11 @@
                             {
                                 <div class="alert alert-@probeResultClass" style="margin-top: 0.5rem;">
                                     @probeResult
-                                    @if (LooksUnreachable(probeResult) && !string.IsNullOrWhiteSpace(editingModem.Host))
+                                    @if (LooksUnreachable(probeResult) && !string.IsNullOrWhiteSpace(editingModem.Host)
+                                        && !IsUniFiSshModem(editingModem.Provider))
                                     {
                                         <div class="mi-funnel">
-                                            Can't reach it? <a href="@MonitoringInterfaceLink(editingModem.Host, "wmodem")">Set up a monitoring interface →</a>
+                                            Still can't reach it? <a href="@MonitoringInterfaceLink(editingModem.Host, "wmodem")">Set up a monitoring interface →</a>
                                         </div>
                                     }
                                 </div>
@@ -1495,10 +1499,11 @@
             {
                 <div class="alert alert-@modemMessageClass" style="margin-top: 1rem;">
                     @modemMessage
-                    @if (LooksUnreachable(modemMessage) && !string.IsNullOrWhiteSpace(_modemTestedHost))
+                    @if (LooksUnreachable(modemMessage) && !string.IsNullOrWhiteSpace(_modemTestedHost)
+                        && !IsUniFiSshModem(_modemTestedProvider))
                     {
                         <div class="mi-funnel">
-                            Can't reach it? <a href="@MonitoringInterfaceLink(_modemTestedHost, "wmodem")">Set up a monitoring interface →</a>
+                            Still can't reach it? <a href="@MonitoringInterfaceLink(_modemTestedHost, "wmodem")">Set up a monitoring interface →</a>
                         </div>
                     }
                 </div>
@@ -1699,7 +1704,7 @@
                     @if (LooksUnreachable(_cmTestResult) && !string.IsNullOrWhiteSpace(_cmTestedHost))
                     {
                         <div class="mi-funnel">
-                            Can't reach it? <a href="@MonitoringInterfaceLink(_cmTestedHost, "cm")">Set up a monitoring interface →</a>
+                            Still can't reach it? <a href="@MonitoringInterfaceLink(_cmTestedHost, "cm")">Set up a monitoring interface →</a>
                         </div>
                     }
                 </div>
@@ -1936,7 +1941,7 @@
                     @if (LooksUnreachable(_ontTestResult) && !string.IsNullOrWhiteSpace(_ontTestedHost))
                     {
                         <div class="mi-funnel">
-                            Can't reach it? <a href="@MonitoringInterfaceLink(_ontTestedHost, "ont")">Set up a monitoring interface →</a>
+                            Still can't reach it? <a href="@MonitoringInterfaceLink(_ontTestedHost, "ont")">Set up a monitoring interface →</a>
                         </div>
                     }
                 </div>
@@ -2118,7 +2123,7 @@
                     @if (LooksUnreachable(_starlinkTestResult) && !string.IsNullOrWhiteSpace(_starlinkTestedHost))
                     {
                         <div class="mi-funnel">
-                            Can't reach it? <a href="@MonitoringInterfaceLink(_starlinkTestedHost, "starlink")">Set up a monitoring interface →</a>
+                            Still can't reach it? <a href="@MonitoringInterfaceLink(_starlinkTestedHost, "starlink")">Set up a monitoring interface →</a>
                         </div>
                     }
                 </div>
@@ -4711,6 +4716,7 @@
     private string modemMessage = "";
     private string modemMessageClass = "";
     private string? _modemTestedHost;
+    private string? _modemTestedProvider;
     private List<DiscoveredModem> discoveredModems = new();
     private bool loadingDiscoveredModems = false;
     private bool modemFormExpanded = false;
@@ -4754,13 +4760,25 @@
     /// behind the WAN. Auth (401) or parse failures mean the device IS reachable, so we
     /// don't funnel those toward a monitoring interface.
     /// </summary>
+    /// <summary>
+    /// A UniFi modem is polled over SSH using the shared device credentials, on the console's own
+    /// device network - there is no separate management page to route to, so the monitoring
+    /// interface funnel has nothing to offer and only adds a wrong turn. Empty counts as UniFi:
+    /// it is the default provider for rows that predate the column.
+    /// </summary>
+    private static bool IsUniFiSshModem(string? provider) =>
+        string.IsNullOrWhiteSpace(provider)
+        || provider.Equals("qmicli", StringComparison.OrdinalIgnoreCase);
+
     private static bool LooksUnreachable(string? message)
     {
         if (string.IsNullOrEmpty(message)) return false;
         var m = message.ToLowerInvariant();
         return m.Contains("timeout") || m.Contains("timed out") || m.Contains("canceled") || m.Contains("cancelled")
             || m.Contains("refused") || m.Contains("no route") || m.Contains("unreachable")
-            || m.Contains("no such host") || m.Contains("actively refused") || m.Contains("connection attempt failed");
+            || m.Contains("no such host") || m.Contains("actively refused") || m.Contains("connection attempt failed")
+            // The summaries word these without the framework's vocabulary, so match how they read.
+            || m.Contains("did not answer") || m.Contains("could not reach") || m.Contains("could not be resolved");
     }
     private int? _ontTestingId;
     private int? _ontTogglingId;
@@ -6770,6 +6788,7 @@
         // save path would keep.
         modem.Host = NetworkUtilities.ExtractHostFromUrl(modem.Host);
         _modemTestedHost = modem.Host;
+        _modemTestedProvider = modem.Provider;
         modemMessage = $"Polling {modem.Name}...";
         modemMessageClass = "info";
         StateHasChanged();

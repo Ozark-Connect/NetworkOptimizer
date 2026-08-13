@@ -1499,9 +1499,10 @@ public class MonitoringCollectionAgent : BackgroundService
 
         // Reconcile fabric targets with the live device list — gateways, switches, and APs
         // should each have a `fabric` target on their management IP (spec 5.4). New devices
-        // add a target; deleted devices leave their targets untouched (history preserved).
-        // This runs even when an agent covers the site: the reconciled targets are what
-        // the tunnel pushes to the agent for probing from inside the network.
+        // add a target; a device that leaves the console, or moves to another address, has its
+        // target retired and (for a move) replaced. Rows are never deleted: their measurements
+        // are filed under the TargetId. This runs even when an agent covers the site: the
+        // reconciled targets are what the tunnel pushes to the agent for probing from inside.
         await ReconcileFabricTargetsAsync(ct);
 
         // Probing itself stands down for every non-default (external) site, agent or not. The
@@ -1513,9 +1514,11 @@ public class MonitoringCollectionAgent : BackgroundService
         if (!_isDefault || AgentOwnsProbing()) return;
 
         await using var db = await CreateSiteDbAsync(ct);
+        // Enabled is the user's intent; RetiredAt is ours. A retired target's address answers to
+        // nothing, so probing it spends a probe to record a loss that means nothing.
         var targets = await db.MonitoringTargets
             .AsNoTracking()
-            .Where(t => t.Enabled)
+            .Where(t => t.Enabled && t.RetiredAt == null)
             .ToListAsync(ct);
         var contextsById = await db.WanContexts.AsNoTracking().ToDictionaryAsync(c => c.Id, ct);
 
@@ -1744,10 +1747,15 @@ public class MonitoringCollectionAgent : BackgroundService
         // below also migrates existing targets seeded with the WAN IP.
         var gatewayLanIp = await ResolveGatewayLanIpAsync(ct);
 
+        // Presence is judged against the console's own device list, unfiltered. The monitorable
+        // list drops anything offline, and an AP rebooting is not an AP that was removed.
+        var knownMacs = await GetKnownDeviceMacsAsync(ct);
+
         await using var db = await CreateSiteDbAsync(ct);
-        var existingByTargetId = await db.MonitoringTargets
+        var allFabric = await db.MonitoringTargets
             .Where(t => t.TargetType == MonitoringTargetType.Fabric)
-            .ToDictionaryAsync(t => t.TargetId, ct);
+            .ToListAsync(ct);
+        var existingByTargetId = allFabric.ToDictionary(t => t.TargetId);
 
         var settings = await db.MonitoringSettings.FirstOrDefaultAsync(ct);
         var needsFlex25GMigration = settings != null && !settings.Flex25GLatencyMigrated;
@@ -1776,20 +1784,25 @@ public class MonitoringCollectionAgent : BackgroundService
             _logger.LogInformation("Flex 2.5G latency migration complete, disabled {Count} target(s)", disabled);
         }
 
+        // Live rows per device, so an address change can find the row it replaces without
+        // relying on the TargetId, which is fixed at creation and outlives the address.
+        var liveByMac = allFabric
+            .Where(t => !t.IsRetired && !string.IsNullOrEmpty(t.DeviceMac))
+            .GroupBy(t => t.DeviceMac!, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.OrdinalIgnoreCase);
+
         bool changed = false;
         foreach (var d in devices)
         {
             if (string.IsNullOrEmpty(d.Ip) || string.IsNullOrEmpty(d.Mac)) continue;
+            var mac = NormalizeMac(d.Mac);
             var address = ResolveSnmpAddress(d, gatewayLanIp);
-            var targetId = $"fabric-{NormalizeMac(d.Mac)}";
-            if (existingByTargetId.TryGetValue(targetId, out var existing))
+            var siblings = liveByMac.TryGetValue(mac, out var rows) ? rows : new List<MonitoringTarget>();
+            var current = siblings.FirstOrDefault(
+                t => string.Equals(t.Address, address, StringComparison.OrdinalIgnoreCase));
+
+            if (current != null)
             {
-                // Refresh address in case the device's management IP changed.
-                if (existing.Address != address)
-                {
-                    existing.Address = address;
-                    changed = true;
-                }
                 // Flex 2.5G switches are poor latency/loss targets (high RTT/jitter),
                 // so they're disabled by default. The one-shot Flex25GLatencyMigrated
                 // pass can miss an existing target if the device's model hadn't resolved
@@ -1797,38 +1810,214 @@ public class MonitoringCollectionAgent : BackgroundService
                 // Re-assert it here every reconcile so a missed target self-heals once
                 // the model is known. Only writes when currently enabled, so steady
                 // state is a no-op (no per-tick DB churn).
-                if (existing.AutoDiscovered && existing.Enabled
+                if (current.AutoDiscovered && current.Enabled
                     && UniFi.UniFiProductDatabase.IsFlex25G(d.Model, d.Shortname))
                 {
-                    existing.Enabled = false;
+                    current.Enabled = false;
                     changed = true;
                     _logger.LogInformation(
                         "Disabled latency probing for Flex 2.5G target {Name} ({Mac})",
-                        existing.Name, existing.DeviceMac);
+                        current.Name, current.DeviceMac);
                 }
                 continue;
             }
 
-            var enableLatency = !UniFi.UniFiProductDatabase.IsFlex25G(d.Model, d.Shortname);
-            db.MonitoringTargets.Add(new MonitoringTarget
+            // No live target on this address. Either the device is new, or it moved.
+            var predecessor = siblings.FirstOrDefault(t => t.AutoDiscovered);
+            var enableLatency = ReplacementEnabled(
+                predecessor, UniFi.UniFiProductDatabase.IsFlex25G(d.Model, d.Shortname));
+
+            if (predecessor != null)
             {
-                TargetId = targetId,
-                Name = string.IsNullOrEmpty(d.Name) ? d.Mac : d.Name,
-                Address = address,
-                ProbeMode = ProbeMode.Icmp,
-                TargetType = MonitoringTargetType.Fabric,
-                DeviceMac = NormalizeMac(d.Mac),
-                VantagePoint = "server",
-                PollIntervalSeconds = 5,
-                PingCount = 3,
-                Enabled = enableLatency,
-                AutoDiscovered = true,
-                AutoLabel = DescribeDeviceType(d.DeviceType),
-                CreatedAt = DateTime.UtcNow
-            });
+                // A gateway's target address is its LAN-side IP, and when that lookup has not
+                // answered yet ResolveSnmpAddress hands back UniFi's WAN public IP instead.
+                // Acting on that would retire a working target in favour of an address nothing
+                // on the LAN answers, so a gateway waits for a resolved LAN IP.
+                if (d.DeviceType == NetworkOptimizer.Core.Enums.DeviceType.Gateway
+                    && string.IsNullOrEmpty(gatewayLanIp))
+                    continue;
+
+                foreach (var stale in siblings.Where(t => t.AutoDiscovered))
+                    Retire(stale, $"Address changed to {address}");
+                changed = true;
+            }
+
+            // A device that comes back to an address it held before rejoins that row rather than
+            // starting a third one: the measurements under its TargetId were taken at this same
+            // address, so they are the same series.
+            var revived = allFabric.FirstOrDefault(
+                t => t.IsRetired
+                    && string.Equals(t.DeviceMac, mac, StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(t.Address, address, StringComparison.OrdinalIgnoreCase));
+
+            if (revived != null)
+            {
+                // Comes back however the user last left it, not however a fresh target would start:
+                // a pause survives the round trip out of the console and back.
+                ApplyRevival(revived, fallbackEnabled: enableLatency);
+                if (UniFi.UniFiProductDatabase.IsFlex25G(d.Model, d.Shortname)) revived.Enabled = false;
+                revived.Name = string.IsNullOrEmpty(d.Name) ? d.Mac : d.Name;
+                _logger.LogInformation(
+                    "Fabric target {Name} ({Mac}) returned to {Address}; resuming its existing target",
+                    revived.Name, mac, address);
+            }
+            else
+            {
+                var created = new MonitoringTarget
+                {
+                    TargetId = NextFabricTargetId(mac, address, existingByTargetId),
+                    Name = string.IsNullOrEmpty(d.Name) ? d.Mac : d.Name,
+                    Address = address,
+                    ProbeMode = ProbeMode.Icmp,
+                    TargetType = MonitoringTargetType.Fabric,
+                    DeviceMac = mac,
+                    VantagePoint = "server",
+                    PollIntervalSeconds = predecessor?.PollIntervalSeconds ?? 5,
+                    PingCount = predecessor?.PingCount ?? 3,
+                    Enabled = enableLatency,
+                    AutoDiscovered = true,
+                    AutoLabel = DescribeDeviceType(d.DeviceType),
+                    LanFlakyHintDismissedAt = predecessor?.LanFlakyHintDismissedAt,
+                    // Carried with its original stamp, so a device that moves while removed stays
+                    // removed. Without it the replacement arrived back on the list as a paused row,
+                    // honouring the half of the user's intent about probing and dropping the half
+                    // about not wanting to see it. Null for every other predecessor, so this only
+                    // reaches a device that was removed before it moved.
+                    HiddenAt = predecessor?.HiddenAt,
+                    CreatedAt = DateTime.UtcNow
+                };
+                db.MonitoringTargets.Add(created);
+                existingByTargetId[created.TargetId] = created;
+            }
             changed = true;
         }
+
+        changed |= RetireDepartedDeviceTargets(allFabric, knownMacs);
+
         if (changed || needsFlex25GMigration) await db.SaveChangesAsync(ct);
+    }
+
+    /// <summary>
+    /// Retire the fabric targets of devices the console no longer lists at all. Skipped whenever
+    /// the device list could not be read: an empty answer is a console that did not respond, and
+    /// acting on it would retire every target on the site.
+    /// </summary>
+    private bool RetireDepartedDeviceTargets(List<MonitoringTarget> allFabric, HashSet<string>? knownMacs)
+    {
+        if (knownMacs == null || knownMacs.Count == 0) return false;
+
+        var changed = false;
+        foreach (var target in allFabric)
+        {
+            if (target.IsRetired || !target.AutoDiscovered) continue;
+            if (string.IsNullOrEmpty(target.DeviceMac)) continue;
+            if (knownMacs.Contains(target.DeviceMac)) continue;
+
+            Retire(target, "No longer in the UniFi device list");
+            changed = true;
+        }
+        return changed;
+    }
+
+    /// <summary>
+    /// Stop probing a target and record why, leaving the row in place so the measurements filed
+    /// under its TargetId stay resolvable.
+    /// </summary>
+    private void Retire(MonitoringTarget target, string reason)
+    {
+        ApplyRetirement(target, reason);
+        _logger.LogInformation(
+            "Retired fabric target {Name} ({Address}): {Reason}",
+            target.Name, target.Address, reason);
+    }
+
+    /// <summary>
+    /// The retirement state change, without the logging, so it can be tested as the pair it forms
+    /// with <see cref="ApplyRevival"/>.
+    /// <para>
+    /// Enabled is cleared because a dozen readers treat it as "is this row live" and would
+    /// otherwise count a retired target as active. It is remembered because Enabled is also where
+    /// a user's pause lives - see <see cref="MonitoringTarget.EnabledBeforeRetire"/>.
+    /// </para>
+    /// </summary>
+    internal static void ApplyRetirement(MonitoringTarget target, string reason)
+    {
+        target.EnabledBeforeRetire = target.Enabled;
+        target.Enabled = false;
+        target.RetiredAt = DateTime.UtcNow;
+        target.RetiredReason = reason;
+    }
+
+    /// <summary>
+    /// Whether a replacement target starts probing, carrying the predecessor's answer onto it so a
+    /// device that moves address keeps the state the user chose for it.
+    /// <para>
+    /// Reads through retirement deliberately. The replacement is decided in the same pass that
+    /// retires what it replaces, and retirement clears Enabled - so reading Enabled alone gives
+    /// false for every moved device, whatever the user had set. This asks the question in a way
+    /// that answers the same on either side of that.
+    /// </para>
+    /// </summary>
+    internal static bool ReplacementEnabled(MonitoringTarget? predecessor, bool isFlex25G)
+    {
+        if (isFlex25G) return false;
+        if (predecessor == null) return true;
+        return predecessor.EnabledBeforeRetire ?? predecessor.Enabled;
+    }
+
+    /// <summary>
+    /// Put a retired target back into service, restoring the enabled state retirement took from it.
+    /// </summary>
+    /// <param name="target">The retired row.</param>
+    /// <param name="fallbackEnabled">Used only for a row retired before the remembered value
+    /// existed, where there is nothing to restore.</param>
+    internal static void ApplyRevival(MonitoringTarget target, bool fallbackEnabled)
+    {
+        target.Enabled = target.EnabledBeforeRetire ?? fallbackEnabled;
+        target.EnabledBeforeRetire = null;
+        target.RetiredAt = null;
+        target.RetiredReason = null;
+    }
+
+    /// <summary>
+    /// A TargetId for a device's fabric target. The first one a device gets is bare, so existing
+    /// sites keep the ids their history is filed under; later addresses qualify it, because the
+    /// id is what the measurements are keyed by and cannot be reused for a different address.
+    /// </summary>
+    internal static string NextFabricTargetId(
+        string mac, string address, Dictionary<string, MonitoringTarget> taken)
+    {
+        var bare = $"fabric-{mac}";
+        if (!taken.ContainsKey(bare)) return bare;
+
+        var slug = address.Replace('.', '-').Replace(':', '-');
+        var candidate = $"fabric-{mac}-{slug}";
+        for (var n = 2; taken.ContainsKey(candidate); n++)
+            candidate = $"fabric-{mac}-{slug}-{n}";
+        return candidate;
+    }
+
+    /// <summary>
+    /// Every device MAC the console lists, adopted or not, online or not. Null when the list
+    /// could not be read, which callers must treat as "no answer" rather than "nothing there".
+    /// </summary>
+    private async Task<HashSet<string>?> GetKnownDeviceMacsAsync(CancellationToken ct)
+    {
+        if (!_connectionService.IsConnected || _connectionService.Client == null) return null;
+        try
+        {
+            var devices = await _connectionService.Client.GetDevicesAsync(ct);
+            if (devices == null || devices.Count == 0) return null;
+            return devices
+                .Where(d => !string.IsNullOrEmpty(d.Mac))
+                .Select(d => NormalizeMac(d.Mac))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Fabric reconcile: could not read the device list for presence");
+            return null;
+        }
     }
 
     // ---- Helpers ----

@@ -45,16 +45,17 @@ public sealed class NetgearNighthawkHotspotProvider : ICellularModemProvider, ID
     }
 
     /// <inheritdoc/>
-    public async Task<CellularModemStats?> PollAsync(
+    public async Task<PollResult<CellularModemStats>> PollAsync(
         ModemPollContext context,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(context.Host))
         {
             _logger.LogWarning("Netgear poll requested for modem {Name} but Host is empty", context.Name);
-            return null;
+            return PollResult<CellularModemStats>.Failed("No address is configured for this modem.");
         }
 
+        var host = context.ConfiguredHost ?? context.Host;
         var hasPassword = !string.IsNullOrEmpty(context.Password);
 
         try
@@ -63,17 +64,22 @@ public sealed class NetgearNighthawkHotspotProvider : ICellularModemProvider, ID
             var json = await FetchModelJsonAsync(context, requireAuth: hasPassword, cancellationToken);
             if (json == null)
             {
-                _logger.LogWarning("Netgear poll for {Name} ({Host}) returned no data", context.Name, context.ConfiguredHost ?? context.Host);
-                return null;
+                _logger.LogWarning("Netgear poll for {Name} ({Host}) returned no data", context.Name, host);
+                return PollResult<CellularModemStats>.Failed(
+                    $"Could not reach {host}, or the hotspot rejected the admin password.");
             }
 
             using var doc = JsonDocument.Parse(json, _jsonOptions);
-            return NetgearModelJsonParser.Parse(doc.RootElement, context);
+            var stats = NetgearModelJsonParser.Parse(doc.RootElement, context);
+            return stats == null
+                ? PollResult<CellularModemStats>.Failed($"{host} answered but returned no signal data.")
+                : PollResult<CellularModemStats>.Ok(stats);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error polling Netgear modem {Name} at {Host}", context.Name, context.ConfiguredHost ?? context.Host);
-            return null;
+            _logger.LogError(ex, "Error polling Netgear modem {Name} at {Host}", context.Name, host);
+            // Capped: an HTTP failure can carry a paragraph, and this renders inline on the card.
+            return PollResult<CellularModemStats>.Failed($"Could not read stats from {host}: {FirstLine(ex.Message)}");
         }
     }
 
@@ -369,6 +375,14 @@ public sealed class NetgearNighthawkHotspotProvider : ICellularModemProvider, ID
         }
     }
 
+
+    /// <summary>The first line of an exception message, capped for inline display.</summary>
+    private static string FirstLine(string? text)
+    {
+        const int maxLength = 160;
+        var line = (text ?? "").Split('\n', '\r').FirstOrDefault(l => !string.IsNullOrWhiteSpace(l))?.Trim() ?? "";
+        return line.Length <= maxLength ? line : line[..maxLength] + "...";
+    }
 
     // Generic helpers for path-based JSON access
 

@@ -6,6 +6,7 @@ using HtmlAgilityPack;
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Monitoring.Models;
 using NetworkOptimizer.Monitoring.Providers;
+using NetworkOptimizer.Web.Services.Monitoring;
 
 namespace NetworkOptimizer.Web.Services.CableModemProviders;
 
@@ -40,14 +41,14 @@ public sealed class ArrisSurfboardHttpProvider : ICableModemProvider, IDisposabl
     }
 
     /// <inheritdoc/>
-    public async Task<CableModemStats?> PollAsync(
+    public async Task<PollResult<CableModemStats>> PollAsync(
         CmPollContext context,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(context.Host))
         {
             _logger.LogWarning("ARRIS Surfboard poll requested but Host is empty (config {Id})", context.Id);
-            return null;
+            return PollResult<CableModemStats>.Failed("No address is configured for this device.");
         }
 
         try
@@ -63,7 +64,7 @@ public sealed class ArrisSurfboardHttpProvider : ICableModemProvider, IDisposabl
 
                 // Logout to free the session
                 await LogoutAsync(context, cancellationToken);
-                return stats;
+                return PollResult<CableModemStats>.Ok(stats);
             }
 
             // Fall back to SB6183 (HTTP, no auth)
@@ -74,21 +75,21 @@ public sealed class ArrisSurfboardHttpProvider : ICableModemProvider, IDisposabl
                 _logger.LogDebug(
                     "ARRIS SB6183 {Name} polled: {DsCount} DS channels, {UsCount} US channels",
                     context.Name, stats.DownstreamChannels.Count, stats.UpstreamChannels.Count);
-                return stats;
+                return PollResult<CableModemStats>.Ok(stats);
             }
 
             _logger.LogWarning("ARRIS Surfboard {Name} at {Host}: both SB8200 and SB6183 fetch failed",
                 context.Name, context.ConfiguredHost ?? context.Host);
-            return null;
+            return PollResult<CableModemStats>.Failed($"No stats could be read from {(context.ConfiguredHost ?? context.Host)}.");
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             throw;
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Error polling ARRIS Surfboard {Name} at {Host}", context.Name, context.ConfiguredHost ?? context.Host);
-            return null;
+            return PollResult<CableModemStats>.Failed(HttpFailureSummary.Describe(ex, (context.ConfiguredHost ?? context.Host)));
         }
     }
 
@@ -121,7 +122,7 @@ public sealed class ArrisSurfboardHttpProvider : ICableModemProvider, IDisposabl
         }
         catch (Exception ex)
         {
-            return (false, $"Connection failed: {ex.Message}");
+            return (false, HttpFailureSummary.Describe(ex, context.ConfiguredHost ?? context.Host));
         }
     }
 

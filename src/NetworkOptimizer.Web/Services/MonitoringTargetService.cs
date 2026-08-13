@@ -144,12 +144,39 @@ public class MonitoringTargetService : IMonitoringTargetService
         }
 
         _audit.SetTarget(row.TargetId, row.Name);
-        _audit.SetDetails(new { deleted = true, address = row.Address, targetType = row.TargetType.ToString() });
 
-        db.MonitoringTargets.Remove(row);
+        // A target that was probed has points filed under its TargetId, and this row is the only
+        // thing that maps that id to a name, an address and a device. Destroying it leaves the
+        // series unlabelled and unfindable, so it is hidden instead. Never probed means nothing to
+        // orphan, and a mistyped address should not be undeletable.
+        if (row.LastVerified != null)
+        {
+            _audit.SetDetails(new { hidden = true, address = row.Address, targetType = row.TargetType.ToString() });
+            row.HiddenAt = DateTime.UtcNow;
+            row.Enabled = false;
+        }
+        else
+        {
+            _audit.SetDetails(new { deleted = true, address = row.Address, targetType = row.TargetType.ToString() });
+            db.MonitoringTargets.Remove(row);
+        }
+
         await db.SaveChangesAsync(ct);
         return true;
     }
+
+    /// <inheritdoc />
+    public Task<bool> SetHiddenAsync(int id, bool hidden, CancellationToken ct = default) =>
+        UpdateAsync(id, ct, row =>
+        {
+            if (row.IsHidden == hidden) return null;
+            row.HiddenAt = hidden ? DateTime.UtcNow : null;
+            // Probing follows the listing, in both directions: removing a target stopped it, so
+            // putting it back starts it again rather than leaving a restored row silently paused.
+            // A retired one stays dark regardless - the probe paths gate on RetiredAt.
+            row.Enabled = !hidden;
+            return new { field = "HiddenAt", hidden };
+        });
 
     /// <inheritdoc />
     public Task<bool> SetNameAsync(int id, string name, CancellationToken ct = default)

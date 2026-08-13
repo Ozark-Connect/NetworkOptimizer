@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Core.Models;
 using NetworkOptimizer.Monitoring.Models;
 using NetworkOptimizer.Monitoring.Providers;
+using NetworkOptimizer.Web.Services.Monitoring;
 
 namespace NetworkOptimizer.Web.Services.OntProviders;
 
@@ -50,14 +51,16 @@ public class NetOptCustomPonOntProvider : ISfpSupplementalOntProvider
     public string ProviderKey => "netopt-custom";
     public string DisplayName => "Network Optimizer Custom (HTTP JSON)";
 
-    public async Task<OntStats?> PollAsync(OntPollContext context, CancellationToken cancellationToken = default)
+    public async Task<PollResult<OntStats>> PollAsync(OntPollContext context, CancellationToken cancellationToken = default)
     {
         var payload = await FetchPayloadAsync(context, cancellationToken);
-        if (payload == null) return null;
+        if (payload == null)
+            return PollResult<OntStats>.Failed(
+                $"No stats could be read from {context.ConfiguredHost ?? context.Host}.");
         var stats = MapToOntStats(payload);
         stats.DeviceHost = context.ConfiguredHost ?? context.Host;
         stats.DeviceName = context.Name;
-        return stats;
+        return PollResult<OntStats>.Ok(stats);
     }
 
     public async Task<PonSupplementalStats?> PollSupplementalAsync(
@@ -91,11 +94,11 @@ public class NetOptCustomPonOntProvider : ISfpSupplementalOntProvider
         }
         catch (HttpRequestException ex)
         {
-            return (false, $"Connection failed: {ex.Message}");
+            return (false, HttpFailureSummary.Describe(ex, context.ConfiguredHost ?? context.Host));
         }
-        catch (TaskCanceledException)
+        catch (TaskCanceledException ex)
         {
-            return (false, "Connection timed out");
+            return (false, HttpFailureSummary.Describe(ex, context.ConfiguredHost ?? context.Host));
         }
         catch (Exception ex)
         {

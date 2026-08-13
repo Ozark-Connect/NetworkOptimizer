@@ -54,6 +54,11 @@
             </div>
         </div>
 
+        @if (!string.IsNullOrEmpty(_pollError))
+        {
+            <div class="poll-error">@_pollError</div>
+        }
+
         <div class="sqm-actions">
             @* Tooltip lives on the wrapper: a disabled button has pointer-events none and never fires the hover *@
             <span data-tooltip="@(CurrentEnabled ? null : "Monitoring is disabled for this device. Enable it in CM Settings.")" @onclick:stopPropagation>
@@ -74,6 +79,11 @@
             <p class="status-message">
                 Monitor your cable modem's downstream power, SNR, upstream power, and FEC error rates. Supports Netgear, ARRIS Surfboard, Motorola, and Xfinity modems.
             </p>
+            @if (!string.IsNullOrEmpty(_pollError))
+            {
+                <div class="poll-error">@_pollError</div>
+            }
+
             <div class="sqm-actions">
                 <SiteAdminOnly><a href="/settings#cable-modem" class="btn btn-primary" @onclick:stopPropagation>Configure CM</a></SiteAdminOnly>
             </div>
@@ -145,6 +155,11 @@
             </div>
         </div>
 
+        @if (!string.IsNullOrEmpty(_pollError))
+        {
+            <div class="poll-error">@_pollError</div>
+        }
+
         <div class="sqm-actions">
             @* Tooltip lives on the wrapper: a disabled button has pointer-events none and never fires the hover *@
             <span data-tooltip="@(CurrentEnabled ? null : "Monitoring is disabled for this device. Enable it in CM Settings.")" @onclick:stopPropagation>
@@ -174,6 +189,9 @@
     private CableModemStats? _stats;
     private int _currentIndex;
     private bool _isLoading = true;
+    /// <summary>Why the last poll produced nothing, shown on the card until one succeeds.</summary>
+    private string? _pollError;
+
     private bool _isRefreshing;
     private System.Threading.Timer? _refreshTimer;
 
@@ -217,7 +235,8 @@
         if (_configs.Count == 0 || !CurrentEnabled) return;
         _isRefreshing = true;
         StateHasChanged();
-        await CmService.PollCmAsync(_configs[_currentIndex].Id);
+        var (ok, message) = await CmService.PollCmAsync(_configs[_currentIndex].Id);
+        _pollError = ok ? null : message;
         await LoadStatsAsync();
         _isRefreshing = false;
         StateHasChanged();

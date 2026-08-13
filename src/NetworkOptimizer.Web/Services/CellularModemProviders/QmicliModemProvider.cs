@@ -1,6 +1,7 @@
 using NetworkOptimizer.Monitoring;
 using NetworkOptimizer.Monitoring.Models;
 using NetworkOptimizer.Monitoring.Providers;
+using NetworkOptimizer.Web.Services.Ssh;
 
 namespace NetworkOptimizer.Web.Services.CellularModemProviders;
 
@@ -33,7 +34,7 @@ public sealed class QmicliModemProvider : ICellularModemProvider, ISupportsRadio
     }
 
     /// <inheritdoc/>
-    public async Task<CellularModemStats?> PollAsync(
+    public async Task<PollResult<CellularModemStats>> PollAsync(
         ModemPollContext context,
         CancellationToken cancellationToken = default)
     {
@@ -42,7 +43,7 @@ public sealed class QmicliModemProvider : ICellularModemProvider, ISupportsRadio
         // Try uiwwand first - available on all modern UniFi cellular modems
         var stats = await TryPollViaUiwwandAsync(context);
         if (stats != null)
-            return stats;
+            return PollResult<CellularModemStats>.Ok(stats);
 
         // Fall back to raw qmicli commands
         return await PollViaQmicliAsync(context);
@@ -184,7 +185,7 @@ public sealed class QmicliModemProvider : ICellularModemProvider, ISupportsRadio
     /// <summary>
     /// Poll via raw qmicli commands. Fallback path when uiwwand is unavailable.
     /// </summary>
-    private async Task<CellularModemStats?> PollViaQmicliAsync(ModemPollContext context)
+    private async Task<PollResult<CellularModemStats>> PollViaQmicliAsync(ModemPollContext context)
     {
         var qmiDevice = string.IsNullOrWhiteSpace(context.TransportPath)
             ? "/dev/wwan0qmi0"
@@ -212,7 +213,8 @@ public sealed class QmicliModemProvider : ICellularModemProvider, ISupportsRadio
             if (!success)
             {
                 _logger.LogWarning("Failed to poll modem {Name} via qmicli: {Output}", context.Name, output);
-                return null;
+                return PollResult<CellularModemStats>.Failed(
+                    SshFailureSummary.Describe(output, context.ConfiguredHost ?? context.Host));
             }
 
             var sections = ParseCombinedOutput(output, "SIGNAL", "SERVING", "CELL", "BAND", "SYSINFO");
@@ -257,21 +259,25 @@ public sealed class QmicliModemProvider : ICellularModemProvider, ISupportsRadio
                 "Successfully polled modem {Name} via qmicli: {Carrier}, Signal Quality: {Quality}%",
                 context.Name, stats.Carrier, stats.SignalQuality);
 
-            return stats;
+            return PollResult<CellularModemStats>.Ok(stats);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error polling modem {Name}", context.Name);
-            return null;
+            return PollResult<CellularModemStats>.Failed(
+                SshFailureSummary.Describe(ex.Message, context.ConfiguredHost ?? context.Host));
         }
     }
 
     /// <inheritdoc/>
-    public Task<(bool success, string message)> TestConnectionAsync(
+    public async Task<(bool success, string message)> TestConnectionAsync(
         ModemPollContext context,
         CancellationToken cancellationToken = default)
     {
-        return _sshService.TestConnectionAsync(context.Host);
+        var (success, message) = await _sshService.TestConnectionAsync(context.Host);
+        return success
+            ? (true, message)
+            : (false, SshFailureSummary.Describe(message, context.ConfiguredHost ?? context.Host));
     }
 
     /// <summary>

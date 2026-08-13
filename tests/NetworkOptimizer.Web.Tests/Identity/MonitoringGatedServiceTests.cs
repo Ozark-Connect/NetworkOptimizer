@@ -47,7 +47,7 @@ public class MonitoringGatedServiceTests : IDisposable
 
     private MonitoringSettingsService Settings() => new(_factory, _siteContext, _audit);
 
-    private async Task<int> SeedTargetAsync(bool enabled = true, int interval = 10)
+    private async Task<int> SeedTargetAsync(bool enabled = true, int interval = 10, bool everProbed = false)
     {
         await using var db = _factory.CreateForSite(_siteContext.Slug, _siteContext.IsDefault);
         var target = new MonitoringTarget
@@ -61,6 +61,7 @@ public class MonitoringGatedServiceTests : IDisposable
             PingCount = 5,
             Enabled = enabled,
             VantagePoint = "server",
+            LastVerified = everProbed ? DateTime.UtcNow.AddMinutes(-5) : null,
             CreatedAt = DateTime.UtcNow
         };
         db.MonitoringTargets.Add(target);
@@ -106,7 +107,49 @@ public class MonitoringGatedServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task Deleting_a_target_names_it_before_it_disappears()
+    public async Task Removing_a_probed_target_keeps_the_row_that_names_its_series()
+    {
+        var id = await SeedTargetAsync(everProbed: true);
+
+        (await Targets().DeleteAsync(id)).Should().BeTrue();
+
+        await using var db = _factory.CreateForSite(_siteContext.Slug, _siteContext.IsDefault);
+        var row = await db.MonitoringTargets.FindAsync(id);
+        row.Should().NotBeNull("its measurements are filed under its TargetId and nothing else names them");
+        row!.IsHidden.Should().BeTrue();
+        row.Enabled.Should().BeFalse("removing a target stops it being probed, however the row is kept");
+        row.TargetId.Should().Be("custom-seed");
+        row.Address.Should().Be("192.0.2.10");
+    }
+
+    [Fact]
+    public async Task A_removed_target_can_be_put_back_and_starts_probing_again()
+    {
+        var id = await SeedTargetAsync(everProbed: true);
+        await Targets().DeleteAsync(id);
+        _audit.Drain();
+
+        (await Targets().SetHiddenAsync(id, false)).Should().BeTrue();
+
+        _audit.Drain().Suppressed.Should().BeFalse();
+        await using var db = _factory.CreateForSite(_siteContext.Slug, _siteContext.IsDefault);
+        var row = await db.MonitoringTargets.FindAsync(id);
+        row!.IsHidden.Should().BeFalse();
+        row.Enabled.Should().BeTrue("removing it stopped the probing, so restoring it starts again");
+    }
+
+    [Fact]
+    public async Task Restoring_a_target_that_is_already_listed_writes_no_event()
+    {
+        var id = await SeedTargetAsync(everProbed: true);
+
+        (await Targets().SetHiddenAsync(id, false)).Should().BeTrue();
+
+        _audit.Drain().Suppressed.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Deleting_a_target_that_never_probed_names_it_before_it_disappears()
     {
         var id = await SeedTargetAsync();
 

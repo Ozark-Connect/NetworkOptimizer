@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Monitoring.Models;
 using NetworkOptimizer.Monitoring.Providers;
+using NetworkOptimizer.Web.Services.Monitoring;
 
 namespace NetworkOptimizer.Web.Services.OntProviders;
 
@@ -21,13 +22,14 @@ public class GenericHttpOntProvider : IOntProvider
     public string ProviderKey => "generic-http-ont";
     public string DisplayName => "Generic HTTP ONT";
 
-    public Task<OntStats?> PollAsync(OntPollContext context, CancellationToken cancellationToken = default)
+    public Task<PollResult<OntStats>> PollAsync(OntPollContext context, CancellationToken cancellationToken = default)
     {
         _logger.LogWarning(
             "Generic HTTP ONT provider cannot poll {Host} - needs configuration for a specific ONT model",
             context.Host);
 
-        return Task.FromResult<OntStats?>(null);
+        return Task.FromResult(PollResult<OntStats>.Failed(
+            "No ONT model is selected for this device, so there is nothing to poll."));
     }
 
     public async Task<(bool Success, string Message)> TestConnectionAsync(
@@ -63,11 +65,11 @@ public class GenericHttpOntProvider : IOntProvider
         }
         catch (HttpRequestException ex)
         {
-            return (false, $"Connection failed: {ex.Message}");
+            return (false, HttpFailureSummary.Describe(ex, context.ConfiguredHost ?? context.Host));
         }
-        catch (TaskCanceledException)
+        catch (TaskCanceledException ex)
         {
-            return (false, "Connection timed out");
+            return (false, HttpFailureSummary.Describe(ex, context.ConfiguredHost ?? context.Host));
         }
         catch (Exception ex)
         {

@@ -32,7 +32,7 @@ public interface ICableModemService
 
     /// <summary>Polls one cable modem now and caches the result.</summary>
     [RequireRole(Roles.Viewer)]
-    Task PollCmAsync(int cmId);
+    Task<(bool success, string message)> PollCmAsync(int cmId);
 
     /// <summary>Adds or updates a cable modem configuration.</summary>
     [RequireRole(Roles.Admin)]

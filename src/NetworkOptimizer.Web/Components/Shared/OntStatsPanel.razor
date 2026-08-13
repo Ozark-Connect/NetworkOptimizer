@@ -106,6 +106,11 @@ else if (IsShowingExternal && _externalOntStats != null)
         </div>
     </div>
 
+    @if (!string.IsNullOrEmpty(_pollError))
+    {
+        <div class="poll-error ont-poll-error">@_pollError</div>
+    }
+
     <div class="sqm-actions">
         @* Tooltip lives on the wrapper: a disabled button has pointer-events none and never fires the hover *@
         <span data-tooltip="@(CurrentExternalEnabled ? null : "Monitoring is disabled for this device. Enable it in ONT Settings.")" @onclick:stopPropagation>
@@ -160,6 +165,11 @@ else if (IsShowingExternal)
         </div>
     </div>
 
+    @if (!string.IsNullOrEmpty(_pollError))
+    {
+        <div class="poll-error ont-poll-error">@_pollError</div>
+    }
+
     <div class="sqm-actions">
         @* Tooltip lives on the wrapper: a disabled button has pointer-events none and never fires the hover *@
         <span data-tooltip="@(CurrentExternalEnabled ? null : "Monitoring is disabled for this device. Enable it in ONT Settings.")" @onclick:stopPropagation>
@@ -185,6 +195,11 @@ else if (TotalCount == 0)
             <b>Standalone ONT?</b> Configure external polling for AT&amp;T gateways, Realtek
             ONT sticks, and other devices in Settings.
         </p>
+        @if (!string.IsNullOrEmpty(_pollError))
+        {
+            <div class="poll-error ont-poll-error">@_pollError</div>
+        }
+
         <div class="sqm-actions">
             <a href="@SfpMonitoringUrl" class="btn btn-secondary" @onclick:stopPropagation>SFP Monitoring</a>
             <SiteAdminOnly><a href="/settings#ont-monitoring" class="btn btn-primary" @onclick:stopPropagation>Configure ONT</a></SiteAdminOnly>
@@ -339,12 +354,21 @@ else
         </div>
     </div>
 
+    @if (!string.IsNullOrEmpty(_pollError))
+    {
+        <div class="poll-error ont-poll-error">@_pollError</div>
+    }
+
     <div class="sqm-actions">
         <a href="@SfpMonitoringUrl" class="btn btn-primary" @onclick:stopPropagation>SFP Monitoring</a>
     </div>
 }
 
 <style>
+    .ont-poll-error {
+        padding-top: 0.5rem;
+    }
+
     .metric-value.ont-model-value {
         font-size: 0.95rem;
     }
@@ -373,6 +397,9 @@ else
     private int _currentIndex = 0;
     private System.Threading.Timer? _refreshTimer;
     private OntStats? _externalOntStats;
+    /// <summary>Why the last poll produced nothing, shown on the card until one succeeds.</summary>
+    private string? _pollError;
+
     private bool _isRefreshing;
 
     private int TotalCount => _monitoredOnts.Count + _externalOnts.Count;
@@ -426,7 +453,7 @@ else
                 .OrderBy(s => s.DeviceMac).ThenBy(s => s.PortName)
                 .ToListAsync();
             _fabricTargets = await db.MonitoringTargets.AsNoTracking()
-                .Where(t => t.TargetType == MonitoringTargetType.Fabric)
+                .Where(t => t.TargetType == MonitoringTargetType.Fabric && t.RetiredAt == null)
                 .ToListAsync();
             _externalOnts = await ExternalOntService.GetStandaloneConfigsAsync();
             if (_currentIndex >= TotalCount) _currentIndex = 0;
@@ -499,7 +526,8 @@ else
         StateHasChanged();
         try
         {
-            await ExternalOntService.PollOntAsync(_externalOnts[extIdx].Id);
+            var (_, failureReason) = await ExternalOntService.PollOntAsync(_externalOnts[extIdx].Id);
+            _pollError = failureReason;
             await RefreshExternalStatsAsync();
         }
         finally

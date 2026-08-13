@@ -6,6 +6,7 @@ using System.Text;
 using System.Text.Json;
 using NetworkOptimizer.Monitoring.Models;
 using NetworkOptimizer.Monitoring.Providers;
+using NetworkOptimizer.Web.Services.Monitoring;
 
 namespace NetworkOptimizer.Web.Services.CableModemProviders;
 
@@ -66,14 +67,14 @@ public sealed class MotorolaHnapProvider : ICableModemProvider, IDisposable
     }
 
     /// <inheritdoc/>
-    public async Task<CableModemStats?> PollAsync(
+    public async Task<PollResult<CableModemStats>> PollAsync(
         CmPollContext context,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(context.Host))
         {
             _logger.LogWarning("Motorola HNAP poll requested but Host is empty (config {Id})", context.Id);
-            return null;
+            return PollResult<CableModemStats>.Failed("No address is configured for this device.");
         }
 
         if (_loginBackoffUntil.TryGetValue(context.Id, out var backoffUntil))
@@ -83,7 +84,7 @@ public sealed class MotorolaHnapProvider : ICableModemProvider, IDisposable
                 _logger.LogDebug(
                     "Motorola HNAP {Name}: skipping poll until {Until:HH:mm:ss} UTC after login failure",
                     context.Name, backoffUntil);
-                return null;
+                return PollResult<CableModemStats>.Failed($"No stats could be read from {(context.ConfiguredHost ?? context.Host)}.");
             }
 
             _loginBackoffUntil.TryRemove(context.Id, out _);
@@ -97,7 +98,7 @@ public sealed class MotorolaHnapProvider : ICableModemProvider, IDisposable
             if (sessionInfo == null)
             {
                 _logger.LogWarning("Motorola HNAP {Name} at {Host}: login failed", context.Name, context.ConfiguredHost ?? context.Host);
-                return null;
+                return PollResult<CableModemStats>.Failed($"No stats could be read from {(context.ConfiguredHost ?? context.Host)}.");
             }
 
             var (session, baseUrl) = sessionInfo.Value;
@@ -114,7 +115,7 @@ public sealed class MotorolaHnapProvider : ICableModemProvider, IDisposable
             {
                 _sessions.TryRemove(context.Id, out _);
                 _logger.LogWarning("Motorola HNAP {Name} at {Host}: GetMultipleHNAPs failed", context.Name, context.ConfiguredHost ?? context.Host);
-                return null;
+                return PollResult<CableModemStats>.Failed($"No stats could be read from {(context.ConfiguredHost ?? context.Host)}.");
             }
 
             var stats = ParseResponse(response, context);
@@ -123,7 +124,7 @@ public sealed class MotorolaHnapProvider : ICableModemProvider, IDisposable
                 "Motorola HNAP {Name} polled: {DsCount} DS channels, {UsCount} US channels",
                 context.Name, stats.DownstreamChannels.Count, stats.UpstreamChannels.Count);
 
-            return stats;
+            return PollResult<CableModemStats>.Ok(stats);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -133,7 +134,7 @@ public sealed class MotorolaHnapProvider : ICableModemProvider, IDisposable
         {
             _sessions.TryRemove(context.Id, out _);
             _logger.LogWarning(ex, "Error polling Motorola HNAP {Name} at {Host}", context.Name, context.ConfiguredHost ?? context.Host);
-            return null;
+            return PollResult<CableModemStats>.Failed(HttpFailureSummary.Describe(ex, (context.ConfiguredHost ?? context.Host)));
         }
     }
 
@@ -179,7 +180,7 @@ public sealed class MotorolaHnapProvider : ICableModemProvider, IDisposable
         }
         catch (Exception ex)
         {
-            return (false, $"Connection failed: {ex.Message}");
+            return (false, HttpFailureSummary.Describe(ex, context.ConfiguredHost ?? context.Host));
         }
     }
 

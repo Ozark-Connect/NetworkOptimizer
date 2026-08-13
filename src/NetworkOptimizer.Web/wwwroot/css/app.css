@@ -419,6 +419,16 @@ h1:focus {
     width: 100%;
 }
 
+.poll-error {
+    font-size: 0.8rem;
+    color: var(--danger-color);
+}
+
+.page-description-footnote {
+    margin-top: 0.75rem;
+    margin-left: 0.5rem;
+}
+
 .unstyled-link {
     color: inherit;
     text-decoration: none;
@@ -15712,10 +15722,17 @@ a.affected-client:hover {
     padding-right: 2rem;
 }
 
-.wan-filter-reset {
+.wan-filter-controls {
     position: absolute;
     right: 0;
     top: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.1rem;
+}
+
+.wan-filter-reset,
+.wan-filter-inactive {
     display: inline-flex;
     align-items: center;
     padding: 0.2rem 0.35rem;
@@ -15726,8 +15743,13 @@ a.affected-client:hover {
     cursor: pointer;
 }
 
-.wan-filter-reset:hover {
+.wan-filter-reset:hover,
+.wan-filter-inactive:hover {
     color: var(--text-primary);
+}
+
+.wan-filter-inactive.active {
+    color: var(--primary-color);
 }
 
 .monitoring-jump-btn {
@@ -15807,6 +15829,11 @@ a.affected-client:hover {
     border-color: #fff;
 }
 
+.wan-filter-badge.wan-badge-unprobed {
+    border-style: dashed;
+    color: var(--text-secondary);
+}
+
 #latency-charts-container .wan-filter-badge,
 #device-health-charts-container .wan-filter-badge,
 #sfp-charts-container .wan-filter-badge,
@@ -15818,7 +15845,8 @@ a.affected-client:hover {
     padding: 0.4rem 0.875rem;
 }
 
-.isp-chart-wrap .wan-filter-reset svg {
+.isp-chart-wrap .wan-filter-reset svg,
+.isp-chart-wrap .wan-filter-inactive svg {
     width: 16px;
     height: 16px;
 }

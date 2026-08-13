@@ -271,7 +271,7 @@ public class NokiaXs010xOntProviderTests
             Password = "1234",
         };
 
-        var stats = await provider.PollAsync(context);
+        var stats = (await provider.PollAsync(context)).Stats;
 
         stats.Should().NotBeNull();
         stats!.RxPowerDbm.Should().BeApproximately(-13.3, 0.0001);
@@ -299,7 +299,7 @@ public class NokiaXs010xOntProviderTests
             Password = "1234",
         };
 
-        var stats = await provider.PollAsync(context);
+        var stats = (await provider.PollAsync(context)).Stats;
 
         stats.Should().NotBeNull();
         stats!.RxPowerDbm.Should().BeApproximately(-13.3, 0.0001);

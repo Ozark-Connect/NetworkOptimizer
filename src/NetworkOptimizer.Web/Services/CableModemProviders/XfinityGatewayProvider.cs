@@ -2,6 +2,7 @@ using System.Net;
 using HtmlAgilityPack;
 using NetworkOptimizer.Monitoring.Models;
 using NetworkOptimizer.Monitoring.Providers;
+using NetworkOptimizer.Web.Services.Monitoring;
 
 namespace NetworkOptimizer.Web.Services.CableModemProviders;
 
@@ -33,14 +34,14 @@ public sealed class XfinityGatewayProvider : ICableModemProvider
     }
 
     /// <inheritdoc/>
-    public async Task<CableModemStats?> PollAsync(
+    public async Task<PollResult<CableModemStats>> PollAsync(
         CmPollContext context,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(context.Host))
         {
             _logger.LogWarning("Xfinity Gateway poll requested but Host is empty (config {Id})", context.Id);
-            return null;
+            return PollResult<CableModemStats>.Failed("No address is configured for this device.");
         }
 
         for (int attempt = 1; attempt <= MaxRetries; attempt++)
@@ -58,16 +59,16 @@ public sealed class XfinityGatewayProvider : ICableModemProvider
                         await Task.Delay(RetryDelay, cancellationToken);
                         continue;
                     }
-                    return null;
+                    return PollResult<CableModemStats>.Failed($"No stats could be read from {(context.ConfiguredHost ?? context.Host)}.");
                 }
 
                 var stats = ParseNetworkSetup(html, context);
                 _logger.LogDebug(
                     "Xfinity Gateway {Name} polled: {DsCount} DS channels, {UsCount} US channels",
                     context.Name, stats.DownstreamChannels.Count, stats.UpstreamChannels.Count);
-                return stats;
+                return PollResult<CableModemStats>.Ok(stats);
             }
-            catch (OperationCanceledException)
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
                 throw;
             }
@@ -81,11 +82,14 @@ public sealed class XfinityGatewayProvider : ICableModemProvider
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Error polling Xfinity Gateway {Name} at {Host}", context.Name, context.ConfiguredHost ?? context.Host);
-                return null;
+                return PollResult<CableModemStats>.Failed(HttpFailureSummary.Describe(ex, (context.ConfiguredHost ?? context.Host)));
             }
         }
 
-        return null;
+        // Every retry is spent. The last attempt's own catch returns before this,
+        // so reaching here means each one came back empty rather than throwing.
+        return PollResult<CableModemStats>.Failed(
+            $"No stats could be read from {context.ConfiguredHost ?? context.Host}.");
     }
 
     /// <inheritdoc/>
@@ -119,7 +123,7 @@ public sealed class XfinityGatewayProvider : ICableModemProvider
         }
         catch (Exception ex)
         {
-            return (false, $"Connection failed: {ex.Message}");
+            return (false, HttpFailureSummary.Describe(ex, context.ConfiguredHost ?? context.Host));
         }
     }
 

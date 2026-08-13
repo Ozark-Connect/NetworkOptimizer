@@ -3542,11 +3542,18 @@
         </div>
     </div>;
 
-    private void ReviewUpstreamDiscovery()
+    /// <summary>
+    /// Open the discovery the banner is about. That is always the primary WAN's: a secondary WAN
+    /// commits as it discovers (RunWanContextDiscoveriesAsync) and never raises a review, so only
+    /// the primary can be waiting on one. Without the switch this opened whatever WAN the pill bar
+    /// was filtered to, which is a different WAN's trace than the one being announced.
+    /// </summary>
+    private async Task ReviewUpstreamDiscovery()
     {
         _forceExpandUpstream = true;
         _scrollToDiscoveryPending = true;
         SetActiveTab("performance");
+        if (_multiWanUiVisible) await OnDiscoveryWanSelectedAsync(_primaryWanKey);
     }
 
     private async Task DismissUpstreamReviewAsync()
@@ -4438,7 +4445,7 @@
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         var fabricMacs = _targets
-            .Where(t => t.TargetType == MonitoringTargetType.Fabric && !string.IsNullOrEmpty(t.DeviceMac))
+            .Where(t => t.TargetType == MonitoringTargetType.Fabric && !t.IsRetired && !string.IsNullOrEmpty(t.DeviceMac))
             .Select(t => t.DeviceMac!)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             // Three ways to answer, in order of how much the site can currently tell us:
@@ -4458,7 +4465,7 @@
         if (fabricMacs.Count == 0 && fabricTypes.Count == 0)
         {
             fabricMacs = _targets
-                .Where(t => t.TargetType == MonitoringTargetType.Fabric && !string.IsNullOrEmpty(t.DeviceMac))
+                .Where(t => t.TargetType == MonitoringTargetType.Fabric && !t.IsRetired && !string.IsNullOrEmpty(t.DeviceMac))
                 .Select(t => t.DeviceMac!)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();

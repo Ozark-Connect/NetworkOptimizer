@@ -332,6 +332,7 @@ else
         var normalized = deviceMac.Replace("-", ":").ToLowerInvariant();
         var target = Targets.FirstOrDefault(t =>
             t.TargetType == MonitoringTargetType.Fabric
+            && !t.IsRetired
             && !string.IsNullOrEmpty(t.DeviceMac)
             && t.DeviceMac.Replace("-", ":").ToLowerInvariant() == normalized);
         return !string.IsNullOrEmpty(target?.Name) ? target.Name : deviceMac;
@@ -345,6 +346,7 @@ else
             return ip;
         var target = Targets.FirstOrDefault(t =>
             t.TargetType == MonitoringTargetType.Fabric
+            && !t.IsRetired
             && !string.IsNullOrEmpty(t.DeviceMac)
             && t.DeviceMac.Replace("-", ":").ToLowerInvariant() == normalized);
         return target?.Address ?? "255.255.255.255";

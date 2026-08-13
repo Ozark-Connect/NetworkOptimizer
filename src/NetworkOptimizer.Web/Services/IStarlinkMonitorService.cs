@@ -36,7 +36,7 @@ public interface IStarlinkMonitorService
 
     /// <summary>Polls one dish now and caches the result.</summary>
     [RequireRole(Roles.Viewer)]
-    Task PollStarlinkAsync(int id);
+    Task<(bool success, string message)> PollStarlinkAsync(int id);
 
     /// <summary>Adds or updates a Starlink configuration.</summary>
     [RequireRole(Roles.Admin)]

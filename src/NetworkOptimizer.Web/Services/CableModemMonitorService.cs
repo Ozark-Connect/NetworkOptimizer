@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Monitoring.Models;
 using NetworkOptimizer.Monitoring.Providers;
+using NetworkOptimizer.Web.Services.Monitoring;
 using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Services;
@@ -102,16 +103,23 @@ public sealed class CableModemMonitorService : ICableModemService, IDisposable
     /// <summary>
     /// Manually trigger a poll for a specific cable modem.
     /// </summary>
-    public async Task PollCmAsync(int cmId)
+    public async Task<(bool success, string message)> PollCmAsync(int cmId)
     {
         var config = await GetConfigAsync(cmId);
         if (config == null)
         {
             _logger.LogWarning("PollCmAsync called for unknown CM config {Id}", cmId);
-            return;
+            return (false, "That cable modem is no longer configured.");
         }
 
         await PollSingleAsync(config);
+
+        // Read back rather than plumbing the reason out of the poll: the poll has just written
+        // it to LastError, and the timer loop that shares this path wants no return value.
+        var after = await GetConfigAsync(cmId);
+        return string.IsNullOrEmpty(after?.LastError)
+            ? (true, "Polled successfully.")
+            : (false, after!.LastError!);
     }
 
     /// <summary>
@@ -256,7 +264,8 @@ public sealed class CableModemMonitorService : ICableModemService, IDisposable
 
         try
         {
-            var stats = await provider.PollAsync(context);
+            var result = await provider.PollAsync(context);
+            var stats = result.Stats;
 
             if (stats != null)
             {
@@ -268,13 +277,14 @@ public sealed class CableModemMonitorService : ICableModemService, IDisposable
             }
             else
             {
-                await UpdateConfigErrorAsync(config.Id, "Poll returned no data");
+                await UpdateConfigErrorAsync(
+                    config.Id, result.FailureReason ?? "The modem returned no data.");
             }
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Error polling cable modem {Name} ({Id})", config.Name, config.Id);
-            await UpdateConfigErrorAsync(config.Id, ex.Message);
+            await UpdateConfigErrorAsync(config.Id, HttpFailureSummary.Describe(ex, config.Host));
         }
     }
 
