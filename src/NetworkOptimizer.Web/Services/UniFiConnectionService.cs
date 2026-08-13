@@ -348,6 +348,23 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     /// or dispose the client - this fires from a request in flight, and the next reconnect owns
     /// both. The background reconnect clears it when the console comes back.
     /// </summary>
+    /// <summary>
+    /// The site's agent is up but cannot open a connection to the console, so awaiting-agent would
+    /// be the wrong answer. Marks it down instead; the next successful connect clears it.
+    /// </summary>
+    public Task NoteConsoleUnreachableAsync()
+    {
+        if (_consoleUnresponsive || _settings is not { IsConfigured: true, HasCredentials: true })
+            return Task.CompletedTask;
+
+        _isConnected = false;
+        _consoleUnresponsive = true;
+        _lastError = ConsoleUnresponsiveMessage;
+        _logger.LogInformation("Site {Slug}'s agent cannot reach its console; marking it unresponsive", SiteSlug);
+        OnConnectionChanged?.Invoke();
+        return Task.CompletedTask;
+    }
+
     private void HandleConsoleWentSilent(UniFiApiClient client)
     {
         // Only the live client may report this. A disposed one's request can fault seconds after a
@@ -475,7 +492,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
         if (proxy == null || !Uri.TryCreate(controllerUrl, UriKind.Absolute, out var uri))
             return (controllerUrl, null);
         var port = uri.IsDefaultPort ? (uri.Scheme == Uri.UriSchemeHttps ? 443 : 80) : uri.Port;
-        var localPort = proxy.GetOrCreateEndpoint(SiteSlug, uri.Host, port);
+        var localPort = proxy.GetOrCreateEndpoint(SiteSlug, uri.Host, port, isConsole: true);
         _logger.LogInformation("Console for site {Slug} routed via agent tunnel (127.0.0.1:{LocalPort} -> {Host}:{Port})",
             SiteSlug, localPort, uri.Host, port);
         return (controllerUrl, localPort);

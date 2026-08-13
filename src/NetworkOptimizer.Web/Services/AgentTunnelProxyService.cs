@@ -69,13 +69,13 @@ public class AgentTunnelProxyService : IDisposable
     /// lifetime and resolves the site's live agent per accepted connection,
     /// so agent reconnects don't invalidate the endpoint.
     /// </summary>
-    public int GetOrCreateEndpoint(string siteSlug, string host, int port)
+    public int GetOrCreateEndpoint(string siteSlug, string host, int port, bool isConsole = false)
     {
         var listener = _listeners.GetOrAdd($"{siteSlug}|{host}:{port}", key =>
         {
             var tcp = new TcpListener(IPAddress.Loopback, 0);
             tcp.Start();
-            var created = new ProxyListener(tcp, siteSlug, host, port);
+            var created = new ProxyListener(tcp, siteSlug, host, port, isConsole);
             _ = AcceptLoopAsync(created, _shutdown.Token);
             _logger.LogInformation("Agent proxy listening on 127.0.0.1:{Local} -> {Host}:{Port} (site {Slug})",
                 created.LocalPort, host, port, siteSlug);
@@ -198,9 +198,16 @@ public class AgentTunnelProxyService : IDisposable
             {
                 _logger.LogDebug("Proxy open {Host}:{Port} via agent {AgentId} failed: {Error}",
                     listener.TargetHost, listener.TargetPort, agent.AgentId, openError);
-                // Whoever dialed the loopback listener only ever sees it close, so the agent's
-                // reason has to be left where they can find it. SSH.NET, for one, reports the
-                // hang-up as a missing protocol banner and buries the actual cause entirely.
+
+                // The console's own endpoint failing IS the console being down - the flip above only
+                // covers a silent tunnel. Two strikes so one blip can't mark a healthy console down.
+                if (listener.IsConsole
+                    && _consoleOpenFailures.AddOrUpdate(listener.SiteSlug, 1, (_, n) => n + 1) >= ConsoleFailuresBeforeUnreachable)
+                {
+                    NoteConsoleUnreachable(listener.SiteSlug);
+                }
+                // The dialer only sees the socket close, so leave the agent's reason where they can
+                // find it - SSH.NET reports the hang-up as a missing banner and buries the cause.
                 _lastOpenFailure[listener.LocalPort] =
                     ($"{listener.TargetHost}:{listener.TargetPort} via the site's agent - {openError}", DateTime.UtcNow);
                 CloseConnection(connection, notifyAgent: false);
@@ -208,6 +215,7 @@ public class AgentTunnelProxyService : IDisposable
             }
 
             // The tunnel answered, so clear any open breaker for this site.
+            if (listener.IsConsole) _consoleOpenFailures.TryRemove(listener.SiteSlug, out _);
             _openBreaker.TryRemove(listener.SiteSlug, out _);
             _lastOpenFailure.TryRemove(listener.LocalPort, out _);
 
@@ -319,6 +327,23 @@ public class AgentTunnelProxyService : IDisposable
     /// timeout or a stale-gate refusal - so page renders short-circuit console
     /// calls instead of paying dial-and-retry per call until the 90s watchdog.
     /// </summary>
+    /// <summary>Consecutive failed opens on a site's console endpoint before it counts as down.</summary>
+    private const int ConsoleFailuresBeforeUnreachable = 2;
+    private readonly ConcurrentDictionary<string, int> _consoleOpenFailures = new();
+
+    /// <summary>
+    /// The agent is alive but cannot reach the console, so this is not awaiting-agent. Marks the
+    /// console down (fire-and-forget, idempotent) so renders stop paying an open per call.
+    /// </summary>
+    private void NoteConsoleUnreachable(string siteSlug)
+    {
+        _ = Task.Run(async () =>
+        {
+            try { await _siteConnections.GetFor(siteSlug).NoteConsoleUnreachableAsync(); }
+            catch (Exception ex) { _logger.LogDebug(ex, "Console-unreachable flip failed for site {Slug}", siteSlug); }
+        });
+    }
+
     private void FlipConsoleAwaitingAgent(string siteSlug)
     {
         _ = Task.Run(async () =>
@@ -350,7 +375,7 @@ public class AgentTunnelProxyService : IDisposable
         GC.SuppressFinalize(this);
     }
 
-    private sealed record ProxyListener(TcpListener Tcp, string SiteSlug, string TargetHost, int TargetPort)
+    private sealed record ProxyListener(TcpListener Tcp, string SiteSlug, string TargetHost, int TargetPort, bool IsConsole = false)
     {
         public int LocalPort => ((IPEndPoint)Tcp.LocalEndpoint).Port;
     }
