@@ -2979,6 +2979,8 @@
 
         // Restore tab visibility persisted from prerender so the interactive render
         // shows the correct tabs immediately instead of flashing the default (all shown).
+        // TODO: inert while prerender is off - there is no first pass to persist from, so the tabs
+        // flash the default again. Kept in case prerender comes back.
         _tabVisPersistSub = PersistState.RegisterOnPersisting(() =>
         {
             PersistState.PersistAsJson(TabVisStateKey,
