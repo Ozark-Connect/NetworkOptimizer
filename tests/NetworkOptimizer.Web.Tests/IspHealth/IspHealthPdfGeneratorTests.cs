@@ -390,6 +390,39 @@ public class IspHealthPdfGeneratorTests
     }
 
     [Fact]
+    public void EventTimeline_ConfirmedAbsorbsOverlappingUnverifiable()
+    {
+        // Unverifiable means "no probe past this hop to cross-check"; the overlapping confirmed
+        // event is that cross-check. One line, written as Confirmed, both hops kept as members.
+        var report = MinimalReport();
+        report.CongestionEvents.Add(Congestion(WindowEnd.AddHours(-4), 2, "Access hop", 1.5));
+        report.CongestionEvents.Add(Congestion(WindowEnd.AddHours(-3.9), 2, "Dead-end hop", 2.5,
+            CongestionDisposition.Unverifiable));
+
+        var entries = IspHealthPresentation.EventTimeline(report).ToList();
+
+        entries.Should().ContainSingle();
+        entries[0].BadgeClass.Should().Be("isp-event-badge-congestion");
+        entries[0].BadgeTooltip.Should().BeNull();
+        entries[0].Members.Should().HaveCount(2);
+    }
+
+    [Fact]
+    public void EventTimeline_UnverifiableOnlyGroupsStayDimmed()
+    {
+        var report = MinimalReport();
+        report.CongestionEvents.Add(Congestion(WindowEnd.AddHours(-4), 2, "Dead-end hop 1", 1.5,
+            CongestionDisposition.Unverifiable));
+        report.CongestionEvents.Add(Congestion(WindowEnd.AddHours(-3.9), 2, "Dead-end hop 2", 2.5,
+            CongestionDisposition.Unverifiable));
+
+        var entries = IspHealthPresentation.EventTimeline(report).ToList();
+
+        entries.Should().ContainSingle();
+        entries[0].BadgeClass.Should().Be("isp-event-badge-congestion-soft");
+    }
+
+    [Fact]
     public void EventTimeline_ReadsSingularForAGroupOfTwo()
     {
         var report = MinimalReport();

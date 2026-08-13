@@ -328,7 +328,8 @@ public class CongestionEvent
 
     /// <summary>Where discovery placed that hop on the path, or null when it placed it nowhere -
     /// unlocalized, or a hop that answers pings but never landed in a trace (HopNumber 0). Lower is
-    /// nearer. This is what orders one incident's hops; RTT is only a fallback for events with no
+    /// nearer; 0 is only ever the L2 neighbor, which no trace can place but is first by construction.
+    /// This is what orders one incident's hops; RTT is only a fallback for events with no
     /// position at all.</summary>
     public int? BottleneckHopNumber { get; set; }
 

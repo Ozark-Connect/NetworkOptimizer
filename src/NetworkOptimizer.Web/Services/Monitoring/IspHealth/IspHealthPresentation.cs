@@ -79,7 +79,12 @@ public static class IspHealthPresentation
                     && evt.BottleneckHopIp != null
                     ? " and the hops beyond" : "";
             var lead = $"{span} of elevated latency and jitter on {where}{beyond}{load} ({mag}).";
-            var (badge, badgeClass, text, tip) = evt.Disposition switch
+            // A group holding any Confirmed event is written as Confirmed - the absorbed
+            // Unverifiable members were cross-checked by it (see GroupCongestion).
+            var disposition = group.Any(e => e.Disposition == CongestionDisposition.Confirmed)
+                ? CongestionDisposition.Confirmed
+                : evt.Disposition;
+            var (badge, badgeClass, text, tip) = disposition switch
             {
                 CongestionDisposition.SelfInflicted => ("Loaded Latency", "isp-event-badge-congestion-soft",
                     $"{lead} Everything slowed together under load, so the limit was your access link, not one hop - bufferbloat or a congested shared-access network.",
@@ -129,7 +134,10 @@ public static class IspHealthPresentation
     /// A bottleneck's elevation shows on every hop that sits behind it, so one incident arrives as
     /// several events - four rows all reporting the same two hours, none of them saying they are
     /// the same thing. Overlapping spans with the same disposition are that case; a different
-    /// disposition is a different claim about what happened and never merges.
+    /// disposition is a different claim about what happened and never merges. The one exception:
+    /// Unverifiable means "no probe past this hop to cross-check", and an overlapping Confirmed
+    /// event IS that cross-check, so those pool with Confirmed. SelfInflicted and ControlPlaneNoise
+    /// are active dismissals and never join a Confirmed line.
     ///
     /// Display only. The events still score individually, per hop and per ASN, so nothing here can
     /// move a score or a congestion count.
@@ -140,7 +148,8 @@ public static class IspHealthPresentation
     private static List<List<CongestionEvent>> GroupCongestion(IEnumerable<CongestionEvent> events)
     {
         var groups = new List<List<CongestionEvent>>();
-        foreach (var byDisposition in events.GroupBy(e => e.Disposition))
+        foreach (var byDisposition in events.GroupBy(e =>
+                     e.Disposition == CongestionDisposition.Unverifiable ? CongestionDisposition.Confirmed : e.Disposition))
         {
             List<CongestionEvent>? open = null;
             var openEnd = DateTime.MinValue;

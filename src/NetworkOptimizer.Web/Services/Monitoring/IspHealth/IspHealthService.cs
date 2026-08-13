@@ -1106,6 +1106,10 @@ public class IspHealthService
         {
             AccessEgressHopIps = new HashSet<string>(accessEgressIps, StringComparer.OrdinalIgnoreCase),
             HopNumberByIp = hopNumberByIp,
+            L2NeighborIps = new HashSet<string>(
+                targets.Where(t => t.DiscoveryMethod == DiscoveryMethod.L2Neighbor && !string.IsNullOrEmpty(t.Address))
+                    .Select(t => t.Address),
+                StringComparer.OrdinalIgnoreCase),
             Load = loadByTime,
             HasTraceMap = hopOrderKnown
         };

@@ -14,6 +14,10 @@ public sealed class CongestionTopology
     /// <summary>Hop distance (lowest TTL seen) per monitored hop IP, from Upstream Discovery. The ordering the bottleneck walk uses.</summary>
     public IReadOnlyDictionary<string, int> HopNumberByIp { get; init; } = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>IPs discovered as the WAN L2 neighbor (OLT/CMTS/BNG). They decrement no TTL, so no
+    /// trace can place them, yet they are first on the path by construction.</summary>
+    public HashSet<string> L2NeighborIps { get; init; } = new(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>WAN utilization (worst direction, fraction of expected plan speed) per sample. Utilization is null when expected speeds are unknown, leaving load-coincidence undetermined.</summary>
     public IReadOnlyList<(DateTime Time, double? Utilization)> Load { get; init; } = Array.Empty<(DateTime, double?)>();
 
@@ -407,7 +411,12 @@ public static class CongestionLocalizer
         evt.Scope = CongestionScope.Hop;
         evt.Disposition = disposition;
         evt.BottleneckHopIp = bottleneckIp;
-        evt.BottleneckHopNumber = hopNum is > 0 and < int.MaxValue ? hopNum : null;
+        // Hop 0 usually means "answers pings but never landed in a trace" - unplaced. The L2
+        // neighbor is the exception: untraceable by nature, yet genuinely first on the path.
+        evt.BottleneckHopNumber =
+            hopNum is > 0 and < int.MaxValue ? hopNum
+            : hopNum == 0 && topology.L2NeighborIps.Contains(bottleneckIp) ? 0
+            : null;
         evt.BottleneckLabel = label;
         evt.LoadCoincident = loadCoincident;
         evt.CleanParallelPaths = cleanParallelPaths;

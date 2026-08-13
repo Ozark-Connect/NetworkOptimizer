@@ -711,6 +711,38 @@ public class CongestionLocalizerTests
     }
 
     [Fact]
+    public void L2_neighbor_is_placed_at_hop_zero_and_other_zeros_stay_unplaced()
+    {
+        // Hop 0 otherwise means "answered pings but never landed in a trace"; only a target
+        // discovered as the WAN L2 neighbor is genuinely first on the path.
+        const string L2 = "10.0.0.9";
+        var hopNumbers = new Dictionary<string, int>(HopNumbers, StringComparer.OrdinalIgnoreCase) { [L2] = 0 };
+
+        List<CongestionEvent> Run(bool isL2Neighbor)
+        {
+            var series = new List<AsnSeries>
+            {
+                Hop(100, L2, Elevated()),
+                Hop(100, Backhaul, Elevated(), L2),
+                Dest(DestControl, Flat(), Bng, Border),
+            };
+            var topo = new CongestionTopology
+            {
+                AccessEgressHopIps = new HashSet<string>(new[] { Bng }, StringComparer.OrdinalIgnoreCase),
+                HopNumberByIp = hopNumbers,
+                L2NeighborIps = isL2Neighbor
+                    ? new HashSet<string>(new[] { L2 }, StringComparer.OrdinalIgnoreCase)
+                    : new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+                HasTraceMap = true
+            };
+            return CongestionLocalizer.Localize(series, topo, Options);
+        }
+
+        Run(isL2Neighbor: true).Single(e => e.BottleneckHopIp == L2).BottleneckHopNumber.Should().Be(0);
+        Run(isL2Neighbor: false).Single(e => e.BottleneckHopIp == L2).BottleneckHopNumber.Should().BeNull();
+    }
+
+    [Fact]
     public void Jitter_rise_below_the_absolute_floor_does_not_fire()
     {
         // RTT clearly elevated and jitter ratio over 2x, but the absolute jitter rise
