@@ -4760,7 +4760,9 @@
         var m = message.ToLowerInvariant();
         return m.Contains("timeout") || m.Contains("timed out") || m.Contains("canceled") || m.Contains("cancelled")
             || m.Contains("refused") || m.Contains("no route") || m.Contains("unreachable")
-            || m.Contains("no such host") || m.Contains("actively refused") || m.Contains("connection attempt failed");
+            || m.Contains("no such host") || m.Contains("actively refused") || m.Contains("connection attempt failed")
+            // The summaries word these without the framework's vocabulary, so match how they read.
+            || m.Contains("did not answer") || m.Contains("could not reach") || m.Contains("could not be resolved");
     }
     private int? _ontTestingId;
     private int? _ontTogglingId;

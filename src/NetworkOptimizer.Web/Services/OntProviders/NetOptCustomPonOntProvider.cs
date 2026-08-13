@@ -96,9 +96,9 @@ public class NetOptCustomPonOntProvider : ISfpSupplementalOntProvider
         {
             return (false, HttpFailureSummary.Describe(ex, context.ConfiguredHost ?? context.Host));
         }
-        catch (TaskCanceledException)
+        catch (TaskCanceledException ex)
         {
-            return (false, "Connection timed out");
+            return (false, HttpFailureSummary.Describe(ex, context.ConfiguredHost ?? context.Host));
         }
         catch (Exception ex)
         {

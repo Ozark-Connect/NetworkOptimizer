@@ -161,10 +161,10 @@ public sealed class ZyxelGponSfpOntProvider : IOntProvider
             return (true,
                 $"Connected (HTTP) - RX: {stats.RxPowerDbm?.ToString("F2") ?? "?"} dBm, Link: {stats.LinkState ?? "?"}");
         }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested)
         {
             // HttpClient.Timeout elapsed - surfaces as a cancellation not tied to our token.
-            return (false, "Connection timed out");
+            return (false, HttpFailureSummary.Describe(ex, context.ConfiguredHost ?? context.Host));
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
