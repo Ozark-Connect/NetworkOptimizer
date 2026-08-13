@@ -4,7 +4,6 @@ using System.Net;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Monitoring.Models;
 using NetworkOptimizer.Monitoring.Providers;
 
@@ -167,7 +166,6 @@ public sealed class TechnicolorCgaProvider : ICableModemProvider, IDisposable
 
         var salt = GetJsonString(saltResponse.RootElement, "salt");
         var saltWebUi = GetJsonString(saltResponse.RootElement, "saltwebui");
-        saltResponse.Dispose();
 
         if (string.IsNullOrEmpty(salt) || string.IsNullOrEmpty(saltWebUi))
         {
