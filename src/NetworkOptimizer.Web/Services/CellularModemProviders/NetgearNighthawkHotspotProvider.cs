@@ -1,9 +1,9 @@
 using System.Collections.Concurrent;
 using System.Net;
-using System.Text;
 using System.Text.Json;
 using NetworkOptimizer.Monitoring.Models;
 using NetworkOptimizer.Monitoring.Providers;
+using NetworkOptimizer.Web.Services.Monitoring;
 
 namespace NetworkOptimizer.Web.Services.CellularModemProviders;
 
@@ -78,8 +78,7 @@ public sealed class NetgearNighthawkHotspotProvider : ICellularModemProvider, ID
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error polling Netgear modem {Name} at {Host}", context.Name, host);
-            // Capped: an HTTP failure can carry a paragraph, and this renders inline on the card.
-            return PollResult<CellularModemStats>.Failed($"Could not read stats from {host}: {FirstLine(ex.Message)}");
+            return PollResult<CellularModemStats>.Failed(HttpFailureSummary.Describe(ex, host));
         }
     }
 
@@ -108,7 +107,7 @@ public sealed class NetgearNighthawkHotspotProvider : ICellularModemProvider, ID
         }
         catch (Exception ex)
         {
-            return (false, $"Probe failed: {ex.Message}");
+            return (false, HttpFailureSummary.Describe(ex, context.ConfiguredHost ?? context.Host));
         }
     }
 
@@ -373,15 +372,6 @@ public sealed class NetgearNighthawkHotspotProvider : ICellularModemProvider, ID
         {
             session.Dispose();
         }
-    }
-
-
-    /// <summary>The first line of an exception message, capped for inline display.</summary>
-    private static string FirstLine(string? text)
-    {
-        const int maxLength = 160;
-        var line = (text ?? "").Split('\n', '\r').FirstOrDefault(l => !string.IsNullOrWhiteSpace(l))?.Trim() ?? "";
-        return line.Length <= maxLength ? line : line[..maxLength] + "...";
     }
 
     // Generic helpers for path-based JSON access
