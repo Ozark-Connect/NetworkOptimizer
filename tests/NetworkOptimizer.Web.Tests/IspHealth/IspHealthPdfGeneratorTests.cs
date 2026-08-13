@@ -353,39 +353,6 @@ public class IspHealthPdfGeneratorTests
     }
 
     [Fact]
-    public void DimensionWeightLabel_NormalizesOverTheDimensionsThatScored()
-    {
-        // 0.5 / 0.25 / 0.25 with all three scored: the printed shares must account for the
-        // whole score, the same renormalization CombineDimensions does.
-        var report = MinimalReport();
-
-        IspHealthPresentation.DimensionWeightLabel(report, report.AccessDimension).Should().Be("50%");
-        IspHealthPresentation.DimensionWeightLabel(report, report.TransitDimension).Should().Be("25%");
-        IspHealthPresentation.DimensionWeightLabel(report, report.IspAsnDimension).Should().Be("25%");
-    }
-
-    [Fact]
-    public void DimensionWeightLabel_RedistributesWhenADimensionHasNoData()
-    {
-        var report = new IspHealthReport
-        {
-            OverallScore = 90,
-            ComputedAt = WindowEnd,
-            WindowStart = WindowStart,
-            WindowEnd = WindowEnd,
-            Profile = Gpon,
-            AccessDimension = new IspScoreDimension { Name = "Access Layer", Score = 90, Weight = 0.5 },
-            TransitDimension = new IspScoreDimension { Name = "Transit", Score = null, Weight = 0.25 },
-            IspAsnDimension = new IspScoreDimension { Name = "ISP Network", Score = 87, Weight = 0.25 }
-        };
-
-        IspHealthPresentation.DimensionWeightLabel(report, report.AccessDimension).Should().Be("67%");
-        IspHealthPresentation.DimensionWeightLabel(report, report.IspAsnDimension).Should().Be("33%");
-        // An unscored dimension contributes nothing, so it claims no share of the score.
-        IspHealthPresentation.DimensionWeightLabel(report, report.TransitDimension).Should().Be("--");
-    }
-
-    [Fact]
     public void EventTimeline_DescribesEveryEventTheReportCarries()
     {
         // The PDF renders this feed verbatim, so a report with three events must produce

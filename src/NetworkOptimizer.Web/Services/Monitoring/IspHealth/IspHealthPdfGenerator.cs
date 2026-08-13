@@ -186,9 +186,11 @@ public class IspHealthPdfGenerator
                 row.RelativeItem(1f).Text(IspHealthPresentation.FormatUptime(report)).FontSize(10).Bold();
                 row.RelativeItem(1f).Text(IspHealthPresentation.FormatDowntime(report.Downtime))
                     .FontSize(10).FontColor(Colors.Grey.Medium);
-                row.RelativeItem(1f);
             });
 
+            // No weight column: the three dimensions carry 1/1/1, so it printed 33% three times.
+            // The only report where they differ is one with an unscored dimension, and its "No data"
+            // grade already says the other two absorbed its share.
             column.Item().PaddingTop(12).Table(table =>
             {
                 table.ColumnsDefinition(columns =>
@@ -196,20 +198,15 @@ public class IspHealthPdfGenerator
                     columns.RelativeColumn(2f);
                     columns.RelativeColumn(1f);
                     columns.RelativeColumn(1f);
-                    columns.RelativeColumn(1f);
                 });
 
-                // Weight is print-only: on screen the three dimension cards sit beside the hero
-                // score, where the reader can see one is not simply the average of the others.
-                // A page of tables cannot show that, so it has to say it.
-                HeaderRow(table, "Dimension", "Score", "Grade", "Weight in score");
+                HeaderRow(table, "Dimension", "Score", "Grade");
 
                 foreach (var dimension in new[] { report.AccessDimension, report.IspAsnDimension, report.TransitDimension })
                 {
                     Cell(table, dimension.Name);
                     Cell(table, ScoreText(dimension.Score), ScoreColor(dimension.Score));
                     Cell(table, dimension.Score.HasValue ? IspHealthReport.GradeLabel(dimension.Score.Value) : "No data");
-                    Cell(table, IspHealthPresentation.DimensionWeightLabel(report, dimension));
                 }
             });
         });
