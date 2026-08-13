@@ -354,6 +354,12 @@ else
         if (!ShowingPanelBody)
         {
             if (_mapMounted) await UnmountMap();
+            if (_chartMounted)
+            {
+                _chartMounted = false;
+                try { await JS.InvokeVoidAsync("eval", "window.__dashWanLiveChart?.unmount();"); }
+                catch { }
+            }
             return;
         }
 
@@ -552,6 +558,7 @@ else
 
     private async Task LoadDataAsync()
     {
+        _notConfigured = false;
         try
         {
             // Per-site: read this site's own MonitoringSettings/targets, and gate on the

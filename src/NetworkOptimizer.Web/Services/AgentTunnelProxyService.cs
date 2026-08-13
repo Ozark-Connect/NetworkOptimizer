@@ -321,12 +321,6 @@ public class AgentTunnelProxyService : IDisposable
                && agent.LastMessageAt <= breaker.OpenedAtLastMsg;
     }
 
-    /// <summary>
-    /// Flips the site's console to awaiting-agent off the dial path (fire-and-
-    /// forget, idempotent) the moment a dead tunnel is proven - by an open
-    /// timeout or a stale-gate refusal - so page renders short-circuit console
-    /// calls instead of paying dial-and-retry per call until the 90s watchdog.
-    /// </summary>
     /// <summary>Consecutive failed opens on a site's console endpoint before it counts as down.</summary>
     private const int ConsoleFailuresBeforeUnreachable = 2;
     private readonly ConcurrentDictionary<string, int> _consoleOpenFailures = new();
@@ -344,6 +338,12 @@ public class AgentTunnelProxyService : IDisposable
         });
     }
 
+    /// <summary>
+    /// Flips the site's console to awaiting-agent off the dial path (fire-and-
+    /// forget, idempotent) the moment a dead tunnel is proven - by an open
+    /// timeout or a stale-gate refusal - so page renders short-circuit console
+    /// calls instead of paying dial-and-retry per call until the 90s watchdog.
+    /// </summary>
     private void FlipConsoleAwaitingAgent(string siteSlug)
     {
         _ = Task.Run(async () =>

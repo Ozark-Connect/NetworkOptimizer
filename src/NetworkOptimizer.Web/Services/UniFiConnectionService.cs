@@ -343,12 +343,6 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     /// tunnel returns.
     /// </summary>
     /// <summary>
-    /// The client proved the console stopped answering mid-session. Mark it down so pages render
-    /// the banner instead of paying a timeout per call. Deliberately does not take the connect gate
-    /// or dispose the client - this fires from a request in flight, and the next reconnect owns
-    /// both. The background reconnect clears it when the console comes back.
-    /// </summary>
-    /// <summary>
     /// The site's agent is up but cannot open a connection to the console, so awaiting-agent would
     /// be the wrong answer. Marks it down instead; the next successful connect clears it.
     /// </summary>
@@ -365,6 +359,10 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
         return Task.CompletedTask;
     }
 
+    /// <summary>
+    /// The client proved the console stopped answering mid-session. Marks it down so pages render
+    /// the banner instead of paying a timeout per call; the background reconnect clears it.
+    /// </summary>
     private void HandleConsoleWentSilent(UniFiApiClient client)
     {
         // Only the live client may report this. A disposed one's request can fault seconds after a
@@ -379,6 +377,15 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
         OnConnectionChanged?.Invoke();
     }
 
+    /// <summary>
+    /// Called when this site's agent tunnel drops. When the console is reached
+    /// through that tunnel, flip straight to the awaiting-agent state: the client
+    /// stays "connected" otherwise, and every console call dials the dead loopback
+    /// proxy and burns through the transient-failure retry backoff (~14 s per
+    /// call), which reads as a frozen UI on any page of this site while the agent
+    /// is down. The agent-connected hook re-establishes the console when the
+    /// tunnel returns.
+    /// </summary>
     public async Task OnAgentTunnelDroppedAsync()
     {
         if (IsAgentOnline()) return; // another agent still carries the site

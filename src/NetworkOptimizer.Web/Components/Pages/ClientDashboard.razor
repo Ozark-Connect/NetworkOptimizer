@@ -1131,8 +1131,6 @@
         // Must be in OnAfterRenderAsync because JS interop isn't available during prerender
         _isInsecureContext = !await JS.InvokeAsync<bool>("eval", "window.isSecureContext");
         _isMobile = await JS.InvokeAsync<bool>("eval", "window.innerWidth <= 768");
-        // VPN clients have no GPS walk-test flow (no live polling), so never warn them.
-        _showGpsWarning = _isInsecureContext && _isOwnDevice && _client?.IsVpn != true;
 
         // Default-site own-device identity: the viewer's address comes from a browser request,
         // which needs JS, so it lands here rather than in OnInitializedAsync.
@@ -1165,6 +1163,10 @@
         // so it runs here rather than in OnInitializedAsync.
         if (_awaitingSiteIdentity)
             await ResolveSiteIdentityAsync();
+
+        // After identity: VPN clients have no GPS walk-test flow, so never warn them, and _client
+        // is only known once the resolves above have run.
+        _showGpsWarning = _isInsecureContext && _isOwnDevice && _client?.IsVpn != true;
 
         if (_showGpsWarning)
             StateHasChanged();
