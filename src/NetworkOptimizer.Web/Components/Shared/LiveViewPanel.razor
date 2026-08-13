@@ -304,6 +304,9 @@ else
 
     /// <summary>Monitoring is genuinely not set up, as opposed to set up but unable to load.</summary>
     private bool _notConfigured;
+
+    /// <summary>Mirrors the markup: true only when the tiles and map are actually on the page.</summary>
+    private bool ShowingPanelBody => _ready && (_notConfigured || !ShowConsoleDownBanner);
     private string? _gatewayMac;
     private List<string> _gatewayWanIfNames = new();
 
@@ -345,7 +348,14 @@ else
             await LiveWan.RestoreAsync();
 
         await EnsureWanCompareHintAsync();
-        if (!_ready) return;
+
+        // Mounting into markup that isn't rendered leaves the flag set and the map never comes
+        // back when it is. Unmount instead, so recovery remounts.
+        if (!ShowingPanelBody)
+        {
+            if (_mapMounted) await UnmountMap();
+            return;
+        }
 
         if (MapMode != "off" && (!_mapMounted || _mountedMode != MapMode))
         {
