@@ -90,6 +90,18 @@ public class UniFiApiClient : IDisposable
     /// </summary>
     public event Action<bool, string?>? AuthProbeCompleted;
 
+    /// <summary>Raised when consecutive timeouts show the console has stopped answering.</summary>
+    public event Action? ConsoleWentSilent;
+
+    /// <summary>Consecutive request timeouts before the console counts as silent.</summary>
+    private const int SilentTimeoutStreak = 2;
+
+    /// <summary>How long requests fail instantly once it is silent, before one probes for its return.</summary>
+    private static readonly TimeSpan SilentCooldown = TimeSpan.FromSeconds(30);
+
+    private int _consecutiveTimeouts;
+    private long _silentUntilTicks;
+
     public UniFiApiClient(
         ILogger<UniFiApiClient> logger,
         string controllerHost,
@@ -157,14 +169,34 @@ public class UniFiApiClient : IDisposable
     internal async Task<T> ExecuteRequestAsync<T>(Func<Task<T>> action)
     {
         if (_disposed) return default!;
+
+        // A console that answers TCP and then goes quiet costs a full timeout on every call, and a
+        // page makes many - that is what reads as a frozen UI. Once it has proven silent, fail them
+        // instantly and let one through per cooldown to notice it came back, so this cannot latch.
+        if (DateTime.UtcNow.Ticks < Interlocked.Read(ref _silentUntilTicks)) return default!;
+
         try
         {
-            return await _retryPolicy.ExecuteAsync(action);
+            var result = await _retryPolicy.ExecuteAsync(action);
+            Interlocked.Exchange(ref _consecutiveTimeouts, 0);
+            Interlocked.Exchange(ref _silentUntilTicks, 0);
+            return result;
         }
         catch (ObjectDisposedException)
         {
             _logger.LogDebug("UniFi API request skipped: client was disposed by a concurrent reconnect");
             return default!;
+        }
+        catch (TaskCanceledException)
+        {
+            // Rethrown, not swallowed: callers already turn this into their own failure result and
+            // their error reporting should not change just because we counted it.
+            if (Interlocked.Increment(ref _consecutiveTimeouts) >= SilentTimeoutStreak)
+            {
+                Interlocked.Exchange(ref _silentUntilTicks, (DateTime.UtcNow + SilentCooldown).Ticks);
+                ConsoleWentSilent?.Invoke();
+            }
+            throw;
         }
     }
 

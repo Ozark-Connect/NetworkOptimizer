@@ -342,6 +342,22 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     /// is down. The agent-connected hook re-establishes the console when the
     /// tunnel returns.
     /// </summary>
+    /// <summary>
+    /// The client proved the console stopped answering mid-session. Mark it down so pages render
+    /// the banner instead of paying a timeout per call. Deliberately does not take the connect gate
+    /// or dispose the client - this fires from a request in flight, and the next reconnect owns
+    /// both. The background reconnect clears it when the console comes back.
+    /// </summary>
+    private void HandleConsoleWentSilent()
+    {
+        if (!_isConnected) return;
+        _isConnected = false;
+        _consoleUnresponsive = true;
+        _lastError = ConsoleUnresponsiveMessage;
+        _logger.LogWarning("Console for site {Slug} stopped answering; marking it unresponsive", SiteSlug);
+        OnConnectionChanged?.Invoke();
+    }
+
     public async Task OnAgentTunnelDroppedAsync()
     {
         if (IsAgentOnline()) return; // another agent still carries the site
@@ -746,6 +762,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
                 consoleEndpoint.ProxyPort
             );
             _client.AuthProbeCompleted += HandleAuthProbe;
+            _client.ConsoleWentSilent += HandleConsoleWentSilent;
 
             // Attempt to authenticate
             var success = await _client.LoginAsync();
@@ -889,6 +906,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
                 consoleEndpoint.ProxyPort
             );
             _client.AuthProbeCompleted += HandleAuthProbe;
+            _client.ConsoleWentSilent += HandleConsoleWentSilent;
 
             var success = await _client.LoginAsync(cts.Token);
 
