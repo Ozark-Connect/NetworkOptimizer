@@ -108,7 +108,7 @@ else if (IsShowingExternal && _externalOntStats != null)
 
     @if (!string.IsNullOrEmpty(_pollError))
     {
-        <div class="poll-error">@_pollError</div>
+        <div class="poll-error ont-poll-error">@_pollError</div>
     }
 
     <div class="sqm-actions">
@@ -167,7 +167,7 @@ else if (IsShowingExternal)
 
     @if (!string.IsNullOrEmpty(_pollError))
     {
-        <div class="poll-error">@_pollError</div>
+        <div class="poll-error ont-poll-error">@_pollError</div>
     }
 
     <div class="sqm-actions">
@@ -197,7 +197,7 @@ else if (TotalCount == 0)
         </p>
         @if (!string.IsNullOrEmpty(_pollError))
         {
-            <div class="poll-error">@_pollError</div>
+            <div class="poll-error ont-poll-error">@_pollError</div>
         }
 
         <div class="sqm-actions">
@@ -356,7 +356,7 @@ else
 
     @if (!string.IsNullOrEmpty(_pollError))
     {
-        <div class="poll-error">@_pollError</div>
+        <div class="poll-error ont-poll-error">@_pollError</div>
     }
 
     <div class="sqm-actions">
@@ -365,6 +365,10 @@ else
 }
 
 <style>
+    .ont-poll-error {
+        padding-top: 0.5rem;
+    }
+
     .metric-value.ont-model-value {
         font-size: 0.95rem;
     }
