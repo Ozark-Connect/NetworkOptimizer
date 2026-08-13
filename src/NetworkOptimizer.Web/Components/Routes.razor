@@ -1,4 +1,5 @@
-﻿@rendermode InteractiveServer
+﻿@* No prerender: it holds the whole response until every panel's first load returns. *@
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
 @using NetworkOptimizer.Storage.Models.Identity
 @using NetworkOptimizer.Web.Services.Authorization
 @using NetworkOptimizer.Web.Services.Identity
