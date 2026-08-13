@@ -39,7 +39,7 @@ public static class SshFailureSummary
 
         if (text.Contains("timed out", StringComparison.OrdinalIgnoreCase)
             || text.Contains("timeout", StringComparison.OrdinalIgnoreCase))
-            return $"{where} did not answer SSH in time.";
+            return $"{where} did not answer SSH in time. Check connectivity or firewall rules.";
 
         if (text.Contains("Connection failed", StringComparison.OrdinalIgnoreCase)
             || text.Contains("could not reach", StringComparison.OrdinalIgnoreCase)
