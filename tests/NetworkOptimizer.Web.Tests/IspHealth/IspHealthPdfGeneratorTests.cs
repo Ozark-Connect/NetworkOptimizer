@@ -390,6 +390,19 @@ public class IspHealthPdfGeneratorTests
     }
 
     [Fact]
+    public void EventTimeline_ReadsSingularForAGroupOfTwo()
+    {
+        var report = MinimalReport();
+        report.CongestionEvents.Add(Congestion(WindowEnd.AddHours(-4), 2, "Access hop", 1.5));
+        report.CongestionEvents.Add(Congestion(WindowEnd.AddHours(-3.9), 2, "Transit hop 1", 2.5));
+
+        var entries = IspHealthPresentation.EventTimeline(report).ToList();
+
+        entries.Should().ContainSingle();
+        entries[0].Text.Should().Contain("and 1 more hop (");
+    }
+
+    [Fact]
     public void EventTimeline_LeadsWithTheNearestHopOnTheTracedPath()
     {
         // RTT would pick the 1.5 ms hop; discovery placed it nowhere, so the hop it DID place

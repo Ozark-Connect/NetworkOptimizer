@@ -870,6 +870,9 @@ else
                                 {
                                     var key = EventMemberKey(entry);
                                     var open = _expandedEvents.Contains(key);
+                                    @* Razor trims the whitespace between the sentence and this block,
+                                       so the separating space must be emitted explicitly. *@
+                                    @(" ")
                                     <button type="button" class="isp-event-members-toggle" aria-expanded="@open"
                                             @onclick="() => ToggleEventMembers(key)">@(open ? "Hide hops" : $"Show {entry.Members.Count} hops")</button>
                                     @if (open)

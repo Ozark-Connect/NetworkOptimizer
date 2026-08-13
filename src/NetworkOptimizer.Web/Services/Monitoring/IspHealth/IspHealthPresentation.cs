@@ -71,7 +71,7 @@ public static class IspHealthPresentation
             // A group says how many hops carried it and lists them below, which is the stronger
             // statement and makes no claim about which sit beyond which.
             var beyond = group.Count > 1
-                ? $" and {group.Count - 1} more hops"
+                ? $" and {group.Count - 1} more {(group.Count == 2 ? "hop" : "hops")}"
                 : evt.Disposition == CongestionDisposition.Confirmed
                     && !evt.ConfirmedBySibling
                     && !(evt.LoadCoincident && evt.CleanParallelPaths > 0)
