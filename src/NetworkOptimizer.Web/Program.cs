@@ -352,6 +352,7 @@ builder.Services.AddSingleton<ICableModemProvider, ArrisSurfboardHnapProvider>()
 builder.Services.AddSingleton<ICableModemProvider, MotorolaHnapProvider>();
 builder.Services.AddSingleton<ICableModemProvider, XfinityGatewayProvider>();
 builder.Services.AddSingleton<ICableModemProvider, TechnicolorCgaProvider>();
+builder.Services.AddSingleton<ICableModemProvider, VodafoneStationProvider>();
 builder.Services.AddSiteScopedRegistry<ModemMonitorRegistry>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<ModemMonitorRegistry>());
 

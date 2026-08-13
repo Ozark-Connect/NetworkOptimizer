@@ -6,6 +6,7 @@ using System.Text;
 using System.Text.Json;
 using NetworkOptimizer.Monitoring.Models;
 using NetworkOptimizer.Monitoring.Providers;
+using NetworkOptimizer.Web.Services.Monitoring;
 
 namespace NetworkOptimizer.Web.Services.CableModemProviders;
 
@@ -42,30 +43,31 @@ public sealed class TechnicolorCgaProvider : ICableModemProvider, IDisposable
     }
 
     /// <inheritdoc/>
-    public async Task<CableModemStats?> PollAsync(
+    public async Task<PollResult<CableModemStats>> PollAsync(
         CmPollContext context,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(context.Host))
         {
             _logger.LogWarning("Technicolor CGA poll requested but Host is empty (config {Id})", context.Id);
-            return null;
+            return PollResult<CableModemStats>.Failed("No address is configured for this device.");
         }
 
         try
         {
             var stats = await TryPollAsync(context, cancellationToken);
-            if (stats != null)
-            {
-                _logger.LogDebug(
-                    "Technicolor CGA {Name} polled: {Model}, {DsCount} DS channels, {UsCount} US channels",
-                    context.Name, stats.DeviceModel,
-                    stats.DownstreamChannels.Count, stats.UpstreamChannels.Count);
-            }
+            if (stats == null)
+                return PollResult<CableModemStats>.Failed(
+                    $"No stats could be read from {context.ConfiguredHost ?? context.Host}.");
 
-            return stats;
+            _logger.LogDebug(
+                "Technicolor CGA {Name} polled: {Model}, {DsCount} DS channels, {UsCount} US channels",
+                context.Name, stats.DeviceModel,
+                stats.DownstreamChannels.Count, stats.UpstreamChannels.Count);
+
+            return PollResult<CableModemStats>.Ok(stats);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             throw;
         }
@@ -73,7 +75,7 @@ public sealed class TechnicolorCgaProvider : ICableModemProvider, IDisposable
         {
             _sessions.TryRemove(context.Id, out _);
             _logger.LogWarning(ex, "Error polling Technicolor CGA {Name} at {Host}", context.Name, context.ConfiguredHost ?? context.Host);
-            return null;
+            return PollResult<CableModemStats>.Failed(HttpFailureSummary.Describe(ex, context.ConfiguredHost ?? context.Host));
         }
     }
 
@@ -102,7 +104,7 @@ public sealed class TechnicolorCgaProvider : ICableModemProvider, IDisposable
         }
         catch (Exception ex)
         {
-            return (false, $"Connection failed: {ex.Message}");
+            return (false, HttpFailureSummary.Describe(ex, context.ConfiguredHost ?? context.Host));
         }
     }
 
