@@ -1456,7 +1456,7 @@
                                     @if (LooksUnreachable(probeResult) && !string.IsNullOrWhiteSpace(editingModem.Host))
                                     {
                                         <div class="mi-funnel">
-                                            Can't reach it? <a href="@MonitoringInterfaceLink(editingModem.Host, "wmodem")">Set up a monitoring interface →</a>
+                                            Still can't reach it? <a href="@MonitoringInterfaceLink(editingModem.Host, "wmodem")">Set up a monitoring interface →</a>
                                         </div>
                                     }
                                 </div>
@@ -1498,7 +1498,7 @@
                     @if (LooksUnreachable(modemMessage) && !string.IsNullOrWhiteSpace(_modemTestedHost))
                     {
                         <div class="mi-funnel">
-                            Can't reach it? <a href="@MonitoringInterfaceLink(_modemTestedHost, "wmodem")">Set up a monitoring interface →</a>
+                            Still can't reach it? <a href="@MonitoringInterfaceLink(_modemTestedHost, "wmodem")">Set up a monitoring interface →</a>
                         </div>
                     }
                 </div>
@@ -1699,7 +1699,7 @@
                     @if (LooksUnreachable(_cmTestResult) && !string.IsNullOrWhiteSpace(_cmTestedHost))
                     {
                         <div class="mi-funnel">
-                            Can't reach it? <a href="@MonitoringInterfaceLink(_cmTestedHost, "cm")">Set up a monitoring interface →</a>
+                            Still can't reach it? <a href="@MonitoringInterfaceLink(_cmTestedHost, "cm")">Set up a monitoring interface →</a>
                         </div>
                     }
                 </div>
@@ -1936,7 +1936,7 @@
                     @if (LooksUnreachable(_ontTestResult) && !string.IsNullOrWhiteSpace(_ontTestedHost))
                     {
                         <div class="mi-funnel">
-                            Can't reach it? <a href="@MonitoringInterfaceLink(_ontTestedHost, "ont")">Set up a monitoring interface →</a>
+                            Still can't reach it? <a href="@MonitoringInterfaceLink(_ontTestedHost, "ont")">Set up a monitoring interface →</a>
                         </div>
                     }
                 </div>
@@ -2118,7 +2118,7 @@
                     @if (LooksUnreachable(_starlinkTestResult) && !string.IsNullOrWhiteSpace(_starlinkTestedHost))
                     {
                         <div class="mi-funnel">
-                            Can't reach it? <a href="@MonitoringInterfaceLink(_starlinkTestedHost, "starlink")">Set up a monitoring interface →</a>
+                            Still can't reach it? <a href="@MonitoringInterfaceLink(_starlinkTestedHost, "starlink")">Set up a monitoring interface →</a>
                         </div>
                     }
                 </div>
