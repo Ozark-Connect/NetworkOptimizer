@@ -8,6 +8,7 @@ using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Monitoring.Models;
 using NetworkOptimizer.Monitoring.Providers;
+using NetworkOptimizer.Web.Services.Monitoring;
 
 namespace NetworkOptimizer.Web.Services.CableModemProviders;
 
@@ -51,30 +52,31 @@ public sealed partial class VodafoneStationProvider : ICableModemProvider, IDisp
     }
 
     /// <inheritdoc/>
-    public async Task<CableModemStats?> PollAsync(
+    public async Task<PollResult<CableModemStats>> PollAsync(
         CmPollContext context,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(context.Host))
         {
             _logger.LogWarning("Vodafone Station poll requested but Host is empty (config {Id})", context.Id);
-            return null;
+            return PollResult<CableModemStats>.Failed("No address is configured for this device.");
         }
 
         try
         {
             var stats = await TryPollAsync(context, cancellationToken);
-            if (stats != null)
-            {
-                _logger.LogDebug(
-                    "Vodafone Station {Name} polled: {Model}, {DsCount} DS channels, {UsCount} US channels",
-                    context.Name, stats.DeviceModel,
-                    stats.DownstreamChannels.Count, stats.UpstreamChannels.Count);
-            }
+            if (stats == null)
+                return PollResult<CableModemStats>.Failed(
+                    $"No stats could be read from {context.ConfiguredHost ?? context.Host}.");
 
-            return stats;
+            _logger.LogDebug(
+                "Vodafone Station {Name} polled: {Model}, {DsCount} DS channels, {UsCount} US channels",
+                context.Name, stats.DeviceModel,
+                stats.DownstreamChannels.Count, stats.UpstreamChannels.Count);
+
+            return PollResult<CableModemStats>.Ok(stats);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             throw;
         }
@@ -82,7 +84,7 @@ public sealed partial class VodafoneStationProvider : ICableModemProvider, IDisp
         {
             _sessions.TryRemove(context.Id, out _);
             _logger.LogWarning(ex, "Error polling Vodafone Station {Name} at {Host}", context.Name, context.ConfiguredHost ?? context.Host);
-            return null;
+            return PollResult<CableModemStats>.Failed(HttpFailureSummary.Describe(ex, context.ConfiguredHost ?? context.Host));
         }
     }
 
@@ -111,7 +113,7 @@ public sealed partial class VodafoneStationProvider : ICableModemProvider, IDisp
         }
         catch (Exception ex)
         {
-            return (false, $"Connection failed: {ex.Message}");
+            return (false, HttpFailureSummary.Describe(ex, context.ConfiguredHost ?? context.Host));
         }
     }
 
