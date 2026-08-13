@@ -51,7 +51,8 @@ public static class IspHealthEndpoints
                 siteName = sites.FirstOrDefault(s => s.Slug == siteContext.Slug)?.Name ?? siteContext.Slug;
             }
 
-            var pdfBytes = new IspHealthPdfGenerator().GenerateReportBytes(report, siteName);
+            var pdfBytes = new IspHealthPdfGenerator(options: ispHealth.Options)
+                .GenerateReportBytes(report, siteName);
             var sitePart = siteContext.IsDefault ? "" : $"_{siteContext.Slug}";
             var fileName = $"ISPHealth{sitePart}_{report.WindowEnd.ToLocalTime():yyyyMMdd-HHmm}.pdf";
             return Results.File(pdfBytes, "application/pdf", fileName);

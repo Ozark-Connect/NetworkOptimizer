@@ -238,6 +238,19 @@ public static class IspHealthPresentation
         return stabilityScore is int ss ? ("Stability", ss.ToString(), ss) : null;
     }
 
+    /// <summary>
+    /// A dimension's share of the overall score, normalized over the dimensions that actually
+    /// scored - the same renormalization the scorer's CombineDimensions does, so the printed
+    /// percentages account for the whole of the score shown above them.
+    /// </summary>
+    public static string DimensionWeightLabel(IspHealthReport r, IspScoreDimension d)
+    {
+        if (d.Score is null) return "--";
+        var total = new[] { r.AccessDimension, r.IspAsnDimension, r.TransitDimension }
+            .Where(x => x.Score.HasValue).Sum(x => x.Weight);
+        return total > 0 ? $"{d.Weight / total * 100:0}%" : "--";
+    }
+
     /// <summary>The window's absolute bounds in local time, for a report that outlives the page.</summary>
     public static string WindowRangeLabel(IspHealthReport r) =>
         $"{r.WindowStart.ToLocalTime():MMM d, yyyy HH:mm} to {r.WindowEnd.ToLocalTime():MMM d, yyyy HH:mm}";

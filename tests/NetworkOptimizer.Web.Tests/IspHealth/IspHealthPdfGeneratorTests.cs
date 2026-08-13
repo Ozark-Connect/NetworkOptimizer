@@ -64,7 +64,20 @@ public class IspHealthPdfGeneratorTests
                 Name = "Transit",
                 Score = 80,
                 Weight = 0.25,
-                Factors = { new IspScoreFactor { Name = "Transit Latency", Score = 80, Weight = 1.0, ValueText = "18.20 ms" } }
+                Factors =
+                {
+                    new IspScoreFactor
+                    {
+                        Name = "Example Transit", Score = 80, Weight = 1.0, ValueText = "18.20 ms",
+                        InvolvementTooltip = "Carries 6 of 8 internet targets (forward path), 100% weight"
+                    },
+                    new IspScoreFactor
+                    {
+                        Name = "Example Side Path", Score = 58, Weight = 0.25, ValueText = "31.40 ms",
+                        InvolvementTooltip = "Off the forward path; held at 25% (likely the return path from popular services)",
+                        LowReachScoreCaveat = "Lightly weighted - nothing we are monitoring routes through this network; a low score is likely just ICMP deprioritization."
+                    }
+                }
             },
             IspAsnDimension = new IspScoreDimension { Name = "ISP Network", Score = 77, Weight = 0.25 },
             HasExpectedSpeeds = true,
@@ -81,24 +94,39 @@ public class IspHealthPdfGeneratorTests
 
         report.IspTargets.Add(new IspTargetHealth
         {
-            TargetId = "isp-1", Name = "ISP hop 1", RttMs = 1.8, ScoredJitterMs = 0.2,
-            LossPct = 0, OverallScore = 94, IsGradedHop = true
+            TargetId = "isp-1", Name = "ISP hop 1", Address = "198.51.100.1 - core1.example.net",
+            RttMs = 1.8, ScoredJitterMs = 0.2, LossPct = 0, OverallScore = 94, IsGradedHop = true,
+            LatencyStabilityScore = 96, CongestionScore = 100
         });
         report.IspTargets.Add(new IspTargetHealth
         {
             TargetId = "isp-2", Name = "ISP hop 2", RttMs = 4.1, ScoredJitterMs = 1.4,
-            LossPct = 0.02, OverallScore = 81
+            RawJitterMs = 3.2, JitterAssimilated = true, LossPct = 0.02, OverallScore = 81,
+            LatencyStabilityScore = 88, CongestionScore = 74, CongestionEventCount = 1,
+            NotOnTracedPath = true
         });
 
         report.IspAsns.Add(new IspAsnHealth
         {
             AsnNumber = 64500, AsnName = "Example Access", MeanRttMs = 2.9,
-            ScoredJitterMs = 0.4, LossPct = 0, OverallScore = 88
+            ScoredJitterMs = 0.4, RawJitterMs = 1.9, JitterAssimilated = true,
+            LossPct = 0, OverallScore = 88, LatencyStabilityScore = 92, CongestionScore = 100
         });
         report.TransitAsns.Add(new IspAsnHealth
         {
             AsnNumber = 64501, AsnName = "Example Transit", MeanRttMs = 18.2,
-            ScoredJitterMs = 1.1, LossPct = 0.05, OverallScore = 79, CongestionEventCount = 1
+            ScoredJitterMs = 1.1, LossPct = 0.05, OverallScore = 79, CongestionEventCount = 1,
+            LatencyStabilityScore = 90, CongestionScore = 68,
+            ShowInvolvement = true, InvolvementReach = 6, InvolvementHostTotal = 8, InvolvementWeight = 1.0
+        });
+        // Off the forward path: the reach-0 case, which carries both the involvement note and
+        // the ICMP-deprioritization caveat.
+        report.TransitAsns.Add(new IspAsnHealth
+        {
+            AsnNumber = 64502, AsnName = "Example Side Path", MeanRttMs = 31.4,
+            ScoredJitterMs = 2.6, LossPct = 0.4, OverallScore = 58,
+            LatencyStabilityScore = 61, CongestionScore = 55,
+            ShowInvolvement = true, InvolvementReach = 0, InvolvementHostTotal = 8, InvolvementWeight = 0.25
         });
         // A direct-peering entry: negative ASN, which the role label special-cases.
         report.TransitAsns.Add(new IspAsnHealth
@@ -322,6 +350,39 @@ public class IspHealthPdfGeneratorTests
         var pdf = new IspHealthPdfGenerator().GenerateReportBytes(report, "Test Site");
 
         pdf.Length.Should().BeGreaterThan(1000);
+    }
+
+    [Fact]
+    public void DimensionWeightLabel_NormalizesOverTheDimensionsThatScored()
+    {
+        // 0.5 / 0.25 / 0.25 with all three scored: the printed shares must account for the
+        // whole score, the same renormalization CombineDimensions does.
+        var report = MinimalReport();
+
+        IspHealthPresentation.DimensionWeightLabel(report, report.AccessDimension).Should().Be("50%");
+        IspHealthPresentation.DimensionWeightLabel(report, report.TransitDimension).Should().Be("25%");
+        IspHealthPresentation.DimensionWeightLabel(report, report.IspAsnDimension).Should().Be("25%");
+    }
+
+    [Fact]
+    public void DimensionWeightLabel_RedistributesWhenADimensionHasNoData()
+    {
+        var report = new IspHealthReport
+        {
+            OverallScore = 90,
+            ComputedAt = WindowEnd,
+            WindowStart = WindowStart,
+            WindowEnd = WindowEnd,
+            Profile = Gpon,
+            AccessDimension = new IspScoreDimension { Name = "Access Layer", Score = 90, Weight = 0.5 },
+            TransitDimension = new IspScoreDimension { Name = "Transit", Score = null, Weight = 0.25 },
+            IspAsnDimension = new IspScoreDimension { Name = "ISP Network", Score = 87, Weight = 0.25 }
+        };
+
+        IspHealthPresentation.DimensionWeightLabel(report, report.AccessDimension).Should().Be("67%");
+        IspHealthPresentation.DimensionWeightLabel(report, report.IspAsnDimension).Should().Be("33%");
+        // An unscored dimension contributes nothing, so it claims no share of the score.
+        IspHealthPresentation.DimensionWeightLabel(report, report.TransitDimension).Should().Be("--");
     }
 
     [Fact]
