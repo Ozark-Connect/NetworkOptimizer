@@ -581,7 +581,11 @@ public sealed partial class VodafoneStationProvider : ICableModemProvider, IDisp
         return 0;
     }
 
-    private static string AesCcmEncryptHex(byte[] key, byte[] nonce, byte[] plaintext, string associatedData)
+    /// <summary>
+    /// Encrypt to the layout the modem expects: ciphertext followed by the authentication tag,
+    /// as one lowercase hex string.
+    /// </summary>
+    internal static string AesCcmEncryptHex(byte[] key, byte[] nonce, byte[] plaintext, string associatedData)
     {
         var ciphertext = new byte[plaintext.Length];
         var tag = new byte[TagLengthBytes];
@@ -592,7 +596,7 @@ public sealed partial class VodafoneStationProvider : ICableModemProvider, IDisp
         return Convert.ToHexStringLower(ciphertext) + Convert.ToHexStringLower(tag);
     }
 
-    private static string? AesCcmDecryptText(byte[] key, byte[] nonce, string encryptedHex, string associatedData)
+    internal static string? AesCcmDecryptText(byte[] key, byte[] nonce, string encryptedHex, string associatedData)
     {
         if (!TryParseHex(encryptedHex, out var blob) || blob.Length <= TagLengthBytes)
             return null;
@@ -642,11 +646,13 @@ public sealed partial class VodafoneStationProvider : ICableModemProvider, IDisp
     internal static string? ExtractJsVar(string html, string name)
     {
         var escaped = Regex.Escape(name);
+        // The bare-assignment form must not match a longer identifier ending in this name; the
+        // firmware's own pages are full of js_-prefixed variables that would otherwise win.
         string[] patterns =
         [
             $"""(?:var|let|const)\s+{escaped}\s*=\s*['"]([^'"]+)['"]""",
             $"""window\.{escaped}\s*=\s*['"]([^'"]+)['"]""",
-            $"""{escaped}\s*=\s*['"]([^'"]+)['"]""",
+            $"""(?<![\w$.]){escaped}\s*=\s*['"]([^'"]+)['"]""",
         ];
 
         foreach (var pattern in patterns)

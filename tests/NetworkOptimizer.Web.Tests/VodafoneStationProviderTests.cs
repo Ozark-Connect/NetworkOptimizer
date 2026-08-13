@@ -1,3 +1,4 @@
+using System.Text;
 using FluentAssertions;
 using NetworkOptimizer.Monitoring.Providers;
 using NetworkOptimizer.Web.Services.CableModemProviders;
@@ -145,6 +146,61 @@ public class VodafoneStationProviderTests
     public void ExtractJsVar_ReturnsNullWhenMissing()
     {
         VodafoneStationProvider.ExtractJsVar("var somethingElse = 'x';", "myIv").Should().BeNull();
+    }
+
+    // The firmware's pages are full of js_-prefixed variables, so a bare assignment must not be
+    // read off a longer identifier that merely ends with the name being looked up.
+    [Fact]
+    public void ExtractJsVar_IgnoresLongerIdentifiersEndingInTheName()
+    {
+        var page = "var js_mySalt = 'deadbeefdeadbeef';\nmySalt = 'cafebabecafebabe';\n";
+
+        VodafoneStationProvider.ExtractJsVar(page, "mySalt").Should().Be("cafebabecafebabe");
+    }
+
+    // The modem expects ciphertext followed by the 16-byte authentication tag as one hex string.
+    // The reverse order still looks like a valid payload and is rejected only by the device.
+    [Fact]
+    public void AesCcmEncryptHex_AppendsTagAndRoundTrips()
+    {
+        var key = Convert.FromHexString("000102030405060708090a0b0c0d0e0f");
+        var nonce = Convert.FromHexString("a1b2c3d4e5f60718");
+        const string payload = """{"Password":"secret","Nonce":"session"}""";
+
+        var encrypted = VodafoneStationProvider.AesCcmEncryptHex(
+            key, nonce, Encoding.UTF8.GetBytes(payload), "loginPassword");
+
+        encrypted.Should().HaveLength((Encoding.UTF8.GetByteCount(payload) + 16) * 2);
+        encrypted.Should().MatchRegex("^[0-9a-f]+$");
+
+        VodafoneStationProvider.AesCcmDecryptText(key, nonce, encrypted, "loginPassword")
+            .Should().Be(payload);
+    }
+
+    // The credentials and the returned CSRF nonce are sealed under different associated data, so
+    // mixing the two up has to fail closed.
+    [Fact]
+    public void AesCcmDecryptText_ReturnsNullOnAssociatedDataMismatch()
+    {
+        var key = Convert.FromHexString("000102030405060708090a0b0c0d0e0f");
+        var nonce = Convert.FromHexString("a1b2c3d4e5f60718");
+
+        var encrypted = VodafoneStationProvider.AesCcmEncryptHex(
+            key, nonce, Encoding.UTF8.GetBytes("token"), "nonce");
+
+        VodafoneStationProvider.AesCcmDecryptText(key, nonce, encrypted, "loginPassword").Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("not-hex")]
+    [InlineData("00112233")]
+    public void AesCcmDecryptText_ReturnsNullOnMalformedInput(string encrypted)
+    {
+        var key = Convert.FromHexString("000102030405060708090a0b0c0d0e0f");
+        var nonce = Convert.FromHexString("a1b2c3d4e5f60718");
+
+        VodafoneStationProvider.AesCcmDecryptText(key, nonce, encrypted, "loginPassword").Should().BeNull();
     }
 
     [Fact]
