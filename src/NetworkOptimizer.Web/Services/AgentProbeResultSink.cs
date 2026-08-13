@@ -142,9 +142,8 @@ public class AgentProbeResultSink
 
     /// <summary>
     /// Called once per connection after the hello exchange, and again by the periodic refresh.
-    /// <paramref name="initialConnect"/> separates the two: the console reconnect below belongs to a
-    /// genuine connect and must not run on every refresh, or each cycle re-pushes a config that is
-    /// already current.
+    /// <paramref name="initialConnect"/> separates the two: it forces the post-connect SNMP re-push,
+    /// which a steady-state refresh skips because the config is already current.
     /// </summary>
     public async Task OnAgentConnectedAsync(AgentTunnelConnection connection, CancellationToken ct, bool initialConnect = false)
     {
@@ -157,8 +156,10 @@ public class AgentProbeResultSink
         // before the tunnel is up, exhaust its short retry window, and stay
         // disconnected until a manual reconnect. Now that the tunnel is up,
         // reconnect it - fire-and-forget so we never block the tunnel read loop.
-        if (initialConnect)
-            _ = ReconnectConsoleIfViaAgentAsync(connection);
+        // Never gate this on initialConnect: a tunnel that goes stale and recovers before the 90s
+        // watchdog reaps it never reconnects, so the refresh is the only thing left that can clear
+        // the awaiting-agent state the stale flip set.
+        _ = ReconnectConsoleIfViaAgentAsync(connection, initialConnect);
     }
 
     /// <summary>
@@ -212,7 +213,7 @@ public class AgentProbeResultSink
         });
     }
 
-    private async Task ReconnectConsoleIfViaAgentAsync(AgentTunnelConnection connection)
+    private async Task ReconnectConsoleIfViaAgentAsync(AgentTunnelConnection connection, bool initialConnect)
     {
         try
         {
@@ -220,18 +221,24 @@ public class AgentProbeResultSink
             // still registered (the 90s watchdog hasn't reaped it). Reconnecting the
             // console through a tunnel that's silent past the stale threshold just
             // dials the dead loopback proxy and clobbers the awaiting-agent state the
-            // proxy's unreachable signal set. Skip; a real agent reconnect arrives
-            // with a fresh LastMessageAt and proceeds normally.
+            // proxy's unreachable signal set. Skip; the first refresh after traffic
+            // resumes sees a fresh LastMessageAt and proceeds normally.
             if (connection.IsStale)
                 return;
 
             var siteConnection = _siteConnections.GetFor(connection.SiteSlug);
+            var reconnected = false;
             if (!siteConnection.IsConnected && await siteConnection.IsConsoleViaAgentAsync())
             {
                 _logger.LogInformation(
                     "Agent tunnel up for site {Slug}; reconnecting its console via the tunnel", connection.SiteSlug);
                 await siteConnection.ReconnectAsync();
+                reconnected = true;
             }
+
+            // A refresh that found the console already up has nothing below to do.
+            if (!initialConnect && !reconnected)
+                return;
 
             // The initial SNMP push in OnAgentConnectedAsync was deferred because the console
             // wasn't connected yet (it reaches the console through this same tunnel). Now that it
