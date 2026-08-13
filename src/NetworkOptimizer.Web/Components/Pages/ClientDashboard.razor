@@ -99,7 +99,7 @@
         </div>
     }
 
-    @if (_loading || _awaitingSiteIdentity)
+    @if (_loading || _awaitingSiteIdentity || _awaitingLocalIp)
     {
         <div class="skeleton-hero card">
             <div class="skeleton-row">
@@ -1138,7 +1138,6 @@
         // which needs JS, so it lands here rather than in OnInitializedAsync.
         if (_awaitingLocalIp)
         {
-            _awaitingLocalIp = false;
             try
             {
                 var address = await JS.InvokeAsync<string?>("eval",
@@ -1152,6 +1151,13 @@
             catch (Exception ex)
             {
                 Logger.LogDebug(ex, "Client address lookup failed; the device picker is the way in");
+            }
+            finally
+            {
+                // Cleared only now, so the skeleton covers the lookup instead of the page flashing
+                // "Device Not Found" on the first pass that had no address yet.
+                _awaitingLocalIp = false;
+                StateHasChanged();
             }
         }
 
