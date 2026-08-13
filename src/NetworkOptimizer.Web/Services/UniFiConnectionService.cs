@@ -732,9 +732,10 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
             _client?.Dispose();
             _client = null;
             _isConnected = false;
-            _lastError = null;
+            // Cleared on success, not here: a connect takes up to the full timeout to resolve, and
+            // wiping them on entry left the banner showing a generic "not connected" for that whole
+            // window instead of the reason it already knew.
             _awaitingAgent = false;
-            _consoleUnresponsive = false;
 
             // Create new client
             var viaAgent = await IsConsoleViaAgentAsync();
@@ -781,6 +782,8 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
                 }
 
                 _isConnected = true;
+                _lastError = null;
+                _consoleUnresponsive = false;
                 _lastConnectedAt = DateTime.UtcNow;
 
                 // Save configuration to database
@@ -876,9 +879,10 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
             _client?.Dispose();
             _client = null;
             _isConnected = false;
-            _lastError = null;
+            // Cleared on success, not here: a connect takes up to the full timeout to resolve, and
+            // wiping them on entry left the banner showing a generic "not connected" for that whole
+            // window instead of the reason it already knew.
             _awaitingAgent = false;
-            _consoleUnresponsive = false;
 
             // Create new client
             var viaAgent = await IsConsoleViaAgentAsync();
@@ -924,6 +928,8 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
                 }
 
                 _isConnected = true;
+                _lastError = null;
+                _consoleUnresponsive = false;
                 _lastConnectedAt = DateTime.UtcNow;
 
                 // Cache the console's display name on auto-reconnect too, so the
