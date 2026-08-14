@@ -685,6 +685,26 @@ public static class DefaultAlertRules
             Source = "rollout",
             MinSeverity = AlertSeverity.Info,
             CooldownSeconds = 0
+        },
+        new AlertRule
+        {
+            // A rollout that cannot see the site stops counting time against its devices, so this
+            // is the only thing that says a run is stalled rather than quietly waiting.
+            Name = "Firmware Rollout: Site Not Visible",
+            IsEnabled = true,
+            EventTypePattern = "rollout.visibility_lost",
+            Source = "rollout",
+            MinSeverity = AlertSeverity.Warning,
+            CooldownSeconds = 0
+        },
+        new AlertRule
+        {
+            Name = "Firmware Rollout: Site Visible Again",
+            IsEnabled = true,
+            EventTypePattern = "rollout.visibility_restored",
+            Source = "rollout",
+            MinSeverity = AlertSeverity.Info,
+            CooldownSeconds = 0
         }
     ];
 }

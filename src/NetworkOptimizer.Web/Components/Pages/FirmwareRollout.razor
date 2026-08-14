@@ -448,7 +448,21 @@ else
             </SiteAdminOnly>
         </div>
         <div class="card-body">
-            <p class="firmware-rollout-note">No rollout is scheduled or running. @(_settings?.Mode == FirmwareRolloutMode.Autopilot ? "Autopilot is on: the next time updates are waiting, a rollout will be planned into the site's quietest window and announced ahead of time." : "Plan one in three steps, or turn on autopilot and let the site keep itself current overnight.")</p>
+            @if (_settings?.Mode == FirmwareRolloutMode.Autopilot)
+            {
+                <p class="firmware-rollout-note">No rollout is scheduled or running. Autopilot is on: the next time updates are waiting, a rollout will be planned into the site's quietest window and announced ahead of time.</p>
+            }
+            else
+            {
+                <SiteAdminOnly>
+                    <ChildContent>
+                        <p class="firmware-rollout-note">No rollout is scheduled or running. Plan one in three steps, or turn on autopilot and let the site keep itself current overnight.</p>
+                    </ChildContent>
+                    <NotAuthorized>
+                        <p class="firmware-rollout-note">No rollout is scheduled or running. When an admin plans one, its progress and report show up here.</p>
+                    </NotAuthorized>
+                </SiteAdminOnly>
+            }
         </div>
     </div>
 

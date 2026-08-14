@@ -50,4 +50,13 @@ public static class RolloutAlerts
 
     /// <summary>A device was put back on its previous firmware.</summary>
     public const string RollbackExecuted = "rollout.rollback_executed";
+
+    /// <summary>
+    /// The rollout has lost sight of the site (a dark console or a dropped agent tunnel). Every
+    /// deadline stops counting while this is true, so the run stalls rather than blaming devices.
+    /// </summary>
+    public const string VisibilityLost = "rollout.visibility_lost";
+
+    /// <summary>Sight of the site is back and the rollout is moving again.</summary>
+    public const string VisibilityRestored = "rollout.visibility_restored";
 }

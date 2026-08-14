@@ -283,6 +283,36 @@ public class RolloutPlanDocument
 
     /// <summary>Console channels this rollout has already set.</summary>
     public RolloutConsoleChannels ConsoleChannels { get; set; } = new();
+
+    /// <summary>Time this rollout could not see the site, which no deadline counts.</summary>
+    public RolloutVisibility Visibility { get; set; } = new();
+}
+
+/// <summary>
+/// The rollout's own sight of the site, persisted because it outlives the process: a server that
+/// was down saw nothing, and that gap has to be charged as blind time on the pass after it comes
+/// back rather than to whatever device happened to be mid-cycle.
+/// </summary>
+public class RolloutVisibility
+{
+    /// <summary>End of the last pass. The gap from here to the next pass is time nothing was watched.</summary>
+    public DateTime? LastTickAt { get; set; }
+
+    /// <summary>Start of the blind spell in progress, or null while the site is visible.</summary>
+    public DateTime? BlindSince { get; set; }
+
+    /// <summary>Blind spells that have ended.</summary>
+    public List<RolloutBlindInterval> Blind { get; set; } = [];
+
+    /// <summary>Whether this blind spell has already been announced, so it is announced once.</summary>
+    public bool LostAnnounced { get; set; }
+}
+
+/// <summary>One stretch of time the rollout had no sight of the site.</summary>
+public class RolloutBlindInterval
+{
+    public DateTime From { get; set; }
+    public DateTime To { get; set; }
 }
 
 /// <summary>
