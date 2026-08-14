@@ -20429,7 +20429,7 @@ body.kiosk-mode .status-indicators {
 .firmware-rollout-note {
     color: var(--text-secondary);
     font-size: 0.9rem;
-    margin: 0.5rem 0;
+    margin: 0.5rem 0 1.5rem;
 }
 
 .firmware-rollout-plan-note {

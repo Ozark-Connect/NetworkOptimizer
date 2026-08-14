@@ -220,7 +220,7 @@ else if (_wizardOpen)
                             <div class="form-group firmware-rollout-inline">
                                 <label class="form-label">@label</label>
                                 <select class="form-control firmware-rollout-select" value="@TypeChannel(code)" @onchange="e => SetTypeChannel(code, e.Value?.ToString())">
-                                    <option value="">Same as all devices</option>
+                                    <option value="">Same as everything else</option>
                                     <option value="@FirmwareChannels.Release">Official (GA)</option>
                                     <option value="@FirmwareChannels.ReleaseCandidate">Release Candidate</option>
                                     @if (_preview?.Channels.EarlyAccessAvailable == true)
@@ -241,7 +241,7 @@ else if (_wizardOpen)
                             <div class="form-group firmware-rollout-inline">
                                 <label class="form-label">@model.Label</label>
                                 <select class="form-control firmware-rollout-select" value="@SkuChannel(model.Code)" @onchange="e => SetSkuChannel(model.Code, e.Value?.ToString())">
-                                    <option value="">Same as its type</option>
+                                    <option value="">Same as its device type</option>
                                     <option value="@FirmwareChannels.Release">Official (GA)</option>
                                     <option value="@FirmwareChannels.ReleaseCandidate">Release Candidate</option>
                                     @if (_preview?.Channels.EarlyAccessAvailable == true)
@@ -339,7 +339,7 @@ else if (_wizardOpen)
                 </div>
 
                 <div class="form-group">
-                    <label class="checkbox-label"><input type="checkbox" @bind="_settings.SuppressStandardAlerts" /><span>Skip the usual offline and restart alerts for devices this rollout reboots</span></label>
+                    <label class="checkbox-label"><input type="checkbox" @bind="_settings.SuppressStandardAlerts" /><span>Skip the usual offline and restart alerts for devices rebooted during the rollout</span></label>
                     <label class="checkbox-label"><input type="checkbox" @bind="_settings.PerWaveApproval" /><span>Pause for approval at every wave</span></label>
                 </div>
 

@@ -22,6 +22,7 @@ public class QuietWindowService
 
     private static readonly TimeSpan SampleWindow = TimeSpan.FromMinutes(15);
 
+    private readonly string _siteSlug;
     private readonly MonitoringInfluxClient _influx;
     private readonly UniFiConnectionService _connection;
     private readonly ILogger<QuietWindowService> _logger;
@@ -35,6 +36,7 @@ public class QuietWindowService
         TimeZoneInfo? timeZone = null)
     {
         var slug = string.IsNullOrEmpty(siteSlug) ? SiteManagementService.DefaultSiteSlug : siteSlug;
+        _siteSlug = slug;
         _influx = influxRegistry.GetFor(slug);
         _connection = siteConnections.GetFor(slug);
         _logger = logger;
@@ -95,6 +97,8 @@ public class QuietWindowService
         var busy = new double[QuietWindowCalculator.BucketsPerWeek];
         DateTime? earliest = null, latest = null;
         var anyData = false;
+        var contributing = 0;
+        var totalSamples = 0;
 
         // Parent-side rows are shared by all children of one switch; query each parent once.
         var parentCache = new Dictionary<string, IReadOnlyList<MonitoringInfluxClient.InterfaceRatePoint>>(StringComparer.OrdinalIgnoreCase);
@@ -114,9 +118,15 @@ public class QuietWindowService
                 _logger.LogDebug(ex, "Quiet-window: no usable history for {Mac}", device.Mac);
                 continue;
             }
-            if (samples.Count == 0) continue;
+            if (samples.Count == 0)
+            {
+                _logger.LogDebug("Quiet window {Site}: {Name} ({Mac}) contributed no samples", _siteSlug, device.Name, device.Mac);
+                continue;
+            }
 
             anyData = true;
+            contributing++;
+            totalSamples += samples.Count;
             var totals = new int[QuietWindowCalculator.BucketsPerWeek];
             var active = new int[QuietWindowCalculator.BucketsPerWeek];
             foreach (var (time, bps) in samples)
@@ -134,8 +144,37 @@ public class QuietWindowService
             }
         }
 
-        if (!anyData || earliest == null || latest == null) return null;
-        if ((latest.Value - earliest.Value).TotalHours < MinHistoryHours) return null;
+        if (!anyData || earliest == null || latest == null)
+        {
+            _logger.LogInformation(
+                "Quiet window {Site}: no usage history for any of {Devices} devices, so the window comes from the site profile",
+                _siteSlug, devices.Count);
+            return null;
+        }
+
+        var spanHours = (latest.Value - earliest.Value).TotalHours;
+        if (spanHours < MinHistoryHours)
+        {
+            _logger.LogInformation(
+                "Quiet window {Site}: history spans {Span:0.0}h, under the {Min}h minimum, so the window comes from the site profile",
+                _siteSlug, spanHours, MinHistoryHours);
+            return null;
+        }
+
+        // Every bucket flat at zero is not a quiet week, it is a week nothing crossed the activity
+        // threshold. Scoring it picks whichever hour comes first and calls it evidence.
+        var peak = busy.Max();
+        if (peak <= 0)
+        {
+            _logger.LogInformation(
+                "Quiet window {Site}: {Contributing}/{Devices} devices reported {Samples} samples over {Span:0.0}h but none exceeded {Threshold:N0} bps, so the window comes from the site profile",
+                _siteSlug, contributing, devices.Count, totalSamples, spanHours, ActiveThresholdBps);
+            return null;
+        }
+
+        _logger.LogInformation(
+            "Quiet window {Site}: built from {Contributing}/{Devices} devices, {Samples} samples over {Span:0.0}h; busiest hour {Peak:P0}, {QuietHours} hours idle",
+            _siteSlug, contributing, devices.Count, totalSamples, spanHours, peak, busy.Count(b => b <= 0));
         return busy;
     }
 
