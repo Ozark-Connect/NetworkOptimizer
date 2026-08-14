@@ -46,6 +46,7 @@ let _plan = null;              // RolloutPlanDocument (camelCase)
 let _excluded = [];            // MACs rendered dimmed
 let _liveSteps = null;         // [{deviceMac, state, wave}] for live mode
 let _timelineEl = null;
+let _stageEl = null;
 let _playheadSec = 0;
 let _playing = false;
 let _playTimer = 0;
@@ -59,6 +60,7 @@ let _lastHistoricMs = 0;
 export async function mount(stageId, timelineId, opts) {
     resolveColors();
     if (opts?.apiBase) _apiBase = opts.apiBase;
+    _stageEl = document.getElementById(stageId);
     // This map is a rollout picture, not the live explorer: no overlay toggles, no client
     // filter, and no synthetic multi-MAC hub nodes, none of which a rollout acts on.
     // A preview is not a live view: the map opens on the traffic of the window the rollout
@@ -90,7 +92,9 @@ export function dispose() {
     map2d.clearNodeOverlays();
     map2d.unmount();
     if (_timelineEl) _timelineEl.replaceChildren();
+    _stageEl?.querySelector('.firmware-rollout-legend')?.remove();
     _timelineEl = null;
+    _stageEl = null;
     _plan = null; _liveSteps = null; _excluded = [];
 }
 
@@ -303,6 +307,7 @@ function renderTimeline() {
         el.appendChild(btn);
     }
 
+    _stageEl?.querySelector('.firmware-rollout-legend')?.remove();
     const legend = document.createElement('div');
     legend.className = 'firmware-rollout-legend';
     const legendItems = _mode === 'planned'
@@ -326,7 +331,7 @@ function renderTimeline() {
         item.append(badge, document.createTextNode(label));
         legend.appendChild(item);
     }
-    el.appendChild(legend);
+    (_stageEl || el).appendChild(legend);
 
     const track = document.createElement('div');
     track.className = 'firmware-rollout-track';
@@ -366,13 +371,15 @@ function renderTimeline() {
     track.appendChild(playhead);
     el.appendChild(track);
 
-    const labels = document.createElement('div');
-    labels.className = 'firmware-rollout-timeline-labels';
-    const l0 = document.createElement('span'); l0.textContent = 'start';
-    const l1 = document.createElement('span'); l1.className = 'firmware-rollout-playhead-label';
-    const l2 = document.createElement('span'); l2.textContent = fmtDuration(total);
-    labels.append(l0, l1, l2);
-    el.appendChild(labels);
+    const readout = document.createElement('span');
+    readout.className = 'firmware-rollout-timeline-readout';
+    const elapsed = document.createElement('span');
+    elapsed.className = 'firmware-rollout-playhead-label';
+    const totalLabel = document.createElement('span');
+    totalLabel.className = 'firmware-rollout-muted';
+    totalLabel.textContent = ` / ${fmtDuration(total)}`;
+    readout.append(elapsed, totalLabel);
+    el.appendChild(readout);
 
     // Scrub by pointer (planned mode only; live position is the clock's)
     if (_mode === 'planned') {

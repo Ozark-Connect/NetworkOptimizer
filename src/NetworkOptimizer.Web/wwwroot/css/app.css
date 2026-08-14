@@ -20311,17 +20311,26 @@ body.kiosk-mode .status-indicators {
     align-items: center;
     gap: 0.75rem;
     margin-top: 0.75rem;
-    flex-wrap: wrap;
 }
 
 .firmware-rollout-legend {
+    position: absolute;
+    right: 0.75rem;
+    bottom: 0.75rem;
+    z-index: 2;
     display: flex;
     flex-wrap: wrap;
+    justify-content: flex-end;
     align-items: center;
-    gap: 0.35rem 1rem;
-    flex-basis: 100%;
+    gap: 0.3rem 0.85rem;
+    max-width: 60%;
+    padding: 0.4rem 0.6rem;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
     font-size: 0.72rem;
     color: var(--text-muted);
+    pointer-events: none;
 }
 
 .firmware-rollout-legend-item {
@@ -20385,12 +20394,12 @@ body.kiosk-mode .status-indicators {
     pointer-events: none;
 }
 
-.firmware-rollout-timeline-labels {
-    display: flex;
-    justify-content: space-between;
-    flex-basis: 100%;
-    font-size: 0.72rem;
-    color: var(--text-muted);
+.firmware-rollout-timeline-readout {
+    flex-shrink: 0;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    min-width: 6.5rem;
+    text-align: right;
 }
 
 .firmware-rollout-playhead-label {
