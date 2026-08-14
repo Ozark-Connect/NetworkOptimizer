@@ -132,6 +132,13 @@ export function publishScrubberWindow(win) {
 // outlives SPA navigations while the map instance itself is rebuilt fresh,
 // so without this every remount inherits whatever the last session left.
 // Notifies so any still-mounted consumer UI syncs to the clean state.
+// Drop every cached rate. A page that seeds the store with keys of its own derivation - the
+// Firmware Rollout preview maps id-keyed historic rates onto portKey, which the maps look up
+// first - must call this on teardown, or the next page reads those keys as its own.
+export function clearLiveRates() {
+    _liveRates = {};
+}
+
 export function resetPlayback() {
     _paused = false;
     _mode = 'live';

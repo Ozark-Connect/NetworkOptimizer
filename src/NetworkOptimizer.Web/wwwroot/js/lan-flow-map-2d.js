@@ -3,7 +3,7 @@
 // zero duplicate API calls. GPU-composited canvas for smooth particle animation.
 
 // KEEP IN SYNC: lan-flow-map.js imports the same module. Both must use the same ?v= or they get separate instances.
-import * as flowData from './lan-flow-data.js?v=7';
+import * as flowData from './lan-flow-data.js?v=8';
 
 function demoMask(text) {
     const dm = window.DemoMask;
@@ -1972,7 +1972,7 @@ class LanFlowMap2D {
             ctx.fillStyle='#fff';
             ctx.font=`600 10px ${FONT}`;
             ctx.textAlign='center'; ctx.textBaseline='middle';
-            ctx.fillText(String(ov.badge).slice(0,2),bx,by+0.5);
+            ctx.fillText(String(ov.badge).slice(0,2),bx,by+1.5);
         }
 
         // Rate labels (stored for dynamic update)

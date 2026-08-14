@@ -5,7 +5,7 @@
 
 import * as map2d from './lan-flow-map-2d.js?v=1'; // bump v= when lan-flow-map-2d.js changes
 // KEEP IN SYNC with lan-flow-map-2d.js: the same specifier, so both share one store.
-import * as flowData from './lan-flow-data.js?v=7';
+import * as flowData from './lan-flow-data.js?v=8';
 
 function cssVar(name, fallback) {
     const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -54,6 +54,8 @@ let _lastTick = 0;
 let _liveStartMs = null;
 let _apiBase = '/api/monitoring/lan-flow-map';
 let _windowStartMs = null;   // wall clock the preview plays back from
+let _plannedStartMs = null;  // when the rollout would actually run
+let _timeZoneId = null;      // the site's zone, so the clock reads in its hours
 let _historicGen = 0;
 let _lastHistoricMs = 0;
 
@@ -88,6 +90,8 @@ export async function mount(stageId, timelineId, opts) {
 export function dispose() {
     pause();
     _historicGen++;
+    flowData.clearLiveRates();
+    flowData.resetPlayback();
     flowData.publishPlayState(false, 'live');
     map2d.clearNodeOverlays();
     map2d.unmount();
@@ -101,11 +105,13 @@ export function dispose() {
 /// Planned mode: the preview drives everything from ETAs.
 /// startUtcMs is when the rollout would run; traffic is played back from the most recent
 /// occurrence of that weekday and hour, since the window itself has not happened yet.
-export function setPlan(planDoc, excludedMacs, startUtcMs) {
+export function setPlan(planDoc, excludedMacs, startUtcMs, timeZoneId) {
     _plan = planDoc || null;
     _excluded = excludedMacs || [];
     _mode = 'planned';
     _playheadSec = 0;
+    _plannedStartMs = startUtcMs || null;
+    _timeZoneId = timeZoneId || null;
     _windowStartMs = lastOccurrenceOf(startUtcMs);
     renderTimeline();
     applyOverlays();
@@ -388,12 +394,16 @@ function renderTimeline() {
 
     const readout = document.createElement('span');
     readout.className = 'firmware-rollout-timeline-readout';
+    const clock = document.createElement('span');
+    clock.className = 'firmware-rollout-timeline-clock';
+    const offsets = document.createElement('span');
     const elapsed = document.createElement('span');
     elapsed.className = 'firmware-rollout-playhead-label';
     const totalLabel = document.createElement('span');
     totalLabel.className = 'firmware-rollout-muted';
     totalLabel.textContent = ` / ${fmtDuration(total)}`;
-    readout.append(elapsed, totalLabel);
+    offsets.append(elapsed, totalLabel);
+    readout.append(clock, offsets);
     el.appendChild(readout);
 
     // Scrub by pointer (planned mode only; live position is the clock's)
@@ -439,6 +449,24 @@ function positionPlayhead() {
     if (head) head.style.left = (sec / total * 100) + '%';
     const label = _timelineEl.querySelector('.firmware-rollout-playhead-label');
     if (label) label.textContent = 'T+' + fmtDuration(sec);
+
+    // The clock the plan would actually run on, so scrubbing answers "what time is that".
+    const clock = _timelineEl.querySelector('.firmware-rollout-timeline-clock');
+    if (clock) clock.textContent = plannedClock(sec);
+}
+
+/// Wall-clock time of a point in the plan, in the site's own timezone.
+function plannedClock(sec) {
+    if (_mode !== 'planned' || !_plannedStartMs) return '';
+    const at = new Date(_plannedStartMs + sec * 1000);
+    try {
+        return new Intl.DateTimeFormat(undefined, {
+            weekday: 'short', hour: 'numeric', minute: '2-digit',
+            ...(_timeZoneId ? { timeZone: _timeZoneId } : {}),
+        }).format(at);
+    } catch {
+        return new Intl.DateTimeFormat(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' }).format(at);
+    }
 }
 
 function updatePlayButton() {

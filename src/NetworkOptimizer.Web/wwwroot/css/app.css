@@ -20352,8 +20352,11 @@ body.kiosk-mode .status-indicators {
 }
 
 .firmware-rollout-legend-badge {
-    display: inline-grid;
-    place-content: center;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+    padding-top: 0.06rem;
     width: 1.1rem;
     height: 1.1rem;
     border-radius: 50%;
@@ -20401,11 +20404,24 @@ body.kiosk-mode .status-indicators {
 }
 
 .firmware-rollout-timeline-readout {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 1px;
     flex-shrink: 0;
     font-size: 0.75rem;
     color: var(--text-secondary);
     min-width: 6.5rem;
     text-align: right;
+}
+
+.firmware-rollout-timeline-clock {
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
+.firmware-rollout-timeline-clock:empty {
+    display: none;
 }
 
 .firmware-rollout-playhead-label {

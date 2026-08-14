@@ -1191,7 +1191,8 @@ else
                 var excluded = _preview.Steps.Where(s => s.State == FirmwareRolloutStepState.SkippedExcluded).Select(s => s.Mac).ToList();
                 var startMs = new DateTimeOffset(DateTime.SpecifyKind(SelectedStartUtc, DateTimeKind.Utc))
                     .ToUnixTimeMilliseconds();
-                await _viz.InvokeVoidAsync("setPlan", _preview.Plan, excluded, startMs);
+                await _viz.InvokeVoidAsync("setPlan", _preview.Plan, excluded, startMs,
+                    _preview.ProposedWindow?.TimeZoneId);
                 _vizMode = "planned";
             }
             else if (_active != null && _vizMode != "live")
