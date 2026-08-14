@@ -1307,6 +1307,7 @@ from(bucket: ""{_bucket}"")
             {
                 Time = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow),
                 IfName = record.GetValueByKey("if_name") as string ?? "?",
+                PortId = record.GetValueByKey("port_id") as string,
                 RateInBps = AsDoubleOrNull(record.GetValueByKey("rate_in_bps")),
                 RateOutBps = AsDoubleOrNull(record.GetValueByKey("rate_out_bps"))
             });
@@ -3484,6 +3485,8 @@ from(bucket: ""{_longtermBucket}"")
     {
         public required DateTime Time { get; init; }
         public required string IfName { get; init; }
+        /// <summary>Raw ifName tag ("eth8", "0/1") - stable across user-assigned aliases.</summary>
+        public string? PortId { get; init; }
         public double? RateInBps { get; init; }
         public double? RateOutBps { get; init; }
     }
