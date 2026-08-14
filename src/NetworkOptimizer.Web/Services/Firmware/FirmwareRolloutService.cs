@@ -333,7 +333,11 @@ public class FirmwareRolloutService : IFirmwareRolloutService
 
         var (result, _) = await PlanAsync(settings, cancellationToken);
         var upgrading = result.Steps.Count(s => s.State != FirmwareRolloutStepState.SkippedExcluded);
-        if (upgrading == 0)
+        // The console counts too: a Cloud Gateway's UniFi OS build waits while every device
+        // reports nothing pending, and that is still a rollout worth running.
+        var consoleUpgrading =
+            result.Document.IncludesUniFiNetworkUpdate || result.Document.IncludesUniFiOsUpdate;
+        if (upgrading == 0 && !consoleUpgrading)
             throw new InvalidOperationException("Nothing on this site has a firmware update to install.");
 
         await _planning.PopulatePriorVersionsAsync(result.Document, result.Steps, cancellationToken);

@@ -102,14 +102,16 @@ public class RolloutAutopilot : IRolloutAutopilot
         var inputs = await _planning.UseAsync(
             (p, c) => RolloutPlanComposer.GatherAsync(p, timings, _commands, c), cancellationToken);
 
-        if (!inputs.Context.Devices.Any(d => d.Upgradable))
-            return null;
-
         var ripeness = await EvaluateRipenessAsync(inputs.Context.Devices, settings.MinReleaseAgeDays, cancellationToken);
         var result = RolloutPlanComposer.Plan(inputs, settings, ripeness.UnripeMacs);
         result.Document.Notes.AddRange(ripeness.Notes);
 
-        if (RolloutPlanComposer.LiveStepCount(result) == 0)
+        // A console update is reason enough to run. On a Cloud Gateway the console's own UniFi OS
+        // build waits while every device reports nothing pending, so counting devices alone would
+        // leave that site behind for good.
+        var devicesToUpgrade = RolloutPlanComposer.LiveStepCount(result);
+        var consoleToUpgrade = result.Document.IncludesUniFiNetworkUpdate || result.Document.IncludesUniFiOsUpdate;
+        if (devicesToUpgrade == 0 && !consoleToUpgrade)
         {
             _logger.LogDebug(
                 "Autopilot found nothing to upgrade on site {Site} right now", _siteSlug);

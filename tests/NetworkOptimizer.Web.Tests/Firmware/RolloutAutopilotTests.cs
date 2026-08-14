@@ -195,6 +195,50 @@ public class RolloutAutopilotTests
     }
 
     [Fact]
+    public async Task CreatePlanIfDue_RunsForAConsoleUpdateWithNoDeviceWaiting()
+    {
+        // A Cloud Gateway reports upgradable=false while its own UniFi OS build waits, so a site
+        // can have a real update and not one upgradable device. Counting devices alone left such
+        // a site behind for good.
+        using var harness = new RolloutHarness();
+        harness.Planning.Devices.Add(new PlannerDevice
+        {
+            Mac = GatewayMac,
+            Name = "Gateway",
+            Model = "UCGMAX",
+            DisplayModel = "Cloud Gateway Max",
+            Type = DeviceType.Gateway,
+            Upgradable = false,
+            FromVersion = "4.0.0",
+            IpAddress = "192.0.2.1",
+        });
+        await harness.WithSettingsAsync(s =>
+        {
+            s.Mode = FirmwareRolloutMode.Autopilot;
+            s.IncludeUniFiNetwork = false;
+            s.IncludeUniFiOs = true;
+        });
+        harness.Commands.ConsoleInfo = new UniFiConsoleSystemInfo
+        {
+            Hardware = new UniFiConsoleHardware { FirmwareVersion = "5.1.28" },
+            Firmware = new UniFiConsoleFirmware
+            {
+                ReleaseChannel = FirmwareChannels.Release,
+                LatestByChannel = new Dictionary<string, UniFiConsoleFirmwareRelease>
+                {
+                    [FirmwareChannels.Release] = new() { Version = "v5.1.30", Channel = FirmwareChannels.Release },
+                },
+            },
+        };
+
+        var planId = await harness.Autopilot.CreatePlanIfDueAsync();
+
+        planId.Should().NotBeNull("a console update is reason enough to run");
+        var plan = await harness.PlanAsync(planId!.Value);
+        plan!.PlanJson.Should().Contain("\"IncludesUniFiOsUpdate\":true");
+    }
+
+    [Fact]
     public async Task RipenessGate_DropsTheUniFiOsStepWhenTheConsoleBuildIsTooNew()
     {
         using var harness = new RolloutHarness();

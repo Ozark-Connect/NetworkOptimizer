@@ -459,7 +459,7 @@ else if (_wizardOpen)
                 <div class="firmware-rollout-wizard-nav">
                     <button class="btn btn-secondary" @onclick="BackFromPreview" disabled="@_busy">Back</button>
                     <SiteAdminOnly>
-                        <button class="btn btn-primary btn-lg" @onclick="CommitAsync" disabled="@(_busy || (_preview.UpgradableCount == 0 && _scheduleMode != "autopilot"))">
+                        <button class="btn btn-primary btn-lg" @onclick="CommitAsync" disabled="@(_busy || (!HasSomethingToDo && _scheduleMode != "autopilot"))">
                             @if (_busy) { <span class="spinner spinner-sm"></span> }
                             else { <span>@CommitLabel</span> }
                         </button>
@@ -1314,6 +1314,16 @@ else
         if (target == null) return current ?? "";
         return current == null || current == target ? target : $"{current} → {target}";
     }
+
+    /// <summary>
+    /// Whether this plan would do anything. A console update counts: on a Cloud Gateway the
+    /// UniFi OS build waits while every device reports nothing pending.
+    /// </summary>
+    private bool HasSomethingToDo =>
+        _preview != null
+        && (_preview.UpgradableCount > 0
+            || _preview.Plan.IncludesUniFiNetworkUpdate
+            || _preview.Plan.IncludesUniFiOsUpdate);
 
     private string? ChangelogFor(string mac) =>
         _preview?.Steps.FirstOrDefault(s => string.Equals(s.Mac, mac, StringComparison.OrdinalIgnoreCase))?.ChangelogUrl;
