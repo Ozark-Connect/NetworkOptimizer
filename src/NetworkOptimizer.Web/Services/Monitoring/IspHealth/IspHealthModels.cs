@@ -312,6 +312,15 @@ public class CongestionEvent
     /// provider (e.g. AS7018), and a transit-side event must not credit the ISP card.
     /// </summary>
     public List<string> TargetIds { get; init; } = new();
+
+    /// <summary>
+    /// Targets downstream of the bottleneck that carried this elevation - the witnesses that
+    /// confirmed it forwarded, including CDN/anycast destinations. Deliberately NOT in
+    /// <see cref="TargetIds"/>: these are victims, and crediting the event to them would move the
+    /// score onto the wrong card. Display only, so a reader who filters the chart to a witness
+    /// still sees the event it witnessed.
+    /// </summary>
+    public List<string> WitnessTargetIds { get; set; } = new();
     public double BaselineRttMs { get; init; }
     public double PeakRttMs { get; init; }
     public double BaselineJitterMs { get; init; }

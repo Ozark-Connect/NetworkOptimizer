@@ -124,7 +124,9 @@ public static class IspHealthEndpoints
                     end = e.End.ToString("o"),
                     label = e.IsShared ? "Shared congestion" : "Congestion",
                     shared = e.IsShared,
-                    targets = e.TargetIds
+                    // Witnesses too: the elevation is on their line as well, so isolating one must
+                    // keep the shading that explains it.
+                    targets = e.TargetIds.Concat(e.WitnessTargetIds).Distinct(StringComparer.OrdinalIgnoreCase)
                 }));
                 events.AddRange(report.PathShifts.Select(e => (object)(e.IsUnreachable
                     ? new

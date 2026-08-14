@@ -430,6 +430,14 @@ public static class CongestionLocalizer
         evt.CleanParallelPaths = cleanParallelPaths;
         evt.Confidence = confidence;
         evt.AttributionReason = reason;
+        // The downstream paths that carried it. They are witnesses, never the culprit, so they stay
+        // out of TargetIds - but a reader filtering the chart to one is looking straight at this event.
+        evt.WitnessTargetIds = descendants
+            .Where(d => isElevated(d, window.Start, window.End))
+            .SelectMany(d => d.TargetIds)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Except(evt.TargetIds, StringComparer.OrdinalIgnoreCase)
+            .ToList();
         return evt;
     }
 

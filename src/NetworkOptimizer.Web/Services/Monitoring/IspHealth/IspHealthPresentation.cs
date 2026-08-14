@@ -120,7 +120,10 @@ public static class IspHealthPresentation
                 ? null
                 : group.Select(e => $"{HopLabel(e)} - {Magnitude(e)}").ToList();
             entries.Add(new TimelineEntry(start, badge, badgeClass, text, end, BadgeTooltip: tip, Members: members,
-                TargetIds: group.SelectMany(e => e.TargetIds).Distinct(StringComparer.OrdinalIgnoreCase).ToList()));
+                // Witnesses included: they carried the elevation, so filtering the chart to one
+                // must not drop the event it witnessed.
+                TargetIds: group.SelectMany(e => e.TargetIds.Concat(e.WitnessTargetIds))
+                    .Distinct(StringComparer.OrdinalIgnoreCase).ToList()));
         }
         foreach (var shift in r.PathShifts)
         {
