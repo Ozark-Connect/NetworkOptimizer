@@ -570,4 +570,50 @@ public class IspHealthPdfGeneratorTests
         entries.Should().ContainSingle(e => e.Badge == "Path change");
         entries.Should().BeInAscendingOrder(e => e.Time);
     }
+
+    [Fact]
+    public void EventTimeline_CorrelatedShiftListsEachPathsOwnStep()
+    {
+        // The sentence quotes the named path only, so without the members the other path's step
+        // is visible as nothing but a count.
+        var report = MinimalReport();
+        report.PathShifts.Add(new PathShiftEvent
+        {
+            Time = WindowEnd.AddHours(-6),
+            AsnName = "Near hop",
+            BeforeMedianMs = 11.4,
+            AfterMedianMs = 8.5,
+            CorrelatedTargetCount = 2,
+            TargetIds = { "t-near", "t-far" },
+            Members =
+            {
+                new PathShiftMember("Near hop", 11.4, 8.5, new[] { "t-near" }),
+                new PathShiftMember("Far hop", 17.8, 14.8, new[] { "t-far" })
+            }
+        });
+
+        var entry = IspHealthPresentation.EventTimeline(report).Single();
+
+        entry.Text.Should().Contain("seen on 2 paths");
+        entry.MemberNoun.Should().Be("path");
+        entry.Members.Should().HaveCount(2);
+        entry.Members![1].Should().Contain("Far hop").And.Contain("17.8 to 14.8 ms");
+        entry.TargetIds.Should().BeEquivalentTo(new[] { "t-near", "t-far" });
+    }
+
+    [Fact]
+    public void EventTimeline_LonePathShiftHasNoMembers()
+    {
+        var report = MinimalReport();
+        report.PathShifts.Add(new PathShiftEvent
+        {
+            Time = WindowEnd.AddHours(-6),
+            AsnName = "Near hop",
+            BeforeMedianMs = 11.4,
+            AfterMedianMs = 8.5,
+            TargetIds = { "t-near" }
+        });
+
+        IspHealthPresentation.EventTimeline(report).Single().Members.Should().BeNull();
+    }
 }

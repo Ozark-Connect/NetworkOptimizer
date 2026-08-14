@@ -87,6 +87,9 @@ public static class IspHealthEndpoints
             {
                 asn = s.AsnNumber,
                 name = string.IsNullOrEmpty(s.AsnName) ? $"AS{s.AsnNumber}" : s.AsnName,
+                // The targets this line is drawn from, so hiding it can also hide the events that
+                // only happened on it. Names alone can't do that: several lines share an ASN.
+                targets = s.TargetIds,
                 buckets = s.Samples
                     .Where(p => p.RttAvgMs.HasValue)
                     .GroupBy(p => new DateTime(p.Time.Ticks - p.Time.Ticks % bucketTicks, DateTimeKind.Utc))
@@ -103,6 +106,7 @@ public static class IspHealthEndpoints
             {
                 a.asn,
                 a.name,
+                a.targets,
                 points = allTimes.Select(t => new
                 {
                     time = t.ToString("o"),
@@ -119,7 +123,8 @@ public static class IspHealthEndpoints
                     start = e.Start.ToString("o"),
                     end = e.End.ToString("o"),
                     label = e.IsShared ? "Shared congestion" : "Congestion",
-                    shared = e.IsShared
+                    shared = e.IsShared,
+                    targets = e.TargetIds
                 }));
                 events.AddRange(report.PathShifts.Select(e => (object)(e.IsUnreachable
                     ? new
@@ -128,7 +133,8 @@ public static class IspHealthEndpoints
                         start = e.Time.ToString("o"),
                         end = e.UnreachableEnd?.ToString("o"),
                         label = $"{(string.IsNullOrEmpty(e.AsnName) ? "Transit" : e.AsnName)} unreachable",
-                        shared = false
+                        shared = false,
+                        targets = e.TargetIds
                     }
                     : new
                     {
@@ -136,7 +142,8 @@ public static class IspHealthEndpoints
                         start = e.Time.ToString("o"),
                         end = (string?)null,
                         label = $"Path shift {(e.DeltaMs >= 0 ? "+" : "")}{e.DeltaMs:0.#} ms",
-                        shared = false
+                        shared = false,
+                        targets = e.TargetIds
                     })));
             }
 

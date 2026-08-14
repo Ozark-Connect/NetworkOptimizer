@@ -845,12 +845,12 @@ else
         </div>
         <div class="card-body">
             @{
-                var allEvents = EventTimeline(r).Where(InZoomWindow).ToList();
+                var allEvents = EventTimeline(r).Where(InZoomWindow).Where(InVisibleSeries).ToList();
                 var timeline = allEvents.Where(CategoryVisible).ToList();
             }
             @if (timeline.Count == 0)
             {
-                <p class="page-description">@(allEvents.Count > 0 ? "All events in this range are hidden by the filters above." : IsZoomed ? "No congestion events or path shifts in this range. Reset the chart zoom to see the full window." : "No congestion events or path shifts detected in the window.")</p>
+                <p class="page-description">@(allEvents.Count > 0 ? "All events in this range are hidden by the filters above." : _visibleSeriesTargets != null ? "No congestion events or path shifts on the selected chart lines. Clear the chart's filter to see the rest." : IsZoomed ? "No congestion events or path shifts in this range. Reset the chart zoom to see the full window." : "No congestion events or path shifts detected in the window.")</p>
             }
             else
             {
@@ -874,7 +874,7 @@ else
                                        so the separating space must be emitted explicitly. *@
                                     @(" ")
                                     <button type="button" class="isp-event-members-toggle" aria-expanded="@open"
-                                            @onclick="() => ToggleEventMembers(key)">@(open ? "Hide hops" : $"Show {entry.Members.Count} hops")</button>
+                                            @onclick="() => ToggleEventMembers(key)">@(open ? $"Hide {entry.MemberNoun}s" : $"Show {entry.Members.Count} {entry.MemberNoun}s")</button>
                                     @if (open)
                                     {
                                         <div class="isp-event-members">
@@ -1947,6 +1947,28 @@ else
         try { await JS.InvokeVoidAsync("eval", $"window.__ispHealthCharts?.setWindow?.({fromArg}, {toArg});"); }
         catch { /* chart not mounted yet */ }
     }
+
+    /// <summary>
+    /// Called by the per-network RTT chart when its series chips change: the target ids of the
+    /// lines still drawn, or null when nothing is filtered. An event was measured on specific
+    /// lines, so isolating a line here narrows the list to what happened on it.
+    /// </summary>
+    [JSInvokable]
+    public Task OnSeriesFilter(string[]? visibleTargets)
+    {
+        _visibleSeriesTargets = visibleTargets == null
+            ? null
+            : new HashSet<string>(visibleTargets, StringComparer.OrdinalIgnoreCase);
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private HashSet<string>? _visibleSeriesTargets;
+
+    // Entries with no targets (nothing to match a line on) always show.
+    private bool InVisibleSeries(TimelineEntry e) =>
+        _visibleSeriesTargets == null
+        || e.TargetIds is not { Count: > 0 }
+        || e.TargetIds.Any(_visibleSeriesTargets.Contains);
 
     /// <summary>
     /// Called by the per-network RTT chart on drag-zoom (epoch ms, or null/null on reset/window

@@ -1317,7 +1317,8 @@ public class IspHealthService
                 AsnName = e.AsnName,
                 IsUnreachable = true,
                 UnreachableEnd = e.End,
-                CorrelatedTargetCount = e.TargetCount
+                CorrelatedTargetCount = e.TargetCount,
+                TargetIds = e.TargetIds.ToList()
             })
             .ToList();
         if (unreachableEvents.Count > 0)

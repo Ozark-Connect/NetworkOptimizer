@@ -388,6 +388,16 @@ public class PathShiftEvent
     /// <summary>Number of targets showing a correlated step at the same boundary.</summary>
     public int CorrelatedTargetCount { get; init; } = 1;
 
+    /// <summary>Every target behind this event, so a reader can filter it against a chart line.</summary>
+    public List<string> TargetIds { get; init; } = new();
+
+    /// <summary>
+    /// The correlated series behind this event, representative first, or empty when it stands
+    /// alone. Correlation reports one series' levels for the whole group, so without these the
+    /// other paths' own steps are unrecoverable. Display only.
+    /// </summary>
+    public List<PathShiftMember> Members { get; init; } = new();
+
     /// <summary>True when this shift came from an internet/CDN destination (by DB TargetType),
     /// not an on-path ISP/transit hop. Correlation prefers a non-destination as the label.</summary>
     public bool IsDestination { get; init; }
@@ -404,6 +414,9 @@ public class PathShiftEvent
     /// <summary>End of the unreachable window (last dark sample); null for RTT-step shifts.</summary>
     public DateTime? UnreachableEnd { get; init; }
 }
+
+/// <summary>One series inside a correlated path shift, with its own before/after levels.</summary>
+public record PathShiftMember(string Name, double BeforeMedianMs, double AfterMedianMs, IReadOnlyList<string> TargetIds);
 
 /// <summary>Whether the access/first hop itself went dark, or only everything beyond it.</summary>
 public enum OutageScope

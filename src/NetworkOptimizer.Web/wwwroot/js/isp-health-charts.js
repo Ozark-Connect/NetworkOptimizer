@@ -116,10 +116,37 @@ function buildOpts() {
     };
 }
 
+// The targets of every series still drawn, or null when no chip is filtering. An event belongs to
+// the lines it was measured on, so hiding those lines hides it too - matched on target ids rather
+// than the series name, which several lines of one ASN share.
+function visibleTargets() {
+    if (!isFiltered(seriesVisibility)) return null;
+    const set = new Set();
+    for (const m of asnMeta) {
+        if (seriesVisibility[m.name] === false) continue;
+        for (const t of m.targets) set.add(t);
+    }
+    return set;
+}
+
+function onVisibleSeries(e, visible) {
+    if (!visible) return true;
+    if (!e.targets || e.targets.length === 0) return true;
+    return e.targets.some(t => visible.has(t));
+}
+
+function notifySeriesFilter() {
+    const visible = visibleTargets();
+    try { dotNetRef?.invokeMethodAsync('OnSeriesFilter', visible ? [...visible] : null); }
+    catch { /* ref disposed / not set */ }
+}
+
 function buildAnnotations(events) {
     const xaxis = [];
+    const visible = visibleTargets();
     for (const e of events) {
         if (hiddenTypes.has(e.type)) continue;
+        if (!onVisibleSeries(e, visible)) continue;
         if (e.type === 'congestion') {
             xaxis.push({
                 x: new Date(e.start).getTime(),
@@ -208,7 +235,11 @@ async function loadAndUpdate() {
             data: alignedPoints(a.points || [], p => p.value, 'time', GAP_BRIDGE_MS, false),
         }));
 
-        asnMeta = series.map(x => ({ name: x.name, color: x.color }));
+        asnMeta = (json.asns || []).map((a, i) => ({
+            name: a.name,
+            color: PALETTE[i % PALETTE.length],
+            targets: a.targets || [],
+        }));
         // Drop hidden entries for ASNs that are no longer on the path, or a vanished name would
         // keep a series hidden forever with no chip left to turn it back on.
         const live = new Set(asnMeta.map(m => m.name));
@@ -218,6 +249,7 @@ async function loadAndUpdate() {
         lastEvents = json.events || [];
         chart.updateOptions({ annotations: buildAnnotations(lastEvents) }, false, false);
         lastSeries = series;
+        notifySeriesFilter();
         // Preserve the user's drag-zoom; a series refresh while zoomed would snap back.
         if (!isZoomed) applySeriesVisibility();
     } catch (e) {
@@ -267,6 +299,8 @@ function renderBadges() {
         seriesVisibility = {};
         applySeriesVisibility();
         renderBadges();
+        redrawAnnotations();
+        notifySeriesFilter();
     });
 
     if (!badgesEl._delegated) {
@@ -288,8 +322,14 @@ function renderBadges() {
             }
             applySeriesVisibility();
             renderBadges();
+            redrawAnnotations();
+            notifySeriesFilter();
         });
     }
+}
+
+function redrawAnnotations() {
+    if (chart) chart.updateOptions({ annotations: buildAnnotations(lastEvents) }, false, false);
 }
 
 // Returns whether it actually mounted. The panel renders the chart element only alongside a
@@ -357,6 +397,8 @@ export function setWan(w) {
 
 export function setDotNetRef(ref) {
     dotNetRef = ref;
+    // The ref can arrive after the first load, which already tried to push the filter state.
+    notifySeriesFilter();
 }
 
 // Re-render event annotations with the given types hidden (display-only category filter);

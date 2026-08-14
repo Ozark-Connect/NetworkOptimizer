@@ -16,13 +16,18 @@ public enum EventCategory
 /// it carries, and the sentence describing it. <see cref="BadgeClass"/> is the tab's CSS
 /// class and is ignored by renderers that have no stylesheet (the PDF).
 ///
-/// <see cref="Members"/> holds the per-hop readings behind a grouped congestion line, and is
-/// empty for every other entry. They are the detail an ISP acts on, so a renderer may fold
-/// them away but must not drop them.
+/// <see cref="Members"/> holds the per-hop readings behind a grouped congestion line or the
+/// per-path levels behind a correlated shift, and is empty for every other entry. They are the
+/// detail an ISP acts on, so a renderer may fold them away but must not drop them.
+/// <see cref="MemberNoun"/> is what one member is called in the fold-away control.
+///
+/// <see cref="TargetIds"/> is every monitored target behind the entry, so a renderer that also
+/// draws the series (the tab, not the PDF) can hide an entry whose lines are all filtered out.
 /// </summary>
 public record TimelineEntry(DateTime Time, string Badge, string BadgeClass, string Text, DateTime? End = null,
     EventCategory Category = EventCategory.Congestion, string? BadgeTooltip = null,
-    IReadOnlyList<string>? Members = null);
+    IReadOnlyList<string>? Members = null, string MemberNoun = "hop",
+    IReadOnlyList<string>? TargetIds = null);
 
 /// <summary>
 /// How an <see cref="IspHealthReport"/> reads: the wording, formatting, and event
@@ -114,7 +119,8 @@ public static class IspHealthPresentation
             var members = group.Count == 1
                 ? null
                 : group.Select(e => $"{HopLabel(e)} - {Magnitude(e)}").ToList();
-            entries.Add(new TimelineEntry(start, badge, badgeClass, text, end, BadgeTooltip: tip, Members: members));
+            entries.Add(new TimelineEntry(start, badge, badgeClass, text, end, BadgeTooltip: tip, Members: members,
+                TargetIds: group.SelectMany(e => e.TargetIds).Distinct(StringComparer.OrdinalIgnoreCase).ToList()));
         }
         foreach (var shift in r.PathShifts)
         {
@@ -125,14 +131,19 @@ public static class IspHealthPresentation
                 var hops = shift.CorrelatedTargetCount > 1 ? $" ({shift.CorrelatedTargetCount} monitored hops)" : "";
                 entries.Add(new TimelineEntry(shift.Time, "Path change", "isp-event-badge-change",
                     $"{where} went fully unreachable for {span}{hops} - a routing (BGP) change, not access-layer loss. Excluded from the Packet Loss factor; still counted against {where}'s own network grade.",
-                    shift.UnreachableEnd, EventCategory.Change));
+                    shift.UnreachableEnd, EventCategory.Change, TargetIds: shift.TargetIds));
                 continue;
             }
             var direction = shift.Direction == PathShiftDirection.Up ? "up" : "down";
             var correlated = shift.CorrelatedTargetCount > 1 ? $", seen on {shift.CorrelatedTargetCount} paths" : "";
+            // The sentence quotes the named path's own levels; the members carry what each of the
+            // others did, which is where a second step of a different size becomes visible.
+            var shiftMembers = shift.Members.Count > 1
+                ? shift.Members.Select(m => $"{m.Name} - {m.BeforeMedianMs:0.#} to {m.AfterMedianMs:0.#} ms").ToList()
+                : null;
             entries.Add(new TimelineEntry(shift.Time, "Path shift", "isp-event-badge-shift",
                 $"RTT stepped {direction} {Math.Abs(shift.DeltaMs):0.#} ms on {where} ({shift.BeforeMedianMs:0.#} to {shift.AfterMedianMs:0.#} ms){correlated}. BGP or transport fabric change.",
-                Category: EventCategory.Shift));
+                Category: EventCategory.Shift, Members: shiftMembers, MemberNoun: "path", TargetIds: shift.TargetIds));
         }
         return entries.OrderBy(e => e.Time);
     }
