@@ -2840,6 +2840,54 @@ public class UniFiApiClient : IDisposable
     }
 
     /// <summary>
+    /// POST cmd/devmgr {"cmd":"upgrade-external"} - move a device onto an explicit firmware image.
+    /// <para>
+    /// Acceptance only. A live test returned rc:ok, cycled the AP, and left it on the version it
+    /// started on, so callers must verify the reported version once the device is back rather than
+    /// trusting either the response or an observed reboot.
+    /// </para>
+    /// </summary>
+    /// <param name="deviceMac">Colonized device MAC.</param>
+    /// <param name="firmwareUrl">Direct firmware image URL (console catalog or release feed).</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    [VendorSpecific("UniFi", "cmd/devmgr upgrade-external")]
+    public async Task<bool> TriggerExternalFirmwareUpgradeAsync(
+        string deviceMac,
+        string firmwareUrl,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(deviceMac);
+        ArgumentException.ThrowIfNullOrWhiteSpace(firmwareUrl);
+
+        var body = new Dictionary<string, object>
+        {
+            ["mac"] = deviceMac,
+            ["url"] = firmwareUrl,
+            ["cmd"] = "upgrade-external"
+        };
+
+        // Opt into permission-error surfacing: this reboots a device, so a NoPermission 403 is an
+        // actionable role failure rather than a transient hiccup.
+        var response = await ExecuteApiCallAsync<UniFiApiResponse<object>>(
+            () =>
+            {
+                var content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
+                return _httpClient!.PostAsync(BuildApiPath("cmd/devmgr"), content, cancellationToken);
+            },
+            cancellationToken,
+            throwOnPermissionError: true);
+
+        if (response?.Meta.Rc == "ok")
+        {
+            _logger.LogInformation("UniFi accepted an external firmware upgrade for {Mac} on site {Site}", deviceMac, _site);
+            return true;
+        }
+
+        _logger.LogWarning("UniFi rejected the external firmware upgrade for {Mac} on site {Site}", deviceMac, _site);
+        return false;
+    }
+
+    /// <summary>
     /// POST cmd/firmware {"cmd":"list-available"} - the newest build per model on the console's
     /// CURRENT channel, each with a direct image URL and md5. Also the hook for confirming a channel
     /// change took effect: change the channel, re-run this, and the URLs follow.
@@ -2866,6 +2914,82 @@ public class UniFiApiClient : IDisposable
 
         _logger.LogWarning("Failed to read the firmware catalog for site {Site}", _site);
         return new List<UniFiFirmwareCatalogEntry>();
+    }
+
+    /// <summary>
+    /// POST cmd/devmgr {"cmd":"upgrade"} - upgrade a device to the console's pending target for it
+    /// (the catalog build at the console's current channel). This is the executor's primary command.
+    /// <para>
+    /// The console answers rc:ok the moment it ACCEPTS the command, and the flash is asynchronous.
+    /// Acceptance is not success and neither is an observed reboot: a live revert produced rc:ok and
+    /// a full down/up cycle on the SAME version. Callers must verify by observed state plus a
+    /// version comparison after the device is back, and escalate to the SSH path when the device
+    /// never enters Upgrading/Down within a grace window.
+    /// </para>
+    /// </summary>
+    /// <param name="mac">Device MAC in any separator form; sent lowercase-colonized.</param>
+    [VendorSpecific("UniFi", "cmd/devmgr upgrade")]
+    public async Task<bool> TriggerDeviceUpgradeAsync(
+        string mac,
+        CancellationToken cancellationToken = default)
+    {
+        var body = UniFiDeviceUpgradeCommand.BuildUpgradeBody(mac);
+
+        var response = await ExecuteApiCallAsync<UniFiApiResponse<object>>(
+            () =>
+            {
+                var content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
+                return _httpClient!.PostAsync(BuildApiPath("cmd/devmgr"), content, cancellationToken);
+            },
+            cancellationToken);
+
+        if (UniFiDeviceUpgradeCommand.IsAccepted(response))
+        {
+            _logger.LogInformation("Console accepted an upgrade command for device {Mac}", body["mac"]);
+            return true;
+        }
+
+        _logger.LogWarning("Console refused the upgrade command for device {Mac}", body["mac"]);
+        return false;
+    }
+
+    /// <summary>
+    /// POST cmd/devmgr {"cmd":"upgrade-external"} - upgrade or revert a device to an arbitrary
+    /// firmware image URL.
+    /// <para>
+    /// Known to be unreliable: a live revert commanded while the device was mid-provision returned
+    /// rc:ok, cycled the device, and brought it back on the SAME version - the scheduled flash was
+    /// lost in the inform cycle. Treat this as a first attempt only; SSH (`upgrade &lt;url&gt;`) is
+    /// the reliability path, and rollback is SSH-first. Command only a steadily Connected device,
+    /// and verify the version after it returns.
+    /// </para>
+    /// </summary>
+    /// <param name="mac">Device MAC in any separator form; sent lowercase-colonized.</param>
+    /// <param name="url">Direct firmware image URL, from the console catalog or the release feed.</param>
+    [VendorSpecific("UniFi", "cmd/devmgr upgrade-external")]
+    public async Task<bool> TriggerDeviceExternalUpgradeAsync(
+        string mac,
+        string url,
+        CancellationToken cancellationToken = default)
+    {
+        var body = UniFiDeviceUpgradeCommand.BuildExternalUpgradeBody(mac, url);
+
+        var response = await ExecuteApiCallAsync<UniFiApiResponse<object>>(
+            () =>
+            {
+                var content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
+                return _httpClient!.PostAsync(BuildApiPath("cmd/devmgr"), content, cancellationToken);
+            },
+            cancellationToken);
+
+        if (UniFiDeviceUpgradeCommand.IsAccepted(response))
+        {
+            _logger.LogInformation("Console accepted an external upgrade command for device {Mac}", body["mac"]);
+            return true;
+        }
+
+        _logger.LogWarning("Console refused the external upgrade command for device {Mac}", body["mac"]);
+        return false;
     }
 
     /// <summary>
