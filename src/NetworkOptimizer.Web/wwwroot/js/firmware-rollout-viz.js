@@ -60,6 +60,7 @@ export async function mount(stageId, timelineId, opts) {
         hideFilter: true,
         hideVirtualHubs: true,
         hideClouds: true,
+        hideWiredClients: true,
     });
     map2d.startDataPolling();
     _timelineEl = document.getElementById(timelineId);
