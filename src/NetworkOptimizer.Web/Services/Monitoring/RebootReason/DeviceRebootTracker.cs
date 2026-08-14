@@ -178,7 +178,15 @@ public class DeviceRebootTracker
         var bootedAt = observedAt.ToUniversalTime().AddSeconds(-uptimeSeconds.Value);
 
         var known = _records.TryGetValue(mac, out var existing) ? existing : null;
-        var sameBoot = known != null && WithinTolerance(known.BootedAt, bootedAt);
+
+        // A version change between the firmware we last recorded for this device and what the
+        // UniFi device data reports now means the reboot was an upgrade - the signal that catches
+        // switches, whose console ring shows an upgrade as an ordinary clean shutdown. It needs a
+        // recorded baseline, which is why the firmware is persisted with the reboot record.
+        var firmwareChanged = known != null &&
+            RebootReasonParser.NamesADifferentImage(known.FirmwareVersion, firmwareVersion);
+
+        var sameBoot = known != null && IsSameBoot(known.BootedAt, known.FirmwareVersion, bootedAt, firmwareVersion);
 
         if (sameBoot)
         {
@@ -202,15 +210,6 @@ public class DeviceRebootTracker
                 deviceName ?? "unknown", mac, uptimeSeconds, bootedAt);
         }
 
-        // A version change between the firmware we last recorded for this device and what the
-        // UniFi device data reports now means the reboot was an upgrade - the signal that catches
-        // switches, whose console ring shows an upgrade as an ordinary clean shutdown. It needs a
-        // recorded baseline, which is why the firmware is persisted with the reboot record.
-        var firmwareChanged = known != null && !sameBoot &&
-            !string.IsNullOrWhiteSpace(firmwareVersion) &&
-            !string.IsNullOrWhiteSpace(known.FirmwareVersion) &&
-            !string.Equals(known.FirmwareVersion, firmwareVersion, StringComparison.OrdinalIgnoreCase);
-
         if (firmwareChanged)
         {
             _logger.LogInformation(
@@ -223,6 +222,10 @@ public class DeviceRebootTracker
             // New boot: keep the boot instant, drop any reason belonging to the previous run.
             _records[mac] = new DeviceBootRecord(bootedAt, null, firmwareVersion);
             _lastProbeAttempt.TryRemove(mac, out _);
+
+            // Release the previous boot's point. Reusing it is only ever right for a re-probe of
+            // the same boot; on a new one it would overwrite the record the previous boot left.
+            _storedBootAt.TryRemove(mac, out _);
         }
 
         _ = ResolveInBackgroundAsync(mac, deviceName, deviceType, host, bootedAt, firmwareChanged,
@@ -435,6 +438,24 @@ public class DeviceRebootTracker
             firmwareVersion: firmware,
             classifierVersion: RebootClassifier.Version);
     }
+
+    /// <summary>
+    /// Whether a sampled boot instant still describes the boot on record.
+    ///
+    /// A device cannot swap images without restarting, so a firmware change is proof of a boot the
+    /// tolerance would otherwise absorb. Never drop that half: a reflash pair - a downgrade and the
+    /// roll-forward behind it - lands minutes apart, and merging the two left the second change
+    /// with no record, no chart mark and no reason on the tooltip.
+    /// </summary>
+    /// <param name="recordedBootAt">Boot instant the record holds.</param>
+    /// <param name="recordedFirmware">Firmware the record holds, if any.</param>
+    /// <param name="sampledBootAt">Boot instant this sample derives.</param>
+    /// <param name="sampledFirmware">Firmware this sample reports, if any.</param>
+    internal static bool IsSameBoot(
+        DateTime recordedBootAt, string? recordedFirmware,
+        DateTime sampledBootAt, string? sampledFirmware) =>
+        WithinTolerance(recordedBootAt, sampledBootAt) &&
+        !RebootReasonParser.NamesADifferentImage(recordedFirmware, sampledFirmware);
 
     private static bool WithinTolerance(DateTime a, DateTime b) =>
         (a - b).Duration() <= BootMatchTolerance;

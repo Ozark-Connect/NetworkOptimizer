@@ -505,4 +505,100 @@ public class RebootReasonParserTests
         Assert.False(best.IsConclusive);
         Assert.Equal("Reason unavailable", best.Summary);
     }
+
+    /// <summary>
+    /// A device put back on an older image restarts for a downgrade, and the platform still calls
+    /// it an upgrade reboot - so the versions are the only thing that says which way it went.
+    /// </summary>
+    [Fact]
+    public void FirmwareVersions_VersionWentDown_ReadsAsADowngrade()
+    {
+        var flashed = RebootReasonParser.ParsePstore("console-ramoops-0", """
+            [ 74.120000] Upgrading, please stand by
+            [ 80.220000] reboot: Restarting system
+            """);
+
+        var named = RebootReasonParser.WithFirmwareVersions(flashed!, "8.7.11.19419", "8.7.9.19401");
+
+        Assert.Equal("Firmware downgrade", named.Summary);
+        Assert.Equal("Downgraded from 8.7.11 to 8.7.9", named.Detail);
+        Assert.Equal(RebootCategory.FirmwareUpgrade, named.Category);
+    }
+
+    [Fact]
+    public void FirmwareVersions_VersionWentUp_ReadsAsAnUpgrade()
+    {
+        var flashed = RebootReasonParser.ParsePstore("console-ramoops-0", """
+            [ 74.120000] Upgrading, please stand by
+            [ 80.220000] reboot: Restarting system
+            """);
+
+        var named = RebootReasonParser.WithFirmwareVersions(flashed!, "8.7.9.19401", "8.7.11.19419");
+
+        Assert.Equal("Firmware upgrade", named.Summary);
+        Assert.Equal("Upgraded from 8.7.9 to 8.7.11", named.Detail);
+    }
+
+    /// <summary>
+    /// The same version reported in the console's two shapes is not a change at all, so there is
+    /// no direction to name and the detail keeps to the version it can vouch for.
+    /// </summary>
+    [Fact]
+    public void FirmwareVersions_SameVersion_NamesOnlyTheCurrentOne()
+    {
+        var flashed = RebootReasonParser.ParsePstore("console-ramoops-0", """
+            [ 74.120000] Upgrading, please stand by
+            [ 80.220000] reboot: Restarting system
+            """);
+
+        var named = RebootReasonParser.WithFirmwareVersions(flashed!, "8.7.11", "8.7.11.19419");
+
+        Assert.Equal("Firmware upgrade", named.Summary);
+        Assert.Equal("Upgraded to 8.7.11", named.Detail);
+    }
+
+    /// <summary>
+    /// Versions that will not parse leave the direction unprovable, so the far commoner reading
+    /// stands rather than the tooltip guessing at a downgrade.
+    /// </summary>
+    [Fact]
+    public void FirmwareVersions_UnparseableVersions_StayAnUpgrade()
+    {
+        var flashed = RebootReasonParser.ParsePstore("console-ramoops-0", """
+            [ 74.120000] Upgrading, please stand by
+            [ 80.220000] reboot: Restarting system
+            """);
+
+        var named = RebootReasonParser.WithFirmwareVersions(flashed!, "rc-candidate", "beta-image");
+
+        Assert.Equal("Firmware upgrade", named.Summary);
+        Assert.Equal("Upgraded from rc-candidate to beta-image", named.Detail);
+    }
+
+    [Fact]
+    public void ConsoleRebootLog_DowngradeReboot_ReadsAsADowngrade()
+    {
+        const string log = "2026-07-21T15:34:35-0500 Experience an upgrade reboot from " +
+            "UXGA6AA.ipq9574.v5.1.26.0bc0fe4.260716.1128 to UXGA6AA.ipq9574.v5.1.17.b3a286b.260608.1701, " +
+            "and takes 203.943s (0:03:23.942869)";
+
+        var reason = RebootReasonParser.ParseConsoleRebootLog(log);
+
+        Assert.Equal("Firmware downgrade", reason!.Summary);
+        Assert.Equal("Downgraded from 5.1.26 to 5.1.17", reason.Detail);
+        Assert.False(reason.IsUnexpected);
+    }
+
+    [Theory]
+    [InlineData("8.7.9.19401", "8.7.11.19419", true)]
+    [InlineData("8.7.11.19419", "8.7.9.19401", true)]
+    [InlineData("8.7.11.19419", "8.7.11.19419", false)]
+    // The console reports displayable_version to one caller and version to another.
+    [InlineData("8.7.11", "8.7.11.19419", false)]
+    [InlineData(null, "8.7.11.19419", false)]
+    [InlineData("8.7.11.19419", "", false)]
+    public void NamesADifferentImage_ComparesTheVersionOnly(string? previous, string? current, bool expected)
+    {
+        Assert.Equal(expected, RebootReasonParser.NamesADifferentImage(previous, current));
+    }
 }

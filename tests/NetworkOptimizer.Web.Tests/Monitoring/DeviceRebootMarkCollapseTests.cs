@@ -13,7 +13,8 @@ public class DeviceRebootMarkCollapseTests
     private static readonly DateTime Boot = new(2026, 7, 24, 12, 40, 27, DateTimeKind.Utc);
 
     private static MonitoringInfluxClient.DeviceRebootPoint Record(
-        string mac, DateTime bootedAt, int classifierVersion, string category = "PowerLoss") =>
+        string mac, DateTime bootedAt, int classifierVersion, string category = "PowerLoss",
+        string? firmwareVersion = null) =>
         new()
         {
             DeviceMac = mac,
@@ -21,6 +22,7 @@ public class DeviceRebootMarkCollapseTests
             ClassifierVersion = classifierVersion,
             Category = category,
             Summary = category,
+            FirmwareVersion = firmwareVersion,
         };
 
     [Fact]
@@ -122,5 +124,45 @@ public class DeviceRebootMarkCollapseTests
     public void EmptyInputYieldsNoMarks()
     {
         DeviceHealthChartEndpoints.CollapseToOneRecordPerBoot([]).Should().BeEmpty();
+    }
+
+    /// <summary>
+    /// A downgrade and the roll-forward behind it land minutes apart, well inside the cluster
+    /// window. They are two restarts and each has to keep its own mark.
+    /// </summary>
+    [Fact]
+    public void ReflashPairInsideTheWindowStaysTwoMarks()
+    {
+        var records = new[]
+        {
+            Record("aabbccddee01", Boot, 7, "FirmwareUpgrade", "8.7.11.19419"),
+            Record("aabbccddee01", Boot.AddMinutes(3).AddSeconds(21), 7, "FirmwareUpgrade", "8.7.9.19401"),
+        };
+
+        var collapsed = DeviceHealthChartEndpoints.CollapseToOneRecordPerBoot(records);
+
+        collapsed.Should().HaveCount(2);
+        collapsed.Select(r => r.FirmwareVersion).Should().BeEquivalentTo(["8.7.11.19419", "8.7.9.19401"]);
+    }
+
+    /// <summary>
+    /// The shape on file for a single upgrade: a burst of re-probes where the oldest record predates
+    /// firmware being stored at all, and the rest report the same image in either of the console's
+    /// two spellings. Unknown is not a difference, and neither is a spelling.
+    /// </summary>
+    [Fact]
+    public void BurstWithBlankAndShortFirmwareStillCollapses()
+    {
+        var records = new[]
+        {
+            Record("aabbccddee01", Boot, 0, "FirmwareUpgrade"),
+            Record("aabbccddee01", Boot.AddMilliseconds(180), 6, "FirmwareUpgrade", "8.7.11"),
+            Record("aabbccddee01", Boot.AddMilliseconds(374), 7, "FirmwareUpgrade", "8.7.11.19419"),
+        };
+
+        var collapsed = DeviceHealthChartEndpoints.CollapseToOneRecordPerBoot(records);
+
+        collapsed.Should().ContainSingle();
+        collapsed[0].ClassifierVersion.Should().Be(7);
     }
 }
