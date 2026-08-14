@@ -20409,6 +20409,17 @@ body.kiosk-mode .status-indicators {
     overflow: hidden;
 }
 
+.firmware-rollout-landing {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+}
+
+.firmware-rollout-landing .firmware-rollout-note {
+    margin: 0;
+}
+
 .firmware-rollout-controls {
     display: flex;
     gap: 0.5rem;

@@ -439,15 +439,7 @@ else
 {
     @* ---- Landing ---- *@
     <div class="card" data-tour="firmware-rollout">
-        <div class="card-header">
-            <h2 class="card-title">Firmware Rollout</h2>
-            <SiteAdminOnly>
-                <button class="btn btn-primary" @onclick="OpenWizardAsync" disabled="@_busy">
-                    @if (_busy) { <span class="spinner spinner-sm"></span> } else { <span>Plan a Rollout</span> }
-                </button>
-            </SiteAdminOnly>
-        </div>
-        <div class="card-body">
+        <div class="card-body firmware-rollout-landing">
             @if (_settings?.Mode == FirmwareRolloutMode.Autopilot)
             {
                 <p class="firmware-rollout-note">No rollout is scheduled or running. Autopilot is on: the next time updates are waiting, a rollout will be planned into the site's quietest window and announced ahead of time.</p>
@@ -463,6 +455,11 @@ else
                     </NotAuthorized>
                 </SiteAdminOnly>
             }
+            <SiteAdminOnly>
+                <button class="btn btn-primary" @onclick="OpenWizardAsync" disabled="@_busy">
+                    @if (_busy) { <span class="spinner spinner-sm"></span> } else { <span>Plan a Rollout</span> }
+                </button>
+            </SiteAdminOnly>
         </div>
     </div>
 
