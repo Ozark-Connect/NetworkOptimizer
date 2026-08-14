@@ -8,6 +8,7 @@
 @inject ILogger<FirmwareRollout> Logger
 @rendermode InteractiveServer
 @using NetworkOptimizer.Storage.Models
+@using NetworkOptimizer.Core.Helpers
 @using NetworkOptimizer.Web.Services.Firmware
 
 <PageTitle>Firmware Rollout - Network Optimizer</PageTitle>
@@ -83,8 +84,8 @@ else if (_active != null)
                                 <td>@(step.Wave > 0 ? step.Wave.ToString() : "-")</td>
                                 <td>@step.Name</td>
                                 <td>@step.DisplayModel</td>
-                                <td class="hide-mobile">@(step.FromVersion ?? "-")</td>
-                                <td>@(step.ToVersion ?? "-")</td>
+                                <td class="hide-mobile">@(FirmwareVersionFormat.ShortOrNull(step.FromVersion) ?? "-")</td>
+                                <td>@(FirmwareVersionFormat.ShortOrNull(step.ToVersion) ?? "-")</td>
                                 <td><span class="firmware-rollout-chip @ChipClass(step.State)">@ChipLabel(step.State)</span></td>
                                 <td class="hide-mobile">@(step.DowntimeSeconds is int d ? Duration(d) : "-")</td>
                                 <td>
@@ -171,7 +172,7 @@ else if (_wizardOpen)
                     }
                 </div>
 
-                <details class="setup-guide">
+                <details class="setup-guide firmware-rollout-guide">
                     <summary>Per-device-type channels</summary>
                     <div class="setup-guide-content">
                         @foreach (var (code, label) in TypeChannelRows)
@@ -192,7 +193,7 @@ else if (_wizardOpen)
                     </div>
                 </details>
 
-                <details class="setup-guide">
+                <details class="setup-guide firmware-rollout-guide">
                     <summary>Per-model channels</summary>
                     <div class="setup-guide-content">
                         @foreach (var model in SiteModels)
@@ -217,7 +218,7 @@ else if (_wizardOpen)
                     </div>
                 </details>
 
-                <details class="setup-guide">
+                <details class="setup-guide firmware-rollout-guide">
                     <summary>Exclude devices @(_exMacs.Count + _exSkus.Count + _exTypes.Count > 0 ? $"({_exMacs.Count + _exSkus.Count + _exTypes.Count} rules)" : "")</summary>
                     <div class="setup-guide-content">
                         <div class="form-group">
@@ -238,7 +239,8 @@ else if (_wizardOpen)
                                     <span class="firmware-rollout-muted">@device.DisplayModel</span>
                                     @if (device.Upgradable)
                                     {
-                                        <span class="firmware-rollout-chip chip-active">@(device.TargetVersion ?? "update waiting")</span>
+                                        <span class="firmware-rollout-chip chip-active"
+                                              data-tooltip="@UpdateTooltip(device)">@(FirmwareVersionFormat.ShortOrNull(device.TargetVersion) ?? "Update waiting")</span>
                                     }
                                     <button type="button" class="btn btn-sm btn-secondary firmware-rollout-sku-btn" @onclick="() => ToggleSku(device.Model)" @onclick:stopPropagation="true">@(_exSkus.Contains(device.Model) ? "Include model" : "Exclude model")</button>
                                 </label>
@@ -300,7 +302,7 @@ else if (_wizardOpen)
                     <label class="checkbox-label"><input type="checkbox" @bind="_settings.PerWaveApproval" /><span>Pause for approval at every wave</span></label>
                 </div>
 
-                <details class="setup-guide">
+                <details class="setup-guide firmware-rollout-guide">
                     <summary>Advanced</summary>
                     <div class="setup-guide-content">
                         <label class="checkbox-label"><input type="checkbox" @bind="_settings.WaiveBackup" /><span>Skip the pre-flight console backup</span></label>
@@ -364,11 +366,11 @@ else if (_wizardOpen)
                                         {
                                             if (changelog != null)
                                             {
-                                                <a class="firmware-rollout-muted" href="@changelog" target="_blank" rel="noopener">@step.ToVersion</a>
+                                                <a class="firmware-rollout-muted" href="@changelog" target="_blank" rel="noopener">@FirmwareVersionFormat.ShortOrNull(step.ToVersion)</a>
                                             }
                                             else
                                             {
-                                                <span class="firmware-rollout-muted">@step.ToVersion</span>
+                                                <span class="firmware-rollout-muted">@FirmwareVersionFormat.ShortOrNull(step.ToVersion)</span>
                                             }
                                         }
                                     </span>
@@ -506,15 +508,15 @@ else
                                     <tr>
                                         <td>@row.Name</td>
                                         <td>@row.Model</td>
-                                        <td class="hide-mobile">@(row.FromVersion ?? "-")</td>
+                                        <td class="hide-mobile">@(FirmwareVersionFormat.ShortOrNull(row.FromVersion) ?? "-")</td>
                                         <td>
                                             @if (row.ChangelogUrl != null)
                                             {
-                                                <a href="@row.ChangelogUrl" target="_blank" rel="noopener">@(row.ToVersion ?? "-")</a>
+                                                <a href="@row.ChangelogUrl" target="_blank" rel="noopener">@(FirmwareVersionFormat.ShortOrNull(row.ToVersion) ?? "-")</a>
                                             }
                                             else
                                             {
-                                                @(row.ToVersion ?? "-")
+                                                @(FirmwareVersionFormat.ShortOrNull(row.ToVersion) ?? "-")
                                             }
                                         </td>
                                         <td>@(row.DowntimeSeconds is int d ? Duration(d) : "-")</td>
@@ -543,8 +545,8 @@ else
                                     <tr>
                                         <td>@step.Name</td>
                                         <td>@step.DisplayModel</td>
-                                        <td class="hide-mobile">@(step.FromVersion ?? "-")</td>
-                                        <td>@(step.ToVersion ?? "-")</td>
+                                        <td class="hide-mobile">@(FirmwareVersionFormat.ShortOrNull(step.FromVersion) ?? "-")</td>
+                                        <td>@(FirmwareVersionFormat.ShortOrNull(step.ToVersion) ?? "-")</td>
                                         <td>@(step.DowntimeSeconds is int d ? Duration(d) : "-")</td>
                                         <td><span class="firmware-rollout-chip @ChipClass(step.State)">@ChipLabel(step.State)</span></td>
                                     </tr>
@@ -1069,6 +1071,15 @@ else
             or FirmwareRolloutStepState.BackOnline or FirmwareRolloutStepState.CoolDown => "chip-active",
         _ => "chip-muted",
     };
+
+    /// <summary>Full version and current firmware behind the update badge.</summary>
+    private static string UpdateTooltip(RolloutDeviceView device)
+    {
+        var current = string.IsNullOrEmpty(device.CurrentVersion) ? "unknown" : device.CurrentVersion;
+        return string.IsNullOrEmpty(device.TargetVersion)
+            ? $"An update is waiting. Running {current}."
+            : $"Update waiting: {device.TargetVersion}. Running {current}.";
+    }
 
     private string? ChangelogFor(string mac) =>
         _preview?.Steps.FirstOrDefault(s => string.Equals(s.Mac, mac, StringComparison.OrdinalIgnoreCase))?.ChangelogUrl;

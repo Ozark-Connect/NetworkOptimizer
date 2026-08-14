@@ -20435,6 +20435,16 @@ body.kiosk-mode .status-indicators {
 
 .firmware-rollout-device-row {
     width: 100%;
+    padding: 0.5rem 0;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.firmware-rollout-device-row:last-child {
+    border-bottom: none;
+}
+
+.firmware-rollout-guide .setup-guide-content {
+    margin-top: 0.5rem;
 }
 
 .firmware-rollout-muted {
@@ -20486,8 +20496,6 @@ body.kiosk-mode .status-indicators {
 }
 
 .firmware-rollout-exclusion-list {
-    max-height: 260px;
-    overflow-y: auto;
     border-top: 1px solid var(--border-color);
     padding-top: 0.5rem;
 }
