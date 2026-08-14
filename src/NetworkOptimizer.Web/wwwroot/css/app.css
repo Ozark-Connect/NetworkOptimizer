@@ -5143,7 +5143,6 @@ tr:hover .snmp-row-chevron {
     flex-direction: column;
     align-items: center;
     gap: 0.75rem;
-    margin-bottom: 1.25rem;
 }
 
 .not-deployed-icon {
@@ -20312,6 +20311,7 @@ body.kiosk-mode .status-indicators {
     align-items: center;
     gap: 0.75rem;
     margin-top: 0.75rem;
+    margin-bottom: 1.25rem;
 }
 
 .firmware-rollout-legend {
