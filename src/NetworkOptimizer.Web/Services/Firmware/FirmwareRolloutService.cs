@@ -466,10 +466,16 @@ public class FirmwareRolloutService : IFirmwareRolloutService
     private static void AddWarnings(RolloutPreviewView preview, FirmwareRolloutSettings settings)
     {
         if (!preview.ConsoleConnected)
-            preview.Warnings.Add("The UniFi Console is not connected, so this preview may be out of date.");
+            preview.Warnings.Add(
+                "The UniFi Console is not answering, so this preview may be out of date and nothing can " +
+                "start until it is back.");
 
         if (preview.UpgradableCount == 0)
-            preview.Warnings.Add("Nothing on this site has a firmware update to install.");
+        {
+            preview.Notices.Add(
+                "Nothing on this site has a firmware update waiting right now. You can still schedule a " +
+                "rollout for later, or turn on autopilot and one will be planned as soon as updates arrive.");
+        }
 
         // Each UniFi auto-update layer races a rollout in its own way, so name the ones that are on.
         var autoUpdaters = new List<string>();

@@ -239,6 +239,9 @@ public class RolloutPreviewView
     /// <summary>Things the wizard should say out loud before the Start button is pressed.</summary>
     public List<string> Warnings { get; set; } = [];
 
+    /// <summary>Worth knowing, but nothing is wrong: shown calmly rather than as a warning.</summary>
+    public List<string> Notices { get; set; } = [];
+
     /// <summary>
     /// The console's own updates, which never appear as device steps: a Cloud Gateway reports
     /// upgradable=false while its UniFi OS build waits, because that update belongs to the console.
