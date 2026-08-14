@@ -4,6 +4,8 @@
 // (actual step states with a now marker). No chart library - DOM + the map canvas.
 
 import * as map2d from './lan-flow-map-2d.js?v=1'; // bump v= when lan-flow-map-2d.js changes
+// KEEP IN SYNC with lan-flow-map-2d.js: the same specifier, so both share one store.
+import * as flowData from './lan-flow-data.js?v=7';
 
 function cssVar(name, fallback) {
     const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -49,11 +51,19 @@ let _playing = false;
 let _playTimer = 0;
 let _lastTick = 0;
 let _liveStartMs = null;
+let _apiBase = '/api/monitoring/lan-flow-map';
+let _windowStartMs = null;   // wall clock the preview plays back from
+let _historicGen = 0;
+let _lastHistoricMs = 0;
 
 export async function mount(stageId, timelineId, opts) {
     resolveColors();
+    if (opts?.apiBase) _apiBase = opts.apiBase;
     // This map is a rollout picture, not the live explorer: no overlay toggles, no client
     // filter, and no synthetic multi-MAC hub nodes, none of which a rollout acts on.
+    // A preview is not a live view: the map opens on the traffic of the window the rollout
+    // would run in, paused, and moves only when the timeline is played or scrubbed.
+    flowData.publishPlayState(true, 'historic');
     await map2d.mount(stageId, {
         ...(opts || {}),
         hideOverlayControls: true,
@@ -63,8 +73,9 @@ export async function mount(stageId, timelineId, opts) {
         hideWiredClients: true,
         hideWifiClients: true,
         hideHelp: true,
+        hideRates: true,
     });
-    map2d.startDataPolling();
+    await loadTopologyAsync();
     _timelineEl = document.getElementById(timelineId);
     _playheadSec = 0;
     _playing = false;
@@ -73,8 +84,9 @@ export async function mount(stageId, timelineId, opts) {
 
 export function dispose() {
     pause();
+    _historicGen++;
+    flowData.publishPlayState(false, 'live');
     map2d.clearNodeOverlays();
-    map2d.stopDataPolling();
     map2d.unmount();
     if (_timelineEl) _timelineEl.replaceChildren();
     _timelineEl = null;
@@ -82,13 +94,49 @@ export function dispose() {
 }
 
 /// Planned mode: the preview drives everything from ETAs.
-export function setPlan(planDoc, excludedMacs) {
+/// startUtcMs is when the rollout would run; traffic is played back from the most recent
+/// occurrence of that weekday and hour, since the window itself has not happened yet.
+export function setPlan(planDoc, excludedMacs, startUtcMs) {
     _plan = planDoc || null;
     _excluded = excludedMacs || [];
     _mode = 'planned';
     _playheadSec = 0;
+    _windowStartMs = lastOccurrenceOf(startUtcMs);
     renderTimeline();
     applyOverlays();
+    loadHistoricAt(_windowStartMs, true);
+}
+
+/// The same weekday and hour, most recently past. A window in the future has no traffic yet.
+function lastOccurrenceOf(startUtcMs) {
+    if (!startUtcMs) return Date.now() - 3600000;
+    const week = 7 * 24 * 3600000;
+    let at = startUtcMs;
+    while (at > Date.now() - 60000) at -= week;
+    return at;
+}
+
+async function loadTopologyAsync() {
+    try {
+        const res = await fetch(`${_apiBase}/snapshot`, { credentials: 'same-origin' });
+        if (res.ok) flowData.publishSnapshot(await res.json());
+    } catch { /* the map draws what it has */ }
+}
+
+/// Traffic as it was at that instant. Throttled: scrubbing must not open a request per frame.
+async function loadHistoricAt(atMs, force) {
+    if (!atMs) return;
+    const now = performance.now();
+    if (!force && now - _lastHistoricMs < 700) return;
+    _lastHistoricMs = now;
+
+    const gen = ++_historicGen;
+    try {
+        const url = `${_apiBase}/history?at=${encodeURIComponent(new Date(atMs).toISOString())}`;
+        const res = await fetch(url, { credentials: 'same-origin' });
+        if (!res.ok || gen !== _historicGen) return;
+        flowData.publishLive(await res.json());
+    } catch { /* keep the last frame rather than blanking the map */ }
 }
 
 /// Live mode: actual step states; startedAtMs positions the now marker.
@@ -106,6 +154,7 @@ export function setTimelinePosition(seconds) {
     _playheadSec = Math.max(0, Math.min(seconds, totalSeconds()));
     positionPlayhead();
     applyOverlays();
+    if (_mode === 'planned' && _windowStartMs) loadHistoricAt(_windowStartMs + _playheadSec * 1000);
 }
 
 export function play() {
@@ -122,6 +171,7 @@ export function play() {
         if (_playheadSec >= totalSeconds()) { _playheadSec = totalSeconds(); _playing = false; }
         positionPlayhead();
         applyOverlays();
+        if (_windowStartMs) loadHistoricAt(_windowStartMs + _playheadSec * 1000);
         if (_playing) _playTimer = requestAnimationFrame(tick);
         updatePlayButton();
     };
