@@ -1043,8 +1043,9 @@ else
     private DateTime? _zoomFrom;
     private DateTime? _zoomTo;
     private bool IsZoomed => _zoomFrom.HasValue && _zoomTo.HasValue;
-    // Set when reset-zoom expands the list (which sits above the chart); scrolls the chart back
-    // into view after the next render so it doesn't get pushed off-screen.
+    // Set when something above the chart changes the events list's length (reset-zoom, a series
+    // filter); scrolls the chart back into view after the next render so it isn't pushed
+    // off-screen.
     private bool _scrollChartAfterRender;
     // Last report the absolved-jitter tooltips were refreshed against; a new report means their
     // data-tooltip changed and the cached Tippy content needs rebuilding.
@@ -1956,9 +1957,15 @@ else
     [JSInvokable]
     public Task OnSeriesFilter(string[]? visibleTargets)
     {
-        _visibleSeriesTargets = visibleTargets == null
+        var next = visibleTargets == null
             ? null
             : new HashSet<string>(visibleTargets, StringComparer.OrdinalIgnoreCase);
+        var changed = (next == null) != (_visibleSeriesTargets == null)
+            || (next != null && !next.SetEquals(_visibleSeriesTargets!));
+        _visibleSeriesTargets = next;
+        // The list sits above the chart, so a filter that changes its length carries the chips out
+        // from under the pointer. Only on a real change: this also arrives on every poll.
+        if (changed) _scrollChartAfterRender = true;
         return InvokeAsync(StateHasChanged);
     }
 

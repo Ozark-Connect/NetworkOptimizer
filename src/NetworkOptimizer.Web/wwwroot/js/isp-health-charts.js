@@ -435,8 +435,13 @@ export function currentView() {
     return { atIso: new Date((min + max) / 2).toISOString(), spanMs: Math.round(max - min) };
 }
 
+// Anchored on the chips, not the plot: they sit directly below it, so scrolling to them keeps
+// both on screen, where scrolling to the plot alone leaves them cut off past the fold.
 export function scrollChartIntoView() {
-    document.getElementById('isp-health-asn-chart')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    const el = badgesEl?.isConnected && badgesEl.childElementCount > 0
+        ? badgesEl
+        : document.getElementById('isp-health-asn-chart');
+    el?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
 export function unmount() {
