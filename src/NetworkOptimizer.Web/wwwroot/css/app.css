@@ -20416,13 +20416,24 @@ body.kiosk-mode .status-indicators {
 
 .firmware-rollout-landing {
     display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 0.5rem;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
 }
 
 .firmware-rollout-landing .firmware-rollout-note {
     margin: 0;
+}
+
+.firmware-rollout-landing .btn {
+    flex-shrink: 0;
+}
+
+@media (max-width: 768px) {
+    .firmware-rollout-landing {
+        flex-direction: column;
+        align-items: flex-start;
+    }
 }
 
 .firmware-rollout-controls {
