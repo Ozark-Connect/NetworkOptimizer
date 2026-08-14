@@ -19220,6 +19220,7 @@ body.kiosk-mode .status-indicators {
     flex-wrap: wrap;
     gap: 0.75rem;
     margin-top: 0.75rem;
+    margin-bottom: 1.25rem;
 }
 
 .sites-overview-tiles .monitoring-stat-card {

@@ -77,20 +77,29 @@ public static class RolloutPlanComposer
     }
 
     /// <summary>
-    /// Whether the console is offering an application update. Unknown counts as yes: an older
-    /// console shape must not silently drop the step.
+    /// Whether the console is offering an application update. A console we cannot reach at all
+    /// (an API-key connection answers with nothing) cannot be updated, so that is a no; a console
+    /// that answered but does not describe the application is an older shape, and that is a yes
+    /// rather than a silently dropped step.
     /// </summary>
     private static bool HasNetworkAppUpdate(NetworkOptimizer.UniFi.Models.UniFiConsoleSystemInfo? console)
     {
-        var app = console?.NetworkApplication;
+        if (!ConsoleReachable(console)) return false;
+
+        var app = console!.NetworkApplication;
         if (app == null) return true;
         return !string.IsNullOrEmpty(app.UpdateAvailable);
     }
+
+    /// <summary>Whether /api/system answered with anything at all.</summary>
+    private static bool ConsoleReachable(NetworkOptimizer.UniFi.Models.UniFiConsoleSystemInfo? console) =>
+        console != null && (console.Firmware != null || console.Apps != null);
 
     /// <summary>Whether the chosen channel offers a UniFi OS build the console is not already on.</summary>
     private static bool HasUniFiOsUpdate(
         NetworkOptimizer.UniFi.Models.UniFiConsoleSystemInfo? console, string channel)
     {
+        if (!ConsoleReachable(console)) return false;
         if (console?.Firmware?.LatestByChannel is not { } byChannel) return true;
         if (!byChannel.TryGetValue(channel, out var release) || string.IsNullOrEmpty(release?.Version)) return true;
 

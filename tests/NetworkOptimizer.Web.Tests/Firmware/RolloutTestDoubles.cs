@@ -61,7 +61,9 @@ internal sealed class FakeFirmwareCommandClient : IFirmwareCommandClient
     /// <summary>UniFi's own nightly auto-upgrade; null means the console would not say.</summary>
     public bool? AutoUpgradeEnabled { get; set; }
 
-    public UniFiConsoleSystemInfo? ConsoleInfo { get; set; } = new();
+    // A real console answers with a firmware block even when it has nothing pending. An empty
+    // object means "could not be reached", which is what an API-key connection returns.
+    public UniFiConsoleSystemInfo? ConsoleInfo { get; set; } = new() { Firmware = new UniFiConsoleFirmware() };
     public List<UniFiFirmwareCatalogEntry> Catalog { get; } = [];
 
     /// <summary>What the console offers as a UniFi OS build; null means it is current.</summary>
