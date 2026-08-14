@@ -2792,6 +2792,23 @@ public class UniFiApiClient : IDisposable
     }
 
     /// <summary>
+    /// GET rest/setting - whether UniFi's own nightly device auto-upgrade is on. Null when it
+    /// cannot be read. Read only: the `mgmt` section carries SSH credentials and is never written.
+    /// </summary>
+    [VendorSpecific("UniFi", "rest/setting mgmt section")]
+    public async Task<bool?> GetDeviceAutoUpgradeEnabledAsync(CancellationToken cancellationToken = default)
+    {
+        using var settings = await GetSettingsRawAsync(cancellationToken);
+        if (settings == null)
+        {
+            _logger.LogDebug("Could not read settings, so the auto-upgrade flag is unknown for site {Site}", _site);
+            return null;
+        }
+
+        return UniFiMgmtSettings.FromSettingsResponse(settings)?.AutoUpgrade;
+    }
+
+    /// <summary>
     /// POST set/setting/super_fwupdate - change the release channel UniFi devices follow. A
     /// read-modify-write: the existing `_id` and `sso_enabled` are carried back unchanged.
     /// <para>

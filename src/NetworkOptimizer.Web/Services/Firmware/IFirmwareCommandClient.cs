@@ -90,6 +90,20 @@ public interface IFirmwareCommandClient
     /// <param name="cancellationToken">Cancellation token.</param>
     Task<string?> GetDeviceChannelAsync(CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// The device channel in force plus the channel options this console offers. The options list is
+    /// the early-access check: EA only appears when the console offers it.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    Task<RolloutChannelAvailability> GetChannelAvailabilityAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Whether UniFi's own nightly auto-upgrade is on, or null when it cannot be read. It races a
+    /// rollout, so the wizard warns about it.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    Task<bool?> GetAutoUpgradeEnabledAsync(CancellationToken cancellationToken = default);
+
     /// <summary>Sets the release channel UniFi devices follow.</summary>
     /// <param name="channel">"release", "release-candidate", or "beta".</param>
     /// <param name="cancellationToken">Cancellation token.</param>

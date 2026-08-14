@@ -143,6 +143,16 @@ public static class AuditActions
     public const string SiteChanged = "site.changed";
     public const string ScheduleChanged = "schedule.changed";
 
+    // Firmware Rollout
+    public const string FirmwareRolloutSettingsChanged = "firmware_rollout.settings.changed";
+    public const string FirmwareRolloutScheduled = "firmware_rollout.scheduled";
+    public const string FirmwareRolloutStarted = "firmware_rollout.started";
+    public const string FirmwareRolloutPaused = "firmware_rollout.paused";
+    public const string FirmwareRolloutResumed = "firmware_rollout.resumed";
+    public const string FirmwareRolloutAborted = "firmware_rollout.aborted";
+    public const string FirmwareRolloutPostponed = "firmware_rollout.postponed";
+    public const string FirmwareRolloutRollback = "firmware_rollout.rollback";
+
     // License / agent
     public const string LicenseChanged = "license.changed";
     public const string AgentEnrolled = "agent.enrolled";

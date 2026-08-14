@@ -146,6 +146,47 @@ public class FirmwareCommandClient : IFirmwareCommandClient
     }
 
     /// <inheritdoc />
+    public async Task<RolloutChannelAvailability> GetChannelAvailabilityAsync(CancellationToken cancellationToken = default)
+    {
+        var availability = new RolloutChannelAvailability();
+        var client = _connection.Client;
+        if (client == null) return availability;
+
+        try
+        {
+            var settings = await client.GetFirmwareUpdateSettingsAsync(cancellationToken);
+            if (settings == null) return availability;
+
+            availability.CurrentDeviceChannel = settings.FirmwareChannel ?? FirmwareChannels.Release;
+            availability.AvailableDeviceChannels = settings.AvailableFirmwareChannels;
+            availability.AvailableNetworkAppChannels = settings.AvailableControllerChannels;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Reading the firmware channel options failed for site {Site}", _siteSlug);
+        }
+
+        return availability;
+    }
+
+    /// <inheritdoc />
+    public async Task<bool?> GetAutoUpgradeEnabledAsync(CancellationToken cancellationToken = default)
+    {
+        var client = _connection.Client;
+        if (client == null) return null;
+
+        try
+        {
+            return await client.GetDeviceAutoUpgradeEnabledAsync(cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Reading the console auto-upgrade flag failed for site {Site}", _siteSlug);
+            return null;
+        }
+    }
+
+    /// <inheritdoc />
     public async Task<bool> SetDeviceChannelAsync(string channel, CancellationToken cancellationToken = default)
     {
         var client = _connection.Client;

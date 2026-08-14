@@ -9,6 +9,8 @@ using NetworkOptimizer.Storage.Repositories;
 using NetworkOptimizer.UniFi.Models;
 using NetworkOptimizer.Web.Services;
 using NetworkOptimizer.Web.Services.Firmware;
+using NetworkOptimizer.Web.Services.Gates;
+using NetworkOptimizer.Web.Services.Identity;
 
 namespace NetworkOptimizer.Web.Tests.Firmware;
 
@@ -54,6 +56,11 @@ internal sealed class FakeFirmwareCommandClient : IFirmwareCommandClient
     public FirmwareCommandResult BackupResult { get; set; } = FirmwareCommandResult.Ok();
 
     public string DeviceChannel { get; set; } = "release";
+    public List<string> AvailableDeviceChannels { get; set; } = ["release", "release-candidate"];
+
+    /// <summary>UniFi's own nightly auto-upgrade; null means the console would not say.</summary>
+    public bool? AutoUpgradeEnabled { get; set; }
+
     public UniFiConsoleSystemInfo? ConsoleInfo { get; set; } = new();
     public List<UniFiFirmwareCatalogEntry> Catalog { get; } = [];
 
@@ -98,6 +105,16 @@ internal sealed class FakeFirmwareCommandClient : IFirmwareCommandClient
 
     public Task<string?> GetDeviceChannelAsync(CancellationToken cancellationToken = default) =>
         Task.FromResult<string?>(DeviceChannel);
+
+    public Task<RolloutChannelAvailability> GetChannelAvailabilityAsync(CancellationToken cancellationToken = default) =>
+        Task.FromResult(new RolloutChannelAvailability
+        {
+            CurrentDeviceChannel = DeviceChannel,
+            AvailableDeviceChannels = AvailableDeviceChannels,
+        });
+
+    public Task<bool?> GetAutoUpgradeEnabledAsync(CancellationToken cancellationToken = default) =>
+        Task.FromResult(AutoUpgradeEnabled);
 
     public Task<bool> SetDeviceChannelAsync(string channel, CancellationToken cancellationToken = default)
     {
@@ -217,6 +234,79 @@ internal sealed class InMemoryRepositoryAccessor : IFirmwareRolloutRepositoryAcc
 }
 
 /// <summary>
+/// The site data a plan is built from, scripted. Keeps the service's tests about plan composition
+/// rather than about consoles, floor plans and release feeds.
+/// </summary>
+internal sealed class FakeRolloutPlanningSource : IRolloutPlanningSource
+{
+    public List<PlannerDevice> Devices { get; } = [];
+    public IApNeighborOracle? Neighbors { get; set; }
+    public int ClientCount { get; set; } = 20;
+    public bool ConsoleConnected { get; set; } = true;
+
+    public QuietWindowProposal Window { get; set; } = new()
+    {
+        Day = DayOfWeek.Sunday,
+        Hour = 3,
+        StartLocal = new DateTime(2026, 8, 16, 3, 0, 0, DateTimeKind.Unspecified),
+        Basis = "7-day usage history",
+    };
+
+    /// <summary>Image URLs the feed would resolve, by device MAC. Anything absent has none.</summary>
+    public Dictionary<string, string> PriorVersionUrls { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    public int ContextCalls { get; private set; }
+    public int WindowCalls { get; private set; }
+    public int PriorVersionCalls { get; private set; }
+    public int LastEstimatedSeconds { get; private set; }
+
+    public Task<RolloutPlanningContext> GetContextAsync(CancellationToken cancellationToken = default)
+    {
+        ContextCalls++;
+        return Task.FromResult(new RolloutPlanningContext
+        {
+            Devices = Devices,
+            Neighbors = Neighbors,
+            ClientCount = ClientCount,
+            ConsoleConnected = ConsoleConnected,
+        });
+    }
+
+    public Task<QuietWindowProposal> ProposeWindowAsync(
+        RolloutPlanningContext context,
+        int estimatedSeconds,
+        FirmwareRolloutSettings settings,
+        TimeSpan minLead,
+        CancellationToken cancellationToken = default)
+    {
+        WindowCalls++;
+        LastEstimatedSeconds = estimatedSeconds;
+        return Task.FromResult(Window);
+    }
+
+    public Task PopulatePriorVersionsAsync(
+        RolloutPlanDocument document,
+        IEnumerable<FirmwareRolloutStep> steps,
+        CancellationToken cancellationToken = default)
+    {
+        PriorVersionCalls++;
+        document.PriorVersions.Clear();
+        foreach (var step in steps)
+        {
+            PriorVersionUrls.TryGetValue(step.DeviceMac, out var url);
+            document.PriorVersions.Add(new PlanPriorVersion
+            {
+                Mac = step.DeviceMac,
+                Version = step.FromVersion,
+                Url = url,
+                UnavailableReason = url == null ? "the public release feed carries no such build" : null,
+            });
+        }
+        return Task.CompletedTask;
+    }
+}
+
+/// <summary>
 /// Everything one orchestrator test needs, wired to doubles: an in-memory database with a real
 /// repository behind it, so "persisted after every transition" is asserted against real rows.
 /// </summary>
@@ -236,7 +326,14 @@ internal sealed class RolloutHarness : IDisposable
     public RecordingMeshRepairQueue Mesh { get; } = new();
     public RolloutSuppressionRegistry Suppression { get; } = new();
     public CapturingBus Bus { get; } = new();
+    public FakeRolloutPlanningSource Planning { get; } = new();
+    public AuditContext Audit { get; } = new();
+    public CallerContext Caller { get; } = new();
     public FirmwareRolloutOrchestrator Orchestrator { get; }
+    public FirmwareRolloutService Service { get; }
+
+    /// <summary>Actor name every plan this harness creates is attributed to.</summary>
+    public const string Actor = "TestAdmin";
 
     public RolloutHarness()
     {
@@ -255,6 +352,16 @@ internal sealed class RolloutHarness : IDisposable
             Bus,
             Time,
             NullLogger<FirmwareRolloutOrchestrator>.Instance);
+
+        Caller.SetUser(new CallerInfo { ActorName = Actor });
+        Service = new FirmwareRolloutService(
+            Repository,
+            Orchestrator,
+            Commands,
+            Planning,
+            Audit,
+            Caller,
+            NullLogger<FirmwareRolloutService>.Instance);
     }
 
     public NetworkOptimizerDbContext NewContext()

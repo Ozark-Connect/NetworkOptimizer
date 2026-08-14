@@ -670,6 +670,19 @@ builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Firmware.RolloutSupp
 builder.Services.AddSiteScopedRegistry<NetworkOptimizer.Web.Services.Firmware.FirmwareRolloutRegistry>();
 builder.Services.AddHostedService(sp =>
     sp.GetRequiredService<NetworkOptimizer.Web.Services.Firmware.FirmwareRolloutRegistry>());
+// The page's whole surface (settings, preview, controls) goes through the gate. Built per request
+// against the site in context: the executor comes from the registry that owns it, and the command
+// client is site-pinned the same way the registry pins it for the executor.
+builder.Services.AddScoped<NetworkOptimizer.Web.Services.Firmware.IRolloutPlanningSource,
+    NetworkOptimizer.Web.Services.Firmware.RolloutPlanningSource>();
+builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.Firmware.IFirmwareRolloutService>(sp =>
+{
+    var slug = sp.GetRequiredService<SiteContextService>().Slug;
+    return ActivatorUtilities.CreateInstance<NetworkOptimizer.Web.Services.Firmware.FirmwareRolloutService>(
+        sp,
+        sp.GetRequiredService<NetworkOptimizer.Web.Services.Firmware.FirmwareRolloutRegistry>().GetFor(slug),
+        ActivatorUtilities.CreateInstance<NetworkOptimizer.Web.Services.Firmware.FirmwareCommandClient>(sp, slug));
+});
 // Re-runs upstream tracer discovery every 7 days; flips a review flag on diff.
 builder.Services.AddHostedService<NetworkOptimizer.Web.Services.Monitoring.UpstreamRediscoveryService>();
 // 3D LAN flow map (spec 5.7) - composes topology + live + historic feeds for the JS layer.
