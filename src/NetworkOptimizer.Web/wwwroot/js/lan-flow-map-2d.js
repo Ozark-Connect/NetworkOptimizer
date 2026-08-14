@@ -1632,6 +1632,8 @@ class LanFlowMap2D {
         for(const s of this._streams){
             if(s.edge._isWan&&!this._isCloudVisible())continue;
             if(s.edge._isCl){const child=s.edge.tn||s.edge.fn;if(child&&!this._isNodeVisible(child))continue;}
+            // Without this the dots keep streaming along a link whose line is hidden.
+            if(!this._isEdgeVisible(s.edge))continue;
             ctx.fillStyle=s.color;
             for(const sl of s.slots){
                 if(sl.t<0)continue;
