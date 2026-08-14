@@ -137,7 +137,7 @@ else if (_wizardOpen)
 
             @if (_step == 1 && _settings != null)
             {
-                <p class="section-description">Everything upgradable is included on the stable channel by default. Open a section only if you want something different.</p>
+                <p class="section-description">Pick the release channel for @ChannelScopeLabel. Everything upgradable is included by default; fine tune what gets which release channel, or leave devices out, in the sections below.</p>
 
                 @if (_preview != null && !_preview.ConsoleConnected)
                 {
@@ -865,6 +865,23 @@ else
         }
     }
 
+    /// <summary>
+    /// What the single channel select covers on THIS site. UniFi OS is only named where one is
+    /// ours to update, so a UXG site is never told about a surface it does not have.
+    /// </summary>
+    private string ChannelScopeLabel
+    {
+        get
+        {
+            var surfaces = new List<string> { "UniFi Devices" };
+            if (_preview?.HasCloudGateway == true) surfaces.Add("UniFi OS");
+            surfaces.Add("the UniFi Network application");
+            return surfaces.Count == 2
+                ? $"{surfaces[0]} and {surfaces[1]}"
+                : $"{surfaces[0]}, {surfaces[1]} and {surfaces[2]}";
+        }
+    }
+
     /// <summary>What else the single channel select covers, named so the lockstep is not a surprise.</summary>
     private string ConsoleSurfacesLabel
     {
@@ -951,25 +968,46 @@ else
     }
 
     /// <summary>
-    /// Start from what the console is set to today, so the wizard opens saying what is already
-    /// true rather than proposing a change nobody asked for. Only for a site that has never saved
-    /// rollout settings; a saved choice is the user's and stands.
+    /// Open on what the console is set to today. The single select takes the least aggressive of
+    /// the three channels in use, so opening the wizard never proposes moving a surface onto a
+    /// riskier channel than it is on; a surface that sits somewhere else is pinned as an override.
     /// </summary>
     private void SeedChannelsFromConsole()
     {
-        if (_settings == null || _preview == null || _settings.UpdatedAt != default) return;
+        if (_settings == null || _preview == null) return;
 
         var device = _preview.Channels.CurrentDeviceChannel;
-        if (!string.IsNullOrWhiteSpace(device)) _settings.GlobalChannel = device;
-
-        // Only pin a console surface when it differs from the device channel; matching surfaces
-        // stay null so they follow the single select in lockstep.
         var app = _preview.Channels.CurrentNetworkAppChannel;
-        _settings.NetworkAppChannel = !string.IsNullOrWhiteSpace(app) && !SameChannel(app, _settings.GlobalChannel) ? app : null;
-
         var os = _preview.Channels.CurrentUniFiOsChannel;
-        _settings.UniFiOsChannel = !string.IsNullOrWhiteSpace(os) && !SameChannel(os, _settings.GlobalChannel) ? os : null;
+
+        var inUse = new[] { device, app, os }.Where(c => !string.IsNullOrWhiteSpace(c)).ToList();
+        if (inUse.Count == 0)
+        {
+            Logger.LogInformation("Firmware Rollout: the console reported no channels, so the wizard opens on {Channel}", _settings.GlobalChannel);
+            return;
+        }
+
+        _settings.GlobalChannel = inUse.OrderBy(ChannelRisk).First()!;
+        _settings.NetworkAppChannel = PinIfDifferent(app);
+        _settings.UniFiOsChannel = PinIfDifferent(os);
+
+        Logger.LogInformation(
+            "Firmware Rollout: console channels are devices={Device}, network={App}, os={Os}; wizard opens on {Global} with network override {AppPin} and OS override {OsPin}",
+            device ?? "unknown", app ?? "unknown", os ?? "unknown",
+            _settings.GlobalChannel, _settings.NetworkAppChannel ?? "none", _settings.UniFiOsChannel ?? "none");
+
+        string? PinIfDifferent(string? channel) =>
+            !string.IsNullOrWhiteSpace(channel) && !SameChannel(channel, _settings.GlobalChannel) ? channel : null;
     }
+
+    /// <summary>Stable first, then release candidate, then early access.</summary>
+    private static int ChannelRisk(string? channel) => channel?.ToLowerInvariant() switch
+    {
+        FirmwareChannels.Release => 0,
+        FirmwareChannels.ReleaseCandidate => 1,
+        FirmwareChannels.Beta => 2,
+        _ => 3,
+    };
 
     private static bool SameChannel(string? a, string? b) => string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
 

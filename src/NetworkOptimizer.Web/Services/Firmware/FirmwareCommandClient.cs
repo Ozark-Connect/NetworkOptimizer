@@ -194,6 +194,18 @@ public class FirmwareCommandClient : IFirmwareCommandClient
             availability.CurrentNetworkAppChannel = console.NetworkApplication?.ReleaseChannel;
             availability.CurrentNetworkAppVersion = console.NetworkApplication?.Version;
         }
+        else
+        {
+            _logger.LogWarning("Console channels unavailable for site {Site}: /api/system did not answer", _siteSlug);
+        }
+
+        _logger.LogInformation(
+            "Channels on site {Site}: devices={Device}, network={App} ({AppVersion}), os={Os}",
+            _siteSlug,
+            availability.CurrentDeviceChannel,
+            availability.CurrentNetworkAppChannel ?? "unknown",
+            availability.CurrentNetworkAppVersion ?? "unknown",
+            availability.CurrentUniFiOsChannel ?? "unknown");
 
         return availability;
     }
