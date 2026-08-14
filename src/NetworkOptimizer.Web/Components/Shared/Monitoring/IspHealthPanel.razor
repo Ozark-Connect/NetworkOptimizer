@@ -984,11 +984,12 @@ else
         { EventCategory.Congestion, EventCategory.Shift, EventCategory.Change };
     private HashSet<EventCategory> _visibleEventCats = new(AllEventCategories);
 
-    // Which grouped congestion lines have their per-hop readings open. Keyed by time and text
-    // rather than by index, which the category filters renumber.
+    // Which grouped congestion lines have their per-hop readings open. Not by index, which the
+    // category filters renumber, and not by the rendered sentence: it carries the load percentage
+    // and the magnitudes, so a recompute that only moved those would close what the reader had open.
     private readonly HashSet<string> _expandedEvents = new();
 
-    private static string EventMemberKey(TimelineEntry e) => $"{e.Time:O}|{e.Text}";
+    private static string EventMemberKey(TimelineEntry e) => $"{e.Time:O}|{e.Badge}|{e.Members?.Count}";
 
     private void ToggleEventMembers(string key)
     {
