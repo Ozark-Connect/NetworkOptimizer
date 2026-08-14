@@ -224,17 +224,18 @@ else if (_wizardOpen)
                         <div class="form-group">
                             <input type="text" class="form-control" placeholder="Search devices..." @bind="_exclusionSearch" @bind:event="oninput" />
                         </div>
-                        <div class="firmware-rollout-exclusion-groups">
+                        <div class="firmware-rollout-exclusion-groups firmware-rollout-exclude">
                             @foreach (var (code, label) in TypeChannelRows)
                             {
                                 <label class="checkbox-label"><input type="checkbox" checked="@_exTypes.Contains(code)" @onchange="e => ToggleSet(_exTypes, code, e)" /><span>Exclude all @label.ToLowerInvariant()</span></label>
                             }
                         </div>
-                        <div class="firmware-rollout-exclusion-list">
+                        <div class="firmware-rollout-exclusion-list firmware-rollout-exclude">
                             @foreach (var device in FilteredExclusionCandidates)
                             {
-                                <label class="checkbox-label firmware-rollout-device-row">
-                                    <input type="checkbox" checked="@_exMacs.Contains(device.Mac)" @onchange="e => ToggleSet(_exMacs, device.Mac, e)" />
+                                var derived = DerivedExclusion(device);
+                                <label class="checkbox-label firmware-rollout-device-row" data-tooltip="@derived">
+                                    <input type="checkbox" checked="@IsExcluded(device)" disabled="@(derived != null)" @onchange="e => ToggleSet(_exMacs, device.Mac, e)" />
                                     <span>@device.Name</span>
                                     <span class="firmware-rollout-muted">@device.DisplayModel</span>
                                     @if (device.Upgradable)
@@ -794,6 +795,19 @@ else
         else set.Remove(value);
     }
 
+    /// <summary>Excluded by its own rule or by one covering its model or type.</summary>
+    private bool IsExcluded(RolloutDeviceView device) =>
+        _exMacs.Contains(device.Mac) || _exSkus.Contains(device.Model) || _exTypes.Contains(device.DeviceType);
+
+    /// <summary>Why a device is excluded when the rule is not its own, else null.</summary>
+    private string? DerivedExclusion(RolloutDeviceView device)
+    {
+        if (_exMacs.Contains(device.Mac)) return null;
+        if (_exSkus.Contains(device.Model)) return $"Excluded by the rule for every {device.DisplayModel}.";
+        if (_exTypes.Contains(device.DeviceType)) return "Excluded by the rule for this device type.";
+        return null;
+    }
+
     private void ToggleSku(string model)
     {
         if (!_exSkus.Add(model)) _exSkus.Remove(model);
@@ -1075,10 +1089,11 @@ else
     /// <summary>Full version and current firmware behind the update badge.</summary>
     private static string UpdateTooltip(RolloutDeviceView device)
     {
-        var current = string.IsNullOrEmpty(device.CurrentVersion) ? "unknown" : device.CurrentVersion;
-        return string.IsNullOrEmpty(device.TargetVersion)
+        var current = FirmwareVersionFormat.ShortOrNull(device.CurrentVersion) ?? "unknown";
+        var target = FirmwareVersionFormat.ShortOrNull(device.TargetVersion);
+        return target == null
             ? $"An update is waiting. Running {current}."
-            : $"Update waiting: {device.TargetVersion}. Running {current}.";
+            : $"Update waiting: {target}. Running {current}.";
     }
 
     private string? ChangelogFor(string mac) =>

@@ -20433,6 +20433,41 @@ body.kiosk-mode .status-indicators {
     padding: 0.25rem 0;
 }
 
+/* Exclusions read as removals, so the mark is a red X rather than a check. */
+.firmware-rollout-exclude input[type="checkbox"] {
+    appearance: none;
+    width: 1rem;
+    height: 1rem;
+    flex-shrink: 0;
+    display: inline-grid;
+    place-content: center;
+    border: 1px solid var(--border-color);
+    border-radius: 3px;
+    background: var(--bg-secondary);
+    cursor: pointer;
+}
+
+.firmware-rollout-exclude input[type="checkbox"]::before {
+    content: "\2715";
+    font-size: 0.7rem;
+    line-height: 1;
+    color: var(--danger-color);
+    visibility: hidden;
+}
+
+.firmware-rollout-exclude input[type="checkbox"]:checked {
+    border-color: var(--danger-color);
+}
+
+.firmware-rollout-exclude input[type="checkbox"]:checked::before {
+    visibility: visible;
+}
+
+.firmware-rollout-exclude input[type="checkbox"]:disabled {
+    cursor: default;
+    opacity: 0.7;
+}
+
 .firmware-rollout-device-row {
     width: 100%;
     padding: 0.5rem 0;
