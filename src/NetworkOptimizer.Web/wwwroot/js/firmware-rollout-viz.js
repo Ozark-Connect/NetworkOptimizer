@@ -145,12 +145,20 @@ async function loadHistoricAt(atMs, force) {
         // from the update and would keep whatever live value seeded it. Zero every known link
         // first, then let the update fill in the ones that were moving.
         const snap = flowData.getSnapshot();
-        const zeroed = {};
+        const rates = {};
         for (const link of snap?.links || []) {
-            if (link.portKey) zeroed[link.portKey] = { downstreamBps: 0, upstreamBps: 0 };
-            if (link.id) zeroed[link.id] = { downstreamBps: 0, upstreamBps: 0 };
+            if (link.portKey) rates[link.portKey] = { downstreamBps: 0, upstreamBps: 0 };
+            if (link.id) rates[link.id] = { downstreamBps: 0, upstreamBps: 0 };
         }
-        flowData.publishLive({ ...update, linkRates: { ...zeroed, ...(update.linkRates || {}) } });
+        Object.assign(rates, update.linkRates || {});
+
+        // The historic update keys rates by link id, but the map looks up portKey first, so a
+        // zeroed portKey would hide the value that arrived under the id.
+        for (const link of snap?.links || []) {
+            if (link.id && link.portKey && rates[link.id]) rates[link.portKey] = rates[link.id];
+        }
+
+        flowData.publishLive({ ...update, linkRates: rates });
     } catch (err) {
         console.warn('[firmware-rollout] history fetch threw', err, url);
     }
