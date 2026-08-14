@@ -24,6 +24,18 @@ public class UniFiConsoleSystemInfo
     [JsonPropertyName("firmware")]
     public UniFiConsoleFirmware? Firmware { get; set; }
 
+    [JsonPropertyName("hardware")]
+    public UniFiConsoleHardware? Hardware { get; set; }
+
+    /// <summary>
+    /// Installed UniFi OS version on Cloud Gateways ("5.1.28"), comparable to the catalog build's
+    /// numeric part (v5.1.28+hash). Null on consoles that do not report it. Never use
+    /// ucore_version instead - its numbering scheme diverges from the catalog on every console type.
+    /// </summary>
+    [JsonIgnore]
+    public string? InstalledOsVersion =>
+        string.IsNullOrWhiteSpace(Hardware?.FirmwareVersion) ? null : Hardware.FirmwareVersion;
+
     /// <summary>
     /// True when this console is a self-hosted UniFi OS Server rather than a Cloud Gateway.
     /// UniFi OS updates are hard-refused on these - callers gate on this before offering one.
@@ -47,6 +59,19 @@ public class UniFiConsoleSystemInfo
                 yield return release;
         }
     }
+}
+
+/// <summary>The /api/system hardware block; only the installed-firmware fields are mapped.</summary>
+[VendorSpecific("UniFi", "/api/system hardware block")]
+public class UniFiConsoleHardware
+{
+    /// <summary>Installed UniFi OS version, catalog-comparable numeric form ("5.1.28").</summary>
+    [JsonPropertyName("firmwareVersion")]
+    public string? FirmwareVersion { get; set; }
+
+    /// <summary>Hardware short name, e.g. "UCGF".</summary>
+    [JsonPropertyName("shortname")]
+    public string? Shortname { get; set; }
 }
 
 /// <summary>UniFi OS firmware state and the builds the console knows about.</summary>
