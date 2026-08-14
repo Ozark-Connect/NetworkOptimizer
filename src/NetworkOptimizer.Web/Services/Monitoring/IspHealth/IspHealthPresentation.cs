@@ -52,10 +52,11 @@ public static class IspHealthPresentation
             var span = FormatDuration(end - start);
             // Show both signals - congestion is detected on latency AND jitter together (or a
             // jitter-driven p90 burst), so reporting only RTT reads as latency-only.
-            var mag = group.Count == 1
-                ? Magnitude(evt)
-                : $"latency {group.Min(e => e.BaselineRttMs):0.#} to {group.Max(e => e.PeakRttMs):0.#} ms, "
-                  + $"jitter {group.Min(e => e.BaselineJitterMs):0.#} to {group.Max(e => e.PeakJitterMs):0.#} ms";
+            //
+            // The named hop's own readings, never a range spanning the group: an envelope of one
+            // hop's baseline and another's peak describes a rise that nothing measured. The members
+            // below carry each hop's own.
+            var mag = Magnitude(evt);
             var load = evt.LoadCoincident ? " under heavy WAN load" : "";
             // One shape for every line: "{duration} of elevated latency and jitter on {hop}{load}
             // ({mag}). {one plain sentence}." The badge reads "Congestion" except for the line-wide

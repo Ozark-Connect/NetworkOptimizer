@@ -493,7 +493,7 @@ public class IspHealthPdfGeneratorTests
     }
 
     [Fact]
-    public void EventTimeline_SpansTheGroupsMagnitudesAndDuration()
+    public void EventTimeline_ReportsTheNamedHopsOwnReadingOverTheUnionSpan()
     {
         var report = MinimalReport();
         report.CongestionEvents.Add(Congestion(WindowEnd.AddHours(-4), 1, "Access hop", 1.5));
@@ -501,10 +501,13 @@ public class IspHealthPdfGeneratorTests
 
         var entries = IspHealthPresentation.EventTimeline(report).ToList();
 
-        // Widest reading across the group, and the union of the spans (4 h ago to 1.5 h ago).
         entries.Should().ContainSingle();
-        entries[0].Text.Should().Contain("latency 1.5 to 6.9 ms");
+        // The leading hop's own rise. A group-wide envelope would read "1.5 to 6.9 ms" - one hop's
+        // baseline against another's peak, a rise nothing measured.
+        entries[0].Text.Should().Contain("latency 1.5 to 5.5 ms");
+        // The duration still spans the group: 4 h ago to 1.5 h ago.
         entries[0].Text.Should().Contain("2.5 h of elevated");
+        entries[0].Members.Should().HaveCount(2);
     }
 
     [Fact]
