@@ -301,6 +301,9 @@ public class RolloutVisibility
     /// <summary>Start of the blind spell in progress, or null while the site is visible.</summary>
     public DateTime? BlindSince { get; set; }
 
+    /// <summary>Whether the spell in progress is this server's own outage rather than a quiet console.</summary>
+    public bool BlindIsVantage { get; set; }
+
     /// <summary>Blind spells that have ended.</summary>
     public List<RolloutBlindInterval> Blind { get; set; } = [];
 
@@ -313,6 +316,13 @@ public class RolloutBlindInterval
 {
     public DateTime From { get; set; }
     public DateTime To { get; set; }
+
+    /// <summary>
+    /// True when this stretch was this server's own doing - a dropped agent tunnel, or a process
+    /// that was not running - rather than the console going quiet. The console-level update budgets
+    /// only exclude these, because a console that stays quiet is what they measure.
+    /// </summary>
+    public bool Vantage { get; set; }
 }
 
 /// <summary>

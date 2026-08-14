@@ -23,6 +23,10 @@ namespace NetworkOptimizer.Web.Services.Firmware;
 /// Every transition is persisted immediately against a DETACHED read, because the repository's
 /// plan and step reads are AsNoTracking - mutating the instance a create returned writes fields
 /// the update path deliberately leaves alone.
+///
+/// Deadlines are measured in time the executor could actually SEE the site, never in wall time:
+/// a dark console, a dropped agent tunnel or a process that was not running says nothing about the
+/// device it would otherwise condemn, so blind time stalls a rollout rather than failing it.
 /// </summary>
 public class FirmwareRolloutOrchestrator : BackgroundService
 {
@@ -72,8 +76,20 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     /// </summary>
     public static readonly TimeSpan UniFiOsJudgeDelay = TimeSpan.FromMinutes(2);
 
+    /// <summary>
+    /// How long the site has to be out of sight before the rollout says so. A device reboot takes
+    /// the console with it for a minute or two, which is the run working rather than stalling.
+    /// </summary>
+    public static readonly TimeSpan VisibilityLostAfter = TimeSpan.FromMinutes(5);
+
     /// <summary>How long a firmware catalog read is reused before the console is asked again.</summary>
     private static readonly TimeSpan CatalogCacheTtl = TimeSpan.FromMinutes(5);
+
+    /// <summary>
+    /// Blind stretches kept on the plan. A flapping tunnel adds one every other pass, and anything
+    /// this far back is long past every deadline still in flight.
+    /// </summary>
+    private const int MaxBlindIntervals = 500;
 
     private readonly IFirmwareRolloutRepositoryAccessor _repositories;
     private readonly IFirmwareCommandClient _commands;
@@ -86,6 +102,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     private readonly IRolloutAutopilot _autopilot;
     private readonly IReleaseMetadataSource _releases;
     private readonly IAlertEventBus _eventBus;
+    private readonly SiteTunnelRouting? _tunnelRouting;
     private readonly TimeProvider _time;
     private readonly ILogger<FirmwareRolloutOrchestrator> _logger;
     private readonly string _siteSlug;
@@ -103,6 +120,11 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     private DateTime? _lastWaveSettledAt;
     private int _reconciledPlanId;
     private bool _restoreSweepDone;
+    private bool _resumeGapCharged;
+
+    // This pass's copy of the plan's visibility record, so the deadline helpers do not each have to
+    // be handed the document.
+    private RolloutVisibility _visibility = new();
 
     /// <param name="repositories">Site-pinned rollout repository access.</param>
     /// <param name="commands">Firmware command surface.</param>
@@ -118,6 +140,10 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     /// <param name="time">Clock.</param>
     /// <param name="logger">Logger.</param>
     /// <param name="siteSlug">Site this instance executes for.</param>
+    /// <param name="tunnelRouting">
+    /// Agent tunnel state, where the app has it. Null falls back to console silence alone as the
+    /// blindness signal, which is what a build without the routing service can tell.
+    /// </param>
     public FirmwareRolloutOrchestrator(
         IFirmwareRolloutRepositoryAccessor repositories,
         IFirmwareCommandClient commands,
@@ -132,8 +158,10 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         IAlertEventBus eventBus,
         TimeProvider time,
         ILogger<FirmwareRolloutOrchestrator> logger,
-        string siteSlug = SiteManagementService.DefaultSiteSlug)
+        string siteSlug = SiteManagementService.DefaultSiteSlug,
+        SiteTunnelRouting? tunnelRouting = null)
     {
+        _tunnelRouting = tunnelRouting;
         _repositories = repositories;
         _commands = commands;
         _observer = observer;
@@ -561,6 +589,10 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         var byMac = observations.ToDictionary(o => o.Mac, StringComparer.OrdinalIgnoreCase);
         var consoleDark = observations.Count == 0;
 
+        // Before anything is judged: a deadline must never count time this pass could not watch.
+        // A device missing from a console that answered is NOT this - that is the device's own news.
+        await TrackVisibilityAsync(plan, document, consoleDark, await IsTunnelDownAsync(), cancellationToken);
+
         foreach (var step in steps.Where(IsInFlight).ToList())
         {
             if (settings.SuppressStandardAlerts)
@@ -676,7 +708,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             return true;
         }
 
-        if (Now - triggeredAt < NetworkAppUpdateBudget)
+        if (ElapsedReachable(triggeredAt) < NetworkAppUpdateBudget)
             return false;
 
         state.Settled = true;
@@ -732,7 +764,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
 
         if (info == null)
         {
-            if (Now - triggeredAt < UniFiOsUpdateBudget)
+            if (ElapsedReachable(triggeredAt) < UniFiOsUpdateBudget)
                 return false;
 
             await SettleUniFiOsAsync(plan, document, "stuck", cancellationToken);
@@ -747,9 +779,9 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             return true;
         }
 
-        if (UniFiOsUpdateInProgress(info) || Now - triggeredAt < UniFiOsJudgeDelay)
+        if (UniFiOsUpdateInProgress(info) || ElapsedReachable(triggeredAt) < UniFiOsJudgeDelay)
         {
-            if (Now - triggeredAt < UniFiOsUpdateBudget)
+            if (ElapsedReachable(triggeredAt) < UniFiOsUpdateBudget)
                 return false;
 
             await SettleUniFiOsAsync(plan, document, "stuck", cancellationToken);
@@ -944,7 +976,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         var commandedAt = step.CommandedAt ?? Now;
         if (_escalatedAt.TryGetValue(step.Id, out var escalatedAt))
         {
-            if (Now - escalatedAt >= CommandGraceWindow)
+            if (ElapsedObserved(escalatedAt) >= CommandGraceWindow)
             {
                 await FailStepAsync(document, steps, step,
                     "The device never started the upgrade, over the console or over SSH.", cancellationToken);
@@ -952,7 +984,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             return;
         }
 
-        if (Now - commandedAt < CommandGraceWindow)
+        if (ElapsedObserved(commandedAt) < CommandGraceWindow)
             return;
 
         await EscalateToSshAsync(document, steps, step, observation, cancellationToken);
@@ -1012,7 +1044,11 @@ public class FirmwareRolloutOrchestrator : BackgroundService
 
         var wentDownAt = step.WentDownAt ?? step.CommandedAt ?? Now;
         var budget = TimeSpan.FromSeconds(OfflineBudgetSecondsFor(document, step));
-        if (Now - wentDownAt < budget)
+        // A quiet console is this device's own doing when the device IS the console, so that time
+        // counts against it; a gateway that never comes back must still reach Critical rather than
+        // hiding behind a visibility warning. Vantage blindness is never charged to any device.
+        var elapsed = IsGatewayStep(step) ? ElapsedReachable(wentDownAt) : ElapsedObserved(wentDownAt);
+        if (elapsed < budget)
             return;
 
         await FailStepAsync(document, steps, step,
@@ -1036,7 +1072,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         CancellationToken cancellationToken)
     {
         var backAt = step.BackAt ?? Now;
-        if (Now - backAt < CoolDown)
+        if (ElapsedObserved(backAt) < CoolDown)
             return;
 
         var preStats = ParseStats(step.PreStatsJson);
@@ -1357,7 +1393,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             && !VersionsMatch(observation.Firmware, step.ToVersion))
         {
             var waitingSince = _commandWaitSince.GetOrAdd(step.Id, _ => Now);
-            if (Now - waitingSince < CatalogReflectWait)
+            if (ElapsedObserved(waitingSince) < CatalogReflectWait)
                 return;
         }
 
@@ -1502,6 +1538,192 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         }
 
         return urls;
+    }
+
+    // --- Visibility ----------------------------------------------------------------------------
+
+    /// <summary>
+    /// Records what this pass could see and announces a spell that has gone on long enough to be
+    /// worth knowing about. Runs before any deadline is judged, so time this pass could not watch
+    /// is already excluded when the deadlines are read.
+    /// </summary>
+    private async Task TrackVisibilityAsync(
+        FirmwareRolloutPlan plan,
+        RolloutPlanDocument document,
+        bool consoleDark,
+        bool tunnelDown,
+        CancellationToken cancellationToken)
+    {
+        var visibility = document.Visibility;
+        _visibility = visibility;
+        var blind = consoleDark || tunnelDown;
+
+        // A process that was not running watched nothing, so the gap it left is ours. Charged only
+        // on the first pass: a long gap later is this executor running slowly, which still had its
+        // own eyes on the site either side of it.
+        if (!_resumeGapCharged)
+        {
+            _resumeGapCharged = true;
+            if (visibility.LastTickAt is DateTime last && Now - last > TickInterval)
+                AddBlind(visibility, last, Now, vantage: true);
+        }
+
+        var spell = TimeSpan.Zero;
+        if (blind)
+        {
+            // From the last pass that could see, not from now: the site went quiet somewhere in
+            // between, and charging the whole gap is the direction that never blames a device.
+            visibility.BlindSince ??= visibility.LastTickAt ?? Now;
+            visibility.BlindIsVantage |= tunnelDown;
+            spell = Now - visibility.BlindSince.Value;
+        }
+        else if (visibility.BlindSince is DateTime since)
+        {
+            spell = Now - since;
+            AddBlind(visibility, since, Now, visibility.BlindIsVantage);
+            visibility.BlindSince = null;
+            visibility.BlindIsVantage = false;
+        }
+
+        visibility.LastTickAt = Now;
+
+        await AnnounceVisibilityAsync(visibility, blind, spell, cancellationToken);
+        await PersistDocumentAsync(plan, document, cancellationToken);
+    }
+
+    /// <summary>
+    /// Says once that the site has gone out of sight, and once that it is back. Without this a
+    /// rollout that has stopped counting time is indistinguishable from one that is just slow.
+    /// </summary>
+    private async Task AnnounceVisibilityAsync(
+        RolloutVisibility visibility, bool blind, TimeSpan spell, CancellationToken cancellationToken)
+    {
+        if (blind)
+        {
+            if (visibility.LostAnnounced || spell < VisibilityLostAfter)
+                return;
+
+            visibility.LostAnnounced = true;
+            _logger.LogWarning(
+                "Firmware rollout on site {Site} has had no sight of the site for {Minutes:0} minutes; every deadline is holding",
+                _siteSlug, spell.TotalMinutes);
+
+            await PublishAsync(
+                RolloutAlerts.VisibilityLost,
+                AlertSeverity.Warning,
+                $"Firmware Rollout Cannot See The Site{_siteSuffix}",
+                $"Nothing has answered for {spell.TotalMinutes:0} minutes, so the rollout is holding where it is. Time we cannot watch is not counted against any device.",
+                null, null, cancellationToken);
+            return;
+        }
+
+        if (!visibility.LostAnnounced)
+            return;
+
+        visibility.LostAnnounced = false;
+        _logger.LogInformation(
+            "Firmware rollout on site {Site} can see the site again after {Minutes:0} minutes", _siteSlug, spell.TotalMinutes);
+
+        await PublishAsync(
+            RolloutAlerts.VisibilityRestored,
+            AlertSeverity.Info,
+            $"Firmware Rollout Can See The Site Again{_siteSuffix}",
+            $"The site is answering again after {spell.TotalMinutes:0} minutes and the rollout has picked up where it left off.",
+            null, null, cancellationToken);
+    }
+
+    /// <summary>
+    /// Whether an agent-served site's tunnel is down. That is our own way in failing rather than
+    /// anything about the site, so it never counts against a device or against the console.
+    /// </summary>
+    private async Task<bool> IsTunnelDownAsync()
+    {
+        if (_tunnelRouting == null)
+            return false;
+
+        try
+        {
+            return await _tunnelRouting.IsViaAgentAsync(_siteSlug) && !_tunnelRouting.IsAgentOnline(_siteSlug);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogDebug(ex, "Could not read the agent tunnel state for site {Site}", _siteSlug);
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Adds a blind stretch, extending the last one where they touch and dropping the oldest once
+    /// the list is long enough to bloat the plan document.
+    /// </summary>
+    private static void AddBlind(RolloutVisibility visibility, DateTime from, DateTime to, bool vantage)
+    {
+        if (to <= from) return;
+
+        var last = visibility.Blind.Count > 0 ? visibility.Blind[^1] : null;
+        if (last != null && from <= last.To && vantage == last.Vantage)
+        {
+            if (to > last.To) last.To = to;
+            return;
+        }
+
+        visibility.Blind.Add(new RolloutBlindInterval { From = from, To = to, Vantage = vantage });
+        if (visibility.Blind.Count > MaxBlindIntervals)
+            visibility.Blind.RemoveAt(0);
+    }
+
+    /// <summary>
+    /// How much of the time since <paramref name="from"/> the rollout could see the site. Every
+    /// device deadline is measured with this: a dark console, a dropped tunnel or a server that was
+    /// not running says nothing about the device it would otherwise condemn.
+    /// </summary>
+    private TimeSpan ElapsedObserved(DateTime from) => ObservedBetween(_visibility, from, Now, vantageOnly: false);
+
+    /// <summary>
+    /// How much of that time this server could have reached the site at all - our own outages taken
+    /// out, the console's silence left in.
+    /// <para>
+    /// The two console-level budgets use this rather than <see cref="ElapsedObserved"/> because for
+    /// them a quiet console IS the measurement: an application or a UniFi OS that never comes back
+    /// is exactly what they exist to catch, and excluding that time would make them unreachable.
+    /// </para>
+    /// </summary>
+    private TimeSpan ElapsedReachable(DateTime from) => ObservedBetween(_visibility, from, Now, vantageOnly: true);
+
+    /// <summary>Time between two points with the blind stretches taken out.</summary>
+    /// <param name="visibility">The plan's visibility record.</param>
+    /// <param name="from">Start of the interval.</param>
+    /// <param name="to">End of the interval.</param>
+    /// <param name="vantageOnly">Subtract only the stretches that were this server's own fault.</param>
+    internal static TimeSpan ObservedBetween(RolloutVisibility visibility, DateTime from, DateTime to, bool vantageOnly)
+    {
+        if (to <= from) return TimeSpan.Zero;
+
+        var spells = visibility.Blind
+            .Where(b => !vantageOnly || b.Vantage)
+            .Select(b => (b.From, b.To))
+            .ToList();
+
+        if (visibility.BlindSince is DateTime open && (!vantageOnly || visibility.BlindIsVantage))
+            spells.Add((open, to));
+
+        var blind = TimeSpan.Zero;
+        var counted = from;
+        foreach (var spell in spells
+            .Select(s => (Start: s.From < from ? from : s.From, End: s.To > to ? to : s.To))
+            .Where(s => s.End > s.Start)
+            .OrderBy(s => s.Start))
+        {
+            // Overlapping stretches (a resume gap inside a blind spell) must not be counted twice.
+            var start = spell.Start < counted ? counted : spell.Start;
+            if (spell.End <= start) continue;
+
+            blind += spell.End - start;
+            counted = spell.End;
+        }
+
+        var observed = to - from - blind;
+        return observed > TimeSpan.Zero ? observed : TimeSpan.Zero;
     }
 
     // --- Channels and resume -------------------------------------------------------------------

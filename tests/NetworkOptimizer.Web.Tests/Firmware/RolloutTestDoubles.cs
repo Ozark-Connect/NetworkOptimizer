@@ -430,7 +430,6 @@ internal sealed class RolloutHarness : IDisposable
     {
         Db = NewContext();
         Repository = new FirmwareRolloutRepository(Db, NullLogger<FirmwareRolloutRepository>.Instance);
-        var channels = new RolloutChannelManager(Commands, NullLogger<RolloutChannelManager>.Instance);
         Autopilot = new RolloutAutopilot(
             new InMemoryRepositoryAccessor(Repository),
             new DirectPlanningScope(Planning),
@@ -439,20 +438,7 @@ internal sealed class RolloutHarness : IDisposable
             Bus,
             Time,
             NullLogger<RolloutAutopilot>.Instance);
-        Orchestrator = new FirmwareRolloutOrchestrator(
-            new InMemoryRepositoryAccessor(Repository),
-            Commands,
-            Observer,
-            Litmus,
-            Health,
-            Mesh,
-            channels,
-            Suppression,
-            Autopilot,
-            Releases,
-            Bus,
-            Time,
-            NullLogger<FirmwareRolloutOrchestrator>.Instance);
+        Orchestrator = NewOrchestrator();
 
         Caller.SetUser(new CallerInfo { ActorName = Actor });
         Service = new FirmwareRolloutService(
@@ -465,6 +451,25 @@ internal sealed class RolloutHarness : IDisposable
             Caller,
             NullLogger<FirmwareRolloutService>.Instance);
     }
+
+    /// <summary>
+    /// Another executor over the same site and the same doubles, which is what a restart leaves:
+    /// the plan is where it was and none of the in-memory state survived.
+    /// </summary>
+    public FirmwareRolloutOrchestrator NewOrchestrator() => new(
+        new InMemoryRepositoryAccessor(Repository),
+        Commands,
+        Observer,
+        Litmus,
+        Health,
+        Mesh,
+        new RolloutChannelManager(Commands, NullLogger<RolloutChannelManager>.Instance),
+        Suppression,
+        Autopilot,
+        Releases,
+        Bus,
+        Time,
+        NullLogger<FirmwareRolloutOrchestrator>.Instance);
 
     public NetworkOptimizerDbContext NewContext()
     {
