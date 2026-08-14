@@ -63,9 +63,13 @@ public class FirmwareRolloutRegistry : BackgroundService, ISiteScopedRegistry
         var health = ActivatorUtilities.CreateInstance<RolloutHealthGate>(_serviceProvider, slug);
         var meshRepairs = ActivatorUtilities.CreateInstance<MeshRepairQueue>(_serviceProvider, slug);
         var channels = ActivatorUtilities.CreateInstance<RolloutChannelManager>(_serviceProvider, slug, commands);
+        var planning = ActivatorUtilities.CreateInstance<RolloutPlanningScope>(_serviceProvider, slug);
+        var autopilot = ActivatorUtilities.CreateInstance<RolloutAutopilot>(
+            _serviceProvider, slug, repositories, planning, commands, bus);
 
         return ActivatorUtilities.CreateInstance<FirmwareRolloutOrchestrator>(
-            _serviceProvider, slug, repositories, commands, observer, litmus, health, meshRepairs, channels, bus);
+            _serviceProvider, slug, repositories, commands, observer, litmus, health, meshRepairs, channels,
+            autopilot, bus);
     }
 
     /// <summary>

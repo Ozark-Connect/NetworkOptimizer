@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Services;
@@ -33,6 +34,15 @@ public interface IRolloutPlanningSource
     /// <summary>Freezes the site's topology and client load for planning.</summary>
     /// <param name="cancellationToken">Cancellation token.</param>
     Task<RolloutPlanningContext> GetContextAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Composes the downtime estimator for this site: its own learned timings, filled in from the
+    /// other sites' where this one has too little history of a model to estimate from.
+    /// </summary>
+    /// <param name="siteTimings">This site's learned model timings.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    Task<FirmwareTimingEstimator> GetEstimatorAsync(
+        IReadOnlyList<FirmwareModelTiming> siteTimings, CancellationToken cancellationToken = default);
 
     /// <summary>Proposes the start window for a rollout of the given estimated length.</summary>
     /// <param name="context">The planning context the estimate was made against.</param>
@@ -79,6 +89,8 @@ public class RolloutPlanningSource : IRolloutPlanningSource
     private readonly PropagationService _propagation;
     private readonly WiFiOptimizerService _wifi;
     private readonly UbiquitiReleaseFeedClient _feed;
+    private readonly IDbContextFactory<NetworkOptimizerDbContext> _mainDbFactory;
+    private readonly SiteDbContextFactory _siteDbFactory;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<RolloutPlanningSource> _logger;
     private readonly string _siteSlug;
@@ -93,6 +105,8 @@ public class RolloutPlanningSource : IRolloutPlanningSource
     /// <param name="propagation">Propagation model for AP overlap.</param>
     /// <param name="wifi">Roaming topology and wireless client counts.</param>
     /// <param name="feed">Ubiquiti public release feed.</param>
+    /// <param name="mainDbFactory">Main database, for the site registry behind cross-site timings.</param>
+    /// <param name="siteDbFactory">Per-site databases, for the other sites' learned timings.</param>
     /// <param name="loggerFactory">Logger factory (the quiet-window service takes its own).</param>
     /// <param name="logger">Logger.</param>
     public RolloutPlanningSource(
@@ -106,6 +120,8 @@ public class RolloutPlanningSource : IRolloutPlanningSource
         PropagationService propagation,
         WiFiOptimizerService wifi,
         UbiquitiReleaseFeedClient feed,
+        IDbContextFactory<NetworkOptimizerDbContext> mainDbFactory,
+        SiteDbContextFactory siteDbFactory,
         ILoggerFactory loggerFactory,
         ILogger<RolloutPlanningSource> logger)
     {
@@ -118,6 +134,8 @@ public class RolloutPlanningSource : IRolloutPlanningSource
         _propagation = propagation;
         _wifi = wifi;
         _feed = feed;
+        _mainDbFactory = mainDbFactory;
+        _siteDbFactory = siteDbFactory;
         _loggerFactory = loggerFactory;
         _logger = logger;
         _siteSlug = string.IsNullOrEmpty(siteContext.Slug) ? SiteManagementService.DefaultSiteSlug : siteContext.Slug;
@@ -137,6 +155,14 @@ public class RolloutPlanningSource : IRolloutPlanningSource
             ClientCount = await CountWirelessClientsAsync(),
             ConsoleConnected = connection.IsConnected,
         };
+    }
+
+    /// <inheritdoc />
+    public async Task<FirmwareTimingEstimator> GetEstimatorAsync(
+        IReadOnlyList<FirmwareModelTiming> siteTimings, CancellationToken cancellationToken = default)
+    {
+        var crossSite = new CrossSiteTimingSource(_mainDbFactory, _siteDbFactory, _logger, _siteSlug);
+        return new FirmwareTimingEstimator(await crossSite.MergeAsync(siteTimings ?? [], cancellationToken));
     }
 
     /// <inheritdoc />

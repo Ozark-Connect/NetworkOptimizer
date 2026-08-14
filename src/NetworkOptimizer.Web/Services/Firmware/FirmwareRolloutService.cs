@@ -274,22 +274,9 @@ public class FirmwareRolloutService : IFirmwareRolloutService
     private async Task<(RolloutPlanResult Result, RolloutPlanningContext Context)> PlanAsync(
         FirmwareRolloutSettings settings, CancellationToken cancellationToken)
     {
-        await _commands.CheckForUpdatesAsync(cancellationToken);
-
-        var context = await _planning.GetContextAsync(cancellationToken);
         var timings = await _repository.GetModelTimingsAsync(cancellationToken);
-        var currentChannel = await _commands.GetDeviceChannelAsync(cancellationToken);
-
-        var result = new RolloutPlanner().Plan(new RolloutPlanningInput
-        {
-            Devices = context.Devices,
-            Settings = settings,
-            Estimator = new FirmwareTimingEstimator(timings),
-            CurrentConsoleChannel = string.IsNullOrEmpty(currentChannel) ? FirmwareChannels.Release : currentChannel,
-            Neighbors = context.Neighbors,
-        });
-
-        return (result, context);
+        var inputs = await RolloutPlanComposer.GatherAsync(_planning, timings, _commands, cancellationToken);
+        return (RolloutPlanComposer.Plan(inputs, settings), inputs.Context);
     }
 
     private async Task<CreatedPlan> CreatePlanAsync(

@@ -259,6 +259,20 @@ internal sealed class FakeRolloutPlanningSource : IRolloutPlanningSource
     public int WindowCalls { get; private set; }
     public int PriorVersionCalls { get; private set; }
     public int LastEstimatedSeconds { get; private set; }
+    public TimeSpan LastMinLead { get; private set; }
+
+    /// <summary>Learned timings the estimator is composed from, as if merged across sites.</summary>
+    public List<FirmwareModelTiming> MergedTimings { get; } = [];
+
+    public int EstimatorCalls { get; private set; }
+
+    public Task<FirmwareTimingEstimator> GetEstimatorAsync(
+        IReadOnlyList<FirmwareModelTiming> siteTimings, CancellationToken cancellationToken = default)
+    {
+        EstimatorCalls++;
+        return Task.FromResult(new FirmwareTimingEstimator(
+            MergedTimings.Count > 0 ? MergedTimings : siteTimings));
+    }
 
     public Task<RolloutPlanningContext> GetContextAsync(CancellationToken cancellationToken = default)
     {
@@ -281,6 +295,7 @@ internal sealed class FakeRolloutPlanningSource : IRolloutPlanningSource
     {
         WindowCalls++;
         LastEstimatedSeconds = estimatedSeconds;
+        LastMinLead = minLead;
         return Task.FromResult(Window);
     }
 
@@ -307,6 +322,49 @@ internal sealed class FakeRolloutPlanningSource : IRolloutPlanningSource
 }
 
 /// <summary>
+/// Hands autopilot the one planning source the test scripted. Production opens a site-pinned
+/// system scope per use; nothing about plan composition depends on that.
+/// </summary>
+internal sealed class DirectPlanningScope : IRolloutPlanningScope
+{
+    private readonly IRolloutPlanningSource _source;
+
+    public DirectPlanningScope(IRolloutPlanningSource source) => _source = source;
+
+    public Task<T> UseAsync<T>(
+        Func<IRolloutPlanningSource, CancellationToken, Task<T>> work, CancellationToken cancellationToken = default) =>
+        work(_source, cancellationToken);
+
+    public Task UseAsync(
+        Func<IRolloutPlanningSource, CancellationToken, Task> work, CancellationToken cancellationToken = default) =>
+        work(_source, cancellationToken);
+}
+
+/// <summary>
+/// Publish dates and changelog links the test scripts per model and version. Anything not set is
+/// unknown to the feed, which is exactly what an RC build or a feed outage looks like.
+/// </summary>
+internal sealed class FakeReleaseMetadataSource : IReleaseMetadataSource
+{
+    private readonly Dictionary<string, ReleaseMetadata> _byKey = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Makes every lookup throw, as an unreachable feed does.</summary>
+    public bool Throws { get; set; }
+
+    public int Calls { get; private set; }
+
+    public void Set(string model, string version, DateTime? publishedAt, string? changelogUrl = null) =>
+        _byKey[$"{model}|{version}"] = new ReleaseMetadata(publishedAt, changelogUrl);
+
+    public Task<ReleaseMetadata?> GetAsync(string? model, string? version, CancellationToken cancellationToken = default)
+    {
+        Calls++;
+        if (Throws) throw new InvalidOperationException("The release feed is unreachable");
+        return Task.FromResult(_byKey.TryGetValue($"{model}|{version}", out var metadata) ? metadata : null);
+    }
+}
+
+/// <summary>
 /// Everything one orchestrator test needs, wired to doubles: an in-memory database with a real
 /// repository behind it, so "persisted after every transition" is asserted against real rows.
 /// </summary>
@@ -327,8 +385,10 @@ internal sealed class RolloutHarness : IDisposable
     public RolloutSuppressionRegistry Suppression { get; } = new();
     public CapturingBus Bus { get; } = new();
     public FakeRolloutPlanningSource Planning { get; } = new();
+    public FakeReleaseMetadataSource Releases { get; } = new();
     public AuditContext Audit { get; } = new();
     public CallerContext Caller { get; } = new();
+    public RolloutAutopilot Autopilot { get; }
     public FirmwareRolloutOrchestrator Orchestrator { get; }
     public FirmwareRolloutService Service { get; }
 
@@ -340,6 +400,14 @@ internal sealed class RolloutHarness : IDisposable
         Db = NewContext();
         Repository = new FirmwareRolloutRepository(Db, NullLogger<FirmwareRolloutRepository>.Instance);
         var channels = new RolloutChannelManager(Commands, NullLogger<RolloutChannelManager>.Instance);
+        Autopilot = new RolloutAutopilot(
+            new InMemoryRepositoryAccessor(Repository),
+            new DirectPlanningScope(Planning),
+            Commands,
+            Releases,
+            Bus,
+            Time,
+            NullLogger<RolloutAutopilot>.Instance);
         Orchestrator = new FirmwareRolloutOrchestrator(
             new InMemoryRepositoryAccessor(Repository),
             Commands,
@@ -349,6 +417,8 @@ internal sealed class RolloutHarness : IDisposable
             Mesh,
             channels,
             Suppression,
+            Autopilot,
+            Releases,
             Bus,
             Time,
             NullLogger<FirmwareRolloutOrchestrator>.Instance);
@@ -409,6 +479,24 @@ internal sealed class RolloutHarness : IDisposable
             ScheduledStartAt = startAt,
             PlanJson = JsonSerializer.Serialize(document),
             CreatedBy = "autopilot",
+        });
+
+        foreach (var step in steps) step.PlanId = plan.Id;
+        await Repository.AddStepsAsync(steps);
+        return plan;
+    }
+
+    /// <summary>Creates a finished plan that is waiting out its soak.</summary>
+    public async Task<FirmwareRolloutPlan> SeedSoakingPlanAsync(
+        RolloutPlanDocument document, DateTime startedAt, DateTime completedAt, params FirmwareRolloutStep[] steps)
+    {
+        var plan = await Repository.CreatePlanAsync(new FirmwareRolloutPlan
+        {
+            Status = FirmwareRolloutStatus.SoakWait,
+            StartedAt = startedAt,
+            CompletedAt = completedAt,
+            PlanJson = JsonSerializer.Serialize(document),
+            CreatedBy = "TestUser",
         });
 
         foreach (var step in steps) step.PlanId = plan.Id;

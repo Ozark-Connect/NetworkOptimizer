@@ -25,6 +25,8 @@ public class RolloutPlanner
         var settings = input.Settings;
         var spacing = ResolvedSpacing.For(settings.SpacingProfile, settings.AdvancedSpacingJson);
         var exclusions = RolloutExclusions.Parse(settings.ExclusionsJson);
+        foreach (var mac in input.AdditionalExcludedMacs)
+            exclusions.Macs.Add(MacNormalizer.Normalize(mac));
         var doc = new RolloutPlanDocument();
         var steps = new List<FirmwareRolloutStep>();
 

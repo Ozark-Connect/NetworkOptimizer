@@ -100,6 +100,12 @@ public class RolloutPlanningInput
 
     /// <summary>Null when neither placements nor roaming data exist.</summary>
     public IApNeighborOracle? Neighbors { get; init; }
+
+    /// <summary>
+    /// Devices excluded on top of the settings' own exclusion sets. Autopilot's release-ripeness
+    /// gate holds a device back here rather than by editing the site's stored exclusions.
+    /// </summary>
+    public IReadOnlyCollection<string> AdditionalExcludedMacs { get; init; } = [];
 }
 
 /// <summary>Release channel string constants as the UniFi API spells them.</summary>

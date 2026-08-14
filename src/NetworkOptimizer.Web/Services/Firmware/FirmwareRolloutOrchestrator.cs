@@ -83,6 +83,8 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     private readonly IMeshRepairQueue _meshRepairs;
     private readonly RolloutChannelManager _channels;
     private readonly RolloutSuppressionRegistry _suppression;
+    private readonly IRolloutAutopilot _autopilot;
+    private readonly IReleaseMetadataSource _releases;
     private readonly IAlertEventBus _eventBus;
     private readonly TimeProvider _time;
     private readonly ILogger<FirmwareRolloutOrchestrator> _logger;
@@ -110,6 +112,8 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     /// <param name="meshRepairs">Background mesh re-pair queue.</param>
     /// <param name="channels">Console channel set and restore.</param>
     /// <param name="suppression">Standard-alert suppression windows.</param>
+    /// <param name="autopilot">Unattended plan builder, driven by the registry's tick.</param>
+    /// <param name="releases">Changelog links for the post-soak report.</param>
     /// <param name="eventBus">Site-stamped alert bus.</param>
     /// <param name="time">Clock.</param>
     /// <param name="logger">Logger.</param>
@@ -123,6 +127,8 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         IMeshRepairQueue meshRepairs,
         RolloutChannelManager channels,
         RolloutSuppressionRegistry suppression,
+        IRolloutAutopilot autopilot,
+        IReleaseMetadataSource releases,
         IAlertEventBus eventBus,
         TimeProvider time,
         ILogger<FirmwareRolloutOrchestrator> logger,
@@ -136,6 +142,8 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         _meshRepairs = meshRepairs;
         _channels = channels;
         _suppression = suppression;
+        _autopilot = autopilot;
+        _releases = releases;
         _eventBus = eventBus;
         _time = time;
         _logger = logger;
@@ -217,6 +225,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             {
                 var soaking = await _repositories.UseAsync((r, c) => r.GetStepsAsync(plan.Id, c), cancellationToken);
                 await RunDueResourceComparisonsAsync(soaking, cancellationToken);
+                await BuildSoakReportIfDueAsync(plan, soaking, cancellationToken);
                 return;
             }
 
@@ -272,11 +281,12 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     }
 
     /// <summary>
-    /// Where autopilot plan creation hooks in (Phase 7). Deliberately a no-op: the executor runs
-    /// whatever plan exists, and nothing here decides that one should.
+    /// Gives autopilot its hourly chance to build the next unattended rollout. The executor still
+    /// only runs whatever plan exists; this is the one place that decides one should.
     /// </summary>
     /// <param name="cancellationToken">Cancellation token.</param>
-    public Task CreateAutopilotPlanIfDueAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+    public Task CreateAutopilotPlanIfDueAsync(CancellationToken cancellationToken = default) =>
+        _autopilot.CreatePlanIfDueAsync(cancellationToken);
 
     /// <summary>Holds a running rollout. In-flight devices are still watched to the end of their cycle.</summary>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -1397,6 +1407,80 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         _logger.LogInformation(
             "Firmware rollout {Id} on site {Site} finished: {Upgraded} upgraded, {Failed} failed, {Dropped} dropped",
             plan.Id, _siteSlug, upgraded, failed, dropped);
+    }
+
+    // --- Report --------------------------------------------------------------------------------
+
+    /// <summary>
+    /// Builds the post-soak report once the plan has sat in SoakWait for the site's soak window and
+    /// moves it to Reported. The wait is what makes the report worth reading: every device's
+    /// before/after resource window has closed by then, so nothing in it is still provisional.
+    /// </summary>
+    private async Task BuildSoakReportIfDueAsync(
+        FirmwareRolloutPlan plan, List<FirmwareRolloutStep> steps, CancellationToken cancellationToken)
+    {
+        if (!string.IsNullOrEmpty(plan.ReportJson))
+            return;
+
+        var settings = await _repositories.UseAsync((r, c) => r.GetSettingsAsync(c), cancellationToken);
+        var completedAt = plan.CompletedAt ?? Now;
+        if (Now - completedAt < TimeSpan.FromHours(Math.Max(0, settings.SoakHours)))
+            return;
+
+        var document = ParseDocument(plan);
+        var changelogs = await ResolveChangelogsAsync(steps, cancellationToken);
+        var report = RolloutReportBuilder.Build(plan, document, steps, Now, changelogs);
+
+        plan.ReportJson = JsonSerializer.Serialize(report);
+        plan.Status = FirmwareRolloutStatus.Reported;
+        await PersistPlanAsync(plan, cancellationToken);
+
+        var issues = report.Issues.Count == 0
+            ? "Nothing came out of it needing a look."
+            : $"{report.Issues.Count} thing{(report.Issues.Count == 1 ? "" : "s")} came out of it worth a look.";
+
+        await PublishAsync(
+            RolloutAlerts.ReportReady,
+            AlertSeverity.Info,
+            $"Firmware Rollout Report Ready{_siteSuffix}",
+            $"{report.DevicesUpgraded} device{(report.DevicesUpgraded == 1 ? "" : "s")} have been running their new firmware for {settings.SoakHours} hours. {issues} Open Firmware Rollout for the before-and-after.",
+            null, null, cancellationToken);
+
+        _logger.LogInformation(
+            "Firmware rollout {Id} on site {Site} reported: {Upgraded} upgraded, {Failed} failed, {Skipped} skipped",
+            plan.Id, _siteSlug, report.DevicesUpgraded, report.DevicesFailed, report.DevicesSkipped);
+    }
+
+    /// <summary>
+    /// Changelog links for the versions the plan installed, one lookup per model and version. A
+    /// feed that will not answer costs the links, not the report.
+    /// </summary>
+    private async Task<Dictionary<string, string?>> ResolveChangelogsAsync(
+        List<FirmwareRolloutStep> steps, CancellationToken cancellationToken)
+    {
+        var urls = new Dictionary<string, string?>(StringComparer.Ordinal);
+
+        foreach (var step in steps)
+        {
+            if (string.IsNullOrWhiteSpace(step.Model) || string.IsNullOrWhiteSpace(step.ToVersion))
+                continue;
+
+            var key = RolloutReportBuilder.ChangelogKey(step.Model, step.ToVersion);
+            if (urls.ContainsKey(key)) continue;
+
+            try
+            {
+                urls[key] = (await _releases.GetAsync(step.Model, step.ToVersion, cancellationToken))?.ChangelogUrl;
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogDebug(ex, "No changelog for {Model} {Version} on site {Site}",
+                    step.Model, step.ToVersion, _siteSlug);
+                urls[key] = null;
+            }
+        }
+
+        return urls;
     }
 
     // --- Channels and resume -------------------------------------------------------------------
