@@ -40,7 +40,7 @@ public class QuietWindowCalculatorTests
         proposal.Hour.Should().Be(3);
         proposal.BusyScore.Should().Be(0.0);
         proposal.UsedFallback.Should().BeFalse();
-        proposal.Basis.Should().Be("7-day usage history");
+        proposal.Basis.Should().Be("4 weeks of usage history");
     }
 
     [Fact]

@@ -66,8 +66,9 @@ public class RolloutPlanner
         var canaried = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var deviceWave = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
-        var includeOs = settings.IncludeUniFiOs && candidates.Any(d =>
-            FirmwareTimingEstimator.Classify(d) == FirmwareDeviceClass.CloudGatewayUniFiOs);
+        var includeOs = settings.IncludeUniFiOs
+            && input.UniFiOsUpdateAvailable
+            && candidates.Any(d => FirmwareTimingEstimator.Classify(d) == FirmwareDeviceClass.CloudGatewayUniFiOs);
 
         int waveNumber = 0;
         foreach (var group in ordered)
@@ -119,8 +120,9 @@ public class RolloutPlanner
 
         BuildMeshRepairs(doc, candidates, deviceWave);
 
-        doc.IncludesUniFiNetworkUpdate = settings.IncludeUniFiNetwork;
-        doc.UniFiNetworkUpdateSeconds = settings.IncludeUniFiNetwork ? UniFiNetworkUpdateSeconds : 0;
+        var includeApp = settings.IncludeUniFiNetwork && input.NetworkAppUpdateAvailable;
+        doc.IncludesUniFiNetworkUpdate = includeApp;
+        doc.UniFiNetworkUpdateSeconds = includeApp ? UniFiNetworkUpdateSeconds : 0;
         doc.IncludesUniFiOsUpdate = includeOs;
         doc.UniFiOsUpdateSeconds = includeOs
             ? FirmwareTimingEstimator.SeedDowntimeSeconds(FirmwareDeviceClass.CloudGatewayUniFiOs)

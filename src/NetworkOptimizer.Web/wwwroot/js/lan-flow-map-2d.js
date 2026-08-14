@@ -290,6 +290,7 @@ class LanFlowMap2D {
         this._hideClouds=false;
         this._hideWiredClients=false;
         this._hideWifiClients=false;
+        this._hideHelp=false;
     }
 
     setOverlays(map){
@@ -519,7 +520,7 @@ class LanFlowMap2D {
                 <div class="lan-flow-map-help-row"><span>Fullscreen</span><span class="kbd">Esc</span> to exit</div>`;
         help.appendChild(helpBody);
         helpTitle.addEventListener('click',()=>helpBody.classList.toggle('is-collapsed'));
-        this._el.appendChild(help);
+        if(!this._hideHelp)this._el.appendChild(help);
 
         // Mode badge (bottom-left, matching 3D style)
         const status=document.createElement('div');
@@ -2149,6 +2150,7 @@ export async function mount(containerId,opts){
     if(opts?.hideClouds)_inst._hideClouds=true;
     if(opts?.hideWiredClients)_inst._hideWiredClients=true;
     if(opts?.hideWifiClients)_inst._hideWifiClients=true;
+    if(opts?.hideHelp)_inst._hideHelp=true;
     await _inst.start();
 }
 

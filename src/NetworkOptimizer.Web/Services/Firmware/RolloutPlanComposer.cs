@@ -6,10 +6,12 @@ namespace NetworkOptimizer.Web.Services.Firmware;
 /// <param name="Context">Devices, coverage and console state, frozen at plan time.</param>
 /// <param name="Estimator">Downtime estimates (seeds, this site's history, and the other sites').</param>
 /// <param name="CurrentChannel">The release channel devices follow today.</param>
+/// <param name="Console">The console as it answered at plan time, or null when it did not.</param>
 public sealed record RolloutPlanInputs(
     RolloutPlanningContext Context,
     FirmwareTimingEstimator Estimator,
-    string CurrentChannel);
+    string CurrentChannel,
+    NetworkOptimizer.UniFi.Models.UniFiConsoleSystemInfo? Console = null);
 
 /// <summary>
 /// The one path a plan is built through, wizard and autopilot alike: refresh the catalog, freeze
@@ -40,11 +42,13 @@ public static class RolloutPlanComposer
         var context = await planning.GetContextAsync(cancellationToken);
         var estimator = await planning.GetEstimatorAsync(siteTimings ?? [], cancellationToken);
         var currentChannel = await commands.GetDeviceChannelAsync(cancellationToken);
+        var console = await commands.GetConsoleSystemInfoAsync(cancellationToken);
 
         return new RolloutPlanInputs(
             context,
             estimator,
-            string.IsNullOrEmpty(currentChannel) ? FirmwareChannels.Release : currentChannel);
+            string.IsNullOrEmpty(currentChannel) ? FirmwareChannels.Release : currentChannel,
+            console);
     }
 
     /// <summary>Orders a plan from the frozen inputs.</summary>
@@ -67,7 +71,36 @@ public static class RolloutPlanComposer
             CurrentConsoleChannel = inputs.CurrentChannel,
             Neighbors = inputs.Context.Neighbors,
             AdditionalExcludedMacs = additionalExcludedMacs ?? [],
+            NetworkAppUpdateAvailable = HasNetworkAppUpdate(inputs.Console),
+            UniFiOsUpdateAvailable = HasUniFiOsUpdate(inputs.Console, settings.EffectiveUniFiOsChannel),
         });
+    }
+
+    /// <summary>
+    /// Whether the console is offering an application update. Unknown counts as yes: an older
+    /// console shape must not silently drop the step.
+    /// </summary>
+    private static bool HasNetworkAppUpdate(NetworkOptimizer.UniFi.Models.UniFiConsoleSystemInfo? console)
+    {
+        var app = console?.NetworkApplication;
+        if (app == null) return true;
+        return !string.IsNullOrEmpty(app.UpdateAvailable);
+    }
+
+    /// <summary>Whether the chosen channel offers a UniFi OS build the console is not already on.</summary>
+    private static bool HasUniFiOsUpdate(
+        NetworkOptimizer.UniFi.Models.UniFiConsoleSystemInfo? console, string channel)
+    {
+        if (console?.Firmware?.LatestByChannel is not { } byChannel) return true;
+        if (!byChannel.TryGetValue(channel, out var release) || string.IsNullOrEmpty(release?.Version)) return true;
+
+        var installed = console.InstalledOsVersion;
+        if (string.IsNullOrEmpty(installed)) return true;
+
+        return !string.Equals(
+            NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.Short(release.Version),
+            NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.Short(installed),
+            StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>Steps that would actually be commanded, i.e. everything not excluded up front.</summary>

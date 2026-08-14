@@ -102,6 +102,14 @@ public class RolloutPlanningInput
     public IApNeighborOracle? Neighbors { get; init; }
 
     /// <summary>
+    /// Whether the console actually has each update waiting. A surface that is already current is
+    /// not a step, however the settings are set: reserving time for it overstates the plan.
+    /// </summary>
+    public bool NetworkAppUpdateAvailable { get; init; } = true;
+
+    public bool UniFiOsUpdateAvailable { get; init; } = true;
+
+    /// <summary>
     /// Devices excluded on top of the settings' own exclusion sets. Autopilot's release-ripeness
     /// gate holds a device back here rather than by editing the site's stored exclusions.
     /// </summary>
