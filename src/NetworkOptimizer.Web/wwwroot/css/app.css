@@ -20482,6 +20482,10 @@ body.kiosk-mode .status-indicators {
     margin-top: 0.5rem;
 }
 
+.firmware-rollout-guide .setup-guide-content > .form-group.firmware-rollout-inline:last-child {
+    margin-bottom: 0.5rem;
+}
+
 .firmware-rollout-muted {
     color: var(--text-muted);
     font-size: 0.8rem;
