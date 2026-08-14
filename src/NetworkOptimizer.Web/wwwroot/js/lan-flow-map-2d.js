@@ -280,6 +280,13 @@ class LanFlowMap2D {
         this._tooltip=null;
         this._hoverNode=null;
         this._liveOnly=false;
+        // Optional per-node overlay map (Firmware Rollout): id -> {color,badge,pulse,dim}.
+        this._overlays=null;
+    }
+
+    setOverlays(map){
+        this._overlays=map&&Object.keys(map).length?map:null;
+        this._needsStaticRedraw=true;
     }
 
     async start(){
@@ -1594,6 +1601,24 @@ class LanFlowMap2D {
         ctx.globalCompositeOperation='source-over';
         ctx.globalAlpha=1;
 
+        // Overlay pulse rings (world coords, animated, so drawn per frame)
+        if(this._overlays){
+            const t=(performance.now()%1500)/1500;
+            for(const id in this._overlays){
+                const ov=this._overlays[id];
+                if(!ov?.pulse)continue;
+                const n=this._treeMap.get(id);
+                if(!n||n.x==null)continue;
+                const grow=8*t, hw=G.boxW/2+5+grow, hh=G.boxH/2+5+grow;
+                ctx.strokeStyle=ov.color||C.textSec;
+                ctx.globalAlpha=0.7*(1-t);
+                ctx.lineWidth=2+2*t;
+                this._roundRect(ctx,n.x-hw,n.y-hh,hw*2,hh*2,14+grow);
+                ctx.stroke();
+            }
+            ctx.globalAlpha=1;
+        }
+
         // Labels on top of everything (including particles)
         this._drawLinkSpeedLabels(ctx);
         this._drawRateLabels(ctx);
@@ -1830,13 +1855,16 @@ class LanFlowMap2D {
     }
 
     _drawInfraNode(ctx,n){
-        const x=n.x, y=n.y, color=nodeClr(n.d.kind);
+        const x=n.x, y=n.y;
+        const ov=this._overlays?.[n.d.id];
+        const color=ov?.color||nodeClr(n.d.kind);
         const hw=G.boxW/2, hh=G.boxH/2;
         // Prefer the live/historic badge online state over the snapshot's build-time
         // value so the dimming tracks the timeline and live changes between rebuilds.
         const badge=flowData.getNodeBadges()?.[n.d.id];
         const online=badge?badge.online!==false:n.d.online;
-        const op=online?1:0.35;
+        let op=online?1:0.35;
+        if(ov?.dim)op=Math.min(op,0.35);
 
         // Glow
         ctx.fillStyle=withAlpha(color,0.07);
@@ -1883,6 +1911,19 @@ class LanFlowMap2D {
             ctx.fillStyle=C.text;
             ctx.textAlign='center'; ctx.textBaseline='middle';
             ctx.fillText(dn,x,ly);
+        }
+
+        // Overlay badge: small filled disc at the card's top-right corner
+        if(ov?.badge){
+            const bx=x+hw-2, by=y-hh+2, br=9;
+            ctx.fillStyle=ov.color||C.textSec;
+            ctx.beginPath(); ctx.arc(bx,by,br,0,Math.PI*2); ctx.fill();
+            ctx.strokeStyle=C.bg; ctx.lineWidth=1.5;
+            ctx.beginPath(); ctx.arc(bx,by,br,0,Math.PI*2); ctx.stroke();
+            ctx.fillStyle='#fff';
+            ctx.font=`600 10px ${FONT}`;
+            ctx.textAlign='center'; ctx.textBaseline='middle';
+            ctx.fillText(String(ov.badge).slice(0,2),bx,by+0.5);
         }
 
         // Rate labels (stored for dynamic update)
@@ -2103,4 +2144,24 @@ export function startDataPolling(){
 export function stopDataPolling(){
     flowData.stopPolling();
     if(_inst)_inst._liveOnly=false;
+}
+
+// Per-node visual overlays (Firmware Rollout): map of node id OR raw device MAC to
+// {color,badge,pulse,dim}. Keys are normalized to the map's "dev-<mac>" ids. Passing
+// null/empty clears. Default rendering is untouched when no overlay is set.
+export function setNodeOverlays(map){
+    if(!_inst)return;
+    let normalized=null;
+    if(map){
+        normalized={};
+        for(const k in map){
+            const key=k.startsWith('dev-')?k:'dev-'+k.toLowerCase().replaceAll('-',':');
+            normalized[key]=map[k];
+        }
+    }
+    _inst.setOverlays(normalized);
+}
+
+export function clearNodeOverlays(){
+    if(_inst)_inst.setOverlays(null);
 }

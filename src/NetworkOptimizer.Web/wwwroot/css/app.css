@@ -20303,3 +20303,62 @@ body.kiosk-mode .status-indicators {
         margin-left: 0;
     }
 }
+
+/* ---- Firmware Rollout ---- */
+
+.firmware-rollout-timeline {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-top: 0.75rem;
+    flex-wrap: wrap;
+}
+
+.firmware-rollout-track {
+    position: relative;
+    flex: 1;
+    min-width: 200px;
+    height: 14px;
+    background: var(--bg-tertiary);
+    border-radius: 7px;
+    cursor: pointer;
+    touch-action: none;
+}
+
+.firmware-rollout-wave-seg {
+    position: absolute;
+    top: 2px;
+    bottom: 2px;
+    background: var(--info-color);
+    opacity: 0.65;
+    border-radius: 5px;
+    min-width: 4px;
+}
+
+.firmware-rollout-playhead {
+    position: absolute;
+    top: -3px;
+    bottom: -3px;
+    width: 2px;
+    background: var(--primary-hover);
+    border-radius: 1px;
+    pointer-events: none;
+}
+
+.firmware-rollout-timeline-labels {
+    display: flex;
+    justify-content: space-between;
+    flex-basis: 100%;
+    font-size: 0.72rem;
+    color: var(--text-muted);
+}
+
+.firmware-rollout-playhead-label {
+    color: var(--text-secondary);
+}
+
+@media (max-width: 768px) {
+    .firmware-rollout-timeline {
+        gap: 0.5rem;
+    }
+}

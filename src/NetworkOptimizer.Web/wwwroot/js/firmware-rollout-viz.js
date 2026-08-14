@@ -1,0 +1,278 @@
+// Firmware Rollout topology visualization. Drives the 2D map's node-overlay API from
+// rollout state and renders the timeline scrubber under it. One component, two modes:
+// planned (preview: scrub or play the sequence over estimated times) and live
+// (actual step states with a now marker). No chart library - DOM + the map canvas.
+
+import * as map2d from './lan-flow-map-2d.js?v=1'; // bump v= when lan-flow-map-2d.js changes
+
+function cssVar(name, fallback) {
+    const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    return v || fallback;
+}
+
+// State colors resolve from the app palette once per mount (canvas cannot resolve var()).
+let COLORS = null;
+function resolveColors() {
+    COLORS = {
+        pending: cssVar('--text-muted', '#5c5c66'),
+        queued: cssVar('--info-color', '#4797ff'),
+        upgrading: cssVar('--warning-color', '#e79613'),
+        done: cssVar('--success-color', '#24bc70'),
+        failed: cssVar('--danger-color', '#ee6368'),
+        held: '#a78bfa',
+        playhead: cssVar('--primary-color', '#0550B5'),
+    };
+}
+
+// DB step states (FirmwareRolloutStepState ints) to visual buckets for live mode.
+const LIVE_STATE = {
+    0: 'pending',    // Pending
+    1: 'held',       // Held
+    2: 'upgrading',  // Commanded
+    3: 'upgrading',  // Down
+    4: 'upgrading',  // BackOnline
+    5: 'upgrading',  // CoolDown
+    6: 'done',       // LitmusPassed
+    7: 'done',       // RegressionFlagged (came back; flagged separately via badge)
+    8: 'failed',     // Failed
+    9: 'excluded',   // SkippedExcluded
+    10: 'failed',    // AbortedSku
+};
+
+let _mode = 'planned';
+let _plan = null;              // RolloutPlanDocument (camelCase)
+let _excluded = [];            // MACs rendered dimmed
+let _liveSteps = null;         // [{deviceMac, state, wave}] for live mode
+let _timelineEl = null;
+let _playheadSec = 0;
+let _playing = false;
+let _playTimer = 0;
+let _lastTick = 0;
+let _liveStartMs = null;
+
+export async function mount(stageId, timelineId, opts) {
+    resolveColors();
+    await map2d.mount(stageId, opts || {});
+    map2d.startDataPolling();
+    _timelineEl = document.getElementById(timelineId);
+    _playheadSec = 0;
+    _playing = false;
+    _mode = 'planned';
+}
+
+export function dispose() {
+    pause();
+    map2d.clearNodeOverlays();
+    map2d.stopDataPolling();
+    map2d.unmount();
+    if (_timelineEl) _timelineEl.replaceChildren();
+    _timelineEl = null;
+    _plan = null; _liveSteps = null; _excluded = [];
+}
+
+/// Planned mode: the preview drives everything from ETAs.
+export function setPlan(planDoc, excludedMacs) {
+    _plan = planDoc || null;
+    _excluded = excludedMacs || [];
+    _mode = 'planned';
+    _playheadSec = 0;
+    renderTimeline();
+    applyOverlays();
+}
+
+/// Live mode: actual step states; startedAtMs positions the now marker.
+export function setLiveSteps(planDoc, steps, startedAtMs) {
+    _plan = planDoc || _plan;
+    _liveSteps = steps || [];
+    _liveStartMs = startedAtMs || null;
+    _mode = 'live';
+    pause();
+    renderTimeline();
+    applyOverlays();
+}
+
+export function setTimelinePosition(seconds) {
+    _playheadSec = Math.max(0, Math.min(seconds, totalSeconds()));
+    positionPlayhead();
+    applyOverlays();
+}
+
+export function play() {
+    if (_playing || _mode !== 'planned') return;
+    if (_playheadSec >= totalSeconds()) _playheadSec = 0;
+    _playing = true;
+    _lastTick = performance.now();
+    const speedup = 60; // 1 s wall clock = 1 min of plan
+    const tick = () => {
+        if (!_playing) return;
+        const now = performance.now();
+        _playheadSec += ((now - _lastTick) / 1000) * speedup;
+        _lastTick = now;
+        if (_playheadSec >= totalSeconds()) { _playheadSec = totalSeconds(); _playing = false; }
+        positionPlayhead();
+        applyOverlays();
+        if (_playing) _playTimer = requestAnimationFrame(tick);
+        updatePlayButton();
+    };
+    _playTimer = requestAnimationFrame(tick);
+    updatePlayButton();
+}
+
+export function pause() {
+    _playing = false;
+    if (_playTimer) cancelAnimationFrame(_playTimer);
+    _playTimer = 0;
+    updatePlayButton();
+}
+
+function totalSeconds() { return Math.max(1, _plan?.totalEstimatedSeconds || 1); }
+
+function fmtDuration(s) {
+    s = Math.round(s);
+    const h = Math.floor(s / 3600), m = Math.round((s % 3600) / 60);
+    return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+
+// ---- Overlay computation ----
+
+function plannedStepState(step, waveStart) {
+    const eta = step.etaOffsetSeconds ?? waveStart;
+    const end = eta + (step.estimatedDowntimeSeconds || 0);
+    if (_playheadSec >= end && _playheadSec > 0) return 'done';
+    if (_playheadSec >= eta && _playheadSec > 0) return 'upgrading';
+    return step.heldForCanary ? 'held' : 'queued';
+}
+
+function applyOverlays() {
+    if (!_plan) { map2d.clearNodeOverlays(); return; }
+    const overlays = {};
+
+    if (_mode === 'planned') {
+        for (const wave of _plan.waves || []) {
+            for (const s of wave.steps || []) {
+                const state = plannedStepState(s, wave.startOffsetSeconds || 0);
+                overlays[s.mac] = overlayFor(state, s, wave);
+            }
+        }
+    } else {
+        const byMac = {};
+        for (const wave of _plan.waves || []) for (const s of wave.steps || []) byMac[s.mac.toLowerCase()] = { s, wave };
+        for (const step of _liveSteps || []) {
+            const mac = (step.deviceMac || step.mac || '').toLowerCase();
+            const state = LIVE_STATE[step.state] ?? 'pending';
+            if (state === 'excluded') continue; // dimmed below with _excluded
+            const doc = byMac[mac];
+            overlays[mac] = overlayFor(state, doc?.s || {}, doc?.wave || {}, step);
+        }
+    }
+
+    for (const mac of _excluded) {
+        overlays[mac.toLowerCase()] = { dim: true };
+    }
+    map2d.setNodeOverlays(overlays);
+}
+
+function overlayFor(state, step, wave, liveStep) {
+    const ov = { color: COLORS[state] || COLORS.pending };
+    if (state === 'upgrading') ov.pulse = true;
+    if (state === 'queued' || state === 'pending') ov.badge = String(wave.number ?? '');
+    if (step.isCanary) ov.badge = 'C';
+    if (state === 'held') ov.badge = 'H';
+    if (state === 'failed') ov.badge = '!';
+    if (liveStep && liveStep.state === 7) { ov.badge = '!'; ov.color = COLORS.upgrading; } // RegressionFlagged
+    return ov;
+}
+
+// ---- Timeline scrubber (DOM) ----
+
+function renderTimeline() {
+    if (!_timelineEl || !_plan) return;
+    const total = totalSeconds();
+    const el = _timelineEl;
+    el.replaceChildren();
+    el.classList.add('firmware-rollout-timeline');
+
+    if (_mode === 'planned') {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn btn-secondary btn-sm firmware-rollout-play';
+        btn.addEventListener('click', () => _playing ? pause() : play());
+        el.appendChild(btn);
+    }
+
+    const track = document.createElement('div');
+    track.className = 'firmware-rollout-track';
+    for (const wave of _plan.waves || []) {
+        const seg = document.createElement('div');
+        seg.className = 'firmware-rollout-wave-seg';
+        const start = (wave.startOffsetSeconds || 0) / total;
+        const durSec = Math.max(...(wave.steps || []).map(s => s.estimatedDowntimeSeconds || 0), 60);
+        seg.style.left = (start * 100) + '%';
+        seg.style.width = Math.max(durSec / total * 100, 0.75) + '%';
+        seg.dataset.tooltip = `Wave ${wave.number}: ` +
+            (wave.steps || []).map(s => s.name || s.mac).join(', ');
+        track.appendChild(seg);
+    }
+
+    const playhead = document.createElement('div');
+    playhead.className = 'firmware-rollout-playhead';
+    track.appendChild(playhead);
+    el.appendChild(track);
+
+    const labels = document.createElement('div');
+    labels.className = 'firmware-rollout-timeline-labels';
+    const l0 = document.createElement('span'); l0.textContent = 'start';
+    const l1 = document.createElement('span'); l1.className = 'firmware-rollout-playhead-label';
+    const l2 = document.createElement('span'); l2.textContent = fmtDuration(total);
+    labels.append(l0, l1, l2);
+    el.appendChild(labels);
+
+    // Scrub by pointer (planned mode only; live position is the clock's)
+    if (_mode === 'planned') {
+        const scrub = (ev) => {
+            const r = track.getBoundingClientRect();
+            const frac = Math.max(0, Math.min(1, (ev.clientX - r.left) / r.width));
+            pause();
+            setTimelinePosition(frac * total);
+        };
+        track.addEventListener('pointerdown', (ev) => {
+            track.setPointerCapture(ev.pointerId);
+            scrub(ev);
+            const move = (e) => scrub(e);
+            const up = () => {
+                track.removeEventListener('pointermove', move);
+                track.removeEventListener('pointerup', up);
+            };
+            track.addEventListener('pointermove', move);
+            track.addEventListener('pointerup', up);
+        });
+    }
+
+    positionPlayhead();
+    updatePlayButton();
+    if (window.tippy && el.querySelectorAll) initTooltips(el);
+}
+
+function initTooltips(root) {
+    for (const n of root.querySelectorAll('[data-tooltip]')) {
+        if (!n._tippy) window.tippy(n, { content: n.dataset.tooltip });
+    }
+}
+
+function positionPlayhead() {
+    if (!_timelineEl) return;
+    const total = totalSeconds();
+    let sec = _playheadSec;
+    if (_mode === 'live' && _liveStartMs) {
+        sec = Math.max(0, Math.min((Date.now() - _liveStartMs) / 1000, total));
+    }
+    const head = _timelineEl.querySelector('.firmware-rollout-playhead');
+    if (head) head.style.left = (sec / total * 100) + '%';
+    const label = _timelineEl.querySelector('.firmware-rollout-playhead-label');
+    if (label) label.textContent = 'T+' + fmtDuration(sec);
+}
+
+function updatePlayButton() {
+    const btn = _timelineEl?.querySelector('.firmware-rollout-play');
+    if (btn) btn.textContent = _playing ? 'Pause' : 'Play';
+}
