@@ -287,6 +287,7 @@ class LanFlowMap2D {
         this._hideOverlayControls=false;
         this._hideFilter=false;
         this._hideVirtualHubs=false;
+        this._hideClouds=false;
     }
 
     setOverlays(map){
@@ -887,7 +888,7 @@ class LanFlowMap2D {
         return true;
     }
 
-    _isCloudVisible(){return this._overlays.clouds;}
+    _isCloudVisible(){return !this._hideClouds&&this._overlays.clouds;}
 
     _zoomBy(factor){
         this._scale=Math.max(0.05,Math.min(10,this._scale*factor));
@@ -2141,6 +2142,7 @@ export async function mount(containerId,opts){
     if(opts?.hideOverlayControls)_inst._hideOverlayControls=true;
     if(opts?.hideFilter)_inst._hideFilter=true;
     if(opts?.hideVirtualHubs)_inst._hideVirtualHubs=true;
+    if(opts?.hideClouds)_inst._hideClouds=true;
     await _inst.start();
 }
 
