@@ -1,0 +1,996 @@
+@page "/firmware-rollout"
+@attribute [Authorize(Policy = Policies.RequireViewer)]
+@implements IAsyncDisposable
+@inject IFirmwareRolloutService RolloutService
+@inject SiteContextService SiteContext
+@inject IJSRuntime JS
+@inject Microsoft.AspNetCore.Mvc.ViewFeatures.IFileVersionProvider FileVersionProvider
+@inject ILogger<FirmwareRollout> Logger
+@rendermode InteractiveServer
+@using NetworkOptimizer.Storage.Models
+@using NetworkOptimizer.Web.Services.Firmware
+
+<PageTitle>Firmware Rollout - Network Optimizer</PageTitle>
+
+<div class="page-header">
+    <h1>Firmware Rollout</h1>
+    <p class="page-description">Upgrade the whole site the way you would by hand, without the evening lost to it: leaf devices first and the gateway last, one canary per model before its peers, coverage-aware AP pairing so clients always have somewhere to roam, and a quiet-hours schedule from your own usage history. Every device is verified against the version it was meant to reach.</p>
+</div>
+
+<RestrictedSiteNotice />
+
+@if (_loading)
+{
+    <div class="loading-container"><span class="spinner"></span><span>Loading rollout state...</span></div>
+}
+else if (_active != null)
+{
+    @* ---- Live / scheduled rollout view ---- *@
+    <div class="card" data-tour="firmware-rollout">
+        <div class="card-header">
+            <h2 class="card-title">@ActiveTitle</h2>
+            <div class="firmware-rollout-controls">
+                <SiteAdminOnly>
+                    @if (_active.Status == FirmwareRolloutStatus.Running)
+                    {
+                        <button class="btn btn-sm btn-secondary" @onclick="() => ControlAsync(RolloutService.PauseAsync)" disabled="@_busy">Pause</button>
+                    }
+                    @if (_active.Status == FirmwareRolloutStatus.Paused)
+                    {
+                        <button class="btn btn-sm btn-primary" @onclick="() => ControlAsync(RolloutService.ResumeAsync)" disabled="@_busy">@(WaitingApproval ? "Approve Next Wave" : "Resume")</button>
+                    }
+                    @if (_active.Status is FirmwareRolloutStatus.Scheduled or FirmwareRolloutStatus.Announced)
+                    {
+                        <button class="btn btn-sm btn-secondary" @onclick="() => ControlAsync(RolloutService.PostponeAsync)" disabled="@_busy">Postpone</button>
+                    }
+                    @if (_active.Status is not FirmwareRolloutStatus.SoakWait)
+                    {
+                        <button class="btn btn-sm btn-danger" @onclick="AbortAsync" disabled="@_busy">Abort</button>
+                    }
+                </SiteAdminOnly>
+            </div>
+        </div>
+        <div class="card-body">
+            @if (_active.Status is FirmwareRolloutStatus.Scheduled or FirmwareRolloutStatus.Announced)
+            {
+                <p class="firmware-rollout-note">Scheduled to start <strong>@LocalTime(_active.ScheduledStartAt)</strong>. Estimated duration @Duration(_active.Plan.TotalEstimatedSeconds).</p>
+            }
+            @if (WaitingApproval)
+            {
+                <div class="alert-info firmware-rollout-note">Paused at a wave boundary, waiting for approval to continue.</div>
+            }
+            @if (_active.Status == FirmwareRolloutStatus.SoakWait)
+            {
+                <p class="firmware-rollout-note">All devices are through. The report is being soaked for - resource comparisons need settle time - and will be ready within @(_settings?.SoakHours ?? 24) hours of completion.</p>
+            }
+            @foreach (var note in _active.Plan.Notes)
+            {
+                <p class="firmware-rollout-plan-note">@note</p>
+            }
+
+            <div id="firmware-rollout-map-stage" class="firmware-rollout-map-stage"></div>
+            <div id="firmware-rollout-timeline"></div>
+
+            <div class="table-responsive firmware-rollout-steps">
+                <table class="data-table">
+                    <thead>
+                        <tr><th>Wave</th><th>Device</th><th>Model</th><th class="hide-mobile">From</th><th>To</th><th>State</th><th class="hide-mobile">Downtime</th><th></th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var step in _active.Steps.Where(s => s.State != FirmwareRolloutStepState.SkippedExcluded))
+                        {
+                            <tr>
+                                <td>@(step.Wave > 0 ? step.Wave.ToString() : "-")</td>
+                                <td>@step.Name</td>
+                                <td>@step.Model</td>
+                                <td class="hide-mobile">@(step.FromVersion ?? "-")</td>
+                                <td>@(step.ToVersion ?? "-")</td>
+                                <td><span class="firmware-rollout-chip @ChipClass(step.State)">@ChipLabel(step.State)</span></td>
+                                <td class="hide-mobile">@(step.DowntimeSeconds is int d ? Duration(d) : "-")</td>
+                                <td>
+                                    <SiteAdminOnly>
+                                        @if (step.CanRollBack)
+                                        {
+                                            <button class="btn btn-sm btn-secondary" @onclick="() => RollbackAsync(step)" disabled="@_busy">Roll back</button>
+                                        }
+                                        else if (step.RollbackUnavailableReason != null && step.State == FirmwareRolloutStepState.RegressionFlagged)
+                                        {
+                                            <span class="tooltip-icon tooltip-icon-sm" data-tooltip="@step.RollbackUnavailableReason">?</span>
+                                        }
+                                    </SiteAdminOnly>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+}
+else if (_wizardOpen)
+{
+    @* ---- Wizard ---- *@
+    <div class="card" data-tour="firmware-rollout">
+        <div class="card-header">
+            <h2 class="card-title">Plan a Rollout</h2>
+            <button class="btn btn-sm btn-secondary" @onclick="CloseWizard" disabled="@_busy">Cancel</button>
+        </div>
+        <div class="card-body">
+            <div class="site-wizard-steps">
+                @{ var stepNames = new[] { "Scope & Channels", "Schedule", "Preview" }; }
+                @for (var i = 0; i < stepNames.Length; i++)
+                {
+                    var n = i + 1;
+                    var stepClass = n < _step ? "done" : n == _step ? "current" : "upcoming";
+                    <div class="site-wizard-step @stepClass">
+                        <span class="site-wizard-step-node">@if (n < _step) { <text>&#x2713;</text> } else { @n }</span>
+                        <span class="site-wizard-step-label">@stepNames[i]</span>
+                    </div>
+                }
+            </div>
+
+            @if (_wizardError != null)
+            {
+                <div class="alert-danger firmware-rollout-note">@_wizardError</div>
+            }
+
+            @if (_step == 1 && _settings != null)
+            {
+                <p class="section-description">Everything upgradable is included on the stable channel by default. Open a section only if you want something different.</p>
+
+                @if (_preview != null && !_preview.ConsoleConnected)
+                {
+                    <div class="alert-warning firmware-rollout-note">The UniFi Console is not answering right now, so nothing can be planned until it is back.</div>
+                }
+                @foreach (var warning in _preview?.Warnings ?? [])
+                {
+                    <div class="alert-warning firmware-rollout-note">@warning</div>
+                }
+
+                <div class="form-group">
+                    <label class="form-label">Release channel for all devices</label>
+                    <select class="form-control firmware-rollout-select" @bind="_settings.GlobalChannel">
+                        <option value="@FirmwareChannels.Release">Official (GA)</option>
+                        <option value="@FirmwareChannels.ReleaseCandidate">Release Candidate</option>
+                        @if (_preview?.Channels.EarlyAccessAvailable == true)
+                        {
+                            <option value="@FirmwareChannels.Beta">Early Access</option>
+                        }
+                    </select>
+                    @if (_preview != null && !_preview.Channels.EarlyAccessAvailable)
+                    {
+                        <small class="form-help">Early Access is enabled through your Ubiquiti account, so it only appears here once the console offers it.</small>
+                    }
+                </div>
+
+                <div class="form-group">
+                    <label class="firmware-rollout-check"><input type="checkbox" @bind="_settings.IncludeUniFiNetwork" /> Update the UniFi Network application first</label>
+                    @if (_preview?.IsStandaloneConsole == false)
+                    {
+                        <label class="firmware-rollout-check"><input type="checkbox" @bind="_settings.IncludeUniFiOs" /> Include the UniFi OS update on the Cloud Gateway</label>
+                    }
+                </div>
+
+                <details class="firmware-rollout-expander">
+                    <summary>Per-device-type channels</summary>
+                    <div class="firmware-rollout-expander-body">
+                        @foreach (var (code, label) in TypeChannelRows)
+                        {
+                            <div class="form-group firmware-rollout-inline">
+                                <label class="form-label">@label</label>
+                                <select class="form-control firmware-rollout-select" value="@TypeChannel(code)" @onchange="e => SetTypeChannel(code, e.Value?.ToString())">
+                                    <option value="">Same as all devices</option>
+                                    <option value="@FirmwareChannels.Release">Official (GA)</option>
+                                    <option value="@FirmwareChannels.ReleaseCandidate">Release Candidate</option>
+                                    @if (_preview?.Channels.EarlyAccessAvailable == true)
+                                    {
+                                        <option value="@FirmwareChannels.Beta">Early Access</option>
+                                    }
+                                </select>
+                            </div>
+                        }
+                    </div>
+                </details>
+
+                <details class="firmware-rollout-expander">
+                    <summary>Per-model channels</summary>
+                    <div class="firmware-rollout-expander-body">
+                        @foreach (var model in PreviewModels)
+                        {
+                            <div class="form-group firmware-rollout-inline">
+                                <label class="form-label">@model</label>
+                                <select class="form-control firmware-rollout-select" value="@SkuChannel(model)" @onchange="e => SetSkuChannel(model, e.Value?.ToString())">
+                                    <option value="">Same as its type</option>
+                                    <option value="@FirmwareChannels.Release">Official (GA)</option>
+                                    <option value="@FirmwareChannels.ReleaseCandidate">Release Candidate</option>
+                                    @if (_preview?.Channels.EarlyAccessAvailable == true)
+                                    {
+                                        <option value="@FirmwareChannels.Beta">Early Access</option>
+                                    }
+                                </select>
+                            </div>
+                        }
+                        @if (PreviewModels.Count == 0)
+                        {
+                            <small class="form-help">Models appear here once the device list has loaded.</small>
+                        }
+                    </div>
+                </details>
+
+                <details class="firmware-rollout-expander">
+                    <summary>Exclude devices @(_exMacs.Count + _exSkus.Count + _exTypes.Count > 0 ? $"({_exMacs.Count + _exSkus.Count + _exTypes.Count} rules)" : "")</summary>
+                    <div class="firmware-rollout-expander-body">
+                        <div class="form-group">
+                            <input type="text" class="form-control" placeholder="Search devices..." @bind="_exclusionSearch" @bind:event="oninput" />
+                        </div>
+                        <div class="firmware-rollout-exclusion-groups">
+                            @foreach (var (code, label) in TypeChannelRows)
+                            {
+                                <label class="firmware-rollout-check"><input type="checkbox" checked="@_exTypes.Contains(code)" @onchange="e => ToggleSet(_exTypes, code, e)" /> Exclude all @label.ToLowerInvariant()</label>
+                            }
+                        </div>
+                        <div class="firmware-rollout-exclusion-list">
+                            @foreach (var step in FilteredExclusionCandidates)
+                            {
+                                <label class="firmware-rollout-check">
+                                    <input type="checkbox" checked="@_exMacs.Contains(step.Mac)" @onchange="e => ToggleSet(_exMacs, step.Mac, e)" />
+                                    @step.Name <span class="firmware-rollout-muted">@step.Model</span>
+                                    <button type="button" class="btn btn-sm btn-secondary firmware-rollout-sku-btn" @onclick="() => ToggleSku(step.Model)" @onclick:stopPropagation="true">@(_exSkus.Contains(step.Model) ? "Include model" : "Exclude model")</button>
+                                </label>
+                            }
+                        </div>
+                    </div>
+                </details>
+
+                <div class="firmware-rollout-wizard-nav">
+                    <button class="btn btn-primary" @onclick="() => _step = 2" disabled="@(_busy || _preview?.ConsoleConnected == false)">Next</button>
+                </div>
+            }
+            else if (_step == 2 && _settings != null)
+            {
+                <p class="section-description">Run it now, book a one-time window, or let autopilot keep the site current on its own schedule.</p>
+
+                <div class="form-group firmware-rollout-mode-row">
+                    <label class="firmware-rollout-check"><input type="radio" name="fr-mode" checked="@(_scheduleMode == "now")" @onchange="@(() => _scheduleMode = "now")" /> Start now</label>
+                    <label class="firmware-rollout-check"><input type="radio" name="fr-mode" checked="@(_scheduleMode == "once")" @onchange="@(() => _scheduleMode = "once")" /> Schedule once</label>
+                    <label class="firmware-rollout-check"><input type="radio" name="fr-mode" checked="@(_scheduleMode == "autopilot")" @onchange="@(() => _scheduleMode = "autopilot")" /> Autopilot</label>
+                </div>
+
+                @if (_scheduleMode == "once")
+                {
+                    <div class="form-group">
+                        <label class="form-label">Start</label>
+                        <input type="range" class="firmware-rollout-slider" min="0" max="167" step="1" value="@_startOffsetHours" @oninput="e => SetStartOffset(e.Value?.ToString())" />
+                        <div class="firmware-rollout-slider-labels">
+                            <span><strong>@LocalTime(SelectedStartUtc)</strong></span>
+                            <span>done by ~@LocalTime(SelectedStartUtc.AddSeconds(_preview?.Plan.TotalEstimatedSeconds ?? 0))</span>
+                        </div>
+                        @if (_preview?.ProposedWindow is { } window)
+                        {
+                            <small class="form-help">Suggested: @window.Day at @($"{window.Hour:00}:00") - based on @window.Basis.@(window.UsedFallback ? " Collecting a week of usage history will refine this." : "")</small>
+                        }
+                    </div>
+                }
+                @if (_scheduleMode == "autopilot")
+                {
+                    <p class="firmware-rollout-note">Autopilot plans a rollout whenever updates are waiting, books it into the site's quietest window, and tells you <strong>@_settings.NotifyHoursAhead hours</strong> ahead so you can postpone with one click.</p>
+                    <div class="form-group firmware-rollout-inline">
+                        <label class="form-label">Heads-up hours</label>
+                        <input type="number" class="form-control firmware-rollout-num" min="1" max="168" @bind="_settings.NotifyHoursAhead" />
+                    </div>
+                }
+
+                <div class="form-group">
+                    <label class="form-label">Pace</label>
+                    <div class="firmware-rollout-mode-row">
+                        <label class="firmware-rollout-check"><input type="radio" name="fr-pace" checked="@(_settings.SpacingProfile == FirmwareSpacingProfile.Conservative)" @onchange="@(() => _settings.SpacingProfile = FirmwareSpacingProfile.Conservative)" /> Conservative</label>
+                        <label class="firmware-rollout-check"><input type="radio" name="fr-pace" checked="@(_settings.SpacingProfile == FirmwareSpacingProfile.Balanced)" @onchange="@(() => _settings.SpacingProfile = FirmwareSpacingProfile.Balanced)" /> Balanced</label>
+                        <label class="firmware-rollout-check"><input type="radio" name="fr-pace" checked="@(_settings.SpacingProfile == FirmwareSpacingProfile.Fast)" @onchange="@(() => _settings.SpacingProfile = FirmwareSpacingProfile.Fast)" /> Fast</label>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label class="firmware-rollout-check"><input type="checkbox" @bind="_settings.SuppressStandardAlerts" /> Quiet the standard offline and restart alerts for devices while the rollout has them down</label>
+                    <label class="firmware-rollout-check"><input type="checkbox" @bind="_settings.PerWaveApproval" /> Pause for approval at every wave</label>
+                </div>
+
+                <details class="firmware-rollout-expander">
+                    <summary>Advanced</summary>
+                    <div class="firmware-rollout-expander-body">
+                        <label class="firmware-rollout-check"><input type="checkbox" @bind="_settings.WaiveBackup" /> Skip the pre-flight console backup</label>
+                        @if (_scheduleMode == "autopilot")
+                        {
+                            <div class="form-group firmware-rollout-inline">
+                                <label class="form-label">Minimum release age (days)</label>
+                                <input type="number" class="form-control firmware-rollout-num" min="0" max="90" @bind="_settings.MinReleaseAgeDays" />
+                                <small class="form-help">0 rolls out releases as they arrive; a few days lets the earliest adopters find the surprises.</small>
+                            </div>
+                        }
+                    </div>
+                </details>
+
+                <div class="firmware-rollout-wizard-nav">
+                    <button class="btn btn-secondary" @onclick="() => _step = 1" disabled="@_busy">Back</button>
+                    <button class="btn btn-primary" @onclick="GoToPreviewAsync" disabled="@_busy">
+                        @if (_busy) { <span class="spinner spinner-sm"></span> } else { <span>Preview</span> }
+                    </button>
+                </div>
+            }
+            else if (_step == 3 && _preview != null)
+            {
+                <p class="section-description">This is the whole plan: leaf devices first, the gateway last, one canary per model, and roam-aware AP pairing. Nothing starts until you say so.</p>
+
+                <div class="firmware-rollout-stats">
+                    <div class="firmware-rollout-stat"><span class="detail-value">@_preview.UpgradableCount</span><span class="detail-label">to upgrade</span></div>
+                    <div class="firmware-rollout-stat"><span class="detail-value">@_preview.Plan.Waves.Count</span><span class="detail-label">waves</span></div>
+                    <div class="firmware-rollout-stat"><span class="detail-value">@Duration(_preview.Plan.TotalEstimatedSeconds)</span><span class="detail-label">estimated</span></div>
+                    @if (_preview.ExcludedCount > 0)
+                    {
+                        <div class="firmware-rollout-stat"><span class="detail-value">@_preview.ExcludedCount</span><span class="detail-label">excluded</span></div>
+                    }
+                </div>
+
+                <div id="firmware-rollout-map-stage" class="firmware-rollout-map-stage"></div>
+                <div id="firmware-rollout-timeline"></div>
+
+                @foreach (var note in _preview.Plan.Notes)
+                {
+                    <p class="firmware-rollout-plan-note">@note</p>
+                }
+                @foreach (var warning in _preview.Warnings)
+                {
+                    <div class="alert-warning firmware-rollout-note">@warning</div>
+                }
+
+                <div class="firmware-rollout-waves">
+                    @foreach (var wave in _preview.Plan.Waves)
+                    {
+                        <div class="firmware-rollout-wave">
+                            <span class="firmware-rollout-wave-no">@wave.Number</span>
+                            <span class="firmware-rollout-wave-eta">T+@Duration(wave.StartOffsetSeconds)</span>
+                            <span class="firmware-rollout-wave-devices">
+                                @foreach (var step in wave.Steps)
+                                {
+                                    <span class="firmware-rollout-wave-device">@step.Name@(step.IsCanary ? " (canary)" : "")@(step.HeldForCanary ? " (held)" : "")</span>
+                                }
+                            </span>
+                        </div>
+                    }
+                </div>
+
+                <div class="firmware-rollout-wizard-nav">
+                    <button class="btn btn-secondary" @onclick="BackFromPreview" disabled="@_busy">Back</button>
+                    <SiteAdminOnly>
+                        <button class="btn btn-primary btn-lg" @onclick="CommitAsync" disabled="@(_busy || _preview.UpgradableCount == 0)">
+                            @if (_busy) { <span class="spinner spinner-sm"></span> }
+                            else { <span>@CommitLabel</span> }
+                        </button>
+                    </SiteAdminOnly>
+                </div>
+            }
+        </div>
+    </div>
+}
+else
+{
+    @* ---- Landing ---- *@
+    <div class="card" data-tour="firmware-rollout">
+        <div class="card-header">
+            <h2 class="card-title">Firmware Rollout</h2>
+            <SiteAdminOnly>
+                <button class="btn btn-primary" @onclick="OpenWizardAsync" disabled="@_busy">
+                    @if (_busy) { <span class="spinner spinner-sm"></span> } else { <span>Plan a Rollout</span> }
+                </button>
+            </SiteAdminOnly>
+        </div>
+        <div class="card-body">
+            <p class="firmware-rollout-note">No rollout is scheduled or running. @(_settings?.Mode == FirmwareRolloutMode.Autopilot ? "Autopilot is on: the next time updates are waiting, a rollout will be planned into the site's quietest window and announced ahead of time." : "Plan one in three steps, or turn on autopilot and let the site keep itself current overnight.")</p>
+        </div>
+    </div>
+
+    @if (_history.Count > 0)
+    {
+        <div class="card">
+            <div class="card-header"><h2 class="card-title">History</h2></div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="data-table">
+                        <thead><tr><th>Started</th><th>Devices</th><th class="hide-mobile">Waves</th><th>Outcome</th><th></th></tr></thead>
+                        <tbody>
+                            @foreach (var row in _history)
+                            {
+                                <tr>
+                                    <td>@LocalTime(row.StartedAt ?? row.CreatedAt)</td>
+                                    <td>@row.DeviceCount</td>
+                                    <td class="hide-mobile">@row.WaveCount</td>
+                                    <td><span class="firmware-rollout-chip @PlanChipClass(row.Status)">@PlanChipLabel(row.Status)</span></td>
+                                    <td>
+                                        @if (row.HasReport)
+                                        {
+                                            <button class="btn btn-sm btn-secondary" @onclick="() => OpenReportAsync(row.Id)">Report</button>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (_report != null)
+    {
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">Rollout Report</h2>
+                <div class="firmware-rollout-controls">
+                    @if (_report.IsReady)
+                    {
+                        <button class="btn btn-sm btn-primary" @onclick="ExportReportPdfAsync" disabled="@_exportingPdf">
+                            @if (_exportingPdf) { <span class="spinner spinner-sm"></span> } else { <span class="btn-label-wide">Export PDF</span> }
+                        </button>
+                    }
+                    <button class="btn btn-sm btn-secondary" @onclick="() => _report = null">Close</button>
+                </div>
+            </div>
+            <div class="card-body">
+                @if (!_report.IsReady)
+                {
+                    <p class="firmware-rollout-note">This rollout is still soaking - the report compares resource use well after each device settled, so it is worth the wait.</p>
+                }
+                <div class="table-responsive">
+                    <table class="data-table">
+                        <thead><tr><th>Device</th><th>Model</th><th class="hide-mobile">From</th><th>To</th><th>Downtime</th><th>Outcome</th></tr></thead>
+                        <tbody>
+                            @foreach (var step in _report.Steps)
+                            {
+                                <tr>
+                                    <td>@step.Name</td>
+                                    <td>@step.Model</td>
+                                    <td class="hide-mobile">@(step.FromVersion ?? "-")</td>
+                                    <td>@(step.ToVersion ?? "-")</td>
+                                    <td>@(step.DowntimeSeconds is int d ? Duration(d) : "-")</td>
+                                    <td><span class="firmware-rollout-chip @ChipClass(step.State)">@ChipLabel(step.State)</span></td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    }
+}
+
+@code {
+    private bool _loading = true;
+    private bool _busy;
+    private bool _wizardOpen;
+    private int _step = 1;
+    private string? _wizardError;
+    private bool _exportingPdf;
+
+    private FirmwareRolloutSettings? _settings;
+    private RolloutPreviewView? _preview;
+    private RolloutPlanView? _active;
+    private List<RolloutPlanSummaryView> _history = [];
+    private RolloutReportView? _report;
+
+    private string _scheduleMode = "once";
+    private int _startOffsetHours;
+    private string _exclusionSearch = string.Empty;
+    private readonly HashSet<string> _exMacs = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _exSkus = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _exTypes = new(StringComparer.OrdinalIgnoreCase);
+    private Dictionary<string, string> _typeChannels = new(StringComparer.OrdinalIgnoreCase);
+    private Dictionary<string, string> _skuChannels = new(StringComparer.OrdinalIgnoreCase);
+
+    private IJSObjectReference? _viz;
+    private bool _vizMounted;
+    private string? _vizMode;
+    private System.Threading.Timer? _pollTimer;
+
+    private static readonly (string Code, string Label)[] TypeChannelRows =
+    [
+        ("uap", "Access Points"),
+        ("usw", "Switches"),
+        ("ugw", "Gateways"),
+    ];
+
+    protected override async Task OnInitializedAsync()
+    {
+        await ReloadAsync();
+        _loading = false;
+    }
+
+    private async Task ReloadAsync()
+    {
+        try
+        {
+            _settings = await RolloutService.GetSettingsAsync();
+            _active = await RolloutService.GetActivePlanAsync();
+            _history = await RolloutService.GetPlanHistoryAsync();
+            if (_active?.Status is FirmwareRolloutStatus.Running or FirmwareRolloutStatus.Paused)
+                StartPolling();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load firmware rollout state");
+        }
+    }
+
+    // ---- Wizard flow ----
+
+    private async Task OpenWizardAsync()
+    {
+        _busy = true;
+        _wizardError = null;
+        StateHasChanged();
+        try
+        {
+            _settings = await RolloutService.GetSettingsAsync();
+            LoadWorkingSets();
+            // First preview: channel options, device models, and console warnings for step 1.
+            _preview = await RolloutService.BuildPreviewAsync(WorkingSettings());
+            _wizardOpen = true;
+            _step = 1;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Rollout wizard failed to open");
+            _wizardError = "Could not read the console. Check the UniFi Console Connection in Settings and try again.";
+            _wizardOpen = true;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private void CloseWizard()
+    {
+        _wizardOpen = false;
+        _preview = null;
+        _wizardError = null;
+        _ = DisposeVizAsync();
+    }
+
+    private async Task GoToPreviewAsync()
+    {
+        _busy = true;
+        _wizardError = null;
+        StateHasChanged();
+        try
+        {
+            _preview = await RolloutService.BuildPreviewAsync(WorkingSettings());
+            _startOffsetHours = ProposalOffsetHours();
+            _step = 3;
+            _vizMode = null;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Rollout preview failed");
+            _wizardError = "The preview could not be built. The console may be briefly unreachable - try again.";
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private void BackFromPreview()
+    {
+        _step = 2;
+        _ = DisposeVizAsync();
+    }
+
+    private string CommitLabel => _scheduleMode switch
+    {
+        "now" => "Start Now",
+        "autopilot" => "Turn On Autopilot",
+        _ => "Schedule",
+    };
+
+    private async Task CommitAsync()
+    {
+        if (_settings == null) return;
+        _busy = true;
+        _wizardError = null;
+        StateHasChanged();
+        try
+        {
+            var settings = WorkingSettings();
+            switch (_scheduleMode)
+            {
+                case "now":
+                    settings.Mode = FirmwareRolloutMode.ManualOnly;
+                    await RolloutService.StartNowAsync(settings, overrideHealthGate: true);
+                    break;
+                case "autopilot":
+                    settings.Mode = FirmwareRolloutMode.Autopilot;
+                    await RolloutService.SaveSettingsAsync(settings);
+                    break;
+                default:
+                    settings.Mode = FirmwareRolloutMode.ManualOnly;
+                    await RolloutService.SchedulePlanAsync(settings, SelectedStartUtc);
+                    break;
+            }
+            _wizardOpen = false;
+            await DisposeVizAsync();
+            await ReloadAsync();
+        }
+        catch (InvalidOperationException ex)
+        {
+            _wizardError = ex.Message;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Committing the rollout failed");
+            _wizardError = "Starting the rollout failed. See the logs for details.";
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    // ---- Settings working copies ----
+
+    private void LoadWorkingSets()
+    {
+        var ex = RolloutExclusions.Parse(_settings?.ExclusionsJson);
+        _exMacs.Clear(); foreach (var m in ex.Macs) _exMacs.Add(m);
+        _exSkus.Clear(); foreach (var s in ex.Skus) _exSkus.Add(s);
+        _exTypes.Clear(); foreach (var t in ex.DeviceTypes) _exTypes.Add(t);
+        _typeChannels = ParseMap(_settings?.PerDeviceTypeChannelsJson);
+        _skuChannels = ParseMap(_settings?.PerSkuChannelsJson);
+        _scheduleMode = _settings?.Mode == FirmwareRolloutMode.Autopilot ? "autopilot" : "once";
+    }
+
+    private FirmwareRolloutSettings WorkingSettings()
+    {
+        var s = _settings!;
+        s.ExclusionsJson = System.Text.Json.JsonSerializer.Serialize(new
+        {
+            macs = _exMacs.ToList(),
+            skus = _exSkus.ToList(),
+            deviceTypes = _exTypes.ToList(),
+        });
+        s.PerDeviceTypeChannelsJson = System.Text.Json.JsonSerializer.Serialize(_typeChannels);
+        s.PerSkuChannelsJson = System.Text.Json.JsonSerializer.Serialize(_skuChannels);
+        return s;
+    }
+
+    private static Dictionary<string, string> ParseMap(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            var map = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(json);
+            return map == null ? new(StringComparer.OrdinalIgnoreCase) : new(map, StringComparer.OrdinalIgnoreCase);
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        }
+    }
+
+    private string TypeChannel(string code) => _typeChannels.GetValueOrDefault(code, "");
+    private void SetTypeChannel(string code, string? channel)
+    {
+        if (string.IsNullOrEmpty(channel)) _typeChannels.Remove(code);
+        else _typeChannels[code] = channel;
+    }
+
+    private string SkuChannel(string model) => _skuChannels.GetValueOrDefault(model, "");
+    private void SetSkuChannel(string model, string? channel)
+    {
+        if (string.IsNullOrEmpty(channel)) _skuChannels.Remove(model);
+        else _skuChannels[model] = channel;
+    }
+
+    private void ToggleSet(HashSet<string> set, string value, ChangeEventArgs e)
+    {
+        if (e.Value is true) set.Add(value);
+        else set.Remove(value);
+    }
+
+    private void ToggleSku(string model)
+    {
+        if (!_exSkus.Add(model)) _exSkus.Remove(model);
+    }
+
+    private List<string> PreviewModels =>
+        _preview?.Steps.Select(s => s.Model).Where(m => !string.IsNullOrEmpty(m))
+            .Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(m => m).ToList() ?? [];
+
+    private IEnumerable<RolloutStepView> FilteredExclusionCandidates =>
+        (_preview?.Steps ?? [])
+            .Where(s => string.IsNullOrEmpty(_exclusionSearch)
+                || s.Name.Contains(_exclusionSearch, StringComparison.OrdinalIgnoreCase)
+                || s.Model.Contains(_exclusionSearch, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(s => s.Name, StringComparer.OrdinalIgnoreCase)
+            .Take(200);
+
+    // ---- Schedule ----
+
+    private int ProposalOffsetHours()
+    {
+        if (_preview?.ProposedWindow?.StartLocal is not { } start) return 24;
+        var hours = (int)Math.Round((start - DateTime.Now).TotalHours);
+        return Math.Clamp(hours, 1, 167);
+    }
+
+    private void SetStartOffset(string? raw)
+    {
+        if (int.TryParse(raw, out var v)) _startOffsetHours = Math.Clamp(v, 0, 167);
+    }
+
+    private DateTime SelectedStartUtc
+    {
+        get
+        {
+            var local = DateTime.Now.AddHours(_startOffsetHours);
+            local = new DateTime(local.Year, local.Month, local.Day, local.Hour, 0, 0, DateTimeKind.Local);
+            return local.ToUniversalTime();
+        }
+    }
+
+    // ---- Active plan controls ----
+
+    private bool WaitingApproval => _active?.Plan.WaitingApprovalWave is > 0;
+
+    private string ActiveTitle => _active?.Status switch
+    {
+        FirmwareRolloutStatus.Scheduled or FirmwareRolloutStatus.Announced => "Scheduled Rollout",
+        FirmwareRolloutStatus.Paused => "Rollout Paused",
+        FirmwareRolloutStatus.SoakWait => "Rollout Complete - Soaking",
+        _ => "Rollout in Progress",
+    };
+
+    private async Task ControlAsync(Func<int, CancellationToken, Task> action)
+    {
+        if (_active == null) return;
+        _busy = true;
+        try
+        {
+            await action(_active.Id, CancellationToken.None);
+            await ReloadAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Rollout control action failed");
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private Task AbortAsync() => ControlAsync(async (id, ct) =>
+    {
+        await RolloutService.AbortAsync(id, ct);
+        await DisposeVizAsync();
+    });
+
+    private async Task RollbackAsync(RolloutStepView step)
+    {
+        _busy = true;
+        try
+        {
+            await RolloutService.RollbackStepAsync(step.Id);
+            await ReloadAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Rollback failed for {Mac}", step.Mac);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task OpenReportAsync(int planId)
+    {
+        try
+        {
+            _report = await RolloutService.GetReportAsync(planId);
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load rollout report {PlanId}", planId);
+        }
+    }
+
+    private async Task ExportReportPdfAsync()
+    {
+        if (_report == null) return;
+        _exportingPdf = true;
+        StateHasChanged();
+        try
+        {
+            var url = $"/api/firmware-rollout/reports/{_report.PlanId}/pdf";
+            if (!SiteContext.IsDefault) url = SiteContextService.WithSiteParam(url, SiteContext.Slug);
+            // Blob fetch instead of a plain link: a Safari PWA opens a linked PDF inline instead of
+            // saving it (same reason the ISP Health export does this).
+            await JS.InvokeVoidAsync("eval", $@"(async () => {{
+                const r = await fetch('{url}');
+                if (!r.ok) return;
+                const blob = await r.blob();
+                const cd = r.headers.get('content-disposition') || '';
+                const m = /filename=""?([^"";]+)""?/.exec(cd);
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = m ? m[1] : 'FirmwareRollout.pdf';
+                a.click();
+                URL.revokeObjectURL(a.href);
+            }})();");
+        }
+        catch { }
+        finally
+        {
+            _exportingPdf = false;
+            StateHasChanged();
+        }
+    }
+
+    // ---- Visualization interop ----
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        var wantsViz = (_wizardOpen && _step == 3 && _preview != null) ||
+                       (_active != null && _active.Status is FirmwareRolloutStatus.Running or FirmwareRolloutStatus.Paused or FirmwareRolloutStatus.SoakWait);
+        if (!wantsViz)
+        {
+            if (_vizMounted) await DisposeVizAsync();
+            return;
+        }
+
+        try
+        {
+            _viz ??= await JS.InvokeAsync<IJSObjectReference>("import", VersionedJs("/js/firmware-rollout-viz.js"));
+            if (!_vizMounted)
+            {
+                await _viz.InvokeVoidAsync("mount", "firmware-rollout-map-stage", "firmware-rollout-timeline",
+                    new { storagePrefix = SiteContext.ScopeStorageKey("firmwareRollout") });
+                _vizMounted = true;
+                _vizMode = null;
+            }
+
+            if (_wizardOpen && _step == 3 && _preview != null && _vizMode != "planned")
+            {
+                var excluded = _preview.Steps.Where(s => s.State == FirmwareRolloutStepState.SkippedExcluded).Select(s => s.Mac).ToList();
+                await _viz.InvokeVoidAsync("setPlan", _preview.Plan, excluded);
+                _vizMode = "planned";
+            }
+            else if (_active != null && _vizMode != "live")
+            {
+                await PushLiveStateAsync();
+                _vizMode = "live";
+            }
+        }
+        catch (JSDisconnectedException) { }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Rollout visualization unavailable");
+        }
+    }
+
+    private async Task PushLiveStateAsync()
+    {
+        if (_viz == null || _active == null) return;
+        var steps = _active.Steps.Select(s => new { deviceMac = s.Mac, state = (int)s.State }).ToList();
+        var startedMs = _active.StartedAt is { } started
+            ? new DateTimeOffset(DateTime.SpecifyKind(started, DateTimeKind.Utc)).ToUnixTimeMilliseconds()
+            : (long?)null;
+        await _viz.InvokeVoidAsync("setLiveSteps", _active.Plan, steps, startedMs);
+    }
+
+    private async Task DisposeVizAsync()
+    {
+        if (_viz != null && _vizMounted)
+        {
+            try { await _viz.InvokeVoidAsync("dispose"); }
+            catch (JSDisconnectedException) { }
+            catch (Exception ex) { Logger.LogDebug(ex, "Rollout visualization dispose failed"); }
+        }
+        _vizMounted = false;
+        _vizMode = null;
+    }
+
+    // ---- Live polling ----
+
+    private void StartPolling()
+    {
+        _pollTimer ??= new System.Threading.Timer(async _ =>
+        {
+            try
+            {
+                await InvokeAsync(async () =>
+                {
+                    var wasActive = _active != null;
+                    _active = await RolloutService.GetActivePlanAsync();
+                    if (_active == null && wasActive)
+                    {
+                        _history = await RolloutService.GetPlanHistoryAsync();
+                        await DisposeVizAsync();
+                    }
+                    else if (_active != null && _vizMounted)
+                    {
+                        await PushLiveStateAsync();
+                    }
+                    StateHasChanged();
+                });
+            }
+            catch { /* prevent timer death */ }
+        }, null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
+    }
+
+    // ---- Display helpers ----
+
+    private string VersionedJs(string path) => FileVersionProvider.AddFileVersionToPath("", path);
+
+    private static string LocalTime(DateTime? utc) =>
+        utc is { } t ? DateTime.SpecifyKind(t, DateTimeKind.Utc).ToLocalTime().ToString("ddd MMM d, h:mm tt") : "-";
+
+    private static string Duration(int seconds)
+    {
+        var h = seconds / 3600; var m = (int)Math.Round(seconds % 3600 / 60.0);
+        return h > 0 ? $"{h}h {m}m" : $"{m}m";
+    }
+
+    private static string ChipLabel(FirmwareRolloutStepState state) => state switch
+    {
+        FirmwareRolloutStepState.Pending => "Queued",
+        FirmwareRolloutStepState.Held => "Held for canary",
+        FirmwareRolloutStepState.Commanded => "Upgrading",
+        FirmwareRolloutStepState.Down => "Rebooting",
+        FirmwareRolloutStepState.BackOnline => "Back online",
+        FirmwareRolloutStepState.CoolDown => "Cooling down",
+        FirmwareRolloutStepState.LitmusPassed => "Upgraded",
+        FirmwareRolloutStepState.RegressionFlagged => "Check resources",
+        FirmwareRolloutStepState.Failed => "Failed",
+        FirmwareRolloutStepState.SkippedExcluded => "Excluded",
+        FirmwareRolloutStepState.AbortedSku => "Skipped (model aborted)",
+        _ => state.ToString(),
+    };
+
+    private static string ChipClass(FirmwareRolloutStepState state) => state switch
+    {
+        FirmwareRolloutStepState.LitmusPassed => "chip-success",
+        FirmwareRolloutStepState.Failed or FirmwareRolloutStepState.AbortedSku => "chip-danger",
+        FirmwareRolloutStepState.RegressionFlagged => "chip-warning",
+        FirmwareRolloutStepState.Commanded or FirmwareRolloutStepState.Down
+            or FirmwareRolloutStepState.BackOnline or FirmwareRolloutStepState.CoolDown => "chip-active",
+        _ => "chip-muted",
+    };
+
+    private static string PlanChipLabel(FirmwareRolloutStatus status) => status switch
+    {
+        FirmwareRolloutStatus.Reported => "Completed",
+        FirmwareRolloutStatus.SoakWait => "Soaking",
+        FirmwareRolloutStatus.Aborted => "Aborted",
+        FirmwareRolloutStatus.Failed => "Failed",
+        _ => status.ToString(),
+    };
+
+    private static string PlanChipClass(FirmwareRolloutStatus status) => status switch
+    {
+        FirmwareRolloutStatus.Reported => "chip-success",
+        FirmwareRolloutStatus.Aborted or FirmwareRolloutStatus.Failed => "chip-danger",
+        _ => "chip-muted",
+    };
+
+    public async ValueTask DisposeAsync()
+    {
+        _pollTimer?.Dispose();
+        await DisposeVizAsync();
+        if (_viz != null)
+        {
+            try { await _viz.DisposeAsync(); }
+            catch (JSDisconnectedException) { }
+        }
+    }
+}

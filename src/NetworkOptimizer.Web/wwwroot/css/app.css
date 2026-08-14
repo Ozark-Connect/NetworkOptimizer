@@ -20362,3 +20362,222 @@ body.kiosk-mode .status-indicators {
         gap: 0.5rem;
     }
 }
+
+.firmware-rollout-map-stage {
+    width: 100%;
+    height: 420px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.firmware-rollout-controls {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.firmware-rollout-note {
+    color: var(--text-secondary);
+    margin: 0.5rem 0;
+}
+
+.firmware-rollout-plan-note {
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    margin: 0.25rem 0;
+}
+
+.firmware-rollout-chip {
+    display: inline-block;
+    padding: 0.15rem 0.55rem;
+    border-radius: 10px;
+    font-size: 0.78rem;
+    white-space: nowrap;
+}
+
+.firmware-rollout-chip.chip-success { background: rgba(36, 188, 112, 0.15); color: var(--success-color); }
+.firmware-rollout-chip.chip-danger { background: rgba(238, 99, 104, 0.15); color: var(--danger-color); }
+.firmware-rollout-chip.chip-warning { background: rgba(231, 150, 19, 0.15); color: var(--warning-color); }
+.firmware-rollout-chip.chip-active { background: rgba(71, 151, 255, 0.15); color: var(--info-color); }
+.firmware-rollout-chip.chip-muted { background: var(--bg-tertiary); color: var(--text-secondary); }
+
+.firmware-rollout-expander {
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    margin: 0.6rem 0;
+}
+
+.firmware-rollout-expander > summary {
+    padding: 0.6rem 0.85rem;
+    cursor: pointer;
+    color: var(--text-secondary);
+    user-select: none;
+}
+
+.firmware-rollout-expander[open] > summary {
+    border-bottom: 1px solid var(--border-color);
+    color: var(--text-primary);
+}
+
+.firmware-rollout-expander-body {
+    padding: 0.75rem 0.85rem;
+}
+
+.firmware-rollout-check {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.25rem 0;
+    color: var(--text-primary);
+    cursor: pointer;
+}
+
+.firmware-rollout-muted {
+    color: var(--text-muted);
+    font-size: 0.8rem;
+}
+
+.firmware-rollout-inline {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.firmware-rollout-inline .form-label {
+    margin: 0;
+    min-width: 170px;
+}
+
+.firmware-rollout-select {
+    max-width: 240px;
+}
+
+.firmware-rollout-num {
+    max-width: 90px;
+}
+
+.firmware-rollout-mode-row {
+    display: flex;
+    gap: 1.25rem;
+    flex-wrap: wrap;
+}
+
+.firmware-rollout-slider {
+    width: 100%;
+}
+
+.firmware-rollout-slider-labels {
+    display: flex;
+    justify-content: space-between;
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+}
+
+.firmware-rollout-exclusion-groups {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.5rem;
+}
+
+.firmware-rollout-exclusion-list {
+    max-height: 260px;
+    overflow-y: auto;
+    border-top: 1px solid var(--border-color);
+    padding-top: 0.5rem;
+}
+
+.firmware-rollout-sku-btn {
+    margin-left: auto;
+}
+
+.firmware-rollout-wizard-nav {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-top: 1rem;
+}
+
+.firmware-rollout-wizard-nav > :only-child {
+    margin-left: auto;
+}
+
+.firmware-rollout-stats {
+    display: flex;
+    gap: 1.5rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.75rem;
+}
+
+.firmware-rollout-stat {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.15rem;
+}
+
+.firmware-rollout-waves {
+    margin-top: 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+
+.firmware-rollout-wave {
+    display: flex;
+    align-items: baseline;
+    gap: 0.75rem;
+    padding: 0.35rem 0.5rem;
+    background: var(--bg-tertiary);
+    border-radius: 6px;
+}
+
+.firmware-rollout-wave-no {
+    min-width: 1.6rem;
+    text-align: center;
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
+.firmware-rollout-wave-eta {
+    min-width: 4.5rem;
+    color: var(--text-muted);
+    font-size: 0.8rem;
+}
+
+.firmware-rollout-wave-devices {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem 0.85rem;
+}
+
+.firmware-rollout-wave-device {
+    color: var(--text-primary);
+    font-size: 0.85rem;
+}
+
+.firmware-rollout-steps {
+    margin-top: 0.75rem;
+}
+
+@media (max-width: 768px) {
+    .firmware-rollout-map-stage {
+        height: 320px;
+    }
+
+    .firmware-rollout-inline {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.25rem;
+    }
+
+    .firmware-rollout-inline .form-label {
+        min-width: 0;
+    }
+
+    .firmware-rollout-stats {
+        gap: 1rem;
+    }
+}
