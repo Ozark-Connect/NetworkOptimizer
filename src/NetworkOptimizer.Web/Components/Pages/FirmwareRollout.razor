@@ -299,7 +299,7 @@ else if (_wizardOpen)
             }
             else if (_step == 2 && _settings != null)
             {
-                <p class="section-description">Run it now, book a one-time window, or let autopilot keep the site current on its own schedule.</p>
+                <p class="section-description">Run it now, book a one-time window, or let autopilot take it from here: updates get planned during quiet hours, are announced ahead of time, and can be postponed with one click.</p>
 
                 <div class="form-group firmware-rollout-mode-row">
                     <label class="radio-label"><input type="radio" name="fr-mode" checked="@(_scheduleMode == "now")" @onchange="@(() => _scheduleMode = "now")" /><span>Start now</span></label>
