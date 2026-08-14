@@ -3223,6 +3223,93 @@ public class UniFiApiClient : IDisposable
     }
 
     /// <summary>
+    /// POST /api/controllers/checkUpdates - ask the console to refresh its application-update
+    /// availability now (the console-level analog of the device catalog's "Check for Updates").
+    /// Console-level, 204 accept; read the result back via <see cref="GetConsoleSystemInfoAsync"/>.
+    /// </summary>
+    /// <param name="controllers">Application names to check, e.g. "network".</param>
+    [VendorSpecific("UniFi", "console-level POST /api/controllers/checkUpdates")]
+    public async Task<bool> TriggerConsoleAppUpdateCheckAsync(
+        IEnumerable<string> controllers,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(controllers);
+        var list = controllers.Where(c => !string.IsNullOrWhiteSpace(c)).ToList();
+        if (list.Count == 0) return false;
+
+        if (!await EnsureAuthenticatedAsync(cancellationToken))
+        {
+            return false;
+        }
+
+        var url = $"{_controllerUrl}/api/controllers/checkUpdates";
+        var payload = JsonSerializer.Serialize(new Dictionary<string, object> { ["controllersToCheck"] = list });
+
+        return await ExecuteRequestAsync(async () =>
+        {
+            var response = await _httpClient!.PostAsync(
+                url, new StringContent(payload, Encoding.UTF8, "application/json"), cancellationToken);
+
+            if (IsRecoverableAuthFailure(response.StatusCode))
+            {
+                _isAuthenticated = false;
+                if (!await LoginAsync(cancellationToken)) return false;
+                response = await _httpClient!.PostAsync(
+                    url, new StringContent(payload, Encoding.UTF8, "application/json"), cancellationToken);
+            }
+
+            if (response.IsSuccessStatusCode) return true;
+            _logger.LogWarning("Console application update check failed: {StatusCode}", response.StatusCode);
+            return false;
+        });
+    }
+
+    /// <summary>
+    /// GET /api/firmware/update - the pending UniFi OS build for this console (same entry shape
+    /// as the /api/system firmware entries: version, publish date, download and changelog links).
+    /// POST on the same path triggers it. Returns null when unreadable.
+    /// </summary>
+    [VendorSpecific("UniFi", "console-level GET /api/firmware/update")]
+    public async Task<UniFiConsoleFirmwareRelease?> GetUniFiOsPendingUpdateAsync(CancellationToken cancellationToken = default)
+    {
+        if (!await EnsureAuthenticatedAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        var url = $"{_controllerUrl}/api/firmware/update";
+
+        return await ExecuteRequestAsync(async () =>
+        {
+            var response = await _httpClient!.GetAsync(url, cancellationToken);
+
+            if (IsRecoverableAuthFailure(response.StatusCode))
+            {
+                _isAuthenticated = false;
+                if (!await LoginAsync(cancellationToken)) return null;
+                response = await _httpClient!.GetAsync(url, cancellationToken);
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogDebug("Pending UniFi OS update read returned {StatusCode}", response.StatusCode);
+                return null;
+            }
+
+            var json = await response.Content.ReadAsStringAsync(cancellationToken);
+            try
+            {
+                return JsonSerializer.Deserialize<UniFiConsoleFirmwareRelease>(json);
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogWarning(ex, "Could not parse the pending UniFi OS update");
+                return null;
+            }
+        });
+    }
+
+    /// <summary>
     /// POST /api/cloud/backup - run a console backup. Console-level, empty body; the response
     /// carries an overall flag plus per-application/service outcomes. Same shape on Cloud Gateway
     /// and standalone consoles. Returns null when the call itself failed.
