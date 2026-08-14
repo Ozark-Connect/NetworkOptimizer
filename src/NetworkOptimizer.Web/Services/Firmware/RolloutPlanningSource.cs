@@ -177,7 +177,6 @@ public class RolloutPlanningSource : IRolloutPlanningSource
 
         var quietWindows = new QuietWindowService(
             _influxRegistry,
-            _siteConnections,
             _loggerFactory.CreateLogger<QuietWindowService>(),
             _siteSlug);
 

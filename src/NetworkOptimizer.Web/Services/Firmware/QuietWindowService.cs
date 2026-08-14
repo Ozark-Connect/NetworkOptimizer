@@ -24,13 +24,11 @@ public class QuietWindowService
 
     private readonly string _siteSlug;
     private readonly MonitoringInfluxClient _influx;
-    private readonly UniFiConnectionService _connection;
     private readonly ILogger<QuietWindowService> _logger;
     private readonly TimeZoneInfo _timeZone;
 
     public QuietWindowService(
         MonitoringInfluxRegistry influxRegistry,
-        SiteConnectionRegistry siteConnections,
         ILogger<QuietWindowService> logger,
         string siteSlug = SiteManagementService.DefaultSiteSlug,
         TimeZoneInfo? timeZone = null)
@@ -38,7 +36,6 @@ public class QuietWindowService
         var slug = string.IsNullOrEmpty(siteSlug) ? SiteManagementService.DefaultSiteSlug : siteSlug;
         _siteSlug = slug;
         _influx = influxRegistry.GetFor(slug);
-        _connection = siteConnections.GetFor(slug);
         _logger = logger;
         _timeZone = timeZone ?? TimeZoneInfo.Local;
     }
@@ -100,18 +97,13 @@ public class QuietWindowService
         var contributing = 0;
         var totalSamples = 0;
 
-        // Parent-side rows are shared by all children of one switch; query each parent once.
-        var parentCache = new Dictionary<string, IReadOnlyList<MonitoringInfluxClient.InterfaceRatePoint>>(StringComparer.OrdinalIgnoreCase);
-
         foreach (var device in devices)
         {
             ct.ThrowIfCancellationRequested();
             List<(DateTime Time, double Bps)> samples;
             try
             {
-                samples = device.Type == DeviceType.Gateway
-                    ? await GatewaySamplesAsync(device, from, to, ct)
-                    : await BoundarySamplesAsync(device, from, to, parentCache, ct);
+                samples = await DeviceSamplesAsync(device, from, to, ct);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -178,73 +170,35 @@ public class QuietWindowService
         return busy;
     }
 
-    private async Task<List<(DateTime, double)>> GatewaySamplesAsync(PlannerDevice gateway, DateTime from, DateTime to, CancellationToken ct)
+    /// <summary>
+    /// A device's activity, computed the way the 2D map computes Ingress/Egress: the sum of
+    /// rate_in and rate_out across its monitored interfaces at each sample instant, mirroring
+    /// MonitoringCollectionAgent's fabric seed. For a gateway that counts LAN and WAN together.
+    /// </summary>
+    /// <remarks>
+    /// APs are the one exception, exactly as the live path treats them: their radio interfaces
+    /// over-count beacons, retries and MIMO duplicates, so only the copper and SFP uplinks count.
+    /// </remarks>
+    private async Task<List<(DateTime Time, double Bps)>> DeviceSamplesAsync(
+        PlannerDevice device, DateTime from, DateTime to, CancellationToken ct)
     {
-        var wans = await _connection.GetAllWanInterfacesAsync(ct);
-        var ifNames = wans.Select(w => w.CounterIfName).Where(n => !string.IsNullOrEmpty(n)).Distinct().ToList();
-        if (ifNames.Count == 0) return [];
+        var rows = await _influx.QueryInterfaceRatesAsync(device.Mac, from, to, SampleWindow, ct);
+        var usable = device.Type == DeviceType.AccessPoint
+            ? rows.Where(IsWiredInterface)
+            : rows;
 
-        var rates = await _influx.QueryGatewayWanRatesAsync(gateway.Mac, ifNames!, from, to, SampleWindow, sumAcrossInterfaces: true, ct: ct);
-        return rates
-            .Where(r => r.DownloadBps.HasValue || r.UploadBps.HasValue)
-            .Select(r => (r.Time, (r.DownloadBps ?? 0) + (r.UploadBps ?? 0)))
+        return usable
+            .GroupBy(r => r.Time)
+            .Select(g => (Time: g.Key, Bps: g.Sum(r => (r.RateInBps ?? 0) + (r.RateOutBps ?? 0))))
+            .OrderBy(p => p.Time)
             .ToList();
     }
 
-    private async Task<List<(DateTime, double)>> BoundarySamplesAsync(
-        PlannerDevice device,
-        DateTime from,
-        DateTime to,
-        Dictionary<string, IReadOnlyList<MonitoringInfluxClient.InterfaceRatePoint>> parentCache,
-        CancellationToken ct)
-    {
-        var own = await _influx.QueryInterfaceRatesAsync(device.Mac, from, to, SampleWindow, ct);
-        var rows = own.Where(r => IsOwnUplinkRow(device, r)).ToList();
-
-        if (rows.Count == 0 && !string.IsNullOrEmpty(device.UplinkMac) && device.UplinkRemotePort.HasValue)
-        {
-            if (!parentCache.TryGetValue(device.UplinkMac, out var parentRows))
-            {
-                parentRows = await _influx.QueryInterfaceRatesAsync(device.UplinkMac, from, to, SampleWindow, ct);
-                parentCache[device.UplinkMac] = parentRows;
-            }
-            rows = parentRows.Where(r => MatchesPortIndex(r, device.UplinkRemotePort.Value)).ToList();
-        }
-
-        return rows
-            .Where(r => r.RateInBps.HasValue || r.RateOutBps.HasValue)
-            .Select(r => (r.Time, (r.RateInBps ?? 0) + (r.RateOutBps ?? 0)))
-            .ToList();
-    }
-
-    private static bool IsOwnUplinkRow(PlannerDevice device, MonitoringInfluxClient.InterfaceRatePoint row)
-    {
-        // APs: copper/SFP uplink interfaces only - Wi-Fi rows never count as activity.
-        if (device.Type == DeviceType.AccessPoint) return IsWiredInterface(row);
-        if (device.UplinkLocalPort.HasValue) return MatchesPortIndex(row, device.UplinkLocalPort.Value);
-        return false;
-    }
-
+    /// <summary>Copper and SFP uplinks; a radio interface is never a wired uplink.</summary>
     private static bool IsWiredInterface(MonitoringInfluxClient.InterfaceRatePoint row)
     {
         var key = string.IsNullOrEmpty(row.PortId) ? row.IfName : row.PortId;
-        return key.StartsWith("eth", StringComparison.OrdinalIgnoreCase) ||
-               key.StartsWith("sfp", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static bool MatchesPortIndex(MonitoringInfluxClient.InterfaceRatePoint row, int portIndex)
-    {
-        // Switch SNMP ifNames are "0/{port}"; gateways and some models use "eth{port}";
-        // UniFi-fed rows may carry the "Port {n}" alias instead.
-        var candidates = new[] { $"0/{portIndex}", $"eth{portIndex}", $"Port {portIndex}" };
-        foreach (var c in candidates)
-        {
-            if (string.Equals(row.PortId, c, StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(row.IfName, c, StringComparison.OrdinalIgnoreCase))
-            {
-                return true;
-            }
-        }
-        return false;
+        return key.StartsWith("eth", StringComparison.OrdinalIgnoreCase)
+            || key.StartsWith("sfp", StringComparison.OrdinalIgnoreCase);
     }
 }
