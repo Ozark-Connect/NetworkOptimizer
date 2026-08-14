@@ -20314,6 +20314,41 @@ body.kiosk-mode .status-indicators {
     flex-wrap: wrap;
 }
 
+.firmware-rollout-legend {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem 1rem;
+    flex-basis: 100%;
+    font-size: 0.72rem;
+    color: var(--text-muted);
+}
+
+.firmware-rollout-legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.firmware-rollout-legend-dot {
+    width: 0.6rem;
+    height: 0.6rem;
+    border-radius: 50%;
+}
+
+.firmware-rollout-legend-badge {
+    display: inline-grid;
+    place-content: center;
+    width: 1.1rem;
+    height: 1.1rem;
+    border-radius: 50%;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    font-size: 0.65rem;
+    font-weight: 600;
+}
+
 .firmware-rollout-track {
     position: relative;
     flex: 1;
@@ -20364,6 +20399,8 @@ body.kiosk-mode .status-indicators {
 }
 
 .firmware-rollout-map-stage {
+    /* The map positions its own tooltip and panels against this box. */
+    position: relative;
     width: 100%;
     height: 420px;
     background: var(--bg-primary);
@@ -20556,16 +20593,29 @@ body.kiosk-mode .status-indicators {
 
 .firmware-rollout-stats {
     display: flex;
-    gap: 1.5rem;
     flex-wrap: wrap;
+    gap: 0.5rem 2rem;
+    padding: 0.6rem 0.85rem;
     margin-bottom: 0.75rem;
+    background: var(--bg-tertiary);
+    border-radius: var(--border-radius-lg);
 }
 
 .firmware-rollout-stat {
     display: flex;
     flex-direction: column;
-    align-items: center;
-    gap: 0.15rem;
+    gap: 0.1rem;
+}
+
+.firmware-rollout-stat .detail-value {
+    font-size: 0.95rem;
+    font-weight: 600;
+    line-height: 1.2;
+}
+
+.firmware-rollout-stat .detail-label {
+    font-size: 0.72rem;
+    color: var(--text-muted);
 }
 
 .firmware-rollout-waves {
@@ -20606,6 +20656,15 @@ body.kiosk-mode .status-indicators {
 .firmware-rollout-wave-device {
     color: var(--text-primary);
     font-size: 0.85rem;
+}
+
+.firmware-rollout-version-badge {
+    margin-left: 0.4rem;
+    text-decoration: none;
+}
+
+a.firmware-rollout-version-badge:hover {
+    color: var(--text-primary);
 }
 
 .firmware-rollout-steps {

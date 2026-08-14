@@ -63,6 +63,8 @@ public class FirmwareRolloutRepository : IFirmwareRolloutRepository
                 existing.GlobalChannel = settings.GlobalChannel;
                 existing.PerDeviceTypeChannelsJson = settings.PerDeviceTypeChannelsJson;
                 existing.PerSkuChannelsJson = settings.PerSkuChannelsJson;
+                existing.NetworkAppChannel = settings.NetworkAppChannel;
+                existing.UniFiOsChannel = settings.UniFiOsChannel;
                 existing.IncludeUniFiOs = settings.IncludeUniFiOs;
                 existing.IncludeUniFiNetwork = settings.IncludeUniFiNetwork;
                 existing.ExclusionsJson = settings.ExclusionsJson;

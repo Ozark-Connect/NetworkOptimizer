@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
 
 namespace NetworkOptimizer.Storage.Models;
 
@@ -63,6 +64,29 @@ public class FirmwareRolloutSettings
     /// <summary>JSON map of SKU/model to channel, overriding both GlobalChannel and the per-type map.</summary>
     [Required]
     public string PerSkuChannelsJson { get; set; } = "{}";
+
+    /// <summary>
+    /// Channel override for the UniFi Network application. Null means it follows GlobalChannel,
+    /// which is the default: one channel drives devices, the application and UniFi OS together.
+    /// </summary>
+    [MaxLength(50)]
+    public string? NetworkAppChannel { get; set; }
+
+    /// <summary>
+    /// Channel override for UniFi OS on a Cloud Gateway console. Null means it follows GlobalChannel.
+    /// </summary>
+    [MaxLength(50)]
+    public string? UniFiOsChannel { get; set; }
+
+    /// <summary>Channel the UniFi Network application is put on: its override, or the global channel.</summary>
+    [NotMapped]
+    public string EffectiveNetworkAppChannel =>
+        string.IsNullOrWhiteSpace(NetworkAppChannel) ? GlobalChannel : NetworkAppChannel;
+
+    /// <summary>Channel the console's UniFi OS is put on: its override, or the global channel.</summary>
+    [NotMapped]
+    public string EffectiveUniFiOsChannel =>
+        string.IsNullOrWhiteSpace(UniFiOsChannel) ? GlobalChannel : UniFiOsChannel;
 
     /// <summary>Include the UniFi OS update on Cloud Gateways.</summary>
     public bool IncludeUniFiOs { get; set; } = true;

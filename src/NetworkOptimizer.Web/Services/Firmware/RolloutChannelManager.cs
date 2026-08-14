@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using NetworkOptimizer.UniFi.Models;
 
 namespace NetworkOptimizer.Web.Services.Firmware;
 
@@ -17,6 +18,10 @@ public class OriginalChannelSettings
     [JsonPropertyName("unifiOsChannel")]
     public string? UniFiOsChannel { get; set; }
 
+    /// <summary>The channel the UniFi Network application was on.</summary>
+    [JsonPropertyName("networkAppChannel")]
+    public string? NetworkAppChannel { get; set; }
+
     /// <summary>Reads the stored settings, treating unreadable content as nothing to restore.</summary>
     /// <param name="json">Serialized settings.</param>
     public static OriginalChannelSettings? Parse(string? json)
@@ -28,7 +33,9 @@ public class OriginalChannelSettings
 }
 
 /// <summary>
-/// Sets and restores the console's firmware channels around a rollout's channel groups.
+/// Sets and restores the three firmware channels a rollout touches: the device channel per channel
+/// group, and the two console-level ones - the UniFi Network application and UniFi OS - each set
+/// once, ahead of their own step. All three are readable, so all three are put back afterwards.
 /// <para>
 /// Stateless by design: the plan row is the only record of what to put back, so the orchestrator
 /// captures the original settings onto the plan and persists them BEFORE any change is made. A
@@ -69,23 +76,56 @@ public class RolloutChannelManager
         return !string.Equals(current, channel, StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>Whether the UniFi Network application or UniFi OS is already on a given channel.</summary>
+    /// <param name="current">Channel the console reports, or null when it could not be read.</param>
+    /// <param name="wanted">Channel the rollout wants.</param>
+    public static bool AlreadyOn(string? current, string? wanted) =>
+        !string.IsNullOrWhiteSpace(current)
+        && !string.IsNullOrWhiteSpace(wanted)
+        && string.Equals(current, wanted, StringComparison.OrdinalIgnoreCase);
+
     /// <summary>
-    /// Reads the channel state to put back afterwards. Called once per rollout, before the first
-    /// change; the caller persists the result before applying anything.
+    /// Adds the channels this rollout is about to change to the capture, leaving anything already
+    /// recorded alone. Only surfaces the rollout actually sets are recorded: a channel that was
+    /// never changed must never be "restored" over what the site chose.
     /// </summary>
+    /// <param name="existingJson">The capture so far, or null on the first change.</param>
+    /// <param name="device">Capture the device firmware channel.</param>
+    /// <param name="networkApp">Capture the UniFi Network application channel.</param>
+    /// <param name="unifiOs">Capture the UniFi OS channel.</param>
+    /// <param name="console">Console info the caller already read, or null to read it here.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    public async Task<string> CaptureOriginalAsync(CancellationToken cancellationToken = default)
+    /// <returns>The capture to persist before anything is written.</returns>
+    public async Task<string> CaptureAsync(
+        string? existingJson,
+        bool device = false,
+        bool networkApp = false,
+        bool unifiOs = false,
+        UniFiConsoleSystemInfo? console = null,
+        CancellationToken cancellationToken = default)
     {
-        var deviceChannel = await _commands.GetDeviceChannelAsync(cancellationToken);
-        var console = await _commands.GetConsoleSystemInfoAsync(cancellationToken);
-        var original = new OriginalChannelSettings
+        var original = OriginalChannelSettings.Parse(existingJson) ?? new OriginalChannelSettings();
+
+        if (device && original.DeviceChannel == null)
+            original.DeviceChannel = await _commands.GetDeviceChannelAsync(cancellationToken);
+
+        var wantsConsole = (networkApp && original.NetworkAppChannel == null)
+            || (unifiOs && original.UniFiOsChannel == null);
+        if (wantsConsole)
         {
-            DeviceChannel = deviceChannel,
-            UniFiOsChannel = console?.Firmware?.ReleaseChannel,
-        };
+            console ??= await _commands.GetConsoleSystemInfoAsync(cancellationToken);
+            if (networkApp)
+                original.NetworkAppChannel ??= console?.NetworkApplication?.ReleaseChannel;
+            if (unifiOs)
+                original.UniFiOsChannel ??= console?.Firmware?.ReleaseChannel;
+        }
+
         _logger.LogInformation(
-            "Captured the original firmware channels for site {Site}: devices {DeviceChannel}, UniFi OS {OsChannel}",
-            _siteSlug, original.DeviceChannel ?? "unknown", original.UniFiOsChannel ?? "unknown");
+            "Captured the original firmware channels for site {Site}: devices {DeviceChannel}, UniFi Network {AppChannel}, UniFi OS {OsChannel}",
+            _siteSlug,
+            original.DeviceChannel ?? "not changed",
+            original.NetworkAppChannel ?? "not changed",
+            original.UniFiOsChannel ?? "not changed");
         return JsonSerializer.Serialize(original);
     }
 
@@ -108,6 +148,60 @@ public class RolloutChannelManager
 
         await _commands.CheckForUpdatesAsync(cancellationToken);
         _logger.LogInformation("Site {Site} is now on the {Channel} device firmware channel", _siteSlug, channel);
+        return true;
+    }
+
+    /// <summary>
+    /// Puts the UniFi Network application on a channel and re-runs the console's application update
+    /// check, without which the console is still reporting what the old channel offered.
+    /// </summary>
+    /// <param name="channel">Channel to set.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    public async Task<bool> ApplyNetworkAppChannelAsync(string channel, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(channel)) return false;
+
+        if (!await _commands.SetConsoleChannelsAsync(channel, null, cancellationToken))
+        {
+            _logger.LogWarning(
+                "Could not set the UniFi Network application channel to {Channel} on site {Site}", channel, _siteSlug);
+            return false;
+        }
+
+        await _commands.CheckForApplicationUpdatesAsync(cancellationToken);
+        _logger.LogInformation(
+            "The UniFi Network application on site {Site} is now on the {Channel} channel", _siteSlug, channel);
+        return true;
+    }
+
+    /// <summary>
+    /// Puts the console's UniFi OS on a channel. Refused on a self-hosted UniFi OS Server: its
+    /// operating system is never ours to update, so its channel is never ours to set either.
+    /// </summary>
+    /// <param name="channel">Channel to set.</param>
+    /// <param name="console">Console info the caller already read, or null to read it here.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    public async Task<bool> ApplyUniFiOsChannelAsync(
+        string channel, UniFiConsoleSystemInfo? console = null, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(channel)) return false;
+
+        console ??= await _commands.GetConsoleSystemInfoAsync(cancellationToken);
+        if (console?.IsStandaloneConsole == true)
+        {
+            _logger.LogWarning(
+                "Leaving the UniFi OS channel alone on site {Site}: the console is a self-hosted UniFi OS Server, which this app never updates",
+                _siteSlug);
+            return false;
+        }
+
+        if (!await _commands.SetConsoleChannelsAsync(null, channel, cancellationToken))
+        {
+            _logger.LogWarning("Could not set the UniFi OS channel to {Channel} on site {Site}", channel, _siteSlug);
+            return false;
+        }
+
+        _logger.LogInformation("The console on site {Site} is now on the {Channel} UniFi OS channel", _siteSlug, channel);
         return true;
     }
 
@@ -141,8 +235,13 @@ public class RolloutChannelManager
             }
         }
 
-        if (!string.IsNullOrWhiteSpace(original.UniFiOsChannel))
-            await _commands.SetConsoleChannelsAsync(null, original.UniFiOsChannel, cancellationToken);
+        // Both console channels go back in one PATCH, and only the ones the capture holds: the
+        // capture records a surface exactly when this rollout set it.
+        if (!string.IsNullOrWhiteSpace(original.NetworkAppChannel) || !string.IsNullOrWhiteSpace(original.UniFiOsChannel))
+        {
+            restored |= await _commands.SetConsoleChannelsAsync(
+                original.NetworkAppChannel, original.UniFiOsChannel, cancellationToken);
+        }
 
         await _commands.CheckForUpdatesAsync(cancellationToken);
         _logger.LogInformation("Restored the original firmware channels on site {Site}", _siteSlug);

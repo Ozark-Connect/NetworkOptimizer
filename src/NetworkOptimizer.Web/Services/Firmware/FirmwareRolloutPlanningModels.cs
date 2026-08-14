@@ -280,6 +280,22 @@ public class RolloutPlanDocument
 
     /// <summary>Progress of the UniFi OS update that runs after every device step.</summary>
     public RolloutConsoleStepState UniFiOsUpdate { get; set; } = new();
+
+    /// <summary>Console channels this rollout has already set.</summary>
+    public RolloutConsoleChannels ConsoleChannels { get; set; } = new();
+}
+
+/// <summary>
+/// The console-level channels a rollout put in force, recorded so a resume neither sets one twice
+/// nor loses track of what it changed. A null field means that surface was left alone.
+/// </summary>
+public class RolloutConsoleChannels
+{
+    /// <summary>Channel the UniFi Network application was moved to, when this rollout moved it.</summary>
+    public string? NetworkAppChannel { get; set; }
+
+    /// <summary>Channel UniFi OS was moved to, when this rollout moved it.</summary>
+    public string? UniFiOsChannel { get; set; }
 }
 
 /// <summary>

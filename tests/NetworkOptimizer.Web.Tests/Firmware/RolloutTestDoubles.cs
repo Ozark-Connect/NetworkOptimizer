@@ -74,7 +74,15 @@ internal sealed class FakeFirmwareCommandClient : IFirmwareCommandClient
     public List<(string Mac, string Url)> ExternalCommands { get; } = [];
     public List<(string Host, string Url)> SshCommands { get; } = [];
     public List<string> ChannelWrites { get; } = [];
+
+    /// <summary>Console channel PATCHes, in order. Null in a slot means that surface was not written.</summary>
+    public List<(string? NetworkApp, string? UniFiOs)> ConsoleChannelWrites { get; } = [];
+
+    /// <summary>Console-level calls in the order they were made, so ordering can be asserted.</summary>
+    public List<string> Calls { get; } = [];
+
     public int CheckForUpdatesCalls { get; private set; }
+    public int ApplicationUpdateChecks { get; private set; }
     public int BackupCalls { get; private set; }
     public int NetworkAppUpdateCalls { get; private set; }
     public int UniFiOsUpdateCalls { get; private set; }
@@ -123,8 +131,29 @@ internal sealed class FakeFirmwareCommandClient : IFirmwareCommandClient
         return Task.FromResult(true);
     }
 
-    public Task<bool> SetConsoleChannelsAsync(string? networkAppChannel, string? unifiOsChannel, CancellationToken cancellationToken = default) =>
-        Task.FromResult(true);
+    public Task<bool> CheckForApplicationUpdatesAsync(CancellationToken cancellationToken = default)
+    {
+        ApplicationUpdateChecks++;
+        Calls.Add("app-update-check");
+        return Task.FromResult(true);
+    }
+
+    /// <summary>Writes the channels through to the console info, so a later read sees them.</summary>
+    public Task<bool> SetConsoleChannelsAsync(string? networkAppChannel, string? unifiOsChannel, CancellationToken cancellationToken = default)
+    {
+        if (networkAppChannel == null && unifiOsChannel == null)
+            return Task.FromResult(true);
+
+        ConsoleChannelWrites.Add((networkAppChannel, unifiOsChannel));
+        Calls.Add("console-channels");
+
+        if (networkAppChannel != null && ConsoleInfo?.NetworkApplication != null)
+            ConsoleInfo.NetworkApplication.ReleaseChannel = networkAppChannel;
+        if (unifiOsChannel != null && ConsoleInfo?.Firmware != null)
+            ConsoleInfo.Firmware.ReleaseChannel = unifiOsChannel;
+
+        return Task.FromResult(true);
+    }
 
     public Task<UniFiConsoleSystemInfo?> GetConsoleSystemInfoAsync(CancellationToken cancellationToken = default) =>
         Task.FromResult(ConsoleInfo);
@@ -138,6 +167,7 @@ internal sealed class FakeFirmwareCommandClient : IFirmwareCommandClient
     public Task<bool> TriggerNetworkApplicationUpdateAsync(CancellationToken cancellationToken = default)
     {
         NetworkAppUpdateCalls++;
+        Calls.Add("network-app-update");
         return Task.FromResult(NetworkAppUpdateAccepted);
     }
 
@@ -147,6 +177,7 @@ internal sealed class FakeFirmwareCommandClient : IFirmwareCommandClient
     public Task<bool> TriggerUniFiOsUpdateAsync(CancellationToken cancellationToken = default)
     {
         UniFiOsUpdateCalls++;
+        Calls.Add("unifi-os-update");
         return Task.FromResult(UniFiOsUpdateAccepted);
     }
 }
@@ -551,6 +582,41 @@ internal static class RolloutFixtures
             Channel = channel,
             Wave = wave,
             State = state,
+        };
+
+    /// <summary>
+    /// A Cloud Gateway console reporting both channels and its UniFi Network application, which is
+    /// what the channel work reads: firmware.releaseChannel and apps.controllers[network].
+    /// </summary>
+    public static UniFiConsoleSystemInfo Console(
+        string osChannel = "release",
+        string appChannel = "release",
+        string? appUpdateAvailable = null,
+        string appVersion = "10.6.94",
+        bool standalone = false) => new()
+        {
+            Firmware = new UniFiConsoleFirmware
+            {
+                ReleaseChannel = osChannel,
+                Channels = ["release", "release-candidate", "beta"],
+                Latest = standalone
+                    ? new UniFiConsoleFirmwareRelease { Product = UniFiConsoleSystemInfo.StandaloneConsoleProduct }
+                    : null,
+            },
+            Apps = new UniFiConsoleApps
+            {
+                Controllers =
+                [
+                    new UniFiConsoleController
+                    {
+                        Name = UniFiConsoleController.NetworkName,
+                        Type = "controller",
+                        Version = appVersion,
+                        ReleaseChannel = appChannel,
+                        UpdateAvailable = appUpdateAvailable,
+                    },
+                ],
+            },
         };
 
     public static RolloutPlanDocument Document(params PlanWave[] waves)

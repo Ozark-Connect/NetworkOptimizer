@@ -149,7 +149,7 @@ else if (_wizardOpen)
                 }
 
                 <div class="form-group">
-                    <label class="form-label">Release channel for all devices</label>
+                    <label class="form-label">Release channel</label>
                     <select class="form-control firmware-rollout-select" @bind="_settings.GlobalChannel">
                         <option value="@FirmwareChannels.Release">Official (GA)</option>
                         <option value="@FirmwareChannels.ReleaseCandidate">Release Candidate</option>
@@ -158,10 +158,11 @@ else if (_wizardOpen)
                             <option value="@FirmwareChannels.Beta">Early Access</option>
                         }
                     </select>
-                    @if (_preview != null && !_preview.Channels.EarlyAccessAvailable)
-                    {
-                        <small class="form-help">Early Access is enabled through your Ubiquiti account, so it only appears here once the console offers it.</small>
-                    }
+                    <small class="form-help">
+                        Everything in this rollout follows this channel@(ConsoleSurfacesLabel).@(_preview != null && !_preview.Channels.EarlyAccessAvailable
+                            ? " Early Access is enabled through your Ubiquiti account, so it only appears here once the console offers it."
+                            : "")
+                    </small>
                 </div>
 
                 <div class="form-group">
@@ -171,6 +172,45 @@ else if (_wizardOpen)
                         <label class="checkbox-label"><input type="checkbox" @bind="_settings.IncludeUniFiOs" /><span>Include the UniFi OS update on the Cloud Gateway</span></label>
                     }
                 </div>
+
+                @if (_settings.IncludeUniFiNetwork || (_settings.IncludeUniFiOs && _preview?.HasCloudGateway == true))
+                {
+                    <details class="setup-guide firmware-rollout-guide">
+                        <summary>Different channel for the console</summary>
+                        <div class="setup-guide-content">
+                            @if (_settings.IncludeUniFiNetwork)
+                            {
+                                <div class="form-group firmware-rollout-inline">
+                                    <label class="form-label">UniFi Network application</label>
+                                    <select class="form-control firmware-rollout-select" value="@(_settings.NetworkAppChannel ?? "")" @onchange="e => _settings.NetworkAppChannel = Blank(e.Value?.ToString())">
+                                        <option value="">Same as everything else</option>
+                                        <option value="@FirmwareChannels.Release">Official (GA)</option>
+                                        <option value="@FirmwareChannels.ReleaseCandidate">Release Candidate</option>
+                                        @if (_preview?.Channels.EarlyAccessAvailable == true)
+                                        {
+                                            <option value="@FirmwareChannels.Beta">Early Access</option>
+                                        }
+                                    </select>
+                                </div>
+                            }
+                            @if (_settings.IncludeUniFiOs && _preview?.HasCloudGateway == true)
+                            {
+                                <div class="form-group firmware-rollout-inline">
+                                    <label class="form-label">UniFi OS</label>
+                                    <select class="form-control firmware-rollout-select" value="@(_settings.UniFiOsChannel ?? "")" @onchange="e => _settings.UniFiOsChannel = Blank(e.Value?.ToString())">
+                                        <option value="">Same as everything else</option>
+                                        <option value="@FirmwareChannels.Release">Official (GA)</option>
+                                        <option value="@FirmwareChannels.ReleaseCandidate">Release Candidate</option>
+                                        @if (_preview?.Channels.EarlyAccessAvailable == true)
+                                        {
+                                            <option value="@FirmwareChannels.Beta">Early Access</option>
+                                        }
+                                    </select>
+                                </div>
+                            }
+                        </div>
+                    </details>
+                }
 
                 <details class="setup-guide firmware-rollout-guide">
                     <summary>Per-device-type channels</summary>
@@ -299,7 +339,7 @@ else if (_wizardOpen)
                 </div>
 
                 <div class="form-group">
-                    <label class="checkbox-label"><input type="checkbox" @bind="_settings.SuppressStandardAlerts" /><span>Quiet the standard offline and restart alerts for devices while the rollout has them down</span></label>
+                    <label class="checkbox-label"><input type="checkbox" @bind="_settings.SuppressStandardAlerts" /><span>Skip the usual offline and restart alerts for devices this rollout reboots</span></label>
                     <label class="checkbox-label"><input type="checkbox" @bind="_settings.PerWaveApproval" /><span>Pause for approval at every wave</span></label>
                 </div>
 
@@ -367,11 +407,12 @@ else if (_wizardOpen)
                                         {
                                             if (changelog != null)
                                             {
-                                                <a class="firmware-rollout-muted" href="@changelog" target="_blank" rel="noopener">@FirmwareVersionFormat.ShortOrNull(step.ToVersion)</a>
+                                                <a class="firmware-rollout-chip chip-muted firmware-rollout-version-badge" href="@changelog" target="_blank" rel="noopener"
+                                                   data-tooltip="Release notes for @FirmwareVersionFormat.ShortOrNull(step.ToVersion)">@FirmwareVersionFormat.ShortOrNull(step.ToVersion)</a>
                                             }
                                             else
                                             {
-                                                <span class="firmware-rollout-muted">@FirmwareVersionFormat.ShortOrNull(step.ToVersion)</span>
+                                                <span class="firmware-rollout-chip chip-muted firmware-rollout-version-badge">@FirmwareVersionFormat.ShortOrNull(step.ToVersion)</span>
                                             }
                                         }
                                     </span>
@@ -578,6 +619,7 @@ else
 
     private string _scheduleMode = "once";
     private int _startOffsetHours;
+    private bool _startMoved;
     private string _exclusionSearch = string.Empty;
     private readonly HashSet<string> _exMacs = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _exSkus = new(StringComparer.OrdinalIgnoreCase);
@@ -640,6 +682,8 @@ else
             LoadWorkingSets();
             // First preview: channel options, device models, and console warnings for step 1.
             _preview = await RolloutService.BuildPreviewAsync(WorkingSettings());
+            SeedChannelsFromConsole();
+            SeedStartFromProposal();
             _wizardOpen = true;
             _step = 1;
         }
@@ -671,7 +715,7 @@ else
         try
         {
             _preview = await RolloutService.BuildPreviewAsync(WorkingSettings());
-            _startOffsetHours = ProposalOffsetHours();
+            SeedStartFromProposal();
             _step = 3;
             _vizMode = null;
         }
@@ -783,6 +827,20 @@ else
         }
     }
 
+    /// <summary>What else the single channel select covers, named so the lockstep is not a surprise.</summary>
+    private string ConsoleSurfacesLabel
+    {
+        get
+        {
+            var surfaces = new List<string>();
+            if (_settings?.IncludeUniFiNetwork == true) surfaces.Add("the UniFi Network application");
+            if (_settings?.IncludeUniFiOs == true && _preview?.HasCloudGateway == true) surfaces.Add("UniFi OS");
+            return surfaces.Count == 0 ? "" : ", including " + string.Join(" and ", surfaces);
+        }
+    }
+
+    private static string? Blank(string? value) => string.IsNullOrEmpty(value) ? null : value;
+
     private string TypeChannel(string code) => _typeChannels.GetValueOrDefault(code, "");
     private void SetTypeChannel(string code, string? channel)
     {
@@ -849,7 +907,38 @@ else
 
     private void SetStartOffset(string? raw)
     {
-        if (int.TryParse(raw, out var v)) _startOffsetHours = Math.Clamp(v, 0, 167);
+        if (!int.TryParse(raw, out var v)) return;
+        _startOffsetHours = Math.Clamp(v, 0, 167);
+        _startMoved = true;
+    }
+
+    /// <summary>
+    /// Start from what the console is set to today, so the wizard opens saying what is already
+    /// true rather than proposing a change nobody asked for. Only for a site that has never saved
+    /// rollout settings; a saved choice is the user's and stands.
+    /// </summary>
+    private void SeedChannelsFromConsole()
+    {
+        if (_settings == null || _preview == null || _settings.UpdatedAt != default) return;
+
+        var device = _preview.Channels.CurrentDeviceChannel;
+        if (!string.IsNullOrWhiteSpace(device)) _settings.GlobalChannel = device;
+
+        // Only pin a console surface when it differs from the device channel; matching surfaces
+        // stay null so they follow the single select in lockstep.
+        var app = _preview.Channels.CurrentNetworkAppChannel;
+        _settings.NetworkAppChannel = !string.IsNullOrWhiteSpace(app) && !SameChannel(app, _settings.GlobalChannel) ? app : null;
+
+        var os = _preview.Channels.CurrentUniFiOsChannel;
+        _settings.UniFiOsChannel = !string.IsNullOrWhiteSpace(os) && !SameChannel(os, _settings.GlobalChannel) ? os : null;
+    }
+
+    private static bool SameChannel(string? a, string? b) => string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Park the slider on the proposed window until the user drags it somewhere else.</summary>
+    private void SeedStartFromProposal()
+    {
+        if (!_startMoved) _startOffsetHours = ProposalOffsetHours();
     }
 
     private DateTime SelectedStartUtc

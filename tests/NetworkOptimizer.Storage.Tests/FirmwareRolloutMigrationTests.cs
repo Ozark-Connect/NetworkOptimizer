@@ -97,6 +97,26 @@ public class FirmwareRolloutMigrationTests : IDisposable
     }
 
     [Fact]
+    public async Task ConsoleChannelOverrides_RoundtripAndDefaultToNull()
+    {
+        using var context = CreateMigratedContext();
+        var repository = RepositoryFor(context);
+
+        (await repository.GetSettingsAsync()).NetworkAppChannel.Should().BeNull();
+
+        await repository.SaveSettingsAsync(new FirmwareRolloutSettings
+        {
+            GlobalChannel = "release",
+            NetworkAppChannel = "release-candidate",
+            UniFiOsChannel = "beta",
+        });
+
+        var saved = await repository.GetSettingsAsync();
+        saved.NetworkAppChannel.Should().Be("release-candidate");
+        saved.UniFiOsChannel.Should().Be("beta");
+    }
+
+    [Fact]
     public async Task SettingsRoundtrip_SurvivesTheEnumToIntegerMapping()
     {
         using var context = CreateMigratedContext();

@@ -52,7 +52,14 @@ let _liveStartMs = null;
 
 export async function mount(stageId, timelineId, opts) {
     resolveColors();
-    await map2d.mount(stageId, opts || {});
+    // This map is a rollout picture, not the live explorer: no overlay toggles, no client
+    // filter, and no synthetic multi-MAC hub nodes, none of which a rollout acts on.
+    await map2d.mount(stageId, {
+        ...(opts || {}),
+        hideOverlayControls: true,
+        hideFilter: true,
+        hideVirtualHubs: true,
+    });
     map2d.startDataPolling();
     _timelineEl = document.getElementById(timelineId);
     _playheadSec = 0;
@@ -172,6 +179,15 @@ function applyOverlays() {
     map2d.setNodeOverlays(overlays);
 }
 
+const STATE_WORDS = {
+    queued: 'Queued',
+    pending: 'Queued',
+    upgrading: 'Upgrading now',
+    done: 'Upgraded',
+    failed: 'Failed',
+    held: 'Held until its model’s canary passes',
+};
+
 function overlayFor(state, step, wave, liveStep) {
     const ov = { color: COLORS[state] || COLORS.pending };
     if (state === 'upgrading') ov.pulse = true;
@@ -180,6 +196,14 @@ function overlayFor(state, step, wave, liveStep) {
     if (state === 'held') ov.badge = 'H';
     if (state === 'failed') ov.badge = '!';
     if (liveStep && liveStep.state === 7) { ov.badge = '!'; ov.color = COLORS.upgrading; } // RegressionFlagged
+
+    // The badge is shorthand; the tooltip is the sentence behind it.
+    const parts = [];
+    if (wave.number) parts.push(`Wave ${wave.number}`);
+    parts.push(liveStep && liveStep.state === 7 ? 'Upgraded, resources worth a look' : (STATE_WORDS[state] || state));
+    if (step.isCanary) parts.push(`canary for ${step.displayModel || step.model || 'this model'}`);
+    if (step.toVersion) parts.push(`to ${step.toVersion}`);
+    ov.tip = parts.join(' · ');
     return ov;
 }
 
@@ -199,6 +223,31 @@ function renderTimeline() {
         btn.addEventListener('click', () => _playing ? pause() : play());
         el.appendChild(btn);
     }
+
+    const legend = document.createElement('div');
+    legend.className = 'firmware-rollout-legend';
+    const legendItems = _mode === 'planned'
+        ? [['queued', 'Queued'], ['upgrading', 'Upgrading'], ['done', 'Done'], ['held', 'Held for canary']]
+        : [['queued', 'Queued'], ['upgrading', 'Upgrading'], ['done', 'Upgraded'], ['failed', 'Failed'], ['held', 'Held for canary']];
+    for (const [state, label] of legendItems) {
+        const item = document.createElement('span');
+        item.className = 'firmware-rollout-legend-item';
+        const dot = document.createElement('span');
+        dot.className = 'firmware-rollout-legend-dot';
+        dot.style.background = COLORS[state];
+        item.append(dot, document.createTextNode(label));
+        legend.appendChild(item);
+    }
+    for (const [mark, label] of [['1', 'wave number'], ['C', 'canary'], ['H', 'held'], ['!', 'needs a look']]) {
+        const item = document.createElement('span');
+        item.className = 'firmware-rollout-legend-item';
+        const badge = document.createElement('span');
+        badge.className = 'firmware-rollout-legend-badge';
+        badge.textContent = mark;
+        item.append(badge, document.createTextNode(label));
+        legend.appendChild(item);
+    }
+    el.appendChild(legend);
 
     const track = document.createElement('div');
     track.className = 'firmware-rollout-track';

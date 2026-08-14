@@ -28,6 +28,17 @@ public class UniFiConsoleSystemInfo
     [JsonPropertyName("hardware")]
     public UniFiConsoleHardware? Hardware { get; set; }
 
+    /// <summary>The applications installed on this console, UniFi Network among them.</summary>
+    [JsonPropertyName("apps")]
+    public UniFiConsoleApps? Apps { get; set; }
+
+    /// <summary>
+    /// The UniFi Network application's entry, or null when the console does not list it. The only
+    /// place the application's own release channel and version are readable.
+    /// </summary>
+    [JsonIgnore]
+    public UniFiConsoleController? NetworkApplication => Apps?.Network;
+
     /// <summary>
     /// Installed UniFi OS version on Cloud Gateways ("5.1.28"), comparable to the catalog build's
     /// numeric part (v5.1.28+hash). Null on consoles that do not report it. Never use
@@ -60,6 +71,75 @@ public class UniFiConsoleSystemInfo
                 yield return release;
         }
     }
+}
+
+/// <summary>The /api/system apps block; only the controller list is mapped.</summary>
+[VendorSpecific("UniFi", "/api/system apps block")]
+public class UniFiConsoleApps
+{
+    /// <summary>Installed application controllers: network, protect, access, talk, connect, innerspace.</summary>
+    [JsonPropertyName("controllers")]
+    public List<UniFiConsoleController> Controllers { get; set; } = new();
+
+    /// <summary>The UniFi Network application's entry, or null when this console does not list it.</summary>
+    [JsonIgnore]
+    public UniFiConsoleController? Network => Controllers
+        .FirstOrDefault(c => string.Equals(c.Name, UniFiConsoleController.NetworkName, StringComparison.OrdinalIgnoreCase));
+}
+
+/// <summary>
+/// One installed application: the version it runs, the channel it follows, and the build it is
+/// being offered. This is where the UniFi Network application's channel is read back from - the
+/// PATCH that sets it answers 204 with no body.
+/// </summary>
+[VendorSpecific("UniFi", "/api/system apps.controllers entry")]
+public class UniFiConsoleController
+{
+    /// <summary>Application name of UniFi Network.</summary>
+    public const string NetworkName = "network";
+
+    [JsonPropertyName("name")]
+    public string? Name { get; set; }
+
+    [JsonPropertyName("type")]
+    public string? Type { get; set; }
+
+    /// <summary>Version installed now, e.g. "10.6.94".</summary>
+    [JsonPropertyName("version")]
+    public string? Version { get; set; }
+
+    /// <summary>Channel this application follows: "release", "release-candidate" or "beta".</summary>
+    [JsonPropertyName("releaseChannel")]
+    public string? ReleaseChannel { get; set; }
+
+    /// <summary>Version the console is offering, or null when the application is current.</summary>
+    [JsonPropertyName("updateAvailable")]
+    public string? UpdateAvailable { get; set; }
+
+    [JsonPropertyName("rollback")]
+    public UniFiConsoleControllerRollback? Rollback { get; set; }
+
+    /// <summary>Whether the console has a newer build staged for this application.</summary>
+    [JsonIgnore]
+    public bool HasUpdate => !string.IsNullOrWhiteSpace(UpdateAvailable);
+}
+
+/// <summary>The build an application could be rolled back to, when the console kept one.</summary>
+[VendorSpecific("UniFi", "/api/system apps.controllers rollback block")]
+public class UniFiConsoleControllerRollback
+{
+    [JsonPropertyName("availableBackup")]
+    public UniFiConsoleControllerBackup? AvailableBackup { get; set; }
+}
+
+/// <summary>A retained application build.</summary>
+public class UniFiConsoleControllerBackup
+{
+    [JsonPropertyName("version")]
+    public string? Version { get; set; }
+
+    [JsonPropertyName("releaseChannel")]
+    public string? ReleaseChannel { get; set; }
 }
 
 /// <summary>The /api/system hardware block; only the installed-firmware fields are mapped.</summary>

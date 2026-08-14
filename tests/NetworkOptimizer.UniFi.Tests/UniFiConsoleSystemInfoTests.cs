@@ -137,6 +137,54 @@ public class UniFiConsoleSystemInfoTests
     }
 
     [Fact]
+    public void Deserialize_ReadsTheNetworkApplicationsChannelAndVersion()
+    {
+        var json = """
+        {
+          "name": "Test Gateway",
+          "apps": {
+            "controllers": [
+              { "name": "protect", "type": "controller", "version": "6.2.10", "releaseChannel": "release" },
+              {
+                "name": "network", "type": "controller", "version": "10.6.94",
+                "releaseChannel": "release-candidate", "updateAvailable": "10.7.10",
+                "rollback": { "availableBackup": { "version": "10.5.20", "releaseChannel": "release" } }
+              }
+            ]
+          }
+        }
+        """;
+
+        var info = JsonSerializer.Deserialize<UniFiConsoleSystemInfo>(json);
+
+        var network = info!.NetworkApplication;
+        network.Should().NotBeNull();
+        network!.Version.Should().Be("10.6.94");
+        network.ReleaseChannel.Should().Be("release-candidate");
+        network.UpdateAvailable.Should().Be("10.7.10");
+        network.HasUpdate.Should().BeTrue();
+        network.Rollback!.AvailableBackup!.Version.Should().Be("10.5.20");
+    }
+
+    [Fact]
+    public void NetworkApplication_IsNullWhenTheConsoleDoesNotListIt()
+    {
+        var info = JsonSerializer.Deserialize<UniFiConsoleSystemInfo>(
+            """{"name":"Test Console","apps":{"controllers":[{"name":"talk","version":"2.0.0"}]}}""");
+
+        info!.NetworkApplication.Should().BeNull();
+    }
+
+    [Fact]
+    public void ANetworkApplicationWithNoUpdate_HasNoneOnOffer()
+    {
+        var info = JsonSerializer.Deserialize<UniFiConsoleSystemInfo>(
+            """{"apps":{"controllers":[{"name":"Network","version":"10.6.94","updateAvailable":null}]}}""");
+
+        info!.NetworkApplication!.HasUpdate.Should().BeFalse("the name match is case-insensitive");
+    }
+
+    [Fact]
     public void IsStandaloneConsole_FalseWhenTheFirmwareBlockIsAbsent()
     {
         var info = JsonSerializer.Deserialize<UniFiConsoleSystemInfo>("""{"name":"Test Console"}""");

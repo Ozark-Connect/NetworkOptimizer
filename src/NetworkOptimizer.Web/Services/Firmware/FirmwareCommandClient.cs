@@ -128,6 +128,23 @@ public class FirmwareCommandClient : IFirmwareCommandClient
     }
 
     /// <inheritdoc />
+    public async Task<bool> CheckForApplicationUpdatesAsync(CancellationToken cancellationToken = default)
+    {
+        var client = _connection.Client;
+        if (client == null) return false;
+
+        try
+        {
+            return await client.TriggerConsoleAppUpdateCheckAsync([UniFiConsoleController.NetworkName], cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "The application update check failed for site {Site}", _siteSlug);
+            return false;
+        }
+    }
+
+    /// <inheritdoc />
     public async Task<string?> GetDeviceChannelAsync(CancellationToken cancellationToken = default)
     {
         var client = _connection.Client;
@@ -155,15 +172,27 @@ public class FirmwareCommandClient : IFirmwareCommandClient
         try
         {
             var settings = await client.GetFirmwareUpdateSettingsAsync(cancellationToken);
-            if (settings == null) return availability;
-
-            availability.CurrentDeviceChannel = settings.FirmwareChannel ?? FirmwareChannels.Release;
-            availability.AvailableDeviceChannels = settings.AvailableFirmwareChannels;
-            availability.AvailableNetworkAppChannels = settings.AvailableControllerChannels;
+            if (settings != null)
+            {
+                availability.CurrentDeviceChannel = settings.FirmwareChannel ?? FirmwareChannels.Release;
+                availability.AvailableDeviceChannels = settings.AvailableFirmwareChannels;
+                availability.AvailableNetworkAppChannels = settings.AvailableControllerChannels;
+            }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogWarning(ex, "Reading the firmware channel options failed for site {Site}", _siteSlug);
+        }
+
+        // The two console-level channels live on /api/system, not in the Network application's
+        // settings: UniFi OS under firmware, the application under apps.controllers[network].
+        var console = await GetConsoleSystemInfoAsync(cancellationToken);
+        if (console != null)
+        {
+            availability.CurrentUniFiOsChannel = console.Firmware?.ReleaseChannel;
+            availability.AvailableUniFiOsChannels = console.Firmware?.Channels ?? [];
+            availability.CurrentNetworkAppChannel = console.NetworkApplication?.ReleaseChannel;
+            availability.CurrentNetworkAppVersion = console.NetworkApplication?.Version;
         }
 
         return availability;

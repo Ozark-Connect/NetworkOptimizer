@@ -49,6 +49,13 @@ public class FirmwareRolloutRepositoryTests : IDisposable
         settings.PerWaveApproval.Should().BeFalse();
         settings.AutopilotWindowMode.Should().Be(FirmwareAutopilotWindowMode.Auto);
 
+        // Null on both console channels is the default: they follow the global channel rather
+        // than being pinned to one of their own.
+        settings.NetworkAppChannel.Should().BeNull();
+        settings.UniFiOsChannel.Should().BeNull();
+        settings.EffectiveNetworkAppChannel.Should().Be("release");
+        settings.EffectiveUniFiOsChannel.Should().Be("release");
+
         using var verify = NewContext();
         (await verify.FirmwareRolloutSettings.CountAsync()).Should().Be(1);
     }
@@ -76,6 +83,8 @@ public class FirmwareRolloutRepositoryTests : IDisposable
             GlobalChannel = "release-candidate",
             PerDeviceTypeChannelsJson = """{"uap":"beta"}""",
             PerSkuChannelsJson = """{"U7-Pro":"release"}""",
+            NetworkAppChannel = "beta",
+            UniFiOsChannel = "release",
             IncludeUniFiOs = false,
             IncludeUniFiNetwork = false,
             ExclusionsJson = """{"macs":["aa:bb:cc:dd:ee:ff"],"skus":["USW-16-PoE"],"deviceTypes":["ugw"]}""",
@@ -100,6 +109,8 @@ public class FirmwareRolloutRepositoryTests : IDisposable
         saved.GlobalChannel.Should().Be("release-candidate");
         saved.PerDeviceTypeChannelsJson.Should().Be("""{"uap":"beta"}""");
         saved.PerSkuChannelsJson.Should().Be("""{"U7-Pro":"release"}""");
+        saved.NetworkAppChannel.Should().Be("beta");
+        saved.UniFiOsChannel.Should().Be("release");
         saved.IncludeUniFiOs.Should().BeFalse();
         saved.IncludeUniFiNetwork.Should().BeFalse();
         saved.ExclusionsJson.Should().Contain("aa:bb:cc:dd:ee:ff");
@@ -115,6 +126,45 @@ public class FirmwareRolloutRepositoryTests : IDisposable
         saved.WaiveBackup.Should().BeTrue();
         saved.PerWaveApproval.Should().BeTrue();
         saved.UpdatedAt.Should().BeAfter(DateTime.UtcNow.AddMinutes(-1));
+    }
+
+    [Fact]
+    public async Task SaveSettingsAsync_ClearingAConsoleChannel_PutsItBackOnTheGlobalChannel()
+    {
+        await _repository.SaveSettingsAsync(new FirmwareRolloutSettings
+        {
+            GlobalChannel = "release",
+            NetworkAppChannel = "beta",
+            UniFiOsChannel = "beta",
+        });
+
+        await _repository.SaveSettingsAsync(new FirmwareRolloutSettings
+        {
+            GlobalChannel = "release-candidate",
+            NetworkAppChannel = null,
+            UniFiOsChannel = null,
+        });
+
+        using var verify = NewContext();
+        var saved = await verify.FirmwareRolloutSettings.AsNoTracking().SingleAsync();
+        saved.NetworkAppChannel.Should().BeNull();
+        saved.UniFiOsChannel.Should().BeNull();
+        saved.EffectiveNetworkAppChannel.Should().Be("release-candidate");
+        saved.EffectiveUniFiOsChannel.Should().Be("release-candidate");
+    }
+
+    [Fact]
+    public void EffectiveConsoleChannels_PreferTheOverrideOverTheGlobalChannel()
+    {
+        var settings = new FirmwareRolloutSettings
+        {
+            GlobalChannel = "release",
+            NetworkAppChannel = "beta",
+            UniFiOsChannel = "release-candidate",
+        };
+
+        settings.EffectiveNetworkAppChannel.Should().Be("beta");
+        settings.EffectiveUniFiOsChannel.Should().Be("release-candidate");
     }
 
     [Fact]

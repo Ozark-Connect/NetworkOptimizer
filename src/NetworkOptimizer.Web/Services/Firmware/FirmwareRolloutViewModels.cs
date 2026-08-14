@@ -20,6 +20,21 @@ public class RolloutChannelAvailability
     /// <summary>Whether early access (beta) may be offered for devices on this console.</summary>
     public bool EarlyAccessAvailable => AvailableDeviceChannels
         .Any(c => string.Equals(c, FirmwareChannels.Beta, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>UniFi OS channel options this console offers.</summary>
+    public List<string> AvailableUniFiOsChannels { get; set; } = [];
+
+    /// <summary>UniFi OS channel the console follows now, or null when it cannot be read.</summary>
+    public string? CurrentUniFiOsChannel { get; set; }
+
+    /// <summary>
+    /// Channel the UniFi Network application follows now, or null when it cannot be read. Read from
+    /// apps.controllers[network] on /api/system - the channels PATCH answers with no body.
+    /// </summary>
+    public string? CurrentNetworkAppChannel { get; set; }
+
+    /// <summary>UniFi Network application version installed now, or null when it cannot be read.</summary>
+    public string? CurrentNetworkAppVersion { get; set; }
 }
 
 /// <summary>

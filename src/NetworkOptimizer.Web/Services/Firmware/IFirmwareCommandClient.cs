@@ -86,6 +86,15 @@ public interface IFirmwareCommandClient
     /// <returns>The catalog entries, or an empty list when the console would not answer.</returns>
     Task<IReadOnlyList<UniFiFirmwareCatalogEntry>> CheckForUpdatesAsync(CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// The console-level "check now" for application updates: refreshes what the console is
+    /// offering for the UniFi Network application. Run after a channel change, because the offer
+    /// on the new channel is only known once the console has looked.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>True when the console accepted the check.</returns>
+    Task<bool> CheckForApplicationUpdatesAsync(CancellationToken cancellationToken = default);
+
     /// <summary>The release channel UniFi devices currently follow, or null when it cannot be read.</summary>
     /// <param name="cancellationToken">Cancellation token.</param>
     Task<string?> GetDeviceChannelAsync(CancellationToken cancellationToken = default);
@@ -109,7 +118,10 @@ public interface IFirmwareCommandClient
     /// <param name="cancellationToken">Cancellation token.</param>
     Task<bool> SetDeviceChannelAsync(string channel, CancellationToken cancellationToken = default);
 
-    /// <summary>Sets the console-level UniFi Network application and/or UniFi OS channels.</summary>
+    /// <summary>
+    /// Sets the console-level UniFi Network application and/or UniFi OS channels. Both are read
+    /// back from <see cref="GetConsoleSystemInfoAsync"/>, so both are captured and restored.
+    /// </summary>
     /// <param name="networkAppChannel">Network application channel, or null to leave it alone.</param>
     /// <param name="unifiOsChannel">UniFi OS channel, or null to leave it alone.</param>
     /// <param name="cancellationToken">Cancellation token.</param>

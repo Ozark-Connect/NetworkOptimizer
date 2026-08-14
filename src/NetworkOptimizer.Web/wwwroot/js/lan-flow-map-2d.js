@@ -281,11 +281,16 @@ class LanFlowMap2D {
         this._hoverNode=null;
         this._liveOnly=false;
         // Optional per-node overlay map (Firmware Rollout): id -> {color,badge,pulse,dim}.
-        this._overlays=null;
+        // Distinct from _overlays, which is this map's own visibility toggles.
+        this._nodeOverlays=null;
+        // Host-page chrome switches (Firmware Rollout hides what it does not use).
+        this._hideOverlayControls=false;
+        this._hideFilter=false;
+        this._hideVirtualHubs=false;
     }
 
     setOverlays(map){
-        this._overlays=map&&Object.keys(map).length?map:null;
+        this._nodeOverlays=map&&Object.keys(map).length?map:null;
         this._needsStaticRedraw=true;
     }
 
@@ -442,7 +447,7 @@ class LanFlowMap2D {
                 if(this._isFitted)this._fitAll();
             });
         });
-        this._el.appendChild(filter);
+        if(!this._hideFilter)this._el.appendChild(filter);
 
         // Overlays panel (top-right, matching 3D style, collapsible on mobile)
         const controls=document.createElement('div');
@@ -470,7 +475,7 @@ class LanFlowMap2D {
             });
             ctrlBody.appendChild(row);
         }
-        this._el.appendChild(controls);
+        if(!this._hideOverlayControls)this._el.appendChild(controls);
 
         // Toolbar
         const tb=document.createElement('div');
@@ -865,6 +870,7 @@ class LanFlowMap2D {
 
     _isNodeVisible(n){
         const k=n.d.kind;
+        if(k===NK.VirtualHub&&this._hideVirtualHubs)return false;
         if(k===NK.WifiClient){
             if(!this._overlays.wifiClients)return false;
             const nBand=flowData.getClientStats()?.[n.d.id]?.band??n.d.band;
@@ -1051,8 +1057,11 @@ class LanFlowMap2D {
             else{rows.push(['Download',formatBps(inBps)]);rows.push(['Upload',formatBps(outBps)]);}
         }
 
+        // An overlay tip (Firmware Rollout) leads: it is why the node is marked at all.
+        const ovTip=this._nodeOverlays?.[d.id]?.tip;
         this._tooltip.innerHTML=
             `<div style="font-weight:600;margin-bottom:3px">${esc(m(d.name||d.mac||''))}</div>`
+            +(ovTip?`<div style="margin-bottom:3px">${esc(String(ovTip))}</div>`:'')
             +rows.map(([k,v])=>`<div style="display:flex;justify-content:space-between;gap:12px"><span style="color:${C.textMuted}">${k}</span><span>${esc(String(v))}</span></div>`).join('');
         this._tooltip.style.opacity='1';
         this._tooltip.style.visibility='visible';
@@ -1602,10 +1611,10 @@ class LanFlowMap2D {
         ctx.globalAlpha=1;
 
         // Overlay pulse rings (world coords, animated, so drawn per frame)
-        if(this._overlays){
+        if(this._nodeOverlays){
             const t=(performance.now()%1500)/1500;
-            for(const id in this._overlays){
-                const ov=this._overlays[id];
+            for(const id in this._nodeOverlays){
+                const ov=this._nodeOverlays[id];
                 if(!ov?.pulse)continue;
                 const n=this._treeMap.get(id);
                 if(!n||n.x==null)continue;
@@ -1816,7 +1825,7 @@ class LanFlowMap2D {
     _drawAllNodes(ctx,n){
         // VirtualHub: show as compact label with member count, skip children
         if(n.d.kind===NK.VirtualHub){
-            this._drawHubNode(ctx,n);
+            if(!this._hideVirtualHubs)this._drawHubNode(ctx,n);
             return;
         }
         this._drawInfraNode(ctx,n);
@@ -1856,7 +1865,7 @@ class LanFlowMap2D {
 
     _drawInfraNode(ctx,n){
         const x=n.x, y=n.y;
-        const ov=this._overlays?.[n.d.id];
+        const ov=this._nodeOverlays?.[n.d.id];
         const color=ov?.color||nodeClr(n.d.kind);
         const hw=G.boxW/2, hh=G.boxH/2;
         // Prefer the live/historic badge online state over the snapshot's build-time
@@ -2129,6 +2138,9 @@ export async function mount(containerId,opts){
     if(!container)return;
     _inst=new LanFlowMap2D(container,opts);
     if(opts?.liveOnly)_inst._liveOnly=true;
+    if(opts?.hideOverlayControls)_inst._hideOverlayControls=true;
+    if(opts?.hideFilter)_inst._hideFilter=true;
+    if(opts?.hideVirtualHubs)_inst._hideVirtualHubs=true;
     await _inst.start();
 }
 
