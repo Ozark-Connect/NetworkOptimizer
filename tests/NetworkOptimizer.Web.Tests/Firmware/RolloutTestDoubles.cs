@@ -51,11 +51,17 @@ internal sealed class FakeFirmwareCommandClient : IFirmwareCommandClient
     public FirmwareCommandResult UpgradeResult { get; set; } = FirmwareCommandResult.Ok();
     public FirmwareCommandResult ExternalResult { get; set; } = FirmwareCommandResult.Ok();
     public FirmwareCommandResult SshResult { get; set; } = FirmwareCommandResult.Ok();
-    public FirmwareCommandResult BackupResult { get; set; } = FirmwareCommandResult.NotSupported("no sample yet");
+    public FirmwareCommandResult BackupResult { get; set; } = FirmwareCommandResult.Ok();
 
     public string DeviceChannel { get; set; } = "release";
-    public UniFiConsoleSystemInfo? ConsoleInfo { get; set; }
+    public UniFiConsoleSystemInfo? ConsoleInfo { get; set; } = new();
     public List<UniFiFirmwareCatalogEntry> Catalog { get; } = [];
+
+    /// <summary>What the console offers as a UniFi OS build; null means it is current.</summary>
+    public UniFiConsoleFirmwareRelease? PendingUniFiOs { get; set; }
+
+    public bool NetworkAppUpdateAccepted { get; set; } = true;
+    public bool UniFiOsUpdateAccepted { get; set; } = true;
 
     public List<string> UpgradeCommands { get; } = [];
     public List<(string Mac, string Url)> ExternalCommands { get; } = [];
@@ -63,6 +69,8 @@ internal sealed class FakeFirmwareCommandClient : IFirmwareCommandClient
     public List<string> ChannelWrites { get; } = [];
     public int CheckForUpdatesCalls { get; private set; }
     public int BackupCalls { get; private set; }
+    public int NetworkAppUpdateCalls { get; private set; }
+    public int UniFiOsUpdateCalls { get; private set; }
 
     public Task<FirmwareCommandResult> TriggerUpgradeAsync(string deviceMac, CancellationToken cancellationToken = default)
     {
@@ -108,6 +116,21 @@ internal sealed class FakeFirmwareCommandClient : IFirmwareCommandClient
     {
         BackupCalls++;
         return Task.FromResult(BackupResult);
+    }
+
+    public Task<bool> TriggerNetworkApplicationUpdateAsync(CancellationToken cancellationToken = default)
+    {
+        NetworkAppUpdateCalls++;
+        return Task.FromResult(NetworkAppUpdateAccepted);
+    }
+
+    public Task<UniFiConsoleFirmwareRelease?> GetPendingUniFiOsUpdateAsync(CancellationToken cancellationToken = default) =>
+        Task.FromResult(PendingUniFiOs);
+
+    public Task<bool> TriggerUniFiOsUpdateAsync(CancellationToken cancellationToken = default)
+    {
+        UniFiOsUpdateCalls++;
+        return Task.FromResult(UniFiOsUpdateAccepted);
     }
 }
 

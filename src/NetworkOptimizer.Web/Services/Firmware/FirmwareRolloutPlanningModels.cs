@@ -268,6 +268,37 @@ public class RolloutPlanDocument
     /// the upgrade has happened. Entries with no URL record that the version was unresolvable.
     /// </summary>
     public List<PlanPriorVersion> PriorVersions { get; set; } = [];
+
+    /// <summary>Progress of the UniFi Network application update that runs ahead of wave 1.</summary>
+    public RolloutConsoleStepState NetworkAppUpdate { get; set; } = new();
+
+    /// <summary>Progress of the UniFi OS update that runs after every device step.</summary>
+    public RolloutConsoleStepState UniFiOsUpdate { get; set; } = new();
+}
+
+/// <summary>
+/// One console-level update's progress. Persisted inside the plan document because a console
+/// update outlives any in-memory state: it takes the API down with it, and a server restart
+/// during one must never fire the trigger a second time.
+/// </summary>
+public class RolloutConsoleStepState
+{
+    /// <summary>Whether the install has been commanded. The resume guard.</summary>
+    public bool Triggered { get; set; }
+
+    /// <summary>When it was commanded, which the recovery budget runs from.</summary>
+    public DateTime? TriggeredAt { get; set; }
+
+    /// <summary>Whether there is anything left to wait for.</summary>
+    public bool Settled { get; set; }
+
+    /// <summary>
+    /// How it ended: "updated", "nothing-to-update", "refused", "unchanged", "stuck", or "skipped".
+    /// </summary>
+    public string? Outcome { get; set; }
+
+    /// <summary>Version the install was aiming at, where the console named one.</summary>
+    public string? TargetVersion { get; set; }
 }
 
 /// <summary>

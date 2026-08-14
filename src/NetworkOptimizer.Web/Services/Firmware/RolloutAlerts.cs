@@ -27,6 +27,12 @@ public static class RolloutAlerts
     /// <summary>An SKU's canary failed, so the rest of that SKU was dropped.</summary>
     public const string SkuAborted = "rollout.sku_aborted";
 
+    /// <summary>
+    /// The UniFi Network application update did not bring the application back inside its budget.
+    /// A warning rather than a stop: the device upgrades carry on regardless.
+    /// </summary>
+    public const string NetworkAppUpdateStuck = "rollout.network_app_update_stuck";
+
     /// <summary>A device's CPU or memory use moved appreciably up after the upgrade.</summary>
     public const string ResourceRegression = "rollout.resource_regression";
 

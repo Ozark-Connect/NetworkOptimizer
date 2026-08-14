@@ -2839,54 +2839,6 @@ public class UniFiApiClient : IDisposable
     }
 
     /// <summary>
-    /// POST cmd/devmgr {"cmd":"upgrade-external"} - move a device onto an explicit firmware image.
-    /// <para>
-    /// Acceptance only. A live test returned rc:ok, cycled the AP, and left it on the version it
-    /// started on, so callers must verify the reported version once the device is back rather than
-    /// trusting either the response or an observed reboot.
-    /// </para>
-    /// </summary>
-    /// <param name="deviceMac">Colonized device MAC.</param>
-    /// <param name="firmwareUrl">Direct firmware image URL (console catalog or release feed).</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    [VendorSpecific("UniFi", "cmd/devmgr upgrade-external")]
-    public async Task<bool> TriggerExternalFirmwareUpgradeAsync(
-        string deviceMac,
-        string firmwareUrl,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(deviceMac);
-        ArgumentException.ThrowIfNullOrWhiteSpace(firmwareUrl);
-
-        var body = new Dictionary<string, object>
-        {
-            ["mac"] = deviceMac,
-            ["url"] = firmwareUrl,
-            ["cmd"] = "upgrade-external"
-        };
-
-        // Opt into permission-error surfacing: this reboots a device, so a NoPermission 403 is an
-        // actionable role failure rather than a transient hiccup.
-        var response = await ExecuteApiCallAsync<UniFiApiResponse<object>>(
-            () =>
-            {
-                var content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
-                return _httpClient!.PostAsync(BuildApiPath("cmd/devmgr"), content, cancellationToken);
-            },
-            cancellationToken,
-            throwOnPermissionError: true);
-
-        if (response?.Meta.Rc == "ok")
-        {
-            _logger.LogInformation("UniFi accepted an external firmware upgrade for {Mac} on site {Site}", deviceMac, _site);
-            return true;
-        }
-
-        _logger.LogWarning("UniFi rejected the external firmware upgrade for {Mac} on site {Site}", deviceMac, _site);
-        return false;
-    }
-
-    /// <summary>
     /// POST cmd/firmware {"cmd":"list-available"} - the newest build per model on the console's
     /// CURRENT channel, each with a direct image URL and md5. Also the hook for confirming a channel
     /// change took effect: change the channel, re-run this, and the URLs follow.

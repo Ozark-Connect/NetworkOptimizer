@@ -46,10 +46,9 @@ public sealed record FirmwareCommandResult(FirmwareCommandOutcome Outcome, strin
 /// The command surface a rollout drives: upgrade triggers on all three paths, the catalog refresh
 /// that doubles as UniFi's "Check for Updates", channel reads and writes, and the pre-flight backup.
 /// <para>
-/// An interface rather than the API client directly, for two reasons: the executor is driven by a
-/// fake in tests, and two of these calls have no captured sample yet - they answer
-/// <see cref="FirmwareCommandOutcome.NotSupported"/> until one lands, so the callers around them
-/// are already written and exercised.
+/// An interface rather than the API client directly so the executor can be driven by a scripted
+/// fake: nothing else can exercise a device going down, coming back on the wrong version, and
+/// being retried over SSH.
 /// </para>
 /// </summary>
 public interface IFirmwareCommandClient
@@ -109,4 +108,27 @@ public interface IFirmwareCommandClient
     /// <summary>Triggers the pre-flight console backup.</summary>
     /// <param name="cancellationToken">Cancellation token.</param>
     Task<FirmwareCommandResult> TriggerBackupAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Refreshes the console's application-update availability and installs the UniFi Network
+    /// application update. The application restarts as it installs, so the Network API goes dark
+    /// and comes back.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>True when the console accepted the install; false when there was nothing to do.</returns>
+    Task<bool> TriggerNetworkApplicationUpdateAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The UniFi OS build the console is offering to install, or null when it is current.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    Task<UniFiConsoleFirmwareRelease?> GetPendingUniFiOsUpdateAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Installs the pending UniFi OS build. The whole console goes dark for the cycle, taking the
+    /// Network API and any agent tunnel with it.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>True when the console accepted the install. Acceptance is not success.</returns>
+    Task<bool> TriggerUniFiOsUpdateAsync(CancellationToken cancellationToken = default);
 }

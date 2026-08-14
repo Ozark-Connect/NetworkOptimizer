@@ -623,6 +623,17 @@ public static class DefaultAlertRules
         },
         new AlertRule
         {
+            // The rollout carries on past this one - the device upgrades are unaffected - so it is
+            // a Warning about the console, not a failure of the run.
+            Name = "Firmware Rollout: Network Application Update Stuck",
+            IsEnabled = true,
+            EventTypePattern = "rollout.network_app_update_stuck",
+            Source = "rollout",
+            MinSeverity = AlertSeverity.Warning,
+            CooldownSeconds = 0
+        },
+        new AlertRule
+        {
             Name = "Firmware Rollout: Heavier After Upgrade",
             IsEnabled = true,
             EventTypePattern = "rollout.resource_regression",

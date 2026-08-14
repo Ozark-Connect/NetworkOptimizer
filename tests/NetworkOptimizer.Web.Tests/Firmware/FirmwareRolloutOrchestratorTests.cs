@@ -527,7 +527,7 @@ public class FirmwareRolloutOrchestratorTests
     }
 
     [Fact]
-    public async Task PreFlightBackupWithNoSampleYet_NotesItAndCarriesOn()
+    public async Task PreFlightBackupSucceeding_LetsTheRolloutStart()
     {
         using var harness = new RolloutHarness();
         var plan = await harness.SeedScheduledPlanAsync(
@@ -539,7 +539,26 @@ public class FirmwareRolloutOrchestratorTests
 
         harness.Commands.BackupCalls.Should().Be(1);
         (await harness.PlanAsync(plan.Id))!.Status.Should().Be(FirmwareRolloutStatus.Running);
-        harness.Bus.Published.Should().Contain(e => e.Message.Contains("could not take a console backup"));
+    }
+
+    [Fact]
+    public async Task PreFlightBackupFailing_PostponesAndNamesWhatCouldNotBeBackedUp()
+    {
+        using var harness = new RolloutHarness();
+        harness.Commands.BackupResult = FirmwareCommandResult.Failed("the console could not back up network");
+        var plan = await harness.SeedScheduledPlanAsync(
+            Document(Wave(1, PlanStep(ApMac))),
+            RolloutHarness.Start,
+            Step(ApMac));
+
+        await harness.TickAsync();
+
+        var stored = await harness.PlanAsync(plan.Id);
+        stored!.Status.Should().Be(FirmwareRolloutStatus.Scheduled);
+        stored.ScheduledStartAt.Should().Be(RolloutHarness.Start + FirmwareRolloutOrchestrator.HealthPostponeWindow);
+        harness.Bus.Published.Should().ContainSingle(e => e.EventType == RolloutAlerts.PostponedHealth)
+            .Which.Message.Should().Contain("could not back up network");
+        harness.Commands.UpgradeCommands.Should().BeEmpty();
     }
 
     [Fact]

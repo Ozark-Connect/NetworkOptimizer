@@ -53,6 +53,19 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     /// <summary>How far a health-gated start is pushed out. One window, per the approved behavior.</summary>
     public static readonly TimeSpan HealthPostponeWindow = TimeSpan.FromHours(24);
 
+    /// <summary>
+    /// How long the UniFi Network application gets to restart into its new build. Past this the
+    /// rollout stops waiting and upgrades devices anyway.
+    /// </summary>
+    public static readonly TimeSpan NetworkAppUpdateBudget = TimeSpan.FromMinutes(15);
+
+    /// <summary>
+    /// How long the console gets to come back from a UniFi OS update. The cloud gateway class
+    /// budget, because that is exactly what this is: the gateway's own full cycle.
+    /// </summary>
+    public static readonly TimeSpan UniFiOsUpdateBudget =
+        TimeSpan.FromSeconds(FirmwareTimingEstimator.CloudGatewayOfflineBudgetSeconds);
+
     /// <summary>How long a firmware catalog read is reused before the console is asked again.</summary>
     private static readonly TimeSpan CatalogCacheTtl = TimeSpan.FromMinutes(5);
 
@@ -439,6 +452,9 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         // them, so a rollout that skipped it would command devices the console has nothing ready for.
         await RefreshCatalogAsync(force: true, cancellationToken);
 
+        await TriggerNetworkAppUpdateAsync(document, cancellationToken);
+
+        plan.PlanJson = JsonSerializer.Serialize(document);
         plan.Status = FirmwareRolloutStatus.Running;
         plan.StartedAt = Now;
         await PersistPlanAsync(plan, cancellationToken);
@@ -462,24 +478,9 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         if (backup.IsOk)
             return true;
 
-        if (backup.Outcome == FirmwareCommandOutcome.NotSupported)
-        {
-            // TODO(sample): once the backup trigger's request shape is captured this branch goes
-            // away and a failure blocks the start like the approved behavior says. Until then an
-            // uncaptured call must not stop every rollout - the note tells the operator why.
-            _logger.LogWarning(
-                "Starting firmware rollout {Id} on site {Site} without a pre-flight backup: {Message}",
-                plan.Id, _siteSlug, backup.Message);
-            await PublishAsync(
-                RolloutAlerts.Started,
-                AlertSeverity.Info,
-                $"Firmware Rollout Starting Without a Backup{_siteSuffix}",
-                "Network Optimizer could not take a console backup before this rollout. Take one yourself if you want a restore point.",
-                null, null, cancellationToken);
-            return true;
-        }
-
-        await PostponeAsync(plan, $"the pre-flight console backup failed ({backup.Message})", cancellationToken);
+        // No backup, no rollout. The whole point of the gate is that there is a restore point
+        // before anything reboots, and the site can waive it in settings if it disagrees.
+        await PostponeAsync(plan, $"the pre-flight console backup failed - {backup.Message}", cancellationToken);
         return false;
     }
 
@@ -539,11 +540,215 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         await RunDueResourceComparisonsAsync(steps, cancellationToken);
         EnqueueDueMeshRepairs(document, steps);
 
-        if (plan.Status == FirmwareRolloutStatus.Running)
+        // Wave 0. The UniFi Network application update aligns the firmware catalog every device
+        // step then works from, so no device is commanded until it has been through.
+        var networkAppSettled = await AdvanceNetworkAppUpdateAsync(plan, document, consoleDark, cancellationToken);
+
+        if (networkAppSettled && plan.Status == FirmwareRolloutStatus.Running)
             await OpenNextWaveAsync(plan, document, settings, steps, byMac, cancellationToken);
 
-        if (steps.All(IsSettled))
-            await CompleteAsync(plan, steps, cancellationToken);
+        if (!steps.All(IsSettled))
+            return;
+
+        // The planner forces the gateway's channel group last, so every device step being settled
+        // is exactly "the gateway step has settled" - and is also the right point on a plan that
+        // has no gateway step at all.
+        if (!await AdvanceUniFiOsUpdateAsync(plan, document, steps, cancellationToken))
+            return;
+
+        await CompleteAsync(plan, document, steps, cancellationToken);
+    }
+
+    /// <summary>
+    /// Commands the UniFi Network application update once, at rollout start. A console with nothing
+    /// to install says so by refusing, which is not a failure of anything.
+    /// </summary>
+    private async Task TriggerNetworkAppUpdateAsync(RolloutPlanDocument document, CancellationToken cancellationToken)
+    {
+        var state = document.NetworkAppUpdate;
+        if (!document.IncludesUniFiNetworkUpdate)
+        {
+            state.Settled = true;
+            state.Outcome = "skipped";
+            return;
+        }
+
+        if (state.Triggered || state.Settled)
+            return;
+
+        if (!await _commands.TriggerNetworkApplicationUpdateAsync(cancellationToken))
+        {
+            // Nothing staged, or the console would not take it. Either way there is nothing to
+            // wait for and nothing worth telling anyone about.
+            state.Settled = true;
+            state.Outcome = "nothing-to-update";
+            _logger.LogInformation(
+                "No UniFi Network application update to install on site {Site}; going straight to the devices", _siteSlug);
+            return;
+        }
+
+        state.Triggered = true;
+        state.TriggeredAt = Now;
+        _logger.LogInformation("Installing the UniFi Network application update on site {Site}", _siteSlug);
+    }
+
+    /// <summary>
+    /// Waits out the application restart. Returns true once there is nothing left to wait for -
+    /// including when it never came back, because an application update that failed must not
+    /// strand the device upgrades behind it.
+    /// </summary>
+    private async Task<bool> AdvanceNetworkAppUpdateAsync(
+        FirmwareRolloutPlan plan, RolloutPlanDocument document, bool consoleDark, CancellationToken cancellationToken)
+    {
+        var state = document.NetworkAppUpdate;
+        if (state.Settled) return true;
+        if (!state.Triggered) return true;
+
+        var triggeredAt = state.TriggeredAt ?? Now;
+
+        // Not on the pass that commanded it: the application takes a moment to go down, and an API
+        // that has not stopped answering yet is indistinguishable from one that already came back.
+        if (Now <= triggeredAt)
+            return false;
+
+        if (!consoleDark)
+        {
+            state.Settled = true;
+            state.Outcome = "updated";
+            await PersistDocumentAsync(plan, document, cancellationToken);
+            _logger.LogInformation("The UniFi Network application on site {Site} is answering again", _siteSlug);
+            return true;
+        }
+
+        if (Now - triggeredAt < NetworkAppUpdateBudget)
+            return false;
+
+        state.Settled = true;
+        state.Outcome = "stuck";
+        await PersistDocumentAsync(plan, document, cancellationToken);
+
+        await PublishAsync(
+            RolloutAlerts.NetworkAppUpdateStuck,
+            AlertSeverity.Warning,
+            $"UniFi Network Application Not Back{_siteSuffix}",
+            $"The UniFi Network application was updated and has not answered for {NetworkAppUpdateBudget.TotalMinutes:0} minutes. The device upgrades are going ahead anyway.",
+            null, null, cancellationToken);
+
+        _logger.LogError(
+            "The UniFi Network application on site {Site} has not returned within {Budget}; upgrading devices anyway",
+            _siteSlug, NetworkAppUpdateBudget);
+        return true;
+    }
+
+    /// <summary>
+    /// The last step of a rollout: the console's own UniFi OS update, once every device is through.
+    /// Returns true when there is nothing left to wait for.
+    /// <para>
+    /// The console has no readable "installed UniFi OS version", so the version check that every
+    /// device step gets becomes this: the build the console was offering is no longer on offer. An
+    /// accepted command that leaves the same build pending changed nothing, exactly as an accepted
+    /// device command that leaves the same firmware running did.
+    /// </para>
+    /// </summary>
+    private async Task<bool> AdvanceUniFiOsUpdateAsync(
+        FirmwareRolloutPlan plan,
+        RolloutPlanDocument document,
+        List<FirmwareRolloutStep> steps,
+        CancellationToken cancellationToken)
+    {
+        var state = document.UniFiOsUpdate;
+        if (state.Settled) return true;
+
+        if (!document.IncludesUniFiOsUpdate)
+        {
+            state.Settled = true;
+            state.Outcome = "skipped";
+            await PersistDocumentAsync(plan, document, cancellationToken);
+            return true;
+        }
+
+        if (!state.Triggered)
+            return await StartUniFiOsUpdateAsync(plan, document, cancellationToken);
+
+        var triggeredAt = state.TriggeredAt ?? Now;
+        var info = await _commands.GetConsoleSystemInfoAsync(cancellationToken);
+
+        if (info == null)
+        {
+            if (Now - triggeredAt < UniFiOsUpdateBudget)
+                return false;
+
+            await SettleUniFiOsAsync(plan, document, "stuck", cancellationToken);
+            await PublishAsync(
+                RolloutAlerts.DeviceStuckOffline,
+                AlertSeverity.Critical,
+                $"Console Stuck Offline After UniFi OS Update{_siteSuffix}",
+                $"The console was updated to UniFi OS {state.TargetVersion ?? "its pending build"} and has not answered for {UniFiOsUpdateBudget.TotalMinutes:0} minutes.",
+                steps.FirstOrDefault(IsGatewayStep)?.DeviceMac,
+                steps.FirstOrDefault(IsGatewayStep)?.DeviceName,
+                cancellationToken);
+            return true;
+        }
+
+        var pending = await _commands.GetPendingUniFiOsUpdateAsync(cancellationToken);
+        if (pending?.Version != null && VersionsMatch(pending.Version, state.TargetVersion))
+        {
+            await SettleUniFiOsAsync(plan, document, "unchanged", cancellationToken);
+            _logger.LogError(
+                "The console on site {Site} came back still offering UniFi OS {Version}, so the update did not take",
+                _siteSlug, state.TargetVersion);
+            return true;
+        }
+
+        await SettleUniFiOsAsync(plan, document, "updated", cancellationToken);
+        _logger.LogInformation(
+            "The console on site {Site} is back on UniFi OS {Version}", _siteSlug, state.TargetVersion);
+        return true;
+    }
+
+    private async Task<bool> StartUniFiOsUpdateAsync(
+        FirmwareRolloutPlan plan, RolloutPlanDocument document, CancellationToken cancellationToken)
+    {
+        // Belt and braces on the scope rule: BeginAsync clears the flag on a self-hosted console,
+        // and this refuses again at the only moment it would actually command one.
+        if (await IsStandaloneConsoleAsync(cancellationToken))
+        {
+            _logger.LogWarning(
+                "Refusing the UniFi OS update on site {Site}: the console is a self-hosted UniFi OS Server", _siteSlug);
+            await SettleUniFiOsAsync(plan, document, "refused", cancellationToken);
+            return true;
+        }
+
+        var pending = await _commands.GetPendingUniFiOsUpdateAsync(cancellationToken);
+        if (pending?.Version == null)
+        {
+            await SettleUniFiOsAsync(plan, document, "nothing-to-update", cancellationToken);
+            return true;
+        }
+
+        document.UniFiOsUpdate.TargetVersion = pending.Version;
+        if (!await _commands.TriggerUniFiOsUpdateAsync(cancellationToken))
+        {
+            await SettleUniFiOsAsync(plan, document, "refused", cancellationToken);
+            _logger.LogWarning("The console on site {Site} refused the UniFi OS update", _siteSlug);
+            return true;
+        }
+
+        document.UniFiOsUpdate.Triggered = true;
+        document.UniFiOsUpdate.TriggeredAt = Now;
+        await PersistDocumentAsync(plan, document, cancellationToken);
+        _logger.LogInformation(
+            "Installing UniFi OS {Version} on the console for site {Site}; expect it to go dark",
+            pending.Version, _siteSlug);
+        return false;
+    }
+
+    private async Task SettleUniFiOsAsync(
+        FirmwareRolloutPlan plan, RolloutPlanDocument document, string outcome, CancellationToken cancellationToken)
+    {
+        document.UniFiOsUpdate.Settled = true;
+        document.UniFiOsUpdate.Outcome = outcome;
+        await PersistDocumentAsync(plan, document, cancellationToken);
     }
 
     private async Task ProgressStepAsync(
@@ -1069,7 +1274,10 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     }
 
     private async Task CompleteAsync(
-        FirmwareRolloutPlan plan, List<FirmwareRolloutStep> steps, CancellationToken cancellationToken)
+        FirmwareRolloutPlan plan,
+        RolloutPlanDocument document,
+        List<FirmwareRolloutStep> steps,
+        CancellationToken cancellationToken)
     {
         await RestoreChannelsAsync(plan, cancellationToken);
 
@@ -1086,7 +1294,9 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             RolloutAlerts.Completed,
             AlertSeverity.Info,
             $"Firmware Rollout Complete{_siteSuffix}",
-            $"{upgraded} device{(upgraded == 1 ? "" : "s")} upgraded, {failed} failed, {dropped} dropped. The report follows after the soak.",
+            $"{upgraded} device{(upgraded == 1 ? "" : "s")} upgraded, {failed} failed, {dropped} dropped."
+            + ConsoleUpdateSummary(document)
+            + " The report follows after the soak.",
             null, null, cancellationToken);
 
         _logger.LogInformation(
@@ -1252,6 +1462,46 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         if (string.IsNullOrWhiteSpace(json)) return null;
         try { return JsonSerializer.Deserialize<RolloutResourceStats>(json); }
         catch (JsonException) { return null; }
+    }
+
+    /// <summary>
+    /// What the two console-level updates did, for the completion alert. Only outcomes a reader
+    /// would act on or be surprised by earn a sentence.
+    /// </summary>
+    private static string ConsoleUpdateSummary(RolloutPlanDocument document)
+    {
+        var parts = new List<string>();
+
+        switch (document.NetworkAppUpdate.Outcome)
+        {
+            case "updated": parts.Add("The UniFi Network application was updated."); break;
+            case "stuck": parts.Add("The UniFi Network application did not come back after its update."); break;
+        }
+
+        switch (document.UniFiOsUpdate.Outcome)
+        {
+            case "updated":
+                parts.Add($"The console was updated to UniFi OS {document.UniFiOsUpdate.TargetVersion ?? "its newest build"}.");
+                break;
+            case "unchanged":
+                parts.Add($"The console accepted UniFi OS {document.UniFiOsUpdate.TargetVersion ?? "its newest build"} but is still offering it.");
+                break;
+            case "stuck":
+                parts.Add("The console has not answered since its UniFi OS update.");
+                break;
+            case "refused":
+                parts.Add("The console would not take its UniFi OS update.");
+                break;
+        }
+
+        return parts.Count == 0 ? "" : " " + string.Join(" ", parts);
+    }
+
+    private async Task PersistDocumentAsync(
+        FirmwareRolloutPlan plan, RolloutPlanDocument document, CancellationToken cancellationToken)
+    {
+        plan.PlanJson = JsonSerializer.Serialize(document);
+        await PersistPlanAsync(plan, cancellationToken);
     }
 
     private Task PersistPlanAsync(FirmwareRolloutPlan plan, CancellationToken cancellationToken) =>

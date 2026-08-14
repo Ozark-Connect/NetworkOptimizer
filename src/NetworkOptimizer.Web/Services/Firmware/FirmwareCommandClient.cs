@@ -9,12 +9,6 @@ namespace NetworkOptimizer.Web.Services.Firmware;
 /// </summary>
 public class FirmwareCommandClient : IFirmwareCommandClient
 {
-    /// <summary>
-    /// Marks an API call whose request shape has not been captured yet. Each returns
-    /// NotSupported so its caller runs, logs, and falls through to a path that works.
-    /// </summary>
-    private const string PendingSampleSuffix = "the request shape has not been captured yet";
-
     private readonly UniFiConnectionService _connection;
     private readonly IUniFiSshService _ssh;
     private readonly ILogger<FirmwareCommandClient> _logger;
@@ -37,13 +31,27 @@ public class FirmwareCommandClient : IFirmwareCommandClient
     }
 
     /// <inheritdoc />
-    public Task<FirmwareCommandResult> TriggerUpgradeAsync(string deviceMac, CancellationToken cancellationToken = default)
+    public async Task<FirmwareCommandResult> TriggerUpgradeAsync(string deviceMac, CancellationToken cancellationToken = default)
     {
-        // TODO(sample): cmd/devmgr roll-forward upgrade. Until the request body is captured, the
-        // orchestrator falls through to upgrade-external with the catalog URL and then to SSH.
-        _logger.LogDebug("Roll-forward upgrade for {Mac} is not implemented yet; the caller falls through", deviceMac);
-        return Task.FromResult(FirmwareCommandResult.NotSupported(
-            $"The UniFi roll-forward upgrade command is not available: {PendingSampleSuffix}."));
+        if (string.IsNullOrWhiteSpace(deviceMac))
+            return FirmwareCommandResult.Failed("No device MAC to command.");
+
+        var client = _connection.Client;
+        if (client == null)
+            return FirmwareCommandResult.Failed("The UniFi Console is not connected.");
+
+        try
+        {
+            var accepted = await client.TriggerDeviceUpgradeAsync(deviceMac, cancellationToken);
+            return accepted
+                ? FirmwareCommandResult.Ok()
+                : FirmwareCommandResult.Failed("The UniFi Console refused the upgrade command.");
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Upgrade command for {Mac} on site {Site} threw", deviceMac, _siteSlug);
+            return FirmwareCommandResult.Failed($"The upgrade command failed: {ex.Message}");
+        }
     }
 
     /// <inheritdoc />
@@ -61,7 +69,7 @@ public class FirmwareCommandClient : IFirmwareCommandClient
 
         try
         {
-            var accepted = await client.TriggerExternalFirmwareUpgradeAsync(deviceMac, firmwareUrl, cancellationToken);
+            var accepted = await client.TriggerDeviceExternalUpgradeAsync(deviceMac, firmwareUrl, cancellationToken);
             return accepted
                 ? FirmwareCommandResult.Ok()
                 : FirmwareCommandResult.Failed("The UniFi Console rejected the upgrade command.");
@@ -192,11 +200,102 @@ public class FirmwareCommandClient : IFirmwareCommandClient
     }
 
     /// <inheritdoc />
-    public Task<FirmwareCommandResult> TriggerBackupAsync(CancellationToken cancellationToken = default)
+    public async Task<FirmwareCommandResult> TriggerBackupAsync(CancellationToken cancellationToken = default)
     {
-        // TODO(sample): console backup trigger. The pre-flight gate treats NotSupported as
-        // "note it and carry on" so an uncaptured call cannot block every rollout.
-        return Task.FromResult(FirmwareCommandResult.NotSupported(
-            $"The console backup trigger is not available: {PendingSampleSuffix}."));
+        var client = _connection.Client;
+        if (client == null)
+            return FirmwareCommandResult.Failed("The UniFi Console is not connected.");
+
+        try
+        {
+            return MapBackupResult(await client.TriggerConsoleBackupAsync(cancellationToken));
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Console backup on site {Site} threw", _siteSlug);
+            return FirmwareCommandResult.Failed($"the backup request failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Turns the console's backup response into a rollout result.
+    /// <para>
+    /// The overall flag can be false while most components succeeded, so the ones that failed are
+    /// named: "the backup failed" on its own gives the operator nothing to go and look at, and this
+    /// message is what the postpone alert carries.
+    /// </para>
+    /// </summary>
+    /// <param name="result">What the console answered, or null when it did not answer.</param>
+    public static FirmwareCommandResult MapBackupResult(UniFiConsoleBackupResult? result)
+    {
+        if (result == null)
+            return FirmwareCommandResult.Failed("the console did not answer the backup request");
+
+        if (result.Success)
+            return FirmwareCommandResult.Ok();
+
+        var failed = result.Controllers.Concat(result.Services)
+            .Where(c => !c.Value.Success)
+            .Select(c => c.Key)
+            .Order(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        return FirmwareCommandResult.Failed(failed.Count == 0
+            ? "the console reported the backup as unsuccessful"
+            : $"the console could not back up {string.Join(", ", failed)}");
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> TriggerNetworkApplicationUpdateAsync(CancellationToken cancellationToken = default)
+    {
+        var client = _connection.Client;
+        if (client == null) return false;
+
+        try
+        {
+            // The availability check first, so the install acts on what the console knows now
+            // rather than on whatever it last happened to look up.
+            await client.TriggerConsoleAppUpdateCheckAsync(["network"], cancellationToken);
+            return await client.TriggerNetworkApplicationUpdateAsync(cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "UniFi Network application update on site {Site} threw", _siteSlug);
+            return false;
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<UniFiConsoleFirmwareRelease?> GetPendingUniFiOsUpdateAsync(CancellationToken cancellationToken = default)
+    {
+        var client = _connection.Client;
+        if (client == null) return null;
+
+        try
+        {
+            return await client.GetUniFiOsPendingUpdateAsync(cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Reading the pending UniFi OS build on site {Site} threw", _siteSlug);
+            return null;
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> TriggerUniFiOsUpdateAsync(CancellationToken cancellationToken = default)
+    {
+        var client = _connection.Client;
+        if (client == null) return false;
+
+        try
+        {
+            return await client.TriggerUniFiOsUpdateAsync(cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "UniFi OS update on site {Site} threw", _siteSlug);
+            return false;
+        }
     }
 }
