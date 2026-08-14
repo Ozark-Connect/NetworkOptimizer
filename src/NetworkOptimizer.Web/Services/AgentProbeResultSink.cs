@@ -872,7 +872,11 @@ public class AgentProbeResultSink
                         Mac = device.Mac,
                         Ip = Monitoring.SnmpDeviceRules.ResolvePollAddress(device, gatewayLanIp),
                         Name = device.Name ?? "",
-                        DeviceType = device.DeviceType.ToString().ToLowerInvariant(),
+                        // The agent echoes this string straight back into the device_health tag, so
+                        // it has to be the same label the server's own writes use. ToString() is not:
+                        // it spells an AP "accesspoint" where the server writes "ap", which forks the
+                        // device into a second series the moment collection changes hands.
+                        DeviceType = MonitoringCollectionAgent.DescribeDeviceType(device.DeviceType),
                     });
                     if (!string.IsNullOrEmpty(device.Name))
                         names[NormalizeMac(device.Mac)] = device.Name;
@@ -1597,8 +1601,11 @@ public class AgentProbeResultSink
                 if (!deviceFields.TryGetValue((r.DeviceMac, ts), out var fields))
                 {
                     deviceFields[(r.DeviceMac, ts)] = fields = new Dictionary<string, object>();
+                    // Custom fields ride the device's existing device_health series, which means
+                    // the canonical label - a different spelling here writes them to a series of
+                    // their own where nothing reading health will find them.
                     deviceTypes[r.DeviceMac] = deviceByMac.TryGetValue(mac, out var d)
-                        ? d.DeviceType.ToString() : "unknown";
+                        ? MonitoringCollectionAgent.DescribeDeviceType(d.DeviceType) : "unknown";
                 }
                 fields[r.FieldName] = CustomOidValueParser.Parse(r.Value, valueType);
             }

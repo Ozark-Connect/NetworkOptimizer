@@ -2407,6 +2407,13 @@ public class MonitoringCollectionAgent : BackgroundService
         }
     }
 
+    /// <summary>
+    /// The canonical <c>device_type</c> tag label. Every writer of a device-scoped measurement must
+    /// use it, server-side or agent-relayed: the tag is part of the series key, so two spellings of
+    /// one device are two series, and a device polled by both at different times reads as two.
+    /// Never <c>ToString()</c> - it spells an AP "accesspoint" and a modem "cellularmodem".
+    /// </summary>
+    /// <param name="type">Device type from the UniFi device data.</param>
     internal static string DescribeDeviceType(NetworkOptimizer.Core.Enums.DeviceType type) => type switch
     {
         NetworkOptimizer.Core.Enums.DeviceType.Gateway => "gateway",
