@@ -18224,6 +18224,28 @@ a.isp-health-hero-speed:hover {
     flex: 1 1 240px;
 }
 
+.isp-event-members-toggle {
+    padding: 0;
+    border: none;
+    background: none;
+    font-size: 0.8rem;
+    color: var(--primary-hover);
+    cursor: pointer;
+}
+
+.isp-event-members-toggle:hover {
+    text-decoration: underline;
+}
+
+.isp-event-members {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    margin-top: 0.35rem;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+}
+
 .isp-outage-list {
     display: flex;
     flex-direction: column;

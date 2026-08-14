@@ -15,9 +15,19 @@ public enum EventCategory
 /// One rendered line of the Path &amp; Congestion Events feed: when it happened, the badge
 /// it carries, and the sentence describing it. <see cref="BadgeClass"/> is the tab's CSS
 /// class and is ignored by renderers that have no stylesheet (the PDF).
+///
+/// <see cref="Members"/> holds the per-hop readings behind a grouped congestion line or the
+/// per-path levels behind a correlated shift, and is empty for every other entry. They are the
+/// detail an ISP acts on, so a renderer may fold them away but must not drop them.
+/// <see cref="MemberNoun"/> is what one member is called in the fold-away control.
+///
+/// <see cref="TargetIds"/> is every monitored target behind the entry, so a renderer that also
+/// draws the series (the tab, not the PDF) can hide an entry whose lines are all filtered out.
 /// </summary>
 public record TimelineEntry(DateTime Time, string Badge, string BadgeClass, string Text, DateTime? End = null,
-    EventCategory Category = EventCategory.Congestion, string? BadgeTooltip = null);
+    EventCategory Category = EventCategory.Congestion, string? BadgeTooltip = null,
+    IReadOnlyList<string>? Members = null, string MemberNoun = "hop",
+    IReadOnlyList<string>? TargetIds = null);
 
 /// <summary>
 /// How an <see cref="IspHealthReport"/> reads: the wording, formatting, and event
@@ -27,6 +37,10 @@ public record TimelineEntry(DateTime Time, string Badge, string BadgeClass, stri
 /// </summary>
 public static class IspHealthPresentation
 {
+    /// <summary>Below this share of the plan the line was effectively idle, and saying so about an
+    /// elevation only invites the reader to blame their own traffic for it.</summary>
+    private const double LoadMentionFloor = 0.10;
+
     /// <summary>
     /// Builds the Path &amp; Congestion Events feed for a report: congestion events with
     /// their disposition-specific wording, then path shifts and route changes, in time order.
@@ -34,16 +48,29 @@ public static class IspHealthPresentation
     public static IEnumerable<TimelineEntry> EventTimeline(IspHealthReport r)
     {
         var entries = new List<TimelineEntry>();
-        foreach (var evt in r.CongestionEvents)
+        foreach (var group in GroupCongestion(r.CongestionEvents))
         {
+            // The nearest hop leads: it is the one closest to a cause the reader can act on, and
+            // the rest of the group sits further along the same elevation.
+            var evt = Head(group, r);
             var where = evt.IsShared
                 ? $"{evt.AsnNames.Count} networks at once (could not be localized)"
                 : (string.IsNullOrEmpty(evt.BottleneckLabel) ? string.Join(", ", evt.AsnNames) : evt.BottleneckLabel);
-            var span = FormatDuration(evt.Duration);
+            var start = group.Min(e => e.Start);
+            var end = group.Max(e => e.End);
+            var span = FormatDuration(end - start);
             // Show both signals - congestion is detected on latency AND jitter together (or a
             // jitter-driven p90 burst), so reporting only RTT reads as latency-only.
-            var mag = $"latency {evt.BaselineRttMs:0.#} to {evt.PeakRttMs:0.#} ms, jitter {evt.BaselineJitterMs:0.#} to {evt.PeakJitterMs:0.#} ms";
-            var load = evt.LoadCoincident ? " under heavy WAN load" : "";
+            //
+            // The named hop's own readings, never a range spanning the group: an envelope of one
+            // hop's baseline and another's peak describes a rise that nothing measured. The members
+            // below carry each hop's own.
+            var mag = Magnitude(evt);
+            // What the line was actually carrying, not just whether it cleared the heavy bar. Load
+            // this side of the bar still shapes what a reader makes of an elevation, and it is only
+            // ever narration: the score keys on LoadCoincident, which this never touches.
+            var load = evt.MedianLoadUtilization is double u && u >= LoadMentionFloor
+                ? $" under {u * 100:0}% WAN load" : "";
             // One shape for every line: "{duration} of elevated latency and jitter on {hop}{load}
             // ({mag}). {one plain sentence}." The badge reads "Congestion" except for the line-wide
             // self-inflicted case, which reads "Loaded Latency"; the disposition otherwise shows
@@ -55,24 +82,33 @@ public static class IspHealthPresentation
             // (BottleneckHopIp) so an un-traced target that only surfaced as an unlocalized Confirmed
             // event - e.g. an access-ISP leaf with no saved trace - is never described as a hop with
             // topology beyond it; only genuinely localized hops and shared-incident owners carry a hop IP.
-            var beyond = evt.Disposition == CongestionDisposition.Confirmed
-                && !evt.ConfirmedBySibling
-                && !(evt.LoadCoincident && evt.CleanParallelPaths > 0)
-                && !evt.IsShared
-                && evt.BottleneckHopIp != null
-                ? " and the hops beyond" : "";
+            // A group says how many hops carried it and lists them below, which is the stronger
+            // statement and makes no claim about which sit beyond which.
+            var beyond = group.Count > 1
+                ? $" and {group.Count - 1} more {(group.Count == 2 ? "hop" : "hops")}"
+                : evt.Disposition == CongestionDisposition.Confirmed
+                    && !evt.ConfirmedBySibling
+                    && !(evt.LoadCoincident && evt.CleanParallelPaths > 0)
+                    && !evt.IsShared
+                    && evt.BottleneckHopIp != null
+                    ? " and the hops beyond" : "";
             var lead = $"{span} of elevated latency and jitter on {where}{beyond}{load} ({mag}).";
-            var (badge, badgeClass, text, tip) = evt.Disposition switch
+            // A group holding any Confirmed event is written as Confirmed - the absorbed
+            // Unverifiable members were cross-checked by it (see GroupCongestion).
+            var disposition = group.Any(e => e.Disposition == CongestionDisposition.Confirmed)
+                ? CongestionDisposition.Confirmed
+                : evt.Disposition;
+            var (badge, badgeClass, text, tip) = disposition switch
             {
                 CongestionDisposition.SelfInflicted => ("Loaded Latency", "isp-event-badge-congestion-soft",
                     $"{lead} Everything slowed together under load, so the limit was your access link, not one hop - bufferbloat or a congested shared-access network.",
-                    (string?)"Latency rose under your own WAN load - likely your access link, not ISP congestion. Shown dimmed."),
+                    (string?)"Latency rose under your own WAN load - likely your access link, not ISP congestion."),
                 CongestionDisposition.ControlPlaneNoise => ("Congestion", "isp-event-badge-congestion-soft",
                     $"{lead} Its next hop stayed clean, so this is the hop's own ICMP handling, not a forwarding bottleneck.",
-                    "This hop deprioritized ping replies while forwarding stayed clean - not confirmed as real congestion. Shown dimmed."),
+                    "This hop deprioritized ping replies while forwarding stayed clean - not confirmed as real congestion."),
                 CongestionDisposition.Unverifiable => ("Congestion", "isp-event-badge-congestion-soft",
                     $"{lead}",
-                    "Seen on one path and couldn't be cross-checked, so it's unconfirmed. Shown dimmed."),
+                    "Seen on one path and couldn't be cross-checked, so it's unconfirmed."),
                 _ when evt.ConfirmedBySibling => ("Congestion", "isp-event-badge-congestion",
                     $"{lead}", null),
                 _ when evt.LoadCoincident && evt.CleanParallelPaths > 0 => ("Congestion", "isp-event-badge-congestion",
@@ -80,7 +116,14 @@ public static class IspHealthPresentation
                 _ => ("Congestion", "isp-event-badge-congestion",
                     $"{lead}", null)
             };
-            entries.Add(new TimelineEntry(evt.Start, badge, badgeClass, text, evt.End, BadgeTooltip: tip));
+            var members = group.Count == 1
+                ? null
+                : group.Select(e => $"{HopLabel(e)} - {Magnitude(e)}").ToList();
+            entries.Add(new TimelineEntry(start, badge, badgeClass, text, end, BadgeTooltip: tip, Members: members,
+                // Witnesses included: they carried the elevation, so filtering the chart to one
+                // must not drop the event it witnessed.
+                TargetIds: group.SelectMany(e => e.TargetIds.Concat(e.WitnessTargetIds))
+                    .Distinct(StringComparer.OrdinalIgnoreCase).ToList()));
         }
         foreach (var shift in r.PathShifts)
         {
@@ -91,17 +134,100 @@ public static class IspHealthPresentation
                 var hops = shift.CorrelatedTargetCount > 1 ? $" ({shift.CorrelatedTargetCount} monitored hops)" : "";
                 entries.Add(new TimelineEntry(shift.Time, "Path change", "isp-event-badge-change",
                     $"{where} went fully unreachable for {span}{hops} - a routing (BGP) change, not access-layer loss. Excluded from the Packet Loss factor; still counted against {where}'s own network grade.",
-                    shift.UnreachableEnd, EventCategory.Change));
+                    shift.UnreachableEnd, EventCategory.Change, TargetIds: shift.TargetIds));
                 continue;
             }
             var direction = shift.Direction == PathShiftDirection.Up ? "up" : "down";
             var correlated = shift.CorrelatedTargetCount > 1 ? $", seen on {shift.CorrelatedTargetCount} paths" : "";
+            // The sentence quotes the named path's own levels; the members carry what each of the
+            // others did, which is where a second step of a different size becomes visible.
+            var shiftMembers = shift.Members.Count > 1
+                ? shift.Members.Select(m => $"{m.Name} - {m.BeforeMedianMs:0.#} to {m.AfterMedianMs:0.#} ms").ToList()
+                : null;
             entries.Add(new TimelineEntry(shift.Time, "Path shift", "isp-event-badge-shift",
                 $"RTT stepped {direction} {Math.Abs(shift.DeltaMs):0.#} ms on {where} ({shift.BeforeMedianMs:0.#} to {shift.AfterMedianMs:0.#} ms){correlated}. BGP or transport fabric change.",
-                Category: EventCategory.Shift));
+                Category: EventCategory.Shift, Members: shiftMembers, MemberNoun: "path", TargetIds: shift.TargetIds));
         }
         return entries.OrderBy(e => e.Time);
     }
+
+    /// <summary>
+    /// Congestion events that describe ONE incident, as groups ordered nearest hop first.
+    ///
+    /// A bottleneck's elevation shows on every hop that sits behind it, so one incident arrives as
+    /// several events - four rows all reporting the same two hours, none of them saying they are
+    /// the same thing. Overlapping spans with the same disposition are that case; a different
+    /// disposition is a different claim about what happened and never merges. The one exception:
+    /// Unverifiable means "no probe past this hop to cross-check", and an overlapping Confirmed
+    /// event IS that cross-check, so those pool with Confirmed. SelfInflicted and ControlPlaneNoise
+    /// are active dismissals and never join a Confirmed line.
+    ///
+    /// Display only. The events still score individually, per hop and per ASN, so nothing here can
+    /// move a score or a congestion count.
+    ///
+    /// Ordered by where discovery placed each hop, falling back to baseline RTT for the hops it
+    /// placed nowhere - those sort last, behind every hop with a real position.
+    /// </summary>
+    private static List<List<CongestionEvent>> GroupCongestion(IEnumerable<CongestionEvent> events)
+    {
+        var groups = new List<List<CongestionEvent>>();
+        foreach (var byDisposition in events.GroupBy(e =>
+                     e.Disposition == CongestionDisposition.Unverifiable ? CongestionDisposition.Confirmed : e.Disposition))
+        {
+            List<CongestionEvent>? open = null;
+            var openEnd = DateTime.MinValue;
+            foreach (var evt in byDisposition.OrderBy(e => e.Start))
+            {
+                if (open != null && evt.Start < openEnd)
+                {
+                    open.Add(evt);
+                    if (evt.End > openEnd) openEnd = evt.End;
+                    continue;
+                }
+                open = new List<CongestionEvent> { evt };
+                openEnd = evt.End;
+                groups.Add(open);
+            }
+        }
+        foreach (var group in groups)
+            group.Sort((a, b) => PathKey(a).CompareTo(PathKey(b)));
+        return groups.OrderBy(g => g.Min(e => e.Start)).ToList();
+    }
+
+    private static (int Hop, double Rtt) PathKey(CongestionEvent e) =>
+        (e.BottleneckHopNumber ?? int.MaxValue, e.BaselineRttMs);
+
+    /// <summary>
+    /// The event a grouped line is written about: the nearest hop our trace data actually placed.
+    ///
+    /// Failing that - nothing in the group is on a traced path - the site's single access-ISP hop
+    /// leads if the group touches it. Some ISPs surface no traceroute-reachable hop at all
+    /// (Deutsche Telekom among them), so discovery or the operator adds one by hand; it is then the
+    /// nearest position known, untraced or not. Where the site has several ISP hops, an untraced one
+    /// is a guess, and the shortest baseline RTT is the honest fallback - distance, not a claim
+    /// about the path.
+    /// </summary>
+    private static CongestionEvent Head(List<CongestionEvent> group, IspHealthReport r)
+    {
+        var placed = group.FirstOrDefault(e => e.BottleneckHopNumber.HasValue);
+        if (placed != null) return placed;
+
+        if (r.IspTargets.Count == 1)
+        {
+            var soleHop = r.IspTargets[0].TargetId;
+            var onIt = group.FirstOrDefault(e =>
+                e.TargetIds.Any(id => string.Equals(id, soleHop, StringComparison.OrdinalIgnoreCase)));
+            if (onIt != null) return onIt;
+        }
+
+        return group[0];
+    }
+
+    private static string HopLabel(CongestionEvent e) =>
+        string.IsNullOrEmpty(e.BottleneckLabel) ? string.Join(", ", e.AsnNames) : e.BottleneckLabel;
+
+    private static string Magnitude(CongestionEvent e) =>
+        $"latency {e.BaselineRttMs:0.#} to {e.PeakRttMs:0.#} ms, jitter {e.BaselineJitterMs:0.#} to {e.PeakJitterMs:0.#} ms";
 
     public static string FormatDuration(TimeSpan d) =>
         d.TotalHours >= 1 ? $"{d.TotalHours:0.#} h"

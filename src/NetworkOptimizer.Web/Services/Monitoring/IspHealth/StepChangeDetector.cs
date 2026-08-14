@@ -61,6 +61,7 @@ public static class StepChangeDetector
                 AsnNumber = series.AsnNumber,
                 AsnName = series.AsnName,
                 TargetId = series.TargetIds.Count == 1 ? series.TargetIds[0] : null,
+                TargetIds = series.TargetIds.ToList(),
                 BeforeMedianMs = before.MedianMs,
                 AfterMedianMs = after.MedianMs,
                 IsDestination = series.IsDestination
@@ -250,6 +251,7 @@ public static class StepChangeDetector
                 AsnNumber = series.AsnNumber,
                 AsnName = series.AsnName,
                 TargetId = series.TargetIds.Count == 1 ? series.TargetIds[0] : null,
+                TargetIds = series.TargetIds.ToList(),
                 BeforeMedianMs = revertBefore.MedianMs,
                 AfterMedianMs = revertAfter.MedianMs,
                 IsDestination = series.IsDestination
@@ -291,20 +293,29 @@ public static class StepChangeDetector
             // is set from the DB TargetType (InternetService), not the target_id - prefixes
             // lie: transit hops are often custom-named and "transit-as7018" is actually an
             // access hop. Within the preferred class the nearest hop (lowest before-level) wins.
-            var representative = group
+            var ordered = group
                 .OrderBy(e => e.IsDestination ? 1 : 0)
                 .ThenBy(e => e.BeforeMedianMs)
-                .First();
+                .ToList();
+            var representative = ordered[0];
             merged.Add(new PathShiftEvent
             {
                 Time = representative.Time,
                 AsnNumber = representative.AsnNumber,
                 AsnName = representative.AsnName,
                 TargetId = representative.TargetId,
+                TargetIds = ordered.SelectMany(e => e.TargetIds).Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
                 BeforeMedianMs = representative.BeforeMedianMs,
                 AfterMedianMs = representative.AfterMedianMs,
                 CorrelatedTargetCount = group.Count,
-                IsDestination = representative.IsDestination
+                IsDestination = representative.IsDestination,
+                // Only the representative's levels are reported above, so a group carries each
+                // member's own step here - otherwise a second path that moved by a different
+                // amount is visible only as a count.
+                Members = ordered.Count > 1
+                    ? ordered.Select(e => new PathShiftMember(
+                        e.AsnName ?? e.TargetId ?? "path", e.BeforeMedianMs, e.AfterMedianMs, e.TargetIds)).ToList()
+                    : new List<PathShiftMember>()
             });
         }
         return merged.OrderBy(e => e.Time).ToList();

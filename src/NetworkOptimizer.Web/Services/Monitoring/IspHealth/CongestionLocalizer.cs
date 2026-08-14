@@ -14,6 +14,10 @@ public sealed class CongestionTopology
     /// <summary>Hop distance (lowest TTL seen) per monitored hop IP, from Upstream Discovery. The ordering the bottleneck walk uses.</summary>
     public IReadOnlyDictionary<string, int> HopNumberByIp { get; init; } = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>IPs discovered as the WAN L2 neighbor (OLT/CMTS/BNG). They decrement no TTL, so no
+    /// trace can place them, yet they are first on the path by construction.</summary>
+    public HashSet<string> L2NeighborIps { get; init; } = new(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>WAN utilization (worst direction, fraction of expected plan speed) per sample. Utilization is null when expected speeds are unknown, leaving load-coincidence undetermined.</summary>
     public IReadOnlyList<(DateTime Time, double? Utilization)> Load { get; init; } = Array.Empty<(DateTime, double?)>();
 
@@ -99,6 +103,14 @@ public static class CongestionLocalizer
             // sustained events cannot regress.
             var loadCoincident = LoadCoincident(window.Start, window.End, topology, options)
                 || LoadCoincidentAtNearestHop(elevatedSeries, window.Start, window.End, topology, options);
+            // What the line was carrying while this happened, for the feed to name. Every event this
+            // cluster produces covers the same window, so they all take the same figure.
+            var medianLoad = MedianLoad(window.Start, window.End, topology);
+            void Emit(CongestionEvent e)
+            {
+                e.MedianLoadUtilization = medianLoad;
+                result.Add(e);
+            }
             var anchoredWithData = anchored.Where(s => HasDataInWindow(s, window.Start, window.End)).ToList();
 
             // Each anchored path's RTT rise over its OWN baseline. Under load every path picks up a
@@ -144,17 +156,17 @@ public static class CongestionLocalizer
                 || rises[^1] <= floorRise * options.CongestionLoadedUniformityFactor;
             if (lineWideUnderLoad && uniform && relElevated.Count > 0)
             {
-                result.Add(BuildSharedIncident(relElevated, eventsBySeries, anchoredWithData, window,
+                Emit(BuildSharedIncident(relElevated, eventsBySeries, anchoredWithData, window,
                     topology, options, loadCoincident, IsElevated));
                 continue;
             }
 
             foreach (var (bnIp, members) in byBottleneck)
-                result.Add(BuildLocalized(bnIp, members, allSeries, eventsBySeries, window,
+                Emit(BuildLocalized(bnIp, members, allSeries, eventsBySeries, window,
                     topology, options, loadCoincident, cleanControlExists, lineWideUnderLoad, uniform, IsElevated, IsClean));
 
             if (unanchored.Count > 0)
-                result.Add(BuildUnlocalized(unanchored, eventsBySeries, window, topology, loadCoincident, options));
+                Emit(BuildUnlocalized(unanchored, eventsBySeries, window, topology, loadCoincident, options));
         }
 
         // An Unverifiable hop (dead-end, nothing monitored beyond it) inherits Confirmed from a
@@ -407,11 +419,25 @@ public static class CongestionLocalizer
         evt.Scope = CongestionScope.Hop;
         evt.Disposition = disposition;
         evt.BottleneckHopIp = bottleneckIp;
+        // Hop 0 usually means "answers pings but never landed in a trace" - unplaced. The L2
+        // neighbor is the exception: untraceable by nature, yet genuinely first on the path.
+        evt.BottleneckHopNumber =
+            hopNum is > 0 and < int.MaxValue ? hopNum
+            : hopNum == 0 && topology.L2NeighborIps.Contains(bottleneckIp) ? 0
+            : null;
         evt.BottleneckLabel = label;
         evt.LoadCoincident = loadCoincident;
         evt.CleanParallelPaths = cleanParallelPaths;
         evt.Confidence = confidence;
         evt.AttributionReason = reason;
+        // The downstream paths that carried it. They are witnesses, never the culprit, so they stay
+        // out of TargetIds - but a reader filtering the chart to one is looking straight at this event.
+        evt.WitnessTargetIds = descendants
+            .Where(d => isElevated(d, window.Start, window.End))
+            .SelectMany(d => d.TargetIds)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Except(evt.TargetIds, StringComparer.OrdinalIgnoreCase)
+            .ToList();
         return evt;
     }
 
@@ -497,6 +523,13 @@ public static class CongestionLocalizer
             PeakJitterMs = peakJit
         };
     }
+
+    /// <summary>Median WAN utilization over a window; null when no sample there carries one.</summary>
+    private static double? MedianLoad(DateTime start, DateTime end, CongestionTopology topology) =>
+        SeriesStats.Median(topology.Load
+            .Where(l => l.Time >= start && l.Time <= end && l.Utilization.HasValue)
+            .Select(l => l.Utilization!.Value)
+            .ToList());
 
     private static bool LoadCoincident(DateTime start, DateTime end, CongestionTopology topology, IspHealthOptions options)
     {

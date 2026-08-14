@@ -175,6 +175,31 @@ public class CongestionLocalizerTests
     }
 
     [Fact]
+    public void Downstream_witnesses_are_recorded_without_being_blamed()
+    {
+        // The destination and the transit hop behind the bottleneck carried the elevation. They are
+        // victims, so they must stay out of TargetIds (which attributes the score) - but the chart
+        // draws their lines, and filtering to one has to keep this event.
+        var series = new List<AsnSeries>
+        {
+            Hop(100, Bng, Flat()),
+            Hop(100, Border, Flat()),
+            Hop(100, Backhaul, Elevated(), Bng, Border),
+            Hop(200, Transit, Elevated(), Bng, Border, Backhaul),
+            Hop(300, DeadEnd, Flat(), Bng, Border),
+            Dest(DestCorridor, Elevated(), Bng, Border, Backhaul, Transit),
+            Dest(DestControl, Flat(), Bng, Border)
+        };
+
+        var e = CongestionLocalizer.Localize(series, Topo(load: true), Options).Single();
+
+        e.TargetIds.Should().Equal(Backhaul);
+        e.WitnessTargetIds.Should().BeEquivalentTo(new[] { Transit, DestCorridor });
+        // The clean off-corridor control never witnessed it.
+        e.WitnessTargetIds.Should().NotContain(DestControl);
+    }
+
+    [Fact]
     public void Brief_load_at_the_access_hop_registers_despite_a_wide_transit_hop_and_padded_window()
     {
         // The access hop bursts for ~6 min straddling the 15-min bucket boundary, so the event reports
@@ -708,6 +733,38 @@ public class CongestionLocalizerTests
 
         events.Should().ContainSingle();
         events[0].Duration.Should().BeLessThan(TimeSpan.FromHours(1.5));
+    }
+
+    [Fact]
+    public void L2_neighbor_is_placed_at_hop_zero_and_other_zeros_stay_unplaced()
+    {
+        // Hop 0 otherwise means "answered pings but never landed in a trace"; only a target
+        // discovered as the WAN L2 neighbor is genuinely first on the path.
+        const string L2 = "10.0.0.9";
+        var hopNumbers = new Dictionary<string, int>(HopNumbers, StringComparer.OrdinalIgnoreCase) { [L2] = 0 };
+
+        List<CongestionEvent> Run(bool isL2Neighbor)
+        {
+            var series = new List<AsnSeries>
+            {
+                Hop(100, L2, Elevated()),
+                Hop(100, Backhaul, Elevated(), L2),
+                Dest(DestControl, Flat(), Bng, Border),
+            };
+            var topo = new CongestionTopology
+            {
+                AccessEgressHopIps = new HashSet<string>(new[] { Bng }, StringComparer.OrdinalIgnoreCase),
+                HopNumberByIp = hopNumbers,
+                L2NeighborIps = isL2Neighbor
+                    ? new HashSet<string>(new[] { L2 }, StringComparer.OrdinalIgnoreCase)
+                    : new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+                HasTraceMap = true
+            };
+            return CongestionLocalizer.Localize(series, topo, Options);
+        }
+
+        Run(isL2Neighbor: true).Single(e => e.BottleneckHopIp == L2).BottleneckHopNumber.Should().Be(0);
+        Run(isL2Neighbor: false).Single(e => e.BottleneckHopIp == L2).BottleneckHopNumber.Should().BeNull();
     }
 
     [Fact]

@@ -16,7 +16,11 @@ public static class TransitUnreachableDetector
     public record DarkWindow(string TargetId, int AsnNumber, string? AsnName, DateTime Start, DateTime End);
 
     /// <summary>Per-ASN merge of overlapping <see cref="DarkWindow"/>s, for one path event per network.</summary>
-    public record AsnDarkEvent(int AsnNumber, string? AsnName, DateTime Start, DateTime End, int TargetCount);
+    public record AsnDarkEvent(int AsnNumber, string? AsnName, DateTime Start, DateTime End, int TargetCount)
+    {
+        /// <summary>The dark targets behind the event, so it can be matched to a chart line.</summary>
+        public IReadOnlyList<string> TargetIds { get; init; } = Array.Empty<string>();
+    }
 
     /// <summary>
     /// Scans one transit target's series for sustained total-loss runs. A run needs every
@@ -148,14 +152,15 @@ public static class TransitUnreachableDetector
                     current = current with
                     {
                         End = w.End > current.End ? w.End : current.End,
-                        TargetCount = targets.Count
+                        TargetCount = targets.Count,
+                        TargetIds = targets.ToList()
                     };
                 }
                 else
                 {
                     if (current != null) events.Add(current);
                     targets = new HashSet<string> { w.TargetId };
-                    current = new AsnDarkEvent(w.AsnNumber, w.AsnName, w.Start, w.End, 1);
+                    current = new AsnDarkEvent(w.AsnNumber, w.AsnName, w.Start, w.End, 1) { TargetIds = new[] { w.TargetId } };
                 }
             }
             if (current != null) events.Add(current);

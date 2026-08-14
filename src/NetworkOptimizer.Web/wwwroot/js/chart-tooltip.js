@@ -106,9 +106,27 @@ function hoveredIndices(w, dataPointIndex, seriesIndex) {
     return { hoveredX, at };
 }
 
+const dotsWatched = new WeakSet();
+
+// Dots last exactly as long as the tooltip. Keyed off the class ApexCharts toggles rather than a
+// pointer event, because the axis, the legend and a synced sibling's hover all dismiss the tooltip
+// without one landing here. Reads the live class, not the record: a re-hover can beat the callback.
+function watchTooltipDismissal(host) {
+    if (dotsWatched.has(host)) return;
+    dotsWatched.add(host);
+    new MutationObserver(() => {
+        if (host.classList.contains('apexcharts-tooltip-active')) return;
+        const layer = host.querySelector('.' + DOT_LAYER);
+        if (layer) layer.replaceChildren();
+    }).observe(host, { attributes: true, attributeFilter: ['class'] });
+}
+
 function paintHoverDots(w, at) {
-    const inner = w.globals.dom.baseEl.querySelector('.apexcharts-inner');
+    const host = w.globals.dom.baseEl;
+    const inner = host.querySelector('.apexcharts-inner');
     if (!inner) return;
+
+    watchTooltipDismissal(host);
 
     let layer = inner.querySelector('.' + DOT_LAYER);
     if (!layer) {
@@ -116,7 +134,7 @@ function paintHoverDots(w, at) {
         // chart contains a null - which alignedPoints makes routine - and then moves them
         // under the pointer, so its dots appeared on top of ours. Hidden in CSS rather than
         // per paint because the library re-shows them on its own schedule, not ours.
-        w.globals.dom.baseEl.classList.add('netopt-own-hover-dots');
+        host.classList.add('netopt-own-hover-dots');
 
         layer = document.createElementNS(SVG_NS, 'g');
         layer.setAttribute('class', DOT_LAYER);
@@ -124,14 +142,9 @@ function paintHoverDots(w, at) {
         // mouse to keep reaching it or the tooltip flickers as the pointer crosses a dot.
         layer.setAttribute('pointer-events', 'none');
         inner.appendChild(layer);
-
-        // The dots outlive the tooltip otherwise - ApexCharts hides its own tooltip on the
-        // way out and knows nothing about this layer.
-        const host = w.globals.dom.baseEl;
-        host.addEventListener('mouseleave', () => { layer.innerHTML = ''; });
     }
 
-    while (layer.firstChild) layer.removeChild(layer.firstChild);
+    layer.replaceChildren();
 
     const points = w.globals.pointsArray;
     for (let i = 0; i < points.length; i++) {
