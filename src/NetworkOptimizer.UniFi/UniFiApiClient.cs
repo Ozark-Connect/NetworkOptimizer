@@ -3171,6 +3171,58 @@ public class UniFiApiClient : IDisposable
     }
 
     /// <summary>
+    /// POST /api/firmware/update - start the UniFi OS (console firmware) update to the latest
+    /// build on the console's firmware channel. Console-level, empty body, 204-style accept.
+    /// <para>
+    /// Cloud Gateway consoles ONLY: callers must never issue this against a standalone
+    /// unifi-os-server console (check <see cref="UniFiConsoleSystemInfo.IsStandaloneConsole"/>) -
+    /// those are custom deploys the app must not update. The console (and for remote sites the
+    /// tunnel) goes dark during the cycle; watch <see cref="GetConsoleSystemInfoAsync"/> after.
+    /// </para>
+    /// </summary>
+    [VendorSpecific("UniFi", "console-level POST /api/firmware/update")]
+    public async Task<bool> TriggerUniFiOsUpdateAsync(CancellationToken cancellationToken = default)
+    {
+        if (!await EnsureAuthenticatedAsync(cancellationToken))
+        {
+            return false;
+        }
+
+        var url = $"{_controllerUrl}/api/firmware/update";
+
+        return await ExecuteRequestAsync(async () =>
+        {
+            var response = await _httpClient!.PostAsync(url, content: null, cancellationToken);
+
+            if (IsRecoverableAuthFailure(response.StatusCode))
+            {
+                _logger.LogWarning("Got {StatusCode} triggering the UniFi OS update, re-authenticating...",
+                    response.StatusCode);
+                _isAuthenticated = false;
+
+                if (!await LoginAsync(cancellationToken))
+                {
+                    _logger.LogError("Re-authentication failed while triggering the UniFi OS update");
+                    return false;
+                }
+
+                response = await _httpClient!.PostAsync(url, content: null, cancellationToken);
+            }
+
+            if (response.IsSuccessStatusCode)
+            {
+                _logger.LogInformation("Console accepted the UniFi OS update");
+                return true;
+            }
+
+            var error = await response.Content.ReadAsStringAsync(cancellationToken);
+            _logger.LogError("Failed to trigger the UniFi OS update: {StatusCode} - {Error}",
+                response.StatusCode, error);
+            return false;
+        });
+    }
+
+    /// <summary>
     /// GET stat/widget/warnings - the console's own pre-flight signals (upgradable devices, EOL/LTS
     /// counts, low disk space). Optional: the shape varies across UniFi Network versions, so this
     /// returns null on anything unexpected rather than failing a rollout.
