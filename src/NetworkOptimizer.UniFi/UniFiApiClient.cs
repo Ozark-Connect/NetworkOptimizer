@@ -8,7 +8,6 @@ using NetworkOptimizer.Core;
 using NetworkOptimizer.Core.Models;
 using NetworkOptimizer.UniFi.Models;
 using Polly;
-using Polly.Retry;
 
 namespace NetworkOptimizer.UniFi;
 
@@ -3120,6 +3119,54 @@ public class UniFiApiClient : IDisposable
                 _logger.LogWarning(ex, "Could not parse console system info");
                 return null;
             }
+        });
+    }
+
+    /// <summary>
+    /// POST /api/controllers/network/update - start the UniFi Network application update to the
+    /// latest build on the console's application channel. Console-level, so it does NOT go through
+    /// /proxy/network; the console answers 204 No Content on accept, and the application restarts
+    /// while it installs. Watch progress via <see cref="GetConsoleSystemInfoAsync"/>.
+    /// </summary>
+    [VendorSpecific("UniFi", "console-level POST /api/controllers/network/update")]
+    public async Task<bool> TriggerNetworkApplicationUpdateAsync(CancellationToken cancellationToken = default)
+    {
+        if (!await EnsureAuthenticatedAsync(cancellationToken))
+        {
+            return false;
+        }
+
+        var url = $"{_controllerUrl}/api/controllers/network/update";
+
+        return await ExecuteRequestAsync(async () =>
+        {
+            var response = await _httpClient!.PostAsync(url, content: null, cancellationToken);
+
+            if (IsRecoverableAuthFailure(response.StatusCode))
+            {
+                _logger.LogWarning("Got {StatusCode} triggering the Network application update, re-authenticating...",
+                    response.StatusCode);
+                _isAuthenticated = false;
+
+                if (!await LoginAsync(cancellationToken))
+                {
+                    _logger.LogError("Re-authentication failed while triggering the Network application update");
+                    return false;
+                }
+
+                response = await _httpClient!.PostAsync(url, content: null, cancellationToken);
+            }
+
+            if (response.IsSuccessStatusCode)
+            {
+                _logger.LogInformation("Console accepted the UniFi Network application update");
+                return true;
+            }
+
+            var error = await response.Content.ReadAsStringAsync(cancellationToken);
+            _logger.LogError("Failed to trigger the Network application update: {StatusCode} - {Error}",
+                response.StatusCode, error);
+            return false;
         });
     }
 
