@@ -20517,6 +20517,22 @@ body.kiosk-mode .status-indicators {
 
 .firmware-rollout-guide .setup-guide-content {
     margin-top: 0.5rem;
+    animation: firmware-rollout-expand 0.25s ease-out;
+}
+
+/* A native details element hides its content when closed, so the grid-height
+   transition the Blazor-toggled panels use has nothing to animate here. */
+@keyframes firmware-rollout-expand {
+    from {
+        opacity: 0;
+        transform: translateY(-4px);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .firmware-rollout-guide .setup-guide-content {
+        animation: none;
+    }
 }
 
 .firmware-rollout-guide .setup-guide-content > .form-group.firmware-rollout-inline:last-child {

@@ -191,6 +191,8 @@ public class FirmwareRolloutService : IFirmwareRolloutService
         {
             mode = settings.Mode.ToString(),
             globalChannel = settings.GlobalChannel,
+            networkAppChannel = settings.NetworkAppChannel,
+            unifiOsChannel = settings.UniFiOsChannel,
             includeUniFiOs = settings.IncludeUniFiOs,
             includeUniFiNetwork = settings.IncludeUniFiNetwork,
             spacingProfile = settings.SpacingProfile.ToString(),
