@@ -74,6 +74,7 @@ export async function mount(stageId, timelineId, opts) {
         hideWifiClients: true,
         hideHelp: true,
         hideRates: true,
+        hideScrubber: true,
     });
     await loadTopologyAsync();
     _timelineEl = document.getElementById(timelineId);
@@ -119,8 +120,11 @@ function lastOccurrenceOf(startUtcMs) {
 async function loadTopologyAsync() {
     try {
         const res = await fetch(`${_apiBase}/snapshot`, { credentials: 'same-origin' });
-        if (res.ok) flowData.publishSnapshot(await res.json());
-    } catch { /* the map draws what it has */ }
+        if (!res.ok) { console.warn('[firmware-rollout] topology fetch failed', res.status); return; }
+        flowData.publishSnapshot(await res.json());
+    } catch (err) {
+        console.warn('[firmware-rollout] topology fetch threw', err);
+    }
 }
 
 /// Traffic as it was at that instant. Throttled: scrubbing must not open a request per frame.
@@ -131,12 +135,25 @@ async function loadHistoricAt(atMs, force) {
     _lastHistoricMs = now;
 
     const gen = ++_historicGen;
+    const url = `${_apiBase}/history?at=${encodeURIComponent(new Date(atMs).toISOString())}`;
     try {
-        const url = `${_apiBase}/history?at=${encodeURIComponent(new Date(atMs).toISOString())}`;
         const res = await fetch(url, { credentials: 'same-origin' });
-        if (!res.ok || gen !== _historicGen) return;
-        flowData.publishLive(await res.json());
-    } catch { /* keep the last frame rather than blanking the map */ }
+        if (!res.ok) { console.warn('[firmware-rollout] history fetch failed', res.status, url); return; }
+        if (gen !== _historicGen) return;
+        const update = await res.json();
+        // The store MERGES link rates, so a link that was idle at this instant is simply absent
+        // from the update and would keep whatever live value seeded it. Zero every known link
+        // first, then let the update fill in the ones that were moving.
+        const snap = flowData.getSnapshot();
+        const zeroed = {};
+        for (const link of snap?.links || []) {
+            if (link.portKey) zeroed[link.portKey] = { downstreamBps: 0, upstreamBps: 0 };
+            if (link.id) zeroed[link.id] = { downstreamBps: 0, upstreamBps: 0 };
+        }
+        flowData.publishLive({ ...update, linkRates: { ...zeroed, ...(update.linkRates || {}) } });
+    } catch (err) {
+        console.warn('[firmware-rollout] history fetch threw', err, url);
+    }
 }
 
 /// Live mode: actual step states; startedAtMs positions the now marker.

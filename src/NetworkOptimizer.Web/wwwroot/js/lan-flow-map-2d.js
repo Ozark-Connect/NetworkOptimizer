@@ -292,6 +292,7 @@ class LanFlowMap2D {
         this._hideWifiClients=false;
         this._hideHelp=false;
         this._hideRates=false;
+        this._hideScrubber=false;
     }
 
     setOverlays(map){
@@ -535,7 +536,7 @@ class LanFlowMap2D {
             if(inst&&inst._mode==='historic')inst._returnToLive();
         });
         status.appendChild(modeBadge);
-        this._el.appendChild(status);
+        if(!this._hideScrubber)this._el.appendChild(status);
         this._modeBadge=modeBadge;
 
         // Mirror scrubber (synced from 3D map via shared data store).
@@ -647,6 +648,7 @@ class LanFlowMap2D {
         // resize, so the DOM placement must follow it.
         this._scrubberMq=window.matchMedia('(max-width: 768px)');
         this._placeScrubber=()=>{
+            if(this._hideScrubber){scrubber.remove();return;}
             if(this._scrubberMq.matches&&this._el.parentElement){
                 this._el.parentElement.insertBefore(scrubber,this._el.nextSibling);
             }else{
@@ -2165,6 +2167,7 @@ export async function mount(containerId,opts){
     if(opts?.hideWifiClients)_inst._hideWifiClients=true;
     if(opts?.hideHelp)_inst._hideHelp=true;
     if(opts?.hideRates)_inst._hideRates=true;
+    if(opts?.hideScrubber)_inst._hideScrubber=true;
     await _inst.start();
 }
 
