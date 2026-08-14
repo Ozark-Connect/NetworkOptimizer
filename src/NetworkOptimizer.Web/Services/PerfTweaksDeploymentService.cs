@@ -20,7 +20,11 @@ public class PerfTweaksDeploymentService : IPerfTweaksDeploymentService
     private const string OnBootDir = "/data/on_boot.d";
     private const string PerfTweaksDir = "/data/perf-tweaks";
     private const string SfpModuleDir = "/data/sfp-sgmiiplus";
-    private static readonly Version MaxSupportedFirmware = new(5, 1, 29);
+    // Highest UniFi OS version the perf tweaks + SGMII+ module are verified against.
+    // 5.1.30 static/bench-verified: kernel unchanged, qca-ssdk.ko byte-identical to
+    // 5.1.26/5.1.28/5.1.29, all boot-tweak userland deps present (unifi-perf-tweaks
+    // docs/compat-5.1.30.md). 5.1.30 is a security/maintenance patch over 5.1.29.
+    private static readonly Version MaxSupportedFirmware = new(5, 1, 30);
 
     private static readonly Dictionary<string, string> BootScriptFiles = new()
     {
