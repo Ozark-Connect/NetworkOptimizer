@@ -164,6 +164,10 @@ public class FirmwareRolloutService : IFirmwareRolloutService
             }).OrderBy(d => d.Name, StringComparer.OrdinalIgnoreCase).ToList(),
             ConsoleConnected = context.ConsoleConnected,
             IsStandaloneConsole = console?.IsStandaloneConsole == true,
+            // The step only exists where a Cloud Gateway runs the console: a self-hosted console
+            // is out of scope, and a UXG-class gateway has network firmware only.
+            HasCloudGateway = console?.IsStandaloneConsole == false && context.Devices.Any(d =>
+                FirmwareTimingEstimator.Classify(d) == FirmwareDeviceClass.CloudGatewayUniFiOs),
             ConsoleAutoUpgradeEnabled = autoUpgrade == true,
             ConsoleOsAutoUpdateEnabled = console?.Firmware?.AutoUpdate?.IsScheduled == true,
             ConsoleAppsAutoUpdateEnabled = console?.Firmware?.AutoUpdate is { IsScheduled: true, IncludeApplications: true },

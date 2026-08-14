@@ -190,6 +190,13 @@ public class RolloutPreviewView
     /// </summary>
     public bool IsStandaloneConsole { get; set; }
 
+    /// <summary>
+    /// Whether this site has a Cloud Gateway whose UniFi OS this app may update. False for a
+    /// self-hosted console, and false for a site whose gateway runs network firmware only
+    /// (UXG class) or that has no gateway at all - in each case there is no UniFi OS step to offer.
+    /// </summary>
+    public bool HasCloudGateway { get; set; }
+
     /// <summary>Whether UniFi's own nightly device auto-upgrade is on. It races a rollout.</summary>
     public bool ConsoleAutoUpgradeEnabled { get; set; }
 

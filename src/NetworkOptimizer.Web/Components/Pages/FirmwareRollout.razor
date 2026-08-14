@@ -166,7 +166,7 @@ else if (_wizardOpen)
 
                 <div class="form-group">
                     <label class="checkbox-label"><input type="checkbox" @bind="_settings.IncludeUniFiNetwork" /><span>Update the UniFi Network application first</span></label>
-                    @if (_preview?.IsStandaloneConsole == false)
+                    @if (_preview?.HasCloudGateway == true)
                     {
                         <label class="checkbox-label"><input type="checkbox" @bind="_settings.IncludeUniFiOs" /><span>Include the UniFi OS update on the Cloud Gateway</span></label>
                     }
@@ -590,12 +590,20 @@ else
     private string? _vizMode;
     private System.Threading.Timer? _pollTimer;
 
-    private static readonly (string Code, string Label)[] TypeChannelRows =
+    private static readonly (string Code, string Label)[] AllTypeRows =
     [
         ("uap", "Access Points"),
         ("usw", "Switches"),
         ("ugw", "Gateways"),
     ];
+
+    /// <summary>
+    /// Device-type rows worth offering. On a Cloud Gateway site the gateway is the console and its
+    /// firmware is the UniFi OS update, so a separate Gateways row would set a channel that never
+    /// applies to anything.
+    /// </summary>
+    private IEnumerable<(string Code, string Label)> TypeChannelRows =>
+        _preview?.HasCloudGateway == true ? AllTypeRows.Where(r => r.Code != "ugw") : AllTypeRows;
 
     protected override async Task OnInitializedAsync()
     {
