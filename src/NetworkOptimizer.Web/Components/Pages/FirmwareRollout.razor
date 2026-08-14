@@ -274,10 +274,7 @@ else if (_wizardOpen)
                 @if (_scheduleMode == "autopilot")
                 {
                     <p class="firmware-rollout-note">Autopilot plans a rollout whenever updates are waiting, books it into the site's quietest window, and tells you <strong>@_settings.NotifyHoursAhead hours</strong> ahead so you can postpone with one click.</p>
-                    @if (_preview?.ConsoleAutoUpgradeEnabled == true)
-                    {
-                        <div class="alert-warning firmware-rollout-note">Turn off UniFi Network's own Auto Update first, so the two never update at the same time.</div>
-                    }
+                    <div class="alert-info firmware-rollout-note">Turn off UniFi's own auto-updates first - devices, the UniFi Network application, and UniFi OS - so two updaters never run at once.</div>
                     <div class="form-group firmware-rollout-inline">
                         <label class="form-label">Heads-up hours</label>
                         <input type="number" class="form-control firmware-rollout-num" min="1" max="168" @bind="_settings.NotifyHoursAhead" />

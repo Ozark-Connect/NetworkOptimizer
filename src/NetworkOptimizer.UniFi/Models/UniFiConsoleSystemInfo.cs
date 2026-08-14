@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.Json.Serialization;
 using NetworkOptimizer.Core;
 
@@ -99,6 +100,30 @@ public class UniFiConsoleFirmware
     /// <summary>Newest build per channel, keyed by channel name.</summary>
     [JsonPropertyName("latestByChannel")]
     public Dictionary<string, UniFiConsoleFirmwareRelease> LatestByChannel { get; set; } = new();
+
+    [JsonPropertyName("autoUpdate")]
+    public UniFiConsoleFirmwareAutoUpdate? AutoUpdate { get; set; }
+}
+
+/// <summary>
+/// The console's own auto-update setting: a non-null schedule means UniFi OS updates itself,
+/// and includeApplications extends that to the applications (UniFi Network among them). Both
+/// race a rollout, so the wizard warns on them.
+/// </summary>
+public class UniFiConsoleFirmwareAutoUpdate
+{
+    /// <summary>Schedule blob; shape unsampled, so only its presence is read.</summary>
+    [JsonPropertyName("schedule")]
+    public JsonElement? Schedule { get; set; }
+
+    [JsonPropertyName("includeApplications")]
+    [JsonConverter(typeof(FlexibleNullableBoolConverter))]
+    public bool? IncludeApplications { get; set; }
+
+    /// <summary>Whether any console-level auto-update is scheduled.</summary>
+    [JsonIgnore]
+    public bool IsScheduled =>
+        Schedule is { ValueKind: not JsonValueKind.Null and not JsonValueKind.Undefined };
 }
 
 /// <summary>Download/apply progress of a UniFi OS update ("none" when idle).</summary>
