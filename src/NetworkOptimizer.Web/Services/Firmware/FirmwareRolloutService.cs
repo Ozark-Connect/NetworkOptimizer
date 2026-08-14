@@ -22,6 +22,7 @@ public class FirmwareRolloutService : IFirmwareRolloutService
     private readonly FirmwareRolloutOrchestrator _orchestrator;
     private readonly IFirmwareCommandClient _commands;
     private readonly IRolloutPlanningSource _planning;
+    private readonly IReleaseMetadataSource _releaseMetadata;
     private readonly IAuditContext _audit;
     private readonly ICallerContext _caller;
     private readonly ILogger<FirmwareRolloutService> _logger;
@@ -38,6 +39,7 @@ public class FirmwareRolloutService : IFirmwareRolloutService
         FirmwareRolloutOrchestrator orchestrator,
         IFirmwareCommandClient commands,
         IRolloutPlanningSource planning,
+        IReleaseMetadataSource releaseMetadata,
         IAuditContext audit,
         ICallerContext caller,
         ILogger<FirmwareRolloutService> logger)
@@ -46,6 +48,7 @@ public class FirmwareRolloutService : IFirmwareRolloutService
         _orchestrator = orchestrator;
         _commands = commands;
         _planning = planning;
+        _releaseMetadata = releaseMetadata;
         _audit = audit;
         _caller = caller;
         _logger = logger;
@@ -157,6 +160,7 @@ public class FirmwareRolloutService : IFirmwareRolloutService
         };
 
         AddWarnings(preview, settings);
+        await AttachChangelogLinksAsync(preview, cancellationToken);
         return preview;
     }
 
@@ -342,6 +346,43 @@ public class FirmwareRolloutService : IFirmwareRolloutService
         if (active.Id != planId)
             throw new InvalidOperationException($"Rollout {planId} is not the one in progress on this site.");
         return active;
+    }
+
+    /// <summary>
+    /// Changelog links for the preview's target versions, GA-resolvable only. The feed caches for
+    /// an hour and a miss is fine - a version without a link just renders unlinked.
+    /// </summary>
+    private async Task AttachChangelogLinksAsync(RolloutPreviewView preview, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var byTarget = preview.Steps
+                .Where(s => !string.IsNullOrEmpty(s.Model) && !string.IsNullOrEmpty(s.ToVersion))
+                .GroupBy(s => (s.Model, s.ToVersion), StringTupleComparer.Instance)
+                .Take(40);
+            foreach (var group in byTarget)
+            {
+                var metadata = await _releaseMetadata.GetAsync(group.Key.Model, group.Key.ToVersion, cancellationToken);
+                if (metadata?.ChangelogUrl == null) continue;
+                foreach (var step in group) step.ChangelogUrl = metadata.ChangelogUrl;
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogDebug(ex, "Changelog links unavailable for the rollout preview");
+        }
+    }
+
+    private sealed class StringTupleComparer : IEqualityComparer<(string Model, string? ToVersion)>
+    {
+        public static readonly StringTupleComparer Instance = new();
+        public bool Equals((string Model, string? ToVersion) x, (string Model, string? ToVersion) y) =>
+            string.Equals(x.Model, y.Model, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(x.ToVersion, y.ToVersion, StringComparison.OrdinalIgnoreCase);
+        public int GetHashCode((string Model, string? ToVersion) obj) =>
+            HashCode.Combine(
+                obj.Model.ToLowerInvariant(),
+                obj.ToVersion?.ToLowerInvariant());
     }
 
     private static void AddWarnings(RolloutPreviewView preview, FirmwareRolloutSettings settings)

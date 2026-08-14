@@ -429,6 +429,7 @@ internal sealed class RolloutHarness : IDisposable
             Orchestrator,
             Commands,
             Planning,
+            Releases,
             Audit,
             Caller,
             NullLogger<FirmwareRolloutService>.Instance);

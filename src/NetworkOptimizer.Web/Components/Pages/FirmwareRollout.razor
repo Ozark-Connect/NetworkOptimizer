@@ -352,7 +352,21 @@ else if (_wizardOpen)
                             <span class="firmware-rollout-wave-devices">
                                 @foreach (var step in wave.Steps)
                                 {
-                                    <span class="firmware-rollout-wave-device">@step.Name@(step.IsCanary ? " (canary)" : "")@(step.HeldForCanary ? " (held)" : "")</span>
+                                    var changelog = ChangelogFor(step.Mac);
+                                    <span class="firmware-rollout-wave-device">
+                                        @step.Name@(step.IsCanary ? " (canary)" : "")@(step.HeldForCanary ? " (held)" : "")
+                                        @if (step.ToVersion != null)
+                                        {
+                                            if (changelog != null)
+                                            {
+                                                <a class="firmware-rollout-muted" href="@changelog" target="_blank" rel="noopener">@step.ToVersion</a>
+                                            }
+                                            else
+                                            {
+                                                <span class="firmware-rollout-muted">@step.ToVersion</span>
+                                            }
+                                        }
+                                    </span>
                                 }
                             </span>
                         </div>
@@ -1045,6 +1059,9 @@ else
             or FirmwareRolloutStepState.BackOnline or FirmwareRolloutStepState.CoolDown => "chip-active",
         _ => "chip-muted",
     };
+
+    private string? ChangelogFor(string mac) =>
+        _preview?.Steps.FirstOrDefault(s => string.Equals(s.Mac, mac, StringComparison.OrdinalIgnoreCase))?.ChangelogUrl;
 
     private static string OutcomeChipClass(string outcome) => outcome switch
     {

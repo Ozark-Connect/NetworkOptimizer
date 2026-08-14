@@ -49,6 +49,9 @@ public class RolloutStepView
 
     /// <summary>Why no rollback is offered, when none is.</summary>
     public string? RollbackUnavailableReason { get; set; }
+
+    /// <summary>Ubiquiti changelog for the target version, when the public feed resolves one (GA only).</summary>
+    public string? ChangelogUrl { get; set; }
 }
 
 /// <summary>A plan with its parsed document and current per-device state.</summary>
