@@ -191,6 +191,9 @@ export function play() {
     if (_playing || _mode !== 'planned') return;
     if (_playheadSec >= totalSeconds()) _playheadSec = 0;
     _playing = true;
+    // The map only advances its particles while the store says it is not paused, so our
+    // Play is what sets the traffic moving.
+    flowData.publishPlayState(false, 'historic');
     _lastTick = performance.now();
     const speedup = 60; // 1 s wall clock = 1 min of plan
     const tick = () => {
@@ -211,6 +214,7 @@ export function play() {
 
 export function pause() {
     _playing = false;
+    flowData.publishPlayState(true, 'historic');
     if (_playTimer) cancelAnimationFrame(_playTimer);
     _playTimer = 0;
     updatePlayButton();
