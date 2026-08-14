@@ -1025,6 +1025,11 @@ else
     {
         get
         {
+            // Until the slider is dragged, the answer is the proposed instant itself - rounding it
+            // back out of an hour offset is what made the label disagree with the suggestion.
+            if (!_startMoved && _preview?.ProposedWindow?.StartUtc is { } proposed && proposed != default)
+                return proposed;
+
             var utc = DateTime.UtcNow.AddHours(_startOffsetHours);
             return new DateTime(utc.Year, utc.Month, utc.Day, utc.Hour, 0, 0, DateTimeKind.Utc);
         }

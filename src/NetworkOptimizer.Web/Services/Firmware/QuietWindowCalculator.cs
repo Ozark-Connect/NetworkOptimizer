@@ -59,7 +59,7 @@ public static class QuietWindowCalculator
             StartLocal = bestStart,
             BusyScore = busyMean,
             UsedFallback = false,
-            Basis = "7-day usage history",
+            Basis = "4 weeks of usage history",
         };
     }
 

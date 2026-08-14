@@ -289,6 +289,7 @@ class LanFlowMap2D {
         this._hideVirtualHubs=false;
         this._hideClouds=false;
         this._hideWiredClients=false;
+        this._hideWifiClients=false;
     }
 
     setOverlays(map){
@@ -874,6 +875,7 @@ class LanFlowMap2D {
         const k=n.d.kind;
         if(k===NK.VirtualHub&&this._hideVirtualHubs)return false;
         if(k===NK.WiredClient&&this._hideWiredClients)return false;
+        if(k===NK.WifiClient&&this._hideWifiClients)return false;
         if(k===NK.WifiClient){
             if(!this._overlays.wifiClients)return false;
             const nBand=flowData.getClientStats()?.[n.d.id]?.band??n.d.band;
@@ -2146,6 +2148,7 @@ export async function mount(containerId,opts){
     if(opts?.hideVirtualHubs)_inst._hideVirtualHubs=true;
     if(opts?.hideClouds)_inst._hideClouds=true;
     if(opts?.hideWiredClients)_inst._hideWiredClients=true;
+    if(opts?.hideWifiClients)_inst._hideWifiClients=true;
     await _inst.start();
 }
 
