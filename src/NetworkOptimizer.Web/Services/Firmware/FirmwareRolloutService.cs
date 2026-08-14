@@ -151,6 +151,17 @@ public class FirmwareRolloutService : IFirmwareRolloutService
             TotalDeviceCount = context.Devices.Count,
             UpgradableCount = result.Steps.Count(s => s.State != FirmwareRolloutStepState.SkippedExcluded),
             ExcludedCount = result.Steps.Count(s => s.State == FirmwareRolloutStepState.SkippedExcluded),
+            Devices = context.Devices.Select(d => new RolloutDeviceView
+            {
+                Mac = d.Mac,
+                Name = string.IsNullOrEmpty(d.Name) ? d.DisplayModel : d.Name,
+                Model = d.Model,
+                DisplayModel = string.IsNullOrEmpty(d.DisplayModel) ? d.Model : d.DisplayModel,
+                DeviceType = FirmwareDeviceTypes.Code(d.Type),
+                CurrentVersion = d.FromVersion,
+                TargetVersion = d.ToVersion,
+                Upgradable = d.Upgradable,
+            }).OrderBy(d => d.Name, StringComparer.OrdinalIgnoreCase).ToList(),
             ConsoleConnected = context.ConsoleConnected,
             IsStandaloneConsole = console?.IsStandaloneConsole == true,
             ConsoleAutoUpgradeEnabled = autoUpgrade == true,
@@ -439,6 +450,9 @@ public class FirmwareRolloutService : IFirmwareRolloutService
         var prior = document.PriorVersions
             .FirstOrDefault(p => string.Equals(p.Mac, step.DeviceMac, StringComparison.OrdinalIgnoreCase));
         var upgraded = step.State is FirmwareRolloutStepState.LitmusPassed or FirmwareRolloutStepState.RegressionFlagged;
+        var planned = document.Waves
+            .SelectMany(w => w.Steps)
+            .FirstOrDefault(s => string.Equals(s.Mac, step.DeviceMac, StringComparison.OrdinalIgnoreCase));
 
         return new RolloutStepView
         {
@@ -446,6 +460,9 @@ public class FirmwareRolloutService : IFirmwareRolloutService
             Mac = step.DeviceMac,
             Name = step.DeviceName,
             Model = step.Model,
+            DisplayModel = string.IsNullOrEmpty(planned?.DisplayModel)
+                ? NetworkOptimizer.UniFi.UniFiProductDatabase.GetBestProductName(step.Model, null)
+                : planned.DisplayModel,
             DeviceType = step.DeviceType,
             Channel = step.Channel,
             FromVersion = step.FromVersion,

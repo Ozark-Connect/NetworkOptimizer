@@ -1,5 +1,6 @@
 using System.Text.Json;
 using NetworkOptimizer.Storage.Models;
+using NetworkOptimizer.UniFi;
 
 namespace NetworkOptimizer.Web.Services.Firmware;
 
@@ -58,7 +59,9 @@ public static class RolloutReportBuilder
             {
                 Mac = step.DeviceMac,
                 Name = step.DeviceName,
-                Model = step.Model,
+                // The catalog SKU, the same name the rest of the app shows; the console's model
+                // code is a key, never a label.
+                Model = UniFiProductDatabase.GetBestProductName(step.Model, null),
                 DeviceType = step.DeviceType,
                 FromVersion = step.FromVersion,
                 ToVersion = step.ToVersion,

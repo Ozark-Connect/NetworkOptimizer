@@ -82,7 +82,7 @@ else if (_active != null)
                             <tr>
                                 <td>@(step.Wave > 0 ? step.Wave.ToString() : "-")</td>
                                 <td>@step.Name</td>
-                                <td>@step.Model</td>
+                                <td>@step.DisplayModel</td>
                                 <td class="hide-mobile">@(step.FromVersion ?? "-")</td>
                                 <td>@(step.ToVersion ?? "-")</td>
                                 <td><span class="firmware-rollout-chip @ChipClass(step.State)">@ChipLabel(step.State)</span></td>
@@ -164,16 +164,16 @@ else if (_wizardOpen)
                 </div>
 
                 <div class="form-group">
-                    <label class="firmware-rollout-check"><input type="checkbox" @bind="_settings.IncludeUniFiNetwork" /> Update the UniFi Network application first</label>
+                    <label class="checkbox-label"><input type="checkbox" @bind="_settings.IncludeUniFiNetwork" /><span>Update the UniFi Network application first</span></label>
                     @if (_preview?.IsStandaloneConsole == false)
                     {
-                        <label class="firmware-rollout-check"><input type="checkbox" @bind="_settings.IncludeUniFiOs" /> Include the UniFi OS update on the Cloud Gateway</label>
+                        <label class="checkbox-label"><input type="checkbox" @bind="_settings.IncludeUniFiOs" /><span>Include the UniFi OS update on the Cloud Gateway</span></label>
                     }
                 </div>
 
-                <details class="firmware-rollout-expander">
+                <details class="setup-guide">
                     <summary>Per-device-type channels</summary>
-                    <div class="firmware-rollout-expander-body">
+                    <div class="setup-guide-content">
                         @foreach (var (code, label) in TypeChannelRows)
                         {
                             <div class="form-group firmware-rollout-inline">
@@ -192,14 +192,14 @@ else if (_wizardOpen)
                     </div>
                 </details>
 
-                <details class="firmware-rollout-expander">
+                <details class="setup-guide">
                     <summary>Per-model channels</summary>
-                    <div class="firmware-rollout-expander-body">
-                        @foreach (var model in PreviewModels)
+                    <div class="setup-guide-content">
+                        @foreach (var model in SiteModels)
                         {
                             <div class="form-group firmware-rollout-inline">
-                                <label class="form-label">@model</label>
-                                <select class="form-control firmware-rollout-select" value="@SkuChannel(model)" @onchange="e => SetSkuChannel(model, e.Value?.ToString())">
+                                <label class="form-label">@model.Label</label>
+                                <select class="form-control firmware-rollout-select" value="@SkuChannel(model.Code)" @onchange="e => SetSkuChannel(model.Code, e.Value?.ToString())">
                                     <option value="">Same as its type</option>
                                     <option value="@FirmwareChannels.Release">Official (GA)</option>
                                     <option value="@FirmwareChannels.ReleaseCandidate">Release Candidate</option>
@@ -210,32 +210,37 @@ else if (_wizardOpen)
                                 </select>
                             </div>
                         }
-                        @if (PreviewModels.Count == 0)
+                        @if (SiteModels.Count == 0)
                         {
                             <small class="form-help">Models appear here once the device list has loaded.</small>
                         }
                     </div>
                 </details>
 
-                <details class="firmware-rollout-expander">
+                <details class="setup-guide">
                     <summary>Exclude devices @(_exMacs.Count + _exSkus.Count + _exTypes.Count > 0 ? $"({_exMacs.Count + _exSkus.Count + _exTypes.Count} rules)" : "")</summary>
-                    <div class="firmware-rollout-expander-body">
+                    <div class="setup-guide-content">
                         <div class="form-group">
                             <input type="text" class="form-control" placeholder="Search devices..." @bind="_exclusionSearch" @bind:event="oninput" />
                         </div>
                         <div class="firmware-rollout-exclusion-groups">
                             @foreach (var (code, label) in TypeChannelRows)
                             {
-                                <label class="firmware-rollout-check"><input type="checkbox" checked="@_exTypes.Contains(code)" @onchange="e => ToggleSet(_exTypes, code, e)" /> Exclude all @label.ToLowerInvariant()</label>
+                                <label class="checkbox-label"><input type="checkbox" checked="@_exTypes.Contains(code)" @onchange="e => ToggleSet(_exTypes, code, e)" /><span>Exclude all @label.ToLowerInvariant()</span></label>
                             }
                         </div>
                         <div class="firmware-rollout-exclusion-list">
-                            @foreach (var step in FilteredExclusionCandidates)
+                            @foreach (var device in FilteredExclusionCandidates)
                             {
-                                <label class="firmware-rollout-check">
-                                    <input type="checkbox" checked="@_exMacs.Contains(step.Mac)" @onchange="e => ToggleSet(_exMacs, step.Mac, e)" />
-                                    @step.Name <span class="firmware-rollout-muted">@step.Model</span>
-                                    <button type="button" class="btn btn-sm btn-secondary firmware-rollout-sku-btn" @onclick="() => ToggleSku(step.Model)" @onclick:stopPropagation="true">@(_exSkus.Contains(step.Model) ? "Include model" : "Exclude model")</button>
+                                <label class="checkbox-label firmware-rollout-device-row">
+                                    <input type="checkbox" checked="@_exMacs.Contains(device.Mac)" @onchange="e => ToggleSet(_exMacs, device.Mac, e)" />
+                                    <span>@device.Name</span>
+                                    <span class="firmware-rollout-muted">@device.DisplayModel</span>
+                                    @if (device.Upgradable)
+                                    {
+                                        <span class="firmware-rollout-chip chip-active">@(device.TargetVersion ?? "update waiting")</span>
+                                    }
+                                    <button type="button" class="btn btn-sm btn-secondary firmware-rollout-sku-btn" @onclick="() => ToggleSku(device.Model)" @onclick:stopPropagation="true">@(_exSkus.Contains(device.Model) ? "Include model" : "Exclude model")</button>
                                 </label>
                             }
                         </div>
@@ -251,9 +256,9 @@ else if (_wizardOpen)
                 <p class="section-description">Run it now, book a one-time window, or let autopilot keep the site current on its own schedule.</p>
 
                 <div class="form-group firmware-rollout-mode-row">
-                    <label class="firmware-rollout-check"><input type="radio" name="fr-mode" checked="@(_scheduleMode == "now")" @onchange="@(() => _scheduleMode = "now")" /> Start now</label>
-                    <label class="firmware-rollout-check"><input type="radio" name="fr-mode" checked="@(_scheduleMode == "once")" @onchange="@(() => _scheduleMode = "once")" /> Schedule once</label>
-                    <label class="firmware-rollout-check"><input type="radio" name="fr-mode" checked="@(_scheduleMode == "autopilot")" @onchange="@(() => _scheduleMode = "autopilot")" /> Autopilot</label>
+                    <label class="radio-label"><input type="radio" name="fr-mode" checked="@(_scheduleMode == "now")" @onchange="@(() => _scheduleMode = "now")" /><span>Start now</span></label>
+                    <label class="radio-label"><input type="radio" name="fr-mode" checked="@(_scheduleMode == "once")" @onchange="@(() => _scheduleMode = "once")" /><span>Schedule once</span></label>
+                    <label class="radio-label"><input type="radio" name="fr-mode" checked="@(_scheduleMode == "autopilot")" @onchange="@(() => _scheduleMode = "autopilot")" /><span>Autopilot</span></label>
                 </div>
 
                 @if (_scheduleMode == "once")
@@ -284,21 +289,21 @@ else if (_wizardOpen)
                 <div class="form-group">
                     <label class="form-label">Pace</label>
                     <div class="firmware-rollout-mode-row">
-                        <label class="firmware-rollout-check"><input type="radio" name="fr-pace" checked="@(_settings.SpacingProfile == FirmwareSpacingProfile.Conservative)" @onchange="@(() => _settings.SpacingProfile = FirmwareSpacingProfile.Conservative)" /> Conservative</label>
-                        <label class="firmware-rollout-check"><input type="radio" name="fr-pace" checked="@(_settings.SpacingProfile == FirmwareSpacingProfile.Balanced)" @onchange="@(() => _settings.SpacingProfile = FirmwareSpacingProfile.Balanced)" /> Balanced</label>
-                        <label class="firmware-rollout-check"><input type="radio" name="fr-pace" checked="@(_settings.SpacingProfile == FirmwareSpacingProfile.Fast)" @onchange="@(() => _settings.SpacingProfile = FirmwareSpacingProfile.Fast)" /> Fast</label>
+                        <label class="radio-label"><input type="radio" name="fr-pace" checked="@(_settings.SpacingProfile == FirmwareSpacingProfile.Conservative)" @onchange="@(() => _settings.SpacingProfile = FirmwareSpacingProfile.Conservative)" /><span>Conservative</span></label>
+                        <label class="radio-label"><input type="radio" name="fr-pace" checked="@(_settings.SpacingProfile == FirmwareSpacingProfile.Balanced)" @onchange="@(() => _settings.SpacingProfile = FirmwareSpacingProfile.Balanced)" /><span>Balanced</span></label>
+                        <label class="radio-label"><input type="radio" name="fr-pace" checked="@(_settings.SpacingProfile == FirmwareSpacingProfile.Fast)" @onchange="@(() => _settings.SpacingProfile = FirmwareSpacingProfile.Fast)" /><span>Fast</span></label>
                     </div>
                 </div>
 
                 <div class="form-group">
-                    <label class="firmware-rollout-check"><input type="checkbox" @bind="_settings.SuppressStandardAlerts" /> Quiet the standard offline and restart alerts for devices while the rollout has them down</label>
-                    <label class="firmware-rollout-check"><input type="checkbox" @bind="_settings.PerWaveApproval" /> Pause for approval at every wave</label>
+                    <label class="checkbox-label"><input type="checkbox" @bind="_settings.SuppressStandardAlerts" /><span>Quiet the standard offline and restart alerts for devices while the rollout has them down</span></label>
+                    <label class="checkbox-label"><input type="checkbox" @bind="_settings.PerWaveApproval" /><span>Pause for approval at every wave</span></label>
                 </div>
 
-                <details class="firmware-rollout-expander">
+                <details class="setup-guide">
                     <summary>Advanced</summary>
-                    <div class="firmware-rollout-expander-body">
-                        <label class="firmware-rollout-check"><input type="checkbox" @bind="_settings.WaiveBackup" /> Skip the pre-flight console backup</label>
+                    <div class="setup-guide-content">
+                        <label class="checkbox-label"><input type="checkbox" @bind="_settings.WaiveBackup" /><span>Skip the pre-flight console backup</span></label>
                         @if (_scheduleMode == "autopilot")
                         {
                             <div class="form-group firmware-rollout-inline">
@@ -537,7 +542,7 @@ else
                                 {
                                     <tr>
                                         <td>@step.Name</td>
-                                        <td>@step.Model</td>
+                                        <td>@step.DisplayModel</td>
                                         <td class="hide-mobile">@(step.FromVersion ?? "-")</td>
                                         <td>@(step.ToVersion ?? "-")</td>
                                         <td>@(step.DowntimeSeconds is int d ? Duration(d) : "-")</td>
@@ -792,17 +797,22 @@ else
         if (!_exSkus.Add(model)) _exSkus.Remove(model);
     }
 
-    private List<string> PreviewModels =>
-        _preview?.Steps.Select(s => s.Model).Where(m => !string.IsNullOrEmpty(m))
-            .Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(m => m).ToList() ?? [];
+    /// <summary>Every model on the site, keyed by the console's code and labeled by product name.</summary>
+    private List<(string Code, string Label)> SiteModels =>
+        (_preview?.Devices ?? [])
+            .Where(d => !string.IsNullOrEmpty(d.Model))
+            .GroupBy(d => d.Model, StringComparer.OrdinalIgnoreCase)
+            .Select(g => (Code: g.Key, Label: g.First().DisplayModel))
+            .OrderBy(m => m.Label, StringComparer.OrdinalIgnoreCase)
+            .ToList();
 
-    private IEnumerable<RolloutStepView> FilteredExclusionCandidates =>
-        (_preview?.Steps ?? [])
-            .Where(s => string.IsNullOrEmpty(_exclusionSearch)
-                || s.Name.Contains(_exclusionSearch, StringComparison.OrdinalIgnoreCase)
-                || s.Model.Contains(_exclusionSearch, StringComparison.OrdinalIgnoreCase))
-            .OrderBy(s => s.Name, StringComparer.OrdinalIgnoreCase)
-            .Take(200);
+    private IEnumerable<RolloutDeviceView> FilteredExclusionCandidates =>
+        (_preview?.Devices ?? [])
+            .Where(d => string.IsNullOrEmpty(_exclusionSearch)
+                || d.Name.Contains(_exclusionSearch, StringComparison.OrdinalIgnoreCase)
+                || d.DisplayModel.Contains(_exclusionSearch, StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(d => d.Upgradable)
+            .ThenBy(d => d.Name, StringComparer.OrdinalIgnoreCase);
 
     // ---- Schedule ----
 

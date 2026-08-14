@@ -20380,6 +20380,7 @@ body.kiosk-mode .status-indicators {
 
 .firmware-rollout-note {
     color: var(--text-secondary);
+    font-size: 0.9rem;
     margin: 0.5rem 0;
 }
 
@@ -20425,13 +20426,15 @@ body.kiosk-mode .status-indicators {
     padding: 0.75rem 0.85rem;
 }
 
-.firmware-rollout-check {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
+.firmware-rollout-expander-body .checkbox-label,
+.firmware-rollout-expander-body .radio-label,
+.form-group > .checkbox-label,
+.form-group > .radio-label {
     padding: 0.25rem 0;
-    color: var(--text-primary);
-    cursor: pointer;
+}
+
+.firmware-rollout-device-row {
+    width: 100%;
 }
 
 .firmware-rollout-muted {

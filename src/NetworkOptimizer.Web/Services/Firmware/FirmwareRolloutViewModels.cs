@@ -22,13 +22,45 @@ public class RolloutChannelAvailability
         .Any(c => string.Equals(c, FirmwareChannels.Beta, StringComparison.OrdinalIgnoreCase));
 }
 
+/// <summary>
+/// One device on the site, upgradable or not. The wizard configures against this list so a device
+/// can be excluded (or given its own channel) before it ever has an update waiting.
+/// </summary>
+public class RolloutDeviceView
+{
+    public string Mac { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>Model code the console reports (USWED76), used as a key and never shown on its own.</summary>
+    public string Model { get; set; } = string.Empty;
+
+    /// <summary>Product name a person recognizes ("USW Enterprise 24 PoE"), which is what the UI shows.</summary>
+    public string DisplayModel { get; set; } = string.Empty;
+
+    public string DeviceType { get; set; } = string.Empty;
+
+    /// <summary>Firmware the device is running now.</summary>
+    public string? CurrentVersion { get; set; }
+
+    /// <summary>Version the console would install, when one is waiting.</summary>
+    public string? TargetVersion { get; set; }
+
+    /// <summary>Whether an update is waiting for this device right now.</summary>
+    public bool Upgradable { get; set; }
+}
+
 /// <summary>One device's slot in a plan, as the preview, the live view and the report render it.</summary>
 public class RolloutStepView
 {
     public int Id { get; set; }
     public string Mac { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
+
+    /// <summary>Model code the console reports; the key, not the label.</summary>
     public string Model { get; set; } = string.Empty;
+
+    /// <summary>Product name for display, falling back to the code when none is known.</summary>
+    public string DisplayModel { get; set; } = string.Empty;
     public string DeviceType { get; set; } = string.Empty;
     public string Channel { get; set; } = string.Empty;
     public string? FromVersion { get; set; }
@@ -127,6 +159,12 @@ public class RolloutPreviewView
 
     /// <summary>Every step the plan would create, including the excluded ones (dimmed in the UI).</summary>
     public List<RolloutStepView> Steps { get; set; } = [];
+
+    /// <summary>
+    /// Every adopted device on the site, whether or not it has an update waiting, so the wizard can
+    /// configure exclusions and per-model channels ahead of the update that needs them.
+    /// </summary>
+    public List<RolloutDeviceView> Devices { get; set; } = [];
 
     /// <summary>Proposed start window, from the site's own usage history where it has any.</summary>
     public QuietWindowProposal? ProposedWindow { get; set; }
