@@ -20320,13 +20320,9 @@ body.kiosk-mode .status-indicators {
     bottom: 0.75rem;
     z-index: 2;
     display: flex;
-    flex-wrap: wrap;
-    justify-content: flex-end;
-    align-items: center;
-    gap: 0.3rem 0.85rem;
-    /* Two rows: colours on top, badge marks beneath, so it stays a compact block in the
-       corner rather than a long strip across the map. */
-    max-width: 22rem;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.25rem;
     padding: 0.4rem 0.6rem;
     background: var(--bg-secondary);
     border: 1px solid var(--border-color);
@@ -20334,6 +20330,13 @@ body.kiosk-mode .status-indicators {
     font-size: 0.72rem;
     color: var(--text-muted);
     pointer-events: none;
+}
+
+.firmware-rollout-legend-row {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 0.85rem;
 }
 
 .firmware-rollout-legend-item {

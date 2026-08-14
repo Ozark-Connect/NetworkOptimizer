@@ -311,6 +311,10 @@ function renderTimeline() {
     _stageEl?.querySelector('.firmware-rollout-legend')?.remove();
     const legend = document.createElement('div');
     legend.className = 'firmware-rollout-legend';
+    // Two deliberate rows: what the colours mean, then what the marks mean. Wrapping by
+    // width alone lands on three rows at some sizes.
+    const stateRow = document.createElement('div');
+    stateRow.className = 'firmware-rollout-legend-row';
     const legendItems = _mode === 'planned'
         ? [['queued', 'Queued'], ['upgrading', 'Upgrading'], ['done', 'Done'], ['held', 'Held for canary']]
         : [['queued', 'Queued'], ['upgrading', 'Upgrading'], ['done', 'Upgraded'], ['failed', 'Failed'], ['held', 'Held for canary']];
@@ -321,8 +325,12 @@ function renderTimeline() {
         dot.className = 'firmware-rollout-legend-dot';
         dot.style.background = COLORS[state];
         item.append(dot, document.createTextNode(label));
-        legend.appendChild(item);
+        stateRow.appendChild(item);
     }
+    legend.appendChild(stateRow);
+
+    const markRow = document.createElement('div');
+    markRow.className = 'firmware-rollout-legend-row';
     for (const [mark, label] of [['1', 'wave number'], ['C', 'canary'], ['H', 'held'], ['!', 'needs a look']]) {
         const item = document.createElement('span');
         item.className = 'firmware-rollout-legend-item';
@@ -330,8 +338,10 @@ function renderTimeline() {
         badge.className = 'firmware-rollout-legend-badge';
         badge.textContent = mark;
         item.append(badge, document.createTextNode(label));
-        legend.appendChild(item);
+        markRow.appendChild(item);
     }
+    legend.appendChild(markRow);
+
     (_stageEl || el).appendChild(legend);
 
     const track = document.createElement('div');

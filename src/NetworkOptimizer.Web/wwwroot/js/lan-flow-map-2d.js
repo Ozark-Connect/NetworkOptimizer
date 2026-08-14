@@ -876,11 +876,28 @@ class LanFlowMap2D {
     }
 
     /// Links inherit their endpoints' visibility: hiding a node leaves no dangling edge.
+    /// Resolved from the snapshot's node kinds, not the layout tree - a hub or cloud edge
+    /// carries no tree node, so tree refs alone let its link survive the hidden node.
     _isEdgeVisible(e){
-        for(const end of [e.fn, e.tn]){
-            if(end && end.d && !this._isNodeVisible(end)) return false;
+        for(const id of [e.lk?.fromNodeId, e.lk?.toNodeId]){
+            if(!id) continue;
+            const kind=this._nodeKind(id);
+            if(kind===NK.VirtualHub&&this._hideVirtualHubs) return false;
+            if(kind===NK.WiredClient&&this._hideWiredClients) return false;
+            if(kind===NK.WifiClient&&this._hideWifiClients) return false;
+            if(kind===NK.Cloud&&this._hideClouds) return false;
+            const tn=this._treeMap.get(id);
+            if(tn&&!this._isNodeVisible(tn)) return false;
         }
         return true;
+    }
+
+    _nodeKind(id){
+        if(!this._nodeKinds){
+            this._nodeKinds=new Map();
+            for(const n of this._snapshot?.nodes||[])this._nodeKinds.set(n.id,n.kind);
+        }
+        return this._nodeKinds.get(id);
     }
 
     _isNodeVisible(n){
@@ -1111,6 +1128,7 @@ class LanFlowMap2D {
         const byId=new Map();
         for(const n of snap.nodes)byId.set(n.id,new TN(n));
         this._treeMap=byId;
+        this._nodeKinds=null;
 
         const adj=new Map();
         for(const lk of snap.links){
