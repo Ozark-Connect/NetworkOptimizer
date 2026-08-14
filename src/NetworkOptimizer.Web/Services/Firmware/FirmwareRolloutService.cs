@@ -1,6 +1,7 @@
 using System.Text.Json;
 using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models;
+using NetworkOptimizer.UniFi.Models;
 using NetworkOptimizer.Web.Services.Gates;
 using NetworkOptimizer.Web.Services.Identity;
 
@@ -174,6 +175,7 @@ public class FirmwareRolloutService : IFirmwareRolloutService
             HasActivePlan = active != null,
         };
 
+        AddConsoleSteps(preview, settings, console, channels, context);
         AddWarnings(preview, settings);
         await AttachChangelogLinksAsync(preview, cancellationToken);
         return preview;
@@ -401,6 +403,60 @@ public class FirmwareRolloutService : IFirmwareRolloutService
                 obj.Model.ToLowerInvariant(),
                 obj.ToVersion?.ToLowerInvariant());
     }
+
+    /// <summary>
+    /// The console's own updates. They never show up as device steps - a Cloud Gateway reports
+    /// upgradable=false while its UniFi OS build waits, because the update belongs to the console -
+    /// so the preview reads them off /api/system instead. The OS target comes from the build
+    /// offered on the CHOSEN channel, which the console lists whether or not it is on that channel
+    /// today; device targets cannot be resolved that way, hence the note in AddWarnings.
+    /// </summary>
+    private static void AddConsoleSteps(
+        RolloutPreviewView preview,
+        FirmwareRolloutSettings settings,
+        UniFiConsoleSystemInfo? console,
+        RolloutChannelAvailability channels,
+        RolloutPlanningContext context)
+    {
+        if (settings.IncludeUniFiNetwork || channels.CurrentNetworkAppVersion != null)
+        {
+            preview.NetworkApplication = new RolloutConsoleStepPreview
+            {
+                Name = "UniFi Network",
+                CurrentVersion = channels.CurrentNetworkAppVersion,
+                TargetVersion = console?.NetworkApplication?.UpdateAvailable,
+                Channel = settings.EffectiveNetworkAppChannel,
+                UpdateAvailable = !string.IsNullOrEmpty(console?.NetworkApplication?.UpdateAvailable),
+                Included = settings.IncludeUniFiNetwork,
+            };
+        }
+
+        if (!preview.HasCloudGateway) return;
+
+        var channel = settings.EffectiveUniFiOsChannel;
+        var offered = console?.Firmware?.LatestByChannel is { } byChannel
+            && byChannel.TryGetValue(channel, out var release) ? release?.Version : null;
+        var installed = console?.InstalledOsVersion;
+
+        preview.UniFiOs = new RolloutConsoleStepPreview
+        {
+            Name = "UniFi OS",
+            Host = context.Devices.FirstOrDefault(d =>
+                FirmwareTimingEstimator.Classify(d) == FirmwareDeviceClass.CloudGatewayUniFiOs)?.Name,
+            CurrentVersion = installed,
+            TargetVersion = offered,
+            Channel = channel,
+            UpdateAvailable = offered != null && installed != null && !SameVersion(offered, installed),
+            Included = settings.IncludeUniFiOs,
+        };
+    }
+
+    /// <summary>Numeric parts only: the console reports 5.1.28 against a catalog v5.1.28+hash.</summary>
+    private static bool SameVersion(string a, string b) =>
+        string.Equals(
+            NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.Short(a),
+            NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.Short(b),
+            StringComparison.OrdinalIgnoreCase);
 
     private static void AddWarnings(RolloutPreviewView preview, FirmwareRolloutSettings settings)
     {

@@ -20370,6 +20370,11 @@ body.kiosk-mode .status-indicators {
     min-width: 4px;
 }
 
+.firmware-rollout-console-seg {
+    background: var(--primary-hover);
+    opacity: 0.8;
+}
+
 .firmware-rollout-playhead {
     position: absolute;
     top: -3px;

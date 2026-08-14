@@ -122,6 +122,9 @@ public class RolloutPlanner
         doc.IncludesUniFiNetworkUpdate = settings.IncludeUniFiNetwork;
         doc.UniFiNetworkUpdateSeconds = settings.IncludeUniFiNetwork ? UniFiNetworkUpdateSeconds : 0;
         doc.IncludesUniFiOsUpdate = includeOs;
+        doc.UniFiOsUpdateSeconds = includeOs
+            ? FirmwareTimingEstimator.SeedDowntimeSeconds(FirmwareDeviceClass.CloudGatewayUniFiOs)
+            : 0;
         ComputeTimeline(doc, spacing);
         AddNotes(doc, input, candidates);
 
@@ -407,6 +410,8 @@ public class RolloutPlanner
             }
             if (group.RequiresConsoleChange) t += ChannelChangeSeconds;
         }
+        doc.UniFiOsStartOffsetSeconds = doc.UniFiOsUpdateSeconds > 0 ? t : 0;
+        t += doc.UniFiOsUpdateSeconds;
         doc.TotalEstimatedSeconds = t;
     }
 

@@ -226,4 +226,34 @@ public class RolloutPreviewView
 
     /// <summary>Things the wizard should say out loud before the Start button is pressed.</summary>
     public List<string> Warnings { get; set; } = [];
+
+    /// <summary>
+    /// The console's own updates, which never appear as device steps: a Cloud Gateway reports
+    /// upgradable=false while its UniFi OS build waits, because that update belongs to the console.
+    /// </summary>
+    public RolloutConsoleStepPreview? NetworkApplication { get; set; }
+
+    public RolloutConsoleStepPreview? UniFiOs { get; set; }
+}
+
+/// <summary>One console-level update as the preview shows it.</summary>
+public class RolloutConsoleStepPreview
+{
+    /// <summary>What is being updated, in the console's own words ("UniFi OS", "UniFi Network").</summary>
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>Where it runs, for a UniFi OS step: the gateway's name.</summary>
+    public string? Host { get; set; }
+
+    public string? CurrentVersion { get; set; }
+    public string? TargetVersion { get; set; }
+
+    /// <summary>Channel this surface will be on for the rollout.</summary>
+    public string Channel { get; set; } = string.Empty;
+
+    /// <summary>Whether a newer build is waiting on that channel.</summary>
+    public bool UpdateAvailable { get; set; }
+
+    /// <summary>Whether the rollout is set to include it.</summary>
+    public bool Included { get; set; }
 }

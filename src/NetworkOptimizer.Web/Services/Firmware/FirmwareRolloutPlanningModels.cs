@@ -251,6 +251,12 @@ public class RolloutPlanDocument
     /// <summary>Whether the gateway step includes the UniFi OS cycle on a Cloud Gateway.</summary>
     public bool IncludesUniFiOsUpdate { get; set; }
 
+    /// <summary>Estimated console cycle, in seconds; 0 when no UniFi OS step runs.</summary>
+    public int UniFiOsUpdateSeconds { get; set; }
+
+    /// <summary>When the UniFi OS step starts, relative to the rollout's start.</summary>
+    public int UniFiOsStartOffsetSeconds { get; set; }
+
     public int TotalEstimatedSeconds { get; set; }
 
     /// <summary>Human-readable assumptions and fallbacks used (shown in the preview).</summary>

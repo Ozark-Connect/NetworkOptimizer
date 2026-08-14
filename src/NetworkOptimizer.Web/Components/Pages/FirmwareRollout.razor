@@ -392,6 +392,20 @@ else if (_wizardOpen)
                 }
 
                 <div class="firmware-rollout-waves">
+                    @if (_preview.NetworkApplication is { Included: true, UpdateAvailable: true } app)
+                    {
+                        <div class="firmware-rollout-wave">
+                            <span class="firmware-rollout-wave-no">&#9679;</span>
+                            <span class="firmware-rollout-wave-eta">T+0m</span>
+                            <span class="firmware-rollout-wave-devices">
+                                <span class="firmware-rollout-wave-device">
+                                    UniFi Network application
+                                    <span class="firmware-rollout-chip chip-muted firmware-rollout-version-badge">@(FirmwareVersionFormat.ShortOrNull(app.CurrentVersion)) &#8594; @(FirmwareVersionFormat.ShortOrNull(app.TargetVersion))</span>
+                                </span>
+                            </span>
+                        </div>
+                    }
+
                     @foreach (var wave in _preview.Plan.Waves)
                     {
                         <div class="firmware-rollout-wave">
@@ -417,6 +431,19 @@ else if (_wizardOpen)
                                         }
                                     </span>
                                 }
+                            </span>
+                        </div>
+                    }
+                    @if (_preview.UniFiOs is { Included: true, UpdateAvailable: true } os)
+                    {
+                        <div class="firmware-rollout-wave">
+                            <span class="firmware-rollout-wave-no">&#9679;</span>
+                            <span class="firmware-rollout-wave-eta">T+@Duration(_preview.Plan.UniFiOsStartOffsetSeconds)</span>
+                            <span class="firmware-rollout-wave-devices">
+                                <span class="firmware-rollout-wave-device">
+                                    UniFi OS on @(os.Host ?? "the console")
+                                    <span class="firmware-rollout-chip chip-muted firmware-rollout-version-badge">@(FirmwareVersionFormat.ShortOrNull(os.CurrentVersion)) &#8594; @(FirmwareVersionFormat.ShortOrNull(os.TargetVersion))</span>
+                                </span>
                             </span>
                         </div>
                     }

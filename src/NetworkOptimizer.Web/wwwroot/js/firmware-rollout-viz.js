@@ -252,6 +252,25 @@ function renderTimeline() {
 
     const track = document.createElement('div');
     track.className = 'firmware-rollout-track';
+
+    // The console's own updates bracket the device waves: the application first, the OS last.
+    if (_plan.includesUniFiNetworkUpdate && _plan.uniFiNetworkUpdateSeconds > 0) {
+        const seg = document.createElement('div');
+        seg.className = 'firmware-rollout-wave-seg firmware-rollout-console-seg';
+        seg.style.left = '0%';
+        seg.style.width = Math.max(_plan.uniFiNetworkUpdateSeconds / total * 100, 0.75) + '%';
+        seg.dataset.tooltip = 'UniFi Network application update';
+        track.appendChild(seg);
+    }
+    if (_plan.includesUniFiOsUpdate && _plan.uniFiOsUpdateSeconds > 0) {
+        const seg = document.createElement('div');
+        seg.className = 'firmware-rollout-wave-seg firmware-rollout-console-seg';
+        seg.style.left = ((_plan.uniFiOsStartOffsetSeconds || 0) / total * 100) + '%';
+        seg.style.width = Math.max(_plan.uniFiOsUpdateSeconds / total * 100, 0.75) + '%';
+        seg.dataset.tooltip = 'UniFi OS update on the console';
+        track.appendChild(seg);
+    }
+
     for (const wave of _plan.waves || []) {
         const seg = document.createElement('div');
         seg.className = 'firmware-rollout-wave-seg';
