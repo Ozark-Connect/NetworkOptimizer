@@ -166,7 +166,10 @@ else if (_wizardOpen)
                 </div>
 
                 <div class="form-group">
-                    <label class="checkbox-label"><input type="checkbox" @bind="_settings.IncludeUniFiNetwork" /><span>Update the UniFi Network application first</span></label>
+                    @if (_preview?.ConsoleApiAvailable != false)
+                    {
+                        <label class="checkbox-label"><input type="checkbox" @bind="_settings.IncludeUniFiNetwork" /><span>Update the UniFi Network application first</span></label>
+                    }
                     @if (_preview?.HasCloudGateway == true)
                     {
                         <label class="checkbox-label"><input type="checkbox" @bind="_settings.IncludeUniFiOs" /><span>Include the UniFi OS update on the Cloud Gateway</span></label>
@@ -392,10 +395,10 @@ else if (_wizardOpen)
                 }
 
                 <div class="firmware-rollout-waves">
-                    @if (_preview.NetworkApplication is { Included: true, UpdateAvailable: true } app)
+                    @if (_preview.Plan.IncludesUniFiNetworkUpdate && _preview.NetworkApplication is { UpdateAvailable: true } app)
                     {
                         <div class="firmware-rollout-wave">
-                            <span class="firmware-rollout-wave-no">&#9679;</span>
+                            <span class="firmware-rollout-wave-no">0</span>
                             <span class="firmware-rollout-wave-eta">T+0m</span>
                             <span class="firmware-rollout-wave-devices">
                                 <span class="firmware-rollout-wave-device">
@@ -422,11 +425,11 @@ else if (_wizardOpen)
                                             if (changelog != null)
                                             {
                                                 <a class="firmware-rollout-chip chip-muted firmware-rollout-version-badge" href="@changelog" target="_blank" rel="noopener"
-                                                   data-tooltip="Release notes for @FirmwareVersionFormat.ShortOrNull(step.ToVersion)">@FirmwareVersionFormat.ShortOrNull(step.ToVersion)</a>
+                                                   data-tooltip="Release notes for @FirmwareVersionFormat.ShortOrNull(step.ToVersion)">@VersionChange(step.FromVersion, step.ToVersion)</a>
                                             }
                                             else
                                             {
-                                                <span class="firmware-rollout-chip chip-muted firmware-rollout-version-badge">@FirmwareVersionFormat.ShortOrNull(step.ToVersion)</span>
+                                                <span class="firmware-rollout-chip chip-muted firmware-rollout-version-badge">@VersionChange(step.FromVersion, step.ToVersion)</span>
                                             }
                                         }
                                     </span>
@@ -434,10 +437,10 @@ else if (_wizardOpen)
                             </span>
                         </div>
                     }
-                    @if (_preview.UniFiOs is { Included: true, UpdateAvailable: true } os)
+                    @if (_preview.Plan.IncludesUniFiOsUpdate && _preview.UniFiOs is { UpdateAvailable: true } os)
                     {
                         <div class="firmware-rollout-wave">
-                            <span class="firmware-rollout-wave-no">&#9679;</span>
+                            <span class="firmware-rollout-wave-no">@(_preview.Plan.Waves.Count + 1)</span>
                             <span class="firmware-rollout-wave-eta">T+@Duration(_preview.Plan.UniFiOsStartOffsetSeconds)</span>
                             <span class="firmware-rollout-wave-devices">
                                 <span class="firmware-rollout-wave-device">
@@ -1295,6 +1298,15 @@ else
         return target == null
             ? $"An update is waiting. Running {current}."
             : $"Update waiting: {target}. Running {current}.";
+    }
+
+    /// <summary>"5.1.28 -> 5.1.30", or just the target when the current version is unknown.</summary>
+    private static string VersionChange(string? from, string? to)
+    {
+        var target = FirmwareVersionFormat.ShortOrNull(to);
+        var current = FirmwareVersionFormat.ShortOrNull(from);
+        if (target == null) return current ?? "";
+        return current == null || current == target ? target : $"{current} → {target}";
     }
 
     private string? ChangelogFor(string mac) =>

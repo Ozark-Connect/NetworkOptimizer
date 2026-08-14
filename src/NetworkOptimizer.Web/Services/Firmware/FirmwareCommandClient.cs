@@ -199,6 +199,13 @@ public class FirmwareCommandClient : IFirmwareCommandClient
             _logger.LogWarning("Console channels unavailable for site {Site}: /api/system did not answer", _siteSlug);
         }
 
+        if (console != null && console.Firmware == null && console.Apps == null)
+        {
+            _logger.LogInformation(
+                "Console API out of reach on site {Site}: /api/system answered with nothing, which is what an API-key connection returns",
+                _siteSlug);
+        }
+
         _logger.LogInformation(
             "Channels on site {Site}: devices={Device}, network={App} ({AppVersion}), os={Os}",
             _siteSlug,

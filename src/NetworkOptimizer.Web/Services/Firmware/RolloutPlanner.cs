@@ -66,9 +66,11 @@ public class RolloutPlanner
         var canaried = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var deviceWave = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
+        // Not candidates: a Cloud Gateway reports upgradable=false while its UniFi OS build waits,
+        // because that update belongs to the console. Its own device candidacy says nothing here.
         var includeOs = settings.IncludeUniFiOs
             && input.UniFiOsUpdateAvailable
-            && candidates.Any(d => FirmwareTimingEstimator.Classify(d) == FirmwareDeviceClass.CloudGatewayUniFiOs);
+            && input.Devices.Any(d => FirmwareTimingEstimator.Classify(d) == FirmwareDeviceClass.CloudGatewayUniFiOs);
 
         int waveNumber = 0;
         foreach (var group in ordered)

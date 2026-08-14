@@ -212,6 +212,12 @@ public class RolloutPreviewView
     /// </summary>
     public bool HasCloudGateway { get; set; }
 
+    /// <summary>
+    /// Whether the console's own API answered. An API key reaches the UniFi Network application
+    /// but not the console, so a key-authenticated site can upgrade devices and nothing else.
+    /// </summary>
+    public bool ConsoleApiAvailable { get; set; } = true;
+
     /// <summary>Whether UniFi's own nightly device auto-upgrade is on. It races a rollout.</summary>
     public bool ConsoleAutoUpgradeEnabled { get; set; }
 

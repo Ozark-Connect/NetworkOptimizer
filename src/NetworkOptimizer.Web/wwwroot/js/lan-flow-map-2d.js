@@ -291,6 +291,7 @@ class LanFlowMap2D {
         this._hideWiredClients=false;
         this._hideWifiClients=false;
         this._hideHelp=false;
+        this._hideRates=false;
     }
 
     setOverlays(map){
@@ -870,6 +871,14 @@ class LanFlowMap2D {
             for(const opt of sel.options)opt.disabled=win.disabledKeys?.includes(opt.value)??false;
         }
         flowData.renderScrubberTicks(this._scrubberEls.ticks,win.startMs,win.endMs);
+    }
+
+    /// Links inherit their endpoints' visibility: hiding a node leaves no dangling edge.
+    _isEdgeVisible(e){
+        for(const end of [e.fn, e.tn]){
+            if(end && end.d && !this._isNodeVisible(end)) return false;
+        }
+        return true;
     }
 
     _isNodeVisible(n){
@@ -1559,6 +1568,7 @@ class LanFlowMap2D {
             if(!e._sDown)continue;
             // Force idle when an endpoint is offline - _liveRates is merged, not
             // replaced, so the last sample would otherwise stream forever.
+            if(!this._isEdgeVisible(e))continue;
             const off=this._isOffline(e.lk.fromNodeId)||this._isOffline(e.lk.toNodeId);
             const r=off?null:(this._liveRates[e.lk.portKey]||this._liveRates[e.lk.id]);
             e._sDown.setRate(r?.downstreamBps??0);
@@ -1635,8 +1645,10 @@ class LanFlowMap2D {
         }
 
         // Labels on top of everything (including particles)
-        this._drawLinkSpeedLabels(ctx);
-        this._drawRateLabels(ctx);
+        if(!this._hideRates){
+            this._drawLinkSpeedLabels(ctx);
+            this._drawRateLabels(ctx);
+        }
     }
 
     _drawStatic(){
@@ -1675,6 +1687,7 @@ class LanFlowMap2D {
                 const child=e.tn||e.fn;
                 if(child&&!this._isNodeVisible(child))continue;
             }
+            if(!this._isEdgeVisible(e))continue;
             const off=this._isOffline(e.lk.fromNodeId)||this._isOffline(e.lk.toNodeId);
             const r=off?null:(this._liveRates[e.lk.portKey]||this._liveRates[e.lk.id]);
             const dn=r?.downstreamBps??0,up=r?.upstreamBps??0;
@@ -1738,7 +1751,7 @@ class LanFlowMap2D {
 
                 // Suppress the speed/throughput label for a link to an offline device -
                 // a down port has no meaningful negotiated speed or throughput.
-                if(txt&&!off) this._pendingLinkLabels.push({mx,my,txt,txtColor,txtItalic});
+                if(txt&&!off&&!this._hideRates) this._pendingLinkLabels.push({mx,my,txt,txtColor,txtItalic});
             }
         }
         ctx.globalAlpha=1;
@@ -2151,6 +2164,7 @@ export async function mount(containerId,opts){
     if(opts?.hideWiredClients)_inst._hideWiredClients=true;
     if(opts?.hideWifiClients)_inst._hideWifiClients=true;
     if(opts?.hideHelp)_inst._hideHelp=true;
+    if(opts?.hideRates)_inst._hideRates=true;
     await _inst.start();
 }
 
