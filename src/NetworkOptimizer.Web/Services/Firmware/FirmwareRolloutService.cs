@@ -168,6 +168,8 @@ public class FirmwareRolloutService : IFirmwareRolloutService
             // An empty answer means the console API is out of reach (API-key auth), not that the
             // console has nothing to say.
             ConsoleApiAvailable = console?.Firmware != null || console?.Apps != null,
+            HasCloudGatewayHardware = context.Devices.Any(d =>
+                FirmwareTimingEstimator.Classify(d) == FirmwareDeviceClass.CloudGatewayUniFiOs),
             // The step only exists where a Cloud Gateway runs the console: a self-hosted console
             // is out of scope, and a UXG-class gateway has network firmware only.
             HasCloudGateway = console?.IsStandaloneConsole == false && context.Devices.Any(d =>
@@ -489,10 +491,11 @@ public class FirmwareRolloutService : IFirmwareRolloutService
 
         if (!preview.ConsoleApiAvailable)
         {
+            var alsoOs = preview.HasCloudGatewayHardware ? " and UniFi OS" : "";
             preview.Warnings.Add(
                 "This site is connected with a UniFi API key, which reaches the UniFi Network application " +
                 "but not the console itself, so only devices can be upgraded here. Connect with an account " +
-                "to include the UniFi Network application and UniFi OS.");
+                $"to include the UniFi Network application{alsoOs}.");
         }
 
         if (preview.IsStandaloneConsole && settings.IncludeUniFiOs)

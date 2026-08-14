@@ -213,6 +213,12 @@ public class RolloutPreviewView
     public bool HasCloudGateway { get; set; }
 
     /// <summary>
+    /// Whether the site has gateway hardware that runs UniFi OS (UDM, UDR, UDW, UCG). Read from
+    /// the devices alone, so it still answers when the console API is out of reach.
+    /// </summary>
+    public bool HasCloudGatewayHardware { get; set; }
+
+    /// <summary>
     /// Whether the console's own API answered. An API key reaches the UniFi Network application
     /// but not the console, so a key-authenticated site can upgrade devices and nothing else.
     /// </summary>
