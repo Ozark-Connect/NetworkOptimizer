@@ -662,6 +662,14 @@ builder.Services.AddSiteScopedRegistry<MonitoringCollectionRegistry>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<MonitoringCollectionRegistry>());
 builder.Services.AddScoped(sp => sp.GetRequiredService<MonitoringCollectionRegistry>()
     .GetFor(sp.GetRequiredService<SiteContextService>().Slug));
+// Firmware Rollout executors — the per-device upgrade state machine, canary holds, channel
+// group switches and rollout alerts. One instance per site, owned by the registry on the same
+// terms as monitoring collection (default always runs; non-default sites start/stop on site
+// enable/disable), and its reconcile tick also starts plans whose scheduled time has come.
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Firmware.RolloutSuppressionRegistry>();
+builder.Services.AddSiteScopedRegistry<NetworkOptimizer.Web.Services.Firmware.FirmwareRolloutRegistry>();
+builder.Services.AddHostedService(sp =>
+    sp.GetRequiredService<NetworkOptimizer.Web.Services.Firmware.FirmwareRolloutRegistry>());
 // Re-runs upstream tracer discovery every 7 days; flips a review flag on diff.
 builder.Services.AddHostedService<NetworkOptimizer.Web.Services.Monitoring.UpstreamRediscoveryService>();
 // 3D LAN flow map (spec 5.7) - composes topology + live + historic feeds for the JS layer.

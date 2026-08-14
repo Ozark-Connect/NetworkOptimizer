@@ -202,6 +202,18 @@ public static class FirmwareDeviceTypes
         DeviceType.Gateway => "ugw",
         _ => type.ToString().ToLowerInvariant(),
     };
+
+    /// <summary>
+    /// Reads a stored step's type code back. The executor needs the type to pick a device's
+    /// offline budget, and the step row is all it has once the plan is persisted.
+    /// </summary>
+    public static DeviceType Parse(string? code) => code?.ToLowerInvariant() switch
+    {
+        "uap" => DeviceType.AccessPoint,
+        "usw" => DeviceType.Switch,
+        "ugw" => DeviceType.Gateway,
+        _ => Enum.TryParse<DeviceType>(code, ignoreCase: true, out var parsed) ? parsed : DeviceType.Unknown,
+    };
 }
 
 /// <summary>Lowercase-with-colons MAC normalization (the planner-wide key space).</summary>
@@ -237,6 +249,44 @@ public class RolloutPlanDocument
 
     /// <summary>Human-readable assumptions and fallbacks used (shown in the preview).</summary>
     public List<string> Notes { get; set; } = [];
+
+    /// <summary>
+    /// Highest wave a Site Admin has approved, when the plan runs with per-wave approval. Zero
+    /// means nothing is approved yet; the setting is off for most plans and this stays unused.
+    /// </summary>
+    public int ApprovedThroughWave { get; set; }
+
+    /// <summary>
+    /// The wave a paused plan is waiting on. Set alongside the Paused status so a resume knows
+    /// which wave it is releasing, and cleared when it is released.
+    /// </summary>
+    public int? WaitingApprovalWave { get; set; }
+
+    /// <summary>
+    /// Image URLs for the versions devices were on BEFORE the rollout, resolved at plan time. The
+    /// console catalog carries latest-only, so a rollback has nowhere else to read these from once
+    /// the upgrade has happened. Entries with no URL record that the version was unresolvable.
+    /// </summary>
+    public List<PlanPriorVersion> PriorVersions { get; set; } = [];
+}
+
+/// <summary>
+/// One device's pre-rollout image, cached so a rollback can be run without the release feed
+/// having to answer at the moment somebody needs it.
+/// </summary>
+public class PlanPriorVersion
+{
+    /// <summary>Normalized device MAC.</summary>
+    public string Mac { get; set; } = string.Empty;
+
+    /// <summary>Version the device was on before the rollout.</summary>
+    public string? Version { get; set; }
+
+    /// <summary>Direct image URL, or null when the feed carries no such build (RC and EA are not public).</summary>
+    public string? Url { get; set; }
+
+    /// <summary>Why the URL is missing, when it is.</summary>
+    public string? UnavailableReason { get; set; }
 }
 
 public class PlanWave
