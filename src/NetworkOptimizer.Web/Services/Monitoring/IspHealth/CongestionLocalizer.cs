@@ -103,6 +103,14 @@ public static class CongestionLocalizer
             // sustained events cannot regress.
             var loadCoincident = LoadCoincident(window.Start, window.End, topology, options)
                 || LoadCoincidentAtNearestHop(elevatedSeries, window.Start, window.End, topology, options);
+            // What the line was carrying while this happened, for the feed to name. Every event this
+            // cluster produces covers the same window, so they all take the same figure.
+            var medianLoad = MedianLoad(window.Start, window.End, topology);
+            void Emit(CongestionEvent e)
+            {
+                e.MedianLoadUtilization = medianLoad;
+                result.Add(e);
+            }
             var anchoredWithData = anchored.Where(s => HasDataInWindow(s, window.Start, window.End)).ToList();
 
             // Each anchored path's RTT rise over its OWN baseline. Under load every path picks up a
@@ -148,17 +156,17 @@ public static class CongestionLocalizer
                 || rises[^1] <= floorRise * options.CongestionLoadedUniformityFactor;
             if (lineWideUnderLoad && uniform && relElevated.Count > 0)
             {
-                result.Add(BuildSharedIncident(relElevated, eventsBySeries, anchoredWithData, window,
+                Emit(BuildSharedIncident(relElevated, eventsBySeries, anchoredWithData, window,
                     topology, options, loadCoincident, IsElevated));
                 continue;
             }
 
             foreach (var (bnIp, members) in byBottleneck)
-                result.Add(BuildLocalized(bnIp, members, allSeries, eventsBySeries, window,
+                Emit(BuildLocalized(bnIp, members, allSeries, eventsBySeries, window,
                     topology, options, loadCoincident, cleanControlExists, lineWideUnderLoad, uniform, IsElevated, IsClean));
 
             if (unanchored.Count > 0)
-                result.Add(BuildUnlocalized(unanchored, eventsBySeries, window, topology, loadCoincident, options));
+                Emit(BuildUnlocalized(unanchored, eventsBySeries, window, topology, loadCoincident, options));
         }
 
         // An Unverifiable hop (dead-end, nothing monitored beyond it) inherits Confirmed from a
@@ -507,6 +515,13 @@ public static class CongestionLocalizer
             PeakJitterMs = peakJit
         };
     }
+
+    /// <summary>Median WAN utilization over a window; null when no sample there carries one.</summary>
+    private static double? MedianLoad(DateTime start, DateTime end, CongestionTopology topology) =>
+        SeriesStats.Median(topology.Load
+            .Where(l => l.Time >= start && l.Time <= end && l.Utilization.HasValue)
+            .Select(l => l.Utilization!.Value)
+            .ToList());
 
     private static bool LoadCoincident(DateTime start, DateTime end, CongestionTopology topology, IspHealthOptions options)
     {

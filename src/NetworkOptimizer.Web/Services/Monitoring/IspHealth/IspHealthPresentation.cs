@@ -32,6 +32,10 @@ public record TimelineEntry(DateTime Time, string Badge, string BadgeClass, stri
 /// </summary>
 public static class IspHealthPresentation
 {
+    /// <summary>Below this share of the plan the line was effectively idle, and saying so about an
+    /// elevation only invites the reader to blame their own traffic for it.</summary>
+    private const double LoadMentionFloor = 0.10;
+
     /// <summary>
     /// Builds the Path &amp; Congestion Events feed for a report: congestion events with
     /// their disposition-specific wording, then path shifts and route changes, in time order.
@@ -57,7 +61,11 @@ public static class IspHealthPresentation
             // hop's baseline and another's peak describes a rise that nothing measured. The members
             // below carry each hop's own.
             var mag = Magnitude(evt);
-            var load = evt.LoadCoincident ? " under heavy WAN load" : "";
+            // What the line was actually carrying, not just whether it cleared the heavy bar. Load
+            // this side of the bar still shapes what a reader makes of an elevation, and it is only
+            // ever narration: the score keys on LoadCoincident, which this never touches.
+            var load = evt.MedianLoadUtilization is double u && u >= LoadMentionFloor
+                ? $" under {u * 100:0}% WAN load" : "";
             // One shape for every line: "{duration} of elevated latency and jitter on {hop}{load}
             // ({mag}). {one plain sentence}." The badge reads "Congestion" except for the line-wide
             // self-inflicted case, which reads "Loaded Latency"; the disposition otherwise shows

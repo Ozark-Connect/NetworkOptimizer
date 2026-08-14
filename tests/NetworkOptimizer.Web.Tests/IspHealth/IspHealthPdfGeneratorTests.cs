@@ -510,6 +510,36 @@ public class IspHealthPdfGeneratorTests
         entries[0].Members.Should().HaveCount(2);
     }
 
+    [Theory]
+    [InlineData(0.34, "under 34% WAN load")]
+    [InlineData(0.61, "under 61% WAN load")]
+    // At and above the floor it is named; below it the line was idle enough that saying so would
+    // only invite the reader to blame their own traffic.
+    [InlineData(0.10, "under 10% WAN load")]
+    public void EventTimeline_NamesTheLoadTheLineWasCarrying(double utilization, string expected)
+    {
+        var report = MinimalReport();
+        var evt = Congestion(WindowEnd.AddHours(-4), 2, "Access hop", 1.5);
+        evt.MedianLoadUtilization = utilization;
+        report.CongestionEvents.Add(evt);
+
+        IspHealthPresentation.EventTimeline(report).Single().Text.Should().Contain(expected);
+    }
+
+    [Theory]
+    [InlineData(0.09)]
+    [InlineData(0.0)]
+    [InlineData(null)]
+    public void EventTimeline_SaysNothingAboutLoadOnAnIdleLine(double? utilization)
+    {
+        var report = MinimalReport();
+        var evt = Congestion(WindowEnd.AddHours(-4), 2, "Access hop", 1.5);
+        evt.MedianLoadUtilization = utilization;
+        report.CongestionEvents.Add(evt);
+
+        IspHealthPresentation.EventTimeline(report).Single().Text.Should().NotContain("WAN load");
+    }
+
     [Fact]
     public void EventTimeline_NeverGroupsAcrossDispositionsOrSeparateSpans()
     {

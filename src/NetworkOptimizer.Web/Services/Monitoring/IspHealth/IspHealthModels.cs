@@ -339,6 +339,11 @@ public class CongestionEvent
     /// <summary>True when the event overlapped heavy local WAN load (input to the self-inflicted gate).</summary>
     public bool LoadCoincident { get; set; }
 
+    /// <summary>Median WAN utilization across the event's window (worst direction, as a fraction of
+    /// the plan), or null when expected speeds are unknown. Display only - <see cref="LoadCoincident"/>
+    /// is what the score keys on.</summary>
+    public double? MedianLoadUtilization { get; set; }
+
     /// <summary>
     /// How many other monitored paths (different routes/networks, and the access hops ahead of
     /// the bottleneck) stayed clean during this event. A non-zero count under load is the proof
